@@ -63,9 +63,6 @@ describe("useCloseFeatureActivity", () => {
       scopeId: 2,
       tabs: [],
       activeTabId: null,
-      consoleEntries: [],
-      networkEntries: [],
-      knownOrigins: [],
       error: null,
     }));
     setDesktopBridgeOverrideForTests({ isElectron: true, closeBrowserTabsForScope });

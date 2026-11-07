@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactElement } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
@@ -18,7 +18,47 @@ import {
 import { isCompactActionPrompt } from "@/lib/provider-host-capabilities";
 import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
-import type { SessionConfigControls } from "./agent-session/types";
+import type { AgentSessionProps, SessionConfigControls } from "./agent-session/types";
+
+type SessionControls = ReturnType<typeof useSessionControls>;
+const NO_SLASH_COMMANDS: NonNullable<AgentSessionProps["slashCommandsOverride"]> = [];
+
+/**
+ * The latest value, read at call time. `controls.ws` is a snapshot rebuilt on
+ * every stream delta; callbacks that close over it change identity per delta
+ * and re-render the composer with each one.
+ */
+function useLatestRef<T>(value: T): { readonly current: T } {
+  const ref = useRef(value);
+  useLayoutEffect(() => {
+    ref.current = value;
+  });
+  return ref;
+}
+
+/** Composer callbacks that keep their identity across stream deltas. */
+function useStableSessionCallbacks(controls: SessionControls) {
+  const latest = useLatestRef(controls);
+  return useMemo(
+    () => ({
+      onPermissionDecision: (
+        decision: Parameters<NonNullable<AgentSessionProps["onPermissionDecision"]>>[0],
+        feedback?: string,
+        optionId?: string,
+      ): void => {
+        const { ws } = latest.current;
+        ws.respondToPermission(ws.pendingRequestId, decision, feedback, optionId);
+      },
+      onGateClose: (): void => latest.current.ws.closeGate("escape"),
+      onModelChange: (nextProviderId: string, modelId: string): void =>
+        handleModelChange(nextProviderId, modelId, latest.current),
+      onThinkingEffortChange: (effort: string | undefined): void =>
+        setEffort(latest.current, effort),
+      onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
+    }),
+    [latest],
+  );
+}
 
 function useSessionConfigControls(
   controls: ReturnType<typeof useSessionControls>,
@@ -61,6 +101,7 @@ function AgentTabContent({
   const { sessionId, featureId, projectId, data, controls, refs, agentVisible, hotkeysEnabled } =
     args;
   const sessionConfigControls = useSessionConfigControls(controls);
+  const callbacks = useStableSessionCallbacks(controls);
   return (
     <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
       <AgentSession
@@ -82,14 +123,7 @@ function AgentTabContent({
         onStop={controls.ws.interrupt}
         disabled={hasAccessModes && controls.isAccessModePending}
         pendingPermission={controls.ws.pendingPermission}
-        onPermissionDecision={(decision, feedback, optionId) => {
-          controls.ws.respondToPermission(
-            controls.ws.pendingRequestId,
-            decision,
-            feedback,
-            optionId,
-          );
-        }}
+        onPermissionDecision={callbacks.onPermissionDecision}
         isSubmittingPermission={controls.ws.isSubmittingPermission}
         pendingQuestions={
           controls.ws.pendingQuestions.length > 0 ? controls.ws.pendingQuestions : undefined
@@ -112,21 +146,19 @@ function AgentTabContent({
         pendingPlanApproval={controls.ws.pendingPlanApproval}
         onPlanApprove={controls.ws.approvePlan}
         onPlanRequestChanges={controls.ws.requestPlanChanges}
-        onGateClose={() => controls.ws.closeGate("escape")}
+        onGateClose={callbacks.onGateClose}
         contextUsage={controls.ws.contextUsage}
         selection={controls.ws.currentSelection}
         onProviderChange={controls.ws.setProvider}
-        onModelChange={(nextProviderId, modelId) =>
-          handleModelChange(nextProviderId, modelId, controls)
-        }
+        onModelChange={callbacks.onModelChange}
         currentThinkingEffort={controls.ws.currentThinkingEffort}
-        onThinkingEffortChange={(effort) => setEffort(controls, effort)}
+        onThinkingEffortChange={callbacks.onThinkingEffortChange}
         fastMode={controls.ws.fastMode}
-        onFastModeChange={(enabled) => setFastMode(controls, enabled)}
+        onFastModeChange={callbacks.onFastModeChange}
         runtimeProvider={controls.ws.currentSelection?.providerId}
         runtimeSessionId={controls.ws.runtimeSessionId || undefined}
         sessionConfigControls={sessionConfigControls}
-        slashCommandsOverride={data.session?.slashCommands ?? []}
+        slashCommandsOverride={data.session?.slashCommands ?? NO_SLASH_COMMANDS}
         slashCommandsLoading={data.session?.slashCommandsLoading ?? false}
         slashCommandsError={data.session?.slashCommandsError ?? null}
         promptCommandPolicy={data.session?.promptCommandPolicy}
@@ -150,10 +182,7 @@ function AgentTabContent({
   );
 }
 
-function setEffort(
-  controls: ReturnType<typeof useSessionControls>,
-  effort: string | undefined,
-): void {
+function setEffort(controls: SessionControls, effort: string | undefined): void {
   if (controls.supportsConfigInheritance)
     void controls.ws
       .setRuntimeOverrides({ thinking_effort: effort ?? null })
@@ -161,10 +190,7 @@ function setEffort(
   else controls.ws.setThinkingEffort(effort);
 }
 
-function setFastMode(
-  controls: ReturnType<typeof useSessionControls>,
-  enabled: boolean,
-): Promise<void> {
+function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
   if (controls.supportsConfigInheritance) {
     return controls.ws.setRuntimeOverrides({ fast_mode: enabled });
   }
@@ -209,12 +235,16 @@ function useAgentSendHandler(args: {
   attachments?: PromptAttachmentPayload[],
   claudeProfile?: string,
 ) => Promise<void> {
-  const { featureId, projectId, data, controls } = args;
+  const { featureId, projectId } = args;
   const queryClient = useQueryClient();
   const setFeatureSetting = useSetFeatureSetting();
   const checkoutMutateAsync = useCheckoutBranch().mutateAsync;
+  // Read at send time: depending on `controls.ws` would rebuild this handler,
+  // and so the composer's context, on every stream delta.
+  const latest = useLatestRef(args);
   return useCallback(
     async (text, attachments, claudeProfile) => {
+      const { data, controls } = latest.current;
       if (text.trim() === "/clear") {
         controls.ws.clearSession();
         return;
@@ -273,20 +303,7 @@ function useAgentSendHandler(args: {
         throw error;
       }
     },
-    [
-      checkoutMutateAsync,
-      controls.activeProviderId,
-      controls.claudeProfile.selectedClaudeProfile,
-      controls.selectedBranch,
-      controls.worktreeMode,
-      controls.ws,
-      data.defaultBranch,
-      data.session?.blocks?.length,
-      featureId,
-      projectId,
-      queryClient,
-      setFeatureSetting,
-    ],
+    [checkoutMutateAsync, featureId, latest, projectId, queryClient, setFeatureSetting],
   );
 }
 

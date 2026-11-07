@@ -29,6 +29,12 @@ import {
 export { installSessionPresentationEffects } from "./ws-session-presentation";
 export type { SessionPresentationEffects } from "./ws-session-presentation";
 import { createWsSessionConfigActions } from "./ws-session-config-actions";
+import {
+  abandonInFlight,
+  queuedCommandHooks,
+  sendSessionCommand,
+  type SessionCommandSpec,
+} from "./ws-session-commands";
 
 export type { PermissionMode, PendingPlanApproval } from "./ws-session-types";
 export {
@@ -66,7 +72,7 @@ function forceReconnectSession(ctx: StoreAccessors, sessionId: string): void {
   const session = get().sessions[sessionId];
   const resources = transport.get(sessionId);
   if (resources?.conn) {
-    transport.rejectPendingRequests(sessionId);
+    abandonInFlight(ctx, sessionId);
     const conn = resources.conn;
     resources.conn = null;
     conn.close(1000, "force-reconnect");
@@ -226,6 +232,8 @@ function buildWsSessionStore(
     sendRawEnvelope(ctx, sessionId, envelope);
   };
   const ctx: StoreAccessors = { get, set, getSession, transport };
+  const sendCommand = (sessionId: string, envelope: WsEnvelope, spec: SessionCommandSpec) =>
+    sendSessionCommand(ctx, sessionId, envelope, spec);
   const branchDeps: BranchDeps = {
     get,
     set,
@@ -250,7 +258,7 @@ function buildWsSessionStore(
           sourceKey,
           forceReconnectSession: (id) => forceReconnectSession(ctx, id),
           reinitOnReconnect: (id) => reinitOnReconnect(ctx, id),
-          flushOutboundQueue: (id) => transport.flush(id),
+          flushOutboundQueue: (id) => transport.flush(id, queuedCommandHooks(ctx, id)),
         },
         sessionId,
       ),
@@ -265,6 +273,7 @@ function buildWsSessionStore(
     ...createWsSessionSimpleActions({
       ctx,
       sendRaw,
+      sendCommand,
       planRestorePrefix: PLAN_RESTORE_PREFIX,
     }),
   };

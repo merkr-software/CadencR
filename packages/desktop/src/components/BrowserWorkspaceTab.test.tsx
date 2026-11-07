@@ -50,9 +50,6 @@ function bridge(): CadencrBrowserBridge {
     ],
     activeTabId: "tab-1",
     scopeId: 1,
-    consoleEntries: [],
-    networkEntries: [],
-    knownOrigins: [],
     error: null,
   };
   return {
@@ -79,6 +76,11 @@ function bridge(): CadencrBrowserBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     exportRendererDiagnostics: vi.fn(async () => ({ canceled: false })),
     reportRendererError: vi.fn(() => Promise.resolve()),
     notchCapabilities: vi.fn(() => Promise.resolve({ supported: false, hardware: false })),
@@ -442,9 +444,6 @@ describe("BrowserWorkspaceTab", () => {
       Promise.resolve<BrowserStateSnapshot>({
         tabs: [],
         activeTabId: null,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: null,
       }),
     );
@@ -543,31 +542,6 @@ describe("BrowserWorkspaceTab", () => {
         ],
         activeTabId: "tab-1",
         scopeId: 1,
-        knownOrigins: [],
-        consoleEntries: [
-          {
-            id: "console-1",
-            tabId: "tab-1",
-            level: "error",
-            message: "Hydration failed",
-            sourceUrl: "http://localhost:1420/main.tsx",
-            lineNumber: 42,
-            timestamp: "2026-06-09T00:00:00.000Z",
-          },
-        ],
-        networkEntries: [
-          {
-            id: "network-1",
-            tabId: "tab-1",
-            method: "GET",
-            url: "http://localhost:1420/api/items",
-            status: 500,
-            requestHeaders: {},
-            responseHeaders: {},
-            resourceType: "xhr",
-            timestamp: "2026-06-09T00:00:00.000Z",
-          },
-        ],
         error: null,
       }),
     );
@@ -734,9 +708,6 @@ describe("BrowserWorkspaceTab", () => {
       Promise.resolve<BrowserStateSnapshot>({
         tabs: [],
         activeTabId: null,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: null,
       }),
     );
@@ -798,9 +769,6 @@ describe("BrowserWorkspaceTab", () => {
         ],
         activeTabId: "tab-1",
         scopeId: 1,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: "ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:5175/signup'",
       }),
     );

@@ -257,8 +257,6 @@ describe("ipc validators", () => {
 
     registerIpc({
       getMainWindow: () => mainWindow(),
-      confirmClose: vi.fn(),
-      requestQuit: vi.fn(),
     });
 
     ipcHandler("app:renderer-error")(trustedEvent(), {
@@ -274,8 +272,6 @@ describe("ipc validators", () => {
   it("does not expose privileged clipboard reads to renderers", () => {
     registerIpc({
       getMainWindow: () => mainWindow(),
-      confirmClose: vi.fn(),
-      requestQuit: vi.fn(),
     });
 
     const handlerCall = vi.mocked(ipcMain.handle).mock.calls.find(([channel]) => {
@@ -288,8 +284,6 @@ describe("ipc validators", () => {
   it("registers trusted native context-menu suppression for renderer-owned menus", () => {
     registerIpc({
       getMainWindow: () => mainWindow(),
-      confirmClose: vi.fn(),
-      requestQuit: vi.fn(),
     });
 
     const handlerCall = vi.mocked(ipcMain.on).mock.calls.find(([channel]) => {
@@ -323,8 +317,6 @@ describe("ipc validators", () => {
 
     registerIpc({
       getMainWindow: () => win,
-      confirmClose: vi.fn(),
-      requestQuit: vi.fn(),
     });
 
     ipcHandler("app:window-minimize")(trustedEvent());

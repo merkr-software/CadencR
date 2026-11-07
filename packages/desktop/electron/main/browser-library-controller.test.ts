@@ -3,7 +3,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserLibraryController } from "./browser-library-controller";
 import { BrowserLibraryStore } from "./browser-library-store";
-import { BrowserOriginStore } from "./browser-origin-store";
 import { createBrowserProfile, type BrowserProfileMode } from "./browser-profiles";
 import type { ManagedTab } from "./browser-tab-events";
 
@@ -14,15 +13,21 @@ async function fixture(mode: BrowserProfileMode = "persistent") {
   const directory = await fs.mkdtemp(path.join(process.env.TMPDIR ?? "/tmp", "browser-policy-"));
   directories.push(directory);
   const store = new BrowserLibraryStore(path.join(directory, "library.json"));
-  const origins = new BrowserOriginStore(path.join(directory, "origins.json"));
+  const legacyOrigins = path.join(directory, "browser-origins.json");
+  await fs.writeFile(legacyOrigins, JSON.stringify({ origins: [{ origin: "https://a.test" }] }));
   const tab = {
     metadata: { id: "tab-1", scopeId: 7 },
     profile: createBrowserProfile(mode),
     webContents: { getURL: () => pageUrl, getTitle: () => "Initial" },
   } as unknown as ManagedTab;
   const reportError = vi.fn();
-  const controller = new BrowserLibraryController(store, origins, () => tab, reportError);
-  return { controller, store, origins, tab, reportError };
+  const controller = new BrowserLibraryController(
+    store,
+    () => tab,
+    reportError,
+    () => fs.rm(legacyOrigins, { force: true }),
+  );
+  return { controller, store, legacyOrigins, tab, reportError };
 }
 
 afterEach(async () => {
@@ -124,5 +129,13 @@ describe("BrowserLibraryController policy", () => {
       controller.recordNavigation(tab, url, "Page");
     }
     expect(record).not.toHaveBeenCalled();
+  });
+
+  it("removes the legacy origin history along with the history", async () => {
+    const { controller, legacyOrigins } = await fixture();
+
+    await controller.clearHistory();
+
+    await expect(fs.access(legacyOrigins)).rejects.toThrow();
   });
 });

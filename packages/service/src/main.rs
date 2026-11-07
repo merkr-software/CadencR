@@ -32,6 +32,9 @@ async fn main() -> anyhow::Result<()> {
 
     let is_mcp = config.command.is_some();
     init_tracing(is_mcp);
+    // Before anything can spawn a child: the watch also hands fd 0 back to
+    // `/dev/null`, so children never inherit the shell's open pipe.
+    let parent_watch = (!is_mcp && config.exit_with_parent).then(shutdown::watch_parent);
 
     match &config.command {
         Some(Command::McpServe {
@@ -362,7 +365,7 @@ async fn main() -> anyhow::Result<()> {
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
-            .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx));
+            .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx, parent_watch));
             shutdown::serve_then_shutdown(
                 server,
                 drain_rx,

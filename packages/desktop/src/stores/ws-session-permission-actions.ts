@@ -70,6 +70,20 @@ function handlePermissionResponse(
   );
 }
 
+/**
+ * The idempotency key of a gate response: one per request, kept across
+ * retries so a response that did reach the backend is not recorded twice.
+ */
+export function responseMessageUuid(
+  session: SessionEntry,
+  requestId: string,
+): Pick<SessionEntry, "permissionResponseMessageUuids"> & { messageUuid: string } {
+  const permissionResponseMessageUuids = new Map(session.permissionResponseMessageUuids);
+  const messageUuid = permissionResponseMessageUuids.get(requestId) ?? crypto.randomUUID();
+  permissionResponseMessageUuids.set(requestId, messageUuid);
+  return { messageUuid, permissionResponseMessageUuids };
+}
+
 export function createPermissionActions(
   set: WsStoreSet,
   get: WsStoreGet,
@@ -82,9 +96,7 @@ export function createPermissionActions(
   ): void {
     const session = get().sessions[sessionId];
     if (!session || !requestId || session.submittingPermissionRequestId === requestId) return;
-    const permissionResponseMessageUuids = new Map(session.permissionResponseMessageUuids);
-    const messageUuid = permissionResponseMessageUuids.get(requestId) ?? crypto.randomUUID();
-    permissionResponseMessageUuids.set(requestId, messageUuid);
+    const { messageUuid, permissionResponseMessageUuids } = responseMessageUuid(session, requestId);
     const envelope = createPermissionRespond(session.serverSessionId, requestId, decision, {
       ...options,
       messageUuid,

@@ -620,7 +620,8 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(error, AppError::GitCommandError(_)), "{error:?}");
+        // Git's refusal surfaces as an error, never as the project-root fallback.
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
     }
 
     /// The project root sits on a detached `HEAD` while `main` is merged into.

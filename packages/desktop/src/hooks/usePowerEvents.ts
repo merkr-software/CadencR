@@ -5,8 +5,10 @@
  * Mounted once at the app shell next to `useConnectionWatchdog`.
  *
  * On `suspend`: flip `powerStore.suspended = true` (OS-confirmed truth)
- * and fan out `session.suspend` to every WS-active session so the backend
- * can capture each runtime's resume id before the network stalls.
+ * and fan out `session.suspend` to every session the backend status book
+ * reports busy (mid-turn or on a gate) so the backend can capture each
+ * runtime's resume id before the network stalls. Only conversations loaded
+ * in this window have a socket to carry it; the rest are reported.
  *
  * On `resume`: clear the OS flag, force-reconnect every WS (the watchdog
  * already does this via its clock-jump heuristic; doing it here too is
@@ -25,27 +27,28 @@ import { queryClient } from "@/lib/queryClient";
 import { useConnectionStatusStore } from "@/stores/connection-status-store";
 import { usePowerStore } from "@/stores/power-store";
 import { useWsSessionStore } from "@/stores/ws-session-store";
-import type { SessionEntry } from "@/stores/ws-session-types";
-import { isTurnActive } from "@/stores/ws-turn-lifecycle";
+import { busySessionTargets, TURN_IN_PROGRESS } from "@/stores/busy-session-targets";
 import { createSessionResume, createSessionSuspend } from "@/lib/ws-envelope";
 
 const RESUME_TOAST_ID = "power:resume";
-
-function hasOpenGate(entry: SessionEntry): boolean {
-  return (
-    entry.pendingPermission != null ||
-    entry.pendingPermissionQueue.length > 0 ||
-    entry.pendingQuestions.length > 0 ||
-    entry.pendingPlanApproval != null
-  );
-}
-
+const SUSPEND_TOAST_ID = "power:suspend-unreachable";
 function suspendActiveSessions(): void {
   const store = useWsSessionStore.getState();
-  for (const [sessionId, entry] of Object.entries(store.sessions)) {
-    if (!entry.serverSessionId) continue;
-    if (!isTurnActive(entry.lifecycle) && !hasOpenGate(entry)) continue;
-    store.send(sessionId, createSessionSuspend(entry.serverSessionId));
+  const { loaded, unreachable } = busySessionTargets(TURN_IN_PROGRESS);
+  for (const sessionId of loaded) {
+    const entry = store.sessions[sessionId];
+    if (entry) store.send(sessionId, createSessionSuspend(entry.serverSessionId));
+  }
+  if (unreachable > 0) {
+    toast.warning(
+      unreachable === 1
+        ? "1 agent kept running into sleep"
+        : `${unreachable} agents kept running into sleep`,
+      {
+        id: SUSPEND_TOAST_ID,
+        description: "Their conversations aren't open in this window, so they weren't paused.",
+      },
+    );
   }
 }
 

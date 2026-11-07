@@ -8,6 +8,7 @@ import { clearReconnect, unregisterReconnector } from "@/lib/ws-reconnect";
 import { useConnectionStatusStore } from "@/stores/connection-status-store";
 import { discardStreamDeltas } from "./ws-delta-coalescer";
 import type { StoreAccessors } from "./ws-envelope-handler";
+import { WS_REPLY_TIMEOUT_MS } from "./ws-session-transport";
 import type { SessionEntry, WsSessionStore } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
 
@@ -66,10 +67,9 @@ export function createWsSessionTransportActions(deps: TransportActionDeps): Tran
           // timeout flushes a request the caller already gave up on — e.g. a
           // permission response the user was told "timed out" would silently
           // reach the backend on the next onOpen.
-          const queued = transport.outboundQueue.indexOf(envelope);
-          if (queued !== -1) transport.outboundQueue.splice(queued, 1);
+          ctx.transport.unqueue(sessionId, envelope.id);
           resolve(null);
-        }, 10_000);
+        }, WS_REPLY_TIMEOUT_MS);
         transport.pendingWsRequests.set(envelope.id, (payload) => {
           clearTimeout(timer);
           resolve(payload);

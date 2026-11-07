@@ -1,7 +1,7 @@
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { RouterProvider } from "@tanstack/react-router";
 import { router } from "./router";
-import { persister, queryClient } from "./lib/queryClient";
+import { persister, queryClient, revalidateRestoredQueries } from "./lib/queryClient";
 import { shouldDehydrateQuery } from "./lib/persistedQueries";
 import { OnboardingGate } from "./components/onboarding/OnboardingGate";
 import { RemotePairingGate } from "./components/remote/RemotePairingGate";
@@ -22,6 +22,7 @@ export default function App() {
         maxAge: PERSIST_MAX_AGE_MS,
         dehydrateOptions: { shouldDehydrateQuery },
       }}
+      onSuccess={revalidateRestoredQueries}
     >
       <AnimationsProvider>
         <MonoFontProvider>

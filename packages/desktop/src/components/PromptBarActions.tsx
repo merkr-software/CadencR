@@ -18,6 +18,8 @@ interface PromptBarActionsProps {
   inputsDisabled: boolean;
   isRunning: boolean;
   onStop: () => void;
+  /** A Stop was sent and the backend has not answered yet. */
+  stopping?: boolean;
   onSend: () => void;
   canSend: boolean;
   sending: boolean;
@@ -48,6 +50,7 @@ export function PromptBarActions({
   inputsDisabled,
   isRunning,
   onStop,
+  stopping = false,
   onSend,
   canSend,
   sending,
@@ -74,11 +77,17 @@ export function PromptBarActions({
             type="button"
             data-composer-action
             onClick={onStop}
-            aria-label="Stop agent"
-            className="flex h-(--composer-instrument-size) shrink-0 items-center gap-1.5 rounded-md bg-destructive/12 px-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/22"
+            disabled={stopping}
+            aria-busy={stopping}
+            aria-label={stopping ? "Stopping agent" : "Stop agent"}
+            className="flex h-(--composer-instrument-size) shrink-0 items-center gap-1.5 rounded-md bg-destructive/12 px-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/22 disabled:opacity-60"
           >
-            <Square className="size-3.5 fill-current" />
-            <span className="@max-[30rem]:hidden">Stop</span>
+            {stopping ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Square className="size-3.5 fill-current" />
+            )}
+            <span className="@max-[30rem]:hidden">{stopping ? "Stopping…" : "Stop"}</span>
           </button>
         </ShortcutTooltip>
       )}

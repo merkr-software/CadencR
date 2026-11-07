@@ -117,6 +117,32 @@ describe("session status lifecycle sync", () => {
     },
   );
 
+  it("settles a pending Stop once the status book reports the session idle", () => {
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    const realSettle = useWsSessionStore.getState().settleInterrupt;
+    const settleInterrupt = vi.fn();
+    const session = createSessionEntry();
+    session.sessionDbId = 7;
+    session.pendingCommandActions = ["interrupt"];
+    useWsSessionStore.setState({ sessions: { s1: session }, settleInterrupt });
+    try {
+      useSessionStatusStore.getState().connect();
+      const ws = MockWebSocket.instances.at(-1)!;
+      const emit = (status: string, seq: number) =>
+        ws.simulateMessage({
+          domain: "app",
+          action: "session_status.update",
+          payload: { session_id: 7, feature_id: 7, status, seq },
+        });
+      emit("agent", 1);
+      expect(settleInterrupt).not.toHaveBeenCalled();
+      emit("idle", 2);
+      expect(settleInterrupt).toHaveBeenCalledWith("s1");
+    } finally {
+      useWsSessionStore.setState({ settleInterrupt: realSettle });
+    }
+  });
+
   it("does not clear a newer mounted gate when the older app gate closes", () => {
     vi.stubGlobal("WebSocket", MockWebSocket);
     const session = createSessionEntry();

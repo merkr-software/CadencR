@@ -4,7 +4,7 @@
  */
 import { forwardRef, useImperativeHandle, useRef, useState, type ForwardedRef } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@/test-utils";
+import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
 
@@ -13,9 +13,27 @@ const usePromptDraftMock = vi.fn(() => ({
   initialDraft: null as string | null,
   draftFeatureId: null as number | null,
 }));
-vi.mock("@/hooks/usePromptDraft", () => ({
-  usePromptDraft: (...args: unknown[]) => usePromptDraftMock(...(args as [])),
-}));
+// The real hook re-renders its consumer when its draft query resolves; the
+// prompt bar is memoized, so a parent re-render with equal props would not.
+// `publishDraft()` stands in for that resolution.
+const draftUpdates = { version: 0, listeners: new Set<() => void>() };
+function publishDraft(): void {
+  draftUpdates.version += 1;
+  for (const listener of draftUpdates.listeners) listener();
+}
+vi.mock("@/hooks/usePromptDraft", async () => {
+  const { useSyncExternalStore } = await import("react");
+  const subscribe = (listener: () => void): (() => void) => {
+    draftUpdates.listeners.add(listener);
+    return () => draftUpdates.listeners.delete(listener);
+  };
+  return {
+    usePromptDraft: (...args: unknown[]) => {
+      useSyncExternalStore(subscribe, () => draftUpdates.version);
+      return usePromptDraftMock(...(args as []));
+    },
+  };
+});
 
 vi.mock("@/hooks/usePromptHistory", () => ({
   usePromptHistory: vi.fn(() => ({ addEntry: vi.fn(), history: [], resetNavigation: vi.fn() })),
@@ -146,7 +164,7 @@ describe("AgentPromptBar conversation isolation", () => {
       initialDraft: "fresh draft for feature 11",
       draftFeatureId: 11,
     });
-    rerender(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" featureId={11} />);
+    act(() => publishDraft());
     expect(screen.getByRole("textbox")).toHaveValue("fresh draft for feature 11");
   });
 

@@ -234,15 +234,18 @@ export interface BrowserStateSnapshot {
   scopeId?: number | null;
   tabs: BrowserTabMetadata[];
   activeTabId: string | null;
+  error: string | null;
+}
+
+/**
+ * Main-process view for agent automation: the snapshot plus the active tab's
+ * console and network logs. Those change on every log line and request, so
+ * they never ride the renderer's `browser:state` broadcast; automation reads
+ * them on demand.
+ */
+export interface BrowserAutomationState extends BrowserStateSnapshot {
   consoleEntries: BrowserConsoleEntry[];
   networkEntries: BrowserNetworkEntry[];
-  /**
-   * Origins the user has previously navigated to (e.g. `http://localhost:1420`,
-   * `https://example.com`), ranked most-pertinent first. Feeds the address-bar
-   * autocomplete so previously opened sites can be reopened with a few keys.
-   */
-  knownOrigins: string[];
-  error: string | null;
 }
 
 /**

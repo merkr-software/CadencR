@@ -3,6 +3,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import { FeatureDeleteDialog } from "@/components/FeatureDeleteDialog";
 import { AppCloseDialog } from "@/components/AppCloseDialog";
+import { ServiceStatusNotifier } from "@/components/ServiceStatusNotifier";
 import { ImageLightboxHost } from "@/components/ImageLightbox";
 import { MermaidFullscreenHost } from "@/components/MermaidFullscreen";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -86,6 +87,7 @@ export function RootOverlays({
         projectId={activeProjectId}
       />
       <Toaster />
+      <ServiceStatusNotifier />
       <PostUpdateChangelogDialog />
       <ThemeDrawer />
       <ImageLightboxHost />

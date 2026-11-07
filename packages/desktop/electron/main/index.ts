@@ -12,7 +12,6 @@ import { initAutoUpdater, registerAutoUpdaterIpc, shutdownAutoUpdater } from "./
 import {
   createDevSidecarHandle,
   productionDbPath,
-  spawnProductionSidecar,
   waitForDevSidecar,
   type SidecarHandle,
   type SidecarStatusUpdate,
@@ -21,10 +20,16 @@ import { createSplashWindow, type SplashHandle } from "./splash";
 import { installContextMenu } from "./context-menu";
 import { resolveDevProfile, type DevProfile } from "./dev-user-data";
 import { sendToWindow } from "./safe-send";
+import {
+  registerBrowserBridgeWithService,
+  startAgentBrowserBridge,
+} from "./service-browser-bridge";
+import { registerAppLifecycleIpc } from "./app-lifecycle-ipc";
+import { createCloseCoordinator, windowCloseQuits } from "./close-coordinator";
+import { createPackagedService } from "./packaged-service";
+import { RendererHealth } from "./renderer-health";
 import { registerBrowserIpc } from "./browser-ipc";
-import { startBrowserBridgeServer, type BrowserBridgeHandle } from "./browser-bridge-server";
-import { dispatchBrowserMcpTool } from "./browser-mcp-dispatch";
-import { agentActivityFor } from "./browser-agent-activity";
+import type { BrowserBridgeHandle } from "./browser-bridge-server";
 import type { BrowserManager } from "./browser-manager";
 import { handleStartupRecoveryAction } from "./startup-recovery-actions";
 import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
@@ -37,12 +42,15 @@ import { PLUGIN_TAB_PRIVILEGED_SCHEME } from "./plugin-tabs/plugin-tab-ids";
 import { registerPluginTabIpc } from "./plugin-tabs/plugin-tab-ipc";
 import type { PluginTabManager } from "./plugin-tabs/plugin-tab-manager";
 import { windowIconOption } from "./app-icon";
-import { RESUME_AGENTS, type AppCloseChoice } from "../../src/shared/app-close";
+import {
+  RESUME_AGENTS,
+  type AppCloseChoice,
+  type AppCloseRequest,
+} from "../../src/shared/app-close";
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
 let sidecar: SidecarHandle | null = null;
 let allowClose = false;
-let pendingQuit = false;
 /** What the user chose for working agents when they confirmed the quit. */
 let closeChoice: AppCloseChoice = RESUME_AGENTS;
 /** The service was told to keep the agents stopped when it stops. */
@@ -69,69 +77,51 @@ function startupRecoveryDbPath(): string {
 }
 
 async function prepareRuntime(): Promise<void> {
+  const onStatus = (update: SidecarStatusUpdate): void =>
+    splash?.setPhase(update.phase, update.detail);
   if (app.isPackaged) {
-    sidecar = await spawnProductionSidecar({
-      appVersion: app.getVersion(),
-      browserBridge: browserBridge
-        ? { url: browserBridge.url, token: browserBridge.token }
-        : undefined,
-      onStatus: (update: SidecarStatusUpdate) => splash?.setPhase(update.phase, update.detail),
-    });
-  } else {
-    sidecar = createDevSidecarHandle();
-    await waitForDevSidecar(sidecar, (update) => splash?.setPhase(update.phase, update.detail));
+    await adoptSidecar(await packagedService.spawn(onStatus));
+    return;
   }
-  if (!app.isPackaged && browserBridge)
-    await registerBrowserBridgeWithService(sidecar, browserBridge);
-  setRuntimeConfig({ baseUrl: sidecar.baseUrl, authToken: sidecar.authToken });
+  const devSidecar = createDevSidecarHandle();
+  await waitForDevSidecar(devSidecar, onStatus);
+  if (browserBridge) await registerBrowserBridgeWithService(devSidecar, browserBridge);
+  await adoptSidecar(devSidecar);
+}
+
+async function adoptSidecar(handle: SidecarHandle): Promise<void> {
+  sidecar = handle;
+  setRuntimeConfig({ baseUrl: handle.baseUrl, authToken: handle.authToken });
   await refreshBrowserOriginPolicy();
 }
 
-async function registerBrowserBridgeWithService(
-  handle: SidecarHandle,
-  bridge: BrowserBridgeHandle,
-): Promise<void> {
-  if (!handle.authToken) {
-    throw new Error("Cannot register Browser bridge: service auth token is missing.");
-  }
-  const response = await retryBrowserBridgeRegistration(handle, bridge);
-  if (!response.ok) {
-    throw new Error(
-      `Cannot register Browser bridge: service returned ${response.status} ${await response.text()}`,
-    );
-  }
-}
+const packagedService = createPackagedService({
+  appVersion: app.getVersion(),
+  browserBridge: () =>
+    browserBridge ? { url: browserBridge.url, token: browserBridge.token } : undefined,
+  shuttingDown: () => sidecarStopPromise !== null,
+  adopt: adoptSidecar,
+  publish: (status) => sendToWindow(mainWindow, "service:status", status),
+});
+const serviceSupervisor = packagedService.supervisor;
 
-async function retryBrowserBridgeRegistration(
-  handle: SidecarHandle,
-  bridge: BrowserBridgeHandle,
-): Promise<Response> {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    try {
-      return await fetch(`${handle.baseUrl}/api/browser-bridge`, {
-        method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          "x-cadencr-token": handle.authToken ?? "",
-        },
-        body: JSON.stringify({ url: bridge.url, token: bridge.token }),
-      });
-    } catch (error) {
-      lastError = error;
-      if (attempt < 59) await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-  }
-  throw new Error(`Cannot register Browser bridge: ${String(lastError)}`);
-}
+const closeCoordinator = createCloseCoordinator({
+  renderer: {
+    canAnswer: () => rendererHealth.canAnswer(mainWindow),
+    ask: (request) => sendToWindow(mainWindow, "app:close-requested", request),
+  },
+  finish: finishClose,
+  reportUnanswered: (request, reason) =>
+    console.warn(
+      `${request.quitting ? "Quitting" : "Closing the window"} without confirmation: ${reason}.`,
+    ),
+});
 
-function sendCloseRequest(): void {
-  sendToWindow(mainWindow, "app:close-requested", { quitting: true });
-}
+// A crashed or hung renderer cannot confirm a close; a waiting one goes ahead.
+const rendererHealth = new RendererHealth(() => closeCoordinator.rendererLost());
 
 function requestQuit(): void {
-  pendingQuit = true;
-  sendCloseRequest();
+  closeCoordinator.request(true);
 }
 
 function createWindow(): BrowserWindow {
@@ -162,10 +152,9 @@ function createWindow(): BrowserWindow {
   win.on("close", (event) => {
     if (allowClose) return;
     event.preventDefault();
-    pendingQuit = false;
-    // Only macOS keeps the app, and so its agents, running without a window.
-    sendToWindow(win, "app:close-requested", { quitting: process.platform !== "darwin" });
+    closeCoordinator.request(windowCloseQuits(process.platform));
   });
+  rendererHealth.watch(win);
   // The window's own focus, which stays put while a guest view (a custom tab,
   // a browser pane) has it; the renderer's document reports that as a blur.
   win.on("focus", () => sendToWindow(win, "window:focus-changed", true));
@@ -181,7 +170,11 @@ function createWindow(): BrowserWindow {
   win.webContents.on("did-start-navigation", (details) => {
     clearRegisteredFilePaths();
     // A renderer reload drops every placeholder; orphaned guests would paint over the new UI.
-    if (details.isMainFrame && !details.isSameDocument) pluginTabs?.destroyAll();
+    if (details.isMainFrame && !details.isSameDocument) {
+      pluginTabs?.destroyAll();
+      // A reload took any open confirmation with it.
+      closeCoordinator.rendererReset();
+    }
   });
 
   const loadTarget = rendererLoadTarget();
@@ -190,7 +183,7 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function confirmClose(choice: AppCloseChoice): void {
+function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
   allowClose = true;
   closeChoice = choice;
   const closingWindow = mainWindow;
@@ -198,9 +191,9 @@ function confirmClose(choice: AppCloseChoice): void {
   // closing the last window quits on Linux.
   void recordCloseChoice()
     .then(() =>
-      pendingQuit
+      request.quitting
         ? stopSidecarThenQuit()
-        : prepareBrowserWindowClose().then(() => closingWindow?.close()),
+        : prepareBrowserWindowClose().then(() => rendererHealth.closeNow(closingWindow)),
     )
     .catch(handleShutdownFailure);
 }
@@ -214,7 +207,17 @@ async function recordCloseChoice(): Promise<void> {
 
 function wireMainProcess(): void {
   if (!ipcRegistered) {
-    registerIpc({ getMainWindow: () => mainWindow, confirmClose, requestQuit });
+    registerIpc({ getMainWindow: () => mainWindow });
+    registerAppLifecycleIpc({
+      getMainWindow: () => mainWindow,
+      appClose: {
+        confirm: closeCoordinator.confirm,
+        acknowledge: closeCoordinator.acknowledge,
+        cancel: closeCoordinator.cancel,
+        requestQuit,
+      },
+      service: { status: serviceSupervisor.status, restart: serviceSupervisor.restart },
+    });
     ipcRegistered = true;
   }
   notch ??= registerNotchIpc(() => mainWindow);
@@ -257,21 +260,10 @@ async function bootstrap(): Promise<void> {
     console.info(`Loaded env from ${devProfile?.envPath}`);
   }
   installCsp();
-  browserBridge = await startBrowserBridgeServer({
-    dispatch: async (toolName, args, featureId) => {
-      if (!browserManager) throw new Error("Browser manager is not ready.");
-      // Shield the renderer's focus (most visibly the agent prompt) from being
-      // stolen by the guest page while the agent drives the browser.
-      const manager = browserManager;
-      const result = await manager.focusGuard.run(() =>
-        dispatchBrowserMcpTool(manager, toolName, args, featureId),
-      );
-      // Let the renderer follow the agent (auto layout, activity indicator).
-      const activity = agentActivityFor(toolName, featureId);
-      if (activity) sendToWindow(mainWindow, "browser:agent-activity", activity);
-      return result;
-    },
-  });
+  browserBridge = await startAgentBrowserBridge(
+    () => browserManager,
+    () => mainWindow,
+  );
   installApplicationMenu(requestQuit);
   splash = createSplashWindow(app.getVersion());
   splash.setPhase("starting");
@@ -373,7 +365,7 @@ app.on("before-quit", (event) => {
 async function prepareForUpdateInstall(): Promise<void> {
   await prepareBrowserShutdown();
   allowClose = true;
-  pendingQuit = false;
+  closeCoordinator.cancel();
   shutdownPower();
   powerRegistered = false;
   shutdownAutoUpdater();
@@ -405,7 +397,6 @@ async function prepareBrowserWindowClose(): Promise<void> {
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
-  pendingQuit = false;
   closeChoice = RESUME_AGENTS;
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Could not complete shutdown safely: ${message}`);
@@ -432,7 +423,8 @@ async function stopSidecarForExit(): Promise<void> {
     if (!currentSidecar) return;
     sidecar = null;
     allowClose = true;
-    closeAllWindowsForQuit();
+    serviceSupervisor.stopSupervising();
+    closeAllWindowsForQuit((win) => win === mainWindow && !rendererHealth.canAnswer(win));
     // Release any held power-save-blocker and unwire power listeners before
     // the sidecar stop awaits, so quit cleans up the OS-level state even
     // if the sidecar takes a moment to shut down.

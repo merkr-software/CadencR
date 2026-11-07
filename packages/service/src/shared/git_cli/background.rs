@@ -37,6 +37,8 @@ pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<
     if output.status.code() == Some(1) && stderr.trim().is_empty() {
         return Ok(false);
     }
+    // A background probe failing is plumbing, not a refusal the user asked
+    // for: it stays an internal (masked, reported) error.
     Err(AppError::GitCommandError(format!(
         "git {} failed: {}",
         args.join(" "),

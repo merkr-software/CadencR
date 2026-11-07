@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useImperativeHandle,
   useLayoutEffect,
@@ -325,7 +326,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
   },
 );
 
-export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
+const PromptEditorImpl = forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditor(props, ref) {
     // `LexicalComposer` only reads `initialConfig` once on mount, but a fresh
     // object reference here would still re-create the closure (and the
@@ -380,3 +381,6 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
     );
   },
 );
+
+/** Memoized: it sits beside the agent stream, whose every delta re-renders its parents. */
+export const PromptEditor = memo(PromptEditorImpl);

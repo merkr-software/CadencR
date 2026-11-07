@@ -22,6 +22,7 @@ import {
   WS_RECONNECTING_CODE,
 } from "./ws-session-types";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
+import { abandonInFlight } from "./ws-session-commands";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import { handleSocketMessage, type SocketHandlerDeps } from "./ws-session-socket-handler";
 
@@ -87,7 +88,7 @@ function handleConnectionClose(
   // Apply buffered tokens before the connection error so transcript order is stable.
   flushStreamDeltas(ctx, context.sessionId);
   const session = get().sessions[context.sessionId];
-  ctx.transport.rejectPendingRequests(context.sessionId);
+  abandonInFlight(ctx, context.sessionId);
   const transport = ctx.transport.ensure(context.sessionId);
   transport.conn = null;
   const wasRunning = session != null && isTurnActive(session.lifecycle);
@@ -140,7 +141,7 @@ function handleConnectionError(context: SessionConnectionContext, intentional: b
   const { get, set } = ctx;
   flushStreamDeltas(ctx, context.sessionId);
   const session = get().sessions[context.sessionId];
-  ctx.transport.rejectPendingRequests(context.sessionId);
+  abandonInFlight(ctx, context.sessionId);
   const transport = ctx.transport.ensure(context.sessionId);
   transport.conn = null;
   set(

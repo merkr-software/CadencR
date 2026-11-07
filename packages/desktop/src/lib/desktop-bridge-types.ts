@@ -109,6 +109,7 @@ export type UpdateEvent =
 
 export type { RendererErrorReportPayload } from "@/shared/renderer-error";
 import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
+import type { ServiceStatus } from "@/shared/service-status";
 
 export interface CadencrDesktopBridge {
   isElectron: boolean;
@@ -134,7 +135,15 @@ export interface CadencrDesktopBridge {
   onNotificationFallback: (cb: (payload: NotificationFallbackPayload) => void) => () => void;
   onCloseRequested: (cb: (request: AppCloseRequest) => void) => () => void;
   confirmClose: (choice?: AppCloseChoice) => Promise<void>;
+  /** The close request arrived and the confirmation is on screen. */
+  acknowledgeCloseRequest: () => Promise<void>;
+  /** The user kept the app open: main forgets the close it was waiting on. */
+  cancelClose: () => Promise<void>;
   requestQuit: () => Promise<void>;
+  /** The packaged service as main supervises it (always running off the shell). */
+  serviceStatus: () => Promise<ServiceStatus>;
+  restartService: () => Promise<void>;
+  onServiceStatus: (cb: (status: ServiceStatus) => void) => () => void;
   windowMinimize?: () => Promise<void>;
   windowToggleMaximize?: () => Promise<void>;
   windowClose?: () => Promise<void>;

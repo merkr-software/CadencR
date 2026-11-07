@@ -96,7 +96,6 @@ describe("document authorization events", () => {
       setLastError: noop,
       isTabAlive: () => true,
       tabDestroyed: noop,
-      recordOrigin: noop,
       recordHistoryNavigation: noop,
       updateHistoryTitle: noop,
       forgetHistory: noop,

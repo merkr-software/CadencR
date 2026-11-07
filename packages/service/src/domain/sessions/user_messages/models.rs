@@ -56,7 +56,7 @@ impl From<sqlx::Error> for PersistUserMessageError {
 impl From<PersistUserMessageError> for AppError {
     fn from(error: PersistUserMessageError) -> Self {
         match error {
-            PersistUserMessageError::Database(error) => AppError::DatabaseError(error.to_string()),
+            PersistUserMessageError::Database(error) => AppError::from(error),
             PersistUserMessageError::MissingSessionId => {
                 AppError::Internal("cannot persist user message without a session id".to_string())
             }

@@ -20,12 +20,8 @@ import {
 } from "@/lib/ws-envelope";
 import { DEFAULT_PROMPT_COMMAND_POLICY } from "@/lib/prompt-command-policy";
 import type { AccessMode } from "@/types/access-mode";
-import {
-  applyApprovePlan,
-  applyPersistedState,
-  applyPlanChangesRequest,
-  loadOlderSessionMessages,
-} from "./ws-session-actions";
+import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
+import { submitPlanDecision } from "./ws-session-plan-actions";
 import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
@@ -38,10 +34,12 @@ import type {
   WsSessionStore,
 } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
+import { SESSION_COMMANDS, settleInterrupt, type SessionCommandSpec } from "./ws-session-commands";
 
 type SimpleSessionActions = Pick<
   WsSessionStore,
   | "interrupt"
+  | "settleInterrupt"
   | "clearSession"
   | "compactSession"
   | "setProvider"
@@ -67,6 +65,8 @@ type SimpleSessionActions = Pick<
 interface SimpleSessionActionDeps {
   ctx: StoreAccessors;
   sendRaw: (sessionId: string, envelope: WsEnvelope) => void;
+  /** Tracked request/acknowledgement path; see `ws-session-commands`. */
+  sendCommand: (sessionId: string, envelope: WsEnvelope, spec: SessionCommandSpec) => boolean;
   planRestorePrefix: string;
 }
 
@@ -79,17 +79,22 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
 }
 
 function createLifecycleActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw } = deps;
+  const { ctx, sendRaw, sendCommand } = deps;
   const { get, set, getSession } = ctx;
   return {
     interrupt(sessionId: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createInterrupt(session.serverSessionId));
+      if (session.pendingCommandActions.includes("interrupt")) return;
+      sendCommand(sessionId, createInterrupt(session.serverSessionId), SESSION_COMMANDS.interrupt);
+    },
+
+    settleInterrupt(sessionId: string) {
+      settleInterrupt(ctx, sessionId);
     },
 
     clearSession(sessionId: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createSessionClear(session.serverSessionId));
+      sendCommand(sessionId, createSessionClear(session.serverSessionId), SESSION_COMMANDS.clear);
     },
 
     compactSession(sessionId: string) {
@@ -106,22 +111,34 @@ function createLifecycleActions(deps: SimpleSessionActionDeps) {
 }
 
 function createConfigurationActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw } = deps;
+  const { ctx, sendCommand } = deps;
   const { get, set, getSession } = ctx;
   return {
     setProvider(sessionId: string, providerId: string, modelId?: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createProviderSet(session.serverSessionId, providerId, modelId));
+      sendCommand(
+        sessionId,
+        createProviderSet(session.serverSessionId, providerId, modelId),
+        SESSION_COMMANDS.provider,
+      );
     },
 
     setModel(sessionId: string, modelId: string, providerId: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createModelSet(session.serverSessionId, modelId, providerId));
+      sendCommand(
+        sessionId,
+        createModelSet(session.serverSessionId, modelId, providerId),
+        SESSION_COMMANDS.model,
+      );
     },
 
     setThinkingEffort(sessionId: string, thinkingEffort?: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createEffortSet(session.serverSessionId, thinkingEffort));
+      sendCommand(
+        sessionId,
+        createEffortSet(session.serverSessionId, thinkingEffort),
+        SESSION_COMMANDS.effort,
+      );
       // No optimistic update: `currentThinkingEffort` is set only once the
       // backend confirms via `effortSetOk` (see ws-envelope-handler.ts).
     },
@@ -145,7 +162,11 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
     setProfile(sessionId: string, profile: string) {
       const session = getSession(sessionId);
       if (!session.serverSessionId) return;
-      sendRaw(sessionId, createProfileSet(session.serverSessionId, profile));
+      sendCommand(
+        sessionId,
+        createProfileSet(session.serverSessionId, profile),
+        SESSION_COMMANDS.profile,
+      );
     },
     async setRuntimeOverrides(sessionId: string, patch: RuntimeConfigOverridePatch) {
       const session = getSession(sessionId);
@@ -173,7 +194,7 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
         // the only signal that the live CLI actually accepted the new
         // mode (vs. e.g. MODE_NOT_SUPPORTED rejection). No optimistic
         // local write here (see no-optimistic-updates.md).
-        sendRaw(sessionId, createModeSet(session.serverSessionId, mode));
+        sendCommand(sessionId, createModeSet(session.serverSessionId, mode), SESSION_COMMANDS.mode);
         return;
       }
       // Pre-init: there's no CLI to be out of sync with. Hold the
@@ -185,7 +206,11 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
     setAccessMode(sessionId: string, mode: AccessMode) {
       const session = getSession(sessionId);
       if (session.serverSessionId) {
-        sendRaw(sessionId, createAccessModeSet(session.serverSessionId, mode));
+        sendCommand(
+          sessionId,
+          createAccessModeSet(session.serverSessionId, mode),
+          SESSION_COMMANDS.accessMode,
+        );
         return;
       }
       set(updateSession(get(), sessionId, { accessMode: mode, pendingInitAccessMode: mode }));
@@ -194,15 +219,15 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
 }
 
 function createWorkflowActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw, planRestorePrefix } = deps;
+  const { ctx, sendRaw, sendCommand, planRestorePrefix } = deps;
   const { get, set, getSession } = ctx;
   return {
     approvePlan(sessionId: string) {
-      applyApprovePlan(ctx, sessionId, sendRaw, planRestorePrefix);
+      submitPlanDecision(ctx, sessionId, "approved", "", planRestorePrefix);
     },
 
     requestPlanChanges(sessionId: string, feedback: string) {
-      applyPlanChangesRequest(ctx, sessionId, feedback, sendRaw, planRestorePrefix);
+      submitPlanDecision(ctx, sessionId, "rejected", feedback, planRestorePrefix);
     },
 
     closeGate(sessionId: string, reason: GateCloseReason) {
@@ -213,7 +238,11 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         session.pendingPermission?.requestId ||
         session.pendingPermissionQueue[0]?.requestId ||
         null;
-      sendRaw(sessionId, createGateClose(session.serverSessionId, requestId, reason));
+      sendCommand(
+        sessionId,
+        createGateClose(session.serverSessionId, requestId, reason),
+        SESSION_COMMANDS.gateClose,
+      );
     },
 
     retryWorktreeSetup(sessionId: string) {

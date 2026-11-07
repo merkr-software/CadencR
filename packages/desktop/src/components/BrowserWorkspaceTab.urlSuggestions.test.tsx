@@ -43,9 +43,6 @@ const SNAPSHOT: BrowserStateSnapshot = {
   ],
   activeTabId: "tab-1",
   scopeId: 1,
-  consoleEntries: [],
-  networkEntries: [],
-  knownOrigins: ["https://www.google.com", "http://localhost:5173"],
   error: null,
 };
 
@@ -72,6 +69,11 @@ function bridge(): CadencrBrowserBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     exportRendererDiagnostics: vi.fn(async () => ({ canceled: false })),
     reportRendererError: vi.fn(() => Promise.resolve()),
     notchCapabilities: vi.fn(() => Promise.resolve({ supported: false, hardware: false })),
@@ -220,7 +222,7 @@ describe("BrowserWorkspaceTab URL suggestions", () => {
 
     await userEvent.clear(input);
     await userEvent.type(input, "loc");
-    act(() => onBrowserState?.({ ...SNAPSHOT, knownOrigins: [] }));
+    act(() => onBrowserState?.({ ...SNAPSHOT }));
 
     expect(input).toHaveValue("loc");
   });

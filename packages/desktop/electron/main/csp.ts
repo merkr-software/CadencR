@@ -1,3 +1,5 @@
+import { SIDECAR_BASE_URL } from "./sidecar-port";
+
 export interface RendererCspDevelopmentEndpoints {
   apiUrl: string;
   rendererUrl: string;
@@ -15,7 +17,6 @@ interface ResolvedRendererCspDevelopment extends RendererCspDevelopmentEndpoints
 
 const DEFAULT_DEVELOPMENT_API_URL = "http://127.0.0.1:5005";
 const DEFAULT_DEVELOPMENT_FRONTEND_PORT = 1420;
-const SIDECAR_URL = "http://127.0.0.1:5004";
 
 export function resolveRendererCspDevelopment(
   environment: RendererCspDevelopmentEnvironment,
@@ -49,7 +50,7 @@ export function rendererCsp(
   const scriptSrc = isPackaged
     ? "script-src 'self' 'wasm-unsafe-eval'"
     : "script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval'";
-  const connectUrls = connectSources(SIDECAR_URL);
+  const connectUrls = connectSources(SIDECAR_BASE_URL);
   if (!isPackaged) {
     connectUrls.push(
       ...connectSources(developmentEndpoints.apiUrl),

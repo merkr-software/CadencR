@@ -212,6 +212,7 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     isTurnActive,
     streamLifecycle,
     workingLabel,
+    workingClock,
     badge,
     IconComponent,
     displayLabel,
@@ -255,6 +256,7 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     isTurnActive,
     streamLifecycle,
     workingLabel,
+    workingClock,
     verbosityMode,
     summaryMode,
     messageNavigator,
@@ -292,6 +294,7 @@ export const AgentSession = memo(
         turnActive={s.isTurnActive}
         lifecycle={s.streamLifecycle}
         workingLabel={s.workingLabel}
+        workingClock={s.workingClock}
         projectPath={s.projectPath}
         scrollContainerRef={s.scroll.scrollContainerRef}
         virtuosoRef={s.scroll.virtuosoRef}

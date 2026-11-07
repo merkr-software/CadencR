@@ -10,7 +10,6 @@ import { BrowserAutomationAuthority } from "./browser-automation-authority";
 import { inspectTabElement, toggleTabDevTools } from "./browser-devtools";
 import { BrowserInspectionController } from "./browser-inspection-controller";
 import { BrowserNetworkCollector } from "./browser-network-collector";
-import { BrowserOriginStore } from "./browser-origin-store";
 import { BrowserOpenController } from "./browser-open-controller";
 import { BrowserPageController } from "./browser-page-controller";
 import { BrowserPopupController } from "./browser-popup-controller";
@@ -32,6 +31,7 @@ import { profileFromSelection, pushBounded } from "./browser-manager-utils";
 import { sendToWindow } from "./safe-send";
 import { MAX_NETWORK_PER_TAB } from "./browser-manager-tabs";
 import type {
+  BrowserAutomationState,
   BrowserBounds,
   BrowserOpenUrlOptions,
   BrowserResponsiveRequest,
@@ -77,12 +77,10 @@ export class BrowserManager {
       invalidateFind: (tab) => this.page.invalidateFind(tab),
     },
   );
-  private readonly origins = new BrowserOriginStore();
   readonly library = new BrowserLibraryController(
     new BrowserLibraryStore(undefined, undefined, (change) =>
       sendToWindow(this.getMainWindow(), "browser:library-changed", change),
     ),
-    this.origins,
     (tabId) => this.requireTab(tabId),
     (message, scopeId) => {
       this.lastError = message;
@@ -93,8 +91,8 @@ export class BrowserManager {
     (webContentsId, entry) => {
       const tab = [...this.tabs.values()].find((t) => t.webContents.id === webContentsId);
       if (!tab) return;
+      // Read on demand by automation; the renderer's snapshot never carries it.
       pushBounded(tab.networkEntries, { ...entry, tabId: tab.metadata.id }, MAX_NETWORK_PER_TAB);
-      this.stateAuthority.emit(tab.metadata.scopeId);
     },
     (id) =>
       [...this.tabs.values()].find((tab) => tab.webContents.id === id)?.automationAccess !== "user",
@@ -106,7 +104,9 @@ export class BrowserManager {
     },
   });
   readonly site = new BrowserSiteApi(this.siteController, (tabId) => this.requireTab(tabId));
-  readonly automation = new BrowserAutomationAuthority(this.tabs, (scopeId) => this.state(scopeId));
+  readonly automation = new BrowserAutomationAuthority(this.tabs, (scopeId) =>
+    this.automationState(scopeId),
+  );
   readonly inspection = new BrowserInspectionController(
     (tabId) => this.requireTab(tabId),
     (tab) => this.responsive.inputScaleGuard(tab),
@@ -132,7 +132,6 @@ export class BrowserManager {
     this.stateAuthority = new BrowserManagerState(
       this.tabs,
       this.scopes,
-      this.origins,
       this.workspace,
       () => this.lastError,
       () => this.getMainWindow(),
@@ -167,7 +166,6 @@ export class BrowserManager {
       focusGuard: this.focusGuard,
       downloads: this.downloads,
       site: this.siteController,
-      origins: this.origins,
       library: this.library,
       page: this.page,
       popup: this.popup,
@@ -385,6 +383,10 @@ export class BrowserManager {
 
   readonly state = (scopeId?: number | null): BrowserStateSnapshot =>
     this.stateAuthority.snapshot(scopeId);
+
+  /** Unfiltered: automation goes through `automation.state`, which applies its policy. */
+  readonly automationState = (scopeId?: number | null): BrowserAutomationState =>
+    this.stateAuthority.automationSnapshot(scopeId);
 
   private persistScope(scopeId: number | null): void {
     if (scopeId === null) return;

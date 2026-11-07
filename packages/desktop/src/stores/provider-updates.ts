@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { RESET_TOAST_STAGE } from "@/lib/staged-toast";
 import { z } from "zod";
 import {
   getGetProviderUpdatesQueryKey,
@@ -67,20 +68,6 @@ let eventSchema: ReturnType<typeof buildEventSchema> | null = null;
 function toastId(providerId: string): string {
   return `provider-update-${providerId}`;
 }
-
-/**
- * One toast id carries a provider from "available" through "updating" to the
- * outcome, and sonner merges each call's options into the toast already shown
- * under that id. Every later stage spreads this first, so the "Update" and
- * "Details" buttons and the 15s lifetime of the announcement never leak onto
- * the progress or result toasts.
- */
-const RESET_STAGE = {
-  description: undefined,
-  action: undefined,
-  cancel: undefined,
-  duration: undefined,
-};
 
 /**
  * Last version announced per provider, so a version toasts exactly once. A
@@ -170,14 +157,14 @@ export async function startProviderUpdate(
   version?: string,
 ): Promise<void> {
   const id = toastId(status.provider_id);
-  toast.loading(`Updating ${status.label}…`, { ...RESET_STAGE, id });
+  toast.loading(`Updating ${status.label}…`, { ...RESET_TOAST_STAGE, id });
   openUpdateToasts.add(status.provider_id);
   try {
     await updateProvider(status.provider_id, version ? { version } : {});
   } catch (error) {
     openUpdateToasts.delete(status.provider_id);
     toast.error(`Could not update ${status.label}`, {
-      ...RESET_STAGE,
+      ...RESET_TOAST_STAGE,
       id,
       description: apiErrorMessage(error, "The update request failed"),
     });
@@ -188,7 +175,7 @@ function showOutcomeToast(outcome: ProviderUpdateOutcome): void {
   const id = toastId(outcome.provider_id);
   if (!outcome.success) {
     toast.error(`${outcome.label} update failed`, {
-      ...RESET_STAGE,
+      ...RESET_TOAST_STAGE,
       id,
       description: outcome.message ?? "The provider's updater reported an error.",
       duration: 20_000,
@@ -199,7 +186,7 @@ function showOutcomeToast(outcome: ProviderUpdateOutcome): void {
   const { previous_version: previous, current_version: current } = outcome;
   const changed = previous && current && previous !== current;
   toast.success(`${outcome.label} updated`, {
-    ...RESET_STAGE,
+    ...RESET_TOAST_STAGE,
     id,
     description: changed
       ? `${previous} → ${current}. New sessions use it; running ones keep their version.`

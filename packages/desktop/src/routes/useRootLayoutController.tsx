@@ -36,7 +36,7 @@ import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { listenForPushNavigation } from "@/lib/remote/push-register";
 import { isInCodeMirrorEditor, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 import { toastError } from "@/lib/api-errors";
-import { isTurnActive } from "@/stores/ws-turn-lifecycle";
+import { busySessionTargets, MID_TURN } from "@/stores/busy-session-targets";
 import { isMeaningfulScreenPath, useLastScreenStore } from "@/stores/last-screen-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
@@ -197,14 +197,20 @@ function useRootShortcuts(
     useShortcutsHelpStore.getState().toggle();
   });
   useShortcut("stop-all-agents", (event) => {
+    const { loaded, unreachable } = busySessionTargets(MID_TURN);
+    if (loaded.length === 0 && unreachable === 0) return;
+    event.preventDefault();
     const store = useWsSessionStore.getState();
-    let stopped = false;
-    for (const [sessionId, session] of Object.entries(store.sessions)) {
-      if (!isTurnActive(session.lifecycle)) continue;
-      store.interrupt(sessionId);
-      stopped = true;
+    for (const sessionId of loaded) store.interrupt(sessionId);
+    if (unreachable > 0) {
+      toast.warning(
+        unreachable === 1 ? "1 agent is still running" : `${unreachable} agents are still running`,
+        {
+          id: "stop-all-agents-unreachable",
+          description: "Their conversations aren't open in this window. Open them to stop them.",
+        },
+      );
     }
-    if (stopped) event.preventDefault();
   });
   useShortcut("command-palette", (event) => {
     if (isInCodeMirrorEditor(event.target) || isInTerminalFocusZone(event.target)) return;

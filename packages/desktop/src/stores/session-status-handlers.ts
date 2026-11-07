@@ -124,7 +124,7 @@ const editorInvalidationCoalescer = createLeadingSettleCoalescer(
   EDITOR_INVALIDATION_SETTLE_MS,
 );
 
-function scheduleEditorInvalidation(): void {
+export function scheduleEditorInvalidation(): void {
   editorInvalidationCoalescer.trigger();
 }
 

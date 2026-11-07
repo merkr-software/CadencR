@@ -1,121 +1,12 @@
-import { createPermissionRespond, createPromptSend, type WsEnvelope } from "@/lib/ws-envelope";
 import { getFeatureAgentState } from "@/api/generated";
 import { AGENT_STATE_OLDER_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import type { DisplayRowMode } from "@/types/agent-stream";
-import { blocksPatchWithDerived } from "./ws-message-processing";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { markLastPlanBlock, type PersistedStatePayload, updateSession } from "./ws-session-types";
-import { transitionTurn } from "./ws-turn-lifecycle";
+import { type PersistedStatePayload, updateSession } from "./ws-session-types";
 import { prependHistoryBlocks } from "./ws-session-prepend";
 
 export type { PersistedStatePayload };
-
-export function applyApprovePlan(
-  ctx: StoreAccessors,
-  sessionId: string,
-  sendRaw: (sessionId: string, envelope: WsEnvelope) => void,
-  planRestorePrefix: string,
-): void {
-  const session = ctx.getSession(sessionId);
-  const markedBlocks = markLastPlanBlock(session.blocks, "approved");
-  const blocksPatch = blocksPatchWithDerived(session.streamingState, markedBlocks);
-  const messageUuid = crypto.randomUUID();
-
-  // The post-plan-approval mode change is owned by the backend bridge: it
-  // calls `Query::set_permission_mode` on the live CLI atomically with
-  // returning `Allow`, then broadcasts `mode.changed`. Any local write
-  // here would race the CLI and let the chip lie about CLI state, so the
-  // chip waits for that envelope instead (see no-optimistic-updates.md).
-
-  if (session.pendingRequestId) {
-    const isRestored = session.pendingRequestId.startsWith(planRestorePrefix);
-    sendRaw(
-      sessionId,
-      createPermissionRespond(session.serverSessionId, session.pendingRequestId, "allow_once", {
-        messageUuid,
-      }),
-    );
-    if (isRestored) {
-      sendRaw(
-        sessionId,
-        createPromptSend(session.serverSessionId, "Plan approved. Proceed with execution."),
-      );
-    }
-    ctx.set(
-      updateSession(ctx.get(), sessionId, {
-        pendingRequestId: "",
-        pendingPlanApproval: null,
-        ...blocksPatch,
-        lifecycle: transitionTurn(session.lifecycle, { type: "plan_approved" }),
-      }),
-    );
-    return;
-  }
-
-  sendRaw(
-    sessionId,
-    createPromptSend(
-      session.serverSessionId,
-      "Plan approved. Exit plan mode and proceed with execution.",
-    ),
-  );
-  ctx.set(
-    updateSession(ctx.get(), sessionId, {
-      pendingPlanApproval: null,
-      ...blocksPatch,
-      lifecycle: transitionTurn(session.lifecycle, { type: "plan_approved" }),
-    }),
-  );
-}
-
-export function applyPlanChangesRequest(
-  ctx: StoreAccessors,
-  sessionId: string,
-  feedback: string,
-  sendRaw: (sessionId: string, envelope: WsEnvelope) => void,
-  planRestorePrefix: string,
-): void {
-  const session = ctx.getSession(sessionId);
-  const blocksWithStatus = markLastPlanBlock(session.blocks, "rejected");
-  const blocksPatch = blocksPatchWithDerived(session.streamingState, blocksWithStatus);
-  const messageUuid = crypto.randomUUID();
-
-  if (session.pendingRequestId) {
-    const isRestored = session.pendingRequestId.startsWith(planRestorePrefix);
-    sendRaw(
-      sessionId,
-      createPermissionRespond(session.serverSessionId, session.pendingRequestId, "deny", {
-        feedback,
-        messageUuid,
-      }),
-    );
-    if (isRestored) {
-      sendRaw(
-        sessionId,
-        createPromptSend(session.serverSessionId, feedback || "Plan rejected. Revise the plan."),
-      );
-    }
-    ctx.set(
-      updateSession(ctx.get(), sessionId, {
-        pendingRequestId: "",
-        pendingPlanApproval: null,
-        ...blocksPatch,
-        lifecycle: transitionTurn(session.lifecycle, { type: "plan_changes_requested" }),
-      }),
-    );
-    return;
-  }
-
-  sendRaw(sessionId, createPromptSend(session.serverSessionId, feedback));
-  ctx.set(
-    updateSession(ctx.get(), sessionId, {
-      pendingPlanApproval: null,
-      ...blocksPatch,
-      lifecycle: transitionTurn(session.lifecycle, { type: "plan_changes_requested" }),
-    }),
-  );
-}
 
 export { applyPersistedState } from "./ws-session-persisted-actions";
 

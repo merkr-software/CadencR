@@ -2,6 +2,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+mod database;
+mod git;
+
+pub use git::{GitFailureKind, GitRejection};
+
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
@@ -10,8 +15,19 @@ pub struct ErrorResponse {
 
 #[derive(Debug)]
 pub enum AppError {
+    /// Unexpected database failure — a masked 500.
     DatabaseError(String),
+    /// 503 — SQLite busy/locked or the pool timed out; retryable. The driver
+    /// detail is logged, never returned.
+    DatabaseBusy(String),
+    /// 409 — a uniqueness or foreign-key constraint rejected the write. The
+    /// driver detail (SQL names) is logged, never returned.
+    ConstraintViolation(String),
+    /// Git could not be run or produced unexpected output — a masked 500.
     GitCommandError(String),
+    /// Git ran and refused the operation; its sanitized message is returned
+    /// with a 4xx status and a stable `GIT_*` code.
+    GitRejected(GitRejection),
     NotFound(String),
     BadRequest(String),
     Internal(String),
@@ -44,7 +60,14 @@ impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppError::DatabaseError(msg) => write!(f, "Database error: {msg}"),
+            AppError::DatabaseBusy(msg) => write!(f, "Database busy: {msg}"),
+            AppError::ConstraintViolation(msg) => write!(f, "Constraint violation: {msg}"),
+            // Same prefix for both git variants: streamed git operations
+            // forward this Display text over WebSocket.
             AppError::GitCommandError(msg) => write!(f, "Git command error: {msg}"),
+            AppError::GitRejected(rejection) => {
+                write!(f, "Git command error: {}", rejection.message)
+            }
             AppError::NotFound(msg) => write!(f, "Not found: {msg}"),
             AppError::BadRequest(msg) => write!(f, "Bad request: {msg}"),
             AppError::Internal(msg) => write!(f, "Internal error: {msg}"),
@@ -70,11 +93,45 @@ impl std::error::Error for AppError {}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code) = match &self {
+        let (status, code) = self.status_and_code();
+        self.report(status, code);
+        let body = ErrorResponse {
+            error: self.public_message(status),
+            code: code.to_string(),
+        };
+        (status, axum::Json(body)).into_response()
+    }
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(err: sqlx::Error) -> Self {
+        database::from_sqlx(err)
+    }
+}
+
+impl AppError {
+    pub fn coded(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self::Coded {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+
+    /// Git exited non-zero: classify its (already sanitized) message.
+    pub fn git_rejected(message: impl Into<String>) -> Self {
+        Self::GitRejected(GitRejection::classify(message))
+    }
+
+    fn status_and_code(&self) -> (StatusCode, &'static str) {
+        match self {
             AppError::DatabaseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR"),
+            AppError::DatabaseBusy(_) => (StatusCode::SERVICE_UNAVAILABLE, "DATABASE_BUSY"),
+            AppError::ConstraintViolation(_) => (StatusCode::CONFLICT, "CONSTRAINT_VIOLATION"),
             AppError::GitCommandError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "GIT_COMMAND_ERROR")
             }
+            AppError::GitRejected(rejection) => (rejection.kind.status(), rejection.kind.code()),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "BAD_REQUEST"),
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
@@ -95,49 +152,51 @@ impl IntoResponse for AppError {
                 (StatusCode::NOT_FOUND, "NEOVIM_PROCESS_NOT_RUNNING")
             }
             AppError::NeovimFileNotFound { .. } => (StatusCode::NOT_FOUND, "NEOVIM_FILE_NOT_FOUND"),
-        };
-
-        if status.is_server_error() {
-            tracing::error!(code = code, error = %self, "request failed");
-            use crate::domain::telemetry::{diagnostic, models::DiagnosticCategory};
-            // Only curated application failures; never forward Display, trace fields or provider text.
-            let category = match &self {
-                AppError::DatabaseError(_) => Some(DiagnosticCategory::ServiceDatabase),
-                AppError::Internal(_) => Some(DiagnosticCategory::ServiceInternal),
-                AppError::GitCommandError(_) => Some(DiagnosticCategory::ServiceGit),
-                _ => None,
-            };
-            if let Some(category) = category {
-                diagnostic(category, vec![]);
-            }
         }
-
-        let public_error = if status == StatusCode::INTERNAL_SERVER_ERROR {
-            "Internal server error".to_string()
-        } else {
-            self.to_string()
-        };
-        let body = ErrorResponse {
-            error: public_error,
-            code: code.to_string(),
-        };
-
-        (status, axum::Json(body)).into_response()
     }
-}
 
-impl From<sqlx::Error> for AppError {
-    fn from(err: sqlx::Error) -> Self {
-        AppError::DatabaseError(err.to_string())
+    /// Server errors are logged and reported; client errors whose public
+    /// message hides a detail (constraint text, git output) are still logged.
+    /// An unclassified git refusal is reported too: it may be plumbing that
+    /// failed rather than git declining the user's request.
+    fn report(&self, status: StatusCode, code: &'static str) {
+        use crate::domain::telemetry::{diagnostic, models::DiagnosticCategory};
+        if !status.is_server_error() {
+            if matches!(
+                self,
+                AppError::ConstraintViolation(_) | AppError::GitRejected(_)
+            ) {
+                tracing::warn!(code = code, error = %self, "request rejected");
+            }
+            if let AppError::GitRejected(rejection) = self {
+                if rejection.kind == GitFailureKind::CommandFailed {
+                    diagnostic(DiagnosticCategory::ServiceGit, vec![]);
+                }
+            }
+            return;
+        }
+        tracing::error!(code = code, error = %self, "request failed");
+        // Only curated application failures; never forward Display, trace fields or provider text.
+        let category = match self {
+            AppError::DatabaseError(_) | AppError::DatabaseBusy(_) => {
+                Some(DiagnosticCategory::ServiceDatabase)
+            }
+            AppError::Internal(_) => Some(DiagnosticCategory::ServiceInternal),
+            AppError::GitCommandError(_) => Some(DiagnosticCategory::ServiceGit),
+            _ => None,
+        };
+        if let Some(category) = category {
+            diagnostic(category, vec![]);
+        }
     }
-}
 
-impl AppError {
-    pub fn coded(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
-        Self::Coded {
-            status,
-            code,
-            message: message.into(),
+    fn public_message(&self, status: StatusCode) -> String {
+        match self {
+            AppError::DatabaseBusy(_) => database::BUSY_PUBLIC_MESSAGE.to_string(),
+            AppError::ConstraintViolation(_) => database::CONSTRAINT_PUBLIC_MESSAGE.to_string(),
+            AppError::GitRejected(rejection) => rejection.message.clone(),
+            _ if status == StatusCode::INTERNAL_SERVER_ERROR => "Internal server error".to_string(),
+            _ => self.to_string(),
         }
     }
 }
@@ -191,6 +250,94 @@ mod tests {
         assert_eq!(body["error"], "Internal server error");
         assert_eq!(body["code"], "DATABASE_ERROR");
         assert!(!body["error"].as_str().unwrap().contains("SELECT"));
+    }
+
+    async fn response_parts(error: AppError) -> (StatusCode, serde_json::Value) {
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read response body");
+        let body = serde_json::from_slice(&bytes).expect("decode error response");
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn git_refusal_returns_its_message_with_a_stable_code() {
+        let message = "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.rs\nPlease commit your changes or stash them before you switch branches.";
+        let (status, body) = response_parts(AppError::git_rejected(message)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": message, "code": "GIT_LOCAL_CHANGES_CONFLICT" })
+        );
+    }
+
+    #[tokio::test]
+    async fn unclassified_git_refusal_is_still_user_facing() {
+        let message = "git status failed: fatal: not a git repository";
+        let (status, body) = response_parts(AppError::git_rejected(message)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": message, "code": "GIT_COMMAND_FAILED" })
+        );
+    }
+
+    #[tokio::test]
+    async fn git_spawn_failure_stays_masked() {
+        let (status, body) = response_parts(AppError::GitCommandError(
+            "Failed to spawn git: ENOENT".into(),
+        ))
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            body,
+            serde_json::json!({ "error": "Internal server error", "code": "GIT_COMMAND_ERROR" })
+        );
+    }
+
+    #[test]
+    fn git_rejection_keeps_the_streamed_display_prefix() {
+        assert_eq!(
+            AppError::git_rejected("fatal: boom").to_string(),
+            "Git command error: fatal: boom"
+        );
+    }
+
+    #[tokio::test]
+    async fn constraint_violation_body_hides_the_sql_detail() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE private_table (name TEXT UNIQUE)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let insert = "INSERT INTO private_table (name) VALUES ('dup')";
+        sqlx::query(insert).execute(&pool).await.unwrap();
+        let error = AppError::from(sqlx::query(insert).execute(&pool).await.unwrap_err());
+
+        let (status, body) = response_parts(error).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "error": "The change conflicts with existing data",
+                "code": "CONSTRAINT_VIOLATION"
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn database_busy_is_a_retryable_503() {
+        let (status, body) = response_parts(AppError::from(sqlx::Error::PoolTimedOut)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "error": "The database is busy; please retry in a moment",
+                "code": "DATABASE_BUSY"
+            })
+        );
     }
 
     #[tokio::test]

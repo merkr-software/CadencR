@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useWsSessionStore } from "@/stores/ws-session-store";
-import { isTurnActive } from "@/stores/ws-turn-lifecycle";
+import { busySessionTargets, TURN_IN_PROGRESS } from "@/stores/busy-session-targets";
 import { useEditorStore } from "@/stores/editor-store";
 import { browserTabCount } from "@/stores/browser-store";
 import { useTerminalStore } from "@/hooks/useTerminalState";
@@ -9,9 +10,17 @@ import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { getListFeaturesQueryKey } from "@/api/generated";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+
+const CLOSE_ERROR_TOAST_ID = "app-close:error";
+
+function reportCloseFailure(error: unknown): void {
+  toast.error("Could not close Cadencr", {
+    id: CLOSE_ERROR_TOAST_ID,
+    description: error instanceof Error ? error.message : String(error),
+  });
+}
 
 function lookupFeatureTitle(featureId: number | null, queryClient: QueryClient): string | null {
   if (!featureId) return null;
@@ -69,19 +78,25 @@ function getWorkingAgents(queryClient: QueryClient): WorkingAgent[] {
 
 /**
  * The dev service outlives the app, so quitting cannot leave its agents
- * stopped the way a packaged build does (`setShutdownIntent`): stop the ones
- * this window runs instead.
+ * stopped the way a packaged build does (`setShutdownIntent`): stop them
+ * instead. Which agents are working comes from the backend's status book, so
+ * one started by a schedule, MCP or another device counts too; only those
+ * with a conversation open here can be interrupted from this window.
  */
-function interruptDevAgents(): boolean {
-  if (!import.meta.env.DEV) return false;
+export function interruptDevAgents(isDev: boolean = import.meta.env.DEV): boolean {
+  if (!isDev) return false;
   const wsStore = useWsSessionStore.getState();
-  let interrupted = false;
-  for (const [sessionId, session] of Object.entries(wsStore.sessions)) {
-    if (!isTurnActive(session.lifecycle)) continue;
-    wsStore.interrupt(sessionId);
-    interrupted = true;
+  const { loaded, unreachable } = busySessionTargets(TURN_IN_PROGRESS);
+  for (const sessionId of loaded) wsStore.interrupt(sessionId);
+  if (unreachable > 0) {
+    toast.warning(
+      unreachable === 1
+        ? "1 agent keeps running on the dev service"
+        : `${unreachable} agents keep running on the dev service`,
+      { description: "Their conversations aren't open in this window, so they weren't stopped." },
+    );
   }
-  return interrupted;
+  return loaded.length > 0;
 }
 
 export interface AppCloseState {
@@ -96,32 +111,41 @@ export function useAppClose(queryClient: QueryClient, activeFeatureId: number | 
   const [request, setRequest] = useState<AppCloseRequest | null>(null);
   const [agents, setAgents] = useState<WorkingAgent[]>([]);
 
+  // X button, ⌘Q, ⌘W, the Dock: the main process asks, and owns whether the
+  // answer closes the window or quits. It waits on the user only once told
+  // the confirmation is on screen; otherwise it closes without it.
   const requestClose = useCallback(
     (next: AppCloseRequest) => {
       const working = getWorkingAgents(queryClient);
       if (working.length === 0) {
-        void desktopBridge.confirmClose();
+        desktopBridge.confirmClose().catch(reportCloseFailure);
         return;
       }
       setAgents(working);
       setRequest(next);
+      desktopBridge.acknowledgeCloseRequest().catch(reportCloseFailure);
     },
     [queryClient],
   );
 
-  const cancel = useCallback(() => setRequest(null), []);
+  const cancel = useCallback(() => {
+    setRequest(null);
+    desktopBridge.cancelClose().catch(reportCloseFailure);
+  }, []);
 
   const close = useCallback((choice: AppCloseChoice) => {
     setRequest(null);
+    const confirm = (): void => {
+      desktopBridge.confirmClose(choice).catch(reportCloseFailure);
+    };
     if (!choice.resumeAgents && interruptDevAgents()) {
       // Let the interrupts reach the service before the window goes away.
-      setTimeout(() => void desktopBridge.confirmClose(choice), 300);
+      setTimeout(confirm, 300);
       return;
     }
-    void desktopBridge.confirmClose(choice);
+    confirm();
   }, []);
 
-  // X button, Cmd+Q, the Dock: the main process says whether it quits.
   useEffect(() => {
     return desktopBridge.onCloseRequested(requestClose);
   }, [requestClose]);
@@ -130,7 +154,7 @@ export function useAppClose(queryClient: QueryClient, activeFeatureId: number | 
   // `before-quit` runs and the production sidecar is stopped.
   useGlobalShortcutById("quit", (e) => {
     e.preventDefault();
-    void desktopBridge.requestQuit();
+    desktopBridge.requestQuit().catch(reportCloseFailure);
   });
 
   // ⌘W / Ctrl+W → close the window when nothing else owns the chord. The
@@ -138,11 +162,13 @@ export function useAppClose(queryClient: QueryClient, activeFeatureId: number | 
   // the "I'm on an empty editor / non-owning tab, ⌘W should close the
   // window" fallback. Scoping the bypass to the *focused tab's* owning
   // surface (not the whole feature) is intentional — see registry entry.
-  // Closing the last window quits everywhere but macOS.
+  // It closes the window like its button does: main decides whether that
+  // quits (everywhere but macOS) and asks back through `onCloseRequested`.
+  // Off the shell there is no window to close; the browser keeps the chord.
   useGlobalShortcutById("app-close", (e) => {
-    if (shouldBypassAppClose(activeFeatureId)) return;
+    if (!desktopBridge.isElectron || shouldBypassAppClose(activeFeatureId)) return;
     e.preventDefault();
-    requestClose({ quitting: !PLATFORM_IS_MAC });
+    desktopBridge.windowClose?.().catch(reportCloseFailure);
   });
 
   return useMemo<AppCloseState>(

@@ -208,7 +208,12 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(error, AppError::GitCommandError(_)), "{error:?}");
+        // A refusal the user can act on (the branch is unknown), not a preview.
+        assert!(
+            matches!(&error, AppError::GitRejected(rejection)
+                if rejection.kind == crate::error::GitFailureKind::RefNotFound),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]
