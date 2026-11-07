@@ -221,14 +221,19 @@ fn build_malformed_result_error(
 /// (the CLI emits dozens of subtypes such as `api_retry` or `notification`), so
 /// an untyped `system` subtype stays out of the conversation (`Other`) and logs
 /// loudly so a CLI drift is diagnosable from the service log. Background-task
-/// frames never land here: the SDK types them as `TaskLifecycle`.
+/// frames never land here: the SDK types them as `TaskLifecycle`. Known
+/// subtypes with nothing to show stay quiet: `thinking_tokens` arrives once
+/// per streamed thinking chunk and would flood the log.
 fn classify_unknown_message(raw: Value) -> RuntimeEventKind {
     if raw_type(&raw) == "system" {
+        const QUIET_SYSTEM_SUBTYPES: [&str; 1] = ["thinking_tokens"];
         let subtype = raw.get("subtype").and_then(Value::as_str);
-        warn!(
-            subtype = subtype.unwrap_or("<missing>"),
-            "claude adapter: unrecognized system message dropped"
-        );
+        if !subtype.is_some_and(|s| QUIET_SYSTEM_SUBTYPES.contains(&s)) {
+            warn!(
+                subtype = subtype.unwrap_or("<missing>"),
+                "claude adapter: unrecognized system message dropped"
+            );
+        }
         RuntimeEventKind::Other
     } else {
         RuntimeEventKind::Unknown { raw }
@@ -289,6 +294,61 @@ mod tests {
         let (kind, result_error) = classify_message(msg);
         assert!(matches!(kind, RuntimeEventKind::Other));
         assert!(result_error.is_none());
+    }
+
+    /// Warnings logged while `f` runs.
+    fn warnings_while(f: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        let logged = captured.0.lock().unwrap().clone();
+        String::from_utf8(logged).unwrap()
+    }
+
+    fn classify_system(subtype: &str) -> (RuntimeEventKind, String) {
+        let msg = claude_agent_sdk_rs::SdkMessage::from_raw(serde_json::json!({
+            "type": "system", "subtype": subtype, "session_id": "s", "tokens": 12
+        }));
+        let mut classified = None;
+        let warnings = warnings_while(|| classified = Some(classify_message(msg)));
+        let (kind, result_error) = classified.unwrap();
+        assert!(result_error.is_none());
+        (kind, warnings)
+    }
+
+    #[test]
+    fn thinking_tokens_frames_are_dropped_quietly() {
+        let (kind, warnings) = classify_system("thinking_tokens");
+        // Out of the conversation and not a turn boundary: the turn goes on.
+        assert!(matches!(kind, RuntimeEventKind::Other));
+        assert!(warnings.is_empty(), "unexpected warning: {warnings}");
+    }
+
+    #[test]
+    fn an_unknown_system_subtype_still_warns() {
+        let (kind, warnings) = classify_system("brand_new_subtype");
+        assert!(matches!(kind, RuntimeEventKind::Other));
+        assert!(
+            warnings.contains("unrecognized system message dropped")
+                && warnings.contains("brand_new_subtype"),
+            "{warnings}"
+        );
     }
 
     #[test]
