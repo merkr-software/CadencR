@@ -17,6 +17,8 @@ use crate::domain::agents::adapter::{
     RuntimeInitEvent, RuntimeSpawnConfig,
 };
 
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
+
 use super::events_stream_blocks::EventIndexer;
 use super::lifecycle::{negotiate_session, NegotiatedSession};
 use super::permissions::PendingPermissions;
@@ -84,7 +86,12 @@ pub async fn spawn_acp_runtime_session(
     .map_err(|e| RuntimeError::new(format!("failed to spawn ACP subprocess: {e}")))?;
     let pid = client.pid();
     let mut event_rx = client.subscribe();
-    let negotiated = negotiate_session(&client, &config, context_window, hooks.as_ref()).await?;
+    // Overlaps the handshake: OpenCode lists its own MCP config to decide.
+    let injected = CadencrBrowserTrust::injected_in(config.mcp_servers.as_ref());
+    let (negotiated, browser_trust) = tokio::try_join!(
+        negotiate_session(&client, &config, context_window, hooks.as_ref()),
+        async { Ok(hooks.cadencr_browser_trust(&config.cwd, injected).await) },
+    )?;
 
     let (tx, rx) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
     let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
@@ -143,6 +150,7 @@ pub async fn spawn_acp_runtime_session(
             indexer: Arc::clone(&session.indexer),
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
+            browser_trust,
         },
     );
     session.loop_task = Some(loop_task);
@@ -155,6 +163,7 @@ pub async fn spawn_acp_runtime_session(
         &negotiated.session_id,
         config.cwd.as_path(),
         session.context_window,
+        browser_trust,
         tx.clone(),
     );
 

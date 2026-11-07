@@ -265,6 +265,7 @@ mod tests {
             hooks,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
+            browser_trust: Default::default(),
             indexer: Arc::clone(&indexer),
         };
         let _loop_task = spawn_event_loop(client.clone(), event_rx, tx.clone(), cfg);

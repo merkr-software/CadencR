@@ -20,6 +20,7 @@ use super::schema_bridge::permission_response_value;
 use super::session_permissions::PermissionKey;
 use super::session_permissions::SessionPermissions;
 use super::trusted_mcp_permissions::try_auto_allow_trusted_cadencr_browser_permission;
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 /// One pending `session/request_permission` server request awaiting the
 /// user's decision. Tracks the raw ACP server-request id so we can echo the
@@ -108,6 +109,7 @@ pub async fn dispatch_permission_request_with_cache(
     client: &AcpClient,
     pending: &PendingPermissions,
     session_permissions: &SessionPermissions,
+    browser_trust: CadencrBrowserTrust,
     session_id: Option<String>,
     request_id: &str,
     raw_id: Value,
@@ -115,7 +117,14 @@ pub async fn dispatch_permission_request_with_cache(
     params: &Value,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> Result<(), RuntimeError> {
-    if try_auto_allow_trusted_cadencr_browser_permission(client, raw_id.clone(), &request).await? {
+    if try_auto_allow_trusted_cadencr_browser_permission(
+        client,
+        browser_trust,
+        raw_id.clone(),
+        &request,
+    )
+    .await?
+    {
         return Ok(());
     }
 
@@ -370,6 +379,7 @@ mod tests {
             &client,
             &pending,
             &session_permissions,
+            Default::default(),
             Some("s-cache".to_string()),
             "perm-cache",
             json!("perm-cache"),
@@ -415,6 +425,7 @@ mod tests {
             &client,
             &pending,
             &session_permissions,
+            Default::default(),
             Some("s-cache".to_string()),
             "perm-cache-missing-option",
             json!("perm-cache-missing-option"),
@@ -446,6 +457,7 @@ mod tests {
             &client,
             &pending,
             &session_permissions,
+            Default::default(),
             Some("s-closed".to_string()),
             "perm-closed",
             json!("perm-closed"),

@@ -1,6 +1,8 @@
 use crate::app_state::BrowserBridgeConfig;
 use crate::domain::agents::adapter::{RuntimeMcpServerConfig, RuntimeSpawnConfig};
-use crate::domain::mcp::servers::{mcp_server_name, AgentType};
+use crate::domain::mcp::servers::{
+    mcp_server_name, AgentType, AGENT_TYPE_FLAG, MCP_SERVE_SUBCOMMAND,
+};
 use crate::domain::mcp::tools::browser_bridge_scope;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -115,8 +117,8 @@ fn attach_stdio_mcp(
         db_path,
         "--settings-dir".to_string(),
         settings_dir.to_string_lossy().into_owned(),
-        "mcp-serve".to_string(),
-        "--agent-type".to_string(),
+        MCP_SERVE_SUBCOMMAND.to_string(),
+        AGENT_TYPE_FLAG.to_string(),
         agent_type.short_name().to_string(),
         "--feature-id".to_string(),
         feature_id.to_string(),

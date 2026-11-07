@@ -7,6 +7,7 @@
 
 mod adapter;
 mod adapter_normalize;
+mod browser_trust;
 mod events_subagent_synthesis;
 mod events_tool_call_question;
 mod instructions;
@@ -15,6 +16,7 @@ mod permission_reply;
 pub(in crate::domain::agents) mod port;
 mod prompt_usage;
 mod question_sidecar;
+mod resolved_mcp;
 mod task_completion;
 mod tool_result_flatten;
 // Workarounds for ACP-wire limitations in upstream OpenCode. Anything

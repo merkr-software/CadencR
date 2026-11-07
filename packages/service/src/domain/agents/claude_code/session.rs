@@ -10,6 +10,7 @@ use crate::domain::agents::adapter::{
     RuntimeStreamEvent, RuntimeToolPermissionHandler, RuntimeToolPermissionRequest,
     RuntimeToolPermissionResult,
 };
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 pub struct ClaudeCodeSession {
     pub(super) query: claude_agent_sdk_rs::Query,
@@ -37,6 +38,23 @@ impl ClaudeCodeSession {
 
 pub(super) struct ClaudeCanUseToolAdapter {
     pub(super) inner: std::sync::Arc<dyn RuntimeToolPermissionHandler>,
+    /// Cadencr's browser tools skip the prompt only when Cadencr attached its
+    /// browser server. Claude Code gives `--mcp-config` precedence over a
+    /// same-named project (`.mcp.json`) or user server, so the canonical
+    /// `mcp__cadencr-browser__*` name then reaches Cadencr's server.
+    pub(super) browser_trust: CadencrBrowserTrust,
+}
+
+impl ClaudeCanUseToolAdapter {
+    pub(super) fn shared(
+        inner: std::sync::Arc<dyn RuntimeToolPermissionHandler>,
+        mcp_servers: Option<&std::collections::HashMap<String, RuntimeMcpServerConfig>>,
+    ) -> std::sync::Arc<dyn claude_agent_sdk_rs::CanUseTool> {
+        std::sync::Arc::new(Self {
+            inner,
+            browser_trust: CadencrBrowserTrust::injected_in(mcp_servers),
+        })
+    }
 }
 
 #[async_trait]
@@ -45,6 +63,13 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
         &self,
         request: claude_agent_sdk_rs::PermissionRequest,
     ) -> claude_agent_sdk_rs::PermissionResult {
+        if self.browser_trust.allows_tool_name(&request.tool_name) {
+            return claude_agent_sdk_rs::PermissionResult::Allow {
+                updated_input: request.input,
+                updated_permissions: None,
+                tool_use_id: Some(request.tool_use_id),
+            };
+        }
         let is_question = request.tool_name == "AskUserQuestion";
         let result = self
             .inner
@@ -463,6 +488,7 @@ mod tests {
     async fn sdk_callback_normalizes_only_question_answers_at_provider_boundary() {
         let adapter = super::ClaudeCanUseToolAdapter {
             inner: std::sync::Arc::new(EchoPermission),
+            browser_trust: Default::default(),
         };
         for (tool_name, expected_answers) in [
             ("AskUserQuestion", json!({"Color?": "Blue, Green"})),
@@ -483,5 +509,61 @@ mod tests {
             assert_eq!(updated_input["answers"], expected_answers);
             assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
         }
+    }
+
+    struct DenyPermission;
+
+    #[async_trait::async_trait]
+    impl crate::domain::agents::adapter::RuntimeToolPermissionHandler for DenyPermission {
+        async fn can_use_tool(
+            &self,
+            request: crate::domain::agents::adapter::RuntimeToolPermissionRequest,
+        ) -> crate::domain::agents::adapter::RuntimeToolPermissionResult {
+            crate::domain::agents::adapter::RuntimeToolPermissionResult::Deny {
+                message: "asked the user".into(),
+                interrupt: None,
+                tool_use_id: Some(request.tool_use_id),
+            }
+        }
+    }
+
+    async fn browser_tool_decision(
+        mcp_servers: Option<
+            &std::collections::HashMap<
+                String,
+                crate::domain::agents::adapter::RuntimeMcpServerConfig,
+            >,
+        >,
+    ) -> claude_agent_sdk_rs::PermissionResult {
+        let adapter = super::ClaudeCanUseToolAdapter::shared(
+            std::sync::Arc::new(DenyPermission),
+            mcp_servers,
+        );
+        adapter
+            .can_use_tool(claude_agent_sdk_rs::PermissionRequest {
+                tool_name: "mcp__cadencr-browser__browser_open_url".into(),
+                input: json!({ "url": "http://localhost:1420" }),
+                tool_use_id: "tool-browser".into(),
+                agent_id: None,
+                suggestions: None,
+                blocked_path: None,
+                decision_reason: None,
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn browser_tools_skip_the_prompt_only_when_cadencr_attached_its_server() {
+        let injected = crate::domain::mcp::trusted::test_support::injected_browser_servers();
+        assert!(matches!(
+            browser_tool_decision(Some(&injected)).await,
+            claude_agent_sdk_rs::PermissionResult::Allow { .. }
+        ));
+        // A `cadencr-browser` from `.mcp.json` or the user's config, while
+        // Cadencr's browser MCP is off, goes through the normal prompt.
+        assert!(matches!(
+            browser_tool_decision(None).await,
+            claude_agent_sdk_rs::PermissionResult::Deny { .. }
+        ));
     }
 }

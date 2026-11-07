@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
 use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 use super::event_loop_state::{latched_turn_model, sync_session_state_from_update};
 use super::events::session_update_to_events;
@@ -65,6 +66,8 @@ pub struct EventLoopConfig {
     pub replay_suppression: Arc<AtomicBool>,
     /// Prompt client ids waiting for provider-side receipt confirmation.
     pub pending_prompt_receipts: Arc<PendingPromptReceipts>,
+    /// Whether Cadencr's browser tools skip the permission prompt.
+    pub browser_trust: CadencrBrowserTrust,
 }
 
 /// Spawn the loop. Returns a handle the session can `abort()` on close.
@@ -348,6 +351,7 @@ async fn handle_permission_request(
         client,
         &config.pending_permissions,
         &config.session_permissions,
+        config.browser_trust,
         session_id,
         &request_id,
         id.clone(),

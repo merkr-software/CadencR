@@ -5,6 +5,8 @@ use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
 use crate::domain::agents::acp::runtime::terminal_registry::TerminalRegistry;
 use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
 use crate::domain::agents::adapter::RuntimePermissionMode;
+use crate::domain::mcp::trusted::test_support::injected_browser_servers;
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -102,6 +104,7 @@ pub(super) fn event_loop_config(cwd: PathBuf) -> EventLoopConfig {
         hooks,
         replay_suppression: Arc::new(AtomicBool::new(false)),
         pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
+        browser_trust: Default::default(),
         indexer: Arc::new(StdMutex::new(EventIndexer::default())),
     }
 }
@@ -430,6 +433,7 @@ async fn normalized_cadencr_browser_permission_is_auto_allowed() {
     let (tx, mut rx) = mpsc::channel(8);
     let mut config = event_loop_config(PathBuf::from("/tmp"));
     config.hooks = Arc::new(NormalizingHooks);
+    config.browser_trust = CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()));
     let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
 
     write_agent_request(
@@ -462,6 +466,41 @@ async fn normalized_cadencr_browser_permission_is_auto_allowed() {
     assert!(
         rx.try_recv().is_err(),
         "trusted browser permission should not reach the UI"
+    );
+}
+
+#[tokio::test]
+async fn browser_permission_reaches_the_ui_when_cadencr_browser_is_untrusted() {
+    let (client, mut stdout, _stdin) = client_with_agent_io().await;
+    let (tx, mut rx) = mpsc::channel(8);
+    let mut config = event_loop_config(PathBuf::from("/tmp"));
+    config.hooks = Arc::new(NormalizingHooks);
+    let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
+
+    write_agent_request(
+        &mut stdout,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "perm-foreign-browser",
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "s-1",
+                "toolCall": {
+                    "toolCallId": "call-foreign-browser",
+                    "title": "cadencr-browser-browser_open_url: browser_open_url",
+                    "kind": "other",
+                    "rawInput": { "url": "http://localhost:1420" }
+                },
+                "options": [{ "optionId": "allow-once", "name": "Allow once", "kind": "allow_once" }]
+            }
+        }),
+    )
+    .await;
+
+    let permission = rx.recv().await.expect("permission event").expect("ok");
+    assert_eq!(
+        permission.raw_json()["tool_name"],
+        "mcp__cadencr-browser__browser_open_url"
     );
 }
 

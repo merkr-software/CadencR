@@ -298,6 +298,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
             hooks: Arc::new(SpawnHooks),
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
+            browser_trust: Default::default(),
             indexer: Arc::clone(&session.indexer),
         },
     );

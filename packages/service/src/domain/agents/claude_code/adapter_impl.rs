@@ -349,15 +349,14 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             .maybe_system_prompt(config.system_prompt)
             .maybe_resume(config.resume_session_id)
             .allow_dangerously_skip_permissions(config.allow_bypass_permissions)
+            .maybe_can_use_tool(config.permission_handler.map(|handler| {
+                ClaudeCanUseToolAdapter::shared(handler, config.mcp_servers.as_ref())
+            }))
             .maybe_mcp_servers(config.mcp_servers.map(|servers| {
                 servers
                     .into_iter()
                     .map(|(name, cfg)| (name, map_mcp_server_config(cfg)))
                     .collect()
-            }))
-            .maybe_can_use_tool(config.permission_handler.map(|handler| {
-                std::sync::Arc::new(ClaudeCanUseToolAdapter { inner: handler })
-                    as std::sync::Arc<dyn claude_agent_sdk_rs::CanUseTool>
             }))
             .maybe_env(env)
             .build();

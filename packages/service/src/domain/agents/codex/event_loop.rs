@@ -17,6 +17,7 @@ use super::prompt_receipts::PendingPromptReceipts;
 use super::responses::response_value;
 use super::trusted_mcp::trusted_cadencr_browser_permission_response;
 use crate::domain::agents::adapter::{KnownSubagent, RuntimeError, RuntimeEvent};
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 #[bon::builder]
 pub(super) fn spawn_event_loop(
@@ -32,6 +33,7 @@ pub(super) fn spawn_event_loop(
     compaction: Arc<super::session::compaction::CompactionState>,
     /// Sub-agents earlier runtimes spawned: a rehydrated child keeps its carrier.
     known_subagents: Vec<KnownSubagent>,
+    browser_trust: CadencrBrowserTrust,
 ) {
     let event_loop = EventLoop {
         client,
@@ -43,6 +45,7 @@ pub(super) fn spawn_event_loop(
         model,
         closing,
         compaction,
+        browser_trust,
     };
     tokio::spawn(async move { event_loop.run(source_rx, known_subagents).await });
 }
@@ -57,6 +60,7 @@ struct EventLoop {
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
     compaction: Arc<super::session::compaction::CompactionState>,
+    browser_trust: CadencrBrowserTrust,
 }
 
 struct NotificationState {
@@ -82,9 +86,12 @@ impl EventLoop {
                     }
                 }
                 Some(AppServerEvent::ServerRequest { id, method, params }) => {
-                    if let Some(response) =
-                        trusted_cadencr_browser_permission_response(&id, &method, &params)
-                    {
+                    if let Some(response) = trusted_cadencr_browser_permission_response(
+                        self.browser_trust,
+                        &id,
+                        &method,
+                        &params,
+                    ) {
                         let result = response_value(&method, &params, &response);
                         match self.client.respond_server_request(id.clone(), result).await {
                             Ok(()) => continue,

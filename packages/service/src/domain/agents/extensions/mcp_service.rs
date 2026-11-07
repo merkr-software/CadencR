@@ -14,6 +14,7 @@ use super::types::{
     McpServerSpec, McpTransport,
 };
 use super::{CliRunner, ExtensionCli, ExtensionError, ExtensionSupport, McpDefinition};
+use crate::domain::mcp::trusted::is_reserved_mcp_server_name;
 
 /// Everything every CLI has installed, grouped per registry server. Cached:
 /// listing health-checks every server; `refresh` re-lists anyway.
@@ -109,6 +110,17 @@ fn valid_server_name(name: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || "-_.".contains(ch))
 }
 
+/// A server under a `cadencr-*` name could pass for one Cadencr attaches
+/// to its agents (see `mcp::trusted`).
+fn refuse_reserved_name(name: &str) -> Result<(), ExtensionError> {
+    if is_reserved_mcp_server_name(name) {
+        return Err(ExtensionError::ReservedName(format!(
+            "{name} is reserved for Cadencr's own MCP servers. Pick another name."
+        )));
+    }
+    Ok(())
+}
+
 fn check_support(
     support: &ExtensionSupport,
     spec: &McpServerSpec,
@@ -171,6 +183,7 @@ async fn install_server(
             "Use letters, digits, dots, dashes or underscores for the server name.".into(),
         ));
     }
+    refuse_reserved_name(name)?;
     let entry = service
         .registry
         .latest(&request.registry_name)
@@ -436,6 +449,20 @@ mod tests {
         assert!(!valid_server_name("-flag"));
         assert!(!valid_server_name("has space"));
         assert!(!valid_server_name(""));
+    }
+
+    #[test]
+    fn cadencr_server_names_are_refused_with_a_stable_code() {
+        for name in ["cadencr-browser", "cadencr_browser", "Cadencr-Project"] {
+            let error = refuse_reserved_name(name).expect_err(name);
+            assert!(matches!(error, ExtensionError::ReservedName(_)));
+            let crate::error::AppError::Coded { code, status, .. } = error.into() else {
+                panic!("coded error");
+            };
+            assert_eq!(code, "MCP_SERVER_NAME_RESERVED");
+            assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+        }
+        assert!(refuse_reserved_name("chrome-devtools").is_ok());
     }
 
     #[test]

@@ -246,6 +246,7 @@ mod tests {
             hooks,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
+            browser_trust: Default::default(),
             indexer: Arc::new(Mutex::new(EventIndexer::default())),
         }
     }

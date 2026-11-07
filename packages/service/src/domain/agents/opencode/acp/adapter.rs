@@ -1,10 +1,12 @@
 use super::adapter_normalize::normalize_edit_input;
+use super::browser_trust::opencode_browser_trust;
 use super::events_subagent_synthesis::{extract_subagent_body, synthesize_subagent_text_event};
 use super::events_tool_call_question::{question_start_event, question_update_event};
 use super::mcp_status::merge_configured_mcp_servers;
 use super::permission_reply::route_subagent_permission_reply;
 use super::prompt_usage::prompt_response_usage;
 use super::question_sidecar::QuestionSidecar;
+use super::resolved_mcp::ResolvedMcpConfig;
 use super::task_completion::TaskCompletion;
 use super::tool_result_flatten::flatten_tool_result_content;
 use super::upstream_workaround::{
@@ -24,6 +26,7 @@ use crate::domain::agents::opencode::questions::extract_question_answers;
 use crate::domain::agents::opencode::tool_names::{
     canonical_acp_tool_name, canonical_cadencr_tool_name,
 };
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 use async_trait::async_trait;
 use opencode_sdk_rs::OpenCodeClient;
 use serde_json::Value;
@@ -42,6 +45,7 @@ pub struct OpenCodeAcpAdapter {
     pending_subagent_calls: PendingSubagentTasks,
     permissions: PermissionRegistry,
     mcp_tool_names: McpToolNameResolver,
+    resolved_mcp: ResolvedMcpConfig,
 }
 impl OpenCodeAcpAdapter {
     pub fn new(question_sidecar: QuestionSidecar, opencode_http_port: u16, cwd: &Path) -> Self {
@@ -52,6 +56,7 @@ impl OpenCodeAcpAdapter {
             pending_subagent_calls: Arc::new(StdMutex::new(PendingSubagentState::default())),
             permissions: Arc::new(RwLock::new(HashMap::new())),
             mcp_tool_names: McpToolNameResolver::default(),
+            resolved_mcp: ResolvedMcpConfig::default(),
         }
     }
 }
@@ -114,7 +119,13 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         cwd: &Path,
         configured: Vec<RuntimeMcpServerStatus>,
     ) -> Vec<RuntimeMcpServerStatus> {
-        let servers = match opencode_sdk_rs::list_mcp_servers_from_cli(Some(cwd)).await {
+        // The browser trust shares this read; a failed one falls back to
+        // the config files or `opencode mcp list` for statuses.
+        let listed = match self.resolved_mcp.servers(cwd).await {
+            Ok(servers) => Ok(servers.as_ref().clone()),
+            Err(_) => opencode_sdk_rs::list_mcp_servers_without_resolved_config(Some(cwd)).await,
+        };
+        let servers = match listed {
             Ok(servers) if !servers.is_empty() => merge_configured_mcp_servers(
                 servers
                     .into_iter()
@@ -242,6 +253,7 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         session_id: &str,
         cwd: &Path,
         context_window: Option<u64>,
+        browser_trust: CadencrBrowserTrust,
         tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     ) -> Option<JoinHandle<()>> {
         Some(spawn_side_channel_listeners(
@@ -251,8 +263,19 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
             context_window,
             Arc::clone(&self.pending_subagent_calls),
             Arc::clone(&self.permissions),
+            browser_trust,
             tx,
         ))
+    }
+    async fn cadencr_browser_trust(
+        &self,
+        cwd: &Path,
+        injected: CadencrBrowserTrust,
+    ) -> CadencrBrowserTrust {
+        if !injected.is_trusted() {
+            return injected;
+        }
+        opencode_browser_trust(injected, self.resolved_mcp.servers(cwd).await)
     }
     async fn record_available_commands(&self, cwd: &Path, commands: Vec<RuntimeSlashCommand>) {
         let cwd = cwd.to_string_lossy().into_owned();

@@ -21,6 +21,7 @@ use super::pending_subagents::PendingSubagentTasks;
 use super::root_usage_listener::{self, RootUsageState};
 use super::subagent_listener::{self, ListenerState, PermissionRegistry};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const IDLE_INTERVAL: Duration = Duration::from_secs(2);
@@ -39,6 +40,7 @@ pub(in crate::domain::agents::opencode::acp) fn spawn_side_channel_listeners(
     context_window: Option<u64>,
     pending_tasks: PendingSubagentTasks,
     permissions: PermissionRegistry,
+    browser_trust: CadencrBrowserTrust,
     runtime_tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> JoinHandle<()> {
     tracing::info!(
@@ -50,7 +52,7 @@ pub(in crate::domain::agents::opencode::acp) fn spawn_side_channel_listeners(
     tokio::spawn(async move {
         let directory = cwd.to_string_lossy().to_string();
         let mut usage_state = RootUsageState::default();
-        let mut subagent_state = ListenerState::new(root_session_id.clone());
+        let mut subagent_state = ListenerState::new(root_session_id.clone(), browser_trust);
         let mut active_usage_polls = ACTIVE_USAGE_POLLS;
         // Snapshot pre-existing children NOW — before the agent can fire
         // its first Task tool. Doing this lazily inside the poll loop
