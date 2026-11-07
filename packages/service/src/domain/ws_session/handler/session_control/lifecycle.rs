@@ -360,13 +360,25 @@ pub(crate) async fn handle_clear(
         retired.close_in(app_state).await;
     }
     // Archive and clear in DB (pass cli_sid to avoid re-reading it)
-    WsSessionPersistence::archive_and_clear(
+    let archived = WsSessionPersistence::archive_and_clear(
         &app_state.write_pool,
         db_session_id,
         cli_sid.as_deref(),
     )
     .await;
     drop(archive_lease);
+    if let Err(error) = archived {
+        // Nothing was written, so the conversation still resumes from where
+        // it was: the clear did not happen, and the client must not show one.
+        tracing::error!(db_session_id, %error, "failed to archive the cleared conversation");
+        send_error(
+            sender,
+            &envelope.id,
+            "CLEAR_NOT_SAVED",
+            &format!("The conversation was not cleared: {error}"),
+        );
+        return;
+    }
 
     let reply = WsEnvelope::session_reply(
         &envelope.id,

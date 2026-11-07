@@ -134,3 +134,58 @@ async fn typed_command_routing_preserves_existing_payload_errors_and_refs() {
         );
     }
 }
+
+/// A clear whose archive write fails is not a clear: the client gets the
+/// error, never `cleared`, and the conversation keeps its resume point.
+#[tokio::test]
+async fn session_clear_reports_a_failed_archive() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    let session_id = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
+    sqlx::query(
+        "CREATE TRIGGER fail_clear_divider BEFORE INSERT ON agent_messages
+         WHEN NEW.message_type = 'clear_divider'
+         BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE agent_sessions SET runtime_session_id = 'keep-me' WHERE id = ?")
+        .bind(session_id.parse::<i64>().unwrap())
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+    while rx.try_recv().is_ok() {}
+
+    let envelope = make_envelope(
+        "session",
+        "clear",
+        serde_json::json!({ "session_id": session_id }),
+    );
+    dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+    let mut actions = Vec::new();
+    while let Ok(Message::Text(text)) = rx.try_recv() {
+        let env: WsEnvelope = serde_json::from_str(&text).unwrap();
+        actions.push((env.action, env.payload));
+    }
+    assert!(
+        actions.iter().all(|(action, _)| action != "cleared"),
+        "{actions:?}"
+    );
+    assert!(
+        actions.iter().any(|(action, payload)| action == "error"
+            && payload["code"] == "CLEAR_NOT_SAVED"
+            && payload["message"].as_str().unwrap().contains("disk full")),
+        "{actions:?}"
+    );
+    // The next spawn re-reads its resume id from the row, so it resumes.
+    let resume: Option<String> =
+        sqlx::query_scalar("SELECT runtime_session_id FROM agent_sessions WHERE id = ?")
+            .bind(session_id.parse::<i64>().unwrap())
+            .fetch_one(&app_state.write_pool)
+            .await
+            .unwrap();
+    assert_eq!(resume.as_deref(), Some("keep-me"));
+}
