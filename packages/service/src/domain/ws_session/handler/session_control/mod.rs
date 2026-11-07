@@ -23,6 +23,7 @@ pub(super) use access_mode::handle_access_mode_set;
 pub(super) use effort::handle_effort_set;
 pub(super) use fast_mode::handle_fast_mode_set;
 pub(super) use interrupt::finish_interruption;
+use interrupt::stop_session;
 pub(super) use lifecycle::{handle_clear, handle_delete, handle_destroy, handle_interrupt};
 pub(super) use mode::handle_mode_set;
 pub(super) use model::handle_model_set;

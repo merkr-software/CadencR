@@ -35,6 +35,8 @@ pub(super) async fn begin_compact(
     {
         return Err("Manual compaction is already starting for this session".into());
     }
+    // A Stop from an earlier start must not cancel this one.
+    handle.manual_compact_cancel.store(false, Ordering::SeqCst);
     let reservation = CompactReservation {
         pending: handle.manual_compact_spawn_pending.clone(),
         armed: true,
@@ -53,6 +55,16 @@ pub(super) async fn begin_compact(
         .await;
     }
     Ok((was_running, reservation))
+}
+
+/// Whether a Stop arrived while the compaction's runtime was spawning (see
+/// `stop_session`). Consumed: the compaction then gives up before it starts.
+pub(super) async fn take_compact_cancel(sdk_sessions: &SdkSessions, session_id: i64) -> bool {
+    sdk_sessions
+        .lock()
+        .await
+        .get(&session_id)
+        .is_some_and(|handle| handle.manual_compact_cancel.swap(false, Ordering::SeqCst))
 }
 
 pub(super) async fn finish_compact_start(

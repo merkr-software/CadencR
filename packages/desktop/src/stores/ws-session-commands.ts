@@ -50,9 +50,9 @@ export const SESSION_COMMANDS = {
     failure: "Couldn't stop the agent",
     replay: false,
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
-    // Nothing was running (the turn ended first, or it was still starting):
-    // stopped is what the user asked for.
-    satisfiedBy: new Set(["INVALID_STATE"]),
+    // Nothing was running (the turn ended first): stopped is what the user
+    // asked for. A turn still starting answers `AGENT_STARTING` instead.
+    satisfiedBy: new Set(["NOTHING_TO_STOP"]),
   },
   clear: { failure: "Couldn't clear the conversation", replay: false },
   gateClose: { failure: "Couldn't dismiss the request", replay: false },

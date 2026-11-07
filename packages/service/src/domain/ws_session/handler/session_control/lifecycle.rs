@@ -1,7 +1,4 @@
-use std::sync::atomic::Ordering;
-
 use axum::extract::ws::Message;
-use tracing::error;
 
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
@@ -39,72 +36,8 @@ pub(crate) async fn handle_interrupt(
         }
     };
 
-    if app_state.user_shell_runs.cancel(db_session_id).await {
-        return;
-    }
-
-    // The live turn may be owned by another connection (e.g. the host stopping a
-    // conversation started on a remote device). Resolve the owning map so the
-    // interrupt reaches the running CLI rather than failing with NOT_FOUND. The
-    // resulting Idle status already broadcasts to every device via
-    // `session_status_tx`, so no extra mirror is needed here.
-    let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
-    let sdk_sessions = &effective_sessions;
-
-    let active_query = {
-        let sessions = sdk_sessions.lock().await;
-        let handle = match sessions.get(&db_session_id) {
-            Some(h) => h,
-            None => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "SESSION_NOT_FOUND",
-                    "Session not found",
-                );
-                return;
-            }
-        };
-
-        match &handle.state {
-            QueryState::Active { query, .. } => Some(std::sync::Arc::clone(query)),
-            QueryState::Pending(_) => {
-                handle.manual_compact_cancel.store(true, Ordering::SeqCst);
-                None
-            }
-        }
-    };
-
-    if let Some(query) = active_query {
-        // Stop is an intentional user control, not a responder failure. Mark
-        // it before interrupting so the concurrently running stream reader can
-        // classify Claude's error-result / EOF (and equivalent provider
-        // terminal events) as benign. The reply wait deliberately remains
-        // armed: a later instruction may resume this same child and should be
-        // the result eventually reported to its parent.
-        let q = query.read().await;
-        let _barrier = q.turn_control_guard().await;
-        let interrupted_generation = app_state
-            .active_turns
-            .request_interruption(db_session_id, &query)
-            .await;
-        let result = q.interrupt().await;
-        drop(q);
-        if let Err(error) = super::finish_interruption(
-            result,
-            &query,
-            app_state,
-            db_session_id,
-            interrupted_generation,
-        )
-        .await
-        {
-            error!(db_session_id, %error, "interrupt failed");
-            send_error(sender, &envelope.id, "SDK_ERROR", &error.to_string());
-        }
-    } else {
-        send_error(sender, &envelope.id, "INVALID_STATE", "Session not active");
+    if let Err(error) = super::stop_session(app_state, Some(sdk_sessions), db_session_id).await {
+        send_error(sender, &envelope.id, error.code, &error.message);
     }
 }
 

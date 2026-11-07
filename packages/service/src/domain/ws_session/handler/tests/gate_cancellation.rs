@@ -286,6 +286,8 @@ async fn full_turn_prompt_remains_cancellable(close_gate: bool) {
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     state.active_turns.begin_turn(1, &sessions).await;
+    // As `mark_agent_running` announces every turn it starts.
+    state.session_status_tx.broadcast_running(1, 1);
     state.session_runtimes.bind_feature(1, 1, &sessions).await;
     let prompt = tokio::spawn(async move {
         query
@@ -404,6 +406,8 @@ async fn followup_stop_and_queued_runtime_writer_do_not_deadlock() {
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     state.active_turns.begin_turn(1, &sessions).await;
+    // As `mark_agent_running` announces every turn it starts.
+    state.session_status_tx.broadcast_running(1, 1);
     state.session_runtimes.bind_feature(1, 1, &sessions).await;
     let prompt_state = state.clone();
     let prompt = tokio::spawn(async move {

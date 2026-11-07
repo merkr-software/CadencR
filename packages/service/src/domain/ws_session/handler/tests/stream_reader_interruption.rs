@@ -160,6 +160,8 @@ async fn interrupt_control_keeps_completion_follow_armed() {
         .active_turns
         .begin_turn(session_id, &sdk_sessions)
         .await;
+    // As `mark_agent_running` announces every turn it starts.
+    app_state.session_status_tx.broadcast_running(session_id, 1);
     seed_armed_reply_wait(&app_state, session_id).await;
 
     dispatch_envelope(

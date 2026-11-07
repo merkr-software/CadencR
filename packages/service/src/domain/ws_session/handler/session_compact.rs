@@ -2,7 +2,7 @@ use axum::extract::ws::Message;
 
 use super::super::protocol::*;
 use super::session_compact_lifecycle::{
-    begin_compact, finish_compact_start, persist_compact_command,
+    begin_compact, finish_compact_start, persist_compact_command, take_compact_cancel,
 };
 use super::session_compact_pending::spawn_pending_runtime_for_compact;
 use super::{parse_session_id, send_error, QueryState, SdkHandle, SdkSessions, WsSender};
@@ -162,14 +162,25 @@ async fn resolve_compact_runtime(
                 return None;
             };
             drop(sessions);
-            spawn_pending_runtime_for_compact(
+            let query = spawn_pending_runtime_for_compact(
                 envelope_id,
                 sender,
                 sdk_sessions,
                 db_session_id,
                 app_state,
             )
-            .await
+            .await?;
+            // A Stop while the runtime spawned (see `stop_session`).
+            if take_compact_cancel(sdk_sessions, db_session_id).await {
+                send_error(
+                    sender,
+                    envelope_id,
+                    "COMPACT_REJECTED",
+                    "Compaction was stopped before it started.",
+                );
+                return None;
+            }
+            Some(query)
         }
     }
 }
