@@ -10,6 +10,7 @@ mod blame;
 mod branch;
 mod diff;
 mod feature_branch;
+mod git_dir;
 mod graph;
 mod image;
 mod stash;
@@ -20,6 +21,7 @@ pub use blame::*;
 pub use branch::*;
 pub use diff::*;
 pub use feature_branch::*;
+pub use git_dir::*;
 pub use graph::*;
 pub use image::*;
 pub use stash::*;
@@ -91,22 +93,6 @@ pub(super) fn is_dirty_worktree_remove_error(err: &AppError) -> bool {
     message.contains("contains modified or untracked files")
         || message.contains("has local modifications")
         || message.contains("use --force")
-}
-
-/// Resolve a feature path only when it has Git metadata. Optional read endpoints
-/// already use `None` for empty results; mutations reject it before running Git.
-pub async fn resolve_feature_git_path(
-    state: &AppState,
-    feature_id: i64,
-) -> Result<Option<String>, AppError> {
-    let Some(path) = resolve_feature_working_path(state, feature_id).await? else {
-        return Ok(None);
-    };
-    Ok(
-        crate::shared::git_context::has_git_metadata(Path::new(&path))
-            .await?
-            .then_some(path),
-    )
 }
 
 /// Resolve the working directory, including for projects without Git. See

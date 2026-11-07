@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import type { Extension } from "@codemirror/state";
 import { useGetFileContent } from "@/api/generated";
+import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
+import { featurePathToGitPath } from "@/lib/git-paths";
 import { gitGutterExtension } from "./git-gutter-extension";
 
 interface UseGitGutterArgs {
@@ -48,11 +50,15 @@ export function useGitGutter({
   filePath,
   enabled,
 }: UseGitGutterArgs): UseGitGutterResult {
+  // `filePath` is relative to the feature's directory; Git reads it relative
+  // to the checkout root.
+  const prefix = useGitPathPrefix(featureId);
+  const gitPath = prefix == null ? "" : featurePathToGitPath(filePath, prefix);
   const { data } = useGetFileContent(
-    { feature_id: featureId, file_path: filePath, mode: "uncommitted" },
+    { feature_id: featureId, file_path: gitPath, mode: "uncommitted" },
     {
       query: {
-        enabled: enabled && Boolean(projectId && featureId && filePath),
+        enabled: enabled && Boolean(projectId && featureId && filePath) && prefix != null,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
       },

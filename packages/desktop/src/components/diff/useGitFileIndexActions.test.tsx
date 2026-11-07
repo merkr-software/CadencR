@@ -21,7 +21,10 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastWarning: vi.fn(),
+  gitPrefix: "" as string | null | undefined,
 }));
+
+vi.mock("@/hooks/useGitPathPrefix", () => ({ useGitPathPrefix: () => mocks.gitPrefix }));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -61,6 +64,7 @@ beforeEach(() => {
   mocks.toastError.mockReset();
   mocks.toastWarning.mockReset();
   useEditorStore.setState({ features: {} });
+  mocks.gitPrefix = "";
 });
 
 describe("useGitFileIndexActions", () => {
@@ -130,6 +134,39 @@ describe("useGitFileIndexActions", () => {
     });
     expect(mocks.toastError).toHaveBeenCalledWith("Could not stage src/conflict.ts", {
       description: "Save the open Editor buffer before staging this file.",
+    });
+  });
+
+  it("matches a monorepo Git path to its dirty Editor buffer", () => {
+    mocks.gitPrefix = "packages/app";
+    const editor = useEditorStore.getState();
+    editor.initFeature(42);
+    editor.openFile(42, "main", "src/conflict.ts");
+    editor.setDirty(42, "main", "src/conflict.ts", true);
+    const { result } = renderHook(() => useGitFileIndexActions(42));
+
+    act(() => result.current.stage("packages/app/src/conflict.ts"));
+    expect(mocks.stageMutate).not.toHaveBeenCalled();
+    expect(result.current.error?.message).toBe(
+      "Save the open Editor buffer before staging this file.",
+    );
+
+    // The repository root's own `src/conflict.ts` is another file.
+    act(() => result.current.stage("src/conflict.ts"));
+    expect(mocks.stageMutate).toHaveBeenCalledWith({
+      data: { feature_id: 42, file_path: "src/conflict.ts" },
+    });
+  });
+
+  it("does not stage before the Git prefix is known", () => {
+    mocks.gitPrefix = undefined;
+    const { result } = renderHook(() => useGitFileIndexActions(42));
+
+    act(() => result.current.stage("src/a.ts"));
+
+    expect(mocks.stageMutate).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledWith("Could not stage src/a.ts", {
+      description: "The project's Git root is still loading; try again.",
     });
   });
 

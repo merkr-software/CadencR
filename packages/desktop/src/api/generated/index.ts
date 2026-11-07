@@ -2635,6 +2635,21 @@ export type GitOperationResponseOneOfThree = {
  */
 export type GitOperationResponse = GitOperationResponseOneOf | GitOperationResponseOneOfThree;
 
+/**
+ * Where the feature's directory sits in its checkout. Git tab paths are
+ * relative to the checkout root; editor paths are relative to the feature's
+ * directory, so the two differ by this prefix.
+ */
+export interface GitPathPrefixResponse {
+  /**
+   * The feature's directory relative to the checkout root, with `/`
+   * separators: empty at the root, `packages/app` for a monorepo project.
+   * `None` when the directory has no Git metadata.
+   * @nullable
+   */
+  prefix?: string | null;
+}
+
 export interface GitStats {
   deletions: number;
   files_changed: number;
@@ -8642,6 +8657,10 @@ export type CheckMergeConflictsParams = {
 
 export type GetOriginalBranchParams = {
   project_id: number;
+  feature_id: number;
+};
+
+export type GetGitPathPrefixParams = {
   feature_id: number;
 };
 
@@ -22488,6 +22507,111 @@ export function useGetOriginalBranch<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetOriginalBranchQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGitPathPrefix = (params: GetGitPathPrefixParams, signal?: AbortSignal) => {
+  return customInstance<GitPathPrefixResponse>({
+    url: `/api/git/path-prefix`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetGitPathPrefixQueryKey = (params?: GetGitPathPrefixParams) => {
+  return [`/api/git/path-prefix`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetGitPathPrefixQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGitPathPrefixQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitPathPrefix>>> = ({ signal }) =>
+    getGitPathPrefix(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGitPathPrefix>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetGitPathPrefixQueryResult = NonNullable<Awaited<ReturnType<typeof getGitPathPrefix>>>;
+export type GetGitPathPrefixQueryError = ErrorType<unknown>;
+
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitPathPrefix>>,
+          TError,
+          Awaited<ReturnType<typeof getGitPathPrefix>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitPathPrefix>>,
+          TError,
+          Awaited<ReturnType<typeof getGitPathPrefix>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetGitPathPrefixQueryOptions(params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;

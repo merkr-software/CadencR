@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::app_state::AppState;
 use crate::domain::git::commands;
 use crate::domain::git::mutation_guard::GitMutationGuardError;
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::resolve_feature_git_dir;
 use crate::error::AppError;
 use crate::shared::git_cli::{
     git_output_error, git_ref_resolves_background, guard_positionals, run_git_output_with_env,
@@ -19,10 +19,12 @@ pub(super) async fn resolve_feature_update_path(
     state: &AppState,
     feature_id: i64,
 ) -> Result<PathBuf, AppError> {
-    let git_path = resolve_feature_git_path(state, feature_id)
+    // Merge and rebase name no repository-relative paths; they run in the
+    // feature's own directory, the key its post-write refresh needs.
+    Ok(resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    Ok(PathBuf::from(git_path))
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
+        .cwd)
 }
 
 pub(super) async fn require_no_active_operation(worktree: &Path) -> Result<(), AppError> {

@@ -290,6 +290,7 @@ function EditorPaneContent({
         <ConflictResolverEditor
           key={`conflict:${activeFilePath}`}
           filePath={activeFilePath}
+          gitFilePath={activeConflict.gitPath}
           conflictKind={activeConflict.kind}
           projectId={projectId}
           paneId={paneId}

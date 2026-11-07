@@ -113,7 +113,9 @@ pub async fn current_feature_branch(
 }
 
 /// True when `path` is the worktree provisioned for `feature_id` rather than
-/// the project directory the resolvers fall back to once it is gone.
+/// the project directory the resolvers fall back to once it is gone. Git
+/// endpoints pass the checkout root, which for a monorepo project's worktree is
+/// the linked worktree holding the recorded subdirectory, so it counts too.
 pub async fn is_own_worktree(
     read_pool: &SqlitePool,
     feature_id: i64,
@@ -134,7 +136,22 @@ pub async fn is_own_worktree(
         return Ok(false);
     };
     let path = normalize_git_path(&path.to_string_lossy());
-    Ok(normalize_git_path(&worktree) == path && normalize_git_path(&project_path) != path)
+    if normalize_git_path(&project_path) == path {
+        return Ok(false);
+    }
+    let worktree = normalize_git_path(&worktree);
+    Ok(worktree == path
+        || linked_worktree_root(Path::new(&worktree)).is_some_and(|root| root == Path::new(&path)))
+}
+
+/// The linked worktree root holding `dir`: its nearest ancestor with Git
+/// metadata, when that metadata is a linked worktree's `.git` file. The main
+/// checkout's `.git` directory is never a feature's own worktree.
+fn linked_worktree_root(dir: &Path) -> Option<&Path> {
+    let root = dir
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").symlink_metadata().is_ok())?;
+    root.join(".git").is_file().then_some(root)
 }
 
 async fn checked_out_branch(path: &Path) -> Result<Option<String>, AppError> {
@@ -338,6 +355,52 @@ mod tests {
         assert_eq!(branch.as_deref(), Some("feature/new"));
         assert_eq!(scope.branch.as_deref(), Some("feature/new"));
         assert_eq!(scope.revision, HEAD_REVISION);
+    }
+
+    #[tokio::test]
+    async fn a_monorepo_worktree_root_is_the_features_own_worktree() {
+        // Git endpoints pass the checkout root (`wt`), not the recorded
+        // subdirectory (`wt/packages/app`); ownership must survive that.
+        let pool = setup_diff_refs_schema().await;
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        init_repo(&repo).await;
+        let worktree = dir.path().join("wt");
+        let wt_arg = worktree.to_string_lossy().to_string();
+        run_git(
+            &repo,
+            &["worktree", "add", "-q", "-b", "feature/old", &wt_arg],
+        )
+        .await;
+        run_git(&worktree, &["checkout", "-q", "-b", "feature/new"]).await;
+        let recorded = worktree.join("packages/app");
+        std::fs::create_dir_all(&recorded).unwrap();
+        std::fs::create_dir_all(repo.join("packages/app")).unwrap();
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'app', ?)")
+            .bind(repo.join("packages/app").to_string_lossy().as_ref())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'f')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let recorded_arg = recorded.to_string_lossy().to_string();
+        repository::set_feature_setting(&pool, 1, SETTING_WORKTREE_PATH, &recorded_arg)
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 1, SETTING_WORKTREE_BRANCH, "feature/old")
+            .await
+            .unwrap();
+
+        for path in [&recorded, &worktree] {
+            assert!(is_own_worktree(&pool, 1, path).await.unwrap(), "{path:?}");
+            let branch = resolve_feature_branch(&pool, 1, path).await.unwrap();
+            assert_eq!(branch.as_deref(), Some("feature/new"), "{path:?}");
+        }
+        // The main checkout the resolvers fall back to is never the feature's.
+        assert!(!is_own_worktree(&pool, 1, &repo).await.unwrap());
     }
 
     #[tokio::test]

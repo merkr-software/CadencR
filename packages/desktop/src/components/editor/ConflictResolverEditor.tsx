@@ -9,7 +9,10 @@ import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import ConflictResultResolver from "./ConflictResultResolver";
 
 interface ConflictResolverEditorProps {
+  /** Editor path, relative to the feature's directory. */
   filePath: string;
+  /** The same file as Git endpoints name it, relative to the checkout root. */
+  gitFilePath: string;
   conflictKind: ChangedFileConflictKind | undefined;
   projectId: number;
   paneId: string;
@@ -19,7 +22,7 @@ interface ConflictResolverEditorProps {
 
 export default function ConflictResolverEditor(props: ConflictResolverEditorProps): ReactElement {
   const query = useGetFileContent(
-    { feature_id: props.featureId, file_path: props.filePath, mode: "uncommitted" },
+    { feature_id: props.featureId, file_path: props.gitFilePath, mode: "uncommitted" },
     { query: { refetchOnWindowFocus: false, refetchOnReconnect: false } },
   );
   const operation = useGitStatusStore(
@@ -32,7 +35,7 @@ export default function ConflictResolverEditor(props: ConflictResolverEditorProp
     if (props.conflictKind === ConflictKind.dd) {
       return (
         <StageGuidanceMessage
-          filePath={props.filePath}
+          filePath={props.gitFilePath}
           message="Both sides deleted this path. Stage the deletion to mark it resolved."
           stageDeletion
           indexActions={indexActions}
@@ -61,7 +64,7 @@ export default function ConflictResolverEditor(props: ConflictResolverEditorProp
   if (query.data.is_binary) {
     return (
       <StageGuidanceMessage
-        filePath={props.filePath}
+        filePath={props.gitFilePath}
         message="Binary content cannot be resolved safely in the text editor. Choose the desired file externally, then stage it."
         stageDeletion={false}
         indexActions={indexActions}
@@ -75,7 +78,7 @@ export default function ConflictResolverEditor(props: ConflictResolverEditorProp
       props.conflictKind === ConflictKind.ud;
     return (
       <StageGuidanceMessage
-        filePath={props.filePath}
+        filePath={props.gitFilePath}
         message={
           deleted
             ? "The worktree result is deleted. Stage the deletion to mark this conflict resolved."
