@@ -9,13 +9,13 @@ import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 import zipfile
 
 from archive import bounded, executable, retained, safe_name, selected
 from prepare import acquire
 from transform import macho_slice, transform
-from native_semantic import FIXTURES, exercise, finish_process
+from native_semantic import FIXTURES, exercise, finish_process, wait_for_exit
 from node_smoke import Connection
 
 
@@ -34,7 +34,7 @@ def macho(cpu):
 
 
 class NativePreparationTests(unittest.TestCase):
-    def test_native_shutdown_waits_for_protocol_exit_without_concurrent_stdin_eof(self):
+    def test_native_shutdown_supports_protocol_exit_and_an_eof_dependent_reader(self):
         server = r'''
 import json, os, select, sys
 stream = sys.stdin.buffer
@@ -47,7 +47,9 @@ while True:
         raise SystemExit(19)
     message = json.loads(stream.read(int(headers["content-length"])))
     if message["method"] == "exit":
-        ready, _, _ = select.select([stream], [], [], 0.2)
+        if sys.argv[1] == "eof":
+            raise SystemExit(0 if os.read(0, 1) == b"" else 19)
+        ready, _, _ = select.select([stream], [], [], 0.02)
         raise SystemExit(17 if ready and os.read(0, 1) == b"" else 0)
     if "id" not in message:
         continue
@@ -58,19 +60,47 @@ while True:
     sys.stdout.buffer.write(b"Content-Length: " + str(len(raw)).encode() + b"\r\n\r\n" + raw)
     sys.stdout.buffer.flush()
 '''
-        process = subprocess.Popen([sys.executable, "-u", "-c", server], stdin=subprocess.PIPE,
-                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-        try:
-            connection = Connection(process, lambda section: {})
-            report = exercise(connection, Path("/workspace"), Path("/workspace/main.ts"), FIXTURES["tsgo"], {})
-            self.assertEqual(report["result"]["items"], [{"code": 2322}])
-            self.assertEqual(process.wait(timeout=5), 0, "stdin EOF raced the protocol exit")
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
-            process.stdin.close()
-            process.stdout.close()
+        for mode in ("protocol", "eof"):
+            with self.subTest(mode=mode):
+                process = subprocess.Popen([sys.executable, "-u", "-c", server, mode], stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+                try:
+                    connection = Connection(process, lambda section: {})
+                    report = exercise(connection, Path("/workspace"), Path("/workspace/main.ts"), FIXTURES["tsgo"], {})
+                    self.assertEqual(report["result"]["items"], [{"code": 2322}])
+                    self.assertEqual(wait_for_exit(process, timeout=1), 0)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+                    process.stdin.close()
+                    process.stdout.close()
+
+    def test_native_shutdown_eof_phase_uses_only_the_remaining_global_budget(self):
+        process = Mock()
+        process.wait.side_effect = [subprocess.TimeoutExpired("fixture", 0.25), 0]
+        with patch("native_semantic.time.monotonic", side_effect=[100, 100.5]):
+            self.assertEqual(wait_for_exit(process), 0)
+        self.assertEqual(process.wait.call_args_list, [call(timeout=0.25), call(timeout=9.5)])
+        process.stdin.close.assert_called_once_with()
+
+    def test_native_shutdown_does_not_extend_an_exhausted_budget(self):
+        process = Mock()
+        process.wait.side_effect = [subprocess.TimeoutExpired("fixture", 0.25),
+                                    subprocess.TimeoutExpired("fixture", 0)]
+        with patch("native_semantic.time.monotonic", side_effect=[100, 111]):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                wait_for_exit(process)
+        self.assertEqual(process.wait.call_args_list, [call(timeout=0.25), call(timeout=0)])
+        process.stdin.close.assert_called_once_with()
+
+    def test_native_shutdown_preserves_nonzero_protocol_and_eof_exits(self):
+        for requires_eof in (False, True):
+            with self.subTest(requires_eof=requires_eof):
+                process = Mock()
+                process.wait.side_effect = [subprocess.TimeoutExpired("fixture", 0.25), 23] if requires_eof else [23]
+                self.assertEqual(wait_for_exit(process), 23)
+                self.assertEqual(process.stdin.close.call_count, int(requires_eof))
 
     def test_native_stdout_eof_can_precede_a_natural_nonzero_exit(self):
         process = subprocess.Popen([sys.executable, "-c",
