@@ -4,6 +4,7 @@ use super::runtime_mcp::{
     attach_current_cadencr_project_mcp, attach_current_cadencr_workspace_mcp, browser_mcp_enabled,
     project_mcp_enabled, workspace_mcp_enabled,
 };
+use crate::domain::mcp::control_grant::{McpControlGrant, McpControlServer};
 
 pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
     context: &mut PendingPromptContext,
@@ -13,7 +14,17 @@ pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
     let feature_id = context.feature_id;
     let session_id = context.db_session_id;
     let service_url = format!("http://127.0.0.1:{}", context.app_state.port);
-    let control_token = context.app_state.mcp_control_token.clone();
+    // One grant per subprocess, bound to this conversation, session and server.
+    let grant = |server| {
+        McpControlGrant {
+            server,
+            feature_id,
+            session_id,
+        }
+        .mint(&context.app_state.mcp_control_secret)
+    };
+    let project_token = grant(McpControlServer::Project);
+    let workspace_token = grant(McpControlServer::Workspace);
     let options = &mut context.options;
     match (
         browser_mcp_enabled(pool).await,
@@ -26,7 +37,7 @@ pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
             session_id,
             context.app_state.browser_bridge_config()?,
             &service_url,
-            &control_token,
+            &project_token,
         )?,
         (true, false) => attach_current_cadencr_browser_mcp(
             options,
@@ -40,7 +51,7 @@ pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
             feature_id,
             session_id,
             &service_url,
-            &control_token,
+            &project_token,
         )?,
         (false, false) => {}
     }
@@ -51,7 +62,7 @@ pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
             feature_id,
             session_id,
             &service_url,
-            &control_token,
+            &workspace_token,
         )?;
     }
     Ok(())

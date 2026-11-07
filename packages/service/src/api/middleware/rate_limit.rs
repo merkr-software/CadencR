@@ -22,7 +22,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::{extract::State, Extension};
 
-use super::auth::{is_websocket_upgrade, AUTH_HEADER, MCP_CONTROL_HEADER};
+use super::auth::{is_websocket_upgrade, AUTH_HEADER};
 use super::response::{connection_metadata_unavailable, too_many_requests};
 use super::ws::validate_ws_token;
 use crate::app_state::AppState;
@@ -196,16 +196,18 @@ fn has_valid_loopback_credential(request: &Request, state: &AppState) -> bool {
         return validate_ws_token(request.headers(), &state.auth_token).is_ok();
     }
 
-    let (header, expected) = if request.uri().path().starts_with("/internal/mcp/") {
-        (MCP_CONTROL_HEADER, state.mcp_control_token.as_str())
-    } else {
-        (AUTH_HEADER, state.auth_token.as_str())
-    };
+    if request.uri().path().starts_with("/internal/mcp/") {
+        return crate::domain::mcp::control_grant::McpControlGrant::from_headers(
+            request.headers(),
+            &state.mcp_control_secret,
+        )
+        .is_some();
+    }
     request
         .headers()
-        .get(header)
+        .get(AUTH_HEADER)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|presented| constant_time_str_eq(presented, expected))
+        .is_some_and(|presented| constant_time_str_eq(presented, &state.auth_token))
 }
 
 /// Source IP from the connection info axum injects via
