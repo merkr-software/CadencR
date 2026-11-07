@@ -5,6 +5,7 @@ import { useLsp } from "./useLsp";
 import { useLspResolution } from "./useLspResolution";
 
 const mocks = vi.hoisted(() => ({ refetch: vi.fn(), reconnect: vi.fn() }));
+vi.mock("@/hooks/useOpenEditorFile", () => ({ useOpenEditorFile: () => vi.fn() }));
 vi.mock("./useLspResolution", () => ({ useLspResolution: vi.fn() }));
 vi.mock("./useLspClients", () => ({
   useLspClients: () => ({ clients: [], status: "unsupported", onRetry: mocks.reconnect }),

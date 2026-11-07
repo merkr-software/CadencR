@@ -42,9 +42,11 @@ export const PluginTabShortcutRelay = memo(function PluginTabShortcutRelay(): nu
 
   useEffect(() => {
     if (!desktop) return;
-    const bindings = appShortcutBindings(overrides).map(({ keys, altKeys }) =>
-      altKeys ? { keys, altKeys } : { keys },
-    );
+    const bindings = appShortcutBindings(overrides, "editor").map(({ keys, altKeys, surface }) => ({
+      keys,
+      ...(altKeys ? { altKeys } : {}),
+      ...(surface ? { surface } : {}),
+    }));
     desktopBridge.pluginTabs.setAppShortcuts(bindings).catch((error: unknown) =>
       toast.error("Custom tabs may keep Cadencr's shortcuts while focused", {
         id: "plugin-tab-shortcuts",

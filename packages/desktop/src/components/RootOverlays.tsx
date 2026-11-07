@@ -12,6 +12,7 @@ import { UnifiedAgentsShortcut } from "@/components/UnifiedAgentsShortcut";
 import { PostUpdateChangelogDialog } from "@/components/PostUpdateChangelogDialog";
 import { ThemeDrawer } from "@/components/theme/ThemeDrawer";
 import { PluginTabPresenceKeeper } from "@/components/plugin-tabs/PluginTabPresenceKeeper";
+import { PluginEditorPresenceKeeper } from "@/components/editor/PluginEditorPresenceKeeper";
 import { PluginTabShortcutRelay } from "@/components/plugin-tabs/PluginTabShortcutRelay";
 import { useRemoteUpdateCheck } from "@/hooks/useRemoteUpdateCheck";
 import type { AppCloseState } from "@/hooks/useAppClose";
@@ -79,6 +80,7 @@ export function RootOverlays({
       <UnifiedAgentsShortcut />
       <SchedulesShortcut />
       <PluginTabPresenceKeeper />
+      <PluginEditorPresenceKeeper />
       <PluginTabShortcutRelay />
       <KeyboardShortcutsModal
         open={shortcutsHelpOpen}

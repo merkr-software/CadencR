@@ -9,6 +9,7 @@ import {
 import { RpcConnection } from "./rpc.js";
 import type { PortSource } from "./transport.js";
 import { SDK_VERSION } from "./version.js";
+import { isEditorAppearance, isSurfaceIdentity } from "./surface-protocol.js";
 
 export interface ConnectionEvents {
   /** A handshake succeeded; `reconnected` is false for the first one. */
@@ -39,6 +40,14 @@ function validateHello(value: unknown): HelloResult {
     });
   }
   const [min, max] = SUPPORTED_API_VERSIONS;
+  if (
+    (hello.surface !== undefined &&
+      (!isSurfaceIdentity(hello.surface) || hello.surface.instanceId !== hello.instanceId)) ||
+    (hello.focused !== undefined && typeof hello.focused !== "boolean") ||
+    (hello.editorAppearance !== undefined && !isEditorAppearance(hello.editorAppearance))
+  ) {
+    throw new CadencrError("HOST_ERROR", "The host answered hello with invalid surface metadata");
+  }
   if (hello.apiVersion < min || hello.apiVersion > max) {
     throw new CadencrError(
       "PLUGIN_API_UNSUPPORTED",

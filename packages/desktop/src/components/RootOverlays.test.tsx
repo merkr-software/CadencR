@@ -56,6 +56,9 @@ vi.mock("@/components/KeyboardShortcutsModal", () => ({
   KeyboardShortcutsModal: () => null,
 }));
 
+vi.mock("@/components/editor/PluginEditorPresenceKeeper", () => ({
+  PluginEditorPresenceKeeper: () => null,
+}));
 vi.mock("@/components/plugin-tabs/PluginTabPresenceKeeper", () => ({
   PluginTabPresenceKeeper: () => null,
 }));

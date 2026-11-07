@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import {
   CommandDialog,
   CommandInput,
@@ -10,8 +9,7 @@ import {
   CommandEmpty,
 } from "@/components/ui/command";
 import { useFileSearch, type FileMatchResult } from "@/api/generated";
-import { useEditorState } from "@/hooks/useEditorState";
-import { useOpenFileInNeovim } from "./neovim/useOpenFileInNeovim";
+import { useOpenEditorFile } from "@/hooks/useOpenEditorFile";
 import { FileSymbolIcon } from "./file-icons";
 
 interface FileSearchDialogProps {
@@ -29,13 +27,7 @@ export default function FileSearchDialog({
   open,
   onOpenChange,
 }: FileSearchDialogProps) {
-  const { activePaneId, openFile } = useEditorState(featureId);
-  // Defined only when the editor pane is actually showing Neovim, which owns
-  // its own buffers — opening a tab in the store would be invisible there.
-  // Mirrors the file tree, the other entry point into "open this file".
-  const openInNeovim = useOpenFileInNeovim(featureId);
-  const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
-  const maxTabs = parseInt(maxTabsSetting ?? "10", 10);
+  const openFile = useOpenEditorFile(featureId);
 
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedQuery = useDebouncedValue(searchQuery, DEBOUNCE_MS);
@@ -53,8 +45,7 @@ export default function FileSearchDialog({
   }, [open]);
 
   function handleSelect(filePath: string) {
-    if (openInNeovim) openInNeovim(filePath);
-    else openFile(activePaneId ?? "main", filePath, maxTabs);
+    openFile(filePath);
     onOpenChange(false);
   }
 

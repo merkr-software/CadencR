@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use super::issues::{TabFindings, TabIssueCode as Code};
 use super::manifest::TabManifest;
 use super::{
-    configuration, execution, network, shortcuts, SCOPES, SUPPORTED_API_VERSION,
-    SUPPORTED_SCHEMA_VERSION,
+    configuration, contributions, execution, network, shortcuts, SCOPES, SUPPORTED_API_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
 };
 
 pub const MAX_NAME_CHARS: usize = 64;
@@ -37,6 +37,7 @@ pub fn validate_manifest(manifest: &TabManifest) -> TabFindings {
         execution::validate_backend(backend, &mut findings);
     }
     shortcuts::validate(&manifest.shortcuts, &mut findings);
+    contributions::validate(manifest, &mut findings);
     findings
 }
 
@@ -57,11 +58,11 @@ pub(super) fn is_label(id: &str, max_len: usize) -> bool {
 }
 
 fn validate_identity(manifest: &TabManifest, findings: &mut TabFindings) {
-    if manifest.schema_version != SUPPORTED_SCHEMA_VERSION {
+    if !SUPPORTED_SCHEMA_VERSIONS.contains(&manifest.schema_version) {
         findings.error(
             Code::SchemaVersionUnsupported,
             "schema_version",
-            format!("must be {SUPPORTED_SCHEMA_VERSION}"),
+            "this Cadencr supports schema_version 1 or 2",
         );
     }
     if manifest.kind != "tab" {
@@ -187,6 +188,28 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn editor_contributions_require_v2_and_a_backend() {
+        let editor = json!({"editor": {"label": "Demo editor", "open_method": "editor.open"}});
+        let base = json!({"schema_version": 2, "contributes": editor, "backend": {
+            "protocol": 2, "binary": {"linux-x86_64": "bin/editor"}, "reasoning": "Edit files"
+        }});
+        let findings = validate_manifest(&manifest(base.clone()));
+        assert!(findings.is_valid(), "{findings:?}");
+        for overrides in [
+            json!({"schema_version": 1}),
+            json!({"backend": null}),
+            json!({"contributes": {"editor": {"label": "", "open_method": "editor.open"}}}),
+            json!({"contributes": {"editor": {"label": "Editor", "open_method": ""}}}),
+        ] {
+            let mut invalid = base.clone();
+            for (key, value) in overrides.as_object().unwrap() {
+                invalid[key] = value.clone();
+            }
+            assert!(!validate_manifest(&manifest(invalid)).is_valid());
+        }
+    }
+
+    #[test]
     fn the_contract_example_is_valid() {
         let findings = validate_manifest(&manifest(json!({})));
         assert!(findings.is_valid(), "{findings:?}");
@@ -227,7 +250,7 @@ mod tests {
     #[test]
     fn identity_fields_are_checked() {
         let findings = validate_manifest(&manifest(json!({
-            "schema_version": 2, "kind": "theme", "api_version": 2, "version": "1.0"
+            "schema_version": 3, "kind": "theme", "api_version": 2, "version": "1.0"
         })));
         assert_eq!(
             codes(&findings.errors),

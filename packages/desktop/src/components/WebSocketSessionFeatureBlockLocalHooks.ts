@@ -18,7 +18,8 @@ import {
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
 import { useEditorStore } from "@/stores/editor-store";
-import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
+import { useOpenEditorFile } from "@/hooks/useOpenEditorFile";
+import { useEditorBackend } from "@/hooks/useEditorBackend";
 import type { OpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 
 interface DiffFileOpeners {
@@ -40,14 +41,14 @@ export function useOpenDiffFileInEditor({
   featureId,
   layoutFeatureId,
   rootPath,
-  refs,
 }: {
   featureId: number;
   layoutFeatureId: number;
   rootPath: string;
   refs: ReturnType<typeof useSessionRefs>;
 }): DiffFileOpeners {
-  const openInNeovim = useOpenFileInNeovim(featureId, { ensureStarted: true });
+  const openFile = useOpenEditorFile(featureId);
+  const target = useEditorBackend(featureId);
 
   const open = useCallback(
     (
@@ -57,8 +58,8 @@ export function useOpenDiffFileInEditor({
       reveal: () => void,
     ): void => {
       const relativePath = toProjectPath(filePath, rootPath);
-      // Neovim can't show a binary document: it opens in the Preview tab instead.
-      if (openInNeovim && isBinaryDocumentFile(relativePath)) {
+      // External editors send binary documents to Preview.
+      if (target.kind !== "codemirror" && isBinaryDocumentFile(relativePath)) {
         openDocumentPreview({
           featureId,
           layoutFeatureId,
@@ -67,20 +68,9 @@ export function useOpenDiffFileInEditor({
         });
         return;
       }
-      if (openInNeovim) {
-        openInNeovim(relativePath, lineNumber, column, reveal);
-        return;
-      }
-      const editor = useEditorStore.getState();
-      editor.initFeature(featureId);
-      const paneId = useEditorStore.getState().features[featureId]?.activePaneId ?? "main";
-      // Always an ordinary open; if Git reports this exact path as unmerged the
-      // resolver mounts automatically via `useAutoConflictResolution`.
-      editor.openFile(featureId, paneId, relativePath, undefined, lineNumber);
-      reveal();
-      requestAnimationFrame(() => refs.editor.current?.focusActiveEditor());
+      openFile(relativePath, lineNumber, column, reveal);
     },
-    [featureId, layoutFeatureId, openInNeovim, refs.editor, rootPath],
+    [featureId, layoutFeatureId, openFile, rootPath, target.kind],
   );
 
   return useMemo(

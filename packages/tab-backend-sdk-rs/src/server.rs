@@ -14,9 +14,8 @@ use crate::context::{Context, Handler, Session};
 use crate::error::{codes, Error};
 use crate::framing::{next_line, Line};
 use crate::incoming::{classify, hello, Incoming};
-use crate::protocol::{
-    BackendMessage, Ready, Request, Response, MAX_IN_FLIGHT, MAX_LINE_BYTES, PROTOCOL_VERSION,
-};
+use crate::output::{Output, OutputLifetime};
+use crate::protocol::{BackendMessage, Ready, Request, Response, MAX_IN_FLIGHT, MAX_LINE_BYTES};
 use crate::stdio_guard;
 
 /// `ready.sdk` of backends built with this crate.
@@ -65,7 +64,7 @@ impl fmt::Display for ServeError {
             Self::NotHello(found) => write!(formatter, "expected `hello` first, got {found}"),
             Self::ProtocolMismatch { host } => write!(
                 formatter,
-                "the host speaks protocol {host}, this backend speaks {PROTOCOL_VERSION}"
+                "the host speaks protocol {host}, this backend speaks protocols 1 and 2"
             ),
             Self::InvalidHello(detail) => write!(formatter, "invalid `hello`: {detail}"),
             Self::Io(error) => write!(formatter, "stdio failed: {error}"),
@@ -121,13 +120,14 @@ pub(crate) fn run(
         Some(Line::TooLong) => return Err(ServeError::InvalidHello("the line is too long".into())),
         Some(Line::Text(line)) => line,
     };
-    let session = Arc::new(Session::new(hello(&first)?));
-    let output = Output(Arc::new(Mutex::new(output)));
+    let hello = hello(&first)?;
+    let output = Output::new(output);
     let ready = BackendMessage::Ready(Ready {
-        protocol: PROTOCOL_VERSION,
+        protocol: hello.protocol,
         sdk: Some(SDK.into()),
     });
     output.write(&ready).map_err(ServeError::Io)?;
+    let session = Arc::new(Session::new(hello, output.clone()));
     let pool = Pool::start(config.workers.max(1), session, handler, output.clone())?;
     while let Some(line) = next_line(&mut input, MAX_LINE_BYTES).map_err(ServeError::Io)? {
         let line = match line {
@@ -146,52 +146,12 @@ pub(crate) fn run(
     Ok(pool)
 }
 
-/// The protocol output, shared by the workers; one whole line per write.
-#[derive(Clone)]
-struct Output(Arc<Mutex<Box<dyn Write + Send>>>);
-
-impl Output {
-    fn write(&self, message: &BackendMessage) -> io::Result<()> {
-        self.write_line(serde_json::to_vec(message)?)
-    }
-
-    /// Write one serialized message and its `\n`.
-    fn write_line(&self, mut line: Vec<u8>) -> io::Result<()> {
-        line.push(b'\n');
-        let mut output = lock(&self.0);
-        output.write_all(&line)?;
-        output.flush()
-    }
-
-    /// Write `response`, replaced by an error when it does not fit a line.
-    fn respond(&self, response: Response) {
-        let id = response.id.clone();
-        let written = match serde_json::to_vec(&BackendMessage::Response(response)) {
-            Ok(line) if line.len() <= MAX_LINE_BYTES => self.write_line(line),
-            _ => {
-                let error = Error::new(
-                    codes::RESPONSE_TOO_LARGE,
-                    format!("the response does not fit in {MAX_LINE_BYTES} bytes"),
-                );
-                self.write(&BackendMessage::Response(Response::err(
-                    id.clone(),
-                    error.into(),
-                )))
-            }
-        };
-        if let Err(error) = written {
-            log(format_args!(
-                "could not write the response to {id}: {error}"
-            ));
-        }
-    }
-}
-
 /// The workers of one run. Once it is dropped or [`Pool::join`]ed, they
 /// finish the requests already queued and stop.
 pub(crate) struct Pool {
     jobs: SyncSender<Request>,
     workers: Vec<JoinHandle<()>>,
+    _output_lifetime: OutputLifetime,
 }
 
 impl Pool {
@@ -217,7 +177,11 @@ impl Pool {
             })
             .collect::<io::Result<Vec<_>>>()
             .map_err(ServeError::Io)?;
-        Ok(Self { jobs, workers })
+        Ok(Self {
+            jobs,
+            workers,
+            _output_lifetime: output.lifetime(),
+        })
     }
 
     /// Queue `request`, or answer it `BUSY` when the queue is full: reading
@@ -358,8 +322,8 @@ mod tests {
             Ok(Value::Null)
         };
         let capture = Capture::default();
-        let output = Output(Arc::new(Mutex::new(Box::new(capture.clone()))));
-        let session = Arc::new(Session::new(sample_hello()));
+        let output = Output::new(Box::new(capture.clone()));
+        let session = Arc::new(Session::new(sample_hello(), output.clone()));
         let pool = Pool::start(1, session, Arc::new(handler), output.clone()).unwrap();
         pool.submit(request(0), &output);
         entered.recv().unwrap();
