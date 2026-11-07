@@ -66,9 +66,23 @@ def files(root):
     return captured
 
 
+def cli_version(origin):
+    require(origin in ("source-build", "released-pin"), "explicit CLI origin required")
+    if origin == "released-pin":
+        return CLI_VERSION
+    manifest = ROOT / "packages/cli"
+    cargo = regular(manifest / "Cargo.toml", 64 * 1024).decode()
+    package = re.search(r"(?ms)^\[package\][ \t]*\n(.*?)(?=^\[|\Z)", cargo)
+    versions = re.findall(r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"[ \t]*$',
+                          package[1], re.MULTILINE) if package else []
+    version = parse_json(regular(manifest / "package.json", 64 * 1024))["version"]
+    require(len(versions) == 1 and versions[0] == version, "source CLI manifest versions must match exactly")
+    return version
+
+
 def provenance(origin, cli_sha256, source_commit, pin_sha256=None):
     require(origin in ("source-build", "released-pin") and hex_digest(cli_sha256), "explicit CLI provenance required")
-    value = {"origin": origin, "version": CLI_VERSION, "sha256": cli_sha256}
+    value = {"origin": origin, "version": cli_version(origin), "sha256": cli_sha256}
     if origin == "source-build":
         require(pin_sha256 is None, "a source-built CLI cannot claim a released pin")
         value["source_commit"] = commit(source_commit)

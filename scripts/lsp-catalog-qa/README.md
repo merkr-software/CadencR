@@ -25,9 +25,10 @@ built on Ubuntu 24.04 therefore makes no claim about CLI support on Ubuntu 22.04
 The macOS jobs establish behavior on their actual macOS 15 hosts, not a minimum
 supported macOS version. Runner labels follow the [GitHub-hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-Pull requests and the default manual mode build CLI `0.15.6` from the checked-out
-source with `pnpm rust -- build --locked --release -p cadencr-cli`. Evidence labels
-this `source-build` and records its source commit and SHA-256. It is **not**
+Pull requests and the default manual mode build the CLI version declared by both
+checked-out CLI manifests with `pnpm rust -- build --locked --release -p cadencr-cli`.
+The binary's reported version must match those committed manifests exactly.
+Evidence labels this `source-build` and records its version, source commit and SHA-256. It is **not**
 qualification of a publicly distributed CLI binary.
 
 Source mode uploads the exact Linux CLI and a `source-cli.json` checksum/source/
