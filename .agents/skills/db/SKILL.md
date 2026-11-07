@@ -15,7 +15,7 @@ Cadencr stores its state in a SQLite file. There are two locations to be aware o
 | **Production** (packaged Electron) | macOS: `~/.cadencr/database/cadencr.db`. Linux: `$XDG_DATA_HOME/cadencr/database/cadencr.db` (default `~/.local/share/cadencr/database/cadencr.db`). | When the Electron sidecar spawns the service binary (see `packages/desktop/electron/main/sidecar.ts`). |
 | Custom | Whatever `CADENCR_DB_PATH` / `--db-path` points at | Override either of the above. |
 
-**Never remove any database** — not the dev DB, not the production DB, not a custom path. Never delete, truncate, overwrite, replace, or `rm` a database file. No exceptions.
+**Never remove the production database.** Never delete, truncate, overwrite, replace, or `rm` anything in its directory (`~/.cadencr/database/` on macOS, `$XDG_DATA_HOME/cadencr/database/` on Linux). The dev DB, worktree clones and QA or custom `--db-path` files are disposable test databases. Never run a service on a copy of a database that holds real schedules or agents.
 
 Default to the **dev** path unless the user is clearly debugging the packaged app. If unsure, ask. Always wrap the path in double quotes — e.g. `sqlite3 "packages/service/cadencr.local.db"`.
 

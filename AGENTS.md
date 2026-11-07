@@ -10,7 +10,7 @@ Cadencr is a desktop IDE for multiple AI coding agents: pnpm/Turborepo, React/El
 
 ## Safety
 
-- Never delete, truncate, overwrite, or replace a Cadencr database, including development, production, and custom `CADENCR_DB_PATH` targets.
+- Never delete, truncate, overwrite, or replace the production database: `~/.cadencr/database/` on macOS, `$XDG_DATA_HOME/cadencr/database/` on Linux. Dev, worktree and QA databases are disposable.
 - Never reset, revert, restore away, or otherwise roll back committed or uncommitted work unless the user has sent exactly `I approve this rollback`.
 
 These two constraints stay visible here even before the detailed rules are loaded.
