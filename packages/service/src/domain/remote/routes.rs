@@ -161,14 +161,18 @@ pub async fn browser_origins_handler(State(state): State<AppState>) -> Json<Remo
     })
 }
 
-#[utoipa::path(post, path = "/api/remote/enable", responses((status = 200, body = RemoteStatus)))]
-pub async fn enable_handler(State(state): State<AppState>) -> Result<Json<RemoteStatus>, AppError> {
-    state.remote.start(&state).await.map_err(|err| match err {
+fn start_error(err: RemoteError) -> AppError {
+    match err {
         RemoteError::NoRendererDir | RemoteError::RendererIndexMissing(_) => {
             AppError::ServiceUnavailable(err.to_string())
         }
         _ => AppError::Internal(err.to_string()),
-    })?;
+    }
+}
+
+#[utoipa::path(post, path = "/api/remote/enable", responses((status = 200, body = RemoteStatus)))]
+pub async fn enable_handler(State(state): State<AppState>) -> Result<Json<RemoteStatus>, AppError> {
+    state.remote.start(&state).await.map_err(start_error)?;
     repository::set_setting(&state.write_pool, REMOTE_ENABLED_SETTING, "true").await?;
     Ok(Json(current_status(&state).await?))
 }
@@ -214,9 +218,10 @@ pub async fn revoke_handler(
     if !repo::revoke_device(&state.write_pool, id).await? {
         return Err(AppError::NotFound(format!("device {id}")));
     }
-    repo::record_audit(&state.write_pool, "revoke", Some(id), None).await?;
-    // Force-close any live sockets this device still holds.
+    // Force-close any live sockets this device still holds as soon as the
+    // revocation is committed, before the fallible audit write below.
     state.remote.live().cancel_device(id);
+    repo::record_audit(&state.write_pool, "revoke", Some(id), None).await?;
     Ok(Json(current_status(&state).await?))
 }
 
@@ -238,15 +243,19 @@ pub async fn set_tunnel_host_handler(
     )
     .await?;
     // Rebuild the listener's `Host`/`Origin` allowlist if it's running. A restart
-    // is the simplest correct way to apply the new context; it briefly drops live
-    // remote sessions, which is acceptable for a host-initiated config change.
-    if state.remote.status().await.is_some() {
-        state.remote.stop().await;
-        state
-            .remote
-            .start(&state)
-            .await
-            .map_err(|err| AppError::Internal(err.to_string()))?;
+    // is the simplest correct way to apply the new context; it drops live remote
+    // sessions, which is acceptable for a host-initiated config change.
+    if let Err(err) = state.remote.restart(&state).await {
+        // The listener is down now: persist that so the UI and the next launch
+        // agree with reality, then report why.
+        let persisted =
+            repository::set_setting(&state.write_pool, REMOTE_ENABLED_SETTING, "false").await;
+        return Err(match persisted {
+            Ok(()) => start_error(err),
+            Err(setting_err) => AppError::Internal(format!(
+                "{err}; remote access is off but could not be saved as disabled: {setting_err}"
+            )),
+        });
     }
     Ok(Json(current_status(&state).await?))
 }
@@ -339,6 +348,70 @@ mod tests {
         assert_eq!(origins.tunnel_host.as_deref(), Some("old.example.test"));
         assert!(pairing_urls(&started, "code")[0].starts_with("https://old.example.test/#code="));
         state.remote.stop().await;
+    }
+
+    #[tokio::test]
+    async fn revoke_closes_sockets_even_when_the_audit_write_fails() {
+        // One connection so the in-memory schema is shared; no `remote_audit`
+        // table, so the audit insert fails after the revocation commits.
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE remote_devices (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+             token_hash TEXT NOT NULL UNIQUE, label TEXT, \
+             created_at TEXT NOT NULL DEFAULT (datetime('now')), \
+             last_seen_at TEXT, revoked_at TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let id = repo::insert_device(&pool, "hash", "phone").await.unwrap();
+        let state = AppState::with_pool(pool);
+        let (open_socket, _) = state.remote.live().register(id);
+
+        let result = revoke_handler(State(state.clone()), Path(id)).await;
+
+        assert!(result.is_err(), "the audit failure is still reported");
+        assert!(open_socket.token.is_cancelled());
+        assert!(!repo::revoke_device(&state.write_pool, id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn failed_tunnel_restart_persists_remote_access_off() {
+        use crate::remote::{RemoteConfig, RemoteController};
+        let renderer = tempfile::tempdir().unwrap();
+        std::fs::write(renderer.path().join("index.html"), "<!doctype html>").unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let mut state = AppState::with_pool(pool);
+        state.remote = std::sync::Arc::new(RemoteController::new(RemoteConfig {
+            renderer_dir: Some(renderer.path().to_owned()),
+            remote_port: 0,
+            data_dir: data.path().to_owned(),
+        }));
+        state.remote.start(&state).await.unwrap();
+        repository::set_setting(&state.write_pool, REMOTE_ENABLED_SETTING, "true")
+            .await
+            .unwrap();
+        let (open_socket, _) = state.remote.live().register(1);
+        // Make the restart's startup fail.
+        std::fs::remove_file(renderer.path().join("index.html")).unwrap();
+
+        let request = TunnelHostRequest {
+            host: Some("tunnel.example.test".into()),
+        };
+        let result = set_tunnel_host_handler(State(state.clone()), Json(request)).await;
+
+        assert!(result.is_err());
+        assert!(state.remote.status().await.is_none());
+        assert!(open_socket.token.is_cancelled());
+        let enabled = repository::get_setting(&state.read_pool, REMOTE_ENABLED_SETTING)
+            .await
+            .unwrap();
+        assert_eq!(enabled.as_deref(), Some("false"));
     }
 
     const IPHONE_SAFARI: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) \
