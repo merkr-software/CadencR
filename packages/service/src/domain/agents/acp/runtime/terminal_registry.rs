@@ -19,10 +19,11 @@ use serde_json::{json, Value};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
+use super::terminal_group::stop_groups;
 use super::terminal_io::{
     build_output_payload, spawn_pumps, TerminalOutput, DEFAULT_TERMINAL_OUTPUT_LIMIT,
 };
-use super::terminal_process::{TerminalExitWaiter, TerminalProcess};
+use super::terminal_process::{TerminalExitWaiter, TerminalProcess, KILL_GRACE};
 use super::terminal_sandbox::{apply_restricted_env, parse_acp_env, resolve_sandboxed_cwd};
 
 #[derive(Default)]
@@ -93,6 +94,7 @@ impl TerminalRegistry {
             format!("{command} {}", args.join(" "))
         };
         let mut cmd = Command::new(command);
+        super::terminal_group::isolate(&mut cmd);
         cmd.args(&args).current_dir(&cwd);
         apply_restricted_env(&mut cmd, &env);
         cmd.stdout(Stdio::piped())
@@ -197,6 +199,22 @@ impl TerminalRegistry {
             .await
             .map_err(|error| (-32000, format!("terminal/kill: {error}")))?;
         Ok(Value::Null)
+    }
+
+    /// Session teardown: stop every terminal's process group (SIGTERM, then
+    /// SIGKILL for what is left after the grace), including what exited
+    /// commands left running, and drop the entries.
+    pub async fn shutdown(&self) {
+        let entries: Vec<TerminalEntry> = self
+            .inner
+            .lock()
+            .await
+            .terminals
+            .drain()
+            .map(|(_, entry)| entry)
+            .collect();
+        let groups: Vec<_> = entries.iter().map(|entry| entry.process.group()).collect();
+        stop_groups(&groups, KILL_GRACE).await;
     }
 
     /// Kill the command if still running and remove the registry entry.

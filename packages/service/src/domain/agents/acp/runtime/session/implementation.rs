@@ -34,6 +34,7 @@ use super::super::prompt_receipts::PendingPromptReceipts;
 use super::super::provider_hooks::{AcpProviderHooks, PermissionFallbackOutcome};
 use super::super::session_config::AcpSessionConfigState;
 use super::super::session_permissions::{PermissionKey, SessionPermissions};
+use super::super::terminal_registry::TerminalRegistry;
 use super::super::turn_lifecycle::{PromptCancel, PromptTurnLock};
 
 /// Channel buffer for the per-session runtime stream. Matches the size used
@@ -80,6 +81,9 @@ pub struct AcpRuntimeSession {
     /// ACP transport silently drops can be injected into the runtime
     /// channel). Aborted on `close()`.
     pub(in crate::domain::agents::acp::runtime) side_channel_task: Option<JoinHandle<()>>,
+    /// The session's terminals (shared with the event loop that serves
+    /// `terminal/*`). Their process groups are stopped on `close()`.
+    pub(in crate::domain::agents::acp::runtime) terminals: Arc<TerminalRegistry>,
     pub(in crate::domain::agents::acp::runtime) local_tx:
         Option<mpsc::Sender<Result<RuntimeEvent, RuntimeError>>>,
     pub(in crate::domain::agents::acp::runtime) hooks: Arc<dyn AcpProviderHooks>,
@@ -234,6 +238,10 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         if let Some(task) = self.side_channel_task.take() {
             task.abort();
         }
+        // After the event loop: no `terminal/create` can race the stop. The
+        // terminals lead their own process groups, so nothing else ends what
+        // they left running.
+        self.terminals.shutdown().await;
         // The stream receiver is owned outside the runtime. Drop our last
         // steady-state sender after stopping producer tasks so it observes EOF
         // even while the closed runtime remains registered for resume metadata.

@@ -670,6 +670,50 @@ mod tests {
             .unwrap();
     }
 
+    /// The runtime's terminals lead their own process groups, so closing the
+    /// session must stop what they left running.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn close_stops_what_the_session_terminals_left_running() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-close-terminals", false);
+        let cwd = std::env::temp_dir();
+        let created = session
+            .terminals
+            .create(
+                &json!({ "command": "/bin/sh", "args": ["-c", "sleep 30 & echo $!; exit 0"] }),
+                &cwd,
+            )
+            .await
+            .expect("terminal created");
+        let id = created["terminalId"].as_str().unwrap().to_string();
+        session.terminals.wait_for_exit(&id).await.unwrap();
+        let output = session.terminals.output(&id).await.unwrap();
+        let descendant: libc::pid_t = output["output"]
+            .as_str()
+            .unwrap()
+            .trim()
+            .parse()
+            .expect("descendant pid");
+        let alive = || unsafe { libc::kill(descendant, 0) == 0 };
+        assert!(alive(), "a natural exit leaves the descendant running");
+
+        let close = tokio::spawn(async move { session.close().await.unwrap() });
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/cancel");
+        tokio::time::timeout(Duration::from_secs(5), close)
+            .await
+            .expect("close stops the terminals within their grace")
+            .unwrap();
+        for _ in 0..100 {
+            if !alive() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the descendant outlived the session close");
+    }
+
     #[tokio::test]
     async fn close_error_falls_back_to_cancel() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
