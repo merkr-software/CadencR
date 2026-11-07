@@ -214,6 +214,9 @@ function processContentBlockDelta(
   const delta = event.delta as Record<string, unknown> | undefined;
   if (!delta) return [];
 
+  // A thinking block's signature: verification data the provider keeps with
+  // its own transcript, with nothing to render.
+  if (delta.type === "signature_delta") return [];
   const payload = deltaPayload(delta);
   if (!payload) {
     console.warn("[agent-stream] dropping unknown content delta type", delta.type);

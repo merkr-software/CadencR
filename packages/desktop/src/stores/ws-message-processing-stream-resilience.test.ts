@@ -145,14 +145,14 @@ describe("stream resilience — fault injection", () => {
       streamEvent({
         type: "content_block_delta",
         index: 0,
-        delta: { type: "signature_delta", signature: "abc" },
+        delta: { type: "some_future_delta", payload: "abc" },
       }),
       state,
     );
     expect(unknown.mutations).toHaveLength(0);
     expect(warn).toHaveBeenCalledWith(
       "[agent-stream] dropping unknown content delta type",
-      "signature_delta",
+      "some_future_delta",
     );
 
     // A known delta for the same block still lands.
@@ -165,6 +165,42 @@ describe("stream resilience — fault injection", () => {
       state,
     );
     expect(text.mutations).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it("absorbs a thinking block's signature_delta silently, keeping its text", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const state = createStreamingState();
+    const start = processSdkMessage(
+      streamEvent({
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "thinking", thinking: "" },
+      }),
+      state,
+    );
+    const blockId = start.mutations[0].block.id;
+    const thought = processSdkMessage(
+      streamEvent({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "weighing options" },
+      }),
+      state,
+    );
+    expect(thought.mutations).toEqual([
+      { action: "update", block: { id: blockId, type: "thinking", content: "weighing options" } },
+    ]);
+    const signature = processSdkMessage(
+      streamEvent({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "EqQBCkYIBRgCKkA" },
+      }),
+      state,
+    );
+    expect(signature.mutations).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 

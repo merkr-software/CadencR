@@ -150,6 +150,11 @@ pub(super) fn map_stream_event(event: &claude_agent_sdk_rs::StreamEventData) -> 
                         },
                     }
                 }
+                // A thinking block's signature: verification data the CLI keeps
+                // in its own transcript, with nothing to render.
+                claude_agent_sdk_rs::types::ContentDelta::SignatureDelta { .. } => {
+                    RuntimeStreamEvent::Other
+                }
                 // An unknown delta type carries nothing we can render; treat the
                 // whole event as `Other` rather than fabricating a delta — but
                 // log it: a CLI that starts streaming a new delta type would
@@ -219,7 +224,29 @@ pub(super) fn map_user_message(message: &Value) -> RuntimeUserMessage {
 mod tests {
     use serde_json::json;
 
-    use super::context_window_for_model_from_raw;
+    use super::{context_window_for_model_from_raw, map_stream_event};
+    use crate::domain::agents::adapter::RuntimeStreamEvent;
+
+    #[test]
+    fn a_thinking_signature_delta_is_a_known_no_op() {
+        let event: claude_agent_sdk_rs::StreamEventData = serde_json::from_value(json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "signature_delta", "signature": "EqQBCkYIBRgC" }
+        }))
+        .unwrap();
+        assert!(matches!(
+            event,
+            claude_agent_sdk_rs::StreamEventData::ContentBlockDelta {
+                delta: claude_agent_sdk_rs::types::ContentDelta::SignatureDelta { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            map_stream_event(&event),
+            RuntimeStreamEvent::Other
+        ));
+    }
 
     #[test]
     pub(in crate::domain::agents::claude_code) fn context_window_for_model_from_raw_uses_single_entry_for_default_alias(
