@@ -11,22 +11,27 @@ export interface AccessLevelCopy {
   label: string;
   /** One sentence: what the level lets the tab do. */
   summary: string;
+  /** What it can do with the user's rights, added where an update is reviewed; `null` when nothing. */
+  reach: string | null;
 }
 
 export const ACCESS_LEVEL_COPY: Record<TabAccessLevel, AccessLevelCopy> = {
   ui: {
     label: "Read-only",
     summary: "Shows a page that reads Cadencr data only through its permissions.",
+    reach: null,
   },
   commands: {
     label: "Runs commands",
     summary:
-      "Asks Cadencr to run the programs it lists on your computer, in this conversation's folder.",
+      "Asks Cadencr to run the programs it lists, with arguments it picks, in this conversation's folder.",
+    reach: "The programs it runs can run any code on your computer with your user rights.",
   },
   backend: {
     label: "Native code",
     summary:
       "Runs its own program on your computer with your user rights. Cadencr does not sandbox it.",
+    reach: "Its program runs on your computer with your user rights.",
   },
 };
 

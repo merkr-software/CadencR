@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { featureBridgeToken } from "./browser-bridge-auth";
 import { dispatchBrowserBridgePayload } from "./browser-bridge-server";
 
 describe("browser bridge server", () => {
@@ -44,5 +45,23 @@ describe("browser bridge server", () => {
         image: { mimeType: "image/png", data: "AAAA" },
       },
     });
+  });
+
+  it("keeps a feature-scoped caller inside its own feature", async () => {
+    const dispatch = vi.fn(async () => ({ text: "ok" }));
+    const header = `Bearer ${featureBridgeToken("secret", 7)}`;
+    const call = (body: object) =>
+      dispatchBrowserBridgePayload(header, "secret", JSON.stringify(body), dispatch);
+
+    expect(await call({ tool_name: "browser_list_tabs", args: {}, feature_id: 7 })).toEqual({
+      status: 200,
+      payload: { text: "ok" },
+    });
+    expect((await call({ tool_name: "browser_evaluate", args: {}, feature_id: 8 })).status).toBe(
+      403,
+    );
+    expect((await call({ tool_name: "browser_evaluate", args: {} })).status).toBe(403);
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith("browser_list_tabs", {}, 7);
   });
 });

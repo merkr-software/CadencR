@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod browser;
 pub mod browser_bridge;
+pub mod browser_bridge_scope;
 pub mod helpers;
 pub mod messages;
 pub mod project;

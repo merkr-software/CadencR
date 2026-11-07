@@ -1,6 +1,7 @@
 pub(super) mod compaction;
 mod input;
 mod interrupt;
+mod options;
 mod question;
 mod stream;
 
@@ -34,6 +35,8 @@ use crate::domain::agents::adapter::{
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
     RuntimePermissionResponseKind,
 };
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
+pub(super) use options::CodexSessionOptions;
 use stream::{error_receiver, spawn_local_forwarder, stream_channel};
 
 pub(super) struct CodexSession {
@@ -67,19 +70,7 @@ pub(super) struct CodexSession {
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
     known_subagents: Vec<KnownSubagent>,
-}
-
-pub(super) struct CodexSessionOptions {
-    pub(super) model: Option<String>,
-    pub(super) effort: Option<String>,
-    pub(super) effective_model: Option<String>,
-    pub(super) effective_effort: Option<String>,
-    pub(super) summary: Option<String>,
-    pub(super) fast_mode: Option<bool>,
-    pub(super) permission_mode: Option<RuntimePermissionMode>,
-    pub(super) access_mode: Option<RuntimeAccessMode>,
-    pub(super) cwd: PathBuf,
-    pub(super) context_window: Option<u64>,
+    browser_trust: CadencrBrowserTrust,
 }
 
 impl CodexSession {
@@ -118,6 +109,7 @@ impl CodexSession {
             mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
             known_subagents: Vec::new(),
+            browser_trust: options.browser_trust,
         }
     }
 
@@ -213,6 +205,7 @@ impl AgentRuntimeSession for CodexSession {
             .closing(Arc::clone(&self.closing))
             .compaction(Arc::clone(&self.compaction))
             .known_subagents(std::mem::take(&mut self.known_subagents))
+            .browser_trust(self.browser_trust)
             .call();
         spawn_local_forwarder(local_rx, tx);
         rx

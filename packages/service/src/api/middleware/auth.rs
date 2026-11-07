@@ -1,5 +1,6 @@
 use super::response::{misdirected, unauthorized};
 use crate::app_state::AppState;
+use crate::domain::mcp::control_grant::McpControlGrant;
 use crate::domain::plugin_tabs::principal::{self, PLUGIN_TOKEN_HEADER};
 use crate::domain::visual_frame::VISUAL_FRAME_PATH;
 use crate::error::AppError;
@@ -38,14 +39,10 @@ pub async fn auth_middleware(
     }
 
     if request.uri().path().starts_with("/internal/mcp/") {
-        let presented = request
-            .headers()
-            .get(MCP_CONTROL_HEADER)
-            .and_then(|v| v.to_str().ok());
-        if !presented.is_some_and(|value| constant_time_str_eq(value, &state.mcp_control_token)) {
-            return unauthorized();
-        }
-        return next.run(request).await;
+        return match authorize_mcp_control(&state, request).await {
+            Ok(request) => next.run(request).await,
+            Err(response) => response,
+        };
     }
 
     if request.headers().contains_key(PLUGIN_TOKEN_HEADER) {
@@ -69,6 +66,34 @@ pub async fn auth_middleware(
     }
 
     next.run(request).await
+}
+
+/// Largest control request body the middleware reads to check its source:
+/// axum's default `Json` limit, which the control handlers keep.
+const MAX_MCP_CONTROL_BODY_BYTES: usize = 2 * 1024 * 1024;
+
+/// A Cadencr MCP subprocess's control grant: 401 without a valid one, 403
+/// `MCP_CONTROL_OUT_OF_SCOPE` when the request names another source or calls
+/// another server's route, 400 `MCP_CONTROL_REQUEST_INVALID` when its source
+/// cannot be read. The request comes back with its body restored.
+async fn authorize_mcp_control(state: &AppState, request: Request) -> Result<Request, Response> {
+    let grant = McpControlGrant::from_headers(request.headers(), &state.mcp_control_secret)
+        .ok_or_else(unauthorized)?;
+    let (parts, body) = request.into_parts();
+    let bytes = axum::body::to_bytes(body, MAX_MCP_CONTROL_BODY_BYTES)
+        .await
+        .map_err(|_| {
+            AppError::coded(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "MCP_CONTROL_BODY_TOO_LARGE",
+                "control request body is unreadable or too large",
+            )
+            .into_response()
+        })?;
+    grant
+        .check_request(&parts.uri, &bytes)
+        .map_err(IntoResponse::into_response)?;
+    Ok(Request::from_parts(parts, axum::body::Body::from(bytes)))
 }
 
 /// A custom tab's grant token (`docs/CUSTOM_TABS.md` §4.3): either it or the
@@ -185,11 +210,24 @@ mod tests {
                 post(|| async { "ok" }),
             )
             .route("/ws", get(|| async { "ok" }))
+            // Reads its source like the real control handlers do.
+            .route(
+                "/internal/mcp/project/send-message",
+                post(|axum::Json(probe): axum::Json<ControlProbe>| async move {
+                    format!("{}/{}", probe.source_feature_id, probe.source_session_id)
+                }),
+            )
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 auth_middleware,
             ))
             .with_state(state)
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ControlProbe {
+        source_feature_id: i64,
+        source_session_id: i64,
     }
 
     fn req_builder() -> axum::http::request::Builder {
@@ -200,6 +238,18 @@ mod tests {
 
     fn get_req() -> HttpRequest<Body> {
         req_builder().body(Body::empty()).unwrap()
+    }
+
+    const CONTEXT_URI: &str = "/internal/mcp/project/context?feature_id=42&source_session_id=777";
+
+    /// The project MCP grant of feature 42 / session 777 in a test state.
+    fn control_token() -> String {
+        McpControlGrant {
+            server: crate::domain::mcp::control_grant::McpControlServer::Project,
+            feature_id: 42,
+            session_id: 777,
+        }
+        .mint("test-mcp-secret")
     }
 
     #[tokio::test]
@@ -216,9 +266,9 @@ mod tests {
     async fn internal_mcp_accepts_control_token() {
         let app = app_with_token("ui-secret").await;
         let req = HttpRequest::builder()
-            .uri("/internal/mcp/project/context")
+            .uri(CONTEXT_URI)
             .header(header::HOST, format!("127.0.0.1:{TEST_PORT}"))
-            .header(MCP_CONTROL_HEADER, "test-mcp-token")
+            .header(MCP_CONTROL_HEADER, control_token())
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
@@ -249,7 +299,7 @@ mod tests {
     async fn internal_mcp_requires_control_token_not_ui_token() {
         let app = app_with_token("ui-secret").await;
         let req = HttpRequest::builder()
-            .uri("/internal/mcp/project/context")
+            .uri(CONTEXT_URI)
             .header(header::HOST, format!("127.0.0.1:{TEST_PORT}"))
             .header(AUTH_HEADER, "ui-secret")
             .body(Body::empty())
@@ -307,10 +357,11 @@ mod tests {
     #[tokio::test]
     async fn internal_mcp_cannot_bypass_auth_with_upgrade() {
         let app = app_with_token("ui-secret").await;
-        for token in [None, Some("ui-secret"), Some("test-mcp-token")] {
+        let granted = control_token();
+        for token in [None, Some("ui-secret"), Some(granted.as_str())] {
             let mut builder = req_builder()
                 .method("POST")
-                .uri("/internal/mcp/project/context")
+                .uri(CONTEXT_URI)
                 .header(header::UPGRADE, "websocket");
             if let Some(token) = token {
                 builder = builder.header(MCP_CONTROL_HEADER, token);
@@ -322,13 +373,100 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 response.status(),
-                if token == Some("test-mcp-token") {
+                if token == Some(granted.as_str()) {
                     StatusCode::NOT_FOUND
                 } else {
                     StatusCode::UNAUTHORIZED
                 }
             );
         }
+    }
+
+    #[tokio::test]
+    async fn internal_mcp_holds_a_grant_to_its_source_and_server() {
+        let app = app_with_token("ui-secret").await;
+        let call = |uri: &str, token: String, body: serde_json::Value| {
+            req_builder()
+                .method("POST")
+                .uri(uri)
+                .header(MCP_CONTROL_HEADER, token)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let own = serde_json::json!({"source_feature_id": 42, "source_session_id": 777});
+        let cases = [
+            // Its own source on its own server reaches the handler.
+            (
+                "/internal/mcp/project/send-message",
+                control_token(),
+                own.clone(),
+                StatusCode::OK,
+            ),
+            // Another session or feature named in the body.
+            (
+                "/internal/mcp/project/send-message",
+                control_token(),
+                serde_json::json!({"source_feature_id": 42, "source_session_id": 1}),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                "/internal/mcp/project/send-message",
+                control_token(),
+                serde_json::json!({"source_feature_id": 1, "source_session_id": 777}),
+                StatusCode::FORBIDDEN,
+            ),
+            // The workspace routes need the workspace server's grant.
+            (
+                "/internal/mcp/workspace/send-message",
+                control_token(),
+                own.clone(),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                "/internal/mcp/workspace/update-settings",
+                control_token(),
+                own.clone(),
+                StatusCode::FORBIDDEN,
+            ),
+            // The process secret itself is not a grant.
+            (
+                "/internal/mcp/project/send-message",
+                "test-mcp-secret".into(),
+                own,
+                StatusCode::UNAUTHORIZED,
+            ),
+        ];
+        for (uri, token, body, expected) in cases {
+            let response = app
+                .clone()
+                .oneshot(call(uri, token, body.clone()))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{uri} {body}");
+        }
+
+        // A body only the handler's serde could read (invalid UTF-8 in an
+        // ignored field) names session 555; the query names the grant's own.
+        let mut foreign = br#"{"source_feature_id":42,"source_session_id":555,"x":""#.to_vec();
+        foreign.extend_from_slice(&[0xFF, b'"', b'}']);
+        let response = app
+            .oneshot(
+                req_builder()
+                    .method("POST")
+                    .uri("/internal/mcp/project/send-message?source_session_id=777&feature_id=42")
+                    .header(MCP_CONTROL_HEADER, control_token())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(foreign))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(
+            response.status(),
+            StatusCode::OK,
+            "spoke for another session"
+        );
     }
 
     #[tokio::test]

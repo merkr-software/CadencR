@@ -162,7 +162,7 @@ describe("CustomTabsSection", () => {
     await waitFor(() => expect(mocks.setEnablement).toHaveBeenCalled());
     expect(mocks.consent.mock.calls[0]?.[0]).toEqual({
       id: "graph",
-      data: { permissions_hash: "hash-1" },
+      data: { permissions_hash: "hash-1", trusts_code: false },
     });
     expect(mocks.setEnablement.mock.calls[0]?.[0]).toEqual({
       id: "graph",
@@ -201,7 +201,7 @@ describe("CustomTabsSection", () => {
     await user.click(within(dialog).getByRole("button", { name: "Allow and turn on" }));
     await waitFor(() => expect(mocks.setEnablement).toHaveBeenCalled());
     expect(mocks.consent.mock.calls[1]?.[0]).toMatchObject({
-      data: { permissions_hash: "hash-2" },
+      data: { permissions_hash: "hash-2", trusts_code: false },
     });
   });
 

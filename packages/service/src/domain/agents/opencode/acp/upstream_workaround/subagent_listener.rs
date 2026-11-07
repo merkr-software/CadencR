@@ -29,6 +29,7 @@ use crate::domain::agents::adapter::{
     RuntimeSubagentUpdate,
 };
 use crate::domain::agents::opencode::stream_synthesizer::StreamSynthesizer;
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 /// Pending-permissions map; the adapter's `respond_permission_fallback`
 /// reads it to route a reply to `POST /permission/{id}/reply`.
@@ -114,7 +115,9 @@ async fn poll_permissions(
     };
     state.prune_surfaced_permissions(&entries);
     for entry in entries {
-        if try_auto_allow_trusted_cadencr_browser_permission(client, directory, &entry).await {
+        let trust = state.browser_trust;
+        if try_auto_allow_trusted_cadencr_browser_permission(client, directory, &entry, trust).await
+        {
             continue;
         }
         if let Some(event) = state.surface_permission(entry, permissions).await {
@@ -141,12 +144,15 @@ pub(super) struct ListenerState {
     /// Resumed children whose new run has not started yet: their transcript
     /// still ends on the previous run until the new prompt lands.
     resumed_at: HashMap<String, usize>,
+    /// Whether Cadencr's browser tools skip the permission prompt.
+    browser_trust: CadencrBrowserTrust,
 }
 
 impl ListenerState {
-    pub(super) fn new(root_session_id: String) -> Self {
+    pub(super) fn new(root_session_id: String, browser_trust: CadencrBrowserTrust) -> Self {
         Self {
             root_session_id,
+            browser_trust,
             historical_children: None,
             child_to_parent: HashMap::new(),
             synthesizers: HashMap::new(),
@@ -413,14 +419,17 @@ mod tests {
         }
     }
     fn primed_state() -> (ListenerState, PendingSubagentTasks) {
-        let (mut state, queue) = (ListenerState::new("root".into()), pending(&[]));
+        let (mut state, queue) = (
+            ListenerState::new("root".into(), Default::default()),
+            pending(&[]),
+        );
         state.prime_snapshot(&[]);
         (state, queue)
     }
 
     #[test]
     fn prime_snapshot_records_baseline_then_absorb_pairs_new_children_fifo() {
-        let mut state = ListenerState::new("root".into());
+        let mut state = ListenerState::new("root".into(), Default::default());
         let queue = pending(&["call_a", "call_b"]);
         state.prime_snapshot(&[child("ses_old", "root"), child("not_mine", "other_root")]);
         assert!(state.child_to_parent.is_empty());
@@ -438,7 +447,7 @@ mod tests {
 
     #[test]
     fn session_id_binding_wins_over_fifo_order() {
-        let mut state = ListenerState::new("root".into());
+        let mut state = ListenerState::new("root".into(), Default::default());
         let queue = pending(&["call_first", "call_second"]);
         state.prime_snapshot(&[]);
         queue
@@ -453,7 +462,7 @@ mod tests {
 
     #[test]
     fn bind_after_fifo_consume_does_not_orphan_mapping() {
-        let mut state = ListenerState::new("root".into());
+        let mut state = ListenerState::new("root".into(), Default::default());
         let queue = pending(&["call_a"]);
         state.prime_snapshot(&[]);
         state.absorb_children(&[child("ses_a", "root")], &queue);
@@ -634,7 +643,7 @@ mod tests {
         state.prune_surfaced_permissions(&[]);
         assert!(state.surfaced_permissions.is_empty());
         // Root-session permission flows over ACP wire — skipped.
-        let mut root = ListenerState::new("root".into());
+        let mut root = ListenerState::new("root".into(), Default::default());
         assert!(root
             .surface_permission(perm("p_r", "root"), &reg)
             .await

@@ -154,9 +154,10 @@ pub struct AppState {
     /// `X-Cadencr-Token` header) and WebSocket upgrade (via the
     /// `cadencr-token.<tok>` `Sec-WebSocket-Protocol` entry).
     pub auth_token: String,
-    /// Per-launch token accepted only by loopback `/internal/mcp/*` control
-    /// endpoints used by Cadencr-owned MCP subprocesses.
-    pub mcp_control_token: String,
+    /// Per-launch secret that signs the control grants of Cadencr-owned MCP
+    /// subprocesses (`domain::mcp::control_grant`). Never handed to a child:
+    /// each subprocess gets a token bound to its feature, session and server.
+    pub mcp_control_secret: String,
     /// Frontend dev server port used for WebSocket origin allowlisting.
     pub frontend_port: u16,
     /// Listener port, pinned against the `Host` header for DNS-rebinding defense.
@@ -328,7 +329,7 @@ impl AppState {
             provider_updates,
             file_watcher: crate::domain::editor::watcher::new_shared(),
             auth_token,
-            mcp_control_token: uuid::Uuid::new_v4().to_string(),
+            mcp_control_secret: uuid::Uuid::new_v4().to_string(),
             frontend_port,
             port,
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
@@ -421,7 +422,7 @@ impl AppState {
             provider_updates,
             file_watcher: crate::domain::editor::watcher::new_shared(),
             auth_token: "test-token".to_string(),
-            mcp_control_token: "test-mcp-token".to_string(),
+            mcp_control_secret: "test-mcp-secret".to_string(),
             frontend_port: 1420,
             port: 0,
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),

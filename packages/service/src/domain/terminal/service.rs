@@ -125,7 +125,7 @@ impl PtyManager {
         })?;
 
         cmd.cwd(cwd);
-        cmd.env_remove(crate::shared::security::SERVICE_AUTH_TOKEN_ENV);
+        crate::shared::security::scrub_service_only_pty_env(&mut cmd);
         // Ensure the program knows it's running inside an xterm-compatible
         // terminal. Without this, programs emit wrong escape sequences.
         cmd.env("TERM", "xterm-256color");

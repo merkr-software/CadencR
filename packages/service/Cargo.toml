@@ -56,6 +56,7 @@ tempfile = "3"
 trash = "5"
 flate2 = "1"
 sha2 = "0.11"
+hmac = "0.13"
 tar = "0.4.46"
 zip = { version = "9.0.5", default-features = false, features = ["deflate", "bzip2"] }
 # Document preview: recalculates workbooks saved without formula results

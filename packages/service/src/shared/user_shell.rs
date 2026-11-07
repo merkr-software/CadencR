@@ -16,7 +16,7 @@ use std::path::Path;
 pub fn command(command: &str, cwd: &Path) -> tokio::process::Command {
     let mut cmd = cli_discovery::login_shell_command(command);
     cmd.current_dir(cwd);
-    cmd.env_remove(crate::shared::security::SERVICE_AUTH_TOKEN_ENV);
+    crate::shared::security::scrub_service_only_env(&mut cmd);
     cmd
 }
 

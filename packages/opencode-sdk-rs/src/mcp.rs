@@ -20,6 +20,17 @@ pub async fn list_mcp_servers_from_cli(
     list_mcp_servers_from_binary(&binary, cwd).await
 }
 
+/// The MCP servers of OpenCode's resolved config (`opencode debug config`),
+/// or an error when it cannot be read or parsed — never the partial guess of
+/// [`list_mcp_servers_from_binary`]'s config-file fallback.
+pub async fn list_mcp_servers_from_resolved_config(
+    cwd: Option<&Path>,
+) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
+    let binary = resolve_binary().await?;
+    let output = run_opencode_command(&binary, cwd, ["debug", "config"]).await?;
+    parse_mcp_config_output(&output)
+}
+
 pub async fn list_mcp_servers_from_binary(
     binary: &Path,
     cwd: Option<&Path>,
@@ -48,18 +59,34 @@ pub async fn list_mcp_servers_from_binary(
                 servers = ?servers,
                 "OpenCode MCP servers parsed from debug config"
             );
-            return Ok(servers);
+            Ok(servers)
         }
         Err(error) => {
             tracing::warn!(%error, "failed to read OpenCode resolved config");
-            if let Ok(servers) = fallback_mcp_servers(cwd) {
-                if !servers.is_empty() {
-                    return Ok(servers);
-                }
-            }
+            list_from_config_files_or_mcp_list(binary, cwd).await
         }
     }
+}
 
+/// What [`list_mcp_servers_from_cli`] falls back to when OpenCode's resolved
+/// config could not be read: the config files, else `opencode mcp list`. For a
+/// caller that already tried [`list_mcp_servers_from_resolved_config`].
+pub async fn list_mcp_servers_without_resolved_config(
+    cwd: Option<&Path>,
+) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
+    let binary = resolve_binary().await?;
+    list_from_config_files_or_mcp_list(&binary, cwd).await
+}
+
+async fn list_from_config_files_or_mcp_list(
+    binary: &Path,
+    cwd: Option<&Path>,
+) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
+    if let Ok(servers) = fallback_mcp_servers(cwd) {
+        if !servers.is_empty() {
+            return Ok(servers);
+        }
+    }
     let output = run_opencode_command(binary, cwd, ["mcp", "list"]).await?;
     tracing::info!(
         bytes = output.len(),

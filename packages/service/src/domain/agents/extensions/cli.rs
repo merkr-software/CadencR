@@ -28,6 +28,8 @@ pub enum ExtensionError {
     Invalid(String),
     /// The CLI ran and refused or failed; the message is its own output.
     Failed(String),
+    /// The name belongs to Cadencr's own MCP servers.
+    ReservedName(String),
 }
 
 impl ExtensionError {
@@ -54,6 +56,7 @@ impl ExtensionError {
             Self::Unsupported(message) => Self::Unsupported(mask(message, secrets)),
             Self::Invalid(message) => Self::Invalid(mask(message, secrets)),
             Self::Failed(message) => Self::Failed(mask(message, secrets)),
+            Self::ReservedName(message) => Self::ReservedName(mask(message, secrets)),
         }
     }
 }
@@ -72,9 +75,10 @@ pub fn positional(value: &str) -> Result<&str, ExtensionError> {
 impl std::fmt::Display for ExtensionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unsupported(message) | Self::Invalid(message) | Self::Failed(message) => {
-                formatter.write_str(message)
-            }
+            Self::Unsupported(message)
+            | Self::Invalid(message)
+            | Self::Failed(message)
+            | Self::ReservedName(message) => formatter.write_str(message),
         }
     }
 }
@@ -95,6 +99,11 @@ impl From<ExtensionError> for AppError {
             ExtensionError::Failed(message) => AppError::Coded {
                 status: StatusCode::BAD_GATEWAY,
                 code: "EXTENSION_CLI_FAILED",
+                message,
+            },
+            ExtensionError::ReservedName(message) => AppError::Coded {
+                status: StatusCode::BAD_REQUEST,
+                code: "MCP_SERVER_NAME_RESERVED",
                 message,
             },
         }

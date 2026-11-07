@@ -9,7 +9,7 @@ use std::path::Path;
 
 use axum::http::StatusCode;
 use cadencr_plugin_core::tab::{
-    inspect_signed_tab_folder, inspect_tab_folder, TabFolderReport, TabManifest,
+    inspect_signed_tab_folder, inspect_tab_folder, TabAccessLevel, TabFolderReport, TabManifest,
 };
 
 use super::managed::policy::PolicySnapshot;
@@ -69,6 +69,8 @@ pub struct AcceptedUpdate {
     /// Its revision directory name.
     pub revision: String,
     pub permissions_hash: String,
+    /// How far the update reaches: what accepting it asks the user to trust.
+    pub access_level: TabAccessLevel,
 }
 
 impl LocalTab {
@@ -76,10 +78,12 @@ impl LocalTab {
     /// is that update's (valid) permissions hash.
     pub fn pending_accepted_by(&self, submitted: &str) -> Option<AcceptedUpdate> {
         let pending = self.pending.as_ref()?;
+        let manifest = pending.report.valid_manifest()?;
         let permissions_hash = pending.permissions_hash()?;
         (permissions_hash == submitted).then(|| AcceptedUpdate {
             revision: pending.managed.facts.revision.clone(),
             permissions_hash,
+            access_level: manifest.access_level(),
         })
     }
 
@@ -510,8 +514,10 @@ mod tests {
         let AcceptedUpdate {
             revision,
             permissions_hash: accepted,
+            access_level,
         } = tab.pending_accepted_by(&staged_hash).unwrap();
         assert_eq!(accepted, staged_hash);
+        assert_eq!(access_level, TabAccessLevel::Backend);
         // The listing sees the same tab.
         let listed = list().await.unwrap();
         assert_eq!(

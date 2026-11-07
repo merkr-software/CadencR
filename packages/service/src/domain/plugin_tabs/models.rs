@@ -215,6 +215,11 @@ pub struct SetPluginTabEnablementRequest {
 pub struct PluginTabConsentRequest {
     /// The hash the user was shown; must equal the current one.
     pub permissions_hash: String,
+    /// The user ticked "I trust this code to run on my computer". Required
+    /// (422 `PLUGIN_TAB_TRUST_REQUIRED`) for a tab that runs commands or ships
+    /// a backend; ignored for a read-only one.
+    #[serde(default)]
+    pub trusts_code: bool,
 }
 
 /// The settings form: the declared fields and the stored values. Secret values

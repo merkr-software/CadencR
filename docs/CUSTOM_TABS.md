@@ -16,7 +16,10 @@ that only reads Cadencr data (**read-only**), a page that also asks Cadencr to
 run the programs it lists (**runs commands**, §4.6), and a page with its own
 native process that runs with the user's rights (**native code**, §4.7).
 Cadencr does not sandbox native code (decision 2026-10-18); what it always
-enforces is the tab's access to Cadencr itself.
+enforces is the tab's access to Cadencr itself. A listed command runs with
+arguments the tab chooses, and most programs can run arbitrary code from their
+arguments, so **runs commands is trusted like native code**: both need the
+same explicit trust at consent (§6.2).
 
 ## 1. Model
 
@@ -134,7 +137,13 @@ Rules (validated by `cadencr-plugin-core::tab`, the service and
   `pipx`…) and launchers/privilege tools (`env`, `sudo`, `xargs`, `nohup`,
   `open`, `start`…), with or without a Windows suffix or a version suffix
   (`python3.12`, `node18`, `php-8.2`; `cadencr_plugin_core::tab::DENIED_PROGRAMS`). Listing a program names
-  _which_ program runs, not what it does with its arguments.
+  _which_ program runs, not what it does with its arguments. This list is
+  **not a sandbox**: everyday programs run arbitrary code from their arguments
+  (`git -c alias.x='!sh …' x`, `find -exec`, `awk 'BEGIN{system(…)}'`,
+  `ssh -o ProxyCommand`, `tar --to-command`, `rsync -e`, `make -f`), so a tab
+  that lists any command is consented to as code running with the user's
+  rights (§6.2). It only keeps a manifest from hiding "runs anything" behind
+  an honest-looking list.
 - `backend.protocol`: the stdio protocol version, `1` in this release
   (`BACKEND_PROTOCOL_UNSUPPORTED` otherwise). `backend.binary`: at least one
   entry (`BACKEND_BINARY_REQUIRED`) mapping a platform — `darwin-aarch64`,
@@ -166,13 +175,15 @@ Rules (validated by `cadencr-plugin-core::tab`, the service and
 
 **Permissions hash**: SHA-256 (hex) over the canonical JSON
 `{"permissions":[sorted],"allowed_origins":[sorted]}`, extended with
-`"commands":[sorted programs]` when `commands` is non-empty and
+`"commands":[sorted programs],"trust":1` when `commands` is non-empty and
 `"backend":{"protocol":1,"binary":{<platform>:<path>, sorted by platform}}`
 when a backend is declared (each key omitted otherwise, so a tab declaring
 neither keeps its hash). Consent is recorded against this hash; a widened
 manifest — a new scope, origin, program, backend, or a platform's binary
 added or moved — requires a new consent. Reasons, labels and
-versions do not.
+versions do not. `"trust":1` marks consent to commands given with the
+explicit code-trust acknowledgment (§6.2): consents to commands recorded
+before it was required no longer match and are asked for again.
 
 ## 4. Service
 
@@ -206,7 +217,7 @@ manifest.
 | `GET /api/plugin-tabs?project_id=`                        | List local tabs with manifest, validation, enablement.                                                                               |
 | `GET /api/plugin-tabs/{id}?project_id=`                   | One tab.                                                                                                                             |
 | `PUT /api/plugin-tabs/{id}/enablement`                    | `{project_id: number\|null, enabled: boolean\|null}`; `null` clears a project override. Enabling needs consent.                      |
-| `PUT /api/plugin-tabs/{id}/consent`                       | `{permissions_hash}`; must equal the current hash (409 `PLUGIN_TAB_CONSENT_STALE`).                                                  |
+| `PUT /api/plugin-tabs/{id}/consent`                       | `{permissions_hash, trusts_code?}`; must equal the current hash (409 `PLUGIN_TAB_CONSENT_STALE`). `trusts_code: true` is required for a `commands` or `backend` tab (422 `PLUGIN_TAB_TRUST_REQUIRED`). |
 | `GET/PUT /api/plugin-tabs/{id}/configuration?project_id=` | Settings form values; secrets come back as `{ "is_set": true }`.                                                                     |
 | `GET /api/plugin-tabs/{id}/assets/{*path}`                | Static bytes from the plugin folder with CSP headers (§5.2). Empty path = `entry`.                                                   |
 | `POST /api/plugin-tabs/{id}/grants`                       | `{feature_id}` → `{token, expires_at, scopes, api_version}`. 403 `PLUGIN_TAB_DISABLED` if not effective for the feature's project.   |
@@ -745,15 +756,17 @@ names the same way:
 | Level         | `access_level` | Declares                         | What Cadencr enforces                                                                                   | What it does not                                                    |
 | ------------- | -------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Read-only     | `ui`           | neither `commands` nor `backend` | Everything: the guest has no network or process of its own; every byte goes through the policy table.   | —                                                                   |
-| Runs commands | `commands`     | `commands`                       | Only the listed programs run, without a shell, in the conversation's folder, bounded and logged (§4.6). | What a listed program does with the arguments the tab chooses.      |
+| Runs commands | `commands`     | `commands`                       | Only the listed programs run, without a shell, in the conversation's folder, bounded and logged (§4.6). | What a listed program does with the arguments the tab chooses — most can run any code, so it is trusted like native code. |
 | Native code   | `backend`      | `backend`                        | Its Cadencr access (own grant, scopes, binding); its lifecycle (§4.7).                                  | Anything else: it runs with the user's rights, outside any sandbox. |
 
 The user is told at every step:
 
 - **Consent** (Settings): the dialog leads with the level, lists the programs
   with their reasons and what running them means, and for native code shows
-  the backend's binaries, says it is not sandboxed, and requires ticking "I trust
-  this code to run on my computer with my rights" before **Allow**.
+  the backend's binaries and says it is not sandboxed. For both runs commands
+  and native code it requires ticking "I trust this code to run on my computer
+  with my rights" before **Allow**, and the service refuses the consent without
+  it (`trusts_code`, 422 `PLUGIN_TAB_TRUST_REQUIRED`).
 - **Settings card**: a level badge (Read-only / Runs commands / Native code)
   beside the status badge; the permissions block repeats the consent lists.
 - **Tab strip**: a terminal glyph (commands) or a chip glyph (native code) on

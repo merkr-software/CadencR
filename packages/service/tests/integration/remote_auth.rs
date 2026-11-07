@@ -358,3 +358,100 @@ async fn failed_http_and_ws_auth_exhaust_a_shared_admission_budget() {
     );
     controller.stop().await;
 }
+
+/// Open a remote `/ws` session for `device_token` and return the raw upgraded
+/// stream.
+async fn open_remote_ws(
+    client: &reqwest::Client,
+    base: &str,
+    device_token: &str,
+) -> reqwest::Upgraded {
+    let resp = apply_ws_upgrade_headers(client.get(format!("{base}/ws")), base)
+        .header(
+            "sec-websocket-protocol",
+            format!("cadencr-token.{device_token}"),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
+    resp.upgrade().await.expect("websocket upgrade")
+}
+
+/// Drain the socket until the server closes it. The timeout only bounds a
+/// regression (a socket that stays open) so the test fails instead of hanging.
+async fn assert_server_closes(mut socket: reqwest::Upgraded, why: &str) {
+    use tokio::io::AsyncReadExt;
+    let drained = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut buf = [0u8; 1024];
+        // EOF or a transport error (no TLS close_notify) both mean closed.
+        while let Ok(read) = socket.read(&mut buf).await {
+            if read == 0 {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(drained.is_ok(), "{why}: remote WebSocket stayed open");
+}
+
+async fn pair_device(
+    client: &reqwest::Client,
+    base: &str,
+    controller: &RemoteController,
+) -> String {
+    let code = controller.pairing().mint().code;
+    let paired: Value = client
+        .post(format!("{base}/api/remote/pair"))
+        .json(&serde_json::json!({ "code": code }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    paired["device_token"].as_str().unwrap().to_string()
+}
+
+/// Revoking a device and turning remote access off must both close remote
+/// WebSockets that are already open: upgraded sockets are not tracked by the
+/// HTTP server's graceful shutdown.
+#[tokio::test]
+async fn revoke_and_stop_close_open_remote_websockets() {
+    use axum::extract::{Path, State};
+    use cadencr_service::domain::remote::routes::revoke_handler;
+
+    let pool = pool_with_remote_tables().await;
+    let renderer = tempfile::tempdir().unwrap();
+    std::fs::write(renderer.path().join("index.html"), "<!doctype html>").unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let controller = Arc::new(RemoteController::new(RemoteConfig {
+        renderer_dir: Some(renderer.path().to_path_buf()),
+        remote_port: 0,
+        data_dir: data.path().to_path_buf(),
+    }));
+    let mut state = AppState::with_pool(pool.clone());
+    state.remote = controller.clone();
+    let info = controller.start(&state).await.expect("listener starts");
+    let base = format!("https://127.0.0.1:{}", info.port);
+    let client = rustls_client();
+
+    let revoked_token = pair_device(&client, &base, &controller).await;
+    let kept_token = pair_device(&client, &base, &controller).await;
+    let revoked_socket = open_remote_ws(&client, &base, &revoked_token).await;
+    let kept_socket = open_remote_ws(&client, &base, &kept_token).await;
+
+    let revoked_id =
+        sqlx::query_scalar::<_, i64>("SELECT id FROM remote_devices ORDER BY id LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let axum::Json(status) = revoke_handler(State(state.clone()), Path(revoked_id))
+        .await
+        .expect("revoke succeeds");
+    assert_eq!(status.devices.len(), 1, "only the kept device stays active");
+    assert_server_closes(revoked_socket, "revoke").await;
+
+    controller.stop().await;
+    assert_server_closes(kept_socket, "disable").await;
+}

@@ -106,7 +106,8 @@ impl Fixture {
                 Method::PUT,
                 &format!("/api/plugin-tabs/{id}/consent"),
                 None,
-                Some(json!({ "permissions_hash": hash })),
+                // The test tabs run commands or native code: trust is required.
+                Some(json!({ "permissions_hash": hash, "trusts_code": true })),
             )
             .await;
         assert_eq!(consent.status, StatusCode::OK);

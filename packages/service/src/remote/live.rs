@@ -1,12 +1,16 @@
-//! Tracks live remote WebSocket sessions so that revoking a device can
-//! force-close its open connections immediately (not just block reconnects).
+//! Tracks live remote WebSocket sessions so that revoking a device or turning
+//! remote access off can force-close open connections immediately (not just
+//! block reconnects).
 //!
 //! Each remote WS upgrade registers a [`CancellationToken`]; the connection
 //! task races the socket against `token.cancelled()`, so cancelling drops the
 //! socket without any change to the streaming loops themselves. Revoke cancels
-//! every token belonging to the device.
+//! every token belonging to the device; stopping the listener cancels them all.
+//! Upgraded sockets outlive the HTTP server's graceful shutdown (axum-server
+//! stops tracking a connection once hyper hands it off), so this registry is
+//! the only thing that closes them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
 
 use tokio_util::sync::CancellationToken;
@@ -16,6 +20,16 @@ use tracing::warn;
 struct Inner {
     next_id: u64,
     sessions: HashMap<u64, (i64, CancellationToken)>,
+    /// Parent of every session token for the current listener. Cancelled by
+    /// [`LiveSessions::cancel_all`] and left cancelled until the next listener
+    /// start calls [`LiveSessions::reopen`], so a socket whose upgrade was
+    /// already in flight when the listener stopped is closed as it registers.
+    scope: CancellationToken,
+    /// Devices revoked since launch. Device ids come from an `AUTOINCREMENT`
+    /// key and revocation is a soft delete, so an id is never reused; keeping
+    /// them lets a socket authenticated just before the revoke (its upgrade
+    /// completing after it) be closed as it registers.
+    revoked: HashSet<i64>,
 }
 
 /// Registry of live remote sessions keyed by an internal connection id.
@@ -57,17 +71,23 @@ impl LiveSessions {
     /// concurrent upgrades can't both observe themselves as first. The guard
     /// deregisters on drop.
     pub fn register(self: &std::sync::Arc<Self>, device_id: i64) -> (SessionGuard, bool) {
-        let token = CancellationToken::new();
-        let (id, first_for_device) = {
+        let (id, token, first_for_device) = {
             let mut inner = self.lock_inner();
-            let first_for_device = !inner
-                .sessions
-                .values()
-                .any(|(other, _)| *other == device_id);
+            let token = inner.scope.child_token();
+            if inner.revoked.contains(&device_id) {
+                token.cancel();
+            }
+            // A session closed at birth (revoked device / stopped listener) is
+            // not a connection worth announcing.
+            let first_for_device = !token.is_cancelled()
+                && !inner
+                    .sessions
+                    .values()
+                    .any(|(other, _)| *other == device_id);
             let id = inner.next_id;
             inner.next_id += 1;
             inner.sessions.insert(id, (device_id, token.clone()));
-            (id, first_for_device)
+            (id, token, first_for_device)
         };
         let guard = SessionGuard {
             registry: std::sync::Arc::downgrade(self),
@@ -77,13 +97,31 @@ impl LiveSessions {
         (guard, first_for_device)
     }
 
-    /// Cancel every live session belonging to `device_id` (called on revoke).
+    /// Cancel every live session belonging to `device_id` (called on revoke),
+    /// and close any socket the device registers afterwards.
     pub fn cancel_device(&self, device_id: i64) {
-        let inner = self.lock_inner();
+        let mut inner = self.lock_inner();
+        inner.revoked.insert(device_id);
         for (other, token) in inner.sessions.values() {
             if *other == device_id {
                 token.cancel();
             }
+        }
+    }
+
+    /// Cancel every live session (called when the remote listener stops). Any
+    /// session registered afterwards is cancelled immediately until
+    /// [`Self::reopen`] runs for the next listener.
+    pub fn cancel_all(&self) {
+        self.lock_inner().scope.cancel();
+    }
+
+    /// Accept new sessions again after [`Self::cancel_all`]; called when a new
+    /// listener starts. Leaves an open scope (and its sessions) untouched.
+    pub fn reopen(&self) {
+        let mut inner = self.lock_inner();
+        if inner.scope.is_cancelled() {
+            inner.scope = CancellationToken::new();
         }
     }
 
@@ -123,6 +161,46 @@ mod tests {
 
         assert!(!keep.token.is_cancelled());
         assert!(drop_me.token.is_cancelled());
+    }
+
+    #[test]
+    fn cancel_all_cancels_every_session_until_reopened() {
+        let registry = Arc::new(LiveSessions::default());
+        let (a, _) = registry.register(1);
+        let (b, _) = registry.register(1);
+        let (c, _) = registry.register(2);
+
+        registry.cancel_all();
+
+        assert!(a.token.is_cancelled());
+        assert!(b.token.is_cancelled());
+        assert!(c.token.is_cancelled());
+        // An upgrade that completes after the listener stopped is closed too.
+        let (late, _) = registry.register(3);
+        assert!(late.token.is_cancelled());
+
+        // The next listener accepts sessions again.
+        registry.reopen();
+        let (fresh, _) = registry.register(3);
+        assert!(!fresh.token.is_cancelled());
+        // Reopening an open scope must not detach live sessions from it.
+        registry.reopen();
+        registry.cancel_all();
+        assert!(fresh.token.is_cancelled());
+    }
+
+    #[test]
+    fn revoked_device_sessions_registered_later_are_cancelled() {
+        let registry = Arc::new(LiveSessions::default());
+        registry.cancel_device(4);
+        let (late, late_first) = registry.register(4);
+        let (other, _) = registry.register(5);
+        assert!(late.token.is_cancelled());
+        assert!(
+            !late_first,
+            "a socket closed at birth is not a new connection"
+        );
+        assert!(!other.token.is_cancelled());
     }
 
     #[test]
@@ -180,6 +258,10 @@ mod tests {
         assert!(register_result.is_ok());
         let cancel_result = std::panic::catch_unwind(|| registry.cancel_device(9));
         assert!(cancel_result.is_ok());
+        let cancel_all_result = std::panic::catch_unwind(|| registry.cancel_all());
+        assert!(cancel_all_result.is_ok());
+        let reopen_result = std::panic::catch_unwind(|| registry.reopen());
+        assert!(reopen_result.is_ok());
         let count_result = std::panic::catch_unwind(|| registry.connected_device_count());
         assert!(count_result.is_ok());
         let ids_result = std::panic::catch_unwind(|| registry.connected_device_ids());

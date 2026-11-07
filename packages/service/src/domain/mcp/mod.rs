@@ -1,5 +1,6 @@
 pub mod context;
 pub mod control;
+pub mod control_grant;
 pub mod loopback;
 pub(crate) mod message_queries;
 pub(crate) mod send_message_tool;

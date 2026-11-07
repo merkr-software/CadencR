@@ -102,6 +102,12 @@ pub fn create_mcp_server(agent_type: AgentType, ctx: Arc<McpContext>) -> McpServ
     }
 }
 
+/// How Cadencr runs one of its own MCP servers: `<service> … mcp-serve
+/// --agent-type <short name>` (the `mcp-serve` CLI command). Attaching a server
+/// and recognizing an attached one both use these.
+pub const MCP_SERVE_SUBCOMMAND: &str = "mcp-serve";
+pub const AGENT_TYPE_FLAG: &str = "--agent-type";
+
 /// Returns the MCP server name string for the given agent type.
 #[allow(dead_code)]
 pub fn mcp_server_name(agent_type: AgentType) -> String {

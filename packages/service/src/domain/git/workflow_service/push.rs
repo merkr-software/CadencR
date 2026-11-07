@@ -159,12 +159,10 @@ async fn ssh_auth_diagnostic() -> String {
     let sock = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| "<unset>".into());
     let home = std::env::var("HOME").unwrap_or_else(|_| "<unset>".into());
 
-    let listing = match tokio::process::Command::new("ssh-add")
-        .arg("-l")
-        .env_remove(crate::shared::security::SERVICE_AUTH_TOKEN_ENV)
-        .output()
-        .await
-    {
+    let mut ssh_add = tokio::process::Command::new("ssh-add");
+    ssh_add.arg("-l");
+    crate::shared::security::scrub_service_only_env(&mut ssh_add);
+    let listing = match ssh_add.output().await {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);

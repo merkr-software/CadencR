@@ -238,6 +238,9 @@ async fn main() -> anyhow::Result<()> {
                 .remote(remote_controller)
                 .remote_data_dir(&remote_data_dir)
                 .build();
+            // AppState now owns the Browser bridge credentials too (read from
+            // the env at construction): no child may inherit them.
+            shared::security::remove_service_only_env();
 
             // Stale `running` rows were reset above; restore the status book
             // every client reads before any of them can connect.
