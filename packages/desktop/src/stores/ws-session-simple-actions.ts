@@ -67,7 +67,6 @@ interface SimpleSessionActionDeps {
   sendRaw: (sessionId: string, envelope: WsEnvelope) => void;
   /** Tracked request/acknowledgement path; see `ws-session-commands`. */
   sendCommand: (sessionId: string, envelope: WsEnvelope, spec: SessionCommandSpec) => boolean;
-  planRestorePrefix: string;
 }
 
 export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): SimpleSessionActions {
@@ -219,15 +218,15 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
 }
 
 function createWorkflowActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw, sendCommand, planRestorePrefix } = deps;
+  const { ctx, sendRaw, sendCommand } = deps;
   const { get, set, getSession } = ctx;
   return {
     approvePlan(sessionId: string) {
-      submitPlanDecision(ctx, sessionId, "approved", "", planRestorePrefix);
+      submitPlanDecision(ctx, sessionId, "approved", "");
     },
 
     requestPlanChanges(sessionId: string, feedback: string) {
-      submitPlanDecision(ctx, sessionId, "rejected", feedback, planRestorePrefix);
+      submitPlanDecision(ctx, sessionId, "rejected", feedback);
     },
 
     closeGate(sessionId: string, reason: GateCloseReason) {
@@ -303,7 +302,7 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
     },
 
     setPersistedState(sessionId: string, payload: PersistedStatePayload) {
-      applyPersistedState(ctx, sessionId, payload, planRestorePrefix);
+      applyPersistedState(ctx, sessionId, payload);
     },
 
     async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {

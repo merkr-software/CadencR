@@ -30,6 +30,7 @@ pub(crate) async fn handle_permission_respond(
         .session_status(&app_state.session_status_tx)
         .feature_senders(&app_state.ws_feature_senders)
         .feature_events(&app_state.feature_events_tx)
+        .app_state(app_state)
         .build();
     match respond_permission(&context, sdk_sessions, payload, &output).await {
         Ok(outcome) => {

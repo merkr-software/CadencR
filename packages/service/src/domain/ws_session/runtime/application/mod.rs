@@ -17,3 +17,4 @@ mod pending_gate;
 pub(crate) use pending_gate::{mark_agent_resumed, mark_awaiting_user};
 
 mod prompt_outcome;
+mod restored_plan;

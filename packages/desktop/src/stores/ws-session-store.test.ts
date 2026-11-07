@@ -2860,38 +2860,6 @@ describe("ws-session-store", () => {
       });
     });
 
-    it("restores synthetic plan approval request id even when live blocks already exist", () => {
-      const store = useWsSessionStore.getState();
-      store.connect("s1");
-
-      useWsSessionStore.setState(
-        updateSession(useWsSessionStore.getState(), "s1", {
-          blocks: [{ id: "live-1", type: "text" as const, content: "live block" }],
-        }),
-      );
-
-      store.setPersistedState("s1", {
-        blocks: [
-          {
-            id: "plan-1",
-            type: "tool_call" as const,
-            content: "",
-            toolName: "ExitPlanMode",
-          },
-        ],
-        lifecycle: { phase: "terminal", reason: "completed" },
-        pendingPlanApproval: { plan: "## Restored Plan" },
-      });
-
-      const session = useWsSessionStore.getState().sessions["s1"];
-      expect(session.pendingPlanApproval).toEqual({ plan: "## Restored Plan" });
-      expect(session.pendingRequestId).toMatch(/^plan_restore_/);
-      expect(session.lifecycle).toEqual({
-        phase: "paused",
-        reason: "planApproval",
-      });
-    });
-
     it("approvePlan sends permission.respond and waits for backend mode.changed", async () => {
       const { ws } = await setupWithInit();
       // mode.changed only applies once a provider is known — seed the pair as
@@ -3103,25 +3071,16 @@ describe("ws-session-store", () => {
       expect(planBlock?.planApprovalStatus).toBe("rejected");
     });
 
-    it("answers a restored plan by prompt, never with a synthetic permission id", async () => {
+    it("never writes a prompt for a plan: one with no open gate sends nothing", async () => {
       const { ws } = await setupWithInit();
-      useWsSessionStore.getState().setPersistedState("s1", {
-        blocks: [
-          { id: "plan-1", type: "tool_call" as const, content: "", toolName: "ExitPlanMode" },
-        ],
-        lifecycle: { phase: "terminal", reason: "completed" },
-        pendingPlanApproval: { plan: "## Restored Plan" },
-      });
+      streamExitPlanMode(ws);
       const sentBefore = ws.sent.length;
 
       useWsSessionStore.getState().approvePlan("s1");
+      useWsSessionStore.getState().requestPlanChanges("s1", "Revise it");
 
-      const actions = ws.sent.slice(sentBefore).map((raw) => JSON.parse(raw).action);
-      expect(actions).toEqual(["prompt.send"]);
-      const session = useWsSessionStore.getState().sessions["s1"];
-      // Still open until the status book reports the prompt's turn running.
-      expect(session.pendingPlanApproval).toEqual({ plan: "## Restored Plan" });
-      expect(session.planPromptSubmission).toBe("approved");
+      expect(ws.sent.slice(sentBefore)).toEqual([]);
+      expect(useWsSessionStore.getState().sessions["s1"].submittingPermissionRequestId).toBeNull();
     });
 
     it("records the plan's outcome when the status update closed the gate before the ack", async () => {

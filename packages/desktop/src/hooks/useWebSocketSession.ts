@@ -349,10 +349,9 @@ function useSessionSnapshot(
       // Scope the boolean to the currently visible request so a stale clear
       // never lights up the spinner on the next queued permission.
       isSubmittingPermission:
-        session?.planPromptSubmission != null ||
-        (session?.submittingPermissionRequestId != null &&
-          session.submittingPermissionRequestId ===
-            (session.pendingPermission?.requestId ?? session.pendingRequestId)),
+        session?.submittingPermissionRequestId != null &&
+        session.submittingPermissionRequestId ===
+          (session.pendingPermission?.requestId ?? session.pendingRequestId),
       pendingQuestions: session?.pendingQuestions ?? [],
       permissionMode: session?.permissionMode ?? "acceptEdits",
       accessMode: session?.accessMode ?? "default",
