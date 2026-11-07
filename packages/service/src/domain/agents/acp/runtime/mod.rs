@@ -38,6 +38,7 @@ pub mod provider_hooks;
 pub mod schema_bridge;
 #[cfg(test)]
 mod server_request_event_loop_tests;
+mod server_request_permission;
 mod server_request_response;
 pub mod server_requests;
 pub mod session;
@@ -55,6 +56,7 @@ pub mod standard_hooks;
 pub mod stream_events;
 mod terminal_enrich;
 mod terminal_io;
+mod terminal_process;
 pub mod terminal_registry;
 mod terminal_sandbox;
 #[cfg(test)]

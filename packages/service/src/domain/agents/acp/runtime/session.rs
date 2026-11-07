@@ -289,7 +289,7 @@ mod tests {
         let cancel = PromptCancel::new();
         let (tx, mut rx) = mpsc::channel(64);
 
-        let event_rx = client.subscribe();
+        let event_rx = client.subscribe_reliable();
         let hooks = Arc::new(PlainHooks);
         let cfg = EventLoopConfig {
             session_id: Arc::clone(&session_id),
@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn interrupt_unblocks_prompt_turn_when_agent_never_replies() {
+    async fn interrupt_escalates_visibly_when_agent_never_replies() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         spawn_event_barrier_acker(&client);
         let negotiated = super::super::lifecycle::NegotiatedSession {
@@ -499,6 +499,9 @@ mod tests {
             Arc::new(PlainHooks),
             Arc::new(StdMutex::new(EventIndexer::default())),
         );
+        // The agent never answers the cancel: only the (shortened) grace
+        // and the visible escalation may end the turn.
+        session.prompt_cancel = PromptCancel::new().with_cancel_grace(Duration::from_millis(100));
         let mut runtime_rx = session.take_message_rx();
         let session = Arc::new(session);
 
@@ -513,12 +516,63 @@ mod tests {
         let cancel = read_one_request(&mut agent_stdin).await;
         assert_eq!(cancel["method"], "session/cancel");
 
-        tokio::time::timeout(Duration::from_millis(500), prompt)
+        tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
-            .expect("local cancel should unblock the prompt turn")
+            .expect("escalation should unblock the prompt turn")
             .unwrap()
             .unwrap();
-        let result = runtime_rx.recv().await.unwrap().unwrap();
+        let escalation = runtime_rx
+            .recv()
+            .await
+            .unwrap()
+            .expect_err("visible escalation");
+        assert!(escalation.is_stop_escalation(), "{escalation:?}");
+        assert!(
+            escalation.to_string().contains("did not stop"),
+            "{escalation}"
+        );
+        // The killed agent's turn is not finalized: the escalation is its end,
+        // and the stream reader stops on it.
+        let after = tokio::time::timeout(Duration::from_millis(200), runtime_rx.recv()).await;
+        assert!(
+            !matches!(after, Ok(Some(Ok(ref event))) if event.is_result()),
+            "no Result after a terminated agent: {after:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupt_ends_the_turn_through_the_agents_cancelled_response() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
+        let mut session = assembled_session(&client, "s-cancel-protocol", false);
+        let mut runtime_rx = session.take_message_rx();
+        let session = Arc::new(session);
+        let prompt = tokio::spawn({
+            let session = Arc::clone(&session);
+            async move { session.stream_input(json!("hello")).await }
+        });
+        let prompt_req = read_one_request(&mut agent_stdin).await;
+        session.interrupt().await.unwrap();
+        let cancel = read_one_request(&mut agent_stdin).await;
+        assert_eq!(cancel["method"], "session/cancel");
+        // Well past the old 150 ms kill: the agent is still unwinding.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(!prompt.is_finished());
+        let frame = json!({"jsonrpc": "2.0", "id": prompt_req["id"], "result": {"stopReason": "cancelled"}});
+        agent_stdout
+            .write_all(format!("{frame}\n").as_bytes())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), prompt)
+            .await
+            .expect("cancelled response ends the turn")
+            .unwrap()
+            .unwrap();
+        let result = runtime_rx
+            .recv()
+            .await
+            .unwrap()
+            .expect("no escalation error");
         assert!(result.is_result());
         assert_eq!(result.raw_json()["stop_reason"], "cancelled");
     }

@@ -9,7 +9,8 @@ use crate::domain::agents::adapter::RuntimeError;
 
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::turn_lifecycle::{
-    await_event_loop_barrier, finalize_turn, request_prompt_with_cancel, start_turn_on_model,
+    agent_was_terminated, await_event_loop_barrier, finalize_turn, request_prompt_with_cancel,
+    start_turn_on_model,
 };
 
 impl AcpRuntimeSession {
@@ -43,17 +44,23 @@ impl AcpRuntimeSession {
         }
         self.replay_suppression.store(false, Ordering::SeqCst);
 
-        let response =
-            match request_prompt_with_cancel(&self.client, params, &self.prompt_cancel).await {
-                Ok(response) => response,
-                Err(error) => {
-                    if let Some(client_message_id) = receipt_client_message_id.as_deref() {
-                        self.pending_prompt_receipts
-                            .discard_client_message_id(client_message_id);
-                    }
-                    return Err(error);
+        let response = match request_prompt_with_cancel(
+            &self.client,
+            params,
+            &self.prompt_cancel,
+            self.local_tx(),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(client_message_id) = receipt_client_message_id.as_deref() {
+                    self.pending_prompt_receipts
+                        .discard_client_message_id(client_message_id);
                 }
-            };
+                return Err(error);
+            }
+        };
         if let Some(client_message_id) = receipt_client_message_id.as_deref() {
             if let Some(event) = self
                 .pending_prompt_receipts
@@ -61,6 +68,9 @@ impl AcpRuntimeSession {
             {
                 let _ = self.local_tx().send(Ok(event)).await;
             }
+        }
+        if agent_was_terminated(&response) {
+            return Ok(());
         }
         await_event_loop_barrier(&self.client).await?;
         if finalize_response {

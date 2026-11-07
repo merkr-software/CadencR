@@ -134,7 +134,7 @@ async fn event_loop_rejects_unknown_server_request_method() {
     let (_tx, _rx) = mpsc::channel(8);
     let _loop = spawn_event_loop(
         client.clone(),
-        client.subscribe(),
+        client.subscribe_reliable(),
         _tx,
         event_loop_config(PathBuf::from("/tmp")),
     );
@@ -155,7 +155,7 @@ async fn event_loop_suppresses_resume_replay_until_prompt_dispatch() {
     let config = event_loop_config(PathBuf::from("/tmp"));
     let replay_suppression = Arc::clone(&config.replay_suppression);
     replay_suppression.store(true, Ordering::SeqCst);
-    let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
+    let _loop = spawn_event_loop(client.clone(), client.subscribe_reliable(), tx, config);
 
     write_agent_request(
         &mut stdout,
@@ -210,7 +210,7 @@ async fn event_loop_handles_fs_read_server_request() {
     let (_tx, _rx) = mpsc::channel(8);
     let _loop = spawn_event_loop(
         client.clone(),
-        client.subscribe(),
+        client.subscribe_reliable(),
         _tx,
         event_loop_config(cwd),
     );
@@ -238,7 +238,7 @@ async fn event_loop_rejects_malformed_permission_server_request() {
     let (tx, mut rx) = mpsc::channel(8);
     let _loop = spawn_event_loop(
         client.clone(),
-        client.subscribe(),
+        client.subscribe_reliable(),
         tx,
         event_loop_config(PathBuf::from("/tmp")),
     );
@@ -268,7 +268,7 @@ async fn permission_request_uses_recorded_tool_input_when_payload_is_empty() {
     let (tx, mut rx) = mpsc::channel(8);
     let _loop = spawn_event_loop(
         client.clone(),
-        client.subscribe(),
+        client.subscribe_reliable(),
         tx,
         event_loop_config(PathBuf::from("/tmp")),
     );
@@ -319,7 +319,7 @@ async fn permission_request_uses_provider_tool_normalization_before_dispatch() {
     let (tx, mut rx) = mpsc::channel(8);
     let mut config = event_loop_config(PathBuf::from("/tmp"));
     config.hooks = Arc::new(NormalizingHooks);
-    let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
+    let _loop = spawn_event_loop(client.clone(), client.subscribe_reliable(), tx, config);
 
     write_agent_request(
         &mut stdout,
@@ -354,7 +354,7 @@ async fn permission_repairs_cursor_mcp_identity_on_the_existing_tool_block() {
     let (tx, mut rx) = mpsc::channel(8);
     let mut config = event_loop_config(PathBuf::from("/tmp"));
     config.hooks = Arc::new(NormalizingHooks);
-    let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
+    let _loop = spawn_event_loop(client.clone(), client.subscribe_reliable(), tx, config);
 
     write_agent_request(
         &mut stdout,
@@ -434,7 +434,7 @@ async fn normalized_cadencr_browser_permission_is_auto_allowed() {
     let mut config = event_loop_config(PathBuf::from("/tmp"));
     config.hooks = Arc::new(NormalizingHooks);
     config.browser_trust = CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()));
-    let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
+    let _loop = spawn_event_loop(client.clone(), client.subscribe_reliable(), tx, config);
 
     write_agent_request(
         &mut stdout,
@@ -475,7 +475,7 @@ async fn browser_permission_reaches_the_ui_when_cadencr_browser_is_untrusted() {
     let (tx, mut rx) = mpsc::channel(8);
     let mut config = event_loop_config(PathBuf::from("/tmp"));
     config.hooks = Arc::new(NormalizingHooks);
-    let _loop = spawn_event_loop(client.clone(), client.subscribe(), tx, config);
+    let _loop = spawn_event_loop(client.clone(), client.subscribe_reliable(), tx, config);
 
     write_agent_request(
         &mut stdout,
@@ -510,7 +510,7 @@ async fn pending_permission_is_refreshed_when_opencode_sends_input_after_request
     let (tx, mut rx) = mpsc::channel(8);
     let _loop = spawn_event_loop(
         client.clone(),
-        client.subscribe(),
+        client.subscribe_reliable(),
         tx,
         event_loop_config(PathBuf::from("/tmp")),
     );
@@ -609,4 +609,161 @@ async fn pending_permission_is_refreshed_when_opencode_sends_input_after_request
         "opencode --version 2>/dev/null || which opencode 2>/dev/null"
     );
     assert_eq!(raw["tool_input"]["description"], "Get OpenCode version");
+}
+
+fn text_chunk(n: usize) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+            "sessionId": "s-1",
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": format!("chunk-{n} ") }
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn stalled_runtime_consumer_still_receives_requests_after_a_burst() {
+    // Regression: the loop used to read a broadcast(4096). With the runtime
+    // consumer stalled, a burst lagged it and the permission request behind
+    // the burst was skipped — its responder waited forever.
+    let (client, mut stdout, mut stdin) = client_with_agent_io().await;
+    let (tx, mut rx) = mpsc::channel(1);
+    let _loop = spawn_event_loop(
+        client.clone(),
+        client.subscribe_reliable(),
+        tx,
+        event_loop_config(PathBuf::from("/tmp")),
+    );
+    for n in 0..5_000 {
+        write_agent_request(&mut stdout, text_chunk(n)).await;
+    }
+    write_agent_request(
+        &mut stdout,
+        json!({
+            "jsonrpc": "2.0", "id": "perm-after-burst",
+            "method": "session/request_permission", "params": { "sessionId": "s-1" }
+        }),
+    )
+    .await;
+    let drain = tokio::spawn(async move {
+        let markers = [0, 4095, 4096, 4999].map(|n| format!("chunk-{n} "));
+        let mut seen = [false; 4];
+        while let Some(event) = rx.recv().await {
+            // Each chunk's text appears verbatim in its delta event.
+            let raw = event.expect("no transport error").raw_json().to_string();
+            for (marker, seen) in markers.iter().zip(seen.iter_mut()) {
+                *seen |= raw.contains(marker.as_str());
+            }
+            if seen[3] {
+                break;
+            }
+        }
+        seen
+    });
+    let response = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        read_agent_response(&mut stdin).await
+    })
+    .await
+    .expect("request behind the burst must be answered");
+    assert_eq!(response["id"], "perm-after-burst");
+    assert_eq!(response["error"]["code"], -32602);
+    let seen = tokio::time::timeout(std::time::Duration::from_secs(30), drain)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        seen, [true; 4],
+        "chunks 0, 4095, 4096 and 4999 must all arrive"
+    );
+}
+
+#[tokio::test]
+async fn event_queue_overflow_ends_the_session_with_a_visible_error() {
+    let (client, mut stdout, _stdin) = client_with_agent_io().await;
+    let (tx, mut rx) = mpsc::channel(1);
+    let _loop = spawn_event_loop(
+        client.clone(),
+        client.subscribe_reliable(),
+        tx,
+        event_loop_config(PathBuf::from("/tmp")),
+    );
+    // One text chunk wedges the loop on the full runtime channel; cheap
+    // extension notifications then fill the queue past its event limit.
+    write_agent_request(&mut stdout, text_chunk(0)).await;
+    let mut burst = Vec::new();
+    for _ in 0..65_600 {
+        burst.extend_from_slice(br#"{"jsonrpc":"2.0","method":"_qa/noise","params":{}}"#);
+        burst.push(b'\n');
+    }
+    stdout.write_all(&burst).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let error = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            match rx.recv().await.expect("terminal error before EOF") {
+                Ok(_) => continue,
+                Err(error) => break error,
+            }
+        }
+    })
+    .await
+    .expect("overflow must surface");
+    assert!(error.to_string().contains("safety limit"), "{error}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wait_for_exit_does_not_block_the_loop_and_kill_still_reaches_the_command() {
+    // Regression: wait_for_exit was awaited inline (stalling every later
+    // event) and moved the Child out, so terminal/kill returned success
+    // without killing anything and the wait never returned.
+    let (client, mut stdout, mut stdin) = client_with_agent_io().await;
+    let (tx, _rx) = mpsc::channel(8);
+    let _loop = spawn_event_loop(
+        client.clone(),
+        client.subscribe_reliable(),
+        tx,
+        event_loop_config(std::env::temp_dir()),
+    );
+    let request = |id: &str, method: &str, params: Value| json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+    write_agent_request(
+        &mut stdout,
+        request(
+            "create",
+            "terminal/create",
+            json!({ "sessionId": "s-1", "command": "/bin/sh", "args": ["-c", "exec sleep 30"] }),
+        ),
+    )
+    .await;
+    let created = read_agent_response(&mut stdin).await;
+    let terminal = json!({
+        "sessionId": "s-1",
+        "terminalId": created["result"]["terminalId"].as_str().expect("terminal id"),
+    });
+    write_agent_request(
+        &mut stdout,
+        request("wait", "terminal/wait_for_exit", terminal.clone()),
+    )
+    .await;
+    write_agent_request(
+        &mut stdout,
+        request("output", "terminal/output", terminal.clone()),
+    )
+    .await;
+    let output = read_agent_response(&mut stdin).await;
+    assert_eq!(output["id"], "output", "the loop must not wait for exit");
+    assert!(output["result"].get("exitStatus").is_none());
+    write_agent_request(&mut stdout, request("kill", "terminal/kill", terminal)).await;
+    let mut responses = vec![
+        read_agent_response(&mut stdin).await,
+        read_agent_response(&mut stdin).await,
+    ];
+    responses.sort_by_key(|response| response["id"].as_str().unwrap_or_default().to_string());
+    assert_eq!(responses[0]["id"], "kill");
+    assert!(responses[0].get("result").is_some(), "{}", responses[0]);
+    assert_eq!(responses[1]["id"], "wait");
+    assert_eq!(responses[1]["result"]["signal"], libc::SIGKILL);
 }
