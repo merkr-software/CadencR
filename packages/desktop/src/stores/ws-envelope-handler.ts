@@ -22,6 +22,11 @@ import {
 } from "./ws-envelope-payload";
 import { normalizeContextWindow } from "@/types/agent";
 import { truncateBlocksAtMessage } from "./ws-session-branch";
+import {
+  handleCompactOk,
+  handleCompactStarted,
+  handleCompactStopped,
+} from "./ws-envelope-compact-handlers";
 import { handleWorktreeEvent } from "./ws-worktree-handler";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { isRecord } from "./ws-message-processing";
@@ -209,6 +214,7 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.profilechanged]: handleProfileChanged,
   [SESSION_ACTION.runtime_overrideschanged]: handleRuntimeOverridesChanged,
   [SESSION_ACTION.compactstarted]: handleCompactStarted,
+  [SESSION_ACTION.compactstopped]: handleCompactStopped,
   [LEGACY_SESSION_ACTION.compactOk]: handleCompactOk,
   [SESSION_ACTION.cleared]: handleCleared,
   [SESSION_ACTION.usage_update]: handleUsageUpdate,
@@ -344,29 +350,6 @@ function handleProfileChanged(ctx: StoreAccessors, sessionId: string, payload: u
       }),
     );
   }
-}
-
-function handleCompactStarted(ctx: StoreAccessors, sessionId: string): void {
-  if (!ctx.getSession(sessionId).compactRequestPending) return;
-  ctx.set(
-    updateSession(ctx.get(), sessionId, {
-      compactRequestPending: false,
-      pendingManualCompact: true,
-    }),
-  );
-}
-
-function handleCompactOk(ctx: StoreAccessors, sessionId: string): void {
-  ctx.set(
-    updateSession(ctx.get(), sessionId, {
-      lifecycle: transitionTurn(ctx.getSession(sessionId).lifecycle, {
-        type: "turn_ended",
-        reason: "completed",
-      }),
-      compactRequestPending: false,
-      pendingManualCompact: false,
-    }),
-  );
 }
 
 function handleLifecyclePayload(ctx: StoreAccessors, sessionId: string, payload: unknown): void {

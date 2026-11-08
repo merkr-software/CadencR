@@ -3,6 +3,26 @@ use super::WsSessionPersistence;
 use sqlx::SqlitePool;
 use tracing::error;
 
+/// `turn_interrupted` content of a manual compaction a Stop cancelled.
+pub(crate) const COMPACTION_STOPPED_MARKER: &str = "compact";
+
+/// A `turn_interrupted` transcript row; `content` names its cause.
+async fn insert_turn_interrupted(
+    pool: &SqlitePool,
+    session_id: i64,
+    content: &str,
+) -> Result<(), sqlx::Error> {
+    insert_message()
+        .pool(pool)
+        .session_id(session_id)
+        .role("system")
+        .content(content)
+        .message_type("turn_interrupted")
+        .call()
+        .await
+        .map(|_| ())
+}
+
 impl WsSessionPersistence {
     /// Archive the current session id and clear the active runtime ids.
     ///
@@ -56,17 +76,19 @@ impl WsSessionPersistence {
     /// of whatever the provider wrote for the aborted tool call — on every
     /// device and after a reload.
     pub async fn persist_turn_interrupted_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(error) = insert_message()
-            .pool(pool)
-            .session_id(session_id)
-            .role("system")
-            .content("")
-            .message_type("turn_interrupted")
-            .call()
-            .await
-        {
+        if let Err(error) = insert_turn_interrupted(pool, session_id, "").await {
             tracing::error!(session_id, error = %error, "failed to persist the turn-interrupted marker");
         }
+    }
+
+    /// Mark in the transcript that a Stop cancelled the manual compaction
+    /// before it began: after a reload, and on the other devices once they
+    /// load it, the `/compact` row reads "compaction stopped", not a failure.
+    pub async fn persist_compaction_stopped_static(
+        pool: &SqlitePool,
+        session_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        insert_turn_interrupted(pool, session_id, COMPACTION_STOPPED_MARKER).await
     }
 
     pub async fn persist_runtime_session_id_static(

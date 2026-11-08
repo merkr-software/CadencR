@@ -6378,6 +6378,14 @@ export interface SessionClearedPayload {
  */
 export type SessionCompactStartedPayload = null;
 
+/**
+ * `compact.stopped`: a Stop cancelled the manual compaction before it began.
+ * An intended outcome, not a failure; the transcript marker is persisted.
+ */
+export interface SessionCompactStoppedPayload {
+  [key: string]: unknown;
+}
+
 export interface SessionConfigSetPayload {
   config_id: string;
   session_id: string;
@@ -7354,6 +7362,7 @@ export const WsSessionAction = {
   access_modechanged: "access_mode.changed",
   providersetok: "provider.set.ok",
   compactstarted: "compact.started",
+  compactstopped: "compact.stopped",
   modelsetok: "model.set.ok",
   effortsetok: "effort.set.ok",
   configsnapshot: "config.snapshot",
@@ -8044,179 +8053,191 @@ export type WsSessionEventOneOfFiveoneAction =
   (typeof WsSessionEventOneOfFiveoneAction)[keyof typeof WsSessionEventOneOfFiveoneAction];
 
 export const WsSessionEventOneOfFiveoneAction = {
-  modelsetok: "model.set.ok",
+  compactstopped: "compact.stopped",
 } as const;
 
 export type WsSessionEventOneOfFiveone = {
   action: WsSessionEventOneOfFiveoneAction;
-  payload: ModelSetOkPayload;
+  payload: SessionCompactStoppedPayload;
 };
 
 export type WsSessionEventOneOfFivethreeAction =
   (typeof WsSessionEventOneOfFivethreeAction)[keyof typeof WsSessionEventOneOfFivethreeAction];
 
 export const WsSessionEventOneOfFivethreeAction = {
-  effortsetok: "effort.set.ok",
+  modelsetok: "model.set.ok",
 } as const;
 
 export type WsSessionEventOneOfFivethree = {
   action: WsSessionEventOneOfFivethreeAction;
-  payload: EffortSetOkPayload;
+  payload: ModelSetOkPayload;
 };
 
 export type WsSessionEventOneOfFivefiveAction =
   (typeof WsSessionEventOneOfFivefiveAction)[keyof typeof WsSessionEventOneOfFivefiveAction];
 
 export const WsSessionEventOneOfFivefiveAction = {
-  configsnapshot: "config.snapshot",
+  effortsetok: "effort.set.ok",
 } as const;
 
 export type WsSessionEventOneOfFivefive = {
   action: WsSessionEventOneOfFivefiveAction;
-  payload: SessionConfigSnapshotPayload;
+  payload: EffortSetOkPayload;
 };
 
 export type WsSessionEventOneOfFivesevenAction =
   (typeof WsSessionEventOneOfFivesevenAction)[keyof typeof WsSessionEventOneOfFivesevenAction];
 
 export const WsSessionEventOneOfFivesevenAction = {
-  fast_modesetok: "fast_mode.set.ok",
+  configsnapshot: "config.snapshot",
 } as const;
 
 export type WsSessionEventOneOfFiveseven = {
   action: WsSessionEventOneOfFivesevenAction;
-  payload: FastModeSetOkPayload;
+  payload: SessionConfigSnapshotPayload;
 };
 
 export type WsSessionEventOneOfFivenineAction =
   (typeof WsSessionEventOneOfFivenineAction)[keyof typeof WsSessionEventOneOfFivenineAction];
 
 export const WsSessionEventOneOfFivenineAction = {
-  modechanged: "mode.changed",
+  fast_modesetok: "fast_mode.set.ok",
 } as const;
 
 export type WsSessionEventOneOfFivenine = {
   action: WsSessionEventOneOfFivenineAction;
-  payload: ModeChangedPayload;
+  payload: FastModeSetOkPayload;
 };
 
 export type WsSessionEventOneOfSixoneAction =
   (typeof WsSessionEventOneOfSixoneAction)[keyof typeof WsSessionEventOneOfSixoneAction];
 
 export const WsSessionEventOneOfSixoneAction = {
-  profilechanged: "profile.changed",
+  modechanged: "mode.changed",
 } as const;
 
 export type WsSessionEventOneOfSixone = {
   action: WsSessionEventOneOfSixoneAction;
-  payload: ProfileChangedPayload;
+  payload: ModeChangedPayload;
 };
 
 export type WsSessionEventOneOfSixthreeAction =
   (typeof WsSessionEventOneOfSixthreeAction)[keyof typeof WsSessionEventOneOfSixthreeAction];
 
 export const WsSessionEventOneOfSixthreeAction = {
-  runtime_overrideschanged: "runtime_overrides.changed",
+  profilechanged: "profile.changed",
 } as const;
 
 export type WsSessionEventOneOfSixthree = {
   action: WsSessionEventOneOfSixthreeAction;
-  payload: RuntimeOverridesChangedPayload;
+  payload: ProfileChangedPayload;
 };
 
 export type WsSessionEventOneOfSixfiveAction =
   (typeof WsSessionEventOneOfSixfiveAction)[keyof typeof WsSessionEventOneOfSixfiveAction];
 
 export const WsSessionEventOneOfSixfiveAction = {
-  branchrewound: "branch.rewound",
+  runtime_overrideschanged: "runtime_overrides.changed",
 } as const;
 
 export type WsSessionEventOneOfSixfive = {
   action: WsSessionEventOneOfSixfiveAction;
-  payload: BranchRewoundPayload;
+  payload: RuntimeOverridesChangedPayload;
 };
 
 export type WsSessionEventOneOfSixsevenAction =
   (typeof WsSessionEventOneOfSixsevenAction)[keyof typeof WsSessionEventOneOfSixsevenAction];
 
 export const WsSessionEventOneOfSixsevenAction = {
-  branchforked: "branch.forked",
+  branchrewound: "branch.rewound",
 } as const;
 
 export type WsSessionEventOneOfSixseven = {
   action: WsSessionEventOneOfSixsevenAction;
-  payload: BranchForkedPayload;
+  payload: BranchRewoundPayload;
 };
 
 export type WsSessionEventOneOfSixnineAction =
   (typeof WsSessionEventOneOfSixnineAction)[keyof typeof WsSessionEventOneOfSixnineAction];
 
 export const WsSessionEventOneOfSixnineAction = {
-  runtime_session_id: "runtime_session_id",
+  branchforked: "branch.forked",
 } as const;
 
 export type WsSessionEventOneOfSixnine = {
   action: WsSessionEventOneOfSixnineAction;
-  payload: RuntimeSessionIdPayload;
+  payload: BranchForkedPayload;
 };
 
 export type WsSessionEventOneOfSevenoneAction =
   (typeof WsSessionEventOneOfSevenoneAction)[keyof typeof WsSessionEventOneOfSevenoneAction];
 
 export const WsSessionEventOneOfSevenoneAction = {
-  permissionrequest: "permission.request",
+  runtime_session_id: "runtime_session_id",
 } as const;
 
 export type WsSessionEventOneOfSevenone = {
   action: WsSessionEventOneOfSevenoneAction;
-  payload: PermissionRequestPayload;
+  payload: RuntimeSessionIdPayload;
 };
 
 export type WsSessionEventOneOfSeventhreeAction =
   (typeof WsSessionEventOneOfSeventhreeAction)[keyof typeof WsSessionEventOneOfSeventhreeAction];
 
 export const WsSessionEventOneOfSeventhreeAction = {
-  prompt_received: "prompt_received",
+  permissionrequest: "permission.request",
 } as const;
 
 export type WsSessionEventOneOfSeventhree = {
   action: WsSessionEventOneOfSeventhreeAction;
-  payload: PromptReceivedPayload;
+  payload: PermissionRequestPayload;
 };
 
 export type WsSessionEventOneOfSevenfiveAction =
   (typeof WsSessionEventOneOfSevenfiveAction)[keyof typeof WsSessionEventOneOfSevenfiveAction];
 
 export const WsSessionEventOneOfSevenfiveAction = {
-  stream_status: "stream_status",
+  prompt_received: "prompt_received",
 } as const;
 
 export type WsSessionEventOneOfSevenfive = {
   action: WsSessionEventOneOfSevenfiveAction;
-  payload: SessionStreamStatusPayload;
+  payload: PromptReceivedPayload;
 };
 
 export type WsSessionEventOneOfSevensevenAction =
   (typeof WsSessionEventOneOfSevensevenAction)[keyof typeof WsSessionEventOneOfSevensevenAction];
 
 export const WsSessionEventOneOfSevensevenAction = {
-  persistence_status: "persistence_status",
+  stream_status: "stream_status",
 } as const;
 
 export type WsSessionEventOneOfSevenseven = {
   action: WsSessionEventOneOfSevensevenAction;
-  payload: SessionPersistenceStatusPayload;
+  payload: SessionStreamStatusPayload;
 };
 
 export type WsSessionEventOneOfSevennineAction =
   (typeof WsSessionEventOneOfSevennineAction)[keyof typeof WsSessionEventOneOfSevennineAction];
 
 export const WsSessionEventOneOfSevennineAction = {
-  subagent_updated: "subagent_updated",
+  persistence_status: "persistence_status",
 } as const;
 
 export type WsSessionEventOneOfSevennine = {
   action: WsSessionEventOneOfSevennineAction;
+  payload: SessionPersistenceStatusPayload;
+};
+
+export type WsSessionEventOneOfEightoneAction =
+  (typeof WsSessionEventOneOfEightoneAction)[keyof typeof WsSessionEventOneOfEightoneAction];
+
+export const WsSessionEventOneOfEightoneAction = {
+  subagent_updated: "subagent_updated",
+} as const;
+
+export type WsSessionEventOneOfEightone = {
+  action: WsSessionEventOneOfEightoneAction;
   payload: SubagentRun;
 };
 
@@ -8263,7 +8284,8 @@ export type WsSessionEvent =
   | WsSessionEventOneOfSeventhree
   | WsSessionEventOneOfSevenfive
   | WsSessionEventOneOfSevenseven
-  | WsSessionEventOneOfSevennine;
+  | WsSessionEventOneOfSevennine
+  | WsSessionEventOneOfEightone;
 
 export type GetAgentCatalogParams = {
   /**

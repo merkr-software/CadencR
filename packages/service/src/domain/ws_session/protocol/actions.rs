@@ -65,6 +65,7 @@ session_events! {
     AccessModeChanged(ModeChangedPayload) => "access_mode.changed",
     ProviderSetOk(ProviderSetOkPayload) => "provider.set.ok",
     CompactStarted(SessionCompactStartedPayload) => "compact.started",
+    CompactStopped(SessionCompactStoppedPayload) => "compact.stopped",
     ModelSetOk(ModelSetOkPayload) => "model.set.ok",
     EffortSetOk(EffortSetOkPayload) => "effort.set.ok",
     ConfigSnapshot(SessionConfigSnapshotPayload) => "config.snapshot",

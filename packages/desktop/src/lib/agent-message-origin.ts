@@ -16,6 +16,9 @@ export const RESTART_INTERRUPTION = "restart";
 /** `turn_interrupted` content for a turn the user stopped by quitting Cadencr. */
 export const QUIT_INTERRUPTION = "quit";
 
+/** `turn_interrupted` content for a manual compaction a Stop cancelled. */
+export const COMPACTION_STOPPED_INTERRUPTION = "compact";
+
 /** The transcript marker of a turn a Cadencr restart cut off. */
 export function isRestartInterruptionMarker(block: AgentBlockData): boolean {
   return block.type === "turn_interrupted" && block.content === RESTART_INTERRUPTION;

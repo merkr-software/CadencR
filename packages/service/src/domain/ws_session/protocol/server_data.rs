@@ -79,6 +79,11 @@ impl utoipa::PartialSchema for SessionCompactStartedPayload {
 
 impl ToSchema for SessionCompactStartedPayload {}
 
+/// `compact.stopped`: a Stop cancelled the manual compaction before it began.
+/// An intended outcome, not a failure; the transcript marker is persisted.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionCompactStoppedPayload {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RetryWorktreeSetupOkPayload {
     pub feature_id: i64,

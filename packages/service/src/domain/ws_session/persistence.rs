@@ -57,6 +57,8 @@ mod pending_user_gate;
 mod pending_user_input;
 mod reported_model;
 mod session_archiving;
+#[cfg(test)]
+pub(crate) use session_archiving::COMPACTION_STOPPED_MARKER;
 mod session_bootstrap;
 mod session_cleanup;
 mod session_configuration;

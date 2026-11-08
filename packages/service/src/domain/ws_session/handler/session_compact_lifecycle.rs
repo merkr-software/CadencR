@@ -1,6 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use axum::extract::ws::Message;
+
+use super::super::protocol::{SessionCompactStoppedPayload, WsEnvelope, WsSessionEvent};
 use super::{SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::session_status::AgentStatus;
@@ -65,6 +68,40 @@ pub(super) async fn take_compact_cancel(sdk_sessions: &SdkSessions, session_id: 
         .await
         .get(&session_id)
         .is_some_and(|handle| handle.manual_compact_cancel.swap(false, Ordering::SeqCst))
+}
+
+/// A Stop cancelled the compaction before it began. That is the outcome the
+/// user asked for, so it is reported as one (`compact.stopped` and a
+/// transcript marker), never as a rejected compaction.
+pub(super) async fn report_compact_stopped(
+    app_state: &AppState,
+    sender: &WsSender,
+    envelope_id: &str,
+    session_id: i64,
+    feature_id: i64,
+) {
+    let written =
+        WsSessionPersistence::persist_compaction_stopped_static(&app_state.write_pool, session_id)
+            .await;
+    report_if_unsaved(
+        &app_state.ws_feature_senders,
+        feature_id,
+        session_id,
+        "that the compaction was stopped",
+        written,
+    )
+    .await;
+    let reply = WsEnvelope::session_reply(
+        envelope_id,
+        &WsSessionEvent::CompactStopped(SessionCompactStoppedPayload {}),
+    )
+    .expect("compact stopped payload should serialize");
+    if sender
+        .send(Message::Text(String::from(reply).into()))
+        .is_err()
+    {
+        tracing::warn!(session_id, "compact.stopped reply delivery failed");
+    }
 }
 
 pub(super) async fn finish_compact_start(
@@ -157,4 +194,48 @@ pub(super) async fn persist_compact_command(
         );
     }
     Ok(message.inserted)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+    use crate::domain::ws_session::handler::tests::support::{
+        insert_running_session, make_test_app_state,
+    };
+    use crate::domain::ws_session::persistence::COMPACTION_STOPPED_MARKER;
+
+    /// Found in QA: a Stop while the compaction's runtime spawned showed a
+    /// `COMPACT_REJECTED` error. It is the stop the user asked for: a
+    /// `compact.stopped` reply and a persisted marker, no error.
+    #[tokio::test]
+    async fn a_compaction_stopped_before_it_began_is_reported_as_stopped() {
+        let app_state = make_test_app_state().await;
+        insert_running_session(&app_state, 61, 1).await;
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        report_compact_stopped(&app_state, &tx, "compact-req", 61, 1).await;
+
+        let Ok(Message::Text(text)) = rx.try_recv() else {
+            panic!("the stop must be answered");
+        };
+        let reply: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(reply["action"], "compact.stopped");
+        assert_eq!(reply["ref"], "compact-req");
+        assert!(rx.try_recv().is_err(), "no error may follow the reply");
+        let marker: (String, String) =
+            sqlx::query_as("SELECT message_type, content FROM agent_messages WHERE session_id = ?")
+                .bind(61)
+                .fetch_one(&app_state.write_pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            marker,
+            (
+                "turn_interrupted".to_string(),
+                COMPACTION_STOPPED_MARKER.to_string()
+            )
+        );
+    }
 }

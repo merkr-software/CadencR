@@ -220,7 +220,9 @@ pub(super) fn build_blocks(messages: &[AgentMessageRow]) -> Vec<AgentBlock> {
             }
             "turn_interrupted" => {
                 push_block(
-                    // Empty for a user stop; `restart` when a restart cut the turn off.
+                    // Its cause: empty for a user stop (a sleep included), `restart` or
+                    // `quit` when Cadencr cut the turn off, `compact` for a
+                    // compaction stopped before it began.
                     make_simple_block("turn_interrupted", msg.content.clone(), msg, id, None, true),
                     parent_idx,
                     &mut all,
