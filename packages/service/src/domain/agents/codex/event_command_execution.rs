@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 use super::event_command_actions::{command_action_events, has_exploring_command_actions};
 use super::event_inputs::command_input;
-use super::event_items::{stream_start_event, tool_result_event_with_error};
+use super::event_items::{item_failed, stream_start_event, tool_result_event_with_error};
 use super::event_json::{input_json_delta_event, thread_id};
 use super::event_payloads::{
     parse_command_execution_params, parse_tool_json_delta_params, CommandExecutionParams,
@@ -123,7 +123,7 @@ fn completed_command_events(
 }
 
 fn command_result_event(params: &Value, id: String, input: Value) -> RuntimeEvent {
-    let is_error = input.get("error").is_some_and(|error| !error.is_null());
+    let is_error = item_failed(&input);
     tool_result_event_with_error(params, id, input, is_error)
 }
 
@@ -326,6 +326,45 @@ mod tests {
         assert_eq!(completed.len(), 1);
         assert!(completed[0].user_message().is_some());
         assert!(completed[0].stream_event().is_none());
+    }
+
+    fn completed_command_result_is_error(status: &str) -> bool {
+        let mut indexes = IndexState::default();
+        let completed = notification_events(
+            "item/completed",
+            json!({
+                "threadId": "thread",
+                "item": {
+                    "type": "commandExecution",
+                    "id": "cmd",
+                    "command": "sh -c 'exit 3'",
+                    "aggregatedOutput": "boom",
+                    "exitCode": if status == "failed" { 3 } else { 0 },
+                    "status": status
+                }
+            }),
+            None,
+            &mut indexes,
+        );
+        let message = completed
+            .iter()
+            .find_map(|event| event.user_message())
+            .expect("the completed command reports its result");
+        match &message.content[..] {
+            [crate::domain::agents::adapter::RuntimeUserContentBlock::ToolResult {
+                is_error,
+                ..
+            }] => *is_error,
+            other => panic!("expected one tool result, got {other:?}"),
+        }
+    }
+
+    /// Found live: a command that exited non-zero (`status: "failed"`, no
+    /// `error`) was recorded as a success, so no view showed it failed.
+    #[test]
+    fn a_failed_command_reports_an_error_result() {
+        assert!(completed_command_result_is_error("failed"));
+        assert!(!completed_command_result_is_error("completed"));
     }
 
     #[test]
