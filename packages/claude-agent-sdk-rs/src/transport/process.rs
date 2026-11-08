@@ -8,6 +8,35 @@ use crate::options::Options;
 
 use super::stderr::StderrCapture;
 
+/// How the CLI process ended, once it has.
+pub(crate) struct ProcessEnd {
+    pub code: Option<i32>,
+    /// The signal that ended it, on Unix.
+    pub signal: Option<i32>,
+    pub stderr: String,
+}
+
+impl ProcessEnd {
+    /// Exit code 0 with nothing on stderr: the CLI chose to stop.
+    pub fn is_clean(&self) -> bool {
+        self.code == Some(0) && self.stderr.trim().is_empty()
+    }
+
+    /// The error reporting this end.
+    pub fn into_error(self) -> SdkError {
+        match self.signal {
+            Some(signal) => SdkError::ProcessSignaled {
+                signal,
+                stderr: self.stderr,
+            },
+            None => SdkError::ProcessExit {
+                code: self.code,
+                stderr: self.stderr,
+            },
+        }
+    }
+}
+
 pub(crate) struct CliProcess {
     child: tokio::process::Child,
     stdin: Option<BufWriter<ChildStdin>>,
@@ -138,12 +167,15 @@ impl CliProcess {
         }
     }
 
-    /// Wait for the process to exit and return `(exit_code, captured_stderr)`.
-    pub async fn wait_with_stderr(&mut self) -> (Option<i32>, String) {
+    /// Wait for the process to exit; report how, with the captured stderr.
+    pub async fn wait_with_stderr(&mut self) -> ProcessEnd {
         let status = self.child.wait().await.ok();
         let stderr = self.stderr.finish().await;
-        let code = status.and_then(|s| s.code());
-        (code, stderr)
+        ProcessEnd {
+            code: status.and_then(|status| status.code()),
+            signal: status.and_then(exit_signal),
+            stderr,
+        }
     }
 
     /// Return the OS process ID, if the process is still running.
@@ -160,6 +192,16 @@ impl CliProcess {
     pub(crate) fn take_stdin(&mut self) -> Option<BufWriter<ChildStdin>> {
         self.stdin.take()
     }
+}
+
+#[cfg(unix)]
+fn exit_signal(status: std::process::ExitStatus) -> Option<i32> {
+    std::os::unix::process::ExitStatusExt::signal(&status)
+}
+
+#[cfg(not(unix))]
+fn exit_signal(_status: std::process::ExitStatus) -> Option<i32> {
+    None
 }
 
 impl Drop for CliProcess {
@@ -205,15 +247,15 @@ mod tests {
             stderr,
         };
         assert!(process.read_message().await.unwrap().is_none());
-        let (code, stderr) = tokio::time::timeout(
+        let end = tokio::time::timeout(
             std::time::Duration::from_secs(1),
             process.wait_with_stderr(),
         )
         .await
         .expect("MCP descendants must not delay the runtime exit event");
-        assert_eq!(code, Some(0));
-        assert!(stderr.contains("original-failure"));
-        assert!(stderr.contains("remained open after process exit"));
+        assert_eq!(end.code, Some(0));
+        assert!(end.stderr.contains("original-failure"));
+        assert!(end.stderr.contains("remained open after process exit"));
     }
 
     #[tokio::test]

@@ -28,6 +28,11 @@ pub enum SdkError {
     #[error("CLI process exited with code {code:?}: {stderr}")]
     ProcessExit { code: Option<i32>, stderr: String },
 
+    /// A signal the SDK did not send ended the CLI (a crash, or a kill from
+    /// outside). A stop or kill through the SDK never reports this.
+    #[error("Claude Code was terminated by signal {signal} ({}){}", signal_name(*.signal), stderr_suffix(.stderr))]
+    ProcessSignaled { signal: i32, stderr: String },
+
     /// An operation timed out.
     #[error("operation timed out")]
     Timeout,
@@ -54,4 +59,58 @@ pub enum SdkError {
     /// payload. Surfaced verbatim so callers can decide how to display it.
     #[error("CLI rejected control request `{subtype}`: {message}")]
     ControlRequestFailed { subtype: String, message: String },
+}
+
+#[cfg(unix)]
+fn signal_name(signal: i32) -> &'static str {
+    match signal {
+        libc::SIGHUP => "SIGHUP",
+        libc::SIGINT => "SIGINT",
+        libc::SIGABRT => "SIGABRT",
+        libc::SIGKILL => "SIGKILL",
+        libc::SIGBUS => "SIGBUS",
+        libc::SIGSEGV => "SIGSEGV",
+        libc::SIGPIPE => "SIGPIPE",
+        libc::SIGTERM => "SIGTERM",
+        _ => "unnamed signal",
+    }
+}
+
+#[cfg(not(unix))]
+fn signal_name(_signal: i32) -> &'static str {
+    "unnamed signal"
+}
+
+fn stderr_suffix(stderr: &str) -> String {
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+        String::new()
+    } else {
+        format!(": {stderr}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SdkError;
+
+    #[test]
+    fn a_signal_death_names_the_signal_and_keeps_stderr() {
+        let bare = SdkError::ProcessSignaled {
+            signal: 9,
+            stderr: String::new(),
+        };
+        assert_eq!(
+            bare.to_string(),
+            "Claude Code was terminated by signal 9 (SIGKILL)"
+        );
+        let with_stderr = SdkError::ProcessSignaled {
+            signal: 11,
+            stderr: "segfault at 0x0\n".into(),
+        };
+        assert_eq!(
+            with_stderr.to_string(),
+            "Claude Code was terminated by signal 11 (SIGSEGV): segfault at 0x0"
+        );
+    }
 }

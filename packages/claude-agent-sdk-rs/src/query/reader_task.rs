@@ -88,20 +88,18 @@ impl ReaderTask {
         match result {
             Ok(Some(value)) => ReaderAction::Raw(value),
             Ok(None) => {
-                let (code, stderr) = self.process.wait_with_stderr().await;
+                let end = self.process.wait_with_stderr().await;
                 // A persistent stream-json session only reaches stdout EOF when
-                // the CLI exited on its own. Treat a non-zero code OR any stderr
-                // output as abnormal and surface it (with stderr) so the turn
-                // never just silently stops — previously a code-0 exit sent
-                // nothing and the captured stderr was discarded.
-                if code.unwrap_or(0) != 0 || !stderr.trim().is_empty() {
-                    warn!(?code, stderr = %stderr, "CLI process exited abnormally; surfacing as error");
-                    let _ = self
-                        .tx
-                        .send(Err(SdkError::ProcessExit { code, stderr }))
-                        .await;
+                // the CLI ended on its own: a stop or kill through the SDK
+                // breaks out before reading on. So anything but exit code 0
+                // with an empty stderr is abnormal and surfaces (with stderr),
+                // a signal death included (it has no exit code), so the turn
+                // never just silently stops.
+                if end.is_clean() {
+                    info!(code = ?end.code, "CLI process exited cleanly");
                 } else {
-                    info!(?code, "CLI process exited cleanly");
+                    warn!(code = ?end.code, signal = ?end.signal, stderr = %end.stderr, "CLI process exited abnormally; surfacing as error");
+                    let _ = self.tx.send(Err(end.into_error())).await;
                 }
                 ReaderAction::Break
             }
@@ -304,6 +302,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::super::test_support::{mock_mcp_servers, write_mock_cli};
+    use crate::error::SdkError;
     use crate::messages::SdkMessage;
     use crate::options::Options;
     use crate::query::{query, TurnState};
@@ -343,5 +342,84 @@ echo '{"type":"result","subtype":{"kind":"success"},"uuid":"u1","session_id":"se
             TurnState::TurnComplete { ref result_subtype, is_error: true }
                 if result_subtype == "malformed"
         ));
+    }
+
+    /// A CLI that completes the handshake and reads the prompt, then runs
+    /// `then` (shell) in the middle of its turn.
+    async fn cli_mid_turn(dir: &std::path::Path, then: &str) -> crate::Query {
+        let script = format!(
+            r#"#!/bin/sh
+read -r INIT_REQ
+read -r MCP_REQ; MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p'); printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{"mcpServers":[]}}}}}}\n' "$MCP_ID"
+read -r USER_PROMPT
+{then}
+"#
+        );
+        let options = Options {
+            path_to_cli: Some(write_mock_cli(dir, &script)),
+            mcp_servers: Some(mock_mcp_servers()),
+            ..Options::default()
+        };
+        query(serde_json::Value::String("test".into()), options)
+            .await
+            .unwrap()
+    }
+
+    /// Found live: a CLI killed with `kill -9` has no exit code, and was
+    /// taken for a clean exit (nothing reported). It must end the stream with
+    /// an explicit abnormal end naming the signal.
+    #[tokio::test]
+    async fn a_signal_death_surfaces_as_an_abnormal_end() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "kill -9 $$").await;
+
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the death must end the stream")
+            .expect("a terminal item");
+
+        match end {
+            Err(error @ SdkError::ProcessSignaled { signal: 9, .. }) => {
+                assert!(error.to_string().contains("SIGKILL"), "{error}");
+            }
+            other => panic!("expected a signal death, got {other:?}"),
+        }
+        assert!(q.next().await.is_none());
+    }
+
+    /// A kill through the SDK (Stop escalation, close) is intended: the
+    /// stream ends without reporting the signal it sent.
+    #[tokio::test]
+    async fn a_kill_through_the_sdk_is_not_an_abnormal_end() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "exec sleep 30").await;
+
+        q.kill().await;
+        let rest = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let mut items = Vec::new();
+            while let Some(item) = q.next().await {
+                items.push(item);
+            }
+            items
+        })
+        .await
+        .expect("the kill must end the stream");
+
+        assert!(
+            rest.iter().all(Result::is_ok),
+            "an intended kill must not surface an error: {rest:?}"
+        );
+    }
+
+    /// A clean exit (code 0, empty stderr) still ends the stream silently.
+    #[tokio::test]
+    async fn a_clean_exit_reports_nothing() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "exit 0").await;
+
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the exit must end the stream");
+        assert!(end.is_none(), "{end:?}");
     }
 }

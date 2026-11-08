@@ -91,8 +91,7 @@ where
                     // Ignore any other messages (e.g. system.init emitted early).
                 }
                 None => {
-                    let (code, stderr) = process.wait_with_stderr().await;
-                    return Err(SdkError::ProcessExit { code, stderr });
+                    return Err(process.wait_with_stderr().await.into_error());
                 }
             }
         }

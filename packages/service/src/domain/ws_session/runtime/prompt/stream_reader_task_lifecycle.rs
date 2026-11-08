@@ -49,6 +49,12 @@ impl StreamReaderTask {
             }
         } else if self.end_turn_cut_off_by_shutdown(state).await {
             info!(self.db_session_id, error = %error, "runtime failed while the service shut down");
+        } else if crate::domain::restart_continuations::is_shutting_down()
+            && !self.stream_close_was_unexpected(state).await
+        {
+            // No turn ran: the shutdown (or the terminal's Ctrl-C reaching the
+            // whole process group) ended an idle runtime, which needs no error.
+            info!(self.db_session_id, error = %error, "idle runtime ended while the service shut down");
         } else {
             self.handle_stream_error(state, error).await;
         }
