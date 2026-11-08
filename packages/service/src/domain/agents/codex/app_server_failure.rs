@@ -29,10 +29,15 @@ pub(super) fn explain(
     error: RuntimeError,
     secrets: &[String],
 ) -> RuntimeError {
-    match client.exit() {
-        Some(exit) => RuntimeError::new(describe(exit, &client.stderr_tail(), secrets)),
-        None => error,
-    }
+    exit_reason(client, secrets).map_or(error, RuntimeError::new)
+}
+
+/// Why `client`'s app-server died, when it exited on its own; same timing
+/// as [`explain`].
+pub(super) fn exit_reason(client: &CodexAppServerClient, secrets: &[String]) -> Option<String> {
+    client
+        .exit()
+        .map(|exit| describe(exit, &client.stderr_tail(), secrets))
 }
 
 fn describe(exit: AppServerExit, stderr_tail: &[String], secrets: &[String]) -> String {

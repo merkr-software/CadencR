@@ -32,8 +32,21 @@ pub(crate) fn exit_message<S: AsRef<str>>(
     }
 }
 
+/// [`exit_message`] for a one-shot command that ran and failed, from its
+/// exit `status` and everything it wrote to `stderr`.
+pub(crate) fn command_failure(
+    process: &str,
+    status: &ExitStatus,
+    stderr: &str,
+    secrets: &[String],
+) -> String {
+    let (code, signal) = exit_parts(status);
+    let lines: Vec<&str> = stderr.lines().collect();
+    exit_message(process, code, signal, &lines, secrets)
+}
+
 /// The exit code and terminating signal of `status`.
-pub(crate) fn exit_parts(status: &ExitStatus) -> (Option<i32>, Option<i32>) {
+fn exit_parts(status: &ExitStatus) -> (Option<i32>, Option<i32>) {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;

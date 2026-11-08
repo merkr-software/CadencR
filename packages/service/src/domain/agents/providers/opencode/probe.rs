@@ -31,11 +31,11 @@ fn probe_error(error: SdkError) -> RuntimeError {
         stderr,
     } = &error
     {
-        let (code, signal) = cli_stderr::exit_parts(status);
-        let lines: Vec<&str> = stderr.raw().lines().collect();
-        let secrets = cli_stderr::secret_values([]);
-        return RuntimeError::new(cli_stderr::exit_message(
-            command, code, signal, &lines, &secrets,
+        return RuntimeError::new(cli_stderr::command_failure(
+            command,
+            status,
+            stderr.raw(),
+            &cli_stderr::secret_values([]),
         ));
     }
     match RuntimeError::from(error) {
