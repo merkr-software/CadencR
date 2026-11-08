@@ -46,11 +46,7 @@ impl AgentRuntimeAdapter for CodexAdapter {
         cwd: Option<&std::path::Path>,
         profile: Option<&str>,
     ) -> ProviderCatalogEntry {
-        profile_runtime::catalog_for_profile(
-            profile,
-            cwd.unwrap_or_else(|| std::path::Path::new(".")),
-        )
-        .await
+        profile_runtime::catalog_for_profile(profile, cwd).await
     }
 
     fn user_shell_strategy(&self) -> RuntimeUserShellStrategy {

@@ -13,10 +13,15 @@
 //! and eviction, but a failed refresh keeps nothing), every outcome here is an
 //! entry: the policy needs the previous one to decide the next.
 //!
+//! A reader that must not wait for a CLI uses [`LiveCatalogCache::get_or_revalidate`]:
+//! once a probe has returned a catalog, an entry expired for less than
+//! [`MAX_STALE`] is served at once while one background refresh brings it up
+//! to date; an older one is not trusted and waits for the probe.
+//!
 //! Each provider owns its cache and its probe; the probe is a parameter so
 //! tests inject a counting closure instead of spawning a CLI.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -37,6 +42,10 @@ const QUICK_FAILURE: Duration = Duration::from_secs(5);
 /// How long a first failed refresh waits before probing again; it doubles
 /// with each consecutive failure, up to `CATALOG_TTL`.
 const FAILURE_RETRY: Duration = Duration::from_secs(5);
+/// How long past its TTL a catalog may still be served while it refreshes in
+/// the background. Past it (after a long idle, say, when the CLI or its
+/// config may have changed), a reader waits for the probe instead.
+const MAX_STALE: Duration = Duration::from_secs(5 * 60);
 /// Keys a cache keeps (workspaces × profiles); the oldest entry goes first.
 const MAX_CACHED_KEYS: usize = 16;
 
@@ -80,6 +89,11 @@ impl<X> CachedCatalog<X> {
     fn is_known(&self) -> bool {
         self.catalog.status == ProviderStatus::Available
     }
+
+    /// Whether a stale read may serve this entry while it refreshes.
+    fn is_servable_while_stale(&self) -> bool {
+        self.is_known() && self.fetched_at.elapsed() < self.ttl + MAX_STALE
+    }
 }
 
 pub(crate) struct LiveCatalogCache<K, X> {
@@ -89,6 +103,8 @@ pub(crate) struct LiveCatalogCache<K, X> {
     entries: RwLock<HashMap<K, (u64, CachedCatalog<X>)>>,
     refreshes: KeyedLocks<K>,
     stores: AtomicU64,
+    /// Keys with a background refresh in flight, so stale readers start only one.
+    revalidating: std::sync::Mutex<HashSet<K>>,
 }
 
 impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
@@ -98,6 +114,7 @@ impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
             entries: RwLock::new(HashMap::new()),
             refreshes: KeyedLocks::default(),
             stores: AtomicU64::new(0),
+            revalidating: std::sync::Mutex::new(HashSet::new()),
         }
     }
 
@@ -249,11 +266,93 @@ impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
         self.entries.write().await.clear();
     }
 
+    /// Age `key`'s entry to `past` beyond its TTL.
+    #[cfg(test)]
+    pub(crate) async fn age_past_ttl_for_test(&self, key: &K, past: Duration) {
+        if let Some((_, entry)) = self.entries.write().await.get_mut(key) {
+            entry.fetched_at = Instant::now() - entry.ttl - past;
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn force_expire_for_test(&self, key: &K) {
         if let Some((_, entry)) = self.entries.write().await.get_mut(key) {
             entry.fetched_at = Instant::now() - entry.ttl - Duration::from_secs(1);
         }
+    }
+}
+
+impl<K, X> LiveCatalogCache<K, X>
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    X: Default + Send + Sync + 'static,
+{
+    /// Stale-while-revalidate read. A fresh entry, one no probe ever returned
+    /// (an unavailable provider) or one expired for [`MAX_STALE`] or more
+    /// behaves like [`Self::get_with`]. Any other expired catalog a probe
+    /// returned (the last known one included) is served at once, and one
+    /// background [`Self::get_with`] refreshes it:
+    /// stale readers never start a second one, and its outcome (a fresh
+    /// catalog, or the last known one with `refresh_error`) is what the next
+    /// read sees.
+    pub(crate) async fn get_or_revalidate<F, Fut>(
+        &'static self,
+        key: K,
+        probe: F,
+    ) -> CachedCatalog<X>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(ProviderCatalogEntry, X), RuntimeError>> + Send + 'static,
+    {
+        match self.cached(&key).await {
+            Some(entry) if entry.is_fresh() => entry,
+            Some(entry) if entry.is_servable_while_stale() => {
+                self.revalidate(key, probe);
+                entry
+            }
+            _ => self.get_with(&key, probe).await,
+        }
+    }
+
+    fn revalidate<F, Fut>(&'static self, key: K, probe: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(ProviderCatalogEntry, X), RuntimeError>> + Send + 'static,
+    {
+        if !self.revalidating_keys().insert(key.clone()) {
+            return;
+        }
+        let revalidation = Revalidation { cache: self, key };
+        tokio::spawn(async move {
+            // The outcome is stored, and a failure logged, by `get_with`.
+            self.get_with(&revalidation.key, probe).await;
+            drop(revalidation);
+        });
+    }
+
+    fn revalidating_keys(&self) -> std::sync::MutexGuard<'_, HashSet<K>> {
+        // The set holds plain keys, so a panic elsewhere cannot leave it torn.
+        self.revalidating
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// A background refresh in flight; dropping it (done, or its task cancelled
+/// or panicking) lets the next stale read start another.
+struct Revalidation<
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    X: Default + Send + Sync + 'static,
+> {
+    cache: &'static LiveCatalogCache<K, X>,
+    key: K,
+}
+
+impl<K: Eq + Hash + Clone + Send + Sync + 'static, X: Default + Send + Sync + 'static> Drop
+    for Revalidation<K, X>
+{
+    fn drop(&mut self) {
+        self.cache.revalidating_keys().remove(&self.key);
     }
 }
 
@@ -445,6 +544,123 @@ mod tests {
         assert_eq!(recovered.ttl, CATALOG_TTL);
         assert_eq!(recovered.failures, 0);
         assert_eq!(recovered.catalog.refresh_error, None);
+    }
+
+    /// `get_or_revalidate` needs a cache that outlives its background task.
+    fn leaked_cache() -> &'static LiveCatalogCache<(), u32> {
+        Box::leak(Box::new(cache()))
+    }
+
+    /// Wait for the background refresh of `()` to finish.
+    async fn revalidated(cache: &'static LiveCatalogCache<(), u32>) {
+        for _ in 0..200 {
+            if !cache.revalidating_keys().contains(&()) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the background refresh never finished");
+    }
+
+    #[tokio::test]
+    async fn a_stale_known_catalog_is_served_at_once_and_refreshed_in_the_background() {
+        let cache = leaked_cache();
+        let _ = cache.get_with(&(), || async { Ok(sample()) }).await;
+        cache.force_expire_for_test(&()).await;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(tokio::sync::Notify::new());
+        let probe = {
+            let (calls, release) = (Arc::clone(&calls), Arc::clone(&release));
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let release = Arc::clone(&release);
+                async move {
+                    release.notified().await;
+                    let (mut catalog, extra) = sample();
+                    catalog.default_model = Some("refreshed".to_string());
+                    Ok((catalog, extra + 1))
+                }
+            }
+        };
+
+        // Both stale readers get the old entry while the probe is held.
+        for _ in 0..2 {
+            let entry = cache.get_or_revalidate((), probe.clone()).await;
+            assert!(!entry.is_fresh());
+            assert_eq!(entry.catalog.default_model.as_deref(), Some("model"));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "one background refresh");
+
+        release.notify_one();
+        revalidated(cache).await;
+        let fresh = cache.get_or_revalidate((), probe).await;
+        assert!(fresh.is_fresh());
+        assert_eq!(fresh.catalog.default_model.as_deref(), Some("refreshed"));
+        assert_eq!(*fresh.extra, 8);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_background_refresh_records_why_on_the_last_known_catalog() {
+        let cache = leaked_cache();
+        let _ = cache.get_with(&(), || async { Ok(sample()) }).await;
+        cache.force_expire_for_test(&()).await;
+
+        let stale = cache
+            .get_or_revalidate((), || async {
+                Err(RuntimeError::new("model/list timed out"))
+            })
+            .await;
+        assert_eq!(stale.catalog.refresh_error, None, "nothing failed yet");
+        revalidated(cache).await;
+
+        let entry = cache.cached(&()).await.expect("entry kept");
+        assert!(entry.is_fresh());
+        assert_eq!(entry.ttl, FAILURE_RETRY);
+        assert_eq!(entry.catalog.status, ProviderStatus::Available);
+        assert_eq!(
+            entry.catalog.refresh_error.as_deref(),
+            Some("model/list timed out")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_catalog_stale_for_too_long_waits_for_the_probe() {
+        let cache = leaked_cache();
+        let _ = cache.get_with(&(), || async { Ok(sample()) }).await;
+        cache
+            .age_past_ttl_for_test(&(), MAX_STALE + Duration::from_secs(1))
+            .await;
+
+        let entry = cache
+            .get_or_revalidate((), || {
+                let (mut catalog, extra) = sample();
+                catalog.default_model = Some("current".to_string());
+                std::future::ready(Ok((catalog, extra)))
+            })
+            .await;
+        assert!(entry.is_fresh(), "the read waited for the probe");
+        assert_eq!(entry.catalog.default_model.as_deref(), Some("current"));
+        assert!(!cache.revalidating_keys().contains(&()));
+    }
+
+    #[tokio::test]
+    async fn without_a_known_catalog_a_stale_read_waits_for_the_probe() {
+        let cache = leaked_cache();
+        // An empty cache waits.
+        let first = cache
+            .get_or_revalidate((), || async { Err(RuntimeError::new("boom")) })
+            .await;
+        assert_eq!(first.catalog.status, ProviderStatus::Unavailable);
+        cache.force_expire_for_test(&()).await;
+
+        // So does an expired unavailable entry: there is nothing to serve.
+        let recovered = cache.get_or_revalidate((), || async { Ok(sample()) }).await;
+        assert!(recovered.is_fresh());
+        assert_eq!(recovered.catalog.status, ProviderStatus::Available);
+        assert!(!cache.revalidating_keys().contains(&()));
     }
 
     #[tokio::test]

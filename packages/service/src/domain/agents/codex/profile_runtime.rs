@@ -19,27 +19,6 @@ use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimeEffectiveCon
 use crate::domain::agents::runtime::ProviderCatalogEntry;
 use crate::domain::agents::runtime::{ProviderProfileEntry, ProviderProfilesResponse};
 
-pub(super) async fn probe_models_with_profile(
-    profile: Option<&ResolvedRuntimeProfile>,
-    cwd: Option<&Path>,
-) -> Result<Vec<CodexModel>, RuntimeError> {
-    let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
-        profile.map(|profile| profile.env.clone()),
-        profile
-            .map(|profile| profile.env_unset.clone())
-            .unwrap_or_default(),
-        cwd.map(Path::to_path_buf),
-    ))
-    .await?;
-    let result = async {
-        client.initialize_with_timeout(PROBE_TIMEOUT).await?;
-        with_probe_timeout("Codex model/list", client.model_list()).await
-    }
-    .await;
-    client.shutdown().await;
-    result
-}
-
 pub(super) async fn probe_models_and_config(
     profile: Option<&ResolvedRuntimeProfile>,
     cwd: &Path,
@@ -132,10 +111,6 @@ fn fingerprint_effective_config(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect())
-}
-
-pub(super) async fn probe_models() -> Result<Vec<CodexModel>, RuntimeError> {
-    probe_models_with_profile(None, None).await
 }
 
 pub(super) fn app_server_spawn_options(
@@ -240,7 +215,11 @@ pub(super) fn resolve_profile_for_selection(
     })
 }
 
-pub(super) async fn catalog_for_profile(profile: Option<&str>, cwd: &Path) -> ProviderCatalogEntry {
+/// The catalog of `profile` (none: the active one) in `cwd` (none: no workspace).
+pub(super) async fn catalog_for_profile(
+    profile: Option<&str>,
+    cwd: Option<&Path>,
+) -> ProviderCatalogEntry {
     let resolved = match resolve_profile_for_selection(profile) {
         Ok(profile) => profile,
         Err(error) => return unavailable_catalog(error.to_string()),

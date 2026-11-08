@@ -1,7 +1,10 @@
 //! Codex model catalogs, probed through a throwaway `codex app-server`
-//! (`model/list`) and cached under the shared retry and last-known-catalog
-//! policy (`domain::agents::catalog_cache`), so a transient app-server failure
-//! keeps the provider and its models in the picker.
+//! (`config/read` + `model/list`) and cached under the shared retry and
+//! last-known-catalog policy (`domain::agents::catalog_cache`), so a transient
+//! app-server failure keeps the provider and its models in the picker. Once
+//! the app-server has returned a catalog for a key (profile × directory), a
+//! read does not wait for it: an expired catalog is served while a background
+//! probe refreshes it, unless it expired too long ago.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -10,21 +13,31 @@ use std::sync::LazyLock;
 use codex_app_server_sdk_rs::CodexModel;
 
 use super::profile_runtime::{self, catalog_with_effective_config};
-use super::{catalog_from_models, PROVIDER_ID, PROVIDER_LABEL};
+use super::{PROVIDER_ID, PROVIDER_LABEL};
 use crate::domain::agents::adapter::{ResolvedRuntimeProfile, RuntimeError};
 use crate::domain::agents::catalog_cache::{CatalogProvider, LiveCatalogCache};
 use crate::domain::agents::runtime::ProviderCatalogEntry;
 
+/// Where a catalog read without a workspace is probed: the service's own
+/// directory (settings pages, the default model, the startup warm-up).
+pub(super) const NO_WORKSPACE: &str = ".";
+
+/// A resolved profile in a directory, whose effective config shapes the catalog.
 #[derive(Clone, PartialEq, Eq, Hash)]
-enum CatalogKey {
-    /// The default Codex home outside any workspace (startup warm-up, default model).
-    Shared,
-    /// A resolved profile in a workspace, whose effective config shapes the catalog.
-    Profile {
-        identity: String,
-        revision: String,
-        cwd: PathBuf,
-    },
+struct CatalogKey {
+    identity: String,
+    revision: String,
+    cwd: PathBuf,
+}
+
+impl CatalogKey {
+    fn new(profile: &ResolvedRuntimeProfile, cwd: &Path) -> Self {
+        Self {
+            identity: profile.identity.clone(),
+            revision: profile.revision.clone(),
+            cwd: cwd.to_path_buf(),
+        }
+    }
 }
 
 static CATALOG_CACHE: LazyLock<LiveCatalogCache<CatalogKey, ()>> = LazyLock::new(|| {
@@ -35,37 +48,38 @@ static CATALOG_CACHE: LazyLock<LiveCatalogCache<CatalogKey, ()>> = LazyLock::new
     })
 });
 
+/// The catalog read without a workspace, for the active profile: the entry
+/// the settings pages read, so warming it up at startup is not wasted.
 pub(super) async fn live_catalog() -> ProviderCatalogEntry {
-    cached_catalog(&CatalogKey::Shared, || async {
-        let models = profile_runtime::probe_models().await?;
-        Ok(catalog_from_models(non_empty(models)?))
-    })
-    .await
+    profile_runtime::catalog_for_profile(None, None).await
 }
 
+/// The catalog of `profile` in `cwd` (none: [`NO_WORKSPACE`]).
 pub(super) async fn profile_catalog(
     profile: &ResolvedRuntimeProfile,
-    cwd: &Path,
+    cwd: Option<&Path>,
 ) -> ProviderCatalogEntry {
-    let key = CatalogKey::Profile {
-        identity: profile.identity.clone(),
-        revision: profile.revision.clone(),
-        cwd: cwd.to_path_buf(),
-    };
-    cached_catalog(&key, || async {
-        let (models, config) = profile_runtime::probe_models_and_config(Some(profile), cwd).await?;
-        Ok(catalog_with_effective_config(non_empty(models)?, &config))
+    let cwd = cwd.unwrap_or(Path::new(NO_WORKSPACE)).to_path_buf();
+    let key = CatalogKey::new(profile, &cwd);
+    let profile = profile.clone();
+    cached_catalog(key, move || {
+        let (profile, cwd) = (profile.clone(), cwd.clone());
+        async move {
+            let (models, config) =
+                profile_runtime::probe_models_and_config(Some(&profile), &cwd).await?;
+            Ok(catalog_with_effective_config(non_empty(models)?, &config))
+        }
     })
     .await
 }
 
-async fn cached_catalog<F, Fut>(key: &CatalogKey, probe: F) -> ProviderCatalogEntry
+async fn cached_catalog<F, Fut>(key: CatalogKey, probe: F) -> ProviderCatalogEntry
 where
-    F: Fn() -> Fut,
-    Fut: Future<Output = Result<ProviderCatalogEntry, RuntimeError>>,
+    F: Fn() -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<ProviderCatalogEntry, RuntimeError>> + Send + 'static,
 {
-    let entry = CATALOG_CACHE
-        .get_with(key, || {
+    let entry = LazyLock::force(&CATALOG_CACHE)
+        .get_or_revalidate(key, move || {
             let catalog = probe();
             async move { catalog.await.map(|catalog| (catalog, ())) }
         })
@@ -84,6 +98,7 @@ fn non_empty(models: Vec<CodexModel>) -> Result<Vec<CodexModel>, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::agents::codex::catalog_from_models;
     use crate::domain::agents::runtime::ProviderStatus;
 
     fn model(id: &str) -> CodexModel {
@@ -99,35 +114,59 @@ mod tests {
         }
     }
 
-    /// A key no other test shares: the cache is process-global.
+    /// The native default profile under an identity no other test shares:
+    /// the cache is process-global.
+    fn test_profile(name: &str) -> ResolvedRuntimeProfile {
+        let mut profile = profile_runtime::resolve_profile_for_selection(Some("default"))
+            .expect("the default profile resolves without a CLI");
+        profile.identity = format!("test-{name}");
+        profile
+    }
+
     fn unique_key(name: &str) -> CatalogKey {
-        CatalogKey::Profile {
-            identity: format!("test-{name}"),
-            revision: "test".to_string(),
-            cwd: PathBuf::from(format!("/nonexistent/{name}")),
-        }
+        CatalogKey::new(
+            &test_profile(name),
+            Path::new(&format!("/nonexistent/{name}")),
+        )
+    }
+
+    fn known(
+        model_id: &'static str,
+    ) -> impl Fn() -> std::future::Ready<Result<ProviderCatalogEntry, RuntimeError>> {
+        move || std::future::ready(Ok(catalog_from_models(vec![model(model_id)])))
     }
 
     #[tokio::test]
     async fn a_failed_model_list_keeps_the_last_known_codex_models() {
         let key = unique_key("last-known");
-        let first = cached_catalog(&key, || async {
-            Ok(catalog_from_models(vec![model("gpt-known")]))
-        })
-        .await;
+        let first = cached_catalog(key.clone(), known("gpt-known")).await;
         assert_eq!(first.status, ProviderStatus::Available);
         assert_eq!(first.refresh_error, None);
 
         CATALOG_CACHE.force_expire_for_test(&key).await;
-        let served = cached_catalog(&key, || async {
-            Err(RuntimeError::new("Codex model/list timed out"))
-        })
-        .await;
-        assert_eq!(served.status, ProviderStatus::Available);
-        assert_eq!(served.default_model.as_deref(), Some("gpt-known"));
-        assert_eq!(served.models.len(), 1);
+        let failing = || async { Err(RuntimeError::new("Codex model/list timed out")) };
+        // The expired catalog is served at once; the refresh runs behind it.
+        let stale = cached_catalog(key.clone(), failing).await;
+        assert_eq!(stale.default_model.as_deref(), Some("gpt-known"));
+        assert_eq!(stale.refresh_error, None);
+
+        let mut served = None;
+        for _ in 0..200 {
+            served = CATALOG_CACHE
+                .cached(&key)
+                .await
+                .filter(|entry| entry.catalog.refresh_error.is_some());
+            if served.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let served = served.expect("the background refresh recorded its failure");
+        assert_eq!(served.catalog.status, ProviderStatus::Available);
+        assert_eq!(served.catalog.default_model.as_deref(), Some("gpt-known"));
+        assert_eq!(served.catalog.models.len(), 1);
         assert_eq!(
-            served.refresh_error.as_deref(),
+            served.catalog.refresh_error.as_deref(),
             Some("Codex model/list timed out")
         );
     }
@@ -135,7 +174,7 @@ mod tests {
     #[tokio::test]
     async fn an_empty_model_list_on_a_cold_cache_is_unavailable() {
         let key = unique_key("empty");
-        let catalog = cached_catalog(&key, || async {
+        let catalog = cached_catalog(key, || async {
             Ok(catalog_from_models(non_empty(Vec::new())?))
         })
         .await;
@@ -145,5 +184,23 @@ mod tests {
             catalog.status_message.as_deref(),
             Some("Codex unavailable: codex app-server returned no models")
         );
+    }
+
+    #[tokio::test]
+    async fn a_read_without_a_workspace_lands_on_the_no_workspace_entry() {
+        // The warm-up and the settings pages both read with no cwd; that read
+        // lands on the `NO_WORKSPACE` entry, so a fresh one is served without
+        // starting an app-server.
+        let profile = test_profile("no-workspace");
+        let warmed = cached_catalog(
+            CatalogKey::new(&profile, Path::new(NO_WORKSPACE)),
+            known("gpt-warmed"),
+        )
+        .await;
+        assert_eq!(warmed.default_model.as_deref(), Some("gpt-warmed"));
+
+        let read = profile_catalog(&profile, None).await;
+        assert_eq!(read.status, ProviderStatus::Available);
+        assert_eq!(read.default_model.as_deref(), Some("gpt-warmed"));
     }
 }
