@@ -49,7 +49,7 @@ export const PluginTabActivityDialog = memo(function PluginTabActivityDialog({
   if (!open) return null;
   return (
     <Dialog open onOpenChange={(next) => !next && setPluginTabActivityOpen(null)}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
+      <DialogContent className="gap-0 p-0 sm:max-w-xl">
         <DialogHeader className="border-b border-border px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-foreground">
@@ -106,7 +106,7 @@ function ActivityBody({
     );
   }
   return (
-    <div className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-4">
+    <div className="max-h-[calc(var(--app-vh)*0.6)] space-y-5 overflow-y-auto px-6 py-4">
       {summary.commands.length > 0 ? (
         <ActivitySection title="Commands">
           <CommandList records={activity.data.commands} />

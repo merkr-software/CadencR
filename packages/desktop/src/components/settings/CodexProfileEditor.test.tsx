@@ -91,7 +91,7 @@ describe("CodexProfileEditor", () => {
     render(<CodexProfileEditor initial={{ ...initial, name: longName }} onClose={vi.fn()} />);
 
     expect(screen.getByRole("dialog")).toHaveClass(
-      "max-h-[calc(100dvh-2rem)]",
+      "max-h-(--dialog-max-h)",
       "flex",
       "flex-col",
       "overflow-hidden",

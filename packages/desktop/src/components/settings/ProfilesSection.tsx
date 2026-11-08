@@ -318,7 +318,7 @@ function ProfileEditor({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-w-xl">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit profile "${initial!.name}"` : "New profile"}</DialogTitle>
           <DialogDescription>

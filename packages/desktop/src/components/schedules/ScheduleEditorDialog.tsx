@@ -56,7 +56,7 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
       {/* Roomy on purpose: this holds a full prompt composer with its own
           pickers, not a form of short fields. `PopoverModality` is what lets
           those pickers' lists scroll — see its docs. */}
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[min(90vh,var(--dialog-max-h))] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{schedule ? "Edit schedule" : "New schedule"}</DialogTitle>
           <DialogDescription>{describe(runsAction, gated)}</DialogDescription>

@@ -118,7 +118,7 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
+      <DialogContent className="gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">Create custom tab</DialogTitle>
           <DialogDescription>

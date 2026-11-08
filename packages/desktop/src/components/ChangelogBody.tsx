@@ -36,7 +36,7 @@ export const ChangelogBody = memo(function ChangelogBody({
     );
   }
   return (
-    <div className="max-h-[60vh] overflow-y-auto pr-1">
+    <div className="max-h-[calc(var(--app-vh)*0.6)] overflow-y-auto pr-1">
       <MarkdownImageProvider value={ChangelogImage}>
         <Markdown content={state.markdown} />
       </MarkdownImageProvider>

@@ -170,7 +170,7 @@ function RemoteEnabledSections({ status }: { status: RemoteStatus }): ReactEleme
   }, [focusDevicesNonce]);
 
   return (
-    <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+    <div className="max-h-[calc(var(--app-vh)*0.6)] space-y-3 overflow-y-auto pr-1">
       {/* Hero: the primary task is pairing a device, so the QR leads. */}
       <RemotePairSection status={status} />
 

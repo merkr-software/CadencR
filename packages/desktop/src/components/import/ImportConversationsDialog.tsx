@@ -59,7 +59,7 @@ function ImportConversationsDialogInner({
   // long inner list can flex-scroll. Every other step (provider cards,
   // in-flight progress bar, final summary) is short — letting the dialog
   // auto-size avoids the near-empty 80vh modal.
-  const sizingClass = step === "list" ? "h-[80vh]" : "max-h-[80vh]";
+  const sizingClass = step === "list" ? "h-[80vh]" : "max-h-[min(80vh,var(--dialog-max-h))]";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

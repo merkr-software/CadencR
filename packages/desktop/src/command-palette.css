@@ -20,6 +20,9 @@
   width: min(880px, calc(100vw - 32px));
   max-width: none;
   height: min(600px, calc(100dvh - 18vh));
+  /* Sized by its own heights (here and in command-palette-panels.css), not
+     the generic dialog cap. */
+  max-height: none;
   padding: 0;
   overflow: hidden;
   border-radius: calc(var(--radius) + 2px);

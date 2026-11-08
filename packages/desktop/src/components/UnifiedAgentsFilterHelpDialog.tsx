@@ -23,7 +23,7 @@ export const UnifiedAgentsFilterHelpDialog = memo(function UnifiedAgentsFilterHe
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Agent filter language</DialogTitle>
           <DialogDescription>

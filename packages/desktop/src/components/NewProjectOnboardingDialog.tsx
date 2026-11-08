@@ -74,7 +74,7 @@ export function NewProjectOnboardingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-xl">
+      <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] flex-col gap-0 p-0 sm:max-w-xl">
         <DialogHeader className="border-b border-border px-6 py-4 text-left">
           <DialogTitle className="text-base font-semibold">
             Set up <span className="text-muted-foreground">{projectName}</span>

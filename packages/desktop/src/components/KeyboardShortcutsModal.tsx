@@ -74,7 +74,7 @@ export function KeyboardShortcutsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-[92vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px]">
+      <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] w-[92vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px]">
         <DialogHeader className="border-b border-border px-5 pt-4 pb-3 space-y-3">
           <DialogTitle className="pr-8 text-base font-semibold">Keyboard shortcuts</DialogTitle>
           <div className="relative">

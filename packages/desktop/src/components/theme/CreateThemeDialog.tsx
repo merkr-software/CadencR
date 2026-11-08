@@ -76,7 +76,7 @@ export function CreateThemeDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[80vh] gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className="max-h-[min(80vh,var(--dialog-max-h))] gap-0 p-0 sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">Create theme</DialogTitle>
           <DialogDescription>
@@ -159,7 +159,7 @@ function ThemeBaseGrid({
       role="radiogroup"
       aria-label="Theme to start from"
       onKeyDown={onKeyDown}
-      className="grid max-h-[60vh] grid-cols-2 gap-2 overflow-y-auto p-4 sm:grid-cols-4"
+      className="grid max-h-[calc(var(--app-vh)*0.6)] grid-cols-2 gap-2 overflow-y-auto p-4 sm:grid-cols-4"
     >
       {themes.map((theme, index) => (
         <ThemeCard

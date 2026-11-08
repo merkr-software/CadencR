@@ -30,6 +30,17 @@ html[data-keyboard-open] {
 html.is-standalone {
   --app-vh: min(100lvh, calc(var(--standalone-vh, 100dvh) + env(safe-area-inset-top, 0px)));
 }
+/*
+ * Tallest a centered modal may be: the app viewport less a 1rem margin on each
+ * side and the notch / home-indicator insets. `DialogContent` caps at it; a
+ * dialog that prefers a share of the screen takes `min(<n>vh, this)`, since
+ * `vh` alone is the large viewport on iOS and runs under the browser chrome.
+ */
+html {
+  --dialog-max-h: calc(
+    var(--app-vh) - 2rem - env(safe-area-inset-top, 0px) - var(--app-inset-bottom)
+  );
+}
 
 /*
  * Lock the document to the viewport so the app never page-scrolls — scrolling

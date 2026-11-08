@@ -28,7 +28,7 @@ export function TelemetryDecisionDialog({
         showCloseButton={false}
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
-        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+        className="max-h-[min(90dvh,var(--dialog-max-h))] sm:max-w-2xl"
       >
         <DialogHeader>
           <DialogTitle>Help improve Cadencr</DialogTitle>

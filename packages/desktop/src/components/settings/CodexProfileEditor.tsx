@@ -82,7 +82,7 @@ export function CodexProfileEditor({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-xl flex-col overflow-hidden">
+      <DialogContent className="flex flex-col overflow-hidden sm:max-w-xl">
         <DialogHeader className="shrink-0">
           <DialogTitle
             className="truncate"

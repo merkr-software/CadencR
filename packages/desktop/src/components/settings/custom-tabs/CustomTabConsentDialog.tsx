@@ -49,7 +49,7 @@ export function CustomTabConsentDialog({
 }): React.JSX.Element {
   return (
     <Dialog open={request !== null} onOpenChange={(open) => !open && !accepting && onCancel()}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
+      <DialogContent className="gap-0 p-0 sm:max-w-lg">
         {request ? (
           <ConsentContent
             request={request}
@@ -103,7 +103,7 @@ function ConsentContent({
           {update ? <UpdateLead tab={tab} update={update} /> : <ConsentLead tab={tab} />}
         </DialogDescription>
       </DialogHeader>
-      <div className="max-h-[50vh] space-y-4 overflow-y-auto px-6 py-4">
+      <div className="max-h-[calc(var(--app-vh)*0.5)] space-y-4 overflow-y-auto px-6 py-4">
         {request.stale ? <StaleNote update={update !== null} /> : null}
         {changes ? <CustomTabUpdateChanges tab={tab} {...changes} /> : null}
         <CustomTabPermissions tab={reviewed} added={changes?.added} />

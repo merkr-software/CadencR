@@ -87,7 +87,7 @@ export function CreateProviderWorkspaceDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !isBusy && onClose()}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
+      <DialogContent className="gap-0 p-0 sm:max-w-xl">
         <ProviderDialogHeader source={source} />
 
         <form onSubmit={submit} className="space-y-5 px-6 py-5">

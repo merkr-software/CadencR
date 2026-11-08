@@ -71,7 +71,7 @@ export function ProjectSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-[90vw] flex-col gap-0 p-0 sm:max-w-6xl">
+      <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] w-[90vw] flex-col gap-0 p-0 sm:max-w-6xl">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">
             Project settings — <span className="text-muted-foreground">{projectName}</span>

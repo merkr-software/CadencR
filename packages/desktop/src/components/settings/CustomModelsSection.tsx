@@ -204,7 +204,7 @@ function CustomModelEditor({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <CustomModelDialogHeader initial={initial} />
         <div className="space-y-4 py-2">
           <CustomModelIdentityFields

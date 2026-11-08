@@ -212,7 +212,7 @@ export function SidebarRenameDialog(): ReactElement {
   const close = useSidebarRenameStore((state) => state.close);
   return (
     <Dialog open={featureId != null} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="sm:max-w-sm">
         <DialogTitle className="sr-only">Rename conversation</DialogTitle>
         <DialogDescription className="sr-only">
           Give this conversation a new title.
