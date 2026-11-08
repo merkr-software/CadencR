@@ -13,10 +13,9 @@ first-party and third-party packages.
 | Graphite, Ember, Fjord themes | [`themes`](themes/README.md)                                                 | `0.1.0` each      |
 | TypeScript / JavaScript LSP   | [`lsp/typescript-language-server`](lsp/typescript-language-server/README.md) | `0.1.0`           |
 
-The first-party Pi implementation has been retired in favor of
+Pi is maintained outside this repository as
 [edjubert's independent connector](https://github.com/edjubert/cadencr-plugin-provider-pi).
-The registry handoff of `pi` is tracked in [the retirement record](../docs/PI_PROVIDER_HANDOFF.md).
-Historical Pi releases and QA reports remain evidence for their original versions.
+The registry handoff of `pi` follows the [ownership handoff contract](../docs/PI_PROVIDER_HANDOFF.md).
 
 The TypeScript LSP source is a reviewed prepared snapshot of two locked official
 npm distributions, including TypeScript and their notices. A single canonical

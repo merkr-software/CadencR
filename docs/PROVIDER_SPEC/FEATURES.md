@@ -1,9 +1,8 @@
 # Cadencr Provider Capability Coverage Ledger
 
-> Pi implementation status (2026-11-04): the first-party connector has been
-> retired in favor of [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi).
-> Pi details below retain historical contract/QA evidence. See the
-> [handoff record](../PI_PROVIDER_HANDOFF.md) for registry transfer status.
+> Pi is maintained outside this repository as
+> [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi);
+> Pi details below describe the retired first-party implementation.
 
 > - **Status:** Current built-in coverage and regression reference
 > - **Last reviewed:** 2026-10-13 against `v0.13.0` (source/release review; prior live evidence retained)

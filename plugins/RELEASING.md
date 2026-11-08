@@ -2,8 +2,8 @@
 
 ## TypeScript LSP publication — 2026-11-04
 
-The local registry, qualification and author pins select qualified CLI `0.15.5`.
-The existing approved author policy and protected `official-plugin-publication`
+The author pin (`scripts/official-plugin-author-cli.env`) selects the qualified
+CLI. The approved author policy and protected `official-plugin-publication`
 environment govern publication. Source, policy, account, repository identity,
 exact request digest and environment protections are rechecked independently by
 the inspection and publication jobs; no protection or author authority is changed.
@@ -29,17 +29,6 @@ existing Node.js >=20; runtime qualification used Node.js `22.19.0` on Linux,
 macOS ARM and macOS Intel. Packaged-client lifecycle, native server distribution
 and the minimum macOS version remain separate qualification work.
 
-The earlier preparation notes below retain historical `PENDING` states. Current
-machine policies and the package-specific source record govern this publication.
-
-## Pi retirement — 2026-11-04
-
-The first-party Pi source, qualification workflow and `provider-pi` release-policy
-entry have been removed in favor of edjubert's independent connector. Historical
-Pi evidence below describes the retired implementation. New official Pi releases
-are no longer allowlisted. See [the handoff record](../docs/PI_PROVIDER_HANDOFF.md)
-for the separate registry ownership and catalog publication requirements.
-
 ## Scope
 
 - Tags: `plugins/theme-graphite/v0.1.0`,
@@ -53,10 +42,8 @@ for the separate registry ownership and catalog publication requirements.
 
 The trusted preparer reads candidate **Git blobs only**. It never imports, invokes
 or builds a contributor script, launcher, tab bundle or provider binary. Only the
-checksum-pinned released Rust CLI executes. The registry pin still identifies the
-older provider/theme-qualified binary; a tab-capable replacement has not been
-delivered or promoted. The separate author pin and publication policies remain
-`PENDING`; there is no qualification-pin or source-build fallback in production.
+checksum-pinned released Rust CLI executes; there is no qualification-pin or
+source-build fallback in production.
 
 `release-policy.json` schema `2` is the explicit allowlist, not tag matching:
 
@@ -68,13 +55,10 @@ delivered or promoted. The separate author pin and publication policies remain
 | `payloads.<target>.directory` | Source root for reviewed payload blobs                                   |
 | `files.<destination>`         | SHA-256 and output mode; optional source path and exact source mode      |
 | `closed_directories`          | Exact runtime subtrees: extra/missing files fail rather than disappear   |
-| `publication`                 | Still `PENDING`; only a separate reviewed change may approve publication |
+| `publication` (top level)     | `APPROVED` only through a reviewed change; preparation never sets it     |
 
-Themes have exact closed `theme.json` trees. Historically, Pi's interpreted modules were copied
-from `src/*.mjs` into `bin/`, with `provider.mjs` renamed `provider` and marked
-executable; the copied launcher is **never run**. Explicit readme/license/icon
-blobs are included. Author scripts, tests and dependencies are not payload.
-Pi's recorded arm64 candidate does not assert native or production qualification.
+Themes have exact closed `theme.json` trees. Explicit readme/license/icon blobs
+are included. Author scripts, tests and dependencies are not payload.
 Changing a mapped byte or source mode requires a reviewed policy digest update.
 
 Custom tabs use the same mechanism with **already compiled**, reviewed tracked
@@ -97,47 +81,24 @@ receipt, **not** a substitute for registry-consumable package metadata. CLI logs
 local paths, environment and private scratch are excluded. Namespaced source-tag
 URLs are canonical encoded GitHub Release URLs validated by shared Rust rules.
 
-The source templates record known identity/license/runtime facts. The release
-owner decided the official publisher (`cadencr`) and the first compatible desktop
-(`min_app_version` `0.15.0`) on 2026-10-25; both are now in every template. Archive
-URLs and digests remain `PENDING` placeholders (the preparer derives the real values
-from the tag) and `publication` remains `PENDING`, so a production job still cannot
-publish until that separate gate is approved. Do not invent compatibility versions
-to make a job pass. Likewise, this change cannot promote a binary that lacks these
-CLI rules.
+The source templates record known identity/license/runtime facts, the official
+publisher (`cadencr`) and the first compatible desktop (`min_app_version`). Archive
+URLs and digests stay `PENDING` placeholders: the preparer derives the real values
+from the tag. Do not invent compatibility versions to make a job pass.
 
 There is no fixed platform matrix. A provider template declares in
 `distribution.binary` only the OS/architecture targets it really supports, and the
-marketplace filters by the user's platform. For Pi, `payloads` in `release-policy.json`
-and the template's `distribution.binary` must name the same targets, and a target is
-added only after its own native loopback qualification passed (see the
-[Pi platform evidence](../docs/qa/MARKETPLACE_PI_PLATFORMS_2026_10_25.md)).
+marketplace filters by the user's platform. `payloads` in `release-policy.json` and
+the template's `distribution.binary` must name the same targets, and a target is
+added only after its own native qualification passed.
 
-## Closed publication gate
+## Publication gate
 
-The tag workflow remains preparation-only. A separate manual author workflow is
-implemented but closed by `PENDING` policies and its own unpromoted author CLI pin.
-No author credential, protected environment or registry signing key is provisioned
-by this implementation. See the activation gates below.
-
-Before enabling official publication, review:
-
-- [ ] Source licenses for each active candidate.
-- [ ] Supported native targets and canonical registry package metadata for each active candidate.
-- [ ] Generic-host conformance and real supported-platform behavior.
-- [x] Registry CLI publication/resume/recovery/renewal qualification with the distributed
-      `0.13.1-dev.38974097824.1` binary in the isolated public QA registry.
-- [x] Deliver the author-capable development CLI and verify its credential-free
-      commands with the distributed ELF on isolated Linux.
-- [x] Qualify original-author GitHub publication/retries/draft recovery with that
-      binary and the dedicated QA user credential, including a separate fresh-runner
-      replay. Inert QA theme only; registry mirror qualification remains distinct.
-- [ ] Production CLI pin promotion and registry cutover.
-- [ ] Protected signing authority and author-publication policy.
-
-Environment approval alone cannot resolve these decisions. Future signing and
-publication must use the shared released Rust CLI and revalidate the exact artifact
-and source binding; do not introduce an alternate JavaScript publication path.
+The tag workflow is preparation-only. Publication goes through the manual author
+workflow below, gated by both `APPROVED` policies, the pinned author CLI and the
+protected environment. Signing and publication must use the shared released Rust
+CLI and revalidate the exact artifact and source binding; do not introduce an
+alternate JavaScript publication path.
 
 ## Shared original-author engine
 
@@ -172,18 +133,6 @@ cadencr plugin publish-release --request request.json --directory /canonical/art
 - `metadata` is opaque to this low-level engine; the official preparer supplies
   Rust-validated full `package.json`, not its `release.json` receipt. This command grants no signing or registry authority.
 
-The older registry-qualified CLI does **not** contain these new commands.
-Author-capable `0.13.1-dev.39060688472.1` is now delivered from exact green main;
-its public assets/provenance, isolated credential-free Linux QA and real GitHub
-author publication/retry/draft recovery pass with inert theme fixtures in the
-public QA repository. A separate fresh Linux runner reconciled the same release
-without changing IDs, contents or mutation timestamps. This does not qualify Pi's
-runtime or official package metadata. Both previously qualified binaries predate
-marketplace tabs; all-three-kind delivery needs the new distributed-CLI gate. See the
-[evidence and remaining gates](../docs/qa/MARKETPLACE_AUTHOR_CLI_2026_10_17.md).
-Keep production policies and the dedicated author pin `PENDING` until the separate
-production pin/policy/environment review is complete.
-
 ## Protected manual author workflow
 
 `official-plugin-author.yml` runs only from trusted `main`. It reads candidate
@@ -199,22 +148,22 @@ from another run. Both jobs independently reconstruct the same source-bound requ
 Publication is conditional on the exact reconstructed digest and a separate
 `official-plugin-publication` environment. The author secret is available only to
 the final CLI step; catalog signing and registry submission are not included.
-Unknown/unapproved plugin identities are refused. Pi and actual custom-tab shipping
-remain gated on the source metadata, runtime/conformance and authority decisions.
+Unknown/unapproved plugin identities are refused. Custom-tab shipping remains
+gated on the source metadata, runtime/conformance and authority decisions.
 Inspection exports public inputs for human review only; publication reconstructs
 every byte independently and never consumes those uploaded artifacts.
 
-Before activation, all of the following require explicit review:
+Changing the publication authority requires explicit review of:
 
-- Deliver and qualify the actual author-capable binary; set
-  `scripts/official-plugin-author-cli.env` to its exact version/tag/checksum.
+- The exact author CLI binary, qualified before
+  `scripts/official-plugin-author-cli.env` names its version/tag/checksum.
 - Review `scripts/official-plugin-author-policy.json`: numeric repository ID,
   expected author account, binary/pin digests and qualification evidence digest.
   Add `scripts/official-plugin-author-qualification.json` only after real binary
   qualification; its exact-byte digest and CLI version/checksum must match the
   policy. This reviewed summary is an attestation, not an automated certification.
-- Approve both that policy and `plugins/release-policy.json`. `APPROVED` is an
-  explicit future decision, not a state set by preparation or workflow dispatch.
+- Both that policy and `plugins/release-policy.json`. `APPROVED` is an explicit
+  reviewed decision, never a state set by preparation or workflow dispatch.
 - Provision the protected environment with reviewers, no self-approval or admin
   bypass, and `main`-only deployment rules; the workflow must not create it.
   Pin its numeric `environment_id` and explicitly review
@@ -226,9 +175,6 @@ Before activation, all of the following require explicit review:
   `CADENCR_AUTHOR_GITHUB_TOKEN`. The engine authenticates via `GET /user`; the
   automatic Actions installation token is not a substitute. See
   [GitHub's supported user-token types](https://docs.github.com/en/rest/users/users#get-the-authenticated-user).
-
-No tags, official releases, registry entries, desktop trust roots or marketplace
-visibility are changed by landing this code.
 
 ## Offline qualification preparation
 

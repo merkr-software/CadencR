@@ -111,9 +111,8 @@ from the final released-CLI matrix.
 subsequently packs all 25 catalog packages with the exact public Linux CLI
 0.15.6 and passes real semantic probes on Ubuntu 22.04/24.04 x86_64, macOS
 15.8.2 ARM64 and macOS 15.7.9 Intel. Each native host consumes the exact bound
-canonical archives with denied IP networking and protected input trees. See the
-[qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md) for
-source, pin, archive and runtime report hashes. These runtime results do not
+canonical archives with denied IP networking and protected input trees; the run's
+artifacts carry the source, pin, archive and runtime report hashes. These runtime results do not
 certify the older signed macOS deployment floors.
 
 Nine acquisition tests cover unsafe paths, links, duplicates, native companions,

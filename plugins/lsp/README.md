@@ -106,8 +106,7 @@ target retains its exact signed runtime requirements in `package-template.json`.
 The existing TypeScript package remains unchanged. Its immutable publication and
 runtime evidence are recorded in its [README](typescript-language-server/README.md).
 
-The [released CLI qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md)
-binds canonical packaging and all **25 packages on four real hosts** to
+The [released CLI `0.15.6`](https://github.com/merkr-software/CadencR/releases/tag/cli/v0.15.6) qualification binds canonical packaging and all **25 packages on four real hosts** to
 [run 42215738947](https://github.com/merkr-software/CadencR/actions/runs/42215738947).
 Ubuntu 22.04 and 24.04 x86_64, macOS ARM64 and macOS Intel each pass 25 real
 semantic probes using the same canonical archives. The 24 new source entries

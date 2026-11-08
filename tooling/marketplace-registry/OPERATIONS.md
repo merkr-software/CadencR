@@ -2,41 +2,21 @@
 
 ## Authority and deployment gates
 
-v0.13.0 ships hidden UI, not a public registry launch. The next milestone publishes
-reviewed themes and Pi before a future desktop activation. Procedures involving
-signing, tags, feed advancement, production pins or remote writes require reviewed
-targets/inputs and protected operator authority; preparation alone is insufficient.
-Examples are syntax, not actual keys, destinations or assigned owners. This
-template contains a daily renewal workflow and a daily expiry watch (see
+Procedures involving signing, tags, feed advancement, production pins or remote
+writes require reviewed targets/inputs and protected operator authority;
+preparation alone is insufficient. Examples are syntax, not actual keys,
+destinations or owners. This template contains a daily renewal workflow and a
+daily expiry watch (see
 [Automatic renewal and expiry watch](#automatic-catalog-and-policy-renewal-and-expiry-watch));
-neither is deployed, scheduled or configured in any live repository, and both stay
-inert until their repository variables exist. Earlier distributed CLI qualification is dated evidence, not
-production deployment. The locally selected `0.15.2` includes
-standalone Rust diagnostics and the bounded discovery-convergence correction.
-Its exact distributed executable passed first-pass renewal, unchanged replays,
-fresh-runner recovery and three-kind publication checks; see the
-[current qualification record](../../docs/qa/MARKETPLACE_STABLE_CLI_2026_10_25.md).
-The historical renewal failure remains failed and its exact cause unknown.
+both stay inert in a repository until its variables exist. The production
+registry, `merkr-software/cadencr-registry`, runs them. The repository owner
+(`rle-mino`) is the release, renewal and incident owner; a failing expiry watch
+notifies them through GitHub.
 
-| Required record before activation | Accountable role / evidence                                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------------ |
-| Renewal and backup owner          | Named maintainers, handoff and protected environment access review                         |
-| Incident and revocation owner     | Named decision maker, monitored security contact and escalation backup                     |
-| Alert delivery                    | Real monitored destination, failed-run subscription and acknowledged test alert            |
-| Recovery                          | Reviewed offline-root custody, replacement app-delivery owner and tabletop evidence        |
-| Deployment                        | Real feed URLs, protections, reviewed trust roots and populated provider/theme catalog     |
-| Runtime cutover                   | Exact distributed binary qualified; three local pins selected; production adoption pending |
-
-The owners and live controls above remain unassigned/unverified in this template.
-The local contribution/publisher, author and qualification pins select the same
-qualified Rust binary with no JavaScript fallback. Selection is not production
-adoption or publication authority: fresh bootstrap/cutover approval, actual
-bootstrap merge and hosted checks remain pending. See the
-[local review record](../../docs/MARKETPLACE_CLI_PIN_REVIEW_2026-10-21.md).
-Reinspect the remote default branch and follow the
+The contribution/publisher, author and qualification pins select the same
+qualified Rust binary (`ci/released-cli.env`), with no JavaScript fallback.
+Moving a pin requires a newly qualified immutable CLI release; deliver it with the
 [deployment sequence](README.md#remote-deployment-requires-two-reviewed-changes).
-The JavaScript business implementation has been removed from this source template;
-that does not deploy these changes or authorize desktop trust/feed/key changes.
 
 ## Read-only expiry and failure alert preparation
 

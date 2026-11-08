@@ -363,8 +363,7 @@ describe("ProjectFeatures", () => {
     expect(screen.queryByText(/Archived \(/)).not.toBeInTheDocument();
   });
 
-  // Real layout (including an empty leaf gutter) is checked by
-  // docs/qa/sidebar-status-project-alignment.check.js in the running app.
+  // jsdom has no layout: real spacing (including an empty leaf gutter) needs the running app.
   it("keeps the hierarchy control before the content of every root feature", () => {
     vi.mocked(useListFeatures).mockReturnValueOnce({
       data: [

@@ -19,11 +19,10 @@ and production trust/feed configuration are unchanged by this migration.
 | Runtime contract                                                                             | Local selection / delivery status                                                                                                                 |
 | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Contribution validation, schema-2 index building and protected publication                   | `ci/released-cli.env` locally selects qualified `0.15.6`                                                                                          |
-| `validate-metadata`, `validate-submission`, `check-metadata-expiry` and full template checks | Included in the exact qualified release; see [offline and LSP author qualification](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md) |
-| Bootstrap, CI cutover and production adoption                                                | Review preparation only; fresh payload approvals, bootstrap merge and hosted checks remain pending                                                |
+| `validate-metadata`, `validate-submission`, `check-metadata-expiry` and full template checks | Included in the exact qualified [release](https://github.com/merkr-software/CadencR/releases/tag/cli/v0.15.6) |
+| Bootstrap, CI cutover and production adoption                                                | Delivered to the production registry; each later pin change follows the reviewed deployment sequence below |
 
-The [qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md)
-binds this selection to released artifacts and qualification. It does not adopt a
+The pin binds this selection to the released artifacts. It does not adopt a
 production pin or grant author/catalog publication authority.
 
 No placeholder digest or source-built executable may masquerade as a qualified

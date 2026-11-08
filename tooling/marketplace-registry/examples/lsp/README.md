@@ -2,8 +2,7 @@
 
 These source examples use placeholder repository URLs, lengths and digests. They
 are authoring templates, not published packages. Use the qualified released CLI
-`0.15.6` selected by this template; see the
-[qualification record](../../../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md).
+[`0.15.6`](https://github.com/merkr-software/CadencR/releases/tag/cli/v0.15.6) selected by this template.
 
 LSP production rollout is held for application `v0.16.1`. The examples declare
 that minimum version. Keep LSP entries out of the shared production catalog and

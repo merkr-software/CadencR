@@ -1,35 +1,5 @@
 # Marketplace desktop build configuration
 
-## After v0.13.0: populate the registry, no desktop activation
-
-v0.13.0 is released with marketplace entry points hidden. The next milestone
-publishes reviewed themes and Pi to the registry before a future activation
-release. Keep official marketplace desktop build trust/feed variables unset;
-publishing registry contents does not expose or configure the desktop UI.
-The configuration below describes the later authorized desktop deployment.
-
-Graphite, Ember and Fjord now pass isolated current-source UI/editor/terminal QA,
-including persisted theme selection and author-project flags after service restart.
-This is local-authoring evidence only: no public archive/install or packaged-client
-acceptance is inferred. See the [current delivery checklist](./MARKETPLACE_V1.md)
-for scoped evidence and the remaining publication gates.
-
-Read-only CLI preparation CI and downloaded checksum verification are complete
-([run 38214595106](https://github.com/merkr-software/CadencR/actions/runs/38214595106),
-source `6d0e2b6ed39ceb22d9fd1fa785d5cb5fa8a09f93`). Its `v0.12.1`
-artifact label belonged to preparation only. The actual
-[v0.13.0 release](https://github.com/merkr-software/CadencR/releases/tag/v0.13.0)
-contains the original Linux Rust CLI and checksums. The latest CLI-only delivery,
-`0.13.1-dev.39144478778.1`, includes the remaining standalone Rust diagnostics.
-See its [dated qualification record](./MARKETPLACE_RUST_CUTOVER_QUALIFICATION_2026-10-18.md)
-for exact provider/theme/tab runs and failure history. These use inert fixtures
-and QA-only trust, not production credentials or runtime certification.
-JavaScript business implementations and executable legacy test oracles are
-removed from the source template; thin orchestration and frozen test data remain.
-The candidate registry pin still targets an older CLI. Reviewing its replacement,
-regenerating delivery approvals, actual registry deployment and official-plugin
-publication remain pending.
-
 The marketplace UI is visible in every desktop build; there is no renderer
 opt-in. Whether it can browse or install anything depends only on the feed and
 trust configuration compiled into the service. A build without that
@@ -38,35 +8,29 @@ catalog page says it is not available in this build and offers no retry, and
 anything already installed stays manageable.
 
 Use the [operator runbook](../tooling/marketplace-registry/OPERATIONS.md)
-for renewal, failure alerts, revocation and rotation preparation. No real owner,
-alert destination or production trust root is provisioned by this repository.
+for renewal, failure alerts, revocation and rotation preparation. This
+repository provisions no owner, alert destination or private key.
 The registry template also carries an automatic, renewal-only workflow for the
 catalog and the three revocation policies (daily, renewing when due) and a read-only
 expiry watch (daily); see
 [Automatic catalog and policy renewal and expiry watch](../tooling/marketplace-registry/OPERATIONS.md#automatic-catalog-and-policy-renewal-and-expiry-watch).
-They are template files, not deployed, and inert until configured as described below.
+Here they are templates; the deployed copies run in the registry repository,
+configured as described below.
 
 ## Activation gate
 
-**State 2026-10-28:** activated for the v0.16.0 release, on the release
-owner's go. The UI gate is removed on the release branch, the variables below
-are set on `merkr-software/CadencR`, and both desktop release workflows run
-`node scripts/validate-marketplace-build-env.mjs --require-catalog`, so a
-release without the root-authorized trust and the catalog feeds fails before
-compiling the service. Until that branch is merged, `main` still hides the
-marketplace (`VITE_INTERNAL_MARKETPLACE` gate); a release from `main` in the
-meantime compiles the feeds into the service but shows no marketplace.
+Activated since v0.16.0. Both desktop release workflows run
+`node scripts/validate-marketplace-build-env.mjs --require-catalog`, so a release
+without the root-authorized trust and the catalog feeds fails before compiling
+the service.
 
 ### Activation runbook
 
 Everything below is public data; no secret is involved. Do it only on the
 release owner's explicit go, right before the activation release.
 
-1. **Show the marketplace in every build.** Done for v0.16.0 by re-applying
-   `89b2b9f11` (gate removed, honest "not available in this build" state) and
-   the `catalogSourceMissing` helper reuse from `9e4c5ea93`, which
-   `82c0b4263` had hidden again on `main`. The original commits also live on
-   the branch `feature/marketplace-activation`.
+1. **Show the marketplace in every build.** The UI gate is gone since v0.16.0;
+   nothing to do unless it was restored.
 
 2. **Compile the production trust and feeds into releases.** From the
    repository root:
@@ -105,7 +69,7 @@ For a local packaged check, export the same variables and run
 `node scripts/validate-marketplace-build-env.mjs -- pnpm build:local`; turbo
 passes `CADENCR_MANAGED_*` and `CADENCR_REGISTRY_*` through.
 
-To deactivate again, restore the gate (`82c0b4263`), drop `--require-catalog`
+To deactivate, restore the UI gate (`82c0b4263`), drop `--require-catalog`
 from the release workflows and delete the nine variables.
 
 The desktop release workflow forwards public repository variables into service
@@ -143,34 +107,11 @@ Current clients may set both catalog URL variables to the same mixed feed.
 The isolated `marketplace-v2` branch must not overwrite the schema-1 discovery
 branch still consumed by older releases.
 
-No actual deployment URL or trust key is supplied here. Placeholders above are
-syntax descriptions, not values to configure. Selecting a repository or enabling
-these variables requires an explicit release-owner decision after deployment and
-packaged-client verification.
-
-## Release-owner prerequisites
-
-Before activation, verify all of the following:
-
-- [ ] A real registry repository, isolated mixed discovery branch, signed catalog,
-      signed provider blocklist, signed theme revocation policy, and matching public trust root exist and are reviewed.
-- [ ] The signing private key is confined to the protected publication environment,
-      never desktop variables or application binaries.
-- [ ] An accountable renewal owner, incident/revocation owner, monitored security
-      contact, alert destination, and on-call escalation are assigned.
-- [ ] Renewal scheduling, expiry monitoring, failure alerts, key compromise recovery,
-      and replacement trust-root delivery have an exercised operational runbook
-      (the registry template's daily renewal and daily watch are configured, the
-      renewal environment is protected, and a failing watch run reached a human).
-- [ ] Clean packaged builds verify the mixed catalog, install/update/remove a theme,
-      preserve user themes, and fail closed on tampering, unavailable policy, and
-      revoked identity/version/checksum.
-
 ## Registry repository variables for renewal and expiry watch
 
 These belong to the **registry repository** (not the desktop release workflow, and
-never compiled into the app). Leave them all unset until activation is authorized:
-the renewal and watch workflows then skip with a notice. Once
+never compiled into the app). With them all unset, the renewal and watch
+workflows skip with a notice. Once
 `CADENCR_REGISTRY_CATALOG_URL` is set the jobs treat any missing or invalid input as
 an error.
 
@@ -191,15 +132,6 @@ the dispatched, reviewed `bootstrap-revocation-policies` workflow in the
 signing key; changing a policy's entries remains a reviewed, manual procedure. The
 policy URLs are not needed for the bootstrap, but all three are required by the
 renewal as well as the watch.
-
-## Current operational gaps
-
-Repository policy describes renewal and revocation requirements, but does not
-establish a production owner, monitored security contact, alert destination,
-signing environment, production key, or deployed feeds. The renewal and watch
-workflows are templates: nothing is scheduled or deployed from this repository.
-This build wiring does not close those operational gates and must not be
-represented as public activation.
 
 ## Theme revocation operator procedure
 
@@ -558,32 +490,17 @@ Client behavior:
   checkpoint list `recovery_tab_policy_sha256` in the registry trust manifest. A theme or
   provider checkpoint never authenticates a tab policy.
 
-## Deployment cutover still pending
+## Language server rollout
 
-The candidate template selects released `0.15.6` in
-[`ci/released-cli.env`](../tooling/marketplace-registry/ci/released-cli.env); see its
-[qualification evidence](qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md), including the
-LSP package and policy commands. This is a template selection, not a deployment
-of the production registry or its author pins.
+The registry template pins the qualified CLI in
+[`ci/released-cli.env`](../tooling/marketplace-registry/ci/released-cli.env),
+including the LSP package and policy commands.
 
 **LSP production rollout is held for application `v0.16.1`.** Keep LSP entries
 out of the shared production catalog and leave
 `CADENCR_MANAGED_LSP_BLOCKLIST_URL` unset until the reviewed cutover. A CLI
 release, QA catalog, prepared package archive or local pin change does not
-authorize an earlier production activation. No application release is part of
-this CLI delivery.
-
-Review the exact qualified source/version/tag/digest and regenerate all registry
-delivery payload hashes before deployment. Reinspect actual remote
-`main` and protections rather than reuse stale bootstrap approvals. If the trusted
-base lacks helpers, deliver them first while preserving validation; then switch
-workflows from that merged base and observe real hosted three-kind checks.
-Preserve the required checks and explicitly agreed governance. No source cleanup
-performs that deployment, assigns authority or activates desktop UI.
-
-Author pins, official roots/feeds, signing environments, initial plugin releases
-and packaged-client certification remain separate gates. Fresh runners rebuild
-proof from verified remote evidence; raw recovery state is never uploaded/restored.
+authorize an earlier activation.
 
 ## Language server revocation
 

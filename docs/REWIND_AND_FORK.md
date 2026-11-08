@@ -79,13 +79,3 @@ Tests include native cut/ordinal handling, rejection of Codex multi-prompt cuts,
 fork prefix/worktree preservation, and checkpoint/rewind persistence. The current
 documentation review exercised visible actions with example data; it did not
 perform destructive rewinds on real user conversations.
-
-## Historical plan
-
-The original Claude-first plan is retained for design history. Its Claude-only
-status, future-provider backlog, fallback proposals, and line-number anchors are
-superseded by the implementation above.
-
-- [Architecture and initial decisions](./rewind-and-fork/history/architecture.md)
-- [Backend design and sequence diagrams](./rewind-and-fork/history/runtime.md)
-- [Delivery, edge cases, and original test plan](./rewind-and-fork/history/delivery.md)

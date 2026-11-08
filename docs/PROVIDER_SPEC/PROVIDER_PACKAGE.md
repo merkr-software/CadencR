@@ -1,24 +1,14 @@
 # Cadencr code-backed provider package contract
 
-> Pi implementation status (2026-11-04): the first-party connector has been
-> retired in favor of [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi).
-> Pi details below retain historical contract/QA evidence. See the
-> [handoff record](../PI_PROVIDER_HANDOFF.md) for registry transfer status.
+> Pi is maintained outside this repository as
+> [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi);
+> Pi details below describe the retired first-party implementation.
 
 > - **Status:** Local v1 code-and-icon plus managed package/install/conformance backend implemented; release trust pins and marketplace UI deferred
 > - **Plan reviewed:** 2026-09-05; see [remaining work and release gates](./BOUNDARIES.md#implementation-audit--2026-09-05)
 > - **Contract version:** `acp-config-options-v1` + `acp-v1`
 > - **Reference SDK:** `packages/provider-plugin-sdk-rs/`
 > - **External reference provider:** `cadencr-plugin-provider-pi` — native `pi --mode rpc`, no `pi-acp`
-
-## Local release scope — 2026-09-12
-
-v0.12.0 ships **local themes and providers**, without marketplace UI. Both create
-projects in the developer's Cadencr instance; a durable theme/provider authoring
-marker is required for later GitHub publication and initial/new-version registry
-submission. The marker is implemented for new project rows only; existing projects remain unchanged. See the authoritative
-[local release checklist](../LOCAL_PLUGINS_V0_12.md); public trust provisioning and
-marketplace UI are not local-release blockers.
 
 Session-scoped resume eligibility and signed catalog acquisition now have
 working-tree implementations under review. The historical audit/checklists below

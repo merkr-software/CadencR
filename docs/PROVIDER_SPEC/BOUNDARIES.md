@@ -6,15 +6,6 @@
 > - **Descriptor reference:** `docs/PROVIDER_SPEC/INSTALLED_ACP_PROVIDERS.md` — the implemented local-backend format and its refusal codes
 > - **Parent plan:** `docs/PLUGIN_STRATEGY.md` — this document is step 2 ("bring your own agent") of the four-step extensibility ladder; the ladder's marketplace phasing, signing, and renderer invariants govern here too
 
-## Local release scope — 2026-09-12
-
-v0.12.0 ships **local themes and providers**, without marketplace UI. Both create
-projects in the developer's Cadencr instance; a durable theme/provider authoring
-marker is required for later GitHub publication and initial/new-version registry
-submission. The marker is implemented for new project rows only; existing projects remain unchanged. See the authoritative
-[local release checklist](../LOCAL_PLUGINS_V0_12.md); public trust provisioning and
-marketplace UI are not local-release blockers.
-
 Session-scoped resume eligibility and signed catalog acquisition now have
 working-tree implementations under review. The historical audit/checklists below
 remain evidence of their recorded baseline, not an assertion that those newer
@@ -22,7 +13,7 @@ changes are committed or fully QA-verified.
 
 ## Marketplace delivery decision — 2026-09-11
 
-The accepted distribution plan is [GitHub-only Marketplace V1](../MARKETPLACE_V1.md):
+The accepted distribution plan is [GitHub-only Marketplace](../MARKETPLACE_V1.md):
 metadata PRs in a public registry, approved archives mirrored into Cadencr-owned
 GitHub Releases, protected Actions publishing the signed index/blocklist, and
 in-app discovery and installation. No S3, required website or publisher portal.
@@ -567,8 +558,7 @@ current backend slice.
       consults the exact live runtime, and missing runtime ownership fails closed.
       Review adds same-adapter opposite-capability and public WS/DB regressions.
       This checkbox records implementation, not a commit or packaged-app QA claim.
-- [ ] Complete local packaged-app resume/persistence QA alongside the plugin-project
-      identity work in [Local Plugins v0.12.0](../LOCAL_PLUGINS_V0_12.md).
+- [ ] Complete local packaged-app resume/persistence QA.
 
 Launch verification is pathname-based, not atomic verify-and-execute against a
 same-user attacker. The precise boundary and remaining isolation decision are
