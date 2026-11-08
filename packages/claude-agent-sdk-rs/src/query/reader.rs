@@ -81,7 +81,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         // Mock CLI: drain the SDK init handshake and initial user prompt,
-        // emit system init, then sleep forever (simulates a long-running process).
+        // emit system init, then sleep forever (simulates a long-running process;
+        // `exec`, so the kill reaches the sleep instead of orphaning it).
         let script = r#"#!/bin/sh
 read -r INIT_REQ
 read -r MCP_REQ
@@ -89,7 +90,7 @@ MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"mcpServers":[]}}}\n' "$MCP_ID"
 read -r USER_PROMPT
 echo '{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_close","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}'
-sleep 300
+exec sleep 300
 "#;
         let script_path = write_mock_cli(dir.path(), script);
 

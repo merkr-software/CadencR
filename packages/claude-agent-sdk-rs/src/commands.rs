@@ -176,7 +176,7 @@ mod tests {
 read -r INIT_REQ
 REQ_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[{"name":"compact","description":"Live compact desc"},{"name":"goal","description":"Set a goal"},{"name":"help"}]}}}\n' "$REQ_ID"
-sleep 60
+exec sleep 60
 "#;
         fs::write(&script_path, script).unwrap();
         let mut perms = fs::metadata(&script_path).unwrap().permissions();

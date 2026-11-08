@@ -421,11 +421,18 @@ mod tests {
     }
 
     /// A tab folder whose backend never reads stdin and leaves a child
-    /// process (its pid in `child.pid`) behind it.
+    /// process (its pid in `child.pid`) behind it. The guard kills that
+    /// backend's group when a test fails before shutting it down.
     #[cfg(unix)]
-    fn deaf_backend() -> (tempfile::TempDir, PathBuf) {
+    fn deaf_backend() -> (
+        tempfile::TempDir,
+        PathBuf,
+        crate::shared::test_processes::KillOnDrop,
+    ) {
         let (root, dir, _) = fixture_tab("deaf");
-        (root, dir)
+        let cleanup = crate::shared::test_processes::KillOnDrop::default()
+            .group_of_pid_in(dir.join("child.pid"));
+        (root, dir, cleanup)
     }
 
     /// Whether `pid` still runs. A zombie does not: a killed child whose
@@ -447,7 +454,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_backend_that_stops_reading_times_requests_out() {
-        let (_root, dir) = deaf_backend();
+        let (_root, dir, _cleanup) = deaf_backend();
         let (supervisor, grants) = (BackendSupervisor::default(), GrantStore::default());
         // Big enough to fill the stdin pipe, then the request queue behind it.
         let params = json!("x".repeat(request::MAX_PARAMS_BYTES - 16));
@@ -482,7 +489,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn shutdown_stops_whole_backend_trees_and_refuses_new_ones() {
-        let (_root, dir) = deaf_backend();
+        let (_root, dir, _cleanup) = deaf_backend();
         let (supervisor, grants) = (BackendSupervisor::default(), GrantStore::default());
         let call = || {
             supervisor.request(
@@ -513,7 +520,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_backend_stops_only_once_its_tab_holds_no_lease() {
-        let (_root, dir) = deaf_backend();
+        let (_root, dir, _cleanup) = deaf_backend();
         let (supervisor, grants) = (BackendSupervisor::default(), GrantStore::default());
         let presence = PresenceStore::default();
         presence.renew("lease", "tab", 2).unwrap();

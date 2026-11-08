@@ -318,6 +318,7 @@ mod tests {
         .await
         .expect("spawn isolated ACP process");
         let pid = wait_for_test_pid(&pid_file).await;
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
 
         client.shutdown().await;
 

@@ -210,7 +210,7 @@ mod tests {
 read -r INIT_REQ
 REQ_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[],"agents":[],"output_style":"default","available_output_styles":["default"],"models":[{"value":"default","displayName":"Default (recommended)","description":"Opus 4.7 with 1M context","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"],"supportsAdaptiveThinking":true,"supportsAutoMode":true},{"value":"sonnet","displayName":"Sonnet","description":"Sonnet 4.6"},{"value":"haiku","displayName":"Haiku","description":"Haiku 4.5"}],"account":{}}}}\n' "$REQ_ID"
-sleep 60
+exec sleep 60
 "#;
         let script_path = write_mock_cli(dir.path(), script);
 
@@ -239,7 +239,7 @@ read -r INIT_REQ
 REQ_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 DESC="${CLAUDE_CODE_USE_BEDROCK:-missing}:${ANTHROPIC_DEFAULT_SONNET_MODEL:-missing}"
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[],"models":[{"value":"sonnet","displayName":"Sonnet","description":"%s"}],"account":{}}}}\n' "$REQ_ID" "$DESC"
-sleep 60
+exec sleep 60
 "#;
         let script_path = write_mock_cli(dir.path(), script);
         let mut env = std::collections::HashMap::new();
@@ -270,7 +270,7 @@ sleep 60
 read -r INIT_REQ
 REQ_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[{"name":"compact","description":"Free up context","argumentHint":""},{"name":"review","description":"Review a PR","argumentHint":""},{"name":"goal","description":"Set a goal","argumentHint":""},{"name":"nodesc","argumentHint":""}],"models":[],"account":{}}}}\n' "$REQ_ID"
-sleep 60
+exec sleep 60
 "#;
         let script_path = write_mock_cli(dir.path(), script);
 

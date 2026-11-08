@@ -246,6 +246,7 @@ mod tests {
             .expect("helper should publish descendant pid")
             .parse()
             .expect("numeric descendant pid");
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
         for _ in 0..50 {
             if unsafe { libc::kill(pid, 0) } != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)

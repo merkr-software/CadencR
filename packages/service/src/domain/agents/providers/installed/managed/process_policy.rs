@@ -509,6 +509,8 @@ mod tests {
             .expect("helper should publish descendant pid")
             .parse()
             .expect("numeric descendant pid");
+        // Keep a failing regression from leaving its own helper process behind.
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
         for _ in 0..50 {
             if unsafe { libc::kill(pid, 0) } != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
@@ -518,8 +520,6 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        // Keep a failing regression from leaving its own helper process behind.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
         panic!("managed descendant {pid} survived bounded tree termination: {error}");
     }
 }
