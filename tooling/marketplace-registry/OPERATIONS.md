@@ -85,6 +85,27 @@ reviewed root records. Legacy publication ignores unrelated root administrative
 history but refuses handoffs in its own baseline/delta. Renewals preserve records
 from their authenticated channel baseline and cannot add a handoff.
 
+## Optional LSP revocation policy
+
+Set `CADENCR_REGISTRY_LSP_BLOCKLIST_URL` to this registry's exact legacy
+`refs/heads/marketplace-v2/managed-lsp-blocklist.json` URL to include the signed
+LSP policy in bootstrap, daily renewal and expiry monitoring. The LSP policy is
+optional for registries without LSP packages. Once configured, missing or invalid
+metadata fails the relevant operation; it is never treated as an empty policy.
+
+Bootstrap publishes only a missing policy, with `kind: "lsp-blocklist"`, empty
+entries and a 13-day window. Existing provider, theme, tab and LSP policies are
+skipped without replacement. The publishing job requires review in
+`protected-marketplace-publisher`; renewal can only preserve existing entries.
+Use an immutable, qualified CLI with LSP policy support before enabling it.
+
+Keep this policy URL on the legacy branch when compatible clients use
+`marketplace-v2-admin`. Set the app's `CADENCR_MANAGED_LSP_BLOCKLIST_URL` only
+after independently verifying the publicly readable signature and validity window,
+and before compiling that client. A valid empty policy does not admit LSP packages
+or execute their archives; catalog admission and package qualification remain
+separate reviewed operations.
+
 ## Automatic catalog and policy renewal and expiry watch
 
 Two workflows automate the routine part of the renewal runbook below. Both are

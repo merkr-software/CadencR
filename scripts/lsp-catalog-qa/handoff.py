@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from official_plugin_pack import json_bytes, parse_json
 
 TARGETS = ("darwin-aarch64", "darwin-x86_64", "linux-x86_64")
-CLI_VERSION = "0.15.6"
+CLI_VERSION = "0.15.7"
 MANIFEST = "handoff.json"
 MAX_FILE = 80 * 1024 * 1024
 MAX_TREE = 8 * 1024 ** 3

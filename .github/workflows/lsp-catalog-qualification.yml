@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       cli_mode:
-        description: CLI provenance (released requires the checked-in 0.15.6 qualification pin)
+        description: CLI provenance (released requires the checked-in 0.15.7 qualification pin)
         type: choice
         options: [source, released]
         default: source
@@ -62,7 +62,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           prefix-key: lsp-catalog-cli-v1
-          shared-key: linux-canonical-cli-0156
+          shared-key: linux-canonical-cli-0157
           save-if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
       - name: Test candidate boundaries
         run: |

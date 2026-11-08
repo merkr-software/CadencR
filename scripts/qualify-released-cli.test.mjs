@@ -57,7 +57,7 @@ test("offline qualification uses separate pins and never uploads generated keys"
       .split("\n")
       .filter((line) => line && !line.startsWith("#"))
       .join("\n"),
-    "CADENCR_RELEASE_VERSION=0.15.6\nCADENCR_RELEASE_SHA256=0d95aec0e56f1957d7e928226208fb2d987666b0713678e66ef5798a5ec16623\nCADENCR_RELEASE_TAG=cli/v0.15.6",
+    "CADENCR_RELEASE_VERSION=0.15.7\nCADENCR_RELEASE_SHA256=4bd0a2d6bb0067f976ee27a0636006a495b0ce5c9f4aed52324e7aa0a17108d7\nCADENCR_RELEASE_TAG=cli/v0.15.7",
   );
   const yaml = readFileSync(workflow, "utf8");
   assert.match(yaml, /scripts\/cli-qualification\.env "\$CLI_ROOT"/);
@@ -411,7 +411,7 @@ test("repository qualification pins select the exact namespaced released asset w
   const args = readFileSync(requests, "utf8").trim().split("\n");
   assert.equal(
     args.at(-1),
-    "https://github.com/merkr-software/CadencR/releases/download/cli/v0.15.6/cadencr-v0.15.6-x86_64-unknown-linux-gnu",
+    "https://github.com/merkr-software/CadencR/releases/download/cli/v0.15.7/cadencr-v0.15.7-x86_64-unknown-linux-gnu",
   );
   assert.equal(existsSync(path.join(root, "output/cadencr")), false);
 });

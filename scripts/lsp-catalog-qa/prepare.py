@@ -196,8 +196,8 @@ def cli_provenance(args):
                 "released CLI mode requires the checked-in qualification pin")
         raw = regular(args.released_pin, 4096)
         pins = dict(line.split("=", 1) for line in raw.decode().splitlines() if line and not line.startswith("#"))
-        require(pins == {"CADENCR_RELEASE_VERSION": "0.15.6", "CADENCR_RELEASE_SHA256": args.cli_sha256,
-                         "CADENCR_RELEASE_TAG": "cli/v0.15.6"}, "released CLI pin is not the reviewed 0.15.6 pin")
+        require(pins == {"CADENCR_RELEASE_VERSION": "0.15.7", "CADENCR_RELEASE_SHA256": args.cli_sha256,
+                         "CADENCR_RELEASE_TAG": "cli/v0.15.7"}, "released CLI pin is not the reviewed 0.15.7 pin")
         pin_sha256 = digest(raw)
     else:
         require(args.released_pin is None, "source builds cannot claim a released CLI pin")
