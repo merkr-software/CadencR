@@ -29,13 +29,12 @@ fn broadcast_lifecycle(sender: &impl OutputTarget, session_id: i64, kind: Sessio
 }
 
 /// Handle `session.suspend`. Provider-neutral pause driven by the renderer
-/// when the OS reports a pending suspend. Persisted permission/question gates
-/// are closed first because the user cannot answer them while the machine is
-/// asleep. For an active runtime we then capture the session id (so it can be
-/// `--resume`'d after wake even if the subprocess dies), stop the in-flight
-/// turn through the runtime's bounded `interrupt_before_sleep`, and persist
-/// `paused` to the DB. A Pending session without a gate has nothing to suspend, so its
-/// reply stays silent.
+/// when the OS reports a pending suspend. For an active runtime we capture the
+/// session id (so it can be `--resume`'d after wake even if the subprocess
+/// dies), stop the in-flight turn through the runtime's bounded
+/// `interrupt_before_sleep`, and persist `paused` to the DB. Once nothing runs,
+/// persisted permission/question gates are closed: nobody answers them while
+/// the machine sleeps. A pause the agent refuses leaves its gate open.
 pub(crate) async fn handle_suspend(
     envelope: WsEnvelope,
     sender: &WsSender,
@@ -90,53 +89,41 @@ pub(crate) async fn suspend_session(
     db_session_id: i64,
     output: &impl OutputTarget,
 ) -> Result<(), CommandError> {
-    // Read before the gate closes (that reports the session idle): a turn
-    // waiting on its gate still runs.
-    let waiting_on_gate = app_state
-        .session_status_tx
-        .is_waiting_on_user(db_session_id);
-    if let Err(error) = clear_persisted_gate_and_notify(
-        output,
-        app_state,
-        db_session_id,
-        None,
-        GateCloseReason::Sleep,
-        None,
-    )
-    .await
-    {
-        return Err(CommandError::new(
-            "DB_ERROR",
-            format!("Failed to close pending gate before sleep: {error}"),
-        ));
-    }
-
     // Extract the live query handle while briefly holding the lock, then
     // drop it so the stop's await doesn't block other handlers (same pattern
     // as `handle_permission_respond`).
     let active: Option<(RuntimeSessionHandle, String, i64)> = {
         let sessions = sdk_sessions.lock().await;
-        let Some(handle) = sessions.get(&db_session_id) else {
-            return Ok(());
-        };
-        match &handle.state {
-            QueryState::Active { query, .. } => Some((
-                std::sync::Arc::clone(query),
-                handle.runtime_provider.clone(),
-                handle.feature_id,
-            )),
-            QueryState::Pending(_) => None,
-        }
+        sessions
+            .get(&db_session_id)
+            .and_then(|handle| match &handle.state {
+                QueryState::Active { query, .. } => Some((
+                    std::sync::Arc::clone(query),
+                    handle.runtime_provider.clone(),
+                    handle.feature_id,
+                )),
+                QueryState::Pending(_) => None,
+            })
     };
 
     let Some((query, runtime_provider, feature_id)) = active else {
-        // Pending session: nothing to interrupt, no resume id to persist,
-        // no banner to flip.
-        return Ok(());
+        // No live runtime: nothing to interrupt, no resume id to persist, no
+        // banner to flip; a gate left from an earlier runtime still closes.
+        return close_gates_for_sleep(output, app_state, db_session_id)
+            .await
+            .map_err(|error| {
+                CommandError::new(
+                    "DB_ERROR",
+                    format!("Failed to close pending gate before sleep: {error}"),
+                )
+            });
     };
 
+    // Refused mid-turn, this returns before the gate closes: the agent works
+    // on, and its gate stays answerable on every device.
     let (cli_sid, allows_resume_persistence) =
-        pause_running_turn(app_state, &query, db_session_id, waiting_on_gate).await?;
+        pause_running_turn(app_state, &query, db_session_id).await?;
+    let gates_closed = close_gates_for_sleep(output, app_state, db_session_id).await;
     let resume_id = super::super::session_init_resume::persistable_resume_session_id_for_provider(
         &runtime_provider,
         cli_sid.as_deref(),
@@ -150,12 +137,40 @@ pub(crate) async fn suspend_session(
         resume_id.as_deref(),
     )
     .await;
+    // The agent paused, so the command succeeded; a gate left unclosed is
+    // reported like the pause's other writes.
+    report_if_unsaved(
+        &app_state.ws_feature_senders,
+        feature_id,
+        db_session_id,
+        "that its pending request closed",
+        gates_closed,
+    )
+    .await;
     broadcast_lifecycle(
         output,
         db_session_id,
         SessionLifecycleKind::SuspendRequested,
     );
     Ok(())
+}
+
+/// Close the persisted gates nobody will answer during the sleep.
+async fn close_gates_for_sleep(
+    output: &impl OutputTarget,
+    app_state: &AppState,
+    db_session_id: i64,
+) -> Result<(), sqlx::Error> {
+    clear_persisted_gate_and_notify(
+        output,
+        app_state,
+        db_session_id,
+        None,
+        GateCloseReason::Sleep,
+        None,
+    )
+    .await
+    .map(|_| ())
 }
 
 /// Persist the paused session — its resume point first, so a resume survives
@@ -211,19 +226,18 @@ async fn record_pause(
 /// A running turn is stopped as a Stop stops it, marked as intended (see
 /// `interrupt_as_intended`). Whether one runs is read under the barrier, last:
 /// a mark left on a turn that already ended would make the next turn's end
-/// read as that old stop. A turn that was waiting on its (now closed) gate
-/// still runs.
+/// read as that old stop. A turn waiting on its gate runs (the gate is still
+/// open here).
 async fn pause_running_turn(
     app_state: &AppState,
     query: &RuntimeSessionHandle,
     db_session_id: i64,
-    waiting_on_gate: bool,
 ) -> Result<(Option<String>, bool), CommandError> {
     let q = query.read().await;
     let sid = q.session_id().await;
     let allows_resume_persistence = q.allows_resume_persistence();
     let _barrier = q.turn_control_guard().await;
-    let turn_running = waiting_on_gate || app_state.session_status_tx.is_busy(db_session_id);
+    let turn_running = app_state.session_status_tx.is_busy(db_session_id);
     let result = interrupt_as_intended(
         app_state,
         query,
@@ -480,31 +494,107 @@ mod tests {
         assert!(!marked(&app_state, 54, &query).await);
     }
 
-    /// Closing the gate reports the session idle, yet the turn waiting on it
-    /// still runs: it is marked as stopped too.
-    #[tokio::test]
-    async fn a_turn_waiting_on_its_gate_is_marked_after_the_gate_closes() {
-        let app_state = make_test_app_state().await;
-        insert_running_session(&app_state, 55, 1).await;
-        sqlx::query("UPDATE agent_sessions SET pending_permission = '{}' WHERE id = 55")
+    /// A session waiting on its permission gate: a persisted gate and the
+    /// status book's question.
+    async fn waiting_on_gate(app_state: &AppState, session_id: i64) {
+        insert_running_session(app_state, session_id, 1).await;
+        sqlx::query("UPDATE agent_sessions SET pending_permission = '{}' WHERE id = ?")
+            .bind(session_id)
             .execute(&app_state.write_pool)
             .await
             .unwrap();
-        let (sessions, query, _) = slow_stop_session(55).await;
-        app_state.active_turns.begin_turn(55, &sessions).await;
         app_state.session_status_tx.broadcast_gate(
-            55,
+            session_id,
             1,
             crate::domain::session_status::PendingKind::Permission,
             "perm-1".into(),
         );
-        let (tx, _rx) = mpsc::unbounded_channel();
+    }
+
+    async fn gate_persisted(app_state: &AppState, session_id: i64) -> bool {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT pending_permission FROM agent_sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_one(&app_state.write_pool)
+        .await
+        .unwrap()
+        .is_some()
+    }
+
+    fn sent_actions(rx: &mut mpsc::UnboundedReceiver<Message>) -> Vec<String> {
+        let mut actions = Vec::new();
+        while let Ok(Message::Text(text)) = rx.try_recv() {
+            let envelope: Value = serde_json::from_str(&text).unwrap();
+            actions.push(envelope["action"].as_str().unwrap().to_string());
+        }
+        actions
+    }
+
+    /// A turn waiting on its gate runs: it is stopped as intended, then the
+    /// gate nobody answers during the sleep closes.
+    #[tokio::test]
+    async fn a_pause_stops_a_turn_waiting_on_its_gate_then_closes_the_gate() {
+        let app_state = make_test_app_state().await;
+        waiting_on_gate(&app_state, 55).await;
+        let (sessions, query, paused_for_sleep) = slow_stop_session(55).await;
+        app_state.active_turns.begin_turn(55, &sessions).await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
 
         suspend_session(&app_state, &sessions, 55, &tx)
             .await
             .unwrap();
 
+        assert!(paused_for_sleep.load(Ordering::SeqCst));
         assert!(marked(&app_state, 55, &query).await);
+        assert!(!gate_persisted(&app_state, 55).await);
+        assert_eq!(sent_actions(&mut rx), ["gate.closed", "lifecycle"]);
+        assert!(!app_state.session_status_tx.is_busy(55));
+    }
+
+    /// Found in review: the suspend closed the gate before stopping the turn,
+    /// so a refused pause left an agent blocked on a gate nobody could answer
+    /// any more. The gate stays open, persisted and in the status book, for
+    /// this device and every other one to answer.
+    #[tokio::test]
+    async fn a_refused_pause_leaves_the_gate_open() {
+        let app_state = make_test_app_state().await;
+        waiting_on_gate(&app_state, 58).await;
+        let sessions = new_sdk_sessions();
+        sessions
+            .lock()
+            .await
+            .insert(58, make_active_handle(1, Some("cli".into())));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let error = suspend_session(&app_state, &sessions, 58, &tx)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "SDK_ERROR");
+        assert!(gate_persisted(&app_state, 58).await);
+        assert!(sent_actions(&mut rx).is_empty(), "no gate.closed, no pause");
+        assert!(app_state.session_status_tx.is_busy(58));
+        assert_eq!(
+            app_state.session_status_tx.snapshot().states["58"].status,
+            crate::domain::session_status::AgentStatus::Question
+        );
+    }
+
+    /// Without a live runtime nothing runs: a gate left over still closes.
+    #[tokio::test]
+    async fn a_pause_without_a_runtime_closes_a_leftover_gate() {
+        let app_state = make_test_app_state().await;
+        waiting_on_gate(&app_state, 59).await;
+        let sessions = new_sdk_sessions();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        suspend_session(&app_state, &sessions, 59, &tx)
+            .await
+            .unwrap();
+
+        assert!(!gate_persisted(&app_state, 59).await);
+        assert_eq!(sent_actions(&mut rx), ["gate.closed"]);
     }
 
     /// The stub runtime refuses every control (`stdin is closed`). Mid-turn,
