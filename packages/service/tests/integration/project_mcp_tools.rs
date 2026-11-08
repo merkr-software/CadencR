@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use cadencr_service::domain::mcp::context::McpContext;
 use cadencr_service::domain::mcp::tools::project::run_project_tool;
+use cadencr_service::domain::mcp::tools::project_providers::agent_providers_doc;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
@@ -73,12 +74,13 @@ async fn project_list_sessions_returns_only_current_project_sessions_as_json() {
     );
 }
 
+// `project_list_agent_providers` relays to the service, which answers with
+// this document (built where the catalog caches and CLI paths live).
 #[tokio::test]
 async fn project_list_agent_providers_returns_spawn_guidance() {
     let ctx = test_ctx().await;
 
-    let result = run_project_tool("project_list_agent_providers", json!({}), ctx).await;
-    let body: serde_json::Value = serde_json::from_str(&result_text(result)).expect("tool JSON");
+    let body = agent_providers_doc(&ctx.read_pool, std::path::Path::new("/tmp/current")).await;
 
     assert!(body.get("project").is_none());
     assert!(body["valid_provider_ids"]

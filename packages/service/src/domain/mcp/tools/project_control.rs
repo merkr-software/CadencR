@@ -5,12 +5,14 @@ use crate::api::middleware::MCP_CONTROL_HEADER;
 use crate::domain::mcp::context::McpContext;
 use crate::domain::mcp::tools::helpers::require_i64;
 
+mod agent_providers;
 mod archive_session;
 mod create_schedule;
 mod manage_schedule;
 mod send_message;
 mod settings;
 
+pub(crate) use agent_providers::list_agent_providers;
 pub(crate) use archive_session::archive_session;
 pub(crate) use create_schedule::create_schedule;
 pub(crate) use manage_schedule::{delete_schedule, update_schedule};

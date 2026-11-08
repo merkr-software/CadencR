@@ -1,18 +1,21 @@
+use std::path::Path;
+
 use serde_json::json;
+use sqlx::SqlitePool;
 
 use crate::domain::agents::providers::{
     provider_alias_metadata, provider_aliases, provider_catalog_entries_live_for_cwd,
     valid_provider_ids,
 };
 use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry};
-use crate::domain::mcp::context::McpContext;
 
-pub async fn list_agent_providers(ctx: &McpContext) -> Result<serde_json::Value, String> {
-    let cwd = super::project::current_project_path(ctx).await?;
-    let catalogs =
-        provider_catalog_entries_live_for_cwd(&ctx.read_pool, Some(cwd.as_path()), None).await;
+/// `project_list_agent_providers`' answer for a project at `cwd`. Built by the
+/// service (see `project_control::list_agent_providers`): only its catalog
+/// caches and CLI path settings say what the UI sees.
+pub async fn agent_providers_doc(read_pool: &SqlitePool, cwd: &Path) -> serde_json::Value {
+    let catalogs = provider_catalog_entries_live_for_cwd(read_pool, Some(cwd), None).await;
 
-    Ok(json!({
+    json!({
         "valid_provider_ids": valid_provider_ids(),
         "providers": catalogs.into_iter().map(provider_doc).collect::<Vec<_>>(),
         "aliases": provider_aliases()
@@ -20,7 +23,7 @@ pub async fn list_agent_providers(ctx: &McpContext) -> Result<serde_json::Value,
             .map(|(provider, aliases)| json!({ "provider": provider, "aliases": aliases }))
             .collect::<Vec<_>>(),
         "spawn_tip": "Use canonical provider/model ids in project_spawn_session. Set thinking_level to one of the selected model's thinking_levels. When omitted, CadencR reuses that provider/model pair's last user-selected level, then its default_thinking_level. Providers driven by a configuration profile skip that default and keep the profile's own level; if there is no default either, the field stays unset so the CLI applies its native default."
-    }))
+    })
 }
 
 fn provider_doc(catalog: ProviderCatalogEntry) -> serde_json::Value {

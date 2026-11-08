@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+mod agent_providers;
 pub(crate) mod archive_cleanup;
 mod archive_session;
 mod audit;
@@ -121,6 +122,10 @@ pub fn control_router() -> Router<AppState> {
         .route(
             "/internal/mcp/project/delete-schedule",
             post(manage_schedule::delete_schedule_handler),
+        )
+        .route(
+            "/internal/mcp/project/agent-providers",
+            post(agent_providers::agent_providers_handler),
         )
         .route(
             "/internal/mcp/project/archive-session",

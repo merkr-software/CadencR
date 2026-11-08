@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use rmcp::model::CallToolResult;
@@ -17,7 +16,6 @@ use crate::domain::mcp::tools::project_compare;
 use crate::domain::mcp::tools::project_control;
 use crate::domain::mcp::tools::project_links;
 use crate::domain::mcp::tools::project_list;
-use crate::domain::mcp::tools::project_providers;
 use crate::domain::mcp::tools::project_schedules;
 use crate::domain::mcp::tools::project_search;
 use crate::domain::mcp::tools::project_status;
@@ -69,7 +67,7 @@ pub async fn run_project_tool(
         "project_link_sessions" => project_links::link_sessions(&ctx, &args).await,
         "project_get_worktree_status" => project_worktree::get_worktree_status(&ctx, &args).await,
         "project_compare_sessions" => project_compare::compare_sessions(&ctx, &args).await,
-        "project_list_agent_providers" => project_providers::list_agent_providers(&ctx).await,
+        "project_list_agent_providers" => project_control::list_agent_providers(&ctx).await,
         "project_send_session_message" => project_control::send_session_message(&args, &ctx).await,
         "project_spawn_session" => project_control::spawn_session(&args, &ctx).await,
         "project_create_schedule" => project_control::create_schedule(&args, &ctx).await,
@@ -129,12 +127,6 @@ pub(super) async fn current_project(ctx: &McpContext) -> Result<ProjectSummary, 
     .await
     .map_err(|e| format!("Failed to resolve current project: {e}"))?
     .ok_or_else(|| format!("Feature {} does not belong to a project", ctx.feature_id))
-}
-
-pub(super) async fn current_project_path(ctx: &McpContext) -> Result<PathBuf, String> {
-    current_project(ctx)
-        .await
-        .map(|project| PathBuf::from(project.path))
 }
 
 async fn session_scope(ctx: &McpContext, session_id: i64) -> Result<SessionScopeRow, String> {

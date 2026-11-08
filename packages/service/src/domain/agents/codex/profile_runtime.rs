@@ -50,16 +50,45 @@ pub(super) async fn resolved_effective_config(
     overrides: &RuntimeConfigOverrides,
 ) -> Result<RuntimeEffectiveConfig, RuntimeError> {
     let profile = resolve_profile_for_selection(selection)?;
-    let (models, mut config) = probe_models_and_config(Some(&profile), cwd).await?;
-    enrich_resume_config(&mut config, &models, overrides.model.as_deref());
+    // Fresh: the result is written into the session's runtime config, so a
+    // config the user just edited must win. While the app-server is down, the
+    // configuration behind the catalog the picker still shows stands in.
+    match probe_models_and_config(Some(&profile), cwd).await {
+        Ok((models, config)) => Ok(effective_config_from(&models, &config, overrides)),
+        Err(error) => {
+            let Some(probe) = super::live_catalog::last_known_probe(&profile, cwd).await else {
+                return Err(error);
+            };
+            tracing::warn!(
+                %error,
+                "Codex configuration probe failed; resolving from the last known catalog",
+            );
+            Ok(effective_config_from(
+                &probe.models,
+                &probe.config,
+                overrides,
+            ))
+        }
+    }
+}
+
+/// The effective configuration Codex reported (`config_read`), completed from
+/// its models, under the user's `overrides`.
+fn effective_config_from(
+    models: &[CodexModel],
+    config_read: &Value,
+    overrides: &RuntimeConfigOverrides,
+) -> RuntimeEffectiveConfig {
+    let mut config = config_read.clone();
+    enrich_resume_config(&mut config, models, overrides.model.as_deref());
     let native = native_effective_config(&config);
-    Ok(RuntimeEffectiveConfig {
+    RuntimeEffectiveConfig {
         model: overrides.model.clone().or(native.model),
         thinking_effort: overrides.thinking_effort.clone().or(native.thinking_effort),
         fast_mode: overrides
             .fast_mode
             .unwrap_or(native.fast_mode.unwrap_or(false)),
-    })
+    }
 }
 
 pub(super) async fn effective_config_revision(
@@ -229,7 +258,11 @@ pub(super) async fn catalog_for_profile(
 
 #[cfg(test)]
 mod tests {
-    use super::{fingerprint_effective_config, resolve_profile_for_selection};
+    use super::{
+        effective_config_from, fingerprint_effective_config, resolve_profile_for_selection,
+    };
+    use crate::domain::agents::adapter::RuntimeConfigOverrides;
+    use codex_app_server_sdk_rs::CodexModel;
     use serde_json::json;
 
     #[test]
@@ -271,5 +304,43 @@ mod tests {
             before,
             fingerprint_effective_config("stored", &mut layered).unwrap()
         );
+    }
+
+    #[test]
+    fn the_effective_config_completes_the_reported_one_from_the_models() {
+        let models = vec![CodexModel {
+            id: "gpt-default".to_string(),
+            label: "GPT".to_string(),
+            description: None,
+            supported_efforts: vec!["low".to_string(), "high".to_string()],
+            default_effort: Some("high".to_string()),
+            service_tiers: vec![],
+            context_window: None,
+            is_default: true,
+        }];
+        let config = json!({"config": {"service_tier": "priority"}});
+
+        let native = effective_config_from(&models, &config, &RuntimeConfigOverrides::default());
+        assert_eq!(native.model.as_deref(), Some("gpt-default"));
+        assert_eq!(native.thinking_effort.as_deref(), Some("high"));
+        assert!(native.fast_mode);
+        assert_eq!(
+            config,
+            json!({"config": {"service_tier": "priority"}}),
+            "the cached config stays as read"
+        );
+
+        let overridden = effective_config_from(
+            &models,
+            &config,
+            &RuntimeConfigOverrides {
+                model: Some("gpt-picked".to_string()),
+                thinking_effort: Some("low".to_string()),
+                fast_mode: Some(false),
+            },
+        );
+        assert_eq!(overridden.model.as_deref(), Some("gpt-picked"));
+        assert_eq!(overridden.thinking_effort.as_deref(), Some("low"));
+        assert!(!overridden.fast_mode);
     }
 }

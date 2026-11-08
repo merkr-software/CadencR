@@ -8,14 +8,15 @@
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use codex_app_server_sdk_rs::CodexModel;
+use serde_json::Value;
 
 use super::profile_runtime::{self, catalog_with_effective_config};
 use super::{PROVIDER_ID, PROVIDER_LABEL};
 use crate::domain::agents::adapter::{ResolvedRuntimeProfile, RuntimeError};
-use crate::domain::agents::catalog_cache::{CatalogProvider, LiveCatalogCache};
+use crate::domain::agents::catalog_cache::{CachedCatalog, CatalogProvider, LiveCatalogCache};
 use crate::domain::agents::runtime::ProviderCatalogEntry;
 
 /// Where a catalog read without a workspace is probed: the service's own
@@ -40,7 +41,17 @@ impl CatalogKey {
     }
 }
 
-static CATALOG_CACHE: LazyLock<LiveCatalogCache<CatalogKey, ()>> = LazyLock::new(|| {
+/// What the probe behind a catalog read: the models and the `config/read`
+/// response. Resolving the effective configuration falls back on it when the
+/// app-server cannot be probed (see `profile_runtime::resolved_effective_config`).
+/// Empty when no probe returned a catalog for the key.
+#[derive(Default)]
+pub(super) struct CodexProbe {
+    pub(super) models: Vec<CodexModel>,
+    pub(super) config: Value,
+}
+
+static CATALOG_CACHE: LazyLock<LiveCatalogCache<CatalogKey, CodexProbe>> = LazyLock::new(|| {
     LiveCatalogCache::new(CatalogProvider {
         id: PROVIDER_ID,
         label: PROVIDER_LABEL,
@@ -59,32 +70,47 @@ pub(super) async fn profile_catalog(
     profile: &ResolvedRuntimeProfile,
     cwd: Option<&Path>,
 ) -> ProviderCatalogEntry {
+    (*probed(profile, cwd).await.catalog).clone()
+}
+
+/// The last probe that returned `profile`'s catalog in `cwd`, however old,
+/// without probing: what the picker shows while the app-server is down.
+pub(super) async fn last_known_probe(
+    profile: &ResolvedRuntimeProfile,
+    cwd: &Path,
+) -> Option<Arc<CodexProbe>> {
+    CATALOG_CACHE
+        .cached(&CatalogKey::new(profile, cwd))
+        .await
+        .map(|entry| entry.extra)
+        .filter(|probe| !probe.models.is_empty())
+}
+
+async fn probed(profile: &ResolvedRuntimeProfile, cwd: Option<&Path>) -> CachedCatalog<CodexProbe> {
     let cwd = cwd.unwrap_or(Path::new(NO_WORKSPACE)).to_path_buf();
     let key = CatalogKey::new(profile, &cwd);
     let profile = profile.clone();
-    cached_catalog(key, move || {
+    cached_probe(key, move || {
         let (profile, cwd) = (profile.clone(), cwd.clone());
         async move {
             let (models, config) =
                 profile_runtime::probe_models_and_config(Some(&profile), &cwd).await?;
-            Ok(catalog_with_effective_config(non_empty(models)?, &config))
+            let models = non_empty(models)?;
+            let catalog = catalog_with_effective_config(models.clone(), &config);
+            Ok((catalog, CodexProbe { models, config }))
         }
     })
     .await
 }
 
-async fn cached_catalog<F, Fut>(key: CatalogKey, probe: F) -> ProviderCatalogEntry
+async fn cached_probe<F, Fut>(key: CatalogKey, probe: F) -> CachedCatalog<CodexProbe>
 where
     F: Fn() -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<ProviderCatalogEntry, RuntimeError>> + Send + 'static,
+    Fut: Future<Output = Result<(ProviderCatalogEntry, CodexProbe), RuntimeError>> + Send + 'static,
 {
-    let entry = LazyLock::force(&CATALOG_CACHE)
-        .get_or_revalidate(key, move || {
-            let catalog = probe();
-            async move { catalog.await.map(|catalog| (catalog, ())) }
-        })
-        .await;
-    (*entry.catalog).clone()
+    LazyLock::force(&CATALOG_CACHE)
+        .get_or_revalidate(key, probe)
+        .await
 }
 
 /// An empty `model/list` is a failed refresh, not a catalog to keep.
@@ -134,6 +160,67 @@ mod tests {
         model_id: &'static str,
     ) -> impl Fn() -> std::future::Ready<Result<ProviderCatalogEntry, RuntimeError>> {
         move || std::future::ready(Ok(catalog_from_models(vec![model(model_id)])))
+    }
+
+    /// A catalog-only probe through the cache (no models or config kept).
+    async fn cached_catalog<F, Fut>(key: CatalogKey, probe: F) -> ProviderCatalogEntry
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<ProviderCatalogEntry, RuntimeError>> + Send + 'static,
+    {
+        let entry = cached_probe(key, move || {
+            let catalog = probe();
+            async move {
+                catalog
+                    .await
+                    .map(|catalog| (catalog, CodexProbe::default()))
+            }
+        })
+        .await;
+        (*entry.catalog).clone()
+    }
+
+    /// Seed `cwd`'s entry for `profile` with a probe that read `config`.
+    async fn seed_probe(profile: &ResolvedRuntimeProfile, cwd: &Path, config: Value) {
+        cached_probe(CatalogKey::new(profile, cwd), move || {
+            let models = vec![model("gpt-known")];
+            let config = config.clone();
+            async move {
+                let catalog = catalog_with_effective_config(models.clone(), &config);
+                Ok((catalog, CodexProbe { models, config }))
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn the_last_known_probe_keeps_the_config_the_catalog_was_read_with() {
+        let profile = test_profile("effective-config");
+        let cwd = Path::new("/nonexistent/effective-config");
+        let config = serde_json::json!({ "config": { "model": "gpt-configured" } });
+        seed_probe(&profile, cwd, config.clone()).await;
+        // Expired entries still answer: this read never probes.
+        CATALOG_CACHE
+            .force_expire_for_test(&CatalogKey::new(&profile, cwd))
+            .await;
+
+        let probe = last_known_probe(&profile, cwd)
+            .await
+            .expect("a probe is cached");
+        assert_eq!(probe.config, config);
+        assert_eq!(probe.models[0].id, "gpt-known");
+    }
+
+    #[tokio::test]
+    async fn without_a_known_catalog_there_is_no_last_known_probe() {
+        let profile = test_profile("no-probe");
+        let cwd = Path::new("/nonexistent/no-probe");
+        let _ = cached_catalog(CatalogKey::new(&profile, cwd), || async {
+            Err(RuntimeError::new("app-server stdout closed"))
+        })
+        .await;
+
+        assert!(last_known_probe(&profile, cwd).await.is_none());
     }
 
     #[tokio::test]
