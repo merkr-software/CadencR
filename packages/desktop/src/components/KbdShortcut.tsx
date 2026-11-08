@@ -111,6 +111,18 @@ export function ResolvedShortcutHint({ shortcutId }: { shortcutId: ShortcutId })
 }
 
 /**
+ * Hint for a button that also works without a keyboard (a dialog's Cancel /
+ * submit). Hidden when the primary pointer is touch, where no key can trigger it.
+ */
+export function KeyboardOnlyShortcutHint({ keys }: { keys: string[] }) {
+  return (
+    <span aria-hidden="true" className="shrink-0 pointer-coarse:hidden">
+      <KbdShortcut keys={keys} variant="hint" />
+    </span>
+  );
+}
+
+/**
  * A chord as one key cap per key (`⌘` `⇧` `/`), for reference lists such as
  * the shortcuts modal where each key reads as a physical key.
  */

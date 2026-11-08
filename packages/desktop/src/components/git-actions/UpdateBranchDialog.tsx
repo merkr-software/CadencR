@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { AlertTriangle, ArrowRight, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -7,11 +7,12 @@ import {
   type GitStatusSnapshot,
   type UpdateBranchStrategy,
 } from "@/api/generated";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
 import { RadioCardGroup, type RadioCardOption } from "@/components/settings/RadioCardGroup";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -96,7 +97,10 @@ export default function UpdateBranchDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent showCloseButton={!submitting} className="sm:max-w-xl">
+      <DialogContent
+        showCloseButton={!submitting}
+        className="grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-xl"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RefreshCw className="size-5" />
@@ -104,7 +108,7 @@ export default function UpdateBranchDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <DialogBody className="space-y-4">
           <BranchDirection currentBranch={snapshot.current_branch} source={source} />
           <DivergenceCounts source={source} />
 
@@ -120,14 +124,14 @@ export default function UpdateBranchDialog({
             />
           </div>
 
-          {error && <UpdateError message={error} />}
+          {error && <UpdateError message={error} reveal />}
           {!submitting && disabledReason && <UpdateError message={disabledReason} />}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
-            <KbdShortcut keys={ESC_KEYS} variant="hint" />
+            <KeyboardOnlyShortcutHint keys={ESC_KEYS} />
           </Button>
           <Button
             onClick={() => void handleUpdate()}
@@ -136,7 +140,7 @@ export default function UpdateBranchDialog({
           >
             {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
             {submitting ? "Updating…" : "Update branch"}
-            <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
+            <KeyboardOnlyShortcutHint keys={SUBMIT_KEYS} />
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -162,7 +166,7 @@ function BranchDirection({
           {currentBranch}
         </code>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="mt-1 text-xs text-muted-foreground wrap-anywhere">
         Exact {source.kind} ref: <code>{source.branch}</code>
       </p>
     </div>
@@ -184,14 +188,27 @@ function DivergenceCounts({ source }: { source: GitUpdateSource }): ReactElement
   );
 }
 
-function UpdateError({ message }: { message: string }): ReactElement {
+function UpdateError({
+  message,
+  reveal = false,
+}: {
+  message: string;
+  /** Scroll into view: a failed update lands below the cards, off a phone screen. */
+  reveal?: boolean;
+}): ReactElement {
+  const alertRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (reveal) alertRef.current?.scrollIntoView({ block: "nearest" });
+  }, [message, reveal]);
+
   return (
     <div
+      ref={alertRef}
       role="alert"
       className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <p className="whitespace-pre-wrap break-words">{message}</p>
+      <p className="min-w-0 whitespace-pre-wrap wrap-anywhere">{message}</p>
     </div>
   );
 }

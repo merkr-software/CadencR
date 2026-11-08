@@ -144,7 +144,8 @@ pub(super) fn attach_cleanup_problem(result: &mut MergeResult, problem: String) 
 }
 
 /// Build the user-facing `MergeResult` for a failed merge. Prefers a
-/// structured conflict message (with file list) when the index shows
+/// structured conflict message (a file count; the paths travel in
+/// `conflict_files`, which the desktop lists) when the index shows
 /// unmerged paths, and falls back to whichever output stream is non-empty —
 /// never returning an empty `failed:` tail.
 pub(super) fn build_failure_result(
@@ -155,11 +156,11 @@ pub(super) fn build_failure_result(
     target_branch: &str,
 ) -> MergeResult {
     if !conflict_files.is_empty() {
-        let joined = conflict_files.join(", ");
-        let plural = if conflict_files.len() == 1 { "" } else { "s" };
+        let count = conflict_files.len();
+        let plural = if count == 1 { "" } else { "s" };
         let message = format!(
-            "Merge conflict in {joined}. Resolve the conflict{plural} in '{target_branch}', \
-             commit the result, then try merging '{source_branch}' again.",
+            "Merge conflict in {count} file{plural}. Resolve the conflict{plural} in \
+             '{target_branch}', commit the result, then try merging '{source_branch}' again.",
         );
         return MergeResult {
             success: false,
@@ -199,7 +200,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn failure_with_conflicts_lists_files_and_is_actionable() {
+    fn failure_with_conflicts_counts_files_and_is_actionable() {
         let result = build_failure_result(
             vec!["foo.txt".to_string()],
             "CONFLIT (contenu) : Conflit de fusion dans foo.txt\n",
@@ -209,13 +210,26 @@ mod tests {
         );
         assert!(!result.success);
         let err = result.error.expect("error message");
-        assert!(err.contains("foo.txt"), "{err}");
+        assert!(err.starts_with("Merge conflict in 1 file. "), "{err}");
         assert!(err.contains("'main'"), "{err}");
         assert!(err.contains("'feature/x'"), "{err}");
         assert_eq!(
             result.conflict_files.as_deref(),
             Some(&["foo.txt".to_string()][..])
         );
+    }
+
+    #[test]
+    fn failure_with_conflicts_keeps_paths_out_of_the_sentence() {
+        let files = vec!["a/one.rs".to_string(), "b/two.rs".to_string()];
+        let result = build_failure_result(files.clone(), "", "", "feature/x", "main");
+        let err = result.error.expect("error message");
+        assert!(
+            err.starts_with("Merge conflict in 2 files. Resolve the conflicts in 'main'"),
+            "{err}"
+        );
+        assert!(!err.contains("one.rs"), "{err}");
+        assert_eq!(result.conflict_files, Some(files));
     }
 
     #[test]

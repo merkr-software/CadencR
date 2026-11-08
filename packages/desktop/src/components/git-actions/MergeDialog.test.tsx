@@ -68,13 +68,14 @@ describe("MergeDialog errors", () => {
   it("renders the conflict files returned by the backend as a structured list", async () => {
     // Regression: the old UI rendered an empty "git merge … failed:" tail
     // because the backend dropped stdout (where conflict detail lives).
-    // The backend now returns `conflict_files` + a sentence that names the
-    // file; the dialog must surface both so the user knows exactly which
+    // The backend now returns `conflict_files` + a sentence that counts
+    // them; the dialog must surface both so the user knows exactly which
     // files need resolution.
+    const message =
+      "Merge conflict in 2 files. Resolve the conflicts in 'main', commit the result, then try merging 'feature/x' again.";
     mocks.mergeMutateAsync.mockResolvedValueOnce({
       success: false,
-      error:
-        "Merge conflict in src/foo.ts, src/bar.ts. Resolve the conflicts in 'main', commit the result, then try merging 'feature/x' again.",
+      error: message,
       conflict_files: ["src/foo.ts", "src/bar.ts"],
     });
 
@@ -82,12 +83,28 @@ describe("MergeDialog errors", () => {
     await user.click(screen.getByRole("button", { name: "Merge" }));
 
     // Sentence is surfaced verbatim (no doubled "Merge failed:" prefix).
-    expect(
-      await screen.findByText(/Merge conflict in src\/foo\.ts, src\/bar\.ts/),
-    ).toBeInTheDocument();
-    // Each file is rendered as a list item beneath the message.
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    // Each file is rendered as a list item beneath the message, wrappable
+    // after each `/` on narrow screens without changing its text.
     const items = within(screen.getByRole("list")).getAllByRole("listitem");
     expect(items.map((li) => li.textContent)).toEqual(["src/foo.ts", "src/bar.ts"]);
+    expect(items[0]?.querySelectorAll("wbr")).toHaveLength(1);
+  });
+
+  it("scrolls the error into view, below the option cards on a phone", async () => {
+    const scrollIntoView = vi.mocked(window.HTMLElement.prototype.scrollIntoView);
+    scrollIntoView.mockClear();
+    mocks.mergeMutateAsync.mockResolvedValueOnce({
+      success: false,
+      error: "Merge conflict in 1 file. Resolve the conflict in 'main'.",
+      conflict_files: ["src/foo.ts"],
+    });
+
+    const { user } = render(<MergeDialog featureId={1076} open={true} onOpenChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Merge" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(scrollIntoView.mock.contexts).toContain(alert);
   });
 
   it("caps the rendered conflict list and shows an overflow hint", async () => {
@@ -97,7 +114,7 @@ describe("MergeDialog errors", () => {
     const files = Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`);
     mocks.mergeMutateAsync.mockResolvedValueOnce({
       success: false,
-      error: `Merge conflict in ${files.join(", ")}. Resolve them.`,
+      error: "Merge conflict in 60 files. Resolve them.",
       conflict_files: files,
     });
 
