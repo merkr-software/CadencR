@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@/test-utils";
-import { AgentBlock, buildToolResultMap } from "./AgentBlock";
+import { AgentBlock } from "./AgentBlock";
+import { buildToolResultMap } from "@/lib/tool-results";
 import type { AgentBlockData } from "@/types/agent-block";
 
 /**

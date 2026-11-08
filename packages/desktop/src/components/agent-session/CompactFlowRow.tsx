@@ -6,13 +6,11 @@ import { suppressAutoScrollPin } from "@/lib/agent-scroll-suppression";
 import { cn } from "@/lib/utils";
 import { animationsDisabled } from "@/lib/animations/animations-disabled";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { toolResultOf, type ToolResults } from "@/lib/tool-results";
 import { CompactToolLine } from "./CompactToolLine";
 
 /** Steps the unfolded list mounts before asking: a long autonomous run can hold hundreds. */
 const STEP_PAGE = 100;
-
-/** `toolUseId` → the call's `tool_result`, as the stream keeps them. */
-type ToolResults = ReadonlyMap<string, AgentBlockData>;
 
 interface CompactFlowRowProps {
   blocks: AgentBlockData[];
@@ -21,13 +19,6 @@ interface CompactFlowRowProps {
   revealBlockId?: string;
   /** Results of the stream's calls: a failed one marks its step. */
   toolResultMap?: ToolResults;
-}
-
-function resultOf(
-  toolResultMap: ToolResults | undefined,
-  block: AgentBlockData,
-): AgentBlockData | undefined {
-  return block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
 }
 
 function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowProps): boolean {
@@ -42,7 +33,7 @@ function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowP
   return previous.blocks.every(
     (block, index) =>
       block === next.blocks[index] &&
-      resultOf(previous.toolResultMap, block) === resultOf(next.toolResultMap, block),
+      toolResultOf(previous.toolResultMap, block) === toolResultOf(next.toolResultMap, block),
   );
 }
 
@@ -160,7 +151,7 @@ function CompactFlowSteps({ steps, basePath, revealIndex, toolResultMap }: Compa
           <CompactToolLine
             block={block}
             basePath={basePath}
-            result={resultOf(toolResultMap, block)}
+            result={toolResultOf(toolResultMap, block)}
           />
         </li>
       ))}
@@ -186,6 +177,8 @@ interface CompactLatestStepProps {
   /** Steps in order; blocks without a compact line are skipped. */
   blocks: AgentBlockData[];
   basePath?: string;
+  /** Results of the steps' calls: a failed one marks the line. */
+  toolResultMap?: ToolResults;
 }
 
 /**
@@ -196,6 +189,7 @@ interface CompactLatestStepProps {
 export const CompactLatestStep = memo(function CompactLatestStep({
   blocks,
   basePath,
+  toolResultMap,
 }: CompactLatestStepProps) {
   const steps = useMemo(() => blocks.filter(hasCompactLine), [blocks]);
   const newest = steps.at(-1);
@@ -208,6 +202,7 @@ export const CompactLatestStep = memo(function CompactLatestStep({
       leaving={handOver ? steps.find((block) => block.id === handOver.leavingId) : undefined}
       onHandedOver={endHandOver}
       basePath={basePath}
+      toolResultMap={toolResultMap}
     />
   );
 });
@@ -273,7 +268,7 @@ function CompactFlowHead({
         <CompactToolLine
           block={newest}
           basePath={basePath}
-          result={resultOf(toolResultMap, newest)}
+          result={toolResultOf(toolResultMap, newest)}
         />
       </span>
       {leaving && (
@@ -287,7 +282,7 @@ function CompactFlowHead({
           <CompactToolLine
             block={leaving}
             basePath={basePath}
-            result={resultOf(toolResultMap, leaving)}
+            result={toolResultOf(toolResultMap, leaving)}
           />
         </span>
       )}

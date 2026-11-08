@@ -27,6 +27,7 @@ import {
   type SubagentView,
 } from "@/lib/subagents/subagent-presentation";
 import { subagentChildren, subagentReportFor } from "@/lib/subagents/subagent-report";
+import { buildToolResultMap } from "@/lib/tool-results";
 import { cn } from "@/lib/utils";
 
 /** Inset of a nested sub-agent card under its parent. */
@@ -69,6 +70,7 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
     [blockId, childBlocks, toolArgs],
   );
   const actions = useMemo(() => selectSubagentActions(children), [children]);
+  const childResults = useMemo(() => buildToolResultMap(children), [children]);
   const report = useMemo(() => subagentReportFor(view, children), [children, view]);
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded((previous) => !previous), []);
@@ -110,7 +112,12 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
           renderNested={renderNested}
         />
       ) : (
-        <SubagentCardPeek actions={actions} report={compact ? null : report} basePath={basePath} />
+        <SubagentCardPeek
+          actions={actions}
+          report={compact ? null : report}
+          basePath={basePath}
+          toolResultMap={childResults}
+        />
       )}
     </section>
   );

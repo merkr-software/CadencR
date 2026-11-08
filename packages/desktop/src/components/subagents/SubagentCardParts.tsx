@@ -1,6 +1,7 @@
 import { memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Markdown } from "@/components/Markdown";
 import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";
+import type { ToolResults } from "@/lib/tool-results";
 import { hasCompactLine } from "@/lib/agent-stream-display";
 import type { AgentBlockData } from "@/types/agent-block";
 import { useNow } from "@/hooks/useNow";
@@ -161,10 +162,13 @@ export function SubagentCardPeek({
   actions,
   report,
   basePath,
+  toolResultMap,
 }: {
   actions: AgentBlockData[];
   report: string | null;
   basePath?: string;
+  /** Results of the agent's calls: a failed latest action is marked. */
+  toolResultMap?: ToolResults;
 }): ReactElement | null {
   const latest = actions.some(hasCompactLine);
   if (!latest && !report) return null;
@@ -173,7 +177,7 @@ export function SubagentCardPeek({
       {latest && (
         <div className="flex h-6 min-w-0 items-center text-xs">
           <span className="sr-only">Latest action: </span>
-          <CompactLatestStep blocks={actions} basePath={basePath} />
+          <CompactLatestStep blocks={actions} basePath={basePath} toolResultMap={toolResultMap} />
         </div>
       )}
       {report && (

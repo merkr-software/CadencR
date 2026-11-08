@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { buildToolResultMap } from "./AgentBlock";
+import { buildToolResultMap } from "@/lib/tool-results";
 import type { AgentBlockData } from "@/types/agent-block";
 import { buildDisplayItems, filterRenderableBlocks } from "@/lib/agent-stream-display";
 import type { DisplayItem } from "@/types/agent-stream";

@@ -47,14 +47,6 @@ import {
 } from "@/lib/agent-block-content";
 import type { AgentBlockData } from "@/types/agent-block";
 
-export function buildToolResultMap(blocks: AgentBlockData[]): Map<string, AgentBlockData> {
-  const map = new Map<string, AgentBlockData>();
-  for (const block of blocks) {
-    if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
-  }
-  return map;
-}
-
 interface AgentBlockProps {
   block: AgentBlockData;
   isStreaming?: boolean;

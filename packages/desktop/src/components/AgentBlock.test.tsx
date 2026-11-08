@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
-import { AgentBlock, buildToolResultMap } from "./AgentBlock";
+import { AgentBlock } from "./AgentBlock";
 import type { AgentBlockData } from "@/types/agent-block";
 
 // Mock InlineDiffBlock to avoid complex diff rendering
@@ -689,30 +689,6 @@ describe("AgentBlock", () => {
 
       expect(screen.getByText("Read")).toBeInTheDocument();
       expect(screen.getByText("packages/service/src/main.rs")).toBeInTheDocument();
-    });
-  });
-
-  describe("buildToolResultMap", () => {
-    it("builds a map of toolUseId to tool_result blocks", () => {
-      const blocks = [
-        makeBlock({ type: "tool_call", toolName: "Bash", toolUseId: "tu-1" }),
-        makeBlock({
-          id: "r1",
-          type: "tool_result",
-          content: "out",
-          toolUseId: "tu-1",
-          sourceToolName: "Bash",
-        }),
-        makeBlock({ type: "text", content: "hello" }),
-      ];
-      const map = buildToolResultMap(blocks);
-      expect(map.size).toBe(1);
-      expect(map.get("tu-1")?.content).toBe("out");
-    });
-
-    it("returns empty map when no tool_results exist", () => {
-      const map = buildToolResultMap([makeBlock({ type: "text", content: "hi" })]);
-      expect(map.size).toBe(0);
     });
   });
 });
