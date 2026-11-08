@@ -36,6 +36,8 @@ mod store;
 mod transcript;
 
 pub use capture::{begin_shutdown, capture_cut_off_turn, is_shutting_down, recover_at_startup};
+#[cfg(unix)]
+pub(crate) use orphans::is_alive as process_is_alive;
 pub use orphans::{forget as forget_agent_process, record as record_agent_process};
 pub use report::{
     fresh_report, subscribe_reports, PublishedReport, RestartContinuationEntry,

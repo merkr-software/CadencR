@@ -187,8 +187,9 @@ fn signal_all(pids: &[u32], signal: libc::c_int) {
     }
 }
 
+/// Whether a process with `pid` exists (a zombie not yet reaped counts).
 #[cfg(unix)]
-fn is_alive(pid: u32) -> bool {
+pub(crate) fn is_alive(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else {
         return false;
     };
