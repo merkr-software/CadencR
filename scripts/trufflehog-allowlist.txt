@@ -204,3 +204,7 @@ f7b3fce52f06c289e59ca765d5210313c6310970632f10086dc8bd355615aa6b
 f8364e70bcceb07a9883a22914b1c17c97c27b12dc47481f7c1a1b495e314549
 fa3f8bd5f5a3eacb0e0ea506a87684793bf5029c8b9cb1869859084fc6210447
 fec9b4129900288f7a12750dc49e467f26065e674c4c5fd2a6210cfbb53143cb
+
+# v0.16.1 moved CLI stderr credential-redaction test fixture.
+# Same synthetic URI as the older extensions/cli.rs fixture; exact new binding.
+d0bac2516010ab301c0f1ea0fc930cd5a4b2092dea4459bd8eb56188d96ad4db
