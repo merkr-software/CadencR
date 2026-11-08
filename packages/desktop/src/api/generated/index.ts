@@ -242,6 +242,12 @@ export interface ProviderCatalogEntry {
   label: string;
   models: ModelCatalogEntry[];
   modes?: ProviderModeCatalogEntry[];
+  /**
+   * Set when `models` is the last catalog known because refreshing it
+   * failed; carries why. `None` for a fresh catalog.
+   * @nullable
+   */
+  refresh_error?: string | null;
   status: ProviderStatus;
   /** @nullable */
   status_message?: string | null;

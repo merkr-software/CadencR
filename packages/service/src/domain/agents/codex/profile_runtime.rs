@@ -245,13 +245,7 @@ pub(super) async fn catalog_for_profile(profile: Option<&str>, cwd: &Path) -> Pr
         Ok(profile) => profile,
         Err(error) => return unavailable_catalog(error.to_string()),
     };
-    match probe_models_and_config(Some(&resolved), cwd).await {
-        Ok((models, config)) if !models.is_empty() => {
-            catalog_with_effective_config(models, &config)
-        }
-        Ok(_) => unavailable_catalog("codex app-server returned no models"),
-        Err(error) => unavailable_catalog(format!("codex app-server unavailable: {error}")),
-    }
+    super::live_catalog::profile_catalog(&resolved, cwd).await
 }
 
 #[cfg(test)]

@@ -29,7 +29,6 @@ pub mod descriptor;
 mod hooks;
 pub mod host_integration;
 pub mod installation;
-mod keyed_locks;
 pub mod lifecycle;
 pub mod loader;
 pub mod managed;

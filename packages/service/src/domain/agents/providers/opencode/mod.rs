@@ -27,6 +27,7 @@ pub(crate) fn catalog_entry() -> ProviderCatalogEntry {
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models: vec![ModelCatalogEntry {
             id: FALLBACK_MODEL_ID.to_string(),
             label: "Default".to_string(),
@@ -53,7 +54,7 @@ pub(crate) async fn catalog_entry_live() -> ProviderCatalogEntry {
 /// the usage bar with false confidence.
 pub(crate) async fn context_window_for_model(model_id: &str) -> Option<u64> {
     let entry = cache::cached_catalog_entry().await;
-    entry.context_windows.get(model_id).copied()
+    entry.extra.get(model_id).copied()
 }
 
 pub(crate) async fn default_model_id() -> Option<String> {
@@ -115,6 +116,7 @@ fn catalog_from_response(
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models,
         modes: Vec::new(),
         access_modes: Vec::new(),

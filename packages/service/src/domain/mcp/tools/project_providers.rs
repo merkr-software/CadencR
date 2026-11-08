@@ -50,6 +50,7 @@ fn provider_doc(catalog: ProviderCatalogEntry) -> serde_json::Value {
         "label": catalog.label,
         "status": catalog.status,
         "status_message": catalog.status_message,
+        "refresh_error": catalog.refresh_error,
         "aliases": aliases,
         "model_guidance": model_guidance,
         "common_models": common_models,
@@ -81,6 +82,7 @@ mod tests {
             icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
+            refresh_error: None,
             models: vec![ModelCatalogEntry {
                 id: "gpt-future".to_string(),
                 label: "GPT Future".to_string(),
@@ -113,6 +115,7 @@ mod tests {
             icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
+            refresh_error: None,
             models: vec![ModelCatalogEntry::alias("custom-model", "Custom Model")],
             modes: Vec::new(),
             access_modes: Vec::new(),

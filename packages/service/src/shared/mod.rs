@@ -16,6 +16,7 @@ pub mod git_cli;
 pub mod git_context;
 pub mod http_relay;
 pub mod image_file;
+pub mod keyed_locks;
 pub mod login_env;
 pub mod login_shell;
 pub mod markup;

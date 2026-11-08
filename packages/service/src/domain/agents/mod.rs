@@ -1,6 +1,7 @@
 pub mod acp;
 pub mod adapter;
 pub mod canonical;
+pub(crate) mod catalog_cache;
 pub mod claude_code;
 pub mod codex;
 pub mod config_migration;

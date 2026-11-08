@@ -112,6 +112,7 @@ impl GenericAcpAdapter {
             icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
+            refresh_error: None,
             modes: discovered.modes.mode_catalog(),
             access_modes: discovered.modes.access_mode_catalog(),
             models: discovered.models,

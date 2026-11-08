@@ -424,6 +424,7 @@ mod tests {
                 icon_data: None,
                 status: crate::domain::agents::runtime::ProviderStatus::Available,
                 status_message: None,
+                refresh_error: None,
                 models: vec![],
                 modes: vec![],
                 access_modes: vec![],

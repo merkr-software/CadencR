@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
 
-use super::keyed_locks::KeyedLocks;
+use crate::shared::keyed_locks::KeyedLocks;
 
 pub(super) const MAX_CACHED_WORKSPACES: usize = 16;
 

@@ -1,5 +1,5 @@
 //! One async lock per key, so concurrent refreshes of the same cache entry
-//! (a workspace directory) run one provider subprocess instead of several.
+//! run one provider subprocess instead of several.
 //! Entries are weak: a key's lock lives only while someone holds or awaits it.
 
 use std::collections::HashMap;
@@ -9,7 +9,7 @@ use std::sync::{Arc, Weak};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
-pub(super) struct KeyedLocks<K> {
+pub(crate) struct KeyedLocks<K> {
     locks: Mutex<HashMap<K, Weak<Mutex<()>>>>,
 }
 
@@ -22,7 +22,7 @@ impl<K> Default for KeyedLocks<K> {
 }
 
 impl<K: Eq + Hash + Clone> KeyedLocks<K> {
-    pub(super) async fn lock_for(&self, key: &K) -> Arc<Mutex<()>> {
+    pub(crate) async fn lock_for(&self, key: &K) -> Arc<Mutex<()>> {
         let mut locks = self.locks.lock().await;
         locks.retain(|_, lock| lock.strong_count() > 0);
         if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {

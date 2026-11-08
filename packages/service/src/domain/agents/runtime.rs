@@ -77,6 +77,10 @@ pub struct ProviderCatalogEntry {
     pub status: ProviderStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
+    /// Set when `models` is the last catalog known because refreshing it
+    /// failed; carries why. `None` for a fresh catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_error: Option<String>,
     pub models: Vec<ModelCatalogEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modes: Vec<ProviderModeCatalogEntry>,
@@ -97,6 +101,7 @@ impl ProviderCatalogEntry {
             icon_data: None,
             status: ProviderStatus::Unavailable,
             status_message: Some(message.into()),
+            refresh_error: None,
             models: Vec::new(),
             modes: Vec::new(),
             access_modes: Vec::new(),

@@ -36,6 +36,7 @@ mod input;
 mod instructions;
 mod launch;
 mod legacy_permissions;
+mod live_catalog;
 mod mcp;
 mod mcp_status;
 mod model;
@@ -67,14 +68,12 @@ mod worktree_config;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use codex_app_server_sdk_rs::{CodexAppServerClient, CodexModel};
 use serde_json::Value;
-use tokio::sync::{Mutex, RwLock};
 
+use self::live_catalog::live_catalog;
 use self::mcp::mcp_server_names;
 use self::mcp_status::mcp_server_statuses;
 pub(crate) use self::model::{canonical_access_mode_wire, configured_access_mode};
@@ -92,7 +91,6 @@ use super::runtime::{ModelCatalogEntry, ProviderCatalogEntry, ProviderStatus};
 pub struct CodexAdapter;
 pub const PROVIDER_ID: &str = "codex_cli";
 const PROVIDER_LABEL: &str = "Codex CLI";
-const CATALOG_TTL: Duration = Duration::from_secs(30);
 const DEFAULT_MODE_REQUEST_USER_INPUT_FEATURE: &str = "default_mode_request_user_input";
 pub(super) const FAST_SERVICE_TIER: &str = "priority";
 
@@ -102,23 +100,6 @@ pub(super) fn fast_service_tier_value(enabled: bool) -> Value {
     } else {
         Value::Null
     }
-}
-
-#[derive(Clone)]
-struct CatalogCacheEntry {
-    fetched_at: Instant,
-    catalog: ProviderCatalogEntry,
-}
-
-static CATALOG_CACHE: OnceLock<RwLock<Option<CatalogCacheEntry>>> = OnceLock::new();
-static CATALOG_REFRESH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn catalog_cache() -> &'static RwLock<Option<CatalogCacheEntry>> {
-    CATALOG_CACHE.get_or_init(|| RwLock::new(None))
-}
-
-fn catalog_refresh_lock() -> &'static Mutex<()> {
-    CATALOG_REFRESH_LOCK.get_or_init(|| Mutex::new(()))
 }
 
 fn catalog_from_models(models: Vec<CodexModel>) -> ProviderCatalogEntry {
@@ -133,6 +114,7 @@ fn catalog_from_models(models: Vec<CodexModel>) -> ProviderCatalogEntry {
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models: models.into_iter().map(model_entry).collect(),
         modes: Vec::new(),
         access_modes: access_mode_catalog(),
@@ -202,32 +184,6 @@ fn model_entry(model: CodexModel) -> ModelCatalogEntry {
         supports_fast_mode: Some(supports_fast_mode),
         supports_auto_mode: None,
     }
-}
-
-async fn live_catalog() -> ProviderCatalogEntry {
-    if let Some(entry) = catalog_cache().read().await.clone() {
-        if entry.fetched_at.elapsed() < CATALOG_TTL {
-            return entry.catalog;
-        }
-    }
-
-    let _refresh = catalog_refresh_lock().lock().await;
-    if let Some(entry) = catalog_cache().read().await.clone() {
-        if entry.fetched_at.elapsed() < CATALOG_TTL {
-            return entry.catalog;
-        }
-    }
-
-    let catalog = match profile_runtime::probe_models().await {
-        Ok(models) if !models.is_empty() => catalog_from_models(models),
-        Ok(_) => unavailable_catalog("codex app-server returned no models"),
-        Err(error) => unavailable_catalog(format!("codex app-server unavailable: {error}")),
-    };
-    *catalog_cache().write().await = Some(CatalogCacheEntry {
-        fetched_at: Instant::now(),
-        catalog: catalog.clone(),
-    });
-    catalog
 }
 
 include!("adapter_impl.rs");
