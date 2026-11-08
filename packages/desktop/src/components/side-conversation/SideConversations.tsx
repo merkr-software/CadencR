@@ -148,7 +148,12 @@ function SideAnswer({
       <div ref={contentRef}>
         {displayItems.map((item) =>
           item.kind === "flow" ? (
-            <CompactFlowRow key={item.key} blocks={item.blocks} basePath={cwd} />
+            <CompactFlowRow
+              key={item.key}
+              blocks={item.blocks}
+              basePath={cwd}
+              toolResultMap={ws.toolResultMap}
+            />
           ) : (
             <AgentStreamItem
               key={item.key}

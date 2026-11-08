@@ -272,6 +272,7 @@ function useAgentStreamItemRenderer(
             blocks={item.blocks}
             basePath={basePath}
             revealBlockId={reveal ? target : undefined}
+            toolResultMap={toolResultMap}
           />
         );
       }

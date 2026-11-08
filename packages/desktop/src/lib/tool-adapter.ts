@@ -165,7 +165,11 @@ export function extractTaskOutput(toolArgs?: string): string | undefined {
 
 export function extractToolStatus(toolArgs?: string): string | undefined {
   const args = parseToolArgsObject(toolArgs);
-  if (!args) return undefined;
+  return args ? toolStatusOf(args) : undefined;
+}
+
+/** The lower-cased `status` of already parsed tool arguments. */
+export function toolStatusOf(args: Record<string, unknown>): string | undefined {
   const status = args.status ?? args[LEGACY_OPENCODE_STATUS_KEY];
   return typeof status === "string" ? status.toLowerCase() : undefined;
 }
@@ -194,7 +198,10 @@ export function isToolCallRunning(toolArgs?: string): boolean {
 }
 
 export function isToolCallError(toolArgs?: string): boolean {
-  const status = extractToolStatus(toolArgs);
+  return isFailedToolStatus(extractToolStatus(toolArgs));
+}
+
+export function isFailedToolStatus(status: string | undefined): boolean {
   return status === "failed" || status === "error";
 }
 

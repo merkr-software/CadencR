@@ -11,11 +11,23 @@ import { CompactToolLine } from "./CompactToolLine";
 /** Steps the unfolded list mounts before asking: a long autonomous run can hold hundreds. */
 const STEP_PAGE = 100;
 
+/** `toolUseId` → the call's `tool_result`, as the stream keeps them. */
+type ToolResults = ReadonlyMap<string, AgentBlockData>;
+
 interface CompactFlowRowProps {
   blocks: AgentBlockData[];
   basePath?: string;
   /** A block of this run the conversation search is on: unfold to show it. */
   revealBlockId?: string;
+  /** Results of the stream's calls: a failed one marks its step. */
+  toolResultMap?: ToolResults;
+}
+
+function resultOf(
+  toolResultMap: ToolResults | undefined,
+  block: AgentBlockData,
+): AgentBlockData | undefined {
+  return block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
 }
 
 function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowProps): boolean {
@@ -26,7 +38,12 @@ function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowP
   ) {
     return false;
   }
-  return previous.blocks.every((block, index) => block === next.blocks[index]);
+  // The stream's map is replaced on every new result: compare this run's only.
+  return previous.blocks.every(
+    (block, index) =>
+      block === next.blocks[index] &&
+      resultOf(previous.toolResultMap, block) === resultOf(next.toolResultMap, block),
+  );
 }
 
 /**
@@ -40,6 +57,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   blocks,
   basePath,
   revealBlockId,
+  toolResultMap,
 }: CompactFlowRowProps) {
   const newestFirst = useMemo(() => blocks.filter(hasCompactLine).reverse(), [blocks]);
   const [newest, ...older] = newestFirst;
@@ -61,6 +79,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
       leaving={handOver ? older.find((block) => block.id === handOver.leavingId) : undefined}
       onHandedOver={endHandOver}
       basePath={basePath}
+      toolResultMap={toolResultMap}
     />
   );
   // `-mx-1` cancels the line's own padding: icons sit on the prose's left
@@ -98,7 +117,12 @@ export const CompactFlowRow = memo(function CompactFlowRow({
       {older.length > 0 && (
         // The list is its own component so a folded row builds none of it.
         <CollapsibleSection open={expanded}>
-          <CompactFlowSteps steps={older} basePath={basePath} revealIndex={revealIndex} />
+          <CompactFlowSteps
+            steps={older}
+            basePath={basePath}
+            revealIndex={revealIndex}
+            toolResultMap={toolResultMap}
+          />
         </CollapsibleSection>
       )}
     </div>
@@ -121,9 +145,10 @@ interface CompactFlowStepsProps {
   basePath?: string;
   /** Index of the step the search is on; it is always within the mounted page. */
   revealIndex: number;
+  toolResultMap?: ToolResults;
 }
 
-function CompactFlowSteps({ steps, basePath, revealIndex }: CompactFlowStepsProps) {
+function CompactFlowSteps({ steps, basePath, revealIndex, toolResultMap }: CompactFlowStepsProps) {
   const [limit, setLimit] = useState(STEP_PAGE);
   const shown = Math.max(limit, revealIndex + 1);
   const hidden = steps.length - shown;
@@ -132,7 +157,11 @@ function CompactFlowSteps({ steps, basePath, revealIndex }: CompactFlowStepsProp
     <ol className="ml-2.5 border-l border-border/60 pl-[11px]">
       {steps.slice(0, shown).map((block) => (
         <li key={block.id} data-block-id={block.id} className="flex h-6 min-w-0 items-center">
-          <CompactToolLine block={block} basePath={basePath} />
+          <CompactToolLine
+            block={block}
+            basePath={basePath}
+            result={resultOf(toolResultMap, block)}
+          />
         </li>
       ))}
       {hidden > 0 && (
@@ -220,6 +249,7 @@ interface CompactFlowHeadProps {
   leaving: AgentBlockData | undefined;
   onHandedOver: () => void;
   basePath?: string;
+  toolResultMap?: ToolResults;
 }
 
 /** The run's newest step; a new one scrolls in from below as the previous scrolls out the top. */
@@ -229,6 +259,7 @@ function CompactFlowHead({
   leaving,
   onHandedOver,
   basePath,
+  toolResultMap,
 }: CompactFlowHeadProps) {
   return (
     // Clip vertically only: the outgoing line may be wider than the new one.
@@ -239,7 +270,11 @@ function CompactFlowHead({
         onAnimationEnd={entering ? onHandedOver : undefined}
         className={cn("flex min-w-0", entering && "[animation:var(--animate-step-in)]")}
       >
-        <CompactToolLine block={newest} basePath={basePath} />
+        <CompactToolLine
+          block={newest}
+          basePath={basePath}
+          result={resultOf(toolResultMap, newest)}
+        />
       </span>
       {leaving && (
         <span
@@ -249,7 +284,11 @@ function CompactFlowHead({
           onAnimationEnd={onHandedOver}
           className="pointer-events-none absolute top-0 left-0 flex whitespace-nowrap [animation:var(--animate-step-out)]"
         >
-          <CompactToolLine block={leaving} basePath={basePath} />
+          <CompactToolLine
+            block={leaving}
+            basePath={basePath}
+            result={resultOf(toolResultMap, leaving)}
+          />
         </span>
       )}
     </span>

@@ -116,4 +116,109 @@ describe("CompactToolLine", () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
+
+  describe("a failed call", () => {
+    const sleep = toolCall({
+      toolUseId: "u1",
+      toolArgs: JSON.stringify({ command: "sleep 120 | cat" }),
+    });
+
+    it("marks an interrupted shell command with its reason, without its output", () => {
+      render(
+        <CompactToolLine
+          block={sleep}
+          result={{
+            id: "r1",
+            type: "tool_result",
+            toolUseId: "u1",
+            isError: true,
+            content: "Shell command interrupted by user.\npartial output",
+          }}
+        />,
+      );
+      expect(screen.getByText("sleep 120 | cat")).toBeInTheDocument();
+      expect(screen.getByText("Shell command interrupted by user.")).toBeInTheDocument();
+      expect(screen.queryByText(/partial output/)).not.toBeInTheDocument();
+      expect(screen.getByTitle("Shell command interrupted by user.")).toBeInTheDocument();
+    });
+
+    it("marks any tool whose result is an error", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({ toolName: "Grep", toolUseId: "u2", toolArgs: '{"pattern":"x"}' })}
+          result={{
+            id: "r2",
+            type: "tool_result",
+            toolUseId: "u2",
+            isError: true,
+            content: "\n  ripgrep: no such directory\n",
+          }}
+        />,
+      );
+      expect(screen.getByText("ripgrep: no such directory")).toBeInTheDocument();
+    });
+
+    it("reads a provider's failed status before any result arrives", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({
+            toolArgs: JSON.stringify({
+              command: "false",
+              status: "failed",
+              error: { message: "exit code 1" },
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByText("exit code 1")).toBeInTheDocument();
+    });
+
+    it("reads the reason a `!` command carries in its own output", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({
+            toolArgs: JSON.stringify({
+              command: "sleep 120 | cat",
+              output: "Shell command interrupted by user.",
+              status: "failed",
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByText("Shell command interrupted by user.")).toBeInTheDocument();
+    });
+
+    it("says Failed when the failure gave no reason", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({ toolName: "Read", toolArgs: '{"file_path":"a","status":"failed"}' })}
+        />,
+      );
+      expect(screen.getByText("Failed")).toBeInTheDocument();
+    });
+
+    it("reads no status from a cut wire preview", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({
+            toolName: "Read",
+            toolArgs: '{"file_path":"a","status":"failed"}',
+            truncatedContent: true,
+          })}
+        />,
+      );
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+    });
+
+    it("leaves a successful call unmarked", () => {
+      render(
+        <CompactToolLine
+          block={sleep}
+          result={{ id: "r3", type: "tool_result", toolUseId: "u1", content: "done" }}
+        />,
+      );
+      expect(screen.queryByText("done")).not.toBeInTheDocument();
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+    });
+  });
 });

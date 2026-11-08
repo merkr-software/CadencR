@@ -6,9 +6,20 @@ const lineRenders = vi.hoisted(() => new Map<string, number>());
 vi.mock("./CompactToolLine", async () => {
   const { memo } = await import("react");
   return {
-    CompactToolLine: memo(function MockLine({ block }: { block: AgentBlockData }) {
+    CompactToolLine: memo(function MockLine({
+      block,
+      result,
+    }: {
+      block: AgentBlockData;
+      result?: AgentBlockData;
+    }) {
       lineRenders.set(block.id, (lineRenders.get(block.id) ?? 0) + 1);
-      return <span>{block.id}</span>;
+      return (
+        <span>
+          {block.id}
+          {result?.isError ? " failed" : ""}
+        </span>
+      );
     }),
   };
 });
@@ -178,5 +189,27 @@ describe("CompactFlowRow", () => {
     rerender(<CompactFlowRow blocks={[...blocks]} basePath="/second" />);
 
     expect(lineRenders.get("tool-0")).toBe(2);
+  });
+
+  it("passes each step its result, and redraws only for a result of its own", () => {
+    const blocks = tools(2).map((block) => ({ ...block, toolUseId: `use-${block.id}` }));
+    const failed: AgentBlockData = {
+      id: "result-1",
+      type: "tool_result",
+      content: "boom",
+      toolUseId: "use-tool-1",
+      isError: true,
+    };
+    const { rerender } = render(<CompactFlowRow blocks={blocks} toolResultMap={new Map()} />);
+    lineRenders.clear();
+
+    const unrelated: AgentBlockData = { ...failed, id: "other", toolUseId: "use-elsewhere" };
+    rerender(
+      <CompactFlowRow blocks={blocks} toolResultMap={new Map([["use-elsewhere", unrelated]])} />,
+    );
+    expect(lineRenders.size).toBe(0);
+
+    rerender(<CompactFlowRow blocks={blocks} toolResultMap={new Map([["use-tool-1", failed]])} />);
+    expect(screen.getByText("tool-1 failed")).toBeInTheDocument();
   });
 });

@@ -26,10 +26,13 @@ import { parseToolCall } from "@/lib/tool-call-parser";
 import { isSubagentToolName, semanticSkillPresentation } from "@/lib/tool-display-policy";
 import { computeToolNumStat } from "@/lib/tool-numstat";
 import { TOOL_ACCENT_CLASSES, type ToolAccent } from "@/lib/tool-accent";
+import { toolCallFailure, type ToolCallFailure } from "@/lib/tool-failure";
 
 interface CompactToolLineProps {
   block: AgentBlockData;
   basePath?: string;
+  /** The call's `tool_result`, when it has one: a failed one marks the line. */
+  result?: AgentBlockData;
 }
 
 /**
@@ -38,11 +41,14 @@ interface CompactToolLineProps {
  * numstat for file changes. Lines are read-only summaries; Maximal and the
  * collapse modes show the full block. A wire preview (`shouldGateFullContent`)
  * shows its name only: its arguments are cut, so any detail could be wrong.
+ * A failed call tints its icon red and ends on the failure's first line.
  */
 export const CompactToolLine = memo(function CompactToolLine({
   block,
   basePath,
+  result,
 }: CompactToolLineProps) {
+  const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
   if (!hasCompactLine(block)) return null;
   const gated = shouldGateFullContent(block);
   if (block.type === "thinking") {
@@ -58,22 +64,36 @@ export const CompactToolLine = memo(function CompactToolLine({
   }
   if (gated) {
     const toolName = normalizeToolName(block.toolName ?? "Tool");
-    return <BaseLine icon={WrenchIcon} accent="tool" label={toolName} />;
+    return <BaseLine icon={WrenchIcon} accent="tool" label={toolName} failure={failure} />;
   }
-  return <ToolCallLine block={block} basePath={basePath} />;
+  return <ToolCallLine block={block} basePath={basePath} failure={failure} />;
 });
 
-function ToolCallLine({ block, basePath }: CompactToolLineProps) {
+interface ToolCallLineProps {
+  block: AgentBlockData;
+  basePath: string | undefined;
+  failure: ToolCallFailure | null;
+}
+
+function ToolCallLine({ block, basePath, failure }: ToolCallLineProps) {
   const rawToolName = block.toolName ?? "Tool";
   const skill = semanticSkillPresentation(rawToolName, block.toolArgs);
   if (skill) {
-    return <BaseLine icon={WrenchIcon} accent="tool" label="Skill" detail={skill.name} />;
+    return (
+      <BaseLine
+        icon={WrenchIcon}
+        accent="tool"
+        label="Skill"
+        detail={skill.name}
+        failure={failure}
+      />
+    );
   }
   const toolName = normalizeToolName(rawToolName);
   // Branch before any parsing so each line shape only runs the helpers it
   // shows; the `useMemo`s stay hook-stable inside each branch component.
   if (toolName === "Bash") {
-    return <BashLine toolArgs={block.toolArgs} basePath={basePath} />;
+    return <BashLine toolArgs={block.toolArgs} basePath={basePath} failure={failure} />;
   }
   if (isFileChangeTool(toolName)) {
     return (
@@ -82,23 +102,34 @@ function ToolCallLine({ block, basePath }: CompactToolLineProps) {
         toolName={toolName}
         toolArgs={block.toolArgs}
         basePath={basePath}
+        failure={failure}
       />
     );
   }
-  return <GenericToolLine toolName={toolName} toolArgs={block.toolArgs} basePath={basePath} />;
+  return (
+    <GenericToolLine
+      toolName={toolName}
+      toolArgs={block.toolArgs}
+      basePath={basePath}
+      failure={failure}
+    />
+  );
 }
 
 interface ToolLineProps {
   toolArgs: string | undefined;
   basePath: string | undefined;
+  failure: ToolCallFailure | null;
 }
 
-function BashLine({ toolArgs, basePath }: ToolLineProps) {
+function BashLine({ toolArgs, basePath, failure }: ToolLineProps) {
   const command = useMemo(
     () => oneLineShellCommand(extractBashCommand(toolArgs), basePath),
     [toolArgs, basePath],
   );
-  return <BaseLine icon={TerminalIcon} accent="bash" label="Bash" detail={command} />;
+  return (
+    <BaseLine icon={TerminalIcon} accent="bash" label="Bash" detail={command} failure={failure} />
+  );
 }
 
 function FileChangeLine({
@@ -106,6 +137,7 @@ function FileChangeLine({
   toolName,
   toolArgs,
   basePath,
+  failure,
 }: ToolLineProps & { rawToolName: string; toolName: string }) {
   const stats = useMemo(() => computeToolNumStat(rawToolName, toolArgs), [rawToolName, toolArgs]);
   const path = useMemo(
@@ -118,6 +150,7 @@ function FileChangeLine({
       accent="edit"
       label={toolName}
       detail={path}
+      failure={failure}
       trailing={
         stats ? (
           <NumStat additions={stats.additions} deletions={stats.deletions} hideZero />
@@ -127,7 +160,12 @@ function FileChangeLine({
   );
 }
 
-function GenericToolLine({ toolName, toolArgs, basePath }: ToolLineProps & { toolName: string }) {
+function GenericToolLine({
+  toolName,
+  toolArgs,
+  basePath,
+  failure,
+}: ToolLineProps & { toolName: string }) {
   const presentation = useMemo(() => {
     const mcp = parseMcpTool(toolName, toolArgs);
     if (mcp) return { label: mcp.label, detail: oneLineDetail(mcp.detail, undefined), mcp: true };
@@ -141,6 +179,7 @@ function GenericToolLine({ toolName, toolArgs, basePath }: ToolLineProps & { too
       accent={presentation.mcp ? "mcp" : "tool"}
       label={presentation.label}
       detail={presentation.detail}
+      failure={failure}
     />
   );
 }
@@ -155,12 +194,19 @@ interface BaseLineProps {
   trailing?: ReactNode;
   /** The detail is prose (thinking), not code: set it in the text face. */
   prose?: boolean;
+  /** The call failed: a red icon and the failure's first line, never its output. */
+  failure?: ToolCallFailure | null;
 }
 
-function BaseLine({ icon: Icon, accent, label, detail, trailing, prose }: BaseLineProps) {
+function BaseLine({ icon: Icon, accent, label, detail, trailing, prose, failure }: BaseLineProps) {
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <Icon className={cn("size-3 shrink-0", TOOL_ACCENT_CLASSES[accent].label)} />
+    <span className="flex min-w-0 items-center gap-1.5" title={failure?.reason}>
+      <Icon
+        className={cn(
+          "size-3 shrink-0",
+          failure ? "text-(--acc-red)" : TOOL_ACCENT_CLASSES[accent].label,
+        )}
+      />
       {/* Baseline, not center: the mono detail's taller x-height would ride high. */}
       <span className="flex min-w-0 items-baseline gap-1.5 leading-4">
         <span className="shrink-0 font-medium text-muted-foreground">{label}</span>
@@ -175,7 +221,23 @@ function BaseLine({ icon: Icon, accent, label, detail, trailing, prose }: BaseLi
           </span>
         )}
         {trailing && <span className="shrink-0 text-[11px] tabular-nums">{trailing}</span>}
+        {failure && <FailureReason failure={failure} />}
       </span>
+    </span>
+  );
+}
+
+function FailureReason({ failure }: { failure: ToolCallFailure }) {
+  return (
+    <span className="max-w-96 min-w-0 truncate text-[11px] text-(--acc-red)/80">
+      {failure.reason ? (
+        <>
+          <span className="sr-only">Failed: </span>
+          {failure.reason}
+        </>
+      ) : (
+        "Failed"
+      )}
     </span>
   );
 }
