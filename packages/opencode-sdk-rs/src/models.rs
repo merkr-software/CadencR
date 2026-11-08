@@ -33,14 +33,8 @@ pub async fn list_models_from_cli() -> Result<ConfigProvidersResponse, SdkError>
 }
 
 pub async fn list_models_from_binary(binary: &Path) -> Result<ConfigProvidersResponse, SdkError> {
-    let stdout = run_opencode_command(
-        binary,
-        None,
-        &["models", "--verbose"],
-        MODELS_CLI_TIMEOUT,
-        true,
-    )
-    .await?;
+    let stdout =
+        run_opencode_command(binary, None, &["models", "--verbose"], MODELS_CLI_TIMEOUT).await?;
     parse_models_verbose_output(&stdout)
 }
 

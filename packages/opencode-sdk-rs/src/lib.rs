@@ -25,7 +25,7 @@ mod tool_input;
 pub mod types;
 
 pub use client::OpenCodeClient;
-pub use error::SdkError;
+pub use error::{CommandStderr, SdkError};
 pub use mcp::{
     list_mcp_servers_from_binary, list_mcp_servers_from_cli, list_mcp_servers_from_config_files,
     list_mcp_servers_from_resolved_config, list_mcp_servers_without_resolved_config,

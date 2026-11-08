@@ -6,6 +6,7 @@ use codex_app_server_sdk_rs::{AppServerSpawnOptions, CodexAppServerClient, Codex
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::app_server_failure;
 use super::revision_cache;
 use super::timeouts::{with_probe_timeout, PROBE_TIMEOUT};
 
@@ -41,7 +42,10 @@ pub(super) async fn probe_models_and_config(
     }
     .await;
     client.shutdown().await;
-    result
+    result.map_err(|error| {
+        let secrets = app_server_failure::secrets(profile.map(|profile| &profile.env));
+        app_server_failure::explain(&client, error, &secrets)
+    })
 }
 
 pub(super) async fn resolved_effective_config(
@@ -102,6 +106,7 @@ pub(super) async fn effective_config_revision(
         return Ok(revision);
     }
     let probe_started = SystemTime::now();
+    let secrets = app_server_failure::secrets(Some(&env));
     let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
         Some(env),
         env_unset,
@@ -116,7 +121,8 @@ pub(super) async fn effective_config_revision(
     }
     .await;
     client.shutdown().await;
-    let mut config = result?;
+    let mut config =
+        result.map_err(|error| app_server_failure::explain(&client, error, &secrets))?;
     let revision = fingerprint_effective_config(stored_revision, &mut config)?;
     revision_cache::store(key, revision.clone(), &config, probe_started);
     Ok(revision)

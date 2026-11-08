@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 
 use thiserror::Error;
@@ -27,4 +28,35 @@ pub enum SdkError {
 
     #[error("protocol error: {0}")]
     Protocol(String),
+
+    /// A one-shot `opencode` command that ran and failed. `stderr` is its raw
+    /// diagnostic output, kept out of the message: it can echo the resolved
+    /// config, provider API keys included, so redact it before showing it.
+    #[error("{command} exited with {status}")]
+    CommandFailed {
+        command: String,
+        status: std::process::ExitStatus,
+        stderr: CommandStderr,
+    },
+}
+
+/// A command's raw stderr. Its `Debug` prints only the length, so logging the
+/// error cannot leak it.
+pub struct CommandStderr(String);
+
+impl CommandStderr {
+    pub fn new(stderr: String) -> Self {
+        Self(stderr)
+    }
+
+    /// The raw output: redact it before showing it.
+    pub fn raw(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for CommandStderr {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "CommandStderr({} bytes)", self.0.len())
+    }
 }

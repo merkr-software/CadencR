@@ -165,12 +165,24 @@ impl AgentRuntimeAdapter for CodexAdapter {
                 Some(config.cwd.clone()),
             ))
             .await?;
-        client.initialize().await?;
-        let mut effective_config = client
-            .config_read(&config.cwd)
-            .await
-            .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
-        let models = client.model_list().await?;
+        let startup = async {
+            client.initialize().await?;
+            let effective_config = client
+                .config_read(&config.cwd)
+                .await
+                .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
+            let models = client.model_list().await?;
+            Ok::<_, RuntimeError>((effective_config, models))
+        }
+        .await;
+        let (mut effective_config, models) = match startup {
+            Ok(started) => started,
+            Err(error) => {
+                client.shutdown().await;
+                let secrets = app_server_failure::secrets(config.env.as_ref());
+                return Err(app_server_failure::explain(&client, error, &secrets));
+            }
+        };
         profile_runtime::enrich_resume_config(
             &mut effective_config,
             &models,

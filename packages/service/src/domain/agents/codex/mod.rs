@@ -1,3 +1,4 @@
+mod app_server_failure;
 mod async_questions;
 mod branching;
 mod command_decisions;

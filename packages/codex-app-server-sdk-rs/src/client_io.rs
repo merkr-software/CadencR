@@ -1,6 +1,8 @@
 mod lines;
+mod stderr_tail;
 
 use lines::read_bounded_line;
+pub(crate) use stderr_tail::StderrTail;
 
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
@@ -15,7 +17,7 @@ use tokio::task::JoinHandle;
 use crate::error::SdkError;
 use crate::event_queue::EventHub;
 use crate::protocol::{decode_inbound_message, InboundMessage};
-use crate::types::AppServerEvent;
+use crate::types::{AppServerEvent, AppServerExit};
 
 pub(crate) type PendingMap = HashMap<u64, oneshot::Sender<Result<Value, SdkError>>>;
 
@@ -65,17 +67,27 @@ where
     })
 }
 
-pub(crate) fn spawn_stderr_reader(stderr: ChildStderr, max_line_bytes: usize) -> JoinHandle<()> {
+pub(crate) fn spawn_stderr_reader(
+    stderr: ChildStderr,
+    max_line_bytes: usize,
+    tail: Arc<StdMutex<StderrTail>>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr);
         loop {
             match read_bounded_line(&mut reader, max_line_bytes).await {
-                // Codex diagnostics can quote config values. Never forward raw
-                // stderr because profile TOML and env may contain credentials.
-                Ok(Some(_line)) => tracing::warn!(
-                    target: "codex_app_server",
-                    "codex app-server emitted a stderr diagnostic (content redacted)"
-                ),
+                // Codex diagnostics can quote config values. Never log raw
+                // stderr because profile TOML and env may contain credentials;
+                // the tail is only handed to the client's owner.
+                Ok(Some(line)) => {
+                    if let Ok(mut tail) = tail.lock() {
+                        tail.push(&line);
+                    }
+                    tracing::warn!(
+                        target: "codex_app_server",
+                        "codex app-server emitted a stderr diagnostic (content redacted)"
+                    );
+                }
                 Ok(None) => break,
                 Err(error) => {
                     tracing::warn!(%error, "codex app-server stderr read failed");
@@ -91,18 +103,34 @@ pub(crate) fn spawn_reaper(
     mut kill_rx: oneshot::Receiver<()>,
     pending: Arc<StdMutex<PendingMap>>,
     events: EventHub,
+    exit: Arc<StdMutex<Option<AppServerExit>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let status = tokio::select! {
-            status = child.wait() => status,
-            _ = &mut kill_rx => {
-                let _ = child.start_kill();
-                child.wait().await
+        // Biased: a process that already died is reported as such even when
+        // its owner, having seen stdout close, asks to stop it at once.
+        let (status, stopped) = tokio::select! {
+            biased;
+            status = child.wait() => (status, false),
+            _ = &mut kill_rx => match child.try_wait() {
+                Ok(Some(status)) => (Ok(status), false),
+                _ => {
+                    let _ = child.start_kill();
+                    (child.wait().await, true)
+                }
             }
         };
         match status {
             Ok(status) => {
-                send_process_exited(&pending, &events, status.code(), exit_signal(&status));
+                let (code, signal) = (status.code(), exit_signal(&status));
+                // A process killed on request reports no exit code; one that
+                // still has a code was already exiting by itself.
+                let on_its_own = !stopped || (cfg!(unix) && code.is_some());
+                if on_its_own {
+                    if let Ok(mut exit) = exit.lock() {
+                        *exit = Some(AppServerExit { code, signal });
+                    }
+                }
+                send_process_exited(&pending, &events, code, signal);
             }
             Err(error) => {
                 tracing::warn!(%error, "failed to reap codex app-server process");
@@ -358,5 +386,123 @@ mod tests {
 
         assert!(matches!(rx.await.unwrap(), Err(SdkError::ProcessExited)));
         assert!(pending.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_reaper_records_an_exit_on_its_own_with_the_stderr_tail() {
+        use std::process::Stdio;
+
+        use super::{spawn_reaper, spawn_stderr_reader, StderrTail};
+        use crate::event_queue::EventHub;
+        use crate::types::AppServerExit;
+
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                "echo booting >&2; echo 'config error: bad model' >&2; exit 3",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let tail = Arc::new(StdMutex::new(StderrTail::default()));
+        let stderr = spawn_stderr_reader(child.stderr.take().unwrap(), 1024, Arc::clone(&tail));
+        let exit = Arc::new(StdMutex::new(None));
+        let (_kill_tx, kill_rx) = oneshot::channel();
+        let reaper = spawn_reaper(
+            child,
+            kill_rx,
+            Arc::new(StdMutex::new(HashMap::new())),
+            EventHub::new(),
+            Arc::clone(&exit),
+        );
+        reaper.await.unwrap();
+        stderr.await.unwrap();
+
+        assert_eq!(
+            *exit.lock().unwrap(),
+            Some(AppServerExit {
+                code: Some(3),
+                signal: None
+            })
+        );
+        assert_eq!(
+            tail.lock().unwrap().lines(),
+            vec!["booting".to_string(), "config error: bad model".to_string()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_process_that_died_before_the_stop_request_still_records_its_exit() {
+        use std::process::Stdio;
+
+        use super::spawn_reaper;
+        use crate::event_queue::EventHub;
+        use crate::types::AppServerExit;
+
+        let child = tokio::process::Command::new("/bin/sh")
+            .args(["-c", "exit 4"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Dead but not reaped yet, and asked to stop before the reaper runs:
+        // the owner saw stdout close and shut the client down at once.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let exit = Arc::new(StdMutex::new(None));
+        let (kill_tx, kill_rx) = oneshot::channel();
+        kill_tx.send(()).unwrap();
+        spawn_reaper(
+            child,
+            kill_rx,
+            Arc::new(StdMutex::new(HashMap::new())),
+            EventHub::new(),
+            Arc::clone(&exit),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            *exit.lock().unwrap(),
+            Some(AppServerExit {
+                code: Some(4),
+                signal: None
+            })
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_process_stopped_by_its_client_records_no_exit() {
+        use std::process::Stdio;
+
+        use super::spawn_reaper;
+        use crate::event_queue::EventHub;
+
+        let child = tokio::process::Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let exit = Arc::new(StdMutex::new(None));
+        let (kill_tx, kill_rx) = oneshot::channel();
+        let reaper = spawn_reaper(
+            child,
+            kill_rx,
+            Arc::new(StdMutex::new(HashMap::new())),
+            EventHub::new(),
+            Arc::clone(&exit),
+        );
+        kill_tx.send(()).unwrap();
+        reaper.await.unwrap();
+
+        assert_eq!(*exit.lock().unwrap(), None);
     }
 }

@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{broadcast, oneshot, Mutex};
 
-use crate::client_io::{spawn_reader, spawn_reaper, spawn_stderr_reader, ReaderState};
+use crate::client_io::{spawn_reader, spawn_reaper, spawn_stderr_reader, ReaderState, StderrTail};
 use crate::client_launch::profile_aware_command;
 use crate::client_state::{Inner, PendingRequestGuard};
 use crate::discovery::resolved_codex_command;
@@ -30,7 +30,7 @@ pub(crate) const DEFAULT_MAX_LINE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct CodexAppServerClient {
-    inner: Arc<Inner>,
+    pub(crate) inner: Arc<Inner>,
 }
 
 #[derive(Debug, Clone, Default, bon::Builder)]
@@ -94,6 +94,8 @@ impl CodexAppServerClient {
             stderr_task: StdMutex::new(None),
             reaper_task: StdMutex::new(None),
             kill_tx: StdMutex::new(Some(kill_tx)),
+            stderr_tail: Arc::new(StdMutex::new(StderrTail::default())),
+            exit: Arc::new(StdMutex::new(None)),
             client_info: options.client_info,
             request_timeout: options.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT),
         });
@@ -114,12 +116,22 @@ impl CodexAppServerClient {
             .stderr_task
             .lock()
             .map_err(|_| SdkError::Protocol("stderr task lock poisoned".to_string()))?
-            .replace(spawn_stderr_reader(stderr, max_line_bytes));
+            .replace(spawn_stderr_reader(
+                stderr,
+                max_line_bytes,
+                Arc::clone(&inner.stderr_tail),
+            ));
         inner
             .reaper_task
             .lock()
             .map_err(|_| SdkError::Protocol("reaper task lock poisoned".to_string()))?
-            .replace(spawn_reaper(child, kill_rx, pending, inner.events.clone()));
+            .replace(spawn_reaper(
+                child,
+                kill_rx,
+                pending,
+                inner.events.clone(),
+                Arc::clone(&inner.exit),
+            ));
         Ok(Self { inner })
     }
 
@@ -372,10 +384,6 @@ impl CodexAppServerClient {
         if let Some(stderr_task) = stderr_task {
             let _ = tokio::time::timeout(Duration::from_secs(2), stderr_task).await;
         }
-    }
-
-    pub fn pid(&self) -> Option<u32> {
-        self.inner.pid
     }
 
     async fn write_json(&self, message: Value) -> Result<(), SdkError> {

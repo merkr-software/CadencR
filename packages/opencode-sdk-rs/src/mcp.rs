@@ -28,8 +28,7 @@ pub async fn list_mcp_servers_from_resolved_config(
     cwd: Option<&Path>,
 ) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
     let binary = resolve_binary().await?;
-    let output =
-        run_opencode_command(&binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT, false).await?;
+    let output = run_opencode_command(&binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT).await?;
     parse_mcp_config_output(&output)
 }
 
@@ -43,7 +42,7 @@ pub async fn list_mcp_servers_from_binary(
         "discovering OpenCode MCP servers"
     );
     let config_output =
-        run_opencode_command(binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT, false).await;
+        run_opencode_command(binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT).await;
     match config_output {
         Ok(output) => {
             tracing::info!(
@@ -90,8 +89,7 @@ async fn list_from_config_files_or_mcp_list(
             return Ok(servers);
         }
     }
-    let output =
-        run_opencode_command(binary, cwd, &["mcp", "list"], MCP_LIST_TIMEOUT, false).await?;
+    let output = run_opencode_command(binary, cwd, &["mcp", "list"], MCP_LIST_TIMEOUT).await?;
     tracing::info!(
         bytes = output.len(),
         "OpenCode mcp list output received for MCP discovery"

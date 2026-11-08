@@ -43,12 +43,7 @@ pub fn redact_env_for_response(env: &HashMap<String, String>) -> HashMap<String,
         .collect()
 }
 
-fn looks_like_secret_key(key: &str) -> bool {
-    let upper = key.to_ascii_uppercase();
-    ["TOKEN", "KEY", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL"]
-        .iter()
-        .any(|needle| upper.contains(needle))
-}
+use crate::shared::cli_stderr::looks_like_secret_key;
 
 #[cfg(test)]
 mod tests {

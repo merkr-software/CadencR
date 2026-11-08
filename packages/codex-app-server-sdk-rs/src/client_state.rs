@@ -6,9 +6,9 @@ use tokio::process::ChildStdin;
 use tokio::sync::{oneshot, Mutex};
 use tokio::task::JoinHandle;
 
-use crate::client_io::PendingMap;
+use crate::client_io::{PendingMap, StderrTail};
 use crate::event_queue::EventHub;
-use crate::types::AppServerClientInfo;
+use crate::types::{AppServerClientInfo, AppServerExit};
 
 pub(crate) struct Inner {
     pub(crate) stdin: Mutex<ChildStdin>,
@@ -20,6 +20,8 @@ pub(crate) struct Inner {
     pub(crate) stderr_task: StdMutex<Option<JoinHandle<()>>>,
     pub(crate) reaper_task: StdMutex<Option<JoinHandle<()>>>,
     pub(crate) kill_tx: StdMutex<Option<oneshot::Sender<()>>>,
+    pub(crate) stderr_tail: Arc<StdMutex<StderrTail>>,
+    pub(crate) exit: Arc<StdMutex<Option<AppServerExit>>>,
     pub(crate) client_info: AppServerClientInfo,
     pub(crate) request_timeout: Duration,
 }
