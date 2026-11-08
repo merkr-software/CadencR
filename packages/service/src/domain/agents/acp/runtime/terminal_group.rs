@@ -42,7 +42,7 @@ fn live_groups() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<u3
 /// Make the command lead a new process group (Unix).
 pub(super) fn isolate(command: &mut Command) {
     #[cfg(unix)]
-    crate::domain::agents::acp::process_tree::lead_new_process_group(command);
+    crate::shared::process_group::lead_new_process_group(command);
     #[cfg(not(unix))]
     let _ = command;
 }
@@ -77,10 +77,7 @@ impl TerminalGroup {
     pub(super) fn terminate(&self, child: &mut Child) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.leader {
-            return crate::domain::agents::acp::process_tree::signal_process_group(
-                pid,
-                libc::SIGTERM,
-            );
+            return crate::shared::process_group::signal_process_group(pid, libc::SIGTERM);
         }
         child.start_kill()
     }
@@ -89,10 +86,7 @@ impl TerminalGroup {
     pub(super) fn kill(&self, child: &mut Child) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.leader {
-            return crate::domain::agents::acp::process_tree::signal_process_group(
-                pid,
-                libc::SIGKILL,
-            );
+            return crate::shared::process_group::signal_process_group(pid, libc::SIGKILL);
         }
         child.start_kill()
     }
@@ -101,7 +95,7 @@ impl TerminalGroup {
     pub(super) fn is_alive(&self) -> bool {
         #[cfg(unix)]
         if let Some(pid) = self.leader {
-            return crate::domain::agents::acp::process_tree::process_group_alive(pid);
+            return crate::shared::process_group::process_group_alive(pid);
         }
         false
     }
@@ -119,8 +113,7 @@ impl TerminalGroup {
     pub(super) async fn kill_remaining(&self) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.leader {
-            let killed =
-                crate::domain::agents::acp::process_tree::kill_group_after_leader_exit(pid).await;
+            let killed = crate::shared::process_group::kill_group_after_leader_exit(pid).await;
             self.forget();
             return killed;
         }
@@ -154,10 +147,9 @@ impl TerminalGroup {
         #[cfg(unix)]
         if let Some(pid) = self.leader {
             if self.is_alive() {
-                if let Err(error) = crate::domain::agents::acp::process_tree::signal_process_group(
-                    pid,
-                    libc::SIGKILL,
-                ) {
+                if let Err(error) =
+                    crate::shared::process_group::signal_process_group(pid, libc::SIGKILL)
+                {
                     tracing::warn!(%error, pid, "failed to kill a dropped ACP terminal's process group");
                 }
             }
@@ -168,10 +160,7 @@ impl TerminalGroup {
     fn signal_term(&self) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.leader {
-            return crate::domain::agents::acp::process_tree::signal_process_group(
-                pid,
-                libc::SIGTERM,
-            );
+            return crate::shared::process_group::signal_process_group(pid, libc::SIGTERM);
         }
         Ok(())
     }

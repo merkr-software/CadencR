@@ -22,6 +22,7 @@ pub mod login_shell;
 pub mod markup;
 pub mod migrate;
 pub mod private_temp;
+pub mod process_group;
 pub mod quarantine;
 pub mod security;
 pub mod setup_log;

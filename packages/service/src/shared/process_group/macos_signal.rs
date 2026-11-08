@@ -14,22 +14,13 @@ pub(super) async fn kill_after_leader_exit(pid: u32, timeout: Duration) -> io::R
     reconcile_permission_denied(
         timeout.min(MAX_RECONCILE_WINDOW),
         || super::signal_process_group(pid, libc::SIGKILL),
-        || probe_process_group(pid),
+        || super::try_signal_process_group(pid, 0),
     )
     .await
 }
 
 pub(super) async fn cleanup_after_exit(pid: u32) -> io::Result<()> {
     kill_after_leader_exit(pid, MAX_RECONCILE_WINDOW).await
-}
-
-fn probe_process_group(pid: u32) -> io::Result<()> {
-    let result = unsafe { libc::kill(-(pid as libc::pid_t), 0) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
 }
 
 async fn reconcile_permission_denied(

@@ -76,7 +76,7 @@ async fn capture(
     overflow: Overflow,
 ) -> Result<Output, BoundedCommandError> {
     #[cfg(unix)]
-    command.process_group(0);
+    crate::shared::process_group::lead_new_process_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| BoundedCommandError::new(format!("could not start: {error}")))?;
@@ -130,10 +130,11 @@ async fn capture(
     };
     #[cfg(unix)]
     if let Some(pid) = process_group {
-        // Safety: a bare kill(2) on the child's own group; ESRCH only means the
-        // group is already gone.
-        unsafe {
-            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        // The error being reported stays the one that matters.
+        if let Err(kill_error) =
+            crate::shared::process_group::signal_process_group(pid, libc::SIGKILL)
+        {
+            tracing::warn!(%kill_error, pid, "failed to kill a bounded command's process group");
         }
     }
     // The child may already have exited; the error being reported is the one

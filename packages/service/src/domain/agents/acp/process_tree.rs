@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use tokio::process::{Child, Command};
 
-#[cfg(target_os = "macos")]
-mod macos_signal;
+#[cfg(windows)]
+use crate::shared::process_group::wait_bounded;
 
 /// Resource ceilings carried by an isolated managed process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +79,9 @@ impl ProcessTreeControl {
                 #[cfg(unix)]
                 {
                     match pid {
-                        Some(pid) => kill_group_after_leader_exit(pid).await,
+                        Some(pid) => {
+                            crate::shared::process_group::kill_group_after_leader_exit(pid).await
+                        }
                         None => Ok(()),
                     }
                 }
@@ -118,24 +120,7 @@ impl ProcessTreeControl {
         child: &mut Child,
         grace: Duration,
     ) -> io::Result<ExitStatus> {
-        let pid = child
-            .id()
-            .ok_or_else(|| io::Error::other("isolated child has no process id"))?;
-        signal_process_group(pid, libc::SIGTERM)?;
-        match tokio::time::timeout(grace, child.wait()).await {
-            Ok(status) => {
-                let status = status?;
-                #[cfg(target_os = "macos")]
-                macos_signal::kill_after_leader_exit(pid, grace).await?;
-                #[cfg(not(target_os = "macos"))]
-                signal_process_group(pid, libc::SIGKILL)?;
-                Ok(status)
-            }
-            Err(_) => {
-                signal_process_group(pid, libc::SIGKILL)?;
-                wait_bounded(child, grace).await
-            }
-        }
+        crate::shared::process_group::terminate_process_group(child, grace).await
     }
 
     #[cfg(windows)]
@@ -174,19 +159,13 @@ fn validate_policy(policy: AcpProcessTreePolicy) -> io::Result<()> {
     Ok(())
 }
 
-async fn wait_bounded(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
-    tokio::time::timeout(timeout, child.wait())
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "process did not exit after kill"))?
-}
-
 fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::Result<()> {
     if !matches!(policy, AcpProcessTreePolicy::Isolated(_)) {
         return Ok(());
     }
     #[cfg(unix)]
     {
-        lead_new_process_group(command);
+        crate::shared::process_group::lead_new_process_group(command);
         return Ok(());
     }
     #[cfg(windows)]
@@ -211,50 +190,6 @@ fn cleanup_isolated(_control: &ProcessTreeControl, _pid: Option<u32>) -> io::Res
         io::ErrorKind::Unsupported,
         "isolated process trees are unavailable on this platform",
     ))
-}
-
-/// Make the command lead a new process group, so signals sent to that group
-/// reach every descendant.
-#[cfg(unix)]
-pub(crate) fn lead_new_process_group(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    command.as_std_mut().process_group(0);
-}
-
-/// Whether a live process remains in the group `pid` leads (zombies the
-/// kernel refuses to signal do not count).
-#[cfg(unix)]
-pub(crate) fn process_group_alive(pid: u32) -> bool {
-    unsafe { libc::kill(-(pid as libc::pid_t), 0) == 0 }
-}
-
-/// SIGKILL what is left of a process group whose leader has exited (macOS
-/// excludes the zombie leader from group signals; see `macos_signal`).
-#[cfg(unix)]
-pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        macos_signal::cleanup_after_exit(pid).await
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        signal_process_group(pid, libc::SIGKILL)
-    }
-}
-
-/// Signal every process of the group `pid` leads; a vanished group is fine.
-#[cfg(unix)]
-pub(crate) fn signal_process_group(pid: u32, signal: libc::c_int) -> io::Result<()> {
-    let result = unsafe { libc::kill(-(pid as libc::pid_t), signal) };
-    if result == 0 {
-        return Ok(());
-    }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        Ok(())
-    } else {
-        Err(error)
-    }
 }
 
 #[cfg(windows)]

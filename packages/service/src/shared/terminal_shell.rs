@@ -126,8 +126,8 @@ fn terminate_shell_process(
         // portable-pty starts the child with `setsid`, so its PID is also the
         // process-group id. Kill the group to avoid leaving pipelines or
         // grandchildren holding the PTY open after the shell exits.
-        let result = unsafe { libc::kill(-(process_id as libc::pid_t), libc::SIGKILL) };
-        if result == 0 {
+        if crate::shared::process_group::try_signal_process_group(process_id, libc::SIGKILL).is_ok()
+        {
             return Ok(());
         }
     }

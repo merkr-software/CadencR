@@ -240,13 +240,13 @@ async fn cancel_child(child: &mut Child) -> i64 {
 /// leads its own group (see `process_group(0)` in [`spawn_shell`]), so the
 /// signal reaches the login shell *and* every descendant it spawned — matching
 /// what Ctrl-C does to a terminal's foreground job. Best-effort: a dead group
-/// just yields `ESRCH`.
+/// is fine, and the cancel goes on (waiting, then escalating) whatever the
+/// signal did.
 #[cfg(unix)]
 fn signal_group(child: &Child, sig: i32) {
     if let Some(pid) = child.id() {
-        // Safety: a bare `kill(2)` syscall with no shared-state requirements.
-        unsafe {
-            libc::kill(-(pid as i32), sig);
+        if let Err(error) = crate::shared::process_group::signal_process_group(pid, sig) {
+            warn!(%error, pid, sig, "failed to signal a custom action's process group");
         }
     }
 }
@@ -263,7 +263,7 @@ fn spawn_shell(command: &str, cwd: &str) -> std::io::Result<Child> {
     // Run in its own process group so cancellation can signal the shell and
     // every descendant at once (see `signal_group`).
     #[cfg(unix)]
-    cmd.process_group(0);
+    crate::shared::process_group::lead_new_process_group(&mut cmd);
     cmd.spawn()
 }
 
