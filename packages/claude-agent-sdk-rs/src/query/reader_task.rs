@@ -15,6 +15,7 @@ use crate::types::McpServerStatus;
 
 use super::permission_dispatch::{handle_can_use_tool_request, release_permission_wait};
 use super::permission_requests::PermissionRequests;
+use super::stale_task_turns::StaleTaskTurns;
 use super::turn_state::TurnState;
 use super::wire::{
     build_success_ack, control_cancel_request_id, control_request_subtype, parse_control_response,
@@ -33,6 +34,7 @@ pub(super) struct ReaderTask {
     pub permission_requests: PermissionRequests,
     pub cancel_token: Option<CancellationToken>,
     pub kill_rx: mpsc::Receiver<()>,
+    pub stale_task_turns: StaleTaskTurns,
 }
 
 enum ReaderAction {
@@ -110,7 +112,7 @@ impl ReaderTask {
         }
     }
 
-    async fn handle_raw(&self, raw: Value) -> RawOutcome {
+    async fn handle_raw(&mut self, raw: Value) -> RawOutcome {
         if self.handle_control_response(&raw).await {
             return RawOutcome::Continue;
         }
@@ -218,10 +220,14 @@ impl ReaderTask {
         true
     }
 
-    async fn forward_sdk_message(&self, raw: Value) -> RawOutcome {
+    async fn forward_sdk_message(&mut self, raw: Value) -> RawOutcome {
         // Infallible: falls back to `Unknown(raw)` (raw payload preserved)
         // and logs internally when the message matches no known schema.
         let message = SdkMessage::from_raw(raw);
+        if self.stale_task_turns.closes_empty_turn(&message) {
+            info!("dropping the empty turn the CLI ran for a background task its previous process lost");
+            return RawOutcome::Continue;
+        }
         self.capture_session_id(&message).await;
         self.cache_mcp_servers(&message).await;
         self.update_turn_state(&message).await;
@@ -451,6 +457,57 @@ read -r USER_PROMPT
             rest.iter().all(Result::is_ok),
             "an intended kill must not surface an error: {rest:?}"
         );
+    }
+
+    /// Found live (CLI 2.1.312): resumed after `kill -9`, the CLI closes the
+    /// lost task's notification turn with a zero-turn `result` before it
+    /// takes the prompt. That result neither reaches the consumer nor ends
+    /// the turn; the prompt's own result does.
+    #[tokio::test]
+    async fn a_resumed_cli_s_empty_notification_turn_does_not_end_the_turn() {
+        let dir = TempDir::new().unwrap();
+        let notification = r#"{"type":"system","subtype":"task_notification","uuid":"u1","session_id":"s","task_id":"gone","tool_use_id":"toolu_1","status":"stopped","output_file":"","summary":"Background shell command did not finish"}"#;
+        let result = |turns: u32, api_ms: u32| {
+            format!(
+                r#"{{"type":"result","subtype":"success","uuid":"r{turns}","session_id":"s","duration_ms":10,"duration_api_ms":{api_ms},"is_error":false,"num_turns":{turns},"result":"","stop_reason":null,"total_cost_usd":0.0,"usage":{{"input_tokens":0,"output_tokens":0}},"permission_denials":[]}}"#
+            )
+        };
+        let then = format!(
+            "echo '{notification}'\necho '{}'\nread -r GO\necho '{}'\nexec sleep 30",
+            result(0, 0),
+            result(1, 2091)
+        );
+        let mut q = cli_mid_turn(dir.path(), &then).await;
+
+        let first = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the notification arrives")
+            .expect("a message")
+            .expect("not an error");
+        assert!(matches!(first, SdkMessage::TaskLifecycle(_)), "{first:?}");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(300), q.next())
+                .await
+                .is_err(),
+            "the empty turn's result is not forwarded"
+        );
+        assert_eq!(q.turn_state().await, TurnState::AgentWorking);
+
+        q.stream_input(serde_json::json!("go")).await.unwrap();
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the prompt's result arrives")
+            .expect("a message")
+            .expect("not an error");
+        assert!(
+            matches!(end, SdkMessage::Result { num_turns: 1, .. }),
+            "{end:?}"
+        );
+        assert!(matches!(
+            q.turn_state().await,
+            TurnState::TurnComplete { .. }
+        ));
+        q.close().await;
     }
 
     /// A clean exit (code 0, empty stderr) still ends the stream silently.

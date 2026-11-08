@@ -53,6 +53,7 @@ pub(super) async fn reader_loop(
         permission_requests,
         cancel_token,
         kill_rx,
+        stale_task_turns: Default::default(),
     }
     .run()
     .await;
