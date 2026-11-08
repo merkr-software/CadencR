@@ -33,6 +33,8 @@ pub mod startup_progress;
 pub mod terminal_shell;
 #[cfg(test)]
 pub mod test_env;
+#[cfg(all(test, unix))]
+pub mod test_processes;
 pub mod trash;
 pub mod user_shell;
 pub mod watch_limits;

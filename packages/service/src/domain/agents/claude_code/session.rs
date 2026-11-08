@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+use super::cli_processes::CliProcesses;
 use super::prompt_receipts::ClaudePromptReceipts;
 use super::subagents::ClaudeSubagentState;
 use crate::domain::agents::adapter::{
@@ -24,6 +25,8 @@ pub struct ClaudeCodeSession {
     /// The message pump's output, where an escalated Stop reports itself.
     /// Weak, so the stream still ends when the pump does.
     pub(super) stop_escalation: Option<super::stop_escalation::RuntimeEventSender>,
+    /// What the CLI starts, stopped once it is gone.
+    pub(super) processes: CliProcesses,
 }
 
 impl ClaudeCodeSession {
@@ -36,6 +39,7 @@ impl ClaudeCodeSession {
             cwd: std::path::PathBuf::new(),
             known_subagents: Vec::new(),
             stop_escalation: None,
+            processes: CliProcesses::untracked(),
         }
     }
 }
@@ -160,6 +164,7 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
         let mut subagents =
             ClaudeSubagentState::new(&self.cwd, std::mem::take(&mut self.known_subagents));
+        let processes = self.processes.clone();
 
         tokio::spawn(async move {
             'messages: while let Some(msg) = source_rx.recv().await {
@@ -179,6 +184,9 @@ impl AgentRuntimeSession for ClaudeCodeSession {
                             continue;
                         }
                         let mapped = subagents.normalize(sdk_msg).await;
+                        if mapped.background_task_count().is_some() {
+                            processes.note_background_tasks();
+                        }
                         for event in
                             acknowledge_response_start_prompt_receipts(&mapped, &prompt_receipts)
                         {

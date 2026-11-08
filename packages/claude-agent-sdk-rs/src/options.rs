@@ -62,6 +62,12 @@ pub struct Options {
     pub can_use_tool: Option<Arc<dyn CanUseTool>>,
     /// Cancellation token for aborting a running query.
     pub abort_signal: Option<CancellationToken>,
+    /// Start the CLI as the leader of a new process group (Unix), so signals
+    /// sent to the host's own group (a terminal's Ctrl-C) do not reach it,
+    /// and the host can signal what the CLI leaves in its group through
+    /// [`Query::pid`](crate::Query::pid) once it has exited.
+    #[builder(default)]
+    pub own_process_group: bool,
     /// Extra environment variables layered on top of the inherited parent env
     /// before spawning the CLI. Use this to switch Claude Code between
     /// Anthropic / Bedrock / Vertex / custom proxies without relaunching the

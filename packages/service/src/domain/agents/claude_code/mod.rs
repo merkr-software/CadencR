@@ -4,6 +4,7 @@ mod background_agents;
 mod branching;
 mod bypass_permissions;
 mod catalog;
+mod cli_processes;
 mod context_windows;
 pub mod custom_models;
 mod events;

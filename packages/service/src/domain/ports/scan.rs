@@ -52,17 +52,34 @@ pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
 
 /// Map of pid -> parent pid for every process on the machine.
 pub async fn parent_map() -> anyhow::Result<HashMap<i32, i32>> {
-    let out = capture("ps", parent_map_args(cfg!(target_os = "macos"))).await?;
-    Ok(parse_parent_map(&out))
+    Ok(process_links()
+        .await?
+        .into_iter()
+        .map(|(pid, links)| (pid, links.ppid))
+        .collect())
+}
+
+/// Where a process sits in the process tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessLinks {
+    pub ppid: i32,
+    pub pgid: i32,
+}
+
+/// Map of pid -> parent pid and process group for every process on the
+/// machine.
+pub async fn process_links() -> anyhow::Result<HashMap<i32, ProcessLinks>> {
+    let out = capture("ps", process_links_args(cfg!(target_os = "macos"))).await?;
+    Ok(parse_process_links(&out))
 }
 
 /// BSD `ps -ax` on macOS (unchanged); POSIX `-A` elsewhere, which procps-ng on
 /// Linux documents for "every process" without relying on BSD flag parsing.
-fn parent_map_args(is_macos: bool) -> &'static [&'static str] {
+fn process_links_args(is_macos: bool) -> &'static [&'static str] {
     if is_macos {
-        &["-axo", "pid=,ppid="]
+        &["-axo", "pid=,ppid=,pgid="]
     } else {
-        &["-Ao", "pid=,ppid="]
+        &["-Ao", "pid=,ppid=,pgid="]
     }
 }
 
@@ -173,19 +190,20 @@ fn parse_cwd_map(output: &str) -> HashMap<i32, String> {
     cwds
 }
 
-/// Parse `ps -axo pid=,ppid=` output into pid -> parent pid.
-fn parse_parent_map(output: &str) -> HashMap<i32, i32> {
-    let mut parents = HashMap::new();
-    for line in output.lines() {
-        let mut fields = line.split_whitespace();
-        let (Some(pid), Some(ppid)) = (fields.next(), fields.next()) else {
-            continue;
-        };
-        if let (Ok(pid), Ok(ppid)) = (pid.parse::<i32>(), ppid.parse::<i32>()) {
-            parents.insert(pid, ppid);
-        }
-    }
-    parents
+/// Parse `ps -axo pid=,ppid=,pgid=` output into pid -> parent and group.
+fn parse_process_links(output: &str) -> HashMap<i32, ProcessLinks> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace().map(str::parse::<i32>);
+            match (fields.next(), fields.next(), fields.next()) {
+                (Some(Ok(pid)), Some(Ok(ppid)), Some(Ok(pgid))) => {
+                    Some((pid, ProcessLinks { ppid, pgid }))
+                }
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn split_field(line: &str) -> Option<(char, &str)> {
@@ -278,19 +296,24 @@ mod tests {
     }
 
     #[test]
-    fn ps_arguments_per_platform() {
-        assert_eq!(parent_map_args(true), ["-axo", "pid=,ppid="]);
-        assert_eq!(parent_map_args(false), ["-Ao", "pid=,ppid="]);
+    fn process_links_arguments_per_platform() {
+        assert_eq!(process_links_args(true), ["-axo", "pid=,ppid=,pgid="]);
+        assert_eq!(process_links_args(false), ["-Ao", "pid=,ppid=,pgid="]);
     }
 
     #[test]
-    fn parses_ps_parent_columns() {
-        let out = "  501     1\n  733   501\nbroken line\n";
+    fn parses_ps_parent_and_group_columns() {
+        let links =
+            parse_process_links("  501     1   501\n  733   501   733\n  734 733\nbroken\n");
 
-        let parents = parse_parent_map(out);
-
-        assert_eq!(parents.get(&501), Some(&1));
-        assert_eq!(parents.get(&733), Some(&501));
-        assert_eq!(parents.len(), 2);
+        assert_eq!(links.get(&501), Some(&ProcessLinks { ppid: 1, pgid: 501 }));
+        assert_eq!(
+            links.get(&733),
+            Some(&ProcessLinks {
+                ppid: 501,
+                pgid: 733
+            })
+        );
+        assert_eq!(links.len(), 2, "short and broken lines are skipped");
     }
 }

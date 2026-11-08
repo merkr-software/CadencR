@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use super::catalog::fallback_models;
+use super::cli_processes::CliProcesses;
 use super::custom_models;
 use super::events::context_window_for_model_from_raw;
 use super::prompt_receipts::ClaudePromptReceipts;
@@ -362,13 +363,16 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
                     .collect()
             }))
             .maybe_env(env)
+            .own_process_group(true)
             .build();
 
         let query = claude_agent_sdk_rs::query(content, options)
             .await
             .map_err(RuntimeError::from)?;
+        let processes = CliProcesses::watch(query.pid(), query.process_exited());
         Ok(Box::new(ClaudeCodeSession {
             query,
+            processes,
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: config.cwd,

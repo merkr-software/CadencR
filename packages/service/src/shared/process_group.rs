@@ -108,7 +108,6 @@ pub(crate) async fn interrupt_process_group(
     signal: libc::c_int,
     grace: Duration,
 ) -> io::Result<ExitStatus> {
-    const GROUP_POLL: Duration = Duration::from_millis(20);
     let pid = child
         .id()
         .ok_or_else(|| io::Error::other("process group leader has no process id"))?;
@@ -124,11 +123,39 @@ pub(crate) async fn interrupt_process_group(
         return wait_bounded(child, grace).await;
     };
     let status = status?;
+    wait_group_gone(pid, deadline).await;
+    kill_group_after_leader_exit(pid).await?;
+    Ok(status)
+}
+
+/// Stop a group whose leader is not a child this process waits on (it has
+/// exited, or was started by another process): SIGTERM, up to `grace` for
+/// every member to exit, then SIGKILL whatever is left. A group that is
+/// already gone is fine.
+#[cfg(unix)]
+pub(crate) async fn stop_process_group(pgid: u32, grace: Duration) -> io::Result<()> {
+    if !process_group_alive(pgid) {
+        return Ok(());
+    }
+    let deadline = tokio::time::Instant::now() + grace;
+    match signal_process_group(pgid, libc::SIGTERM) {
+        // Only zombies left (macOS); the SIGKILL below reconciles that.
+        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {}
+        result => {
+            result?;
+            wait_group_gone(pgid, deadline).await;
+        }
+    }
+    kill_group_after_leader_exit(pgid).await
+}
+
+/// Wait until no live process is left in the group `pid` leads, or `deadline`.
+#[cfg(unix)]
+async fn wait_group_gone(pid: u32, deadline: tokio::time::Instant) {
+    const GROUP_POLL: Duration = Duration::from_millis(20);
     while tokio::time::Instant::now() < deadline && process_group_alive(pid) {
         tokio::time::sleep(GROUP_POLL).await;
     }
-    kill_group_after_leader_exit(pid).await?;
-    Ok(status)
 }
 
 /// Wait for `child` to exit, failing once `timeout` has passed.
@@ -287,6 +314,54 @@ mod tests {
             "the background job survived"
         );
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn stop_ends_a_group_whose_leader_is_gone() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("child.pid");
+        // The leader exits at once, leaving a member that ignores SIGTERM:
+        // only the SIGKILL after the grace ends it.
+        let mut child = group_leader(&pid_file, STUBBORN_GRANDCHILD);
+        let leader = child.id().unwrap();
+        wait_for_file(&pid_file).await;
+        let grandchild = read_pid(&pid_file);
+        child.wait().await.unwrap();
+        assert!(process_group_alive(leader));
+
+        let started = std::time::Instant::now();
+        stop_process_group(leader, Duration::from_millis(300))
+            .await
+            .unwrap();
+        assert!(process_gone(grandchild).await, "the member survived");
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        assert!(!process_group_alive(leader));
+        stop_process_group(leader, Duration::from_millis(300))
+            .await
+            .expect("a group that is gone is fine");
+    }
+
+    #[tokio::test]
+    async fn stop_lets_a_group_exit_on_sigterm_within_the_grace() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("child.pid");
+        let mut child = group_leader(&pid_file, &format!("{GRANDCHILD} wait"));
+        let leader = child.id().unwrap();
+        wait_for_file(&pid_file).await;
+        let grandchild = read_pid(&pid_file);
+        // Whoever started the leader reaps it, as the Claude SDK does its CLI.
+        let reaper = tokio::spawn(async move { child.wait().await });
+
+        let started = std::time::Instant::now();
+        stop_process_group(leader, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "SIGTERM was enough"
+        );
+        reaper.await.unwrap().unwrap();
+        assert!(process_gone(grandchild).await, "the grandchild survived");
     }
 
     #[tokio::test]

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
 use tokio::process::{ChildStdin, ChildStdout};
+use tokio_util::sync::CancellationToken;
 
 use crate::error::SdkError;
 use crate::options::Options;
@@ -42,6 +43,8 @@ pub(crate) struct CliProcess {
     stdin: Option<BufWriter<ChildStdin>>,
     stdout_lines: Lines<BufReader<ChildStdout>>,
     stderr: StderrCapture,
+    /// Cancelled once this handle lets go of the process: see [`Self::ended`].
+    ended: CancellationToken,
 }
 
 impl CliProcess {
@@ -60,6 +63,10 @@ impl CliProcess {
         cmd.stderr(std::process::Stdio::piped());
         // Prevent nested-session detection errors (matches TS SDK behavior).
         cmd.env_remove("CLAUDECODE");
+        #[cfg(unix)]
+        if options.own_process_group {
+            cmd.process_group(0);
+        }
 
         // Layer profile env on top of the inherited parent env. Keys in
         // `options.env` override any inherited values with the same name.
@@ -84,6 +91,7 @@ impl CliProcess {
             stdin,
             stdout_lines,
             stderr,
+            ended: CancellationToken::new(),
         })
     }
 
@@ -186,6 +194,12 @@ impl CliProcess {
         self.child.id()
     }
 
+    /// Cancelled when this handle is dropped: by then the process has exited
+    /// and been waited on, or has just been sent SIGKILL.
+    pub(crate) fn ended(&self) -> CancellationToken {
+        self.ended.clone()
+    }
+
     /// Take ownership of the stdin writer, leaving `None` in its place.
     ///
     /// Used by `Query` to hold stdin separately from the reader loop.
@@ -219,6 +233,7 @@ impl Drop for CliProcess {
                 libc::kill(pid as libc::pid_t, libc::SIGKILL);
             }
         }
+        self.ended.cancel();
     }
 }
 
@@ -245,6 +260,7 @@ mod tests {
             child,
             stdout_lines: BufReader::new(stdout).lines(),
             stderr,
+            ended: CancellationToken::new(),
         };
         assert!(process.read_message().await.unwrap().is_none());
         let end = tokio::time::timeout(
@@ -332,13 +348,17 @@ mod tests {
             stdin: None,
             stdout_lines: tokio::io::BufReader::new(stdout).lines(),
             stderr,
+            ended: CancellationToken::new(),
         };
+        let ended = cli_process.ended();
 
         // Process should be alive
         assert!(is_process_alive(pid), "process should be alive before drop");
+        assert!(!ended.is_cancelled());
 
         // Drop triggers SIGKILL
         drop(cli_process);
+        assert!(ended.is_cancelled(), "dropping the handle reports the end");
 
         // Give the OS a moment to reap the process
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;

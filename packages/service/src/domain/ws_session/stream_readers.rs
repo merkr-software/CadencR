@@ -131,9 +131,10 @@ async fn close_runtimes(entries: &[RegisteredReader], pool: &sqlx::SqlitePool) {
 }
 
 /// A runtime that failed to close at shutdown. An idle one whose process was
-/// already gone (the terminal's Ctrl-C reaches the whole process group, so the
-/// agent can die before the service closes it) lost nothing: only logged. Any
-/// other failure is the conversation's to show.
+/// already gone (the terminal's Ctrl-C reaches the service's whole process
+/// group, so an agent sharing it can die before the service closes it; a
+/// Claude CLI leads its own) lost nothing: only logged. Any other failure is
+/// the conversation's to show.
 #[allow(dead_code)] // Reachable through `shutdown` in the service binary.
 async fn report_close_failure(
     pool: &sqlx::SqlitePool,

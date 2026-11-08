@@ -347,6 +347,14 @@ echo '{"type":"result","subtype":{"kind":"success"},"uuid":"u1","session_id":"se
     /// A CLI that completes the handshake and reads the prompt, then runs
     /// `then` (shell) in the middle of its turn.
     async fn cli_mid_turn(dir: &std::path::Path, then: &str) -> crate::Query {
+        cli_mid_turn_in_group(dir, then, false).await
+    }
+
+    async fn cli_mid_turn_in_group(
+        dir: &std::path::Path,
+        then: &str,
+        own_process_group: bool,
+    ) -> crate::Query {
         let script = format!(
             r#"#!/bin/sh
 read -r INIT_REQ
@@ -358,11 +366,45 @@ read -r USER_PROMPT
         let options = Options {
             path_to_cli: Some(write_mock_cli(dir, &script)),
             mcp_servers: Some(mock_mcp_servers()),
+            own_process_group,
             ..Options::default()
         };
         query(serde_json::Value::String("test".into()), options)
             .await
             .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cli_in_its_own_group_leads_it_and_reports_its_exit() {
+        let dir = TempDir::new().unwrap();
+        let q = cli_mid_turn_in_group(dir.path(), "exec sleep 30", true).await;
+        let pid = q.pid().unwrap() as libc::pid_t;
+        assert_eq!(unsafe { libc::getpgid(pid) }, pid);
+
+        let exited = q.process_exited();
+        tokio::pin!(exited);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), &mut exited)
+                .await
+                .is_err(),
+            "a live CLI has not exited"
+        );
+        q.kill().await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), exited)
+            .await
+            .expect("the kill must report the exit");
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the CLI was waited on");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cli_stays_in_the_host_group_by_default() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "exec sleep 30").await;
+        let pid = q.pid().unwrap() as libc::pid_t;
+        assert_eq!(unsafe { libc::getpgid(pid) }, unsafe { libc::getpgid(0) });
+        q.close().await;
     }
 
     /// Found live: a CLI killed with `kill -9` has no exit code, and was

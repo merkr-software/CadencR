@@ -69,6 +69,7 @@ pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Q
 
     // Capture PID before moving process into reader loop.
     let pid = process.pid();
+    let process_ended = process.ended();
     info!(pid = ?pid, cli = %cli_path.display(), "CLI process spawned");
 
     // Take stdin out of the process — Query and the reader loop share it
@@ -119,6 +120,7 @@ pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Q
         kill_tx,
         _cancel_token: cancel_token,
         pid,
+        process_ended,
     };
 
     send_initialize_and_first_prompt(&query, &options, content).await?;

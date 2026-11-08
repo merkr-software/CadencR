@@ -106,7 +106,7 @@ pub(super) async fn reap(pool: &SqlitePool) -> anyhow::Result<usize> {
 /// `ps -o lstart` would round through the wall clock (and can shift by a
 /// second between calls); macOS `ps` reports the kernel's own start time.
 #[cfg(target_os = "linux")]
-async fn process_identity(pid: u32) -> Option<String> {
+pub(crate) async fn process_identity(pid: u32) -> Option<String> {
     let stat = tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
         .await
         .ok()?;
@@ -123,7 +123,7 @@ fn start_ticks(stat: &str) -> Option<&str> {
 }
 
 #[cfg(not(target_os = "linux"))]
-async fn process_identity(pid: u32) -> Option<String> {
+pub(crate) async fn process_identity(pid: u32) -> Option<String> {
     let output = capture("ps", &["-p", &pid.to_string(), "-o", "lstart="])
         .await
         .ok()?;

@@ -74,6 +74,9 @@ pub struct Query {
 
     /// PID of the CLI subprocess (captured at spawn time).
     pub(super) pid: Option<u32>,
+
+    /// Cancelled once the reader has let go of the CLI process.
+    pub(super) process_ended: CancellationToken,
 }
 
 impl Stream for Query {
@@ -142,6 +145,15 @@ impl Query {
         self.pid
     }
 
+    /// Resolves once the CLI process is gone: it exited and was waited on, or
+    /// it was sent SIGKILL because the query was dropped. Whatever it leaves
+    /// behind (its process group, see
+    /// [`Options::own_process_group`](crate::Options::own_process_group)) can
+    /// be cleaned up from then on. Resolves at once for a stub.
+    pub fn process_exited(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        self.process_ended.clone().cancelled_owned()
+    }
+
     /// Gracefully kill the child process (SIGTERM → wait 5s → SIGKILL) and
     /// stop the background reader task.
     ///
@@ -180,6 +192,8 @@ impl Query {
         let (msg_tx, message_rx) = mpsc::channel(1);
         drop(msg_tx); // close immediately so stream_input will fail
         let (kill_tx, _kill_rx) = mpsc::channel(1);
+        let process_ended = CancellationToken::new();
+        process_ended.cancel();
         Self {
             message_rx,
             process_stdin: Arc::new(Mutex::new(None)),
@@ -193,6 +207,7 @@ impl Query {
             kill_tx,
             _cancel_token: None,
             pid: None,
+            process_ended,
         }
     }
 }
