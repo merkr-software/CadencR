@@ -17,6 +17,12 @@
  * of `  x}\n`) and folds short unchanged runs into the change, so a pure line
  * deletion or insertion reads as an edit inside a surviving line.
  *
+ * Lines are counted the way git counts them: the empty line the editor shows
+ * after a final line break is not a line of either text. Without that, an
+ * empty baseline would hold one empty line, and typing on the last empty line
+ * would read as editing it instead of adding a line. As in VS Code, a trailing
+ * line break added or removed on its own draws no marker.
+ *
  * This runs on every keystroke, so the lines both texts share at the start and
  * at the end are skipped with a character scan and only the region between
  * them is split and encoded.
@@ -63,13 +69,25 @@ interface ChangedRegion {
   hasSuffix: boolean;
 }
 
-/** The lines of `text[from, to)`; a region ending before EOF ends on a line break. */
+/**
+ * The lines of `text[from, to)`. The region starts a line and ends on a line
+ * break or at the end of the text, so a final empty piece is never a line: it
+ * either belongs to the shared suffix or is the editor's empty line after the
+ * file's last line break.
+ */
 function regionLines(text: string, from: number, to: number): string[] {
   const lines = text.slice(from, to).split("\n");
-  // The `\n` closing the region's last line is followed by the shared suffix,
-  // not by a line of the region.
-  if (to < text.length) lines.pop();
+  if (lines.at(-1) === "") lines.pop();
   return lines;
+}
+
+/**
+ * The baseline as the editor holds it: the editor splits lines on `\r\n`, `\r`
+ * and `\n` and joins its document with `\n`, so a CRLF file's HEAD content
+ * would otherwise differ on every line.
+ */
+export function toEditorLineBreaks(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
 }
 
 /**
@@ -173,16 +191,20 @@ function encodeLines(a: readonly string[], b: readonly string[]): [string, strin
  * Diff `current` against `baseline` line by line and return the markers,
  * sorted by line.
  *
- * @param baseline  file content at HEAD
+ * @param baseline  file content at HEAD, with the editor's line breaks
+ *                  (see `toEditorLineBreaks`)
  * @param current   current buffer content
  */
 export function computeGitLineMarkers(baseline: string, current: string): GitLineMarker[] {
   if (baseline === current) return [];
   const region = changedRegion(baseline, current);
   const { lineOffset, currentLines } = region;
-  // Without a shared suffix the region runs to the end of the file, so its
-  // last line is the document's last line.
-  const lastLine = region.hasSuffix ? Infinity : lineOffset + currentLines.length;
+  // Without a shared suffix the region runs to the end of the file: its last
+  // line is the document's last, or the editor's empty line after a final break.
+  const endsWithBreak = current === "" || current.endsWith("\n");
+  const lastLine = region.hasSuffix
+    ? Infinity
+    : lineOffset + currentLines.length + (endsWithBreak ? 1 : 0);
   const deletedAt = (index: number): GitLineMarker => ({
     line: Math.min(lineOffset + index + 1, lastLine),
     kind: "deleted",

@@ -23,7 +23,7 @@
  */
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import { EditorView, GutterMarker, gutter } from "@codemirror/view";
-import { computeGitLineMarkers, type GitMarkerKind } from "./diff-to-markers";
+import { computeGitLineMarkers, toEditorLineBreaks, type GitMarkerKind } from "./diff-to-markers";
 
 /** Swap the HEAD baseline the gutter diffs against. `null` clears all markers. */
 export const setGitGutterBaseline = StateEffect.define<string | null>();
@@ -49,7 +49,8 @@ const gitGutterField = StateField.define<GitGutterState>({
     let baselineChanged = false;
     for (const effect of tr.effects) {
       if (effect.is(setGitGutterBaseline)) {
-        baseline = effect.value;
+        // Normalized once here rather than on every keystroke's re-diff.
+        baseline = effect.value === null ? null : toEditorLineBreaks(effect.value);
         baselineChanged = true;
       }
     }

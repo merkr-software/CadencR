@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeGitLineMarkers, type GitLineMarker } from "../diff-to-markers";
+import { computeGitLineMarkers, toEditorLineBreaks, type GitLineMarker } from "../diff-to-markers";
 
 function markers(baseline: string, current: string): GitLineMarker[] {
   return computeGitLineMarkers(baseline, current);
@@ -157,5 +157,38 @@ describe("computeGitLineMarkers", () => {
     const result = markers(lines.join("\n"), current.join("\n"));
     expect(result).toHaveLength(400);
     expect(result.every((marker) => marker.kind === "modified")).toBe(true);
+  });
+
+  describe("line counting", () => {
+    it("reads a CRLF baseline the way the editor holds the file", () => {
+      const baseline = toEditorLineBreaks("one\r\ntwo\r\nthree\r\n");
+      expect(markers(baseline, "one\ntwo\nthree\n")).toEqual([]);
+      expect(markers(baseline, "one\nthree\n")).toEqual([{ line: 2, kind: "deleted" }]);
+      // The editor also breaks lines on a lone `\r`.
+      expect(toEditorLineBreaks("a\rb")).toBe("a\nb");
+    });
+
+    it("marks every line of a file whose baseline is empty as added", () => {
+      expect(markers("", "x")).toEqual([{ line: 1, kind: "added" }]);
+      expect(markers("", "x\ny\n")).toEqual([
+        { line: 1, kind: "added" },
+        { line: 2, kind: "added" },
+      ]);
+    });
+
+    it("marks emptying a file as one deletion", () => {
+      expect(markers("x\ny", "")).toEqual([{ line: 1, kind: "deleted" }]);
+      expect(markers("x\ny\n", "")).toEqual([{ line: 1, kind: "deleted" }]);
+    });
+
+    it("marks typing on the empty last line as an added line", () => {
+      expect(markers("a\n", "a\nb")).toEqual([{ line: 2, kind: "added" }]);
+      expect(markers("a\nb\n", "a\nb\nc")).toEqual([{ line: 3, kind: "added" }]);
+    });
+
+    it("draws no marker for a trailing line break added or removed alone", () => {
+      expect(markers("a\nb", "a\nb\n")).toEqual([]);
+      expect(markers("a\nb\n", "a\nb")).toEqual([]);
+    });
   });
 });
