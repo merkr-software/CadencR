@@ -97,6 +97,11 @@ pub(in crate::domain::ws_session) async fn handle_pending_prompt(
         context.feature_id,
     )
     .await;
+    // Working, with the launch claimed: a Stop now waits for the runtime and
+    // stops its turn, instead of waiting behind the worktree setup and spawn.
+    if context.spawn_claim.is_some() {
+        crate::domain::ws_session::handler::let_controls_through();
+    }
     let auto_name_handled = match prepare_worktree(&mut context).await {
         Ok(handled) => handled,
         Err(error) => {

@@ -51,7 +51,8 @@ export const SESSION_COMMANDS = {
     replay: false,
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
     // Nothing was running (the turn ended first): stopped is what the user
-    // asked for. A turn still starting answers `AGENT_STARTING` instead.
+    // asked for. A turn still starting is stopped once it runs; only a launch
+    // that follows it answers `AGENT_STARTING`.
     satisfiedBy: new Set(["NOTHING_TO_STOP"]),
   },
   // A refused pause leaves the agent working into the sleep: a toast, not a

@@ -131,6 +131,20 @@ impl SessionRuntimeRegistry {
         claim
     }
 
+    /// Wait until no launch of `session_id` holds its claim: the runtime it
+    /// started is registered (or the launch failed).
+    pub(crate) async fn spawn_settled(&self, session_id: i64) {
+        let launch = self
+            .sessions
+            .lock()
+            .await
+            .get(&session_id)
+            .map(|entry| entry.launch.clone());
+        if let Some(launch) = launch {
+            drop(launch.lock().await);
+        }
+    }
+
     pub(crate) async fn is_spawning(&self, session_id: i64) -> bool {
         self.sessions
             .lock()

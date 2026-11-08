@@ -9,7 +9,8 @@ use crate::domain::ws_session::runtime::output::CommandError;
 /// clients treat it as done.
 pub(crate) const NOTHING_TO_STOP: &str = "NOTHING_TO_STOP";
 /// A turn is starting but has no runtime to stop yet. Not done: the agent
-/// starts anyway, so the user must stop it again once it runs.
+/// starts anyway, so the user must stop it again once it runs. (A socket's
+/// Stop waits for the launch instead: see `lifecycle::stop_once_started`.)
 pub(crate) const AGENT_STARTING: &str = "AGENT_STARTING";
 
 /// Stop `db_session_id`'s running work: its user shell command, the starting

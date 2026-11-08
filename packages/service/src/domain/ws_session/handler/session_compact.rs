@@ -164,6 +164,9 @@ async fn resolve_compact_runtime(
             };
             let feature_id = handle.feature_id;
             drop(sessions);
+            // `begin_compact` marked it working and spawn-pending: a Stop now
+            // cancels it (see `stop_session`).
+            super::let_controls_through();
             let query = spawn_pending_runtime_for_compact(
                 envelope_id,
                 sender,

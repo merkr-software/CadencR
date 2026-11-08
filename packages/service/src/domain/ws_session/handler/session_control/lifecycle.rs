@@ -7,6 +7,7 @@ use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::ws_session::runtime::detached_runtime::{resume_session_id, DetachedRuntime};
+use crate::domain::ws_session::runtime::output::CommandError;
 
 /// Handle session.interrupt
 pub(crate) async fn handle_interrupt(
@@ -36,8 +37,28 @@ pub(crate) async fn handle_interrupt(
         }
     };
 
-    if let Err(error) = super::stop_session(app_state, Some(sdk_sessions), db_session_id).await {
+    if let Err(error) = stop_once_started(app_state, sdk_sessions, db_session_id).await {
         send_error(sender, &envelope.id, error.code, &error.message);
+    }
+}
+
+/// Stop the session's work. A Stop that lands while its runtime is still
+/// launching (a socket's controls no longer wait behind its own prompt) stops
+/// the turn that launch starts, rather than asking the user to stop again.
+async fn stop_once_started(
+    app_state: &AppState,
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
+) -> Result<(), CommandError> {
+    match super::stop_session(app_state, Some(sdk_sessions), db_session_id).await {
+        Err(error) if error.code == super::AGENT_STARTING => {
+            app_state
+                .session_runtimes
+                .spawn_settled(db_session_id)
+                .await;
+            super::stop_session(app_state, Some(sdk_sessions), db_session_id).await
+        }
+        stopped => stopped,
     }
 }
 
@@ -322,4 +343,74 @@ pub(crate) async fn handle_clear(
     )
     .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(reply).into()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ws_session::handler::tests::support::{
+        make_active_handle, make_test_app_state,
+    };
+    use crate::domain::ws_session::handler::types::new_sdk_sessions;
+
+    /// A Stop sent on the socket whose prompt is still launching the runtime
+    /// stops the turn once the launch registered it.
+    #[tokio::test]
+    async fn a_stop_during_a_launch_stops_the_turn_it_starts() {
+        let app_state = make_test_app_state().await;
+        let sessions = new_sdk_sessions();
+        let mut pending = make_active_handle(1, None);
+        pending.state = QueryState::Pending(RuntimeSpawnConfig::default());
+        sessions.lock().await.insert(51, pending);
+        app_state.session_status_tx.broadcast_running(51, 1);
+        let launch = app_state.session_runtimes.claim_spawn(51).await;
+
+        let stop = tokio::spawn({
+            let app_state = app_state.clone();
+            let sessions = sessions.clone();
+            async move { stop_once_started(&app_state, &sessions, 51).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(!stop.is_finished(), "the Stop waits for the launch");
+
+        sessions
+            .lock()
+            .await
+            .insert(51, make_active_handle(1, Some("cli".into())));
+        drop(launch);
+
+        // The stub runtime has no CLI behind it: its refusal proves the Stop
+        // reached the launched runtime instead of reporting `AGENT_STARTING`.
+        let error = stop.await.unwrap().unwrap_err();
+        assert_eq!(error.code, "SDK_ERROR");
+    }
+
+    /// The launch failed and the session went idle: the Stop got what it asked.
+    #[tokio::test]
+    async fn a_stop_during_a_failed_launch_finds_nothing_to_stop() {
+        let app_state = make_test_app_state().await;
+        let sessions = new_sdk_sessions();
+        let mut pending = make_active_handle(1, None);
+        pending.state = QueryState::Pending(RuntimeSpawnConfig::default());
+        sessions.lock().await.insert(52, pending);
+        app_state.session_status_tx.broadcast_running(52, 1);
+        let launch = app_state.session_runtimes.claim_spawn(52).await;
+
+        let stop = tokio::spawn({
+            let app_state = app_state.clone();
+            let sessions = sessions.clone();
+            async move { stop_once_started(&app_state, &sessions, 52).await }
+        });
+        tokio::task::yield_now().await;
+        app_state.session_status_tx.broadcast(
+            52,
+            1,
+            crate::domain::session_status::AgentStatus::Idle,
+            None,
+        );
+        drop(launch);
+
+        let error = stop.await.unwrap().unwrap_err();
+        assert_eq!(error.code, super::super::NOTHING_TO_STOP);
+    }
 }

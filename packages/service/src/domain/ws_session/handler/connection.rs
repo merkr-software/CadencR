@@ -19,9 +19,13 @@ use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope};
 use crate::remote::RemoteContext;
 
 use super::dispatch::dispatch_envelope;
-use super::types::new_sdk_sessions;
+use super::types::{new_sdk_sessions, WsSender};
 
+mod inbound_lanes;
 mod outbound;
+
+pub(crate) use inbound_lanes::let_controls_through;
+use inbound_lanes::InboundLanes;
 
 use outbound::{
     retryable_error_shutdown, retryable_shutdown, spawn_outbound_bridge, spawn_socket_sender,
@@ -198,6 +202,17 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
         bridge: bridge_task.abort_handle(),
         socket: send_task.abort_handle(),
     };
+    let mut lanes = {
+        let sender = outbound_tx.clone();
+        let state = state.clone();
+        InboundLanes::spawn(move |envelope| {
+            let sender = sender.clone();
+            let state = state.clone();
+            async move { run_envelope(envelope, &sender, &state).await }
+        })
+    };
+
+    let lane_ended = lanes.ended();
 
     // Inbound loop: read messages from client. We `select!` against the
     // outbound task so a half-open TCP socket (e.g. laptop sleep, Wi-Fi
@@ -211,6 +226,10 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
             biased;
             _ = &mut send_task => {
                 debug!("ws_sink closed; ending inbound loop");
+                break;
+            }
+            _ = lane_ended.notified() => {
+                warn!("WebSocket command lane ended; ending connection");
                 break;
             }
             bridge_exit = &mut bridge_exit_rx => {
@@ -260,15 +279,9 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                         let text_str: &str = &text;
                         match WsEnvelope::try_from(text_str.to_string()) {
                             Ok(envelope) => {
-                                let touched_session = dispatch_envelope(
-                                    envelope,
-                                    &outbound_tx,
-                                    &new_sdk_sessions(),
-                                    &state,
-                                )
-                                .await;
-                                if let Some(id) = touched_session {
-                                    state.session_runtimes.prune_session(id, &state.ws_feature_senders).await;
+                                if lanes.route(envelope).await.is_err() {
+                                    warn!("WebSocket command lane closed; ending connection");
+                                    break;
                                 }
                             }
                             Err(e) => {
@@ -294,7 +307,19 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
         finish_graceful_close(&mut send_task, &mut ws_stream).await;
     }
 
+    lanes.finish().await;
     lifetime.finish().await;
+}
+
+/// Run one inbound command (see [`InboundLanes`] for which lane it runs on).
+async fn run_envelope(envelope: WsEnvelope, sender: &WsSender, state: &AppState) {
+    let touched_session = dispatch_envelope(envelope, sender, &new_sdk_sessions(), state).await;
+    if let Some(id) = touched_session {
+        state
+            .session_runtimes
+            .prune_session(id, &state.ws_feature_senders)
+            .await;
+    }
 }
 
 #[cfg(test)]
