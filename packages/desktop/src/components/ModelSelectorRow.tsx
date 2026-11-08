@@ -12,6 +12,7 @@ export interface ModelSelectorRowProvider {
   disabled: boolean;
   status: "available" | "unavailable" | "coming_soon";
   statusMessage?: string;
+  refreshError?: string;
   models: RuntimeModelOption[];
 }
 

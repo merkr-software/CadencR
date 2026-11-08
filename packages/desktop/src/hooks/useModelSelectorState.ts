@@ -24,6 +24,7 @@ import {
 import { useResolvedSelection } from "@/api/agentSelection";
 import { toastError } from "@/lib/api-errors";
 import type { ModelSelectorRowProvider } from "@/components/ModelSelectorRow";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
 import {
   getModelDescription,
   getModelLabel,
@@ -264,12 +265,9 @@ export function useModelSelectorState(
 
   const providers = availableCatalogProviders(agentCatalog.data?.providers).map(
     (provider): ModelSelectorRowProvider => ({
-      id: provider.id,
-      label: provider.label,
-      disabled: false,
+      ...pickerProviderFromCatalog(provider),
       status: provider.status,
       statusMessage: provider.status_message,
-      models: provider.models,
     }),
   );
 

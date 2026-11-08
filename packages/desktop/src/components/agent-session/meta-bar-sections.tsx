@@ -70,6 +70,7 @@ export function useMetaBarDerivedState(
         id: provider.id,
         label: provider.label,
         disabled: provider.disabled,
+        refreshError: provider.refreshError,
         models: provider.models,
       }));
     }

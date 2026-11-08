@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { AgentCatalog } from "@/api/agentRuntime";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
 import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
 import { availableCatalogProviders, DEFAULT_PROVIDER } from "@/shared/models";
 import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
@@ -27,13 +28,7 @@ export function useAgentSessionModelState(params: UseAgentSessionModelStateParam
   } = params;
 
   const providerOptions = useMemo(
-    () =>
-      availableCatalogProviders(agentCatalog?.providers).map((provider) => ({
-        id: provider.id,
-        label: provider.label,
-        disabled: false,
-        models: provider.models,
-      })),
+    () => availableCatalogProviders(agentCatalog?.providers).map(pickerProviderFromCatalog),
     [agentCatalog?.providers],
   );
   const isCatalogLoading = agentCatalog === undefined;

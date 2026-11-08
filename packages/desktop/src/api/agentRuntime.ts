@@ -29,6 +29,8 @@ export interface RuntimeProviderOption extends ProviderHostCapabilityFields {
   status: "available" | "unavailable" | "coming_soon";
   origin: ProviderOrigin;
   status_message?: string;
+  /** Set when `models` is the last known catalog because refreshing it failed; says why. */
+  refresh_error?: string;
   icon_data?: string;
   models: RuntimeModelOption[];
   modes?: RuntimeProviderModeOption[];
@@ -102,7 +104,16 @@ function readQueryExtras(arg: boolean | QueryExtras | undefined): QueryExtras {
 // profile mutations invalidate `["agent-catalog"]` explicitly; switching back to
 // an already-probed cwd then serves from cache instead of re-probing.
 const AGENT_CATALOG_STALE_MS = 10 * 60_000;
+// A provider serving its last known catalog retries the refresh on the backend
+// within 30s. Poll at that pace while one does (focus and reconnect never
+// refetch, and the picker mounts no new observer), so the notice goes away once
+// the refresh recovers.
+const AGENT_CATALOG_LAST_KNOWN_POLL_MS = 30_000;
 const AGENT_CATALOG_GC_MS = 30 * 60_000;
+
+function servesLastKnownCatalog(catalog: AgentCatalog | undefined): boolean {
+  return catalog?.providers.some((provider) => provider.refresh_error) ?? false;
+}
 
 export function useAgentCatalog(extras?: QueryExtras) {
   const { cwd, provider, profile, ...queryExtras } = extras ?? {};
@@ -130,7 +141,12 @@ export function useAgentCatalog(extras?: QueryExtras) {
         providers: catalog.providers.map(validateHostCapabilityFields),
       };
     },
-    staleTime: AGENT_CATALOG_STALE_MS,
+    staleTime: (catalogQuery) =>
+      servesLastKnownCatalog(catalogQuery.state.data)
+        ? AGENT_CATALOG_LAST_KNOWN_POLL_MS
+        : AGENT_CATALOG_STALE_MS,
+    refetchInterval: (catalogQuery) =>
+      servesLastKnownCatalog(catalogQuery.state.data) ? AGENT_CATALOG_LAST_KNOWN_POLL_MS : false,
     gcTime: AGENT_CATALOG_GC_MS,
     ...queryExtras,
   });

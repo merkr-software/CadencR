@@ -18,6 +18,7 @@ import {
   type RuntimeProviderOption,
 } from "@/api/agentRuntime";
 import type { Provider } from "@/components/agent-session/ModelMetaChip";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
 import { useNewSessionSelection } from "@/hooks/useNewSessionSelection";
 import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
 import { defaultEditModeFor } from "@/lib/provider-modes";
@@ -147,12 +148,7 @@ function pickerProviders(
 ): Provider[] {
   return catalogProviders
     .filter((provider) => kind !== "conversation" || provider.id === providerId)
-    .map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      disabled: false,
-      models: provider.models,
-    }));
+    .map(pickerProviderFromCatalog);
 }
 
 /**

@@ -3,6 +3,7 @@ import { BotIcon, ChevronDownIcon, CircleDashedIcon, Loader2Icon, XIcon } from "
 import { useAgentCatalog, type RuntimeProviderOption } from "@/api/agentRuntime";
 import { ModelMetaChip, type Provider } from "@/components/agent-session/ModelMetaChip";
 import { RuntimeModelPicker } from "@/components/RuntimeModelPicker";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
 import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -41,13 +42,7 @@ export function VirtualSkillAgentControls({
     [catalog.data?.providers],
   );
   const pickerProviders = useMemo(
-    (): Provider[] =>
-      providers.map((provider) => ({
-        id: provider.id,
-        label: provider.label,
-        disabled: false,
-        models: provider.models,
-      })),
+    (): Provider[] => providers.map(pickerProviderFromCatalog),
     [providers],
   );
   const [pickerOpen, setPickerOpen] = useState(false);
