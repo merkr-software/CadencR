@@ -15,6 +15,10 @@ Cadencr is a desktop IDE for multiple AI coding agents: pnpm/Turborepo, React/El
 
 These two constraints stay visible here even before the detailed rules are loaded.
 
+## Documentation
+
+Never commit session artifacts: QA reports, qualification evidence, investigation notes, delivery plans, progress checkpoints or handoffs, dated or not. They go in the PR description, the issue or your final reply. Tracked docs hold only what stays true after the task: reference, contracts, runbooks and `docs/adr/`. When work lands, update the reference doc to the new state instead of appending history. Details: [no-session-docs](.claude/rules/no-session-docs.md).
+
 ## Repository Map
 
 - `packages/desktop/`: Electron + React (`@cadencr/desktop`); `@` aliases `src/`. Frontend/backend requests use HTTP (Axios, generated client) and updates use WebSocket.
@@ -87,6 +91,7 @@ This index is generated from `.claude/rules/*.md`; edit those sources and run `p
 | [keyboard-shortcuts](.claude/rules/keyboard-shortcuts.md) | `**/*.tsx` |
 | [no-destructive-ops](.claude/rules/no-destructive-ops.md) | Every task |
 | [no-optimistic-updates](.claude/rules/no-optimistic-updates.md) | `packages/desktop/src/**` |
+| [no-session-docs](.claude/rules/no-session-docs.md) | Every task |
 | [platform-support](.claude/rules/platform-support.md) | Every task |
 | [provider-boundaries](.claude/rules/provider-boundaries.md) | `packages/service/src/**`, `packages/desktop/src/**`, `packages/*-sdk-rs/src/**` |
 | [routes](.claude/rules/routes.md) | `packages/desktop/src/routes/**` |
