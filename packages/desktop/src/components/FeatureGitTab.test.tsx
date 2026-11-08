@@ -17,6 +17,7 @@ vi.mock("@/api/generated", () => ({
   useGetFeatureSettings: () => ({ data: [{ key: "git_view_mode", value: "stashes" }] }),
   useGetStats: () => ({ isLoading: false, isError: false, data: undefined }),
   useListDiffComments: () => ({ data: [] }),
+  useGetGitPathPrefix: () => ({ data: { prefix: "", root: "/repo" }, isError: false }),
   useGetPrComments: () => ({ data: undefined, isLoading: false, isError: false, error: null }),
   useSetFeatureSetting: (options: {
     mutation: { onSuccess: (response: unknown, variables: { data: { value: string } }) => void };

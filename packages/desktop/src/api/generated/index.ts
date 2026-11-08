@@ -2658,6 +2658,13 @@ export interface GitPathPrefixResponse {
    * @nullable
    */
   prefix?: string | null;
+  /**
+   * Absolute path of the checkout root, where Git runs. Names a Git path
+   * outside the feature's directory without ambiguity. `None` when the
+   * directory has no Git metadata.
+   * @nullable
+   */
+  root?: string | null;
 }
 
 export interface GitStats {

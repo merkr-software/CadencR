@@ -117,6 +117,10 @@ pub struct GitPathPrefixResponse {
     /// separators: empty at the root, `packages/app` for a monorepo project.
     /// `None` when the directory has no Git metadata.
     pub prefix: Option<String>,
+    /// Absolute path of the checkout root, where Git runs. Names a Git path
+    /// outside the feature's directory without ambiguity. `None` when the
+    /// directory has no Git metadata.
+    pub root: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]

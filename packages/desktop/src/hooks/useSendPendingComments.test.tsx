@@ -37,6 +37,8 @@ function makeWrapper() {
   };
 }
 
+const asIs = (path: string): string => path;
+
 const sampleComments: PendingDiffComment[] = [
   { file_path: "src/a.ts", line_number: 1, content: "fix this" },
   { file_path: "src/a.ts", line_number: 4, content: "and this" },
@@ -50,7 +52,13 @@ describe("useSendPendingComments", () => {
 
   it("disables + hides when there are no comments", () => {
     const { result } = renderHook(
-      () => useSendPendingComments({ featureId: 1, pendingComments: [], onSend: vi.fn() }),
+      () =>
+        useSendPendingComments({
+          featureId: 1,
+          pendingComments: [],
+          toAgentPath: asIs,
+          onSend: vi.fn(),
+        }),
       { wrapper: makeWrapper() },
     );
     expect(result.current.disabled).toBe(true);
@@ -64,6 +72,7 @@ describe("useSendPendingComments", () => {
         useSendPendingComments({
           featureId: 1,
           pendingComments: sampleComments,
+          toAgentPath: asIs,
           onSend: vi.fn(),
           verb: "Fix",
         }),
@@ -76,7 +85,12 @@ describe("useSendPendingComments", () => {
 
   it("is inert when onSend is omitted", async () => {
     const { result } = renderHook(
-      () => useSendPendingComments({ featureId: 1, pendingComments: sampleComments }),
+      () =>
+        useSendPendingComments({
+          featureId: 1,
+          pendingComments: sampleComments,
+          toAgentPath: asIs,
+        }),
       { wrapper: makeWrapper() },
     );
     expect(result.current.disabled).toBe(true);
@@ -108,6 +122,7 @@ describe("useSendPendingComments", () => {
         useSendPendingComments({
           featureId: 7,
           pendingComments: sampleComments,
+          toAgentPath: asIs,
           onSend,
           onAfterSend,
         }),
@@ -146,6 +161,7 @@ describe("useSendPendingComments", () => {
           useSendPendingComments({
             featureId: 1,
             pendingComments: sampleComments,
+            toAgentPath: asIs,
             onSend,
             onAfterSend,
           }),
@@ -177,7 +193,13 @@ describe("useSendPendingComments", () => {
     );
     const onSend = vi.fn();
     const { result } = renderHook(
-      () => useSendPendingComments({ featureId: 1, pendingComments: sampleComments, onSend }),
+      () =>
+        useSendPendingComments({
+          featureId: 1,
+          pendingComments: sampleComments,
+          toAgentPath: asIs,
+          onSend,
+        }),
       { wrapper: makeWrapper() },
     );
 
@@ -194,5 +216,46 @@ describe("useSendPendingComments", () => {
     await act(async () => {
       await first;
     });
+  });
+
+  it("waits for the agent path mapping before sending", async () => {
+    const onSend = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useSendPendingComments({
+          featureId: 1,
+          pendingComments: sampleComments,
+          toAgentPath: undefined,
+          onSend,
+        }),
+      { wrapper: makeWrapper() },
+    );
+    expect(result.current.disabled).toBe(true);
+    await act(async () => {
+      await result.current.send();
+    });
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("names the files the way the agent resolves them", async () => {
+    mocks.mutateAsync.mockResolvedValue({ deleted: 1 });
+    const onSend = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useSendPendingComments({
+          featureId: 1,
+          pendingComments: [
+            { file_path: "packages/app/src/a.ts", line_number: 3, content: "rename" },
+          ],
+          toAgentPath: (path) => path.replace("packages/app/", ""),
+          onSend,
+        }),
+      { wrapper: makeWrapper() },
+    );
+    await act(async () => {
+      await result.current.send();
+    });
+    expect(onSend).toHaveBeenCalledWith("## src/a.ts\n- Line 3: rename");
   });
 });

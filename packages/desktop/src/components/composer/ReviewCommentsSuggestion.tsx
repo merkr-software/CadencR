@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { MessageSquareCode, Plus } from "lucide-react";
 import { useListDiffComments } from "@/api/generated";
+import { useAgentPathMapper } from "@/hooks/useGitPathPrefix";
 import { formatCommentsForAgent } from "@/lib/format-diff-comments";
 import {
   composerKeyFor,
@@ -25,14 +26,17 @@ export function ReviewCommentsSuggestion(): ReactElement | null {
   const pending = (Array.isArray(data) ? data : []).filter(
     (comment) => comment.status === "pending",
   );
-  if (featureId == null || attached || pending.length === 0) return null;
+  // Comments name repository-relative paths; the agent runs in the feature's
+  // directory. Offered once those can be mapped, looked up only when offered.
+  const toAgentPath = useAgentPathMapper(featureId ?? 0, !attached && pending.length > 0);
+  if (featureId == null || attached || pending.length === 0 || !toAgentPath) return null;
 
   const attach = (): void => {
     useComposerContextStore.getState().add(key, {
       kind: "review",
       label: "Review comments",
       detail: String(pending.length),
-      content: formatCommentsForAgent(pending),
+      content: formatCommentsForAgent(pending, toAgentPath),
       commentIds: pending.map((comment) => comment.id),
     });
   };

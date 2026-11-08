@@ -6,6 +6,8 @@ import {
   type UseSendPendingCommentsResult,
 } from "@/hooks/useSendPendingComments";
 import { usePrReviewThreads, type PrReviewThreads } from "@/hooks/usePrReviewThreads";
+import { useAgentPathMapper } from "@/hooks/useGitPathPrefix";
+import type { AgentPathMapper } from "@/lib/git-paths";
 import { GitTabLayout } from "./diff/GitTabLayout";
 import type { GitSendCommentsBarProps } from "./diff/GitSendCommentsBar";
 import { useGitTabPanes } from "./diff/useGitTabPanes";
@@ -75,15 +77,24 @@ function useFeatureGitReviews(
   viewMode: GitViewMode,
   prStatus: PrStatusSnapshot | undefined,
   onSendComments: ((message: string) => void) | undefined,
-): { reviewThreads: PrReviewThreads; reviews: GitTabReviews } {
+): {
+  reviewThreads: PrReviewThreads;
+  reviews: GitTabReviews;
+  toAgentPath: AgentPathMapper | undefined;
+} {
+  // Comments name repository-relative paths; the agent runs in the feature's directory.
+  const toAgentPath = useAgentPathMapper(featureId);
   const picked = useViewedPrStore(selectViewedPr(featureId));
   const viewed = viewMode === "pr" ? viewedThreadPr(prStatus, picked) : undefined;
   const pr = viewMode === "pr" ? viewed?.pr : prStatus?.pr;
   const otherPrNumber = viewed && !viewed.isCurrent ? viewed.pr.number : undefined;
   const visible = (viewMode === "pr" || viewMode === "vs-target") && pr != null;
   const reviewThreads = usePrReviewThreads(featureId, visible, otherPrNumber);
-  const reviews = useGitTabReviews(viewMode, pr, onSendComments, reviewThreads);
-  return useMemo(() => ({ reviewThreads, reviews }), [reviewThreads, reviews]);
+  const reviews = useGitTabReviews(viewMode, pr, onSendComments, reviewThreads, toAgentPath);
+  return useMemo(
+    () => ({ reviewThreads, reviews, toAgentPath }),
+    [reviewThreads, reviews, toAgentPath],
+  );
 }
 
 function useFeatureGitShortcuts(
@@ -180,7 +191,7 @@ export const FeatureGitTab = memo(function FeatureGitTab({
       prs.find((entry) => entry.isCurrent),
     );
   }, [prStatus]);
-  const { reviewThreads, reviews } = useFeatureGitReviews(
+  const { reviewThreads, reviews, toAgentPath } = useFeatureGitReviews(
     featureId,
     view.viewMode,
     prStatus,
@@ -189,8 +200,8 @@ export const FeatureGitTab = memo(function FeatureGitTab({
   const drafts = useSendPendingComments({
     featureId,
     pendingComments,
+    toAgentPath,
     onSend: onSendComments,
-    verb: "Send",
   });
   const handleViewReviewThread = useCallback(
     (thread: CommentThread): void => {

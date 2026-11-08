@@ -80,11 +80,16 @@ pub async fn get_git_path_prefix(
     state: &AppState,
     params: GetGitPathPrefixParams,
 ) -> Result<GitPathPrefixResponse, AppError> {
-    let prefix = match resolve_feature_git_dir(state, params.feature_id).await? {
-        Some(dir) => Some(dir.cwd_prefix()?),
-        None => None,
+    let Some(dir) = resolve_feature_git_dir(state, params.feature_id).await? else {
+        return Ok(GitPathPrefixResponse {
+            prefix: None,
+            root: None,
+        });
     };
-    Ok(GitPathPrefixResponse { prefix })
+    Ok(GitPathPrefixResponse {
+        prefix: Some(dir.cwd_prefix()?),
+        root: Some(dir.root.to_string_lossy().into_owned()),
+    })
 }
 
 #[cfg(test)]
@@ -247,15 +252,24 @@ mod tests {
                 std::fs::canonicalize(&fixture.checkout).unwrap(),
                 "{layout:?}"
             );
-            let prefix = get_git_path_prefix(
+            let mapping = get_git_path_prefix(
                 &fixture.state,
                 GetGitPathPrefixParams {
                     feature_id: FEATURE,
                 },
             )
             .await
-            .unwrap()
-            .prefix;
+            .unwrap();
+            // The contract the desktop relies on: `root` is absolute and joining
+            // `prefix` onto it names the feature's directory.
+            let root = PathBuf::from(mapping.root.expect("root"));
+            let prefix = mapping.prefix;
+            assert!(root.is_absolute(), "{layout:?}");
+            assert_eq!(
+                std::fs::canonicalize(root.join(prefix.as_deref().unwrap())).unwrap(),
+                std::fs::canonicalize(&fixture.cwd).unwrap(),
+                "{layout:?}"
+            );
             if matches!(layout, Layout::Root | Layout::RootWorktree) {
                 // A feature at the root keeps its recorded spelling.
                 assert_eq!(dir.root, fixture.cwd, "{layout:?}");

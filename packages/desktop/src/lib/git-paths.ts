@@ -22,3 +22,26 @@ export function gitPathToFeaturePath(gitPath: string, prefix: string): string | 
 export function featurePathToGitPath(featurePath: string, prefix: string): string {
   return prefix === "" ? featurePath : `${prefix}/${featurePath}`;
 }
+
+/** Where the feature's directory sits in its checkout (`GET /api/git/path-prefix`). */
+export interface GitPathMapping {
+  prefix: string;
+  /** Absolute path of the checkout root. */
+  root: string;
+}
+
+/** Names a Git path the way the feature's agent resolves it (see `gitPathForAgent`). */
+export type AgentPathMapper = (gitPath: string) => string;
+
+/** Keeps the repository-relative spelling: the Git tab's own, and the fallback without Git metadata. */
+export const keepGitPath: AgentPathMapper = (gitPath) => gitPath;
+
+/**
+ * How a Git path reads to the feature's agent, which runs in the feature's
+ * directory: relative to that directory when the file lies inside it, and
+ * absolute otherwise — a repository-relative path would be resolved against the
+ * subdirectory (`packages/app/packages/app/x`).
+ */
+export function gitPathForAgent(gitPath: string, mapping: GitPathMapping): string {
+  return gitPathToFeaturePath(gitPath, mapping.prefix) ?? `${mapping.root}/${gitPath}`;
+}

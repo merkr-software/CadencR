@@ -1,11 +1,17 @@
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import type { CommentThread, PrSummary } from "@/api/generated";
+import type { AgentPathMapper } from "@/lib/git-paths";
 import { formatPrThreadsForAgent } from "@/lib/pr-review-threads";
 
 export interface UseSendUnresolvedPrCommentsParams {
   unresolved: readonly CommentThread[];
   pr: PrSummary | null | undefined;
+  /**
+   * Names the threads' files for the agent (`useAgentPathMapper`); sending
+   * waits while it is `undefined`.
+   */
+  toAgentPath: AgentPathMapper | undefined;
   /** Dispatches the formatted briefing to the feature's agent. */
   onSend?: (message: string) => void;
 }
@@ -28,16 +34,16 @@ export interface UseSendUnresolvedPrCommentsResult {
 export function useSendUnresolvedPrComments(
   params: UseSendUnresolvedPrCommentsParams,
 ): UseSendUnresolvedPrCommentsResult {
-  const { unresolved, pr, onSend } = params;
+  const { unresolved, pr, toAgentPath, onSend } = params;
   const count = unresolved.length;
   const shouldRender = !!onSend && count > 0;
-  const disabled = !onSend || count === 0;
+  const disabled = !onSend || !toAgentPath || count === 0;
 
   const send = useCallback(
     (selected?: readonly CommentThread[]): void => {
       const threads = selected ?? unresolved;
-      if (!onSend || threads.length === 0) return;
-      const message = formatPrThreadsForAgent(threads, pr);
+      if (!onSend || !toAgentPath || threads.length === 0) return;
+      const message = formatPrThreadsForAgent(threads, pr, toAgentPath);
       if (!message) {
         toast.error("Those review threads could not be formatted for the agent.");
         return;
@@ -47,7 +53,7 @@ export function useSendUnresolvedPrComments(
         `Sent ${threads.length} review ${threads.length === 1 ? "thread" : "threads"} to the agent.`,
       );
     },
-    [onSend, pr, unresolved],
+    [onSend, pr, toAgentPath, unresolved],
   );
 
   return useMemo(() => ({ send, disabled, shouldRender }), [disabled, send, shouldRender]);

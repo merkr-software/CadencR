@@ -1,9 +1,14 @@
+import type { AgentPathMapper } from "@/lib/git-paths";
+
 /**
  * Formats diff comments into a markdown string grouped by file path,
- * suitable for sending to an agent.
+ * suitable for sending to an agent. Comments are stored under the Git tab's
+ * repository-relative paths; `toAgentPath` names each file the way the agent
+ * resolves it from its working directory.
  */
 export function formatCommentsForAgent(
   comments: ReadonlyArray<{ file_path: string; line_number: number; content: string }>,
+  toAgentPath: AgentPathMapper,
 ): string {
   const grouped = new Map<string, { line_number: number; content: string }[]>();
   for (const c of comments) {
@@ -13,7 +18,7 @@ export function formatCommentsForAgent(
   }
   const parts: string[] = [];
   for (const [filePath, items] of grouped) {
-    parts.push(`## ${filePath}`);
+    parts.push(`## ${toAgentPath(filePath)}`);
     for (const item of items) {
       parts.push(`- Line ${item.line_number}: ${item.content}`);
     }
