@@ -7,39 +7,69 @@ use crate::error::SdkError;
 use super::query_struct::Query;
 use super::turn_state::TurnState;
 
-/// Claude Code answers an interrupt as soon as it reads it, so a missing
-/// acknowledgement means its input loop is stuck, not that it is busy.
-const INTERRUPT_ACK_TIMEOUT: Duration = Duration::from_secs(15);
-const INTERRUPT_TURN_COMPLETE_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERRUPT_TURN_COMPLETE_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// How long [`Query::interrupt_within`] waits at each step of a stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InterruptTimeouts {
+    /// For the CLI to acknowledge the interrupt. Claude Code answers an
+    /// interrupt as soon as it reads it, so a missing acknowledgement means
+    /// its input loop is stuck, not that it is busy.
+    pub ack: Duration,
+    /// Once acknowledged, for the interrupted turn to report its end.
+    pub turn_complete: Duration,
+}
+
+impl InterruptTimeouts {
+    /// The longest the stop can wait before reporting [`SdkError::Timeout`].
+    pub fn total(self) -> Duration {
+        self.ack + self.turn_complete
+    }
+}
+
+impl Default for InterruptTimeouts {
+    fn default() -> Self {
+        Self {
+            ack: Duration::from_secs(15),
+            turn_complete: Duration::from_secs(10),
+        }
+    }
+}
 
 impl Query {
     /// Interrupt the agent and wait until the CLI reports the interrupted turn
-    /// as complete. This keeps a replayed steering prompt from being written
-    /// while Claude Code is still winding down the old turn.
+    /// as complete, within the [default](InterruptTimeouts::default) timeouts.
+    /// This keeps a replayed steering prompt from being written while Claude
+    /// Code is still winding down the old turn.
     ///
     /// [`SdkError::Timeout`] means the CLI ignored the stop: it did not
     /// acknowledge it, or the turn it was running never ended. The caller
     /// decides whether to [`kill`](Query::kill) it.
     pub async fn interrupt(&self) -> Result<(), SdkError> {
+        self.interrupt_within(InterruptTimeouts::default()).await
+    }
+
+    /// [`interrupt`](Query::interrupt) with caller-chosen timeouts.
+    pub async fn interrupt_within(&self, timeouts: InterruptTimeouts) -> Result<(), SdkError> {
         // SIGINT terminates recent stream-json CLIs. The protocol interrupt
         // cancels only the turn and leaves stdin available for follow-ups.
         self.send_control_request_with_timeout(
             serde_json::json!({ "subtype": "interrupt" }),
-            INTERRUPT_ACK_TIMEOUT,
+            timeouts.ack,
         )
         .await?;
-        self.wait_for_interrupted_turn_complete().await
+        self.wait_for_interrupted_turn_complete(timeouts.turn_complete)
+            .await
     }
 
     /// The longest [`interrupt`](Query::interrupt) waits before reporting
     /// [`SdkError::Timeout`].
     pub fn interrupt_timeout() -> Duration {
-        INTERRUPT_ACK_TIMEOUT + INTERRUPT_TURN_COMPLETE_TIMEOUT
+        InterruptTimeouts::default().total()
     }
 
-    async fn wait_for_interrupted_turn_complete(&self) -> Result<(), SdkError> {
-        timeout(INTERRUPT_TURN_COMPLETE_TIMEOUT, async {
+    async fn wait_for_interrupted_turn_complete(&self, limit: Duration) -> Result<(), SdkError> {
+        timeout(limit, async {
             loop {
                 if matches!(self.turn_state().await, TurnState::TurnComplete { .. }) {
                     return;
@@ -59,7 +89,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio::time::{timeout, Duration};
 
-    use crate::{query, Options, SdkError, SdkMessage, TurnState};
+    use crate::{query, InterruptTimeouts, Options, SdkError, SdkMessage, TurnState};
 
     use super::super::test_support::{mock_mcp_servers, write_mock_cli};
 
@@ -242,6 +272,76 @@ sys.stdin.readline()
             .expect("an interrupt with no running turn must not wait for a result")
             .unwrap();
         q.close().await;
+    }
+
+    /// A CLI that completes the handshake and reads the prompt, then either
+    /// never answers again or acknowledges an interrupt without ending the
+    /// turn.
+    async fn stuck_cli(dir: &std::path::Path, acks_interrupt: bool) -> crate::Query {
+        let script = format!(
+            r#"#!/usr/bin/env python3
+import json, sys
+def ack(v): print(json.dumps({{"type":"control_response","response":{{"subtype":"success","request_id":v["request_id"],"response":{{"mcpServers":[]}}}}}}), flush=True)
+for line in sys.stdin:
+    v = json.loads(line)
+    if v["type"] != "control_request":
+        continue
+    if v["request"]["subtype"] in ("initialize", "mcp_status") or {acks}:
+        ack(v)
+"#,
+            acks = if acks_interrupt { "True" } else { "False" },
+        );
+        query(
+            json!("work"),
+            Options {
+                path_to_cli: Some(write_mock_cli(dir, &script)),
+                mcp_servers: Some(mock_mcp_servers()),
+                ..Options::default()
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn interrupt_within_bounds_a_stop_the_cli_never_acknowledges() {
+        let dir = TempDir::new().unwrap();
+        let mut q = stuck_cli(dir.path(), false).await;
+        let limits = InterruptTimeouts {
+            ack: Duration::from_millis(200),
+            turn_complete: Duration::from_secs(30),
+        };
+
+        let started = std::time::Instant::now();
+        let outcome = q.interrupt_within(limits).await;
+
+        assert!(matches!(outcome, Err(SdkError::Timeout)), "{outcome:?}");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        q.close().await;
+    }
+
+    #[tokio::test]
+    async fn interrupt_within_bounds_a_turn_that_never_ends() {
+        let dir = TempDir::new().unwrap();
+        let mut q = stuck_cli(dir.path(), true).await;
+        let limits = InterruptTimeouts {
+            ack: Duration::from_secs(30),
+            turn_complete: Duration::from_millis(200),
+        };
+
+        let started = std::time::Instant::now();
+        let outcome = q.interrupt_within(limits).await;
+
+        assert!(matches!(outcome, Err(SdkError::Timeout)), "{outcome:?}");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        q.close().await;
+    }
+
+    #[test]
+    fn default_timeouts_keep_the_stop_contract() {
+        let limits = InterruptTimeouts::default();
+        assert_eq!(limits.total(), Duration::from_secs(25));
+        assert_eq!(crate::Query::interrupt_timeout(), limits.total());
     }
 
     #[tokio::test]

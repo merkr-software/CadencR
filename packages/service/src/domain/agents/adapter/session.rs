@@ -81,6 +81,13 @@ pub trait AgentRuntimeSession: Send + Sync {
         None
     }
     async fn interrupt(&self) -> Result<(), RuntimeError>;
+    /// Stop the running turn because the machine is about to sleep. The OS
+    /// does not wait long, so a runtime whose `interrupt` can take more than a
+    /// few seconds (waiting out an agent that ignores the stop) overrides this
+    /// with a shorter bound; the stop's contract is otherwise `interrupt`'s.
+    async fn interrupt_before_sleep(&self) -> Result<(), RuntimeError> {
+        self.interrupt().await
+    }
     async fn compact(&self) -> Result<(), RuntimeError> {
         Err(RuntimeError::new(
             "compaction is not supported by this runtime",

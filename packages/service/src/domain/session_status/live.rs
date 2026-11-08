@@ -80,6 +80,10 @@ impl LiveStatusBook {
         self.sessions.contains_key(&session_id)
     }
 
+    pub(super) fn status(&self, session_id: i64) -> Option<AgentStatus> {
+        self.sessions.get(&session_id).map(|entry| entry.status)
+    }
+
     pub(super) fn seq(&self) -> u64 {
         self.seq
     }

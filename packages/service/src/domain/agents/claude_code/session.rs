@@ -272,8 +272,21 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
-        super::stop_escalation::interrupt_or_terminate(&self.query, self.stop_escalation.as_ref())
-            .await
+        super::stop_escalation::interrupt_or_terminate(
+            &self.query,
+            claude_agent_sdk_rs::InterruptTimeouts::default(),
+            self.stop_escalation.as_ref(),
+        )
+        .await
+    }
+
+    async fn interrupt_before_sleep(&self) -> Result<(), RuntimeError> {
+        super::stop_escalation::interrupt_or_terminate(
+            &self.query,
+            super::stop_escalation::SLEEP_TIMEOUTS,
+            self.stop_escalation.as_ref(),
+        )
+        .await
     }
 
     async fn close(&mut self) -> Result<(), RuntimeError> {

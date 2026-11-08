@@ -63,14 +63,7 @@ pub async fn suspend_agent_session(
         let Some(sessions) = owner_sessions(&state, None, session_id).await else {
             return Ok(());
         };
-        suspend_session(
-            &state,
-            &sessions,
-            session_id,
-            &SessionOutput::headless(),
-            None,
-        )
-        .await
+        suspend_session(&state, &sessions, session_id, &SessionOutput::headless()).await
     })
     .await?;
     Ok(Json(AgentSessionControlAck { accepted: true }))

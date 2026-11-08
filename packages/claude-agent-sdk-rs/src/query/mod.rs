@@ -31,6 +31,7 @@ mod wire;
 #[cfg(test)]
 mod test_support;
 
+pub use interrupt::InterruptTimeouts;
 pub use metadata::{supported_commands, supported_models, supported_models_with_env};
 pub use query_struct::Query;
 pub use spawn::query;

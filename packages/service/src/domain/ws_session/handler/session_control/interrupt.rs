@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use super::super::types::{QueryState, SdkSessions};
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::{RuntimeError, RuntimeSessionHandle};
+use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
@@ -71,24 +71,63 @@ pub(crate) async fn stop_session(
     // eventually reported to its parent.
     let q = query.read().await;
     let _barrier = q.turn_control_guard().await;
-    let interrupted_generation = app_state
-        .active_turns
-        .request_interruption(db_session_id, &query)
-        .await;
-    let result = q.interrupt().await;
-    drop(q);
-    finish_interruption(
-        result,
-        &query,
+    interrupt_as_intended(
         app_state,
+        &query,
+        &**q,
         db_session_id,
-        interrupted_generation,
+        true,
+        StopReason::User,
     )
     .await
     .map_err(|error| {
         tracing::error!(db_session_id, %error, "interrupt failed");
         CommandError::new("SDK_ERROR", error)
     })
+}
+
+/// Why a control stops the running turn.
+pub(in super::super) enum StopReason {
+    /// The user's Stop: the runtime's full stop wait.
+    User,
+    /// The machine is about to sleep: the runtime's bounded stop.
+    Sleep,
+}
+
+/// Stop `runtime`'s turn as an intended control. When `mark`, the turn is
+/// marked first, so the stream reader ends it as stopped (or
+/// `AGENT_STOP_ESCALATED`) rather than as the provider's error or a closed
+/// stream; a failed stop then clears that mark unless the reader consumed it.
+/// Call it holding `runtime` (read from `query`) and its turn-control barrier,
+/// so no prompt is delivered between the mark and the stop.
+pub(in super::super) async fn interrupt_as_intended(
+    app_state: &AppState,
+    query: &RuntimeSessionHandle,
+    runtime: &dyn AgentRuntimeSession,
+    db_session_id: i64,
+    mark: bool,
+    reason: StopReason,
+) -> Result<(), RuntimeError> {
+    let interrupted_generation = if mark {
+        app_state
+            .active_turns
+            .request_interruption(db_session_id, query)
+            .await
+    } else {
+        None
+    };
+    let result = match reason {
+        StopReason::User => runtime.interrupt().await,
+        StopReason::Sleep => runtime.interrupt_before_sleep().await,
+    };
+    finish_interruption(
+        result,
+        query,
+        app_state,
+        db_session_id,
+        interrupted_generation,
+    )
+    .await
 }
 
 fn nothing_to_stop() -> CommandError {

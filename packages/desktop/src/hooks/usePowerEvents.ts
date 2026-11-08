@@ -29,15 +29,14 @@ import { usePowerStore } from "@/stores/power-store";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { busySessionTargets, TURN_IN_PROGRESS } from "@/stores/busy-session-targets";
 import { suspendUnloadedAgents } from "@/stores/unloaded-agent-control";
-import { createSessionResume, createSessionSuspend } from "@/lib/ws-envelope";
+import { createSessionResume } from "@/lib/ws-envelope";
 
 const RESUME_TOAST_ID = "power:resume";
 function suspendActiveSessions(): void {
   const store = useWsSessionStore.getState();
   const { loaded, unreachable } = busySessionTargets(TURN_IN_PROGRESS);
   for (const sessionId of loaded) {
-    const entry = store.sessions[sessionId];
-    if (entry) store.send(sessionId, createSessionSuspend(entry.serverSessionId));
+    if (store.sessions[sessionId]) store.suspendForSleep(sessionId);
   }
   void suspendUnloadedAgents(unreachable);
 }

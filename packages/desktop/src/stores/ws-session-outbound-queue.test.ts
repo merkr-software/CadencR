@@ -208,6 +208,63 @@ describe("ws-session outbound queue", () => {
     expect(session.pendingCommandActions).toEqual([]);
   });
 
+  it("presents a refused pause for sleep as a toast: the turn goes on", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+    useWsSessionStore.setState((state) => ({
+      sessions: { ...state.sessions, s1: { ...state.sessions.s1, lifecycle: { phase: "active" } } },
+    }));
+
+    store.suspendForSleep("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string; action: string };
+    expect(sent.action).toBe("suspend");
+
+    // The order the backend sends: the gate it closed (an event), then the
+    // outcome, the only reply correlated to the command.
+    ws.simulateMessage({
+      domain: "session",
+      action: "gate.closed",
+      payload: { session_id: "7", reason: "sleep" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: sent.id,
+      payload: { code: "SDK_ERROR", message: "The agent did not pause for sleep: refused" },
+    });
+
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(toastError).toHaveBeenCalledWith("Agent kept running into sleep", {
+      description: "The agent did not pause for sleep: refused",
+    });
+    expect(session.blocks.some((block) => block.type === "error")).toBe(false);
+    expect(session.lifecycle).toEqual({ phase: "active" });
+  });
+
+  it("settles a pause for sleep on its acknowledgement, without a toast", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.suspendForSleep("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual(["suspend"]);
+    ws.simulateMessage({
+      domain: "session",
+      action: "acknowledged",
+      ref: sent.id,
+      payload: { action: "suspend" },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("settles a Stop once the status book reports the session stopped, then allows another", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");

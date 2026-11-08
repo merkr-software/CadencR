@@ -14,6 +14,7 @@ import {
   createProviderSet,
   createSessionClear,
   createSessionCompact,
+  createSessionSuspend,
   type GateCloseReason,
   type RuntimeConfigOverridePatch,
   type WsEnvelope,
@@ -40,6 +41,7 @@ type SimpleSessionActions = Pick<
   WsSessionStore,
   | "interrupt"
   | "settleInterrupt"
+  | "suspendForSleep"
   | "clearSession"
   | "compactSession"
   | "setProvider"
@@ -89,6 +91,15 @@ function createLifecycleActions(deps: SimpleSessionActionDeps) {
 
     settleInterrupt(sessionId: string) {
       settleInterrupt(ctx, sessionId);
+    },
+
+    suspendForSleep(sessionId: string) {
+      const session = getSession(sessionId);
+      sendCommand(
+        sessionId,
+        createSessionSuspend(session.serverSessionId),
+        SESSION_COMMANDS.suspend,
+      );
     },
 
     clearSession(sessionId: string) {

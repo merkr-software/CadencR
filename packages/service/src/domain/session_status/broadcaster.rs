@@ -83,6 +83,11 @@ impl SessionStatusBroadcaster {
         self.lock().is_busy(session_id)
     }
 
+    /// Whether a session's turn is paused on a pending user-input gate.
+    pub fn is_waiting_on_user(&self, session_id: i64) -> bool {
+        self.lock().status(session_id) == Some(AgentStatus::Question)
+    }
+
     /// Broadcast a status transition of the current turn. Returns the new
     /// seq, or `None` when nothing changed.
     pub fn broadcast(

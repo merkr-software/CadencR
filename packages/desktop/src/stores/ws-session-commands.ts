@@ -54,6 +54,13 @@ export const SESSION_COMMANDS = {
     // asked for. A turn still starting answers `AGENT_STARTING` instead.
     satisfiedBy: new Set(["NOTHING_TO_STOP"]),
   },
+  // A refused pause leaves the agent working into the sleep: a toast, not a
+  // failed turn (the turn goes on).
+  suspend: {
+    failure: "Agent kept running into sleep",
+    replay: false,
+    ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
+  },
   clear: { failure: "Couldn't clear the conversation", replay: false },
   gateClose: { failure: "Couldn't dismiss the request", replay: false },
   provider: { failure: "Couldn't switch provider", replay: true },
