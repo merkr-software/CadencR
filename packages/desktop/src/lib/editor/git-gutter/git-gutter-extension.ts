@@ -6,44 +6,44 @@
  *
  * Design:
  *  – a `StateField` holds the current baseline (HEAD content) and the derived
- *    `GitLineMarker[]`; an effect (`setGitGutterBaseline`) swaps the baseline,
+ *    marker kind per changed line; an effect (`setGitGutterBaseline`) swaps the baseline,
  *    and any `docChanged` transaction re-diffs so markers track edits live;
- *  – the diff itself is `presentableDiff` from `@codemirror/merge` (already a
- *    dependency) → mapped to per-line markers by the pure `computeGitLineMarkers`;
+ *  – the pure `computeGitLineMarkers` diffs the two texts line by line (with
+ *    `@codemirror/merge`'s `diff`, already a dependency) into per-line markers;
  *  – a `gutter()` renders one `GutterMarker` per changed line. Colours come from
  *    DESIGN.md status tokens: `--acc-green` (added), `--acc-red` (deleted),
  *    One-Dark blue (modified).
  *
  * Bounded work: re-diffing runs synchronously inside the update transaction.
- * `presentableDiff` is given a `scanLimit` so pathological large/very-different
- * inputs fall back to the cheap algorithm instead of going quadratic. The
- * caller (`useGitGutter`) additionally never enables this in large-file mode.
+ * Only the lines between the texts' shared prefix and suffix are diffed, and
+ * the diff is bounded (`LINE_DIFF_CONFIG`) so a heavily rewritten file
+ * (a reformat) falls back to the cheap algorithm instead of going quadratic.
+ * The caller (`useGitGutter`) additionally never enables this in large-file
+ * mode.
  */
-import { presentableDiff } from "@codemirror/merge";
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import { EditorView, GutterMarker, gutter } from "@codemirror/view";
-import { computeGitLineMarkers, type GitLineMarker, type GitMarkerKind } from "./diff-to-markers";
-
-/** Cap the diff scan so a huge/very-different buffer can't freeze the editor. */
-const GIT_GUTTER_SCAN_LIMIT = 20_000;
+import { computeGitLineMarkers, type GitMarkerKind } from "./diff-to-markers";
 
 /** Swap the HEAD baseline the gutter diffs against. `null` clears all markers. */
 export const setGitGutterBaseline = StateEffect.define<string | null>();
 
 interface GitGutterState {
   baseline: string | null;
-  markers: GitLineMarker[];
+  /** Marker kind by 1-based line; a reformat can mark every line. */
+  kinds: ReadonlyMap<number, GitMarkerKind>;
 }
 
-function diffMarkers(baseline: string | null, doc: string): GitLineMarker[] {
-  if (baseline === null) return [];
-  if (baseline === doc) return [];
-  const changes = presentableDiff(baseline, doc, { scanLimit: GIT_GUTTER_SCAN_LIMIT });
-  return computeGitLineMarkers(baseline, doc, changes);
+const NO_MARKERS: ReadonlyMap<number, GitMarkerKind> = new Map();
+
+function diffMarkers(baseline: string | null, doc: string): ReadonlyMap<number, GitMarkerKind> {
+  if (baseline === null) return NO_MARKERS;
+  const markers = computeGitLineMarkers(baseline, doc);
+  return markers.length === 0 ? NO_MARKERS : new Map(markers.map((m) => [m.line, m.kind]));
 }
 
 const gitGutterField = StateField.define<GitGutterState>({
-  create: () => ({ baseline: null, markers: [] }),
+  create: () => ({ baseline: null, kinds: NO_MARKERS }),
   update(value, tr) {
     let baseline = value.baseline;
     let baselineChanged = false;
@@ -54,7 +54,7 @@ const gitGutterField = StateField.define<GitGutterState>({
       }
     }
     if (!baselineChanged && !tr.docChanged) return value;
-    return { baseline, markers: diffMarkers(baseline, tr.newDoc.toString()) };
+    return { baseline, kinds: diffMarkers(baseline, tr.newDoc.toString()) };
   },
 });
 
@@ -102,12 +102,9 @@ const gitChangeGutter = gutter({
   class: "cm-git-gutter",
   lineMarker(view, blockLine) {
     const state = view.state.field(gitGutterField, false);
-    if (!state || state.markers.length === 0) return null;
-    const line = view.state.doc.lineAt(blockLine.from).number;
-    // Linear membership check is fine: markers only cover CHANGED lines, which
-    // is a small fraction of the doc, and CM only calls this for rendered lines.
-    const marker = state.markers.find((m) => m.line === line);
-    return marker ? MARKER_BY_KIND[marker.kind] : null;
+    if (!state || state.kinds.size === 0) return null;
+    const kind = state.kinds.get(view.state.doc.lineAt(blockLine.from).number);
+    return kind ? MARKER_BY_KIND[kind] : null;
   },
   lineMarkerChange(update) {
     return update.startState.field(gitGutterField) !== update.state.field(gitGutterField);
