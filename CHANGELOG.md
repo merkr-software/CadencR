@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.16.1 - 2026-11-08
+
+Previous release: v0.16.0 - 2026-11-03
+
+### ✨ Added
+
+- [**Desktop**] Added marketplace management for language servers: browse compatible versions, explicitly install, update, or remove servers, and choose a primary server plus optional linters per language, globally or per project. Editors suggest compatible tools without downloading them automatically, combine diagnostics from active servers, and retain support for existing local installations. Available packages depend on the signed catalog and each server's runtime requirements — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added a Reconnecting notice while an agent provider retries its stream, with the reported reason visible until the connection recovers — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Extended Stop all agents, sleep handling, and application shutdown to agents in conversations that are not open in this window, including work started by schedules, MCP, or another device. Stop progress and failures remain visible until the service confirms the outcome — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added marketplace guides covering installation, updates, permissions, and publishing your own providers, themes, custom tabs, and multi-export plugins — [@rle-mino](https://github.com/rle-mino).
+
+### 🔧 Changed
+
+- [**Desktop**] Removed the first-party Pi connector source and added support for signed marketplace retirement and ownership handoffs, with a separate catalog channel that preserves compatibility for older clients. Existing installations and conversations are retained; a successor connector requires separate admission and installation, without automatic migration of old sessions — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Brought scheduled prompts into the conversation composer's card layout, with the launch destination, mode, model, effort, access, and profile controls together — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Reduced unnecessary prompt-composer updates to keep typing responsive during long streaming replies — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Sped up local application packaging with a dedicated Rust build profile and compilation limited to the service binary; release builds also reuse warmed dependency caches — [@rle-mino](https://github.com/rle-mino).
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed Copy and other message actions overlapping the next tool step in compact flow, with balanced spacing around prompts and replies while actions are visible — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Kept dialogs within the visible screen on phones and small windows. Merge and Update branch dialogs wrap long names and paths, keep their action buttons accessible, bring submission errors into view, and hide keyboard hints on touchscreens — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed agent sessions freezing when model, effort, access, or runtime changes waited on a busy provider. Mid-turn prompts defer incompatible setting changes until the agent is free, and failed status saves or forced stops are reported explicitly — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Fixed conversations remaining stuck on Working when Claude's result or background-task messages change shape, and Stop timing out after a sub-agent permission request. Malformed results and unresponsive stops now end with an explicit error instead of leaving the turn running indefinitely — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed ACP connectors losing streamed events or permission requests during busy turns. Stop now waits for protocol cancellation before escalating, terminal waits no longer block other events, and terminating a terminal also stops its child processes — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed stale agent statuses after reconnecting and controls appearing successful before the service acknowledged them. Plan decisions can also be submitted after the original agent process has gone, with delivery failures shown to every connected viewer — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed clearing a conversation reporting success when its archive or resume-state changes could not be saved. The operation now saves atomically and preserves the conversation on failure — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Kept the saved thinking effort aligned with runtime changes so forks, schedules, session lists, and usage records use the effective setting — [@rle-mino](https://github.com/rle-mino).
+- [**provider:opencode**] Fixed large model catalogs being truncated and OpenCode appearing unavailable after a temporary refresh failure. The last known models remain available while refreshes retry — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed prompts being rejected when the composer attached a profile that the conversation's actual provider could not use — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed Git operations targeting the wrong checkout for projects opened in monorepo subfolders. Changed files, editor gutters, conflicts, staging, and review comments now use consistent repository paths, and failed refreshes no longer discard review comments — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed concurrent Git mutations interfering with each other and localized Git output breaking conflict detection. Merge recovery failures remain visible instead of leaving an unexplained partial operation — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed cancelling a quit confirmation affecting the next window close. The app can quit when its renderer stops responding, reports a failed background service with a Restart action, and prevents that service from lingering after the desktop exits — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed starting a development worktree from stopping the main checkout's agents or replaying copied schedules and queued messages — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed project deletion failing when conversations contained review comments or recorded agent runtime IDs — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Replaced generic Git, port, and database failures with actionable error messages — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed missing stack frames in opted-in renderer diagnostic reports, preserving valid application locations while excluding private error text and machine paths — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Kept announcement artwork and interface screenshots sharp in the v0.16.0 news article, including when enlarged — [@rle-mino](https://github.com/rle-mino).
+
+### 🔒 Security
+
+- [**Desktop**] Closed active remote connections when remote access is disabled or a device is revoked, and made failed listener or tunnel restarts leave remote access visibly off — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Bound project and workspace MCP control access to the individual server process and its conversation, preventing callers from substituting another conversation's identity or reaching an unattached server's routes — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Kept browser-control credentials out of agent, terminal, and custom-action environments, restricted browser MCP credentials to their own conversation, and limited automatic browser-tool approval to Cadencr's verified server rather than a matching name — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Required explicit code-trust consent for custom tabs that run commands, including renewed consent for previously approved command tabs. Listed programs run with your account's rights and are not a sandbox — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Matched simultaneous permission answers to their exact requests, preventing an answer for one tool from approving another. Prompt acknowledgements also no longer consume unrelated tool results — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Rejected unknown server requests instead of presenting a generic approval and inventing an acceptance response, and surfaced terminal stream errors to the conversation — [@rle-mino](https://github.com/rle-mino).
+
 ## v0.16.0 - 2026-11-03
 
 Previous release: v0.15.1 - 2026-10-28
