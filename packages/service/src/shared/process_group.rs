@@ -96,6 +96,41 @@ pub(crate) async fn terminate_process_group(
     }
 }
 
+/// Interrupt the group `child` leads like Ctrl-C does a terminal job: `signal`
+/// (SIGINT), then `grace` for the whole group to exit, then SIGKILL whatever
+/// is left. Unlike [`terminate_process_group`], members that outlive the
+/// leader get the rest of the grace too, and a member that ignores `signal`
+/// (a non-interactive shell's background job ignores SIGINT) still dies.
+/// Returns the leader's status.
+#[cfg(unix)]
+pub(crate) async fn interrupt_process_group(
+    child: &mut Child,
+    signal: libc::c_int,
+    grace: Duration,
+) -> io::Result<ExitStatus> {
+    const GROUP_POLL: Duration = Duration::from_millis(20);
+    let pid = child
+        .id()
+        .ok_or_else(|| io::Error::other("process group leader has no process id"))?;
+    let deadline = tokio::time::Instant::now() + grace;
+    if let Err(error) = signal_process_group(pid, signal) {
+        // Still end the group, but report why it got no chance to clean up.
+        signal_process_group(pid, libc::SIGKILL)?;
+        wait_bounded(child, grace).await?;
+        return Err(error);
+    }
+    let Ok(status) = tokio::time::timeout_at(deadline, child.wait()).await else {
+        signal_process_group(pid, libc::SIGKILL)?;
+        return wait_bounded(child, grace).await;
+    };
+    let status = status?;
+    while tokio::time::Instant::now() < deadline && process_group_alive(pid) {
+        tokio::time::sleep(GROUP_POLL).await;
+    }
+    kill_group_after_leader_exit(pid).await?;
+    Ok(status)
+}
+
 /// Wait for `child` to exit, failing once `timeout` has passed.
 pub(crate) async fn wait_bounded(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
     tokio::time::timeout(timeout, child.wait())
@@ -225,6 +260,47 @@ mod tests {
         let grandchild = read_pid(&pid_file);
 
         let status = terminate_process_group(&mut child, Duration::from_millis(300))
+            .await
+            .unwrap();
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
+        assert!(process_gone(grandchild).await, "the grandchild survived");
+    }
+
+    #[tokio::test]
+    async fn interrupt_kills_a_background_job_that_ignores_sigint() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("child.pid");
+        // `sleep 120 & sleep 120` as a custom action runs it: a
+        // non-interactive shell starts its background job with SIGINT ignored,
+        // so Ctrl-C ends the foreground sleep and the shell, not that job.
+        let mut child = group_leader(&pid_file, &format!("{GRANDCHILD} sleep 30"));
+        wait_for_file(&pid_file).await;
+        let grandchild = read_pid(&pid_file);
+
+        let started = std::time::Instant::now();
+        interrupt_process_group(&mut child, libc::SIGINT, Duration::from_millis(300))
+            .await
+            .unwrap();
+        assert!(
+            process_gone(grandchild).await,
+            "the background job survived"
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn interrupt_escalates_to_sigkill_when_the_leader_ignores_sigint() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("child.pid");
+        let mut child = group_leader(
+            &pid_file,
+            &format!("trap '' INT; {GRANDCHILD} while :; do sleep 1; done"),
+        );
+        wait_for_file(&pid_file).await;
+        let grandchild = read_pid(&pid_file);
+
+        let status = interrupt_process_group(&mut child, libc::SIGINT, Duration::from_millis(300))
             .await
             .unwrap();
         use std::os::unix::process::ExitStatusExt;

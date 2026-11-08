@@ -14,7 +14,8 @@ pub use variables::{list_variables, upsert_variable};
 pub(super) mod test_support {
     use sqlx::SqlitePool;
 
-    pub(super) async fn pool_with_project_and_feature() -> (SqlitePool, i64, i64) {
+    pub(in crate::domain::custom_actions) async fn pool_with_project_and_feature(
+    ) -> (SqlitePool, i64, i64) {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         crate::shared::migrate::run_migrations(
             &crate::shared::migrate::MigrationContext::pool_only(&pool),
