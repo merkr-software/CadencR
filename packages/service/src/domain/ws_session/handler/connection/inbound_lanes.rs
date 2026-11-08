@@ -10,10 +10,14 @@
 //!
 //! - a command runs once every control received before it was handled, so a
 //!   prompt sent after a Stop reaches the runtime only after that Stop;
-//! - a control runs once every command received before it ended, or reached
-//!   the point where the control acts on it and called
-//!   [`let_controls_through`]: a Stop sent after a prompt stops the turn that
-//!   prompt starts, without waiting for its runtime to launch.
+//! - a control runs once every command received before it that can start,
+//!   steer or end a turn ended, or reached the point where the control acts
+//!   on it and called [`let_controls_through`]: a Stop sent after a prompt
+//!   stops the turn that prompt starts, without waiting for its runtime to
+//!   launch. Commands that cannot ([`is_neutral`]) never hold a control back:
+//!   the desktop records `/compact` in the prompt history (`history.add`)
+//!   between the compaction and the Stop, and that record would otherwise
+//!   wait behind the compaction and keep the Stop waiting with it.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -75,7 +79,8 @@ struct OrderedCommand {
 
 struct ControlCommand {
     envelope: WsEnvelope,
-    /// Ordered commands received before this control, settled before it runs.
+    /// Position of the last command received before this control that can
+    /// change a turn; it and every command before it settle before it runs.
     commands_before: u64,
 }
 
@@ -93,6 +98,8 @@ pub(super) struct InboundLanes {
     control: Option<mpsc::Sender<ControlCommand>>,
     controls_received: u64,
     commands_received: u64,
+    /// Position of the last received command that can change a turn.
+    last_turn_command: u64,
     ended: Arc<Notify>,
     workers: Vec<JoinHandle<()>>,
 }
@@ -147,6 +154,7 @@ impl InboundLanes {
             control: Some(control_tx),
             controls_received: 0,
             commands_received: 0,
+            last_turn_command: 0,
             ended,
             workers: vec![control, ordered],
         }
@@ -164,19 +172,24 @@ impl InboundLanes {
             let lane = self.control.as_ref().ok_or(LaneClosed)?;
             let control = ControlCommand {
                 envelope,
-                commands_before: self.commands_received,
+                commands_before: self.last_turn_command,
             };
             lane.send(control).await.map_err(|_| LaneClosed)?;
             self.controls_received += 1;
         } else {
             let lane = self.ordered.as_ref().ok_or(LaneClosed)?;
+            let position = self.commands_received + 1;
+            let neutral = is_neutral(&envelope);
             let command = OrderedCommand {
                 envelope,
-                position: self.commands_received + 1,
+                position,
                 controls_before: self.controls_received,
             };
             lane.send(command).await.map_err(|_| LaneClosed)?;
-            self.commands_received += 1;
+            self.commands_received = position;
+            if !neutral {
+                self.last_turn_command = position;
+            }
         }
         Ok(())
     }
@@ -201,6 +214,26 @@ impl Drop for InboundLanes {
         for worker in &self.workers {
             worker.abort();
         }
+    }
+}
+
+/// Commands that only read or record beside the conversation (prompt history,
+/// drafts, config reads, app and command-list requests): they never start,
+/// steer or end a turn, so a control has nothing to wait for in them.
+fn is_neutral(envelope: &WsEnvelope) -> bool {
+    match envelope.domain.as_str() {
+        "app" | "commands" => true,
+        "session" => matches!(
+            canonical_session_command_action(&envelope.action),
+            Some(
+                Command::HistoryGet
+                    | Command::HistoryAdd
+                    | Command::DraftGet
+                    | Command::DraftSave
+                    | Command::ConfigGet
+            )
+        ),
+        _ => false,
     }
 }
 
@@ -330,6 +363,76 @@ mod tests {
         release.send(()).unwrap();
         assert_eq!(wait_for_log(&log, 2).await, vec!["blocked", "stop"]);
         lanes.finish().await;
+    }
+
+    /// Found live from the desktop: `/compact` sends `compact`, records the
+    /// prompt with `history.add`, then the Stop. The record queued behind the
+    /// compaction must not keep the Stop waiting until the compaction started.
+    #[tokio::test]
+    async fn the_desktop_compact_sequence_lets_its_stop_through() {
+        let (mut lanes, log, release) = recording_lanes();
+        lanes.route(envelope("compact", "yielding")).await.unwrap();
+        lanes
+            .route(envelope("history.add", "history"))
+            .await
+            .unwrap();
+        lanes.route(envelope("interrupt", "stop")).await.unwrap();
+
+        assert_eq!(wait_for_log(&log, 1).await, vec!["stop"]);
+
+        release.send(()).unwrap();
+        assert_eq!(
+            wait_for_log(&log, 3).await,
+            vec!["stop", "yielding", "history"]
+        );
+        lanes.finish().await;
+    }
+
+    /// The same sequence after a prompt keeps the Stop behind the prompt.
+    #[tokio::test]
+    async fn the_desktop_prompt_sequence_keeps_its_stop_after_the_prompt() {
+        let (mut lanes, log, release) = recording_lanes();
+        lanes
+            .route(envelope("prompt.send", "blocked"))
+            .await
+            .unwrap();
+        lanes
+            .route(envelope("history.add", "history"))
+            .await
+            .unwrap();
+        lanes.route(envelope("interrupt", "stop")).await.unwrap();
+        stays_unrun(&log, 0).await;
+
+        release.send(()).unwrap();
+        let entries = wait_for_log(&log, 3).await;
+        let position = |id: &str| entries.iter().position(|entry| entry == id).unwrap();
+        assert!(position("blocked") < position("stop"));
+        lanes.finish().await;
+    }
+
+    #[test]
+    fn neutral_commands_cannot_change_a_turn() {
+        for action in [
+            "history.add",
+            "history.get",
+            "draft.save",
+            "draft.get",
+            "config.get",
+        ] {
+            assert!(is_neutral(&envelope(action, "n")), "{action}");
+        }
+        for action in [
+            "prompt.send",
+            "compact",
+            "init",
+            "model.set",
+            "branch.rewind",
+        ] {
+            assert!(!is_neutral(&envelope(action, "n")), "{action}");
+        }
+        let mut app = envelope("subscribe.git_status", "n");
+        app.domain = "app".to_string();
+        assert!(is_neutral(&app));
     }
 
     #[tokio::test]
