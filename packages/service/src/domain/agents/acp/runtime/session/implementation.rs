@@ -198,12 +198,21 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     async fn close(&mut self) -> Result<(), RuntimeError> {
-        self.closing.store(true, Ordering::SeqCst);
+        // Only the first close tells the agent. A later one (an idle reader
+        // retiring the runtime the shutdown already closed, or a retry of a
+        // close the shutdown deadline cut short) finishes the local teardown,
+        // which is safe to repeat, without asking the agent again.
+        let first_close = !self.closing.swap(true, Ordering::SeqCst);
         // Prefer the stable lifecycle request when advertised. A connector
         // that accepts it must cancel ongoing work and release the session's
         // resources. Fall back to the baseline cancel notification if the
         // optional request fails so teardown remains bounded and best-effort.
-        if let Some(session_id) = self.current_session_id().await {
+        let session_id = if first_close {
+            self.current_session_id().await
+        } else {
+            None
+        };
+        if let Some(session_id) = session_id {
             let should_cancel = if self.supports_session_close {
                 match self
                     .client

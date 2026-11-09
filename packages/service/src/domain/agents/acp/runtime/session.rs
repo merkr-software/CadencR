@@ -653,6 +653,95 @@ mod tests {
         );
     }
 
+    /// What the agent receives next, if anything, within `wait`.
+    async fn next_frame_within(
+        reader: &mut BufReader<DuplexStream>,
+        wait: Duration,
+    ) -> Option<Value> {
+        let mut line = String::new();
+        match tokio::time::timeout(wait, reader.read_line(&mut line)).await {
+            Ok(Ok(read)) if read > 0 => Some(serde_json::from_str(line.trim()).unwrap()),
+            _ => None,
+        }
+    }
+
+    /// Callers may close a runtime twice (the shutdown, then its idle
+    /// reader): the second close neither tells the agent again nor fails, and
+    /// the stream stays ended.
+    #[tokio::test]
+    async fn a_second_close_does_not_reach_the_stopped_agent() {
+        for advertised in [true, false] {
+            let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+            let mut session = assembled_session(&client, "s-close-twice", advertised);
+            let mut runtime_rx = session.take_message_rx();
+            let agent = tokio::spawn(async move {
+                let request = read_one_request(&mut agent_stdin).await;
+                if advertised {
+                    assert_eq!(request["method"], "session/close");
+                    write_frame(
+                        &mut agent_stdout,
+                        json!({ "jsonrpc": "2.0", "id": request["id"], "result": {} }),
+                    )
+                    .await;
+                } else {
+                    assert_eq!(request["method"], "session/cancel");
+                }
+                (agent_stdout, agent_stdin)
+            });
+            session.close().await.unwrap();
+            let (_agent_stdout, mut agent_stdin) = agent.await.unwrap();
+
+            tokio::time::timeout(Duration::from_millis(500), session.close())
+                .await
+                .expect("a second close does not wait on the stopped agent")
+                .unwrap();
+
+            assert_eq!(
+                next_frame_within(&mut agent_stdin, Duration::from_millis(200)).await,
+                None,
+                "advertised session/close: {advertised}"
+            );
+            assert!(runtime_rx.recv().await.is_none());
+        }
+    }
+
+    /// The shutdown's deadline can drop a close still waiting on
+    /// `session/close`: the next close finishes the teardown (the stream
+    /// ends) without asking the agent a second time.
+    #[tokio::test]
+    async fn a_close_after_a_cancelled_one_does_not_ask_the_agent_again() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-close-cut", true);
+        let mut runtime_rx = session.take_message_rx();
+
+        let cut = tokio::time::timeout(Duration::from_millis(100), session.close()).await;
+        assert!(
+            cut.is_err(),
+            "the unanswered session/close holds the first close"
+        );
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/close");
+
+        tokio::time::timeout(Duration::from_millis(500), session.close())
+            .await
+            .expect("the retried close does not wait on the agent")
+            .unwrap();
+
+        // The dropped first request is withdrawn (`$/cancel_request`); the
+        // session itself is not closed or cancelled a second time.
+        while let Some(frame) =
+            next_frame_within(&mut agent_stdin, Duration::from_millis(200)).await
+        {
+            assert_eq!(frame["method"], "$/cancel_request", "asked again: {frame}");
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), runtime_rx.recv())
+                .await
+                .expect("the retried close ends the stream")
+                .is_none()
+        );
+    }
+
     #[tokio::test]
     async fn close_uses_cancel_when_session_close_is_not_advertised() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
