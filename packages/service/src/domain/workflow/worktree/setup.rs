@@ -2,6 +2,7 @@
 //! worktree, streaming each line to the WS so the user sees progress live.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use sqlx::SqlitePool;
 
@@ -12,6 +13,23 @@ use super::setup_finish::{finish_error, finish_ready};
 use super::setup_output::collect_setup_output;
 use super::setup_state::{persist_setup_state, SetupState};
 use super::WorktreeSetupRegistry;
+
+/// How long archiving or deleting a feature waits for its setup to stop.
+const CANCEL_TIMEOUT: Duration = Duration::from_secs(5);
+const SETUP_CANCELLED: &str = "Worktree setup was cancelled.";
+
+/// Stop the running setup scripts of `feature_ids`, killing their process
+/// groups, before those features are archived, deleted, or lose their
+/// worktree. Each run persists `setup_error` before releasing its slot, so no
+/// `setup_running` outlives it.
+pub async fn cancel_setups(setup_runs: &WorktreeSetupRegistry, feature_ids: &[i64]) {
+    futures::future::join_all(
+        feature_ids
+            .iter()
+            .map(|feature_id| setup_runs.cancel_and_wait(*feature_id, CANCEL_TIMEOUT)),
+    )
+    .await;
+}
 
 /// Resolve the project's JSON `setup_worktree` setting, treating blank as absent.
 pub(super) async fn resolve_setup_commands(
@@ -124,11 +142,13 @@ async fn run_resolved_setup_commands(
         .collect::<Vec<_>>();
 
     let script = build_setup_script(&commands);
+    let cancellation = permit.cancellation();
     let (output_tx, output_rx) = crate::shared::terminal_shell::terminal_output_channel();
-    let run = crate::shared::terminal_shell::run_terminal_shell_script(
+    let run = crate::shared::terminal_shell::run_terminal_shell_script_cancellable(
         &script,
         &worktree_path,
         output_tx,
+        cancellation.clone(),
     );
     let collect = collect_setup_output(write_pool, feature_id, ws_sender, output_rx);
     let (result, output) = tokio::join!(run, collect);
@@ -154,6 +174,11 @@ async fn run_resolved_setup_commands(
             return;
         }
         Err(error) => {
+            let error = if cancellation.is_cancelled() {
+                SETUP_CANCELLED.to_string()
+            } else {
+                error
+            };
             finish_error(
                 write_pool,
                 feature_id,
@@ -304,6 +329,62 @@ exec /bin/sh -c "$script"
         assert_eq!(
             std::fs::read_to_string(worktree.join("setup.out")).expect("setup output"),
             "pnpm ok"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_running_setup_kills_it_and_records_the_cancellation() {
+        let _guard = crate::shared::test_env::async_env_lock().lock().await;
+        let _shell = EnvVarGuard::set("SHELL", "/bin/sh");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let pid_file = temp.path().join("pid");
+        let pool = setup_pool(&format!(
+            "sleep 30 & echo $! > {}; wait",
+            cli_discovery::shell_quote(pid_file.as_os_str())
+        ))
+        .await;
+        let registry = WorktreeSetupRegistry::new();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let run = tokio::spawn(run_setup_commands(
+            pool.clone(),
+            pool.clone(),
+            registry.clone(),
+            1,
+            temp.path().to_path_buf(),
+            tx,
+        ));
+        let mut pid = None;
+        for _ in 0..200 {
+            pid = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse::<i32>().ok());
+            if pid.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let pid = pid.expect("the setup never started its background sleep");
+
+        cancel_setups(&registry, &[1]).await;
+
+        assert!(!registry.is_owned(1));
+        let step = super::super::db::get_setting(&pool, 1, "worktree_setup_step").await;
+        assert_eq!(step.as_deref(), Some("setup_error"));
+        let error = super::super::db::get_setting(&pool, 1, "worktree_setup_error").await;
+        assert_eq!(error.as_deref(), Some(SETUP_CANCELLED));
+        run.await.expect("setup task");
+        let mut alive = true;
+        for _ in 0..120 {
+            // SAFETY: signal 0 only probes whether the pid exists.
+            alive = unsafe { libc::kill(pid, 0) } == 0;
+            if !alive {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(
+            !alive,
+            "the setup's background sleep survived its cancellation"
         );
     }
 

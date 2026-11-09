@@ -9,6 +9,7 @@ use crate::domain::git::repository;
 use crate::domain::git::worktree_context::{
     build_worktree_context, resolve_source_git_root, WorktreeContext,
 };
+use crate::domain::workflow::worktree::cancel_setups;
 use crate::error::AppError;
 
 use super::{
@@ -93,6 +94,7 @@ pub async fn remove_worktree(
         return Ok(default_worktree_blocked());
     }
 
+    cancel_setups(&state.worktree_setup_runs, &[params.feature_id]).await;
     commands::remove_worktree(Path::new(&project_path), Path::new(&wt_path), true).await?;
     repository::delete_feature_settings(
         &state.write_pool,
@@ -132,6 +134,8 @@ pub async fn delete_worktree(
     if let Err(error) = state.neovim_manager.stop(params.feature_id).await {
         debug!(%error, feature_id = params.feature_id, "no neovim to stop before worktree removal");
     }
+    // Same for a setup script still running in it.
+    cancel_setups(&state.worktree_setup_runs, &[params.feature_id]).await;
 
     match commands::remove_worktree(Path::new(&project_path), Path::new(&wt_path), params.force)
         .await

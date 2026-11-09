@@ -47,6 +47,10 @@ pub async fn delete_project_handler(
         state.persistence_health.forget_feature(*feature_id).await;
     }
     state.plugin_tab_presence.release_features(&feature_ids);
+    // The rows are already gone, so the setup's final state cannot be stored
+    // (the foreign key refuses it); its processes still stop.
+    crate::domain::workflow::worktree::cancel_setups(&state.worktree_setup_runs, &feature_ids)
+        .await;
     state
         .session_status_tx
         .forget_deleted_sessions(&state.write_pool)

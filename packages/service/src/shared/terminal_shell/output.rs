@@ -1,10 +1,13 @@
 //! Forward a shell's startup-file and terminal output as lines.
 
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::mpsc::Sender;
 
 const MAX_PENDING_OUTPUT_BYTES: usize = 16 * 1024;
+/// How often a quiet reader checks whether its run was abandoned.
+const POLL_TIMEOUT_MS: libc::c_int = 100;
 
 struct Source {
     fd: OwnedFd,
@@ -14,8 +17,14 @@ struct Source {
 
 /// Read `sources` until each reaches end-of-file, sending complete lines in
 /// the order they arrive. One thread polls both, so startup-file output stays
-/// ahead of the script's.
-pub(super) fn forward_output(sources: Vec<OwnedFd>, output_tx: &Sender<String>) {
+/// ahead of the script's. `abandoned` stops it early: a runtime shutting down
+/// waits for this thread, and a process that escaped the group may hold the
+/// terminal open for good.
+pub(super) fn forward_output(
+    sources: Vec<OwnedFd>,
+    abandoned: &AtomicBool,
+    output_tx: &Sender<String>,
+) {
     let mut sources = sources
         .into_iter()
         .map(|fd| Source {
@@ -24,7 +33,7 @@ pub(super) fn forward_output(sources: Vec<OwnedFd>, output_tx: &Sender<String>) 
             open: true,
         })
         .collect::<Vec<_>>();
-    while sources.iter().any(|source| source.open) {
+    while sources.iter().any(|source| source.open) && !abandoned.load(Ordering::Acquire) {
         if let Err(error) = read_ready_sources(&mut sources, output_tx) {
             tracing::warn!(%error, "stopped reading shell output");
             break;
@@ -47,7 +56,13 @@ fn read_ready_sources(sources: &mut [Source], output_tx: &Sender<String>) -> std
         })
         .collect::<Vec<_>>();
     // SAFETY: `poll_fds` is a live, correctly sized array of pollfd.
-    let ready = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, -1) };
+    let ready = unsafe {
+        libc::poll(
+            poll_fds.as_mut_ptr(),
+            poll_fds.len() as libc::nfds_t,
+            POLL_TIMEOUT_MS,
+        )
+    };
     if ready < 0 {
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
@@ -141,11 +156,27 @@ mod tests {
         drop((startup_tx, terminal_tx));
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
 
-        forward_output(vec![startup_rx.into(), terminal_rx.into()], &tx);
+        forward_output(
+            vec![startup_rx.into(), terminal_rx.into()],
+            &AtomicBool::new(false),
+            &tx,
+        );
 
         let mut lines = collect(&mut rx);
         lines.retain(|line| !line.is_empty());
         lines.sort();
         assert_eq!(lines, ["partial rc", "rc line", "script line"]);
+    }
+
+    #[test]
+    fn an_abandoned_reader_stops_although_a_writer_remains() {
+        let (terminal_rx, held_open) = std::io::pipe().unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let started = std::time::Instant::now();
+
+        forward_output(vec![terminal_rx.into()], &AtomicBool::new(true), &tx);
+
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        drop(held_open);
     }
 }

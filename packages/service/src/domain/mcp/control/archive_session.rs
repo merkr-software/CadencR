@@ -97,6 +97,11 @@ async fn archive_and_clean(
     state
         .plugin_tab_presence
         .release_features(&archived.archived_ids);
+    crate::domain::workflow::worktree::cancel_setups(
+        &state.worktree_setup_runs,
+        &archived.archived_ids,
+    )
+    .await;
     for feature_id in &archived.archived_ids {
         state
             .feature_events_tx

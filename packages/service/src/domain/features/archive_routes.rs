@@ -35,6 +35,11 @@ pub async fn archive_feature_handler(
     state
         .plugin_tab_presence
         .release_features(&response.archived_ids);
+    crate::domain::workflow::worktree::cancel_setups(
+        &state.worktree_setup_runs,
+        &response.archived_ids,
+    )
+    .await;
     for archived_id in &response.archived_ids {
         state
             .feature_events_tx
@@ -55,6 +60,11 @@ pub async fn archive_project_sessions_handler(
     state
         .plugin_tab_presence
         .release_features(&response.archived_ids);
+    crate::domain::workflow::worktree::cancel_setups(
+        &state.worktree_setup_runs,
+        &response.archived_ids,
+    )
+    .await;
     for archived_id in &response.archived_ids {
         state
             .feature_events_tx

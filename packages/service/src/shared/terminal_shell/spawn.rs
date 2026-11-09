@@ -4,16 +4,29 @@ use std::ffi::CStr;
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 use super::ShellInvocation;
 
-/// Leads the session and runs the user's shell as a foreground child (the
-/// trailing `exit` keeps sh from exec-ing it). A session leader without a
+/// Leads the session and runs the user's shell as a foreground child (not
+/// the last command, so sh cannot exec it). A session leader without a
 /// controlling terminal that opens one without `O_NOCTTY` acquires it —
 /// macOS does so even for a write-only open, and bash, sh, dash and ksh
 /// redirections never pass that flag — so the user's shell must not lead.
-const SESSION_LEADER_SCRIPT: &str = r#""$@"; exit $?"#;
+///
+/// Its stdin is the service's lifeline, a pipe whose write end only the
+/// service holds and never writes to. A
+/// background watcher kills the whole process group once it reads
+/// end-of-file, which comes as soon as the service lets go of the pipe — it
+/// cancels the run, drops it, exits, or dies to `kill -9`. Without a
+/// controlling terminal there is no SIGHUP to do this.
+const SESSION_LEADER_SCRIPT: &str = r#"exec 3<&0 </dev/null
+(read -r lifeline <&3; kill -KILL 0) >/dev/null 2>&1 &
+watcher=$!
+exec 3<&-
+"$@"
+status=$?
+kill "$watcher" 2>/dev/null
+exit "$status""#;
 
 pub(super) struct SpawnedShell {
     pub child: tokio::process::Child,
@@ -24,6 +37,8 @@ pub(super) struct SpawnedShell {
     pub terminal_slave: OwnedFd,
     /// Read end of the pipe startup files (and non-POSIX scripts) write to.
     pub startup_output: OwnedFd,
+    /// Write end of the lifeline: dropping it kills the process group.
+    pub lifeline: OwnedFd,
 }
 
 /// A PTY whose slave `script_for` may reopen (write-only) by path.
@@ -45,13 +60,14 @@ pub(super) fn spawn_shell(
     cwd: &Path,
 ) -> io::Result<SpawnedShell> {
     let (startup_output, startup_input) = io::pipe()?;
+    let (lifeline_end, lifeline) = io::pipe()?;
     let mut command = tokio::process::Command::new("/bin/sh");
     command
         .args(["-c", SESSION_LEADER_SCRIPT, "sh", &shell.program])
         .args(&shell.args)
         .arg(script)
         .current_dir(cwd)
-        .stdin(Stdio::null())
+        .stdin(lifeline_end)
         .stdout(startup_input.try_clone()?)
         .stderr(startup_input)
         .env("TERM", "xterm-256color")
@@ -73,6 +89,7 @@ pub(super) fn spawn_shell(
         terminal: terminal.master,
         terminal_slave: terminal.slave,
         startup_output: startup_output.into(),
+        lifeline: lifeline.into(),
     })
 }
 
@@ -168,6 +185,7 @@ fn set_close_on_exec(fd: &OwnedFd) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Stdio;
 
     #[tokio::test]
     async fn a_detached_command_cannot_open_the_controlling_terminal() {

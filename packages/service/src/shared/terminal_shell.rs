@@ -16,6 +16,10 @@
 //! session, so opening the PTY cannot make it the controlling terminal.
 
 use std::path::Path;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(unix)]
+use std::sync::Arc;
 
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
@@ -80,16 +84,8 @@ impl TerminalShellExit {
     }
 }
 
-/// Run `script` in the same terminal environment used for worktree setup.
-pub async fn run_terminal_shell_script(
-    script: &str,
-    cwd: &Path,
-    output_tx: Sender<String>,
-) -> Result<TerminalShellExit, String> {
-    run_terminal_shell_script_cancellable(script, cwd, output_tx, CancellationToken::new()).await
-}
-
-/// Run `script` until it exits or `cancellation` is triggered.
+/// Run `script` until it exits or `cancellation` is triggered; either way,
+/// cancellation or the end of the service kills its whole process group.
 pub async fn run_terminal_shell_script_cancellable(
     script: &str,
     cwd: &Path,
@@ -125,8 +121,15 @@ async fn run_shell(
         .map_err(|error| format!("Failed to spawn shell `{}`: {error}", shell.program))?;
     let mut child = spawned.child;
     let process_id = child.id();
+    // Held for the whole run: if this future is dropped (runtime shutdown,
+    // aborted task) the lifeline closes and the reader stops.
+    let lifeline = spawned.lifeline;
+    let abandoned = AbandonOnDrop::default();
     let sources = vec![spawned.startup_output, spawned.terminal];
-    let forward = tokio::task::spawn_blocking(move || output::forward_output(sources, &output_tx));
+    let reader_abandoned = Arc::clone(&abandoned.0);
+    let forward = tokio::task::spawn_blocking(move || {
+        output::forward_output(sources, &reader_abandoned, &output_tx)
+    });
     let finished = tokio::select! {
         status = child.wait() => Some(status),
         () = cancellation.cancelled() => None,
@@ -142,6 +145,7 @@ async fn run_shell(
         }
     };
     drop(spawned.terminal_slave);
+    drop(lifeline);
     forward
         .await
         .map_err(|error| format!("Terminal output reader task panicked: {error}"))?;
@@ -154,6 +158,19 @@ async fn run_shell(
     Ok(TerminalShellExit {
         exit_code: exit_code(status),
     })
+}
+
+/// Stops the output reader when the run's future is dropped before it ends
+/// (on completion it fires after the reader has already finished).
+#[cfg(unix)]
+#[derive(Default)]
+struct AbandonOnDrop(Arc<AtomicBool>);
+
+#[cfg(unix)]
+impl Drop for AbandonOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
 }
 
 #[cfg(unix)]
@@ -448,6 +465,90 @@ exec /bin/sh -c "$1"
             .expect("cancelled shell should stop promptly");
 
             assert_eq!(result.unwrap_err(), "Shell command interrupted by user.");
+        }
+
+        /// The script records the pid of a background `sleep`; returns it
+        /// once the file appears.
+        async fn wait_for_pid(path: &Path) -> i32 {
+            for _ in 0..200 {
+                if let Ok(text) = std::fs::read_to_string(path) {
+                    if let Ok(pid) = text.trim().parse() {
+                        return pid;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            panic!("the script never wrote {}", path.display());
+        }
+
+        async fn assert_process_dies(pid: i32) {
+            for _ in 0..120 {
+                // SAFETY: signal 0 only probes whether the pid exists.
+                if unsafe { libc::kill(pid, 0) } != 0 {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            // SAFETY: as above; clean up our own straggler before failing.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+            panic!("process {pid} outlived its shell");
+        }
+
+        fn background_sleep_script(pid_file: &Path) -> String {
+            format!(
+                "sleep 30 & echo $! > {}; wait",
+                cli_discovery::shell_quote(pid_file.as_os_str())
+            )
+        }
+
+        #[tokio::test]
+        async fn cancellation_kills_the_whole_process_group() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let pid_file = temp.path().join("pid");
+            let cancellation = CancellationToken::new();
+            let (output_tx, _output_rx) = terminal_output_channel();
+            let script = background_sleep_script(&pid_file);
+            let run = run_shell(
+                invocation("/bin/sh"),
+                &script,
+                temp.path(),
+                output_tx,
+                cancellation.clone(),
+            );
+            let cancel = async {
+                let pid = wait_for_pid(&pid_file).await;
+                cancellation.cancel();
+                pid
+            };
+
+            let (result, pid) = tokio::join!(run, cancel);
+
+            assert_eq!(result.unwrap_err(), "Shell command interrupted by user.");
+            assert_process_dies(pid).await;
+        }
+
+        /// What happens when the service exits or dies mid-run: the run's
+        /// future goes away with its end of the lifeline.
+        #[tokio::test]
+        async fn dropping_the_run_kills_the_whole_process_group() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let pid_file = temp.path().join("pid");
+            let (output_tx, _output_rx) = terminal_output_channel();
+            let script = background_sleep_script(&pid_file);
+            let run = run_shell(
+                invocation("/bin/sh"),
+                &script,
+                temp.path(),
+                output_tx,
+                CancellationToken::new(),
+            );
+
+            let pid = tokio::select! {
+                _ = run => panic!("the script should still be running"),
+                pid = wait_for_pid(&pid_file) => pid,
+            };
+
+            assert_process_dies(pid).await;
         }
     }
 }

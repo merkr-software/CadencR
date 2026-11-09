@@ -35,7 +35,7 @@ pub use db::{
 };
 pub use replay::replay_persisted_state;
 pub use reuse::attach_to_existing_branch;
-pub use setup::run_setup_commands;
+pub use setup::{cancel_setups, run_setup_commands};
 
 use std::path::PathBuf;
 
