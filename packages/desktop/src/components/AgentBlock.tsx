@@ -290,8 +290,16 @@ function ToolCallContent({
     // Same outer margin as the stream's other cards (Bash, thinking, tools).
     if (fileChangeBlocks) return <div className="my-1">{fileChangeBlocks}</div>;
   }
+  // A failed call shows its result's message (a Read of a missing file); a
+  // successful one keeps its result folded away.
+  const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
   return (
-    <ToolCallBlock name={block.toolName ?? "unknown"} args={block.toolArgs} basePath={basePath} />
+    <ToolCallBlock
+      name={block.toolName ?? "unknown"}
+      args={block.toolArgs}
+      basePath={basePath}
+      error={result?.isError ? result.content : undefined}
+    />
   );
 }
 

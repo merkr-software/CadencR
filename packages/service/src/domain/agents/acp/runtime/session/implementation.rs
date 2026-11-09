@@ -224,7 +224,13 @@ impl AgentRuntimeSession for AcpRuntimeSession {
                 {
                     Ok(_) => false,
                     Err(error) => {
-                        tracing::warn!(%error, "ACP session/close failed; falling back to session/cancel");
+                        // At shutdown the agent is often already gone with the
+                        // service's process group: nothing is lost.
+                        if crate::domain::restart_continuations::is_shutting_down() {
+                            tracing::info!(%error, "ACP session/close failed while the service shut down; falling back to session/cancel");
+                        } else {
+                            tracing::warn!(%error, "ACP session/close failed; falling back to session/cancel");
+                        }
                         true
                     }
                 }

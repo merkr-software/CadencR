@@ -440,6 +440,10 @@ A sub-agent the agent delegated to (`components/TaskAgentBlock.tsx`, `components
 - **Opened:** Prompt (clamped at four lines, "Show all"), Activity (the full timeline, virtualized past 24 actions, Home/End inside it), Report (markdown).
 - **In every verbosity mode** the card stays its own row with its header, meta line and latest action: compact flow never folds it into a tool run and only drops the report's head; Summary mode leaves it in place beside the turn's recap instead of counting it as a chip.
 
+#### Failed tool call
+
+A generic tool call (Read, LS, Grep and the other calls without a dedicated card) whose result is an error reads like a failed Bash card: its icon and name turn `text-destructive`, its rim `border-destructive/40`, and the result's message shows under the header in 12px mono `text-destructive` (`Failed` when it gave none), open or not; its arguments stay behind the chevron. A successful result stays folded into its call.
+
 #### MCP tool call
 
 Same chrome as a regular tool call (`.cds-tool`) but the `.tag` element gets a colored prefix indicating provider. Body is monospace, file paths in cyan (`--ic-file-fg`), counts in `--acc-green`/`--acc-red`. Bash variant gets terminal-style chrome (`.cds-tool.open.bash`) via its own `--block-bash-header-bg` / `--block-bash-body-bg` / `--block-bash-fg` / `--block-bash-muted-fg` tokens, which follow the theme (dark on Dracula, light on Aurora). The live xterm still stays dark in every theme — see rule 10.
