@@ -53,7 +53,7 @@ vi.mock("@/api/generated", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError },
+  toast: { error: mocks.toastError, dismiss: vi.fn() },
 }));
 
 function makeLayout(activeTabId: "agent" | "git" | "editor"): FeatureLayoutState {
@@ -197,8 +197,92 @@ describe("feature layout hydration and persistence", () => {
 
     const toastOptions = mocks.toastError.mock.calls[0]?.[1] as { action: { onClick: () => void } };
     act(() => toastOptions.action.onClick());
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
     expect(mocks.mutate).toHaveBeenCalledTimes(2);
     expect(mocks.mutate.mock.calls[1]?.[0]).toEqual(mocks.mutate.mock.calls[0]?.[0]);
+  });
+
+  function renderPersisted(): void {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    useFeatureLayoutStore.getState().setState(FEATURE_ID, makeLayout("agent"));
+    renderHook(() => useFeatureLayoutPersistence(FEATURE_ID), {
+      wrapper: makeWrapper(queryClient),
+    });
+  }
+
+  function select(tab: "agent" | "editor"): void {
+    act(() => useFeatureLayoutStore.getState().setPaneActiveTab(FEATURE_ID, ROOT_LEAF_ID, tab));
+  }
+
+  function writtenTabs(): (string | null)[] {
+    return mocks.mutate.mock.calls.map((call: unknown[]) => {
+      const vars = call[0] as { data: { value: string } };
+      const root = parseLayoutState(vars.data.value)?.splitRoot;
+      return root?.type === "leaf" ? (root.activeTabId ?? null) : null;
+    });
+  }
+
+  it("writes the last choice after a failed save, even when it repeats the failed one", () => {
+    renderPersisted();
+    select("editor");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    const failed = mocks.mutate.mock.calls[0]?.[1] as { onError: (error: Error) => void };
+    act(() => failed.onError(new Error("disk full")));
+
+    // Back on the saved tab: nothing to write.
+    select("agent");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(writtenTabs()).toEqual(["editor"]);
+
+    select("editor");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(writtenTabs()).toEqual(["editor", "editor"]);
+  });
+
+  it("writes a choice made again after its debounced write was cancelled", () => {
+    renderPersisted();
+    select("editor");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    select("agent");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(mocks.mutate).not.toHaveBeenCalled();
+
+    select("editor");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(writtenTabs()).toEqual(["editor"]);
+  });
+
+  it("writes the shown layout again when an earlier write lands after the user moved back", () => {
+    renderPersisted();
+    select("editor");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    // Back on the saved tab while "editor" is still on its way.
+    select("agent");
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    const inFlight = mocks.mutate.mock.calls[0]?.[1] as { onSuccess: () => void };
+    act(() => inFlight.onSuccess());
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(writtenTabs()).toEqual(["editor", "agent"]);
   });
 
   it("persists focused pane changes for the current feature layout", () => {
