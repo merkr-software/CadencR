@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils";
  * `/settings` does that after navigating back to the user's last screen).
  *
  * Non-modal by design: no backdrop, no outside-click dismissal. The whole
- * point is to preview themes against the live UI of whichever screen the
- * user was on, so the rest of the app stays fully interactive.
+ * point is to see each saved pick on the live UI of whichever screen the user
+ * was on, so the rest of the app stays fully interactive.
  *
  * Dismissed via the X button or Escape — both strip the search param.
  */
@@ -105,7 +105,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
             )}
           </h2>
           <p className="text-xs text-muted-foreground">
-            Preview applies live to the screen behind this panel.
+            Your pick is saved, then shown on the screen behind this panel.
           </p>
         </div>
         <Button

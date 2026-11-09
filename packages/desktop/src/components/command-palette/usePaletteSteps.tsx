@@ -205,6 +205,8 @@ function useThemeStep(
     [themes],
   );
   const previewId = previewByKey.get(selectedKey) ?? null;
+  // A local preview while the selection moves, never written: closing the
+  // palette puts the confirmed theme back, and a picked one shows once saved.
   useEffect(() => {
     if (!active || !previewId) return;
     applyThemeToDocument(previewId);
