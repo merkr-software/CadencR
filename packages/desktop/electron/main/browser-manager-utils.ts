@@ -79,11 +79,20 @@ const RENDERER_FOCUS_SHORTCUTS = new Set<BrowserShortcut>([
   "navigate-forward",
 ]);
 
+/**
+ * Make the renderer the OS first responder again. A click inside a guest view
+ * leaves keyboard focus there, and a DOM `.focus()` in the renderer cannot take
+ * it back — only the main process can.
+ */
+export function reclaimRendererFocus(win: BrowserWindow | null): void {
+  if (win && !win.isDestroyed() && !win.webContents.isFocused()) win.webContents.focus();
+}
+
 export function reclaimFocusForShortcut(
   win: BrowserWindow | null,
   shortcut: BrowserShortcut,
 ): void {
-  if (win && RENDERER_FOCUS_SHORTCUTS.has(shortcut)) win.webContents.focus();
+  if (RENDERER_FOCUS_SHORTCUTS.has(shortcut)) reclaimRendererFocus(win);
 }
 
 /**

@@ -209,6 +209,7 @@ interface MockMainWindow {
   webContents: {
     getZoomFactor: () => number;
     isDestroyed: () => boolean;
+    isFocused: () => boolean;
     send: ReturnType<typeof vi.fn>;
     focus: ReturnType<typeof vi.fn>;
   };
@@ -223,6 +224,7 @@ function mainWindow(): MockMainWindow {
     webContents: {
       getZoomFactor: () => 1,
       isDestroyed: () => false,
+      isFocused: () => false,
       send: vi.fn(),
       focus: vi.fn(),
     },

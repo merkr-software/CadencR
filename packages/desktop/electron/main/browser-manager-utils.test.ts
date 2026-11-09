@@ -9,6 +9,7 @@ import {
   profileFromSelection,
   pushBounded,
   reclaimFocusForShortcut,
+  reclaimRendererFocus,
 } from "./browser-manager-utils";
 import type { BrowserShortcut } from "./browser-types";
 
@@ -91,12 +92,36 @@ describe("browser-manager-utils", () => {
     expect(firstPrivate.id).not.toBe(secondPrivate.id);
   });
 
-  describe("reclaimFocusForShortcut", () => {
-    function fakeWindow(): { win: BrowserWindow; focus: ReturnType<typeof vi.fn> } {
-      const focus = vi.fn();
-      return { win: { webContents: { focus } } as unknown as BrowserWindow, focus };
-    }
+  function fakeWindow(state: { destroyed?: boolean; focused?: boolean } = {}): {
+    win: BrowserWindow;
+    focus: ReturnType<typeof vi.fn>;
+  } {
+    const focus = vi.fn();
+    const win = {
+      isDestroyed: () => state.destroyed ?? false,
+      webContents: { focus, isFocused: () => state.focused ?? false },
+    };
+    return { win: win as unknown as BrowserWindow, focus };
+  }
 
+  describe("reclaimRendererFocus", () => {
+    it("hands keyboard focus back to the renderer from a guest view", () => {
+      const { win, focus } = fakeWindow();
+      reclaimRendererFocus(win);
+      expect(focus).toHaveBeenCalledOnce();
+    });
+
+    it("leaves an already focused or destroyed window alone", () => {
+      for (const state of [{ focused: true }, { destroyed: true }]) {
+        const { win, focus } = fakeWindow(state);
+        reclaimRendererFocus(win);
+        expect(focus).not.toHaveBeenCalled();
+      }
+      expect(() => reclaimRendererFocus(null)).not.toThrow();
+    });
+  });
+
+  describe("reclaimFocusForShortcut", () => {
     it("reclaims renderer focus for pane switches that leave the browser", () => {
       for (const shortcut of [
         "pane-agent",

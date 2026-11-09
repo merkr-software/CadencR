@@ -11,6 +11,14 @@ import { browserScreenshotClipScale } from "./browser-screenshot";
 import type { ManagedTab } from "./browser-tab-events";
 import type { BrowserElementContext } from "./browser-types";
 
+// Anchors whose badge we pinned, per tab. Any page can print the badge-click
+// sentinel, so only a click on one of these is trusted to pull keyboard focus.
+const pinnedBadges = new WeakMap<ManagedTab, Set<string>>();
+
+export function isPinnedCommentBadge(tab: ManagedTab, anchorId: string): boolean {
+  return pinnedBadges.get(tab)?.has(anchorId) ?? false;
+}
+
 type SelectionAttempt =
   | { kind: "selected"; context: BrowserElementContext }
   | { kind: "navigated" };
@@ -84,15 +92,19 @@ export async function selectElementContext(
     // path passes no anchor and gets context without a badge.
     if (anchorId) {
       await executeBrowserScript(tab.webContents, addCommentBadgeScript(anchorId));
+      const anchors = pinnedBadges.get(tab) ?? new Set<string>();
+      pinnedBadges.set(tab, anchors.add(anchorId));
     }
     return attempt.context;
   }
 }
 
 export async function removeCommentBadge(tab: ManagedTab, anchorId: string): Promise<void> {
+  pinnedBadges.get(tab)?.delete(anchorId);
   await executeBrowserScript(tab.webContents, removeCommentBadgeScript(anchorId));
 }
 
 export async function clearCommentBadges(tab: ManagedTab): Promise<void> {
+  pinnedBadges.delete(tab);
   await executeBrowserScript(tab.webContents, clearCommentBadgesScript());
 }

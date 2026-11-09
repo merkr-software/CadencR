@@ -7,7 +7,8 @@ const captureElementContext = vi.hoisted(() => vi.fn());
 
 vi.mock("./browser-dom", () => ({ captureElementContext }));
 
-const { selectElementContext } = await import("./browser-comment-context");
+const { isPinnedCommentBadge, removeCommentBadge, selectElementContext } =
+  await import("./browser-comment-context");
 
 function context(tabId: string): BrowserElementContext {
   return {
@@ -107,5 +108,28 @@ describe("selectElementContext", () => {
     expect(contents.executeJavaScript).toHaveBeenCalledOnce();
     expect(contents.listenerCount("did-start-navigation")).toBe(0);
     expect(contents.listenerCount("destroyed")).toBe(0);
+  });
+
+  it("trusts badge clicks only for anchors it pinned, until the badge is removed", async () => {
+    const contents = Object.assign(new EventEmitter(), {
+      executeJavaScript: vi.fn(async () => undefined),
+      getURL: () => "https://example.test/original",
+      getZoomFactor: vi.fn(() => 1),
+      isDestroyed: vi.fn(() => false),
+    });
+    const tab = {
+      metadata: metadata(),
+      webContents: contents,
+      consoleEntries: [],
+      networkEntries: [],
+    } as unknown as ManagedTab;
+    captureElementContext.mockResolvedValueOnce(context("tab-1"));
+
+    await selectElementContext(tab, "anchor-1");
+    expect(isPinnedCommentBadge(tab, "anchor-1")).toBe(true);
+    expect(isPinnedCommentBadge(tab, "forged-anchor")).toBe(false);
+
+    await removeCommentBadge(tab, "anchor-1");
+    expect(isPinnedCommentBadge(tab, "anchor-1")).toBe(false);
   });
 });
