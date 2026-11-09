@@ -2,6 +2,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@/test-utils";
+import type { AgentActivityDigestResponse, AgentDigestToolCall } from "@/api/generated";
 import { AgentSessionProvider } from "@/components/agent-session/agent-session-context";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
@@ -60,7 +61,10 @@ function spawnResult(text: string, isError = false): AgentBlockData {
 
 const SPAWNED = JSON.stringify({ featureId: 2658, sessionId: 4167, project: { id: 3 } });
 
-function digestEntry(lastTool: { name: string; args: string } | null, lastReply: string | null) {
+function digestEntry(
+  lastTool: AgentDigestToolCall | null,
+  lastReply: string | null,
+): AgentActivityDigestResponse {
   return {
     entries: [
       {
@@ -164,6 +168,43 @@ describe("spawned conversation card", () => {
     );
     setStatus(4167, 2658, "idle");
     expect(await screen.findByText("All green.")).toBeInTheDocument();
+  });
+
+  it("marks the spawned agent's failed latest action, with the failure's first line", async () => {
+    digest.mockResolvedValue(
+      digestEntry(
+        {
+          name: "Bash",
+          args: JSON.stringify({ command: "pnpm test" }),
+          outcome: { is_error: true, error_output: "Exit code 1\n3 tests failed" },
+        },
+        null,
+      ),
+    );
+    setStatus(4167, 2658, "agent");
+    renderCard(spawnResult(SPAWNED));
+
+    expect(await screen.findByText("pnpm test")).toBeInTheDocument();
+    expect(await screen.findByText("Exit code 1")).toBeInTheDocument();
+    expect(screen.queryByText(/3 tests failed/)).toBeNull();
+  });
+
+  it("leaves the spawned agent's passing latest action unmarked", async () => {
+    digest.mockResolvedValue(
+      digestEntry(
+        {
+          name: "Bash",
+          args: JSON.stringify({ command: "pnpm test" }),
+          outcome: { is_error: false, error_output: null },
+        },
+        null,
+      ),
+    );
+    setStatus(4167, 2658, "agent");
+    renderCard(spawnResult(SPAWNED));
+
+    expect(await screen.findByText("pnpm test")).toBeInTheDocument();
+    expect(screen.queryByText("Failed")).toBeNull();
   });
 
   it("does not open a spawned conversation that no longer loads", () => {

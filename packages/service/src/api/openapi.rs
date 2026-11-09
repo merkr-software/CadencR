@@ -682,6 +682,7 @@ use crate::domain::ws_session::routes as ws_routes;
         sessions_models::UnifiedAgentEntry,
         sessions_models::UnifiedAgentsResponse,
         sessions_activity_digest::AgentDigestToolCall,
+        sessions_activity_digest::AgentDigestToolOutcome,
         sessions_activity_digest::AgentActivityDigestEntry,
         sessions_activity_digest::AgentActivityDigestResponse,
         sessions_prompt_index::SessionPrompt,

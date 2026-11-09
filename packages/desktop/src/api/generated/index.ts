@@ -76,6 +76,19 @@ export interface AcpAgentEntry {
   [key: string]: unknown;
 }
 
+export interface AgentDigestToolOutcome {
+  /**
+   * The start of a failed call's output, which says why, line breaks kept;
+   * absent when it succeeded.
+   * @nullable
+   */
+  error_output?: string | null;
+  /** The call failed: its result is a `tool_error`. */
+  is_error: boolean;
+}
+
+export type AgentDigestToolCallOutcome = null | AgentDigestToolOutcome;
+
 export interface AgentDigestToolCall {
   /**
    * The tool input JSON with long strings and arrays clipped, so a file
@@ -85,6 +98,7 @@ export interface AgentDigestToolCall {
   args: string;
   /** Tool name exactly as the provider reported it. */
   name: string;
+  outcome?: AgentDigestToolCallOutcome;
 }
 
 export type AgentActivityDigestEntryLastTool = null | AgentDigestToolCall;

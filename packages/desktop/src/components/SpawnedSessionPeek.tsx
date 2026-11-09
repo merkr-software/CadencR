@@ -23,7 +23,14 @@ export const SpawnedSessionPeek = memo(function SpawnedSessionPeek({
   const working = status === "agent";
   const report = working ? null : activity.reply;
   if (activity.steps.some(hasCompactLine) || report) {
-    return <SubagentCardPeek actions={activity.steps} report={report} basePath={basePath} />;
+    return (
+      <SubagentCardPeek
+        actions={activity.steps}
+        report={report}
+        basePath={basePath}
+        toolResultMap={activity.results}
+      />
+    );
   }
   if (activity.error) {
     return (

@@ -23,6 +23,7 @@ const REPLY_MAX_CHARS: usize = 280;
 const ARG_STRING_MAX_CHARS: usize = 240;
 const ARG_ARRAY_MAX_ITEMS: usize = 8;
 const RAW_ARGS_MAX_CHARS: usize = 400;
+const ERROR_OUTPUT_MAX_CHARS: usize = 1_000;
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ActivityDigestParams {
@@ -38,6 +39,17 @@ pub struct AgentDigestToolCall {
     /// write's body never crosses the wire. Still valid JSON when the stored
     /// input was.
     pub args: String,
+    /// How the call ended; absent while it runs, or when no result was stored.
+    pub outcome: Option<AgentDigestToolOutcome>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentDigestToolOutcome {
+    /// The call failed: its result is a `tool_error`.
+    pub is_error: bool,
+    /// The start of a failed call's output, which says why, line breaks kept;
+    /// absent when it succeeded.
+    pub error_output: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -68,6 +80,8 @@ struct DigestRow {
     provider: Option<String>,
     tool_name: Option<String>,
     tool_content: Option<String>,
+    result_type: Option<String>,
+    result_content: Option<String>,
     reply_content: Option<String>,
     last_activity_at: Option<String>,
 }
@@ -95,7 +109,8 @@ pub fn parse_feature_ids(raw: &str) -> Result<Vec<i64>, AppError> {
 
 /// One statement for the whole batch: the latest conversation session per
 /// feature, then its last top-level tool call, last non-empty top-level reply
-/// and newest message, each an index-backed `(session_id, id DESC)` seek.
+/// and newest message, each an index-backed `(session_id, id DESC)` seek, and
+/// that call's result through `(session_id, tool_use_id)`.
 const DIGEST_SQL: &str = r#"
 WITH ids AS (SELECT CAST(value AS INTEGER) AS id, key AS pos FROM json_each(?)),
 latest AS (
@@ -122,7 +137,9 @@ marks AS (
 )
 SELECT f.id AS feature_id, f.project_id, p.name AS project_name,
        f.title AS feature_title, s.runtime_provider AS provider,
-       t.tool_name, t.content AS tool_content, r.content AS reply_content,
+       t.tool_name, t.content AS tool_content,
+       res.message_type AS result_type, res.content AS result_content,
+       r.content AS reply_content,
        strftime('%Y-%m-%dT%H:%M:%SZ', mk.last_at) AS last_activity_at
 FROM ids
 INNER JOIN features f ON f.id = ids.id
@@ -130,6 +147,11 @@ INNER JOIN projects p ON p.id = f.project_id
 LEFT JOIN marks mk ON mk.feature_id = f.id
 LEFT JOIN agent_sessions s ON s.id = mk.session_id
 LEFT JOIN agent_messages t ON t.id = mk.tool_id
+LEFT JOIN agent_messages res ON res.id = (
+    SELECT m.id FROM agent_messages m
+    WHERE m.session_id = t.session_id AND m.tool_use_id = t.tool_use_id
+      AND m.message_type IN ('tool_result', 'tool_error')
+    ORDER BY m.id DESC LIMIT 1)
 LEFT JOIN agent_messages r ON r.id = mk.reply_id
 ORDER BY ids.pos"#;
 
@@ -154,6 +176,9 @@ pub async fn load_activity_digest(
             last_tool: row.tool_name.map(|name| AgentDigestToolCall {
                 name,
                 args: compact_tool_args(row.tool_content.as_deref().unwrap_or_default()),
+                outcome: row
+                    .result_type
+                    .map(|result_type| tool_outcome(&result_type, row.result_content.as_deref())),
             }),
             last_reply: row
                 .reply_content
@@ -162,6 +187,16 @@ pub async fn load_activity_digest(
         })
         .collect();
     Ok(AgentActivityDigestResponse { entries })
+}
+
+fn tool_outcome(result_type: &str, content: Option<&str>) -> AgentDigestToolOutcome {
+    let is_error = result_type == "tool_error";
+    AgentDigestToolOutcome {
+        is_error,
+        error_output: content
+            .filter(|_| is_error)
+            .map(|content| content.chars().take(ERROR_OUTPUT_MAX_CHARS).collect()),
+    }
 }
 
 /// Clip a tool input for display: JSON keeps its shape with every long string
@@ -202,7 +237,7 @@ mod tests {
             "CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
             "CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, title TEXT NOT NULL)",
             "CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL, agent_type TEXT NOT NULL, runtime_provider TEXT)",
-            "CREATE TABLE agent_messages (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, message_type TEXT NOT NULL, tool_name TEXT, parent_tool_use_id TEXT, created_at TEXT)",
+            "CREATE TABLE agent_messages (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, message_type TEXT NOT NULL, tool_name TEXT, parent_tool_use_id TEXT, created_at TEXT, tool_use_id TEXT)",
         ] {
             sqlx::query(ddl).execute(&pool).await.unwrap();
         }
@@ -264,7 +299,9 @@ mod tests {
         .await;
         exec(
             &pool,
-            r#"INSERT INTO agent_messages VALUES
+            r#"INSERT INTO agent_messages
+               (id, session_id, role, content, message_type, tool_name, parent_tool_use_id, created_at)
+               VALUES
                (1, 2, 'assistant', 'First   answer', 'text', NULL, NULL, '2026-10-11 10:00:00'),
                (2, 2, 'assistant', '{"command":"pnpm test"}', 'tool_call', 'Bash', NULL, '2026-10-11 10:00:01'),
                (3, 2, 'assistant', '{"file_path":"/x"}', 'tool_call', 'Read', 'toolu_parent', '2026-10-11 10:00:02'),
@@ -289,6 +326,7 @@ mod tests {
         let tool = entry.last_tool.as_ref().unwrap();
         assert_eq!(tool.name, "Bash");
         assert_eq!(tool.args, r#"{"command":"pnpm test"}"#);
+        assert!(tool.outcome.is_none(), "no result stored yet");
         assert_eq!(entry.last_reply.as_deref(), Some("First answer"));
         assert_eq!(
             entry.last_activity_at.as_deref(),
@@ -300,5 +338,50 @@ mod tests {
         assert_eq!(other.provider.as_deref(), Some("opencode"));
         assert_eq!(other.last_reply.as_deref(), Some("Other reply"));
         assert!(other.last_tool.is_none());
+    }
+
+    /// The last call carries how it ended, so a spawned conversation's card
+    /// can mark a failed latest action as the stream does.
+    #[tokio::test]
+    async fn the_last_tool_carries_its_outcome() {
+        let pool = setup_pool().await;
+        exec(&pool, "INSERT INTO projects VALUES (1, 'cadencr')").await;
+        exec(
+            &pool,
+            "INSERT INTO features VALUES (7, 1, 'Failing'), (8, 1, 'Passing')",
+        )
+        .await;
+        exec(
+            &pool,
+            "INSERT INTO agent_sessions VALUES (1, 7, 'session', 'claude_code'), \
+             (2, 8, 'session', 'claude_code')",
+        )
+        .await;
+        exec(
+            &pool,
+            r#"INSERT INTO agent_messages
+               (id, session_id, role, content, message_type, tool_name, tool_use_id)
+               VALUES
+               (1, 1, 'assistant', '{"command":"pnpm test"}', 'tool_call', 'Bash', 'call-1'),
+               (2, 1, 'user', 'Exit code 1
+FAIL src/a.test.ts', 'tool_error', NULL, 'call-1'),
+               (3, 2, 'assistant', '{"command":"ls"}', 'tool_call', 'Bash', 'call-2'),
+               (4, 2, 'user', 'a.ts', 'tool_result', NULL, 'call-2')"#,
+        )
+        .await;
+
+        let digest = load_activity_digest(&pool, &[7, 8]).await.unwrap();
+
+        let failed = digest.entries[0].last_tool.as_ref().unwrap();
+        let outcome = failed.outcome.as_ref().expect("the failed call ended");
+        assert!(outcome.is_error);
+        assert_eq!(
+            outcome.error_output.as_deref(),
+            Some("Exit code 1\nFAIL src/a.test.ts")
+        );
+        let passed = digest.entries[1].last_tool.as_ref().unwrap();
+        let outcome = passed.outcome.as_ref().expect("the passing call ended");
+        assert!(!outcome.is_error);
+        assert!(outcome.error_output.is_none(), "only a failure says why");
     }
 }
