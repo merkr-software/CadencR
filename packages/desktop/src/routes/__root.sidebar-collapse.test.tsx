@@ -56,18 +56,24 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: (key: string) => {
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: (key: string) => {
     const width = useSyncExternalStore(mocks.subscribe, () => mocks.width);
     const [value, setStored] = useState<string | null>(null);
-    const setValue = useCallback((next: string) => setStored(next), []);
+    const setValue = useCallback((next: string) => {
+      setStored(next);
+      return Promise.resolve(true);
+    }, []);
     if (key === "sidebar_left_width") {
-      const setWidth = (next: string) => mocks.widthWrites.push(next);
+      const setWidth = (next: string) => {
+        mocks.widthWrites.push(next);
+        return Promise.resolve(true);
+      };
       return { ...width, isLoading: false, setValue: setWidth, isSaving: false };
     }
     return { value, setValue, isLoading: false, isFetched: true, isSaving: false };
   },
-  useDebouncedSettingFromMap: () => ({ value: "256", setValue: vi.fn(), isLoading: false }),
+  useSettingWriter: () => ({ setValue: vi.fn(), isSaving: false }),
 }));
 
 vi.mock("@/api/settings", () => ({

@@ -38,9 +38,9 @@ export async function initNotificationPermission(): Promise<void> {
 
 /**
  * Read the user's notification-mode preference from React Query's
- * workspace-settings cache. `useDebouncedSetting` writes through to this
- * cache synchronously on every change, so non-React callers stay in sync
- * without a separate module-level cache.
+ * workspace-settings cache. Every settings write puts the confirmed value in
+ * this cache, so non-React callers stay in sync without a separate
+ * module-level cache.
  */
 export function readNotificationMode() {
   const cached = queryClient.getQueryData<SettingValueResponse>(

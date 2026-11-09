@@ -284,7 +284,7 @@ mod tests {
     fn workspace_accepts_notification_mode() {
         // Wired to packages/desktop/src/lib/notification-mode.ts —
         // the Settings → Notifications picker writes "native" / "in_app" / "off".
-        // Without this, useDebouncedSetting toasts "Could not save setting".
+        // Without this, useSetting toasts "Could not save setting".
         assert!(is_workspace_key_allowed("notification_mode"));
         assert!(!is_feature_key_allowed("notification_mode"));
         assert!(!is_project_key_allowed("notification_mode"));
@@ -332,7 +332,7 @@ mod tests {
     }
     #[test]
     fn workspace_accepts_dangerous_mode_toggles() {
-        // DangerousModeToggle persists these via useDebouncedSetting → PUT
+        // DangerousModeToggle persists these via useSetting → PUT
         // /api/workspace/settings/{key}. Without these, the FE gets a
         // BAD_REQUEST and the toggle silently fails to enable.
         assert!(is_workspace_key_allowed(
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn workspace_accepts_agent_stream_verbosity_mode() {
         // Persisted by the global Settings page → "Agent output verbosity"
-        // picker via useDebouncedSetting. Without this, switching modes
+        // picker via useSetting. Without this, switching modes
         // returns 400 and the FE toast "Could not save setting".
         assert!(is_workspace_key_allowed("agent_stream_verbosity_mode"));
         assert!(!is_feature_key_allowed("agent_stream_verbosity_mode"));
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn workspace_accepts_agent_stream_summary_mode() {
         // Persisted by the global Settings page → "Agent output verbosity" →
-        // "Summary mode" toggle via useDebouncedSetting. Stored as "true" /
+        // "Summary mode" toggle via useSetting. Stored as "true" /
         // "false"; without this the toggle 400s and the FE toasts a save error.
         assert!(is_workspace_key_allowed("agent_stream_summary_mode"));
         assert!(!is_feature_key_allowed("agent_stream_summary_mode"));
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn workspace_accepts_agent_message_navigator_enabled() {
         // Persisted by Settings → Appearance → "Message navigator" toggle via
-        // useDebouncedSetting; without this the toggle 400s.
+        // useSetting; without this the toggle 400s.
         assert!(is_workspace_key_allowed("agent_message_navigator_enabled"));
         assert!(!is_feature_key_allowed("agent_message_navigator_enabled"));
         assert!(!is_project_key_allowed("agent_message_navigator_enabled"));
@@ -406,14 +406,14 @@ mod tests {
     #[test]
     fn workspace_accepts_mono_font_family() {
         // Settings → Appearance mono font selector persists the chosen family
-        // via useDebouncedSetting → PUT /api/workspace/settings/{key}.
+        // via useSetting → PUT /api/workspace/settings/{key}.
         assert!(is_workspace_key_allowed("mono_font_family"));
     }
 
     #[test]
     fn workspace_accepts_editor_file_tree_icon_set() {
         // The Settings → Appearance picker writes "minimal" / "standard" /
-        // "complete" via useDebouncedSetting → PUT /api/workspace/settings/{key}.
+        // "complete" via useSetting → PUT /api/workspace/settings/{key}.
         assert!(is_workspace_key_allowed("editor_file_tree_icon_set"));
         assert!(!is_feature_key_allowed("editor_file_tree_icon_set"));
         assert!(!is_project_key_allowed("editor_file_tree_icon_set"));
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn workspace_accepts_agent_defaults() {
-        // These flow through the global Settings page + useDebouncedSetting.
+        // These flow through the global Settings page + useSetting.
         for k in [
             "model_session",
             "model_auto_name",

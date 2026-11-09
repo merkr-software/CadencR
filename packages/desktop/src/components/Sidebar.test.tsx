@@ -55,7 +55,7 @@ vi.mock("@/hooks/useTheme", () => ({
   }),
 }));
 
-// Keep the workspace-settings plumbing (useDebouncedSetting → useGetWorkspaceSetting)
+// Keep the workspace-settings plumbing (useSetting → useGetWorkspaceSetting)
 // out of the ProjectTree render tree pulled in by the sidebar.
 vi.mock("@/lib/project-onboarding", () => ({
   useNewProjectOnboarding: () => ({

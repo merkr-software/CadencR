@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { useDebouncedSettingFromMap } from "./useDebouncedSetting";
+import { useSettingWriter } from "./useSetting";
 import { settingsArrayToMap, useGetWorkspaceSettings } from "@/api/settings";
 import { FAVORITE_MODELS_SETTING_KEY, parseFavoriteModels } from "@/lib/favorite-models";
 
@@ -13,18 +13,15 @@ export interface FavoriteModelsResult {
 /**
  * Starred models, shared by every model selector. Reads from the bulk
  * workspace-settings query the app already keeps resident rather than firing
- * its own per-key GET, and writes through immediately so the star reflects
- * reality as soon as the user hits it.
+ * its own per-key GET. A star changes once the backend confirms it.
  */
 export function useFavoriteModels(): FavoriteModelsResult {
-  const { data, isLoading } = useGetWorkspaceSettings();
-  const map = useMemo(() => settingsArrayToMap(data), [data]);
-  const { value, setValue } = useDebouncedSettingFromMap(
-    map,
-    FAVORITE_MODELS_SETTING_KEY,
-    isLoading,
-    0,
+  const { data } = useGetWorkspaceSettings();
+  const value = useMemo(
+    () => settingsArrayToMap(data)[FAVORITE_MODELS_SETTING_KEY] ?? null,
+    [data],
   );
+  const { setValue } = useSettingWriter(FAVORITE_MODELS_SETTING_KEY);
 
   const parsed = useMemo(() => {
     try {
@@ -50,12 +47,24 @@ export function useFavoriteModels(): FavoriteModelsResult {
 
   const toggleFavorite = useCallback(
     (key: string) => {
-      const next = new Set(favorites);
-      if (!next.delete(key)) next.add(key);
-      setValue(JSON.stringify([...next]));
+      // From the confirmed list as the write goes out, so quick toggles compose.
+      void setValue((confirmed) => {
+        // A list that can't be read was already reported; the toggle replaces it.
+        const next = new Set(readableFavorites(confirmed ?? null));
+        if (!next.delete(key)) next.add(key);
+        return JSON.stringify([...next]);
+      });
     },
-    [favorites, setValue],
+    [setValue],
   );
 
   return useMemo(() => ({ favorites, toggleFavorite }), [favorites, toggleFavorite]);
+}
+
+function readableFavorites(raw: string | null): string[] {
+  try {
+    return parseFavoriteModels(raw);
+  } catch {
+    return [];
+  }
 }

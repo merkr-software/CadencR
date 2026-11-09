@@ -59,8 +59,8 @@ const mockSetValue = vi.fn();
 const mockSettingValue = { current: null as string | null };
 const mockSettingLoading = { current: false };
 const mockSettingKey = { current: "" };
-vi.mock("./useDebouncedSetting", () => ({
-  useDebouncedSetting: (key: string) => {
+vi.mock("./useSetting", () => ({
+  useSetting: (key: string) => {
     mockSettingKey.current = key;
     return {
       value: mockSettingValue.current,
@@ -145,26 +145,48 @@ describe("useZoom", () => {
 
   it("zoomIn increases by 10%", () => {
     mockSettingValue.current = "100";
-    const { result } = renderHook(() => useZoom());
+    const { result, rerender } = renderHook(() => useZoom());
     act(() => result.current.zoomIn());
     expect(mockSetValue).toHaveBeenCalledWith("110");
+    // The page zooms once the backend confirms the level.
+    expect(mockSetZoom).not.toHaveBeenCalledWith(1.1);
+    mockSettingValue.current = "110";
+    rerender();
     expect(mockSetZoom).toHaveBeenCalledWith(1.1);
   });
 
   it("zoomOut decreases by 10%", () => {
     mockSettingValue.current = "100";
-    const { result } = renderHook(() => useZoom());
+    const { result, rerender } = renderHook(() => useZoom());
     act(() => result.current.zoomOut());
     expect(mockSetValue).toHaveBeenCalledWith("90");
+    // The page zooms once the backend confirms the level.
+    expect(mockSetZoom).not.toHaveBeenCalledWith(0.9);
+    mockSettingValue.current = "90";
+    rerender();
     expect(mockSetZoom).toHaveBeenCalledWith(0.9);
   });
 
   it("resetZoom sets to 100%", () => {
     mockSettingValue.current = "150";
-    const { result } = renderHook(() => useZoom());
+    const { result, rerender } = renderHook(() => useZoom());
     act(() => result.current.resetZoom());
     expect(mockSetValue).toHaveBeenCalledWith("100");
+    // The page zooms once the backend confirms the level.
+    expect(mockSetZoom).not.toHaveBeenCalledWith(1.0);
+    mockSettingValue.current = "100";
+    rerender();
     expect(mockSetZoom).toHaveBeenCalledWith(1.0);
+  });
+
+  it("adds up steps pressed before the previous one is confirmed", () => {
+    mockSettingValue.current = "100";
+    const { result } = renderHook(() => useZoom());
+    act(() => {
+      result.current.zoomIn();
+      result.current.zoomIn();
+    });
+    expect(mockSetValue.mock.calls.map(([value]) => value)).toEqual(["110", "120"]);
   });
 
   it("clamps zoom to minimum 50%", () => {
@@ -182,9 +204,13 @@ describe("useZoom", () => {
   });
 
   it("setZoom applies arbitrary clamped value", () => {
-    const { result } = renderHook(() => useZoom());
+    const { result, rerender } = renderHook(() => useZoom());
     act(() => result.current.setZoom(75));
     expect(mockSetValue).toHaveBeenCalledWith("75");
+    // The page zooms once the backend confirms the level.
+    expect(mockSetZoom).not.toHaveBeenCalledWith(0.75);
+    mockSettingValue.current = "75";
+    rerender();
     expect(mockSetZoom).toHaveBeenCalledWith(0.75);
   });
 

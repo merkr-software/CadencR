@@ -9,8 +9,8 @@ import { SidebarConfigProvider } from "./SidebarConfigProvider";
 import { SidebarDisplayOptionsForm } from "./SidebarDisplayOptions";
 
 interface WriteCallbacks {
-  onSuccess?: () => void;
-  onError?: (error: unknown) => void;
+  onSuccess: () => void;
+  onError: (error: unknown) => void;
 }
 
 const mocks = vi.hoisted(() => ({
@@ -21,15 +21,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  useSetWorkspaceSetting: () => ({
-    mutate: (
-      { key, data }: { key: string; data: { value: string } },
-      callbacks: WriteCallbacks,
-    ) => {
+  setWorkspaceSetting: (key: string, data: { value: string }) =>
+    new Promise((resolve, reject) => {
       mocks.writes.push({ key, value: data.value });
-      mocks.confirm.push(callbacks);
-    },
-  }),
+      mocks.confirm.push({ onSuccess: () => resolve({ value: data.value }), onError: reject });
+    }),
   useSetWorkspaceSettingsBatch: () => ({
     mutate: ({ data }: { data: { values: Record<string, string | null> } }) =>
       mocks.batches.push(data.values),
@@ -70,10 +66,12 @@ describe("SidebarDisplayOptionsForm", () => {
     expect(within(density).getByRole("radio", { name: "Compact" })).toBeChecked();
 
     await user.click(within(density).getByRole("radio", { name: "Spacious" }));
-    expect(mocks.writes).toEqual([{ key: "sidebar_density", value: "spacious" }]);
+    await waitFor(() =>
+      expect(mocks.writes).toEqual([{ key: "sidebar_density", value: "spacious" }]),
+    );
     expect(within(density).getByRole("radio", { name: "Compact" })).toBeChecked();
 
-    act(() => mocks.confirm[0]?.onSuccess?.());
+    await act(async () => mocks.confirm[0]?.onSuccess());
     await waitFor(() =>
       expect(within(density).getByRole("radio", { name: "Spacious" })).toBeChecked(),
     );
@@ -85,7 +83,8 @@ describe("SidebarDisplayOptionsForm", () => {
     });
     const density = screen.getByRole("radiogroup", { name: "Density" });
     await user.click(within(density).getByRole("radio", { name: "Spacious" }));
-    act(() => mocks.confirm[0]?.onError?.(new Error("disk full")));
+    await waitFor(() => expect(mocks.confirm).toHaveLength(1));
+    await act(async () => mocks.confirm[0]?.onError(new Error("disk full")));
     expect(within(density).getByRole("radio", { name: "Compact" })).toBeChecked();
   });
 
@@ -93,7 +92,9 @@ describe("SidebarDisplayOptionsForm", () => {
     const { user } = render(<SidebarDisplayOptionsForm />, { queryClient: clientWith({}) });
     await openGroup(user, "Rows");
     await user.click(screen.getByRole("checkbox", { name: "Diff stats" }));
-    expect(mocks.writes).toEqual([{ key: "sidebar_row_diff", value: "false" }]);
+    await waitFor(() =>
+      expect(mocks.writes).toEqual([{ key: "sidebar_row_diff", value: "false" }]),
+    );
   });
 
   it("resets every option, the legacy logo switch included, in one write", async () => {

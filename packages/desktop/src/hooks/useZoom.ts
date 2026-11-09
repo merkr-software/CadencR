@@ -4,7 +4,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
 import { notifyZoomApplied } from "@/lib/zoom-coordinator";
 import { useShortcut } from "./useShortcut";
-import { useDebouncedSetting } from "./useDebouncedSetting";
+import { useSetting } from "./useSetting";
 import { useIsMobile } from "./useIsMobile";
 
 // Zoom is kept per DEVICE TYPE (desktop vs mobile), not per connection: a phone
@@ -58,13 +58,16 @@ function applyZoom(level: number): void {
  */
 export function useZoom() {
   const isMobile = useIsMobile();
-  const setting = useDebouncedSetting(isMobile ? ZOOM_KEY_MOBILE : ZOOM_KEY_DESKTOP, 0);
-  const currentRef = useRef(ZOOM_DEFAULT);
+  const setting = useSetting(isMobile ? ZOOM_KEY_MOBILE : ZOOM_KEY_DESKTOP);
+  // The level the last step asked for, so steps pressed before the previous one
+  // is confirmed still add up. Never applied: the page zooms once the backend
+  // confirms, and a failed write falls back to the confirmed level.
+  const targetRef = useRef(ZOOM_DEFAULT);
 
   const hasPersistedValue = setting.value != null;
   const persisted = hasPersistedValue ? Number(setting.value) : ZOOM_DEFAULT;
-  if (!setting.isLoading || hasPersistedValue) {
-    currentRef.current = persisted;
+  if (!setting.isSaving && (!setting.isLoading || hasPersistedValue)) {
+    targetRef.current = persisted;
   }
 
   useEffect(() => {
@@ -72,22 +75,22 @@ export function useZoom() {
     applyZoom(persisted);
   }, [hasPersistedValue, persisted, setting.isLoading]);
 
+  const { setValue } = setting;
   const setZoom = useCallback(
     (level: number) => {
       const clamped = clampZoom(level);
-      applyZoom(clamped);
-      currentRef.current = clamped;
-      setting.setValue(String(clamped));
+      targetRef.current = clamped;
+      void setValue(String(clamped));
     },
-    [setting],
+    [setValue],
   );
 
   const zoomIn = useCallback(() => {
-    setZoom(currentRef.current + ZOOM_STEP);
+    setZoom(targetRef.current + ZOOM_STEP);
   }, [setZoom]);
 
   const zoomOut = useCallback(() => {
-    setZoom(currentRef.current - ZOOM_STEP);
+    setZoom(targetRef.current - ZOOM_STEP);
   }, [setZoom]);
 
   const resetZoom = useCallback(() => {

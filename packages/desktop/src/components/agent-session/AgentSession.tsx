@@ -22,7 +22,7 @@ import type { StartJump } from "./agent-session-scroll-utils";
 import type { MetaBarHandle } from "./MetaBar";
 import { useAutoScrollShortcut } from "./useAutoScrollShortcut";
 import { AgentImageScope } from "@/components/AgentMarkdownImage";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   AGENT_MESSAGE_NAVIGATOR_SETTING_KEY,
   parseAgentMessageNavigator,
@@ -112,14 +112,10 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
   );
   const projectPath = cwdQuery.data?.path ?? undefined;
 
-  const verbosityMode = parseAgentVerbosityMode(
-    useDebouncedSetting(AGENT_VERBOSITY_SETTING_KEY).value,
-  );
-  const summaryMode = parseAgentSummaryMode(
-    useDebouncedSetting(AGENT_SUMMARY_MODE_SETTING_KEY).value,
-  );
+  const verbosityMode = parseAgentVerbosityMode(useSetting(AGENT_VERBOSITY_SETTING_KEY).value);
+  const summaryMode = parseAgentSummaryMode(useSetting(AGENT_SUMMARY_MODE_SETTING_KEY).value);
   const messageNavigatorEnabled = parseAgentMessageNavigator(
-    useDebouncedSetting(AGENT_MESSAGE_NAVIGATOR_SETTING_KEY).value,
+    useSetting(AGENT_MESSAGE_NAVIGATOR_SETTING_KEY).value,
   );
   const loadOlder = onLoadOlder
     ? (): Promise<number | void> =>

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { X } from "lucide-react";
+import { LoaderCircle, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/useTheme";
@@ -83,6 +83,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
     setSystemLightTheme,
     setSystemDarkTheme,
     isLoading,
+    isSaving,
   } = useTheme();
   // Built-ins plus the user's registered themes — the picker makes no
   // distinction, which is the point of the theme library: a theme you wrote sits
@@ -96,7 +97,13 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
     <div className="flex max-h-[min(70vh,40rem)] flex-col">
       <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
         <div className="min-w-0 space-y-0.5">
-          <h2 className="text-sm font-semibold">Change theme</h2>
+          {/* The theme applies once the backend confirms it; the spinner covers the wait. */}
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold" aria-busy={isSaving}>
+            Change theme
+            {isSaving && (
+              <LoaderCircle aria-label="Saving theme" className="size-3.5 animate-spin" />
+            )}
+          </h2>
           <p className="text-xs text-muted-foreground">
             Preview applies live to the screen behind this panel.
           </p>
@@ -125,7 +132,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
           <Switch
             id={followSystemId}
             checked={followSystemTheme}
-            disabled={isLoading}
+            disabled={isLoading || isSaving}
             onCheckedChange={setFollowSystemTheme}
           />
         </div>

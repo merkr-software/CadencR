@@ -26,10 +26,10 @@ vi.mock("@/api/generated", () => ({
   },
 }));
 
-vi.mock("@/hooks/useSetWorkspaceSettingWithCache", () => ({
-  useSetWorkspaceSettingWithCache: () => ({
+vi.mock("@/hooks/useSetting", () => ({
+  useSettingWriter: () => ({
     setValue: mocks.setValue,
-    isPending: mocks.isSaving,
+    isSaving: mocks.isSaving,
   }),
 }));
 
@@ -42,7 +42,7 @@ describe("useGitDiffTreeDisplaySetting", () => {
     mocks.isSaving = false;
     mocks.error = null;
     mocks.getSetting.mockClear();
-    mocks.setValue.mockReset().mockResolvedValue(undefined);
+    mocks.setValue.mockReset().mockResolvedValue(true);
     mocks.toastError.mockClear();
   });
 
@@ -51,7 +51,7 @@ describe("useGitDiffTreeDisplaySetting", () => {
     const { result, rerender } = renderHook(() => useGitDiffTreeDisplaySetting());
 
     expect(mocks.getSetting).toHaveBeenCalledWith(GIT_DIFF_TREE_DISPLAY_MODE_KEY);
-    await act(() => result.current.setDisplayMode("filenames"));
+    act(() => result.current.setDisplayMode("filenames"));
     expect(mocks.setValue).toHaveBeenCalledWith("filenames");
     expect(result.current.displayMode).toBe("tree");
 

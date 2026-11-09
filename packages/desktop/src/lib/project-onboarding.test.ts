@@ -8,8 +8,8 @@ import { useNewProjectOnboarding } from "./project-onboarding";
 // the test targets the gating logic rather than the query/mutation plumbing.
 const settingState = { value: null as string | null };
 const mockSetValue = vi.fn();
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: () => ({
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: () => ({
     value: settingState.value,
     setValue: mockSetValue,
     isLoading: false,

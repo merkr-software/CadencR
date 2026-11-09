@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
-import { useSetWorkspaceSettingWithCache } from "@/hooks/useSetWorkspaceSettingWithCache";
+import { useSettingWriter } from "@/hooks/useSetting";
 import {
   COMPLETED_ONBOARDING_STEP,
   ONBOARDING_STEP_SETTING_KEY,
@@ -23,20 +23,24 @@ interface UseOnboardingStatusResult {
 /**
  * Read + persist the first-run onboarding step.
  *
- * Persistence flows through `useSetWorkspaceSettingWithCache` so the
- * mutation, post-success cache patch, and error toast are factored out and
- * shared with the other onboarding writers (intro-shown flag, default
- * agent provider).
+ * Persistence flows through the shared settings writer: the step moves once
+ * the backend confirms it, and a failed save toasts and rejects so the overlay
+ * can say so in place.
  */
 export function useOnboardingStatus(): UseOnboardingStatusResult {
   const query = useGetWorkspaceSetting(ONBOARDING_STEP_SETTING_KEY);
-  const { setValue, isPending } = useSetWorkspaceSettingWithCache(ONBOARDING_STEP_SETTING_KEY);
+  const { setValue, isSaving: isPending } = useSettingWriter(ONBOARDING_STEP_SETTING_KEY);
 
   const step = parseOnboardingStep(query.data?.value);
 
-  const setStep = useCallback((next: OnboardingStep): Promise<void> => setValue(next), [setValue]);
+  const setStep = useCallback(
+    async (next: OnboardingStep): Promise<void> => {
+      if (!(await setValue(next))) throw new Error("Could not save setup progress.");
+    },
+    [setValue],
+  );
 
-  const complete = useCallback(() => setValue(COMPLETED_ONBOARDING_STEP), [setValue]);
+  const complete = useCallback(() => setStep(COMPLETED_ONBOARDING_STEP), [setStep]);
 
   const retry = useCallback(() => {
     void query.refetch();

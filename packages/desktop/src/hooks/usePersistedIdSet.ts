@@ -3,7 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getGetWorkspaceSettingQueryKey, type SettingValueResponse } from "@/api/generated";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { parseJsonSetting } from "@/lib/json-setting";
 
 /** Workspace settings holding the sidebar's expansion memory, each a JSON array of ids. */
@@ -32,8 +32,7 @@ export function useIdListError(key: string, error: string | null): void {
 }
 
 /**
- * The stored ids as of now, read from the cache rather than a render closure
- * so two writes in one tick compose. Null, with a toast, while the setting
+ * The stored ids as of now, read from the cache rather than a render closure. Null, with a toast, while the setting
  * hasn't loaded: writing then would replace the stored list.
  */
 export function readLoadedIdList(queryClient: QueryClient, key: string): number[] | null {
@@ -57,12 +56,13 @@ export interface PersistedIdSet {
 /**
  * A set of numeric ids persisted as a JSON array in one workspace setting, so
  * it survives reloads and follows the user across desktop and remote clients.
- * Every hook on the same key shares the query cache, so toggles compose. Writes
- * go out immediately: a debounce timer would die with the component (collapsing
- * a project unmounts its rows) and drop the write.
+ * Every hook on the same key shares the query cache, and each write starts from
+ * the confirmed list, so toggles compose. Writes go out immediately: a debounce
+ * timer would die with the component (collapsing a project unmounts its rows)
+ * and drop the write. The set changes once the backend confirms it.
  */
 export function usePersistedIdSet(key: string): PersistedIdSet {
-  const setting = useDebouncedSetting(key, 0);
+  const setting = useSetting(key);
   const queryClient = useQueryClient();
   const parsed = useMemo(() => parseIdList(setting.value), [setting.value]);
   const ids = useMemo(() => new Set(parsed.ids), [parsed]);
@@ -72,13 +72,15 @@ export function usePersistedIdSet(key: string): PersistedIdSet {
   const { setValue } = setting;
   const setMember = useCallback(
     (id: number, member: boolean): void => {
-      const stored = readLoadedIdList(queryClient, key);
-      if (!stored) return;
-      const next = new Set(stored);
-      if (next.has(id) === member) return;
-      if (member) next.add(id);
-      else next.delete(id);
-      setValue(JSON.stringify([...next].sort((a, b) => a - b)));
+      if (!readLoadedIdList(queryClient, key)) return;
+      // From the confirmed list as the write goes out, so quick toggles compose.
+      void setValue((confirmed) => {
+        const next = new Set(parseIdList(confirmed).ids);
+        if (next.has(id) === member) return null;
+        if (member) next.add(id);
+        else next.delete(id);
+        return JSON.stringify([...next].sort((a, b) => a - b));
+      });
     },
     [key, queryClient, setValue],
   );

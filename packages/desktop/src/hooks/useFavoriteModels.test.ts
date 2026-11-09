@@ -3,7 +3,8 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFavoriteModels } from "./useFavoriteModels";
 
-const setValue = vi.fn();
+type Update = (confirmed: string | null | undefined) => string | null;
+const setValue = vi.fn<(next: Update) => Promise<boolean>>(() => Promise.resolve(true));
 const toastError = vi.fn();
 let storedValue: string | null = null;
 
@@ -13,12 +14,19 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/api/settings", () => ({
   useGetWorkspaceSettings: () => ({ data: [], isLoading: false }),
-  settingsArrayToMap: () => ({}),
+  settingsArrayToMap: () => (storedValue === null ? {} : { favorite_models: storedValue }),
 }));
 
-vi.mock("./useDebouncedSetting", () => ({
-  useDebouncedSettingFromMap: () => ({ value: storedValue, setValue, isLoading: false }),
+vi.mock("./useSetting", () => ({
+  useSettingWriter: () => ({ setValue, isSaving: false }),
 }));
+
+/** What the toggle writes, computed from the value the backend confirmed. */
+function written(): string | null {
+  const update = setValue.mock.calls[0]?.[0];
+  if (!update) throw new Error("nothing was written");
+  return update(storedValue);
+}
 
 describe("useFavoriteModels", () => {
   beforeEach(() => {
@@ -37,7 +45,7 @@ describe("useFavoriteModels", () => {
 
     act(() => result.current.toggleFavorite("claude_code:opus"));
 
-    expect(setValue).toHaveBeenCalledWith(JSON.stringify(["codex:gpt-5", "claude_code:opus"]));
+    expect(written()).toBe(JSON.stringify(["codex:gpt-5", "claude_code:opus"]));
   });
 
   it("removes a key that is already starred", () => {
@@ -46,7 +54,7 @@ describe("useFavoriteModels", () => {
 
     act(() => result.current.toggleFavorite("codex:gpt-5"));
 
-    expect(setValue).toHaveBeenCalledWith(JSON.stringify(["claude_code:opus"]));
+    expect(written()).toBe(JSON.stringify(["claude_code:opus"]));
   });
 
   it("surfaces a malformed setting instead of silently dropping the list", () => {

@@ -1,16 +1,16 @@
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { ArchivedCleanupRunStatus, type ArchivedCleanupRunResponse } from "@/api/generated";
-import { fireEvent, render, screen } from "@/test-utils";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { act, fireEvent, render, screen } from "@/test-utils";
+import { useSetting, type Setting } from "@/hooks/useSetting";
 import {
   applyStorageMaintenanceEvent,
   clearStorageMaintenanceStatus,
 } from "@/stores/storage-maintenance-store";
 import { StorageSection } from "./StorageSection";
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn(),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: vi.fn(),
 }));
 
 const apiMocks = vi.hoisted(() => ({
@@ -23,7 +23,7 @@ vi.mock("@/api/generated", async (importOriginal) => ({
   useRunArchivedCleanup: apiMocks.useRunArchivedCleanup,
 }));
 
-type SettingSetter = (value: string) => void;
+type SettingSetter = Setting["setValue"];
 
 const setters = new Map<string, Mock<SettingSetter>>();
 const values = new Map<string, string | null>();
@@ -32,7 +32,7 @@ let runData: ArchivedCleanupRunResponse | undefined;
 function setter(key: string): Mock<SettingSetter> {
   const existing = setters.get(key);
   if (existing) return existing;
-  const created = vi.fn<SettingSetter>();
+  const created = vi.fn<SettingSetter>().mockResolvedValue(true);
   setters.set(key, created);
   return created;
 }
@@ -61,7 +61,7 @@ describe("StorageSection", () => {
     }));
     setters.clear();
     values.clear();
-    vi.mocked(useDebouncedSetting).mockImplementation((key: string) => ({
+    vi.mocked(useSetting).mockImplementation((key: string) => ({
       value: values.get(key) ?? null,
       setValue: setter(key),
       isLoading: false,
@@ -83,15 +83,13 @@ describe("StorageSection", () => {
     expect(runNowButton()).toBeDisabled();
   });
 
-  it("waits for backend confirmation instead of updating the policy optimistically", () => {
+  it("waits for backend confirmation instead of updating the policy optimistically", async () => {
     render(<StorageSection />);
 
-    expect(useDebouncedSetting).toHaveBeenCalledWith("retention_compact_archived_enabled", 0, {
-      immediateCache: false,
-    });
-    expect(useDebouncedSetting).toHaveBeenCalledWith("retention_compact_archived_days", 0, {
-      immediateCache: false,
-    });
+    await userEvent.click(toggle());
+
+    expect(setter("retention_compact_archived_enabled")).toHaveBeenCalledWith("true");
+    expect(toggle()).not.toBeChecked();
   });
 
   it("persists the switch", async () => {
@@ -110,9 +108,8 @@ describe("StorageSection", () => {
     expect(daysField()).toBeDisabled();
   });
 
-  // `fireEvent.change` rather than `userEvent.type`: the field is controlled by
-  // a setting the mock never updates, so typing would append to the stale value
-  // instead of replacing it.
+  // `fireEvent.change` rather than `userEvent.type`: the field shows a draft
+  // that each change replaces, so typing would append to it.
   it.each([
     // Zero days would compact a feature the instant it was archived.
     ["0", "1"],
@@ -124,9 +121,17 @@ describe("StorageSection", () => {
     values.set("retention_compact_archived_enabled", "true");
     render(<StorageSection />);
 
-    fireEvent.change(daysField(), { target: { value: typed } });
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(daysField(), { target: { value: typed } });
+      expect(daysField()).toHaveValue(Number(persisted));
+      expect(setter("retention_compact_archived_days")).not.toHaveBeenCalled();
 
-    expect(setter("retention_compact_archived_days")).toHaveBeenLastCalledWith(persisted);
+      act(() => vi.advanceTimersByTime(500));
+      expect(setter("retention_compact_archived_days")).toHaveBeenLastCalledWith(persisted);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads a persisted window", () => {

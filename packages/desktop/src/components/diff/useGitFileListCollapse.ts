@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 
 const GIT_SIDEBAR_COLLAPSED_SETTING = "git_sidebar_collapsed";
 
@@ -22,7 +22,7 @@ export function useGitFileListCollapse({
   onControlledChange,
 }: UseGitFileListCollapseOptions): GitFileListCollapseState {
   const isControlled = controlledValue !== undefined;
-  const { value, setValue, isLoading } = useDebouncedSetting(GIT_SIDEBAR_COLLAPSED_SETTING, 0);
+  const { value, setValue, isLoading } = useSetting(GIT_SIDEBAR_COLLAPSED_SETTING);
   const collapsed = isControlled ? Boolean(controlledValue) : value === "true";
   const showCollapsedRail = isControlled ? collapsed : isLoading || collapsed;
   const setCollapsed = useCallback(

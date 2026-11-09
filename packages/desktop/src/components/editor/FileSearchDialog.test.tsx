@@ -24,8 +24,8 @@ vi.mock("./neovim/useOpenFileInNeovim", () => ({
   useOpenFileInNeovim: () => mockOpenInNeovim(),
 }));
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: () => ({ value: "10" }),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: () => ({ value: "10" }),
 }));
 
 // Identity debounce so a typed query reaches the search params synchronously.

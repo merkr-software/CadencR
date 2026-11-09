@@ -21,7 +21,7 @@ import {
 } from "@/stores/feature-layout-store";
 import { GitBranch, PanelLeft, Search } from "lucide-react";
 import { useFeatureWorktreePath } from "@/hooks/useFeatureWorktreePath";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
@@ -222,17 +222,18 @@ const FeatureEditorTab = memo(
     );
     const isEditorFocused = props.focusedOverride ?? layoutEditorFocused;
     const [fileSearchOpen, setFileSearchOpen] = useState(false);
-    const { value: persistedCollapsed, setValue: persistCollapsed } = useDebouncedSetting(
+    const { value: persistedCollapsed, setValue: persistCollapsed } = useSetting(
       EDITOR_SIDEBAR_COLLAPSED_SETTING,
-      0,
     );
     useFileWatcher(props.projectId, props.featureId);
     const confirmedConflicts = useConfirmedConflictPaths(props.featureId);
     const focus = useEditorFocusState(props.featureId, editor.activePaneId, isEditorFocused);
     const leave = useEditorLeaveGuard(ref, editor.panes, focus);
     const handleToggleSidebar = useCallback(() => {
+      // The file tree's visibility is this view's own state; the setting only
+      // remembers it for the next editor that opens, so the toggle doesn't wait.
       editor.toggleSidebar();
-      persistCollapsed(String(editor.sidebarVisible));
+      void persistCollapsed(String(editor.sidebarVisible));
     }, [editor.sidebarVisible, editor.toggleSidebar, persistCollapsed]);
     useEditorNavigationShortcuts({
       featureId: props.featureId,

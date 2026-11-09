@@ -8,7 +8,7 @@ import { useAnimationsEnabled } from "@/lib/animations/animations-setting";
  * explicit override into the `animations_enabled` workspace setting.
  */
 export function AnimationsToggle({ divided }: { divided?: boolean }): React.JSX.Element {
-  const { enabled, systemReducedMotion, setEnabled, isLoading } = useAnimationsEnabled();
+  const { enabled, systemReducedMotion, setEnabled, isLoading, isSaving } = useAnimationsEnabled();
 
   const description = systemReducedMotion
     ? "Smooth fades and slides across menus, dialogs, and panels. Your system requests reduced motion, so animations are off by default."
@@ -21,6 +21,7 @@ export function AnimationsToggle({ divided }: { divided?: boolean }): React.JSX.
       checked={enabled}
       onCheckedChange={setEnabled}
       disabled={isLoading}
+      saving={isSaving}
       divided={divided}
     />
   );

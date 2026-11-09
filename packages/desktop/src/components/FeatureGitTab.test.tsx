@@ -40,8 +40,8 @@ vi.mock("@/hooks/useShortcut", () => ({
     if (options?.enabled !== false) mocks.shortcutCallbacks.set(id, callback);
   },
 }));
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: () => ({
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: () => ({
     value: "false",
     setValue: mocks.persistSidebar,
     isLoading: false,

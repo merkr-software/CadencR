@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen } from "@/test-utils";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting, type Setting } from "@/hooks/useSetting";
 import { useGetAutoNamePrompt } from "@/api/generated";
 import { AutoNamePromptSetting, storedAutoNamePrompt } from "./AutoNamePromptSetting";
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn(),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: vi.fn(),
 }));
 
 vi.mock("@/api/generated", () => ({
@@ -14,10 +14,10 @@ vi.mock("@/api/generated", () => ({
 }));
 
 const DEFAULT_PROMPT = "You are a feature naming assistant.";
-const setValue = vi.fn<(value: string) => void>();
+const setValue = vi.fn<Setting["setValue"]>().mockResolvedValue(true);
 
 function mockSetting(value: string | null): void {
-  vi.mocked(useDebouncedSetting).mockReturnValue({
+  vi.mocked(useSetting).mockReturnValue({
     value,
     setValue,
     isLoading: false,

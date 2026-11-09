@@ -7,14 +7,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { NOTCH_DISPLAY_MODE_KEY, useNotchPrefs } from "@/lib/notch/notch-prefs";
 import { SettingsRow } from "./SettingsRow";
 
 export function NotchDisplaySetting(): React.JSX.Element {
   const id = useId();
   const prefs = useNotchPrefs();
-  const setting = useDebouncedSetting(NOTCH_DISPLAY_MODE_KEY, 0, { immediateCache: false });
+  const setting = useSetting(NOTCH_DISPLAY_MODE_KEY);
   const busy = setting.isLoading || setting.isSaving;
 
   return (

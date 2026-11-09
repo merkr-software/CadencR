@@ -1,7 +1,7 @@
 import { createElement, useMemo } from "react";
 import { useNotchCapabilities } from "@/components/notch/useNotchCapabilities";
 import { RecommendedTag } from "@/components/RecommendedTag";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   NOTIFICATION_MODE_KEY,
   NOTIFICATION_MODE_OPTIONS,
@@ -80,7 +80,7 @@ export function NotificationModeOptions({
  * pick, as the Settings → Notifications section uses it.
  */
 export function NotificationModePicker(): React.JSX.Element {
-  const modeSetting = useDebouncedSetting(NOTIFICATION_MODE_KEY, 0);
+  const modeSetting = useSetting(NOTIFICATION_MODE_KEY);
   return (
     <NotificationModeOptions
       value={parseNotificationMode(modeSetting.value)}

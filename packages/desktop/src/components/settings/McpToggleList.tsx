@@ -24,6 +24,7 @@ export function McpToggleList(): React.JSX.Element {
         checked={browserMcp.enabled}
         onCheckedChange={browserMcp.setEnabled}
         disabled={browserMcp.isLoading}
+        saving={browserMcp.isSaving}
       />
       <SettingsSwitchRow
         label="Project coordination for agents"
@@ -31,6 +32,7 @@ export function McpToggleList(): React.JSX.Element {
         checked={projectMcp.enabled}
         onCheckedChange={projectMcp.setEnabled}
         disabled={projectMcp.isLoading}
+        saving={projectMcp.isSaving}
         divided
       />
       <SettingsSwitchRow
@@ -39,6 +41,7 @@ export function McpToggleList(): React.JSX.Element {
         checked={workspaceMcp.enabled}
         onCheckedChange={workspaceMcp.setEnabled}
         disabled={workspaceMcp.isLoading}
+        saving={workspaceMcp.isSaving}
         divided
       />
     </>

@@ -6,7 +6,7 @@ import {
   type CSSProperties,
   type MouseEvent,
 } from "react";
-import { useSetWorkspaceSettingWithCache } from "@/hooks/useSetWorkspaceSettingWithCache";
+import { useSettingWriter } from "@/hooks/useSetting";
 import { ONBOARDING_INTRO_SHOWN_SETTING_KEY } from "@/lib/onboarding-step";
 import { EMERALD, INK, ringDots, STANDARD_CUT } from "@cadencr/brand";
 import "./WelcomeIntro.css";
@@ -35,19 +35,17 @@ const INTRO_DOTS = ringDots();
 
 export function WelcomeIntro({ onComplete }: { onComplete: () => void }) {
   const [isFading, setIsFading] = useState(false);
-  const { setValue: setIntroShown } = useSetWorkspaceSettingWithCache(
-    ONBOARDING_INTRO_SHOWN_SETTING_KEY,
-  );
+  const { setValue: setIntroShown } = useSettingWriter(ONBOARDING_INTRO_SHOWN_SETTING_KEY);
   const dismissedRef = useRef(false);
 
   const dismiss = useCallback(() => {
     if (dismissedRef.current) return;
     dismissedRef.current = true;
 
-    // Fire and forget. A persistence failure replays the intro on next
-    // launch (harmless) — the user has already seen it; we don't want to
-    // block the fade-out on the network. The helper toasts on error.
-    void setIntroShown("true").catch(() => {});
+    // The intro is this screen's own animation, not a reflection of the
+    // setting, so it fades without waiting. A failed save (toasted by the
+    // writer) only replays the intro on next launch.
+    void setIntroShown("true");
 
     setIsFading(true);
     window.setTimeout(onComplete, FADE_OUT_MS);

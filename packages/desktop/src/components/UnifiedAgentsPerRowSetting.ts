@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
-import { useSetWorkspaceSettingWithCache } from "@/hooks/useSetWorkspaceSettingWithCache";
+import { useSettingWriter } from "@/hooks/useSetting";
 
 export const UNIFIED_AGENTS_PER_ROW_SETTING_KEY = "unified_agents_per_row";
 
@@ -19,9 +19,7 @@ export interface UnifiedAgentsPerRowSetting {
 
 export function useUnifiedAgentsPerRowSetting(): UnifiedAgentsPerRowSetting {
   const query = useGetWorkspaceSetting(UNIFIED_AGENTS_PER_ROW_SETTING_KEY);
-  const { setValue: saveValue, isPending: isSaving } = useSetWorkspaceSettingWithCache(
-    UNIFIED_AGENTS_PER_ROW_SETTING_KEY,
-  );
+  const { setValue: saveValue, isSaving } = useSettingWriter(UNIFIED_AGENTS_PER_ROW_SETTING_KEY);
   const value = parseUnifiedAgentsPerRowSetting(query.data?.value);
 
   useEffect((): void => {
@@ -34,7 +32,7 @@ export function useUnifiedAgentsPerRowSetting(): UnifiedAgentsPerRowSetting {
     (nextValue: number): void => {
       const normalizedValue = clampUnifiedAgentsPerRow(nextValue);
       if (normalizedValue === value) return;
-      void saveValue(String(normalizedValue)).catch((): void => {});
+      void saveValue(String(normalizedValue));
     },
     [saveValue, value],
   );

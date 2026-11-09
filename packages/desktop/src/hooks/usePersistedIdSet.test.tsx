@@ -9,14 +9,10 @@ const mocks = vi.hoisted(() => ({ writes: [] as string[] }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  useSetWorkspaceSetting: () => ({
-    mutate: ({ data }: { data: { value: string } }) => mocks.writes.push(data.value),
-    mutateAsync: ({ data }: { data: { value: string } }) => {
-      mocks.writes.push(data.value);
-      return Promise.resolve({ value: data.value });
-    },
-    isPending: false,
-  }),
+  setWorkspaceSetting: (_key: string, data: { value: string }) => {
+    mocks.writes.push(data.value);
+    return Promise.resolve({ value: data.value });
+  },
 }));
 
 describe("parseIdList", () => {
@@ -42,22 +38,20 @@ describe("usePersistedIdSet", () => {
     );
   }
 
-  it("writes each toggle immediately as a sorted JSON array", async () => {
-    vi.useFakeTimers();
+  it("writes each toggle as a sorted JSON array and shows it once confirmed", async () => {
     mocks.writes = [];
     const { result } = renderHook(() => usePersistedIdSet(SIDEBAR_EXPANDED_PROJECTS_KEY), {
       wrapper: wrapperWith("[5,7]"),
     });
     expect([...result.current.ids]).toEqual([5, 7]);
-    // Two toggles in one tick compose through the cache.
+    // Two toggles in one tick compose: each write starts from the one confirmed before it.
     act(() => {
       result.current.setMember(2, true);
       result.current.setMember(7, false);
     });
-    act(() => vi.runOnlyPendingTimers());
-    expect([...result.current.ids]).toEqual([2, 5]);
-    vi.useRealTimers();
+    expect([...result.current.ids]).toEqual([5, 7]);
     await waitFor(() => expect(mocks.writes).toEqual(["[2,5,7]", "[2,5]"]));
+    await waitFor(() => expect([...result.current.ids]).toEqual([2, 5]));
   });
 
   it("refuses to write before the stored list has loaded", () => {

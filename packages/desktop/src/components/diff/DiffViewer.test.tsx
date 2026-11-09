@@ -69,12 +69,8 @@ const mocks = vi.hoisted(() => {
   }));
   const shortcutCallbacks = new Map<string, (event: KeyboardEvent) => void>();
   const toastInfo = vi.fn();
-  const useDebouncedSettingMock = vi.fn<
-    (
-      key: string,
-      debounceMs?: number,
-      options?: { immediateCache?: boolean },
-    ) => {
+  const useSettingMock = vi.fn<
+    (key: string) => {
       value: string | null;
       setValue: typeof persistFileListCollapsedMock;
       isLoading?: boolean;
@@ -101,7 +97,7 @@ const mocks = vi.hoisted(() => {
     persistFileListCollapsedMock,
     persistTreeDisplayModeMock,
     useTreeDisplaySettingMock,
-    useDebouncedSettingMock,
+    useSettingMock,
     shortcutCallbacks,
     toastInfo,
     scrollFileToTopMock,
@@ -171,9 +167,8 @@ vi.mock("@tanstack/react-query", async () => {
   };
 });
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: (...args: [string, number?, { immediateCache?: boolean }?]) =>
-    mocks.useDebouncedSettingMock(...args),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: (key: string) => mocks.useSettingMock(key),
 }));
 
 vi.mock("./useGitDiffTreeDisplaySetting", () => ({
@@ -236,14 +231,14 @@ beforeEach(() => {
     isPending: false,
   });
   mocks.patchDiffViewMock.mockClear();
-  mocks.useDebouncedSettingMock.mockReset();
+  mocks.useSettingMock.mockReset();
   mocks.useGetChangedFilesMock.mockReset();
   mocks.useGetChangedFilesMock.mockReturnValue({ data: [], isLoading: false });
   mocks.useGetFileBlobShasMock.mockReset();
   mocks.useGetFileBlobShasMock.mockReturnValue({ data: [] });
   mocks.useListDiffViewedMock.mockReset();
   mocks.useListDiffViewedMock.mockReturnValue({ data: [] });
-  mocks.useDebouncedSettingMock.mockReturnValue({
+  mocks.useSettingMock.mockReturnValue({
     value: null,
     setValue: mocks.persistFileListCollapsedMock,
   });
@@ -615,14 +610,12 @@ describe("DiffViewer", () => {
   it("reads the workspace-level git diff view mode setting", () => {
     withFooFile();
     render(<DiffViewer featureId={1} mode="worktree" />);
-    expect(mocks.useDebouncedSettingMock).toHaveBeenCalledWith("git_diff_view_mode", 0, {
-      immediateCache: false,
-    });
+    expect(mocks.useSettingMock).toHaveBeenCalledWith("git_diff_view_mode");
   });
 
   it("persists the diff view mode when toggling Split", async () => {
     const setDiffMode = vi.fn();
-    mocks.useDebouncedSettingMock.mockImplementation((key: string) => ({
+    mocks.useSettingMock.mockImplementation((key: string) => ({
       value: null,
       setValue: key === "git_diff_view_mode" ? setDiffMode : mocks.persistFileListCollapsedMock,
     }));
@@ -637,7 +630,7 @@ describe("DiffViewer", () => {
   it("uses a workspace-level git file list collapse setting", () => {
     withFooFile();
     render(<DiffViewer featureId={1} mode="worktree" />);
-    expect(mocks.useDebouncedSettingMock).toHaveBeenCalledWith("git_sidebar_collapsed", 0);
+    expect(mocks.useSettingMock).toHaveBeenCalledWith("git_sidebar_collapsed");
   });
 
   it("collapses and persists the git file list", async () => {
@@ -658,7 +651,7 @@ describe("DiffViewer", () => {
   });
 
   it("starts with the git file list collapsed when persisted", async () => {
-    mocks.useDebouncedSettingMock.mockReturnValue({
+    mocks.useSettingMock.mockReturnValue({
       value: "true",
       setValue: mocks.persistFileListCollapsedMock,
     });

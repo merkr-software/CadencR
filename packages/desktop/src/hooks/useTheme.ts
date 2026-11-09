@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { useDebouncedSettingFromMap } from "@/hooks/useDebouncedSetting";
+import { useSettingWriter } from "@/hooks/useSetting";
 import { useSystemAppearance } from "@/hooks/useSystemAppearance";
 import { settingsArrayToMap, useGetWorkspaceSettings } from "@/api/settings";
 import {
@@ -34,6 +34,8 @@ interface UseThemeResult {
   setSystemDarkTheme: (next: ThemeId) => void;
   setFollowSystemTheme: (next: boolean) => void;
   isLoading: boolean;
+  /** A theme write is on its way; the theme changes once it's confirmed. */
+  isSaving: boolean;
   systemAppearanceError: Error | null;
 }
 
@@ -48,8 +50,8 @@ interface UseThemeResult {
  *
  * Reads of the four theme keys (`THEME_*`) are folded into a single bulk
  * `GET /api/workspace/settings` rather than four `GET /…/settings/{key}`
- * fires. Writers warm the bulk cache on success so the next render skips
- * the round-trip.
+ * fires. A confirmed write updates the bulk cache, so the theme changes
+ * without a refetch.
  */
 export function useTheme(): UseThemeResult {
   // User themes are registered asynchronously (see `useUserThemeRegistry`), so
@@ -64,42 +66,25 @@ export function useTheme(): UseThemeResult {
   );
   const isMapLoading = workspaceSettings.isLoading;
 
-  const manualSetting = useDebouncedSettingFromMap(
-    settingsMap,
-    THEME_SETTING_KEY,
-    isMapLoading,
-    0,
-    {
-      immediateCache: false,
-    },
-  );
-  const followSetting = useDebouncedSettingFromMap(
-    settingsMap,
-    THEME_FOLLOW_SYSTEM_SETTING_KEY,
-    isMapLoading,
-    0,
-    { immediateCache: false },
-  );
-  const lightSetting = useDebouncedSettingFromMap(
-    settingsMap,
-    THEME_SYSTEM_LIGHT_SETTING_KEY,
-    isMapLoading,
-    0,
-    { immediateCache: false },
-  );
-  const darkSetting = useDebouncedSettingFromMap(
-    settingsMap,
-    THEME_SYSTEM_DARK_SETTING_KEY,
-    isMapLoading,
-    0,
-    { immediateCache: false },
-  );
+  // Theme changes apply once the backend confirms them: the cache the map
+  // reads from only moves then.
+  const manualSetting = useSettingWriter(THEME_SETTING_KEY);
+  const followSetting = useSettingWriter(THEME_FOLLOW_SYSTEM_SETTING_KEY);
+  const lightSetting = useSettingWriter(THEME_SYSTEM_LIGHT_SETTING_KEY);
+  const darkSetting = useSettingWriter(THEME_SYSTEM_DARK_SETTING_KEY);
+  const isSaving =
+    manualSetting.isSaving ||
+    followSetting.isSaving ||
+    lightSetting.isSaving ||
+    darkSetting.isSaving;
   const systemAppearance = useSystemAppearance();
 
-  const manualThemeId = parseThemeId(manualSetting.value);
-  const systemLightThemeId = parseSystemLightThemeId(lightSetting.value);
-  const systemDarkThemeId = parseSystemDarkThemeId(darkSetting.value);
-  const followSystemTheme = isFollowSystemThemeEnabled(followSetting.value);
+  const manualThemeId = parseThemeId(settingsMap[THEME_SETTING_KEY]);
+  const systemLightThemeId = parseSystemLightThemeId(settingsMap[THEME_SYSTEM_LIGHT_SETTING_KEY]);
+  const systemDarkThemeId = parseSystemDarkThemeId(settingsMap[THEME_SYSTEM_DARK_SETTING_KEY]);
+  const followSystemTheme = isFollowSystemThemeEnabled(
+    settingsMap[THEME_FOLLOW_SYSTEM_SETTING_KEY],
+  );
   const themeId = resolveActiveThemeId({
     followSystem: followSystemTheme,
     manualTheme: manualThemeId,
@@ -120,8 +105,9 @@ export function useTheme(): UseThemeResult {
       setTheme: manualSetting.setValue,
       setSystemLightTheme: lightSetting.setValue,
       setSystemDarkTheme: darkSetting.setValue,
-      setFollowSystemTheme: (next: boolean): void => followSetting.setValue(String(next)),
+      setFollowSystemTheme: (next: boolean): void => void followSetting.setValue(String(next)),
       isLoading: isMapLoading,
+      isSaving,
       systemAppearanceError: systemAppearance.error,
     }),
     [
@@ -136,6 +122,7 @@ export function useTheme(): UseThemeResult {
       darkSetting.setValue,
       followSetting.setValue,
       isMapLoading,
+      isSaving,
       systemAppearance.error,
     ],
   );

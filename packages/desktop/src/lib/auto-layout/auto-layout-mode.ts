@@ -9,7 +9,7 @@ import {
   useSetFeatureSetting,
   type FeatureSetting,
 } from "@/api/generated";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 /**
@@ -39,7 +39,7 @@ export function useAutoLayoutDefault(): {
   setEnabled: (next: boolean) => void;
   isBusy: boolean;
 } {
-  const setting = useDebouncedSetting(AUTO_LAYOUT_DEFAULT_KEY, 0, { immediateCache: false });
+  const setting = useSetting(AUTO_LAYOUT_DEFAULT_KEY);
   const { setValue } = setting;
   const setEnabled = useCallback((next: boolean) => setValue(String(next)), [setValue]);
   return {

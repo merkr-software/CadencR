@@ -1,6 +1,8 @@
+import { LoaderCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
+import { useSettingDraft } from "@/hooks/useSettingDraft";
 import { parseVimModeLevel, type VimModeLevel } from "@/lib/vim-mode-level";
 import { FileTreeIconSetSelector } from "./FileTreeIconSetSelector";
 import { LanguageServerSettings } from "./LanguageServerSettings";
@@ -29,9 +31,9 @@ const VIM_MODE_LEVEL_OPTIONS: RadioCardOption<VimModeLevel>[] = [
 
 /** Settings → Editor: the built-in code editor, its language servers and file tree. */
 export function EditorPage(): React.JSX.Element {
-  const vimModeLevel = useDebouncedSetting("editor_vim_mode_level");
-  const autoSave = useDebouncedSetting("editor_auto_save");
-  const gitBlame = useDebouncedSetting("editor_git_blame");
+  const vimModeLevel = useSetting("editor_vim_mode_level");
+  const autoSave = useSetting("editor_auto_save");
+  const gitBlame = useSetting("editor_git_blame");
 
   return (
     <SettingsPageSection pageId="editor">
@@ -55,14 +57,16 @@ export function EditorPage(): React.JSX.Element {
           label="Auto-save"
           description="Save files automatically after a short delay."
           checked={(autoSave.value ?? "false") === "true"}
-          onCheckedChange={(checked) => autoSave.setValue(checked ? "true" : "false")}
+          onCheckedChange={(checked) => void autoSave.setValue(checked ? "true" : "false")}
+          saving={autoSave.isSaving}
           divided
         />
         <SettingsSwitchRow
           label="Git blame"
           description="Show who last changed the current line, and when."
           checked={(gitBlame.value ?? "false") === "true"}
-          onCheckedChange={(checked) => gitBlame.setValue(checked ? "true" : "false")}
+          onCheckedChange={(checked) => void gitBlame.setValue(checked ? "true" : "false")}
+          saving={gitBlame.isSaving}
           divided
         />
         <SettingsRow
@@ -95,14 +99,19 @@ export function EditorPage(): React.JSX.Element {
   );
 }
 
+/** How long typing or stepping must pause before the cap is saved. */
+const MAX_TABS_SAVE_DEBOUNCE_MS = 400;
+
 function MaxOpenTabsControl(): React.JSX.Element {
-  const maxTabs = useDebouncedSetting("editor_max_tabs");
-  const maxTabsValue = maxTabs.value ?? "10";
+  // Typed and stepped values show at once as a draft, kept apart from the
+  // saved cap: the backend's value replaces it once saved, or once saving fails.
+  const maxTabs = useSettingDraft("editor_max_tabs", MAX_TABS_SAVE_DEBOUNCE_MS);
+  const maxTabsValue = maxTabs.draft ?? maxTabs.value ?? "10";
   const isLimited = maxTabsValue !== "0";
   const maxTabsNum = isLimited ? parseInt(maxTabsValue, 10) || 10 : 10;
   const setMaxTabsNum = (value: number): void => {
     const clamped = Math.max(1, Math.min(50, value));
-    maxTabs.setValue(String(clamped));
+    maxTabs.setDraft(String(clamped));
   };
   const stepClass =
     "grid size-7 place-items-center rounded-md border border-border bg-card text-sm transition-colors hover:bg-accent disabled:opacity-40";
@@ -145,9 +154,12 @@ function MaxOpenTabsControl(): React.JSX.Element {
           id="max-tabs-unlimited"
           size="sm"
           checked={!isLimited}
-          onCheckedChange={(checked) => maxTabs.setValue(checked ? "0" : "10")}
+          onCheckedChange={(checked) => maxTabs.setDraft(checked ? "0" : "10")}
         />
       </label>
+      {maxTabs.isSaving && (
+        <LoaderCircle aria-label="Saving max open tabs" className="size-3.5 animate-spin" />
+      )}
     </div>
   );
 }

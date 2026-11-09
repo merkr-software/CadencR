@@ -70,6 +70,8 @@ export function invalidateSettingsDerivedQueries(client: QueryClient): Promise<v
 
       // Hand-written custom keys whose data depends on settings.
       if (head === "agent-catalog") return true;
+      // The bulk list theme and favorite models read from (`api/settings.ts`).
+      if (head === "workspace" && sub === "settings") return true;
       if (sub === "provider-settings" && (head === "workspace" || head === "features")) {
         return true;
       }

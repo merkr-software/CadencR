@@ -20,7 +20,7 @@ import {
 import { revealInFileTree } from "@/components/file-tree/revealInFileTree";
 import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";
 import { useActiveFileHighlight } from "@/components/file-tree/useActiveFileHighlight";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useEditorState } from "@/hooks/useEditorState";
 import { useFileTreeMutations } from "@/hooks/useFileTreeMutations";
 import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
@@ -318,7 +318,7 @@ function useOpenInPreview(featureId: number): (filePath: string) => void {
 export function useFileTreeController(props: FileTreeProps) {
   const editor = useEditorState(props.featureId);
   const activeFilePath = editor.panes[editor.activePaneId]?.activeFilePath ?? null;
-  const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
+  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
   const maxTabs = useMemo(() => parseInt(maxTabsSetting ?? "10", 10), [maxTabsSetting]);
   const data = useFileTreeData(props.projectId, props.featureId);
   const openInNeovim = useOpenFileInNeovim(props.featureId);

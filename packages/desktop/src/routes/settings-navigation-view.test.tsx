@@ -42,25 +42,21 @@ vi.mock("@/api/generated", async () => {
         initialData: { value: "old" },
         staleTime: Infinity,
       }),
-    useSetWorkspaceSetting: () => ({
-      mutate: mocks.persist,
-      mutateAsync: (args: { data: { value: string } }) => {
-        mocks.persist(args);
-        return Promise.resolve({ value: args.data.value });
-      },
-      isPending: false,
-    }),
+    setWorkspaceSetting: (key: string, data: { value: string }) => {
+      mocks.persist({ key, data });
+      return Promise.resolve({ value: data.value });
+    },
   };
 });
 vi.mock("@/components/settings/SettingsPageContent", async () => {
-  const { useDebouncedSetting } = await import("@/hooks/useDebouncedSetting");
+  const { useSettingDraft } = await import("@/hooks/useSettingDraft");
   function SettingFixture() {
-    const setting = useDebouncedSetting("regression_setting");
+    const setting = useSettingDraft("regression_setting", 300);
     return (
       <input
         aria-label="Setting regression"
-        value={setting.value ?? ""}
-        onChange={(event) => setting.setValue(event.target.value)}
+        value={setting.draft ?? setting.value ?? ""}
+        onChange={(event) => setting.setDraft(event.target.value)}
       />
     );
   }
@@ -212,7 +208,7 @@ describe("Settings page", () => {
     },
   );
 
-  it("persists a real debounced setting once", async () => {
+  it("persists a real setting draft once", async () => {
     vi.useFakeTimers();
     mocks.realSetting = true;
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -3,7 +3,7 @@ import { useGetWorkspaceSetting } from "@/api/generated";
 import { useNotchCapabilities } from "@/components/notch/useNotchCapabilities";
 import { NotificationModeOptions } from "@/components/settings/NotificationModePicker";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useSetWorkspaceSettingWithCache } from "@/hooks/useSetWorkspaceSettingWithCache";
+import { useSettingWriter } from "@/hooks/useSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   NOTIFICATION_MODE_KEY,
@@ -28,7 +28,7 @@ export function NotificationsStep({
 }: OnboardingStepProps) {
   const capabilities = useNotchCapabilities();
   const modeSetting = useGetWorkspaceSetting(NOTIFICATION_MODE_KEY);
-  const writer = useSetWorkspaceSettingWithCache(NOTIFICATION_MODE_KEY);
+  const writer = useSettingWriter(NOTIFICATION_MODE_KEY);
   const [picked, setPicked] = useState<NotificationMode | null>(null);
 
   const loading = capabilities.isPending || modeSetting.isPending;
@@ -38,14 +38,8 @@ export function NotificationsStep({
   const choice = picked ?? (stored == null ? recommended : parseNotificationMode(stored));
 
   const confirm = async (): Promise<void> => {
-    if (stored !== choice) {
-      try {
-        await writer.setValue(choice);
-      } catch {
-        // Already toasted by the writer; staying on the step lets the user retry.
-        return;
-      }
-    }
+    // A failed save is toasted by the writer; staying on the step lets the user retry.
+    if (stored !== choice && !(await writer.setValue(choice))) return;
     onAdvance();
   };
 
@@ -93,8 +87,8 @@ export function NotificationsStep({
       ) : null}
 
       <OnboardingFooter
-        primaryLabel={writer.isPending ? "Saving…" : "Continue"}
-        primaryDisabled={isPersisting || loading || writer.isPending || modeSetting.isError}
+        primaryLabel={writer.isSaving ? "Saving…" : "Continue"}
+        primaryDisabled={isPersisting || loading || writer.isSaving || modeSetting.isError}
         onBack={onBack}
         onSkipStep={onSkipStep}
       />

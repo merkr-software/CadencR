@@ -1,6 +1,6 @@
 import { createElement, useMemo } from "react";
 import { Loader2Icon } from "lucide-react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   BROWSER_DEFAULT_MODE_SETTING_KEY,
   BROWSER_MODE_OPTIONS,
@@ -28,10 +28,8 @@ import { InternalDomainsEditor } from "./InternalDomainsEditor";
  *  3. Search engine, and the domains whose links open in Cadencr's browser.
  */
 export function BrowserSection(): React.JSX.Element {
-  const modeSetting = useDebouncedSetting(BROWSER_DEFAULT_MODE_SETTING_KEY, 0);
-  const searchSetting = useDebouncedSetting(BROWSER_SEARCH_ENGINE_SETTING_KEY, 0, {
-    immediateCache: false,
-  });
+  const modeSetting = useSetting(BROWSER_DEFAULT_MODE_SETTING_KEY);
+  const searchSetting = useSetting(BROWSER_SEARCH_ENGINE_SETTING_KEY);
   const mode = parseCookieMode(modeSetting.value);
   const isMobile = useIsMobile();
   const searchEngine = parseBrowserSearchEngine(searchSetting.value);

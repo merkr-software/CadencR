@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { useListThemes, type UserTheme } from "@/api/generated";
 import { settingsArrayToMap, useGetWorkspaceSettings } from "@/api/settings";
-import { useDebouncedSettingFromMap } from "@/hooks/useDebouncedSetting";
+import { useSettingWriter } from "@/hooks/useSetting";
 import {
   setUserThemes,
   THEME_SETTING_KEY,
@@ -33,6 +33,14 @@ function parseDisabledIds(raw: string | null): string[] {
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw new Error("expected a JSON array of theme ids");
   return parsed.filter((id) => typeof id === "string");
+}
+
+function readableDisabledIds(raw: string | null): string[] {
+  try {
+    return parseDisabledIds(raw);
+  } catch {
+    return [];
+  }
 }
 
 interface UseUserThemesResult {
@@ -66,12 +74,8 @@ export function useUserThemes(): UseUserThemesResult {
     () => settingsArrayToMap(workspaceSettings.data),
     [workspaceSettings.data],
   );
-  const disabledSetting = useDebouncedSettingFromMap(
-    settingsMap,
-    THEME_USER_DISABLED_SETTING_KEY,
-    workspaceSettings.isLoading,
-    0,
-  );
+  const disabledValue = settingsMap[THEME_USER_DISABLED_SETTING_KEY] ?? null;
+  const { setValue: setDisabledValue } = useSettingWriter(THEME_USER_DISABLED_SETTING_KEY);
 
   // Tolerate a not-yet-resolved or unexpected query shape rather than throwing
   // during render — the theme list is read from the root layout, so a bad
@@ -79,11 +83,11 @@ export function useUserThemes(): UseUserThemesResult {
   const entries = useMemo(() => (Array.isArray(query.data) ? query.data : []), [query.data]);
   const disabled = useMemo(() => {
     try {
-      return { ids: new Set(parseDisabledIds(disabledSetting.value)), error: null };
+      return { ids: new Set(parseDisabledIds(disabledValue)), error: null };
     } catch (e) {
       return { ids: new Set<string>(), error: e instanceof Error ? e : new Error(String(e)) };
     }
-  }, [disabledSetting.value]);
+  }, [disabledValue]);
   const disabledIds = disabled.ids;
 
   const enabledThemes = useMemo(
@@ -101,12 +105,16 @@ export function useUserThemes(): UseUserThemesResult {
 
   const setEnabled = useCallback(
     (id: string, enabled: boolean): void => {
-      const next = new Set(disabledIds);
-      if (enabled) next.delete(id);
-      else next.add(id);
-      disabledSetting.setValue(JSON.stringify([...next]));
+      // From the confirmed list as the write goes out, so quick toggles compose.
+      void setDisabledValue((confirmed) => {
+        // A list that can't be read was already reported; the toggle replaces it.
+        const next = new Set(readableDisabledIds(confirmed ?? null));
+        if (enabled) next.delete(id);
+        else next.add(id);
+        return JSON.stringify([...next]);
+      });
     },
-    [disabledIds, disabledSetting],
+    [setDisabledValue],
   );
 
   return useMemo(

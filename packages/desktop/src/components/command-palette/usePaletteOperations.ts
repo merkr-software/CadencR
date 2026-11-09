@@ -12,7 +12,7 @@ import {
   type MessageSearchHit,
 } from "@/api/generated";
 import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { DEFAULT_WORKTREE_MODE_KEY, type DefaultWorktreeMode } from "@/lib/default-worktree-mode";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -46,7 +46,7 @@ export interface PaletteOperations {
 
 /** Opens `path` in a conversation's editor: Neovim's own buffers when it runs there. */
 function useOpenFile(activeFeatureId: number | null): PaletteOperations["openFile"] {
-  const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
+  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
   const openInNeovim = useOpenFileInNeovim(activeFeatureId ?? 0);
   return useCallback(
     (featureId: number, path: string) => {

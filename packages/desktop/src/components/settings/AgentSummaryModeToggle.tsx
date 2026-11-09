@@ -1,5 +1,5 @@
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { AGENT_SUMMARY_MODE_SETTING_KEY, parseAgentSummaryMode } from "@/lib/agent-verbosity";
 
 /**
@@ -9,7 +9,7 @@ import { AGENT_SUMMARY_MODE_SETTING_KEY, parseAgentSummaryMode } from "@/lib/age
  * message. Defaults to off. Independent of the verbosity mode above.
  */
 export function AgentSummaryModeToggle(): React.JSX.Element {
-  const setting = useDebouncedSetting(AGENT_SUMMARY_MODE_SETTING_KEY, 0);
+  const setting = useSetting(AGENT_SUMMARY_MODE_SETTING_KEY);
   const enabled = parseAgentSummaryMode(setting.value);
 
   return (
@@ -19,6 +19,7 @@ export function AgentSummaryModeToggle(): React.JSX.Element {
       checked={enabled}
       onCheckedChange={(next) => setting.setValue(next ? "true" : "false")}
       disabled={setting.isLoading}
+      saving={setting.isSaving}
       divided
     />
   );

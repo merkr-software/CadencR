@@ -37,7 +37,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-// Keep the workspace-settings plumbing (useDebouncedSetting → useGetWorkspaceSetting)
+// Keep the workspace-settings plumbing (useSetting → useGetWorkspaceSetting)
 // out of the ProjectTree render tree; the per-project onboarding modal is exercised
 // in project-onboarding.test.ts.
 vi.mock("@/lib/project-onboarding", () => ({

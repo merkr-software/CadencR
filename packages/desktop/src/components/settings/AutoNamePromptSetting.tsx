@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useGetAutoNamePrompt } from "@/api/generated";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useSyncedSettingInput } from "@/hooks/useSyncedSettingInput";
 import { ErrorRow, LoadingRow } from "./SettingsStateRows";
 import { SettingsSubsection } from "./SettingsSubsection";
@@ -28,7 +28,7 @@ export function storedAutoNamePrompt(text: string, defaultPrompt: string): strin
  */
 export function AutoNamePromptSetting(): React.JSX.Element {
   const defaultQuery = useGetAutoNamePrompt({ query: { staleTime: Infinity } });
-  const setting = useDebouncedSetting(AUTO_NAME_SYSTEM_PROMPT_KEY, 0);
+  const setting = useSetting(AUTO_NAME_SYSTEM_PROMPT_KEY);
   const defaultPrompt = defaultQuery.data?.default_prompt;
   const stored = setting.value ?? "";
   const isCustom = stored.trim() !== "";
@@ -41,7 +41,12 @@ export function AutoNamePromptSetting(): React.JSX.Element {
   const save = (): void => {
     if (defaultPrompt === undefined) return;
     const next = storedAutoNamePrompt(input.value, defaultPrompt);
-    if (next !== stored) setting.setValue(next);
+    if (next === stored) return;
+    // The field keeps the edit as a draft until the save lands; a failed save
+    // (already toasted) puts the saved prompt back.
+    void setting.setValue(next).then((saved) => {
+      if (!saved) input.revert();
+    });
   };
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -49,8 +54,9 @@ export function AutoNamePromptSetting(): React.JSX.Element {
 
   const reset = (): void => {
     if (defaultPrompt === undefined) return;
-    input.setValue(defaultPrompt);
-    setting.setValue("");
+    void setting.setValue("").then((saved) => {
+      if (saved) input.setValue(defaultPrompt);
+    });
   };
 
   return (
@@ -70,6 +76,7 @@ export function AutoNamePromptSetting(): React.JSX.Element {
             className="h-6 px-2 text-[11px]"
             aria-label="Reset naming prompt"
             onClick={reset}
+            disabled={setting.isSaving}
           >
             Reset
           </Button>
@@ -88,6 +95,7 @@ export function AutoNamePromptSetting(): React.JSX.Element {
           value={input.value}
           onChange={(event) => input.setValue(event.target.value)}
           onBlur={save}
+          aria-busy={setting.isSaving}
           className="min-h-28 resize-y leading-relaxed"
         />
       )}

@@ -18,14 +18,14 @@ interface ModeSetting {
 
 let capabilities: Capabilities;
 let modeSetting: ModeSetting;
-const setValue = vi.fn<(value: string) => Promise<void>>();
+const setValue = vi.fn<(value: string) => Promise<boolean>>();
 
 vi.mock("@/components/notch/useNotchCapabilities", () => ({
   useNotchCapabilities: () => capabilities,
 }));
 vi.mock("@/api/generated", () => ({ useGetWorkspaceSetting: () => modeSetting }));
-vi.mock("@/hooks/useSetWorkspaceSettingWithCache", () => ({
-  useSetWorkspaceSettingWithCache: () => ({ setValue, isPending: false }),
+vi.mock("@/hooks/useSetting", () => ({
+  useSettingWriter: () => ({ setValue, isSaving: false }),
 }));
 
 function mac(hardware: boolean): Capabilities {
@@ -61,7 +61,7 @@ function checkedOption(): string {
 describe("NotificationsStep", () => {
   beforeEach(() => {
     setValue.mockReset();
-    setValue.mockResolvedValue(undefined);
+    setValue.mockResolvedValue(true);
   });
 
   it("recommends the notch when a notched display is connected", async () => {
@@ -104,7 +104,7 @@ describe("NotificationsStep", () => {
   it("stays on the step when saving fails", async () => {
     capabilities = mac(true);
     modeSetting = stored(null);
-    setValue.mockRejectedValueOnce(new Error("disk full"));
+    setValue.mockResolvedValueOnce(false);
     const { onAdvance } = renderStep();
 
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));

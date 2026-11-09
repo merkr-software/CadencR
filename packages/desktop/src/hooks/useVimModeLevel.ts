@@ -1,4 +1,4 @@
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   EDITOR_VIM_MODE_LEVEL_KEY,
   parseVimModeLevel,
@@ -11,6 +11,6 @@ import {
  * so both never disagree about what an unset or stale setting value means.
  */
 export function useVimModeLevel(): VimModeLevel {
-  const { value } = useDebouncedSetting(EDITOR_VIM_MODE_LEVEL_KEY);
+  const { value } = useSetting(EDITOR_VIM_MODE_LEVEL_KEY);
   return parseVimModeLevel(value);
 }

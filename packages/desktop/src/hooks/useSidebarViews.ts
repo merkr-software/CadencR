@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   parseSidebarViews,
   SIDEBAR_ACTIVE_VIEW_KEY,
@@ -23,8 +23,8 @@ export interface SidebarViews {
 
 /** The saved sidebar views and the one shown, both workspace settings. */
 export function useSidebarViews(): SidebarViews {
-  const stored = useDebouncedSetting(SIDEBAR_VIEWS_KEY, 0);
-  const active = useDebouncedSetting(SIDEBAR_ACTIVE_VIEW_KEY, 0);
+  const stored = useSetting(SIDEBAR_VIEWS_KEY);
+  const active = useSetting(SIDEBAR_ACTIVE_VIEW_KEY);
   const parsed = useMemo(() => parseSidebarViews(stored.value), [stored.value]);
 
   useEffect(() => {

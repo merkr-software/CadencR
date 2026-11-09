@@ -6,7 +6,7 @@ import {
   useGetFeatureSettings,
   useSetFeatureSetting,
 } from "@/api/generated";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { GitViewMode } from "./GitTabToggle";
 
@@ -98,7 +98,7 @@ export function useGitTabViewState(
     value: persistedFileListCollapsed,
     setValue: persistFileListCollapsed,
     isLoading: isFileListCollapseLoading,
-  } = useDebouncedSetting(GIT_SIDEBAR_COLLAPSED_SETTING, 0);
+  } = useSetting(GIT_SIDEBAR_COLLAPSED_SETTING);
   const fileListCollapsed = persistedFileListCollapsed === "true";
   const setFileListCollapsed = useCallback(
     (collapsed: boolean): void => {

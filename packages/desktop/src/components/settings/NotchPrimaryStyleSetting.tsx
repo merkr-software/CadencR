@@ -7,14 +7,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { NOTCH_PRIMARY_STYLE_KEY, useNotchPrefs } from "@/lib/notch/notch-prefs";
 import { SettingsRow } from "./SettingsRow";
 
 export function NotchPrimaryStyleSetting(): React.JSX.Element {
   const id = useId();
   const prefs = useNotchPrefs();
-  const setting = useDebouncedSetting(NOTCH_PRIMARY_STYLE_KEY, 0, { immediateCache: false });
+  const setting = useSetting(NOTCH_PRIMARY_STYLE_KEY);
   const busy = setting.isLoading || setting.isSaving;
   const builtinOnly = prefs.displayMode === "builtin_always";
 

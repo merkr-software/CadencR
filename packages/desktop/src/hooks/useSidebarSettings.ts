@@ -2,13 +2,12 @@ import { useCallback, useMemo } from "react";
 import { useQueries, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  getGetWorkspaceSettingQueryKey,
   getGetWorkspaceSettingQueryOptions,
-  useSetWorkspaceSetting,
   useSetWorkspaceSettingsBatch,
   type Setting,
   type SettingValueResponse,
 } from "@/api/generated";
+import { seedConfirmedSetting, writeSetting } from "@/hooks/setting-persistence";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   parseSidebarConfig,
@@ -68,24 +67,10 @@ type SetSidebarOption = <K extends SidebarOptionId>(id: K, value: SidebarConfig[
  */
 export function useSetSidebarOption(): SetSidebarOption {
   const queryClient = useQueryClient();
-  const { mutate } = useSetWorkspaceSetting();
   return useCallback<SetSidebarOption>(
-    (id, value) => {
-      const key = SIDEBAR_OPTIONS[id].key;
-      const serialized = serializeSidebarOption(value);
-      mutate(
-        { key, data: { value: serialized } },
-        {
-          onSuccess: () =>
-            queryClient.setQueryData(getGetWorkspaceSettingQueryKey(key), { value: serialized }),
-          onError: (error) =>
-            toast.error(
-              `Could not save sidebar option: ${apiErrorMessage(error, "Unknown error")}`,
-            ),
-        },
-      );
-    },
-    [mutate, queryClient],
+    (id, value) =>
+      void writeSetting(queryClient, SIDEBAR_OPTIONS[id].key, serializeSidebarOption(value)),
+    [queryClient],
   );
 }
 
@@ -96,8 +81,11 @@ export function seedSettingsFromBatch(
   saved: readonly Setting[],
 ): void {
   for (const key of keys) {
-    const value = saved.find((setting) => setting.key === key)?.value ?? null;
-    queryClient.setQueryData(getGetWorkspaceSettingQueryKey(key), { value });
+    seedConfirmedSetting(
+      queryClient,
+      key,
+      saved.find((setting) => setting.key === key)?.value ?? null,
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
-import { useSetWorkspaceSettingWithCache } from "@/hooks/useSetWorkspaceSettingWithCache";
+import { useSettingWriter } from "@/hooks/useSetting";
 import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import {
   providerAccessModeConfig,
@@ -29,17 +29,15 @@ export function useAccessModeSetting(providerId: string): UseAccessModeSettingRe
   const config = useProviderAccessModeConfig(providerId);
   const settingKey = config?.settingKey ?? "codex_permission_mode";
   const setting = useGetWorkspaceSetting(settingKey, { query: { enabled: config != null } });
-  const { setValue, isPending } = useSetWorkspaceSettingWithCache(settingKey);
+  const { setValue, isSaving: isPending } = useSettingWriter(settingKey);
   const globalAccessMode = parseAccessMode(setting.data?.value);
   const providerLabel = config?.providerLabel ?? null;
   const handleAccessModeChange = useCallback(
     (mode: AccessMode): void => {
       if (!providerLabel || mode === globalAccessMode) return;
-      setValue(mode)
-        .then(() => toast.success(`${providerLabel} access default updated`))
-        .catch((error: unknown) => {
-          console.warn("Access mode setting save failed after user-facing toast", error);
-        });
+      void setValue(mode).then((saved) => {
+        if (saved) toast.success(`${providerLabel} access default updated`);
+      });
     },
     [globalAccessMode, providerLabel, setValue],
   );

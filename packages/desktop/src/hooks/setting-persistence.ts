@@ -1,89 +1,120 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getGetWorkspaceSettingQueryKey, type SettingValueResponse } from "@/api/generated";
+import {
+  getGetWorkspaceSettingQueryKey,
+  setWorkspaceSetting,
+  type SettingValueResponse,
+} from "@/api/generated";
+import { getWorkspaceSettingsQueryKey, type SettingEntry } from "@/api/settings";
 import { apiErrorMessage } from "@/lib/api-errors";
 
-interface SettingWrites {
-  generation: number;
-  hasDraft: boolean;
-  confirmedValue: SettingValueResponse | undefined;
-  tail: Promise<void> | null;
-}
+/**
+ * Computes the value to write from the setting's confirmed value at the moment
+ * the write goes out (undefined while it has never loaded). Returning null
+ * writes nothing.
+ */
+export type SettingUpdate = (confirmed: string | null | undefined) => string | null;
 
-interface SettingWrite {
-  queryClient: QueryClient;
-  key: string;
-  value: string;
-  immediateCache: boolean;
-  persist: (request: { key: string; data: { value: string } }) => Promise<SettingValueResponse>;
-}
-
-// Share ordering across readers and remounts without retaining QueryClients.
-const writes = new WeakMap<QueryClient, Map<string, SettingWrites>>();
+// Writes to one key go out one at a time, so the backend and the cache see them
+// in the order they were made. Per QueryClient, without retaining any.
+const queues = new WeakMap<QueryClient, Map<string, Promise<boolean>>>();
+const inFlight = new Map<string, number>();
+const listeners = new Set<() => void>();
 
 /**
- * Capture an edit now, then enqueue its persistence when the debounce expires.
- * Only callbacks for the latest edit can publish or restore the shared cache.
+ * The single write path for workspace settings. The cache only moves to the
+ * value the backend answered with (no optimistic updates); a failure toasts,
+ * leaves the confirmed value in place and re-reads it, in case the write landed
+ * before the failure. Resolves true when the backend holds the value (or there
+ * was nothing to write), false when the write failed. Never rejects.
  */
-export function prepareSettingWrite({
-  queryClient,
-  key,
-  value,
-  immediateCache,
-  persist,
-}: SettingWrite): () => Promise<void> {
-  let settings = writes.get(queryClient);
-  if (!settings) {
-    settings = new Map();
-    writes.set(queryClient, settings);
+export function writeSetting(
+  queryClient: QueryClient,
+  key: string,
+  next: string | SettingUpdate,
+): Promise<boolean> {
+  let queue = queues.get(queryClient);
+  if (!queue) {
+    queue = new Map();
+    queues.set(queryClient, queue);
   }
-  const queryKey = getGetWorkspaceSettingQueryKey(key);
-  let state = settings.get(key);
-  if (!state) {
-    state = { generation: 0, hasDraft: false, confirmedValue: undefined, tail: null };
-    settings.set(key, state);
-  }
-  const current = state;
-  if (!current.tail && !current.hasDraft) {
-    current.confirmedValue = queryClient.getQueryData<SettingValueResponse>(queryKey);
-  }
-  const generation = ++current.generation;
-  current.hasDraft = true;
-  if (immediateCache) queryClient.setQueryData(queryKey, { value });
+  const previous = queue.get(key) ?? Promise.resolve(true);
+  changeInFlight(key, 1);
+  const task = previous
+    .then(() => sendSetting(queryClient, key, next))
+    .finally(() => changeInFlight(key, -1));
+  queue.set(key, task);
+  void task.then(() => {
+    if (queue.get(key) === task) queue.delete(key);
+  });
+  return task;
+}
 
-  const run = async (): Promise<void> => {
-    try {
-      await persist({ key, data: { value } });
-      current.confirmedValue = { value };
-      if (generation === current.generation && !immediateCache) {
-        queryClient.setQueryData(queryKey, { value });
-      }
-    } catch (error: unknown) {
-      toast.error(`Could not save setting "${key}": ${apiErrorMessage(error, "Unknown error")}`);
-      if (generation === current.generation) {
-        if (current.confirmedValue === undefined) {
-          try {
-            await queryClient.invalidateQueries({ queryKey });
-          } catch (reloadError: unknown) {
-            toast.error(
-              `Could not reload setting "${key}": ${apiErrorMessage(reloadError, "Unknown error")}`,
-            );
-          }
-        } else {
-          queryClient.setQueryData(queryKey, current.confirmedValue);
-        }
-      }
-    }
-  };
+async function sendSetting(
+  queryClient: QueryClient,
+  key: string,
+  next: string | SettingUpdate,
+): Promise<boolean> {
+  try {
+    const value = typeof next === "string" ? next : next(readConfirmedSetting(queryClient, key));
+    if (value === null) return true;
+    const saved = await setWorkspaceSetting(key, { value });
+    seedConfirmedSetting(queryClient, key, saved.value ?? null);
+    return true;
+  } catch (error: unknown) {
+    toast.error(`Could not save setting "${key}": ${apiErrorMessage(error, "Unknown error")}`);
+    // Not awaited: callers fall back to the confirmed value at once; a failed
+    // refetch leaves that value in place and shows on the query itself.
+    void queryClient.invalidateQueries({ queryKey: getGetWorkspaceSettingQueryKey(key) });
+    return false;
+  }
+}
 
-  return (): Promise<void> => {
-    // Another reader may have submitted a newer edit while this one debounced.
-    if (generation !== current.generation) return Promise.resolve();
-    current.hasDraft = false;
-    const task = (current.tail ? current.tail.then(run) : run()).finally(() => {
-      if (current.tail === task) current.tail = null;
-    });
-    current.tail = task;
-    return task;
-  };
+/** The value the backend last confirmed for `key`, from either settings cache. */
+export function readConfirmedSetting(
+  queryClient: QueryClient,
+  key: string,
+): string | null | undefined {
+  const single = queryClient.getQueryData<SettingValueResponse>(
+    getGetWorkspaceSettingQueryKey(key),
+  );
+  if (single !== undefined) return single.value ?? null;
+  const bulk = queryClient.getQueryData<SettingEntry[]>(getWorkspaceSettingsQueryKey());
+  if (bulk === undefined) return undefined;
+  return bulk.find((entry) => entry.key === key)?.value ?? null;
+}
+
+/**
+ * Puts a value the backend confirmed (null: cleared) in both settings caches:
+ * the per-key query and the bulk list that `useGetWorkspaceSettings` readers
+ * (theme, favorite models) use.
+ */
+export function seedConfirmedSetting(
+  queryClient: QueryClient,
+  key: string,
+  value: string | null,
+): void {
+  queryClient.setQueryData<SettingValueResponse>(getGetWorkspaceSettingQueryKey(key), { value });
+  queryClient.setQueryData<SettingEntry[]>(getWorkspaceSettingsQueryKey(), (entries) => {
+    if (entries === undefined) return entries;
+    const others = entries.filter((entry) => entry.key !== key);
+    return value === null ? others : [...others, { key, value }];
+  });
+}
+
+/** Whether a write to `key` is queued or on its way, from any component. */
+export function isSettingSaving(key: string): boolean {
+  return (inFlight.get(key) ?? 0) > 0;
+}
+
+export function subscribeSettingWrites(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function changeInFlight(key: string, delta: number): void {
+  const count = (inFlight.get(key) ?? 0) + delta;
+  if (count > 0) inFlight.set(key, count);
+  else inFlight.delete(key);
+  for (const listener of listeners) listener();
 }

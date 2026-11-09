@@ -7,8 +7,8 @@ import { DEFAULT_MONO_STACK } from "./constants";
 const setValue = vi.fn();
 let mockValue: string | null = null;
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: () => ({ value: mockValue, setValue, isLoading: false }),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: () => ({ value: mockValue, setValue, isLoading: false }),
 }));
 
 describe("useMonoFont", () => {

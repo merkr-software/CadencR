@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import type { PrThreadLine, ReviewNavigationTarget } from "@/lib/pr-review-threads";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useTheme } from "@/hooks/useTheme";
 import { GIT_DIFF_VIEW_MODE_KEY, parseGitDiffViewMode } from "@/lib/git-diff-view-mode";
 import { DiffContent } from "./DiffContent";
@@ -321,7 +321,7 @@ function DiffViewerImpl({
     setValue: setDiffMode,
     isLoading: isDiffModeLoading,
     isSaving: isDiffModeSaving,
-  } = useDebouncedSetting(GIT_DIFF_VIEW_MODE_KEY, 0, { immediateCache: false });
+  } = useSetting(GIT_DIFF_VIEW_MODE_KEY);
   const diffMode = parseGitDiffViewMode(value);
   const fileList = useGitFileListCollapse({
     controlledValue: fileListCollapsed,

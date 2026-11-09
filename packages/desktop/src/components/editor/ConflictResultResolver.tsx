@@ -12,7 +12,7 @@ import { EditorView as CodeMirrorView } from "@codemirror/view";
 import type { Extension, Text } from "@codemirror/state";
 import { Loader2Icon } from "lucide-react";
 import type { GitOperationKind } from "@/api/generated";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useEditorLanguage } from "@/hooks/useEditorLanguage";
 import BaseCodeMirrorEditor from "./BaseCodeMirrorEditor";
 import { EditorDiskSyncIndicator, type EditorDiskSyncState } from "./EditorDiskSyncIndicator";
@@ -122,8 +122,8 @@ function useConflictResultEditor({
     onEditorViewChange,
   });
   const language = useEditorLanguage(projectId, filePath);
-  const { value: vimSetting } = useDebouncedSetting("editor_vim_mode");
-  const { value: autoSaveSetting } = useDebouncedSetting("editor_auto_save");
+  const { value: vimSetting } = useSetting("editor_vim_mode");
+  const { value: autoSaveSetting } = useSetting("editor_auto_save");
   const { beforeWrite, isFormatting } = useEditorFormat({
     projectId,
     featureId,

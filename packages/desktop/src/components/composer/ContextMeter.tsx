@@ -1,5 +1,5 @@
 import { memo, type ReactElement } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   CONTEXT_METER_DISPLAY_LABEL,
   CONTEXT_METER_DISPLAY_SETTING_KEY,
@@ -34,9 +34,7 @@ function ContextMeterTrigger({
   isStreaming: boolean;
 }): ReactElement {
   const hover = useHoverOpen();
-  const setting = useDebouncedSetting(CONTEXT_METER_DISPLAY_SETTING_KEY, 0, {
-    immediateCache: false,
-  });
+  const setting = useSetting(CONTEXT_METER_DISPLAY_SETTING_KEY);
   const display = parseContextMeterDisplay(setting.value);
   const ratio = usageRatio(usage);
   const label = meterLabel(display, usage, ratio);

@@ -1,4 +1,4 @@
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   AGENT_MESSAGE_NAVIGATOR_SETTING_KEY,
   parseAgentMessageNavigator,
@@ -12,7 +12,7 @@ import { useShortcutLabel } from "@/hooks/useShortcutLabel";
  * Defaults to on.
  */
 export function AgentMessageNavigatorSetting(): React.JSX.Element {
-  const setting = useDebouncedSetting(AGENT_MESSAGE_NAVIGATOR_SETTING_KEY, 0);
+  const setting = useSetting(AGENT_MESSAGE_NAVIGATOR_SETTING_KEY);
   // Resolved, not the registry defaults: the text follows a user's rebinding.
   const previousCombo = useShortcutLabel("agent-previous-message");
   const nextCombo = useShortcutLabel("agent-next-message");
@@ -25,6 +25,7 @@ export function AgentMessageNavigatorSetting(): React.JSX.Element {
       checked={parseAgentMessageNavigator(setting.value)}
       onCheckedChange={(next) => setting.setValue(next ? "true" : "false")}
       disabled={setting.isLoading}
+      saving={setting.isSaving}
     />
   );
 }

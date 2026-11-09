@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting, type Setting } from "@/hooks/useSetting";
 import type { ContextUsageState } from "@/types/agent";
 import { ContextMeter } from "./ContextMeter";
 import { ComposerContextProvider, type ComposerContextValue } from "./ComposerContext";
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({ useDebouncedSetting: vi.fn() }));
+vi.mock("@/hooks/useSetting", () => ({ useSetting: vi.fn() }));
 
-const setValue = vi.fn<(value: string) => void>();
+const setValue = vi.fn<Setting["setValue"]>().mockResolvedValue(true);
 
 function mockDisplay(value: string | null): void {
-  vi.mocked(useDebouncedSetting).mockReturnValue({
+  vi.mocked(useSetting).mockReturnValue({
     value,
     setValue,
     isLoading: false,
@@ -35,7 +35,7 @@ function renderMeter(contextWindow: number | undefined = 200_000) {
 }
 
 describe("ContextMeter", () => {
-  beforeEach(() => setValue.mockReset());
+  beforeEach(() => setValue.mockClear());
 
   it.each([
     [null, "25%"],

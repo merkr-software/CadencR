@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/lib/sidebar-width";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
+
+/** A resize emits a layout change per step; only the width it settles on is saved. */
+const WIDTH_SAVE_DEBOUNCE_MS = 300;
 
 function clampSidebarWidth(raw: string | null): number {
   const saved = raw ? Number(raw) : Number.NaN;
@@ -24,8 +27,8 @@ function clampSidebarWidth(raw: string | null): number {
  * of the stored state (A8, never persisted).
  */
 export function useSidebarController(isMobile: boolean) {
-  const leftWidth = useDebouncedSetting("sidebar_left_width", 300, { immediateCache: false });
-  const collapsedSetting = useDebouncedSetting("sidebar_collapsed", 0);
+  const leftWidth = useSetting("sidebar_left_width");
+  const collapsedSetting = useSetting("sidebar_collapsed");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const leftSidebarRef = useRef<HTMLDivElement>(null);
   const sidebarPanelRef = useRef<PanelImperativeHandle>(null);
@@ -53,7 +56,7 @@ export function useSidebarController(isMobile: boolean) {
         const panel = sidebarPanelRef.current;
         if (!nextCollapsed && panel) restoreWidth(panel);
         if (autoCollapse.onUserToggle(nextCollapsed)) return;
-        collapsedSetting.setValue(nextCollapsed ? "true" : "false");
+        void collapsedSetting.setValue(nextCollapsed ? "true" : "false");
       }
     },
     [autoCollapse, collapsedSetting, isMobile, restoreWidth],
@@ -90,16 +93,13 @@ export function useSidebarController(isMobile: boolean) {
     leftSidebarRef.current?.focus();
   }, []);
 
-  const handleLayoutChanged = useCallback((): void => {
-    if (!widthAppliedRef.current) return;
-    const size = sidebarPanelRef.current?.getSize();
-    if (!size || size.inPixels < 50) return;
-    const width = Math.round(size.inPixels);
-    // Percent-based layout rounds a restored width by a pixel; persisting that
-    // would shrink the sidebar a little on every launch.
-    if (Math.abs(width - storedWidth) <= 1) return;
-    leftWidth.setValue(String(width));
-  }, [leftWidth, storedWidth]);
+  const handleLayoutChanged = useSidebarWidthWrites({
+    panelRef: sidebarPanelRef,
+    widthAppliedRef,
+    storedWidth,
+    setStoredWidth: leftWidth.setValue,
+    restoreWidth,
+  });
 
   return useMemo(
     () => ({
@@ -116,3 +116,63 @@ export function useSidebarController(isMobile: boolean) {
 }
 
 export type SidebarController = ReturnType<typeof useSidebarController>;
+
+interface SidebarWidthWrites {
+  panelRef: RefObject<PanelImperativeHandle | null>;
+  widthAppliedRef: RefObject<boolean>;
+  storedWidth: number;
+  setStoredWidth: (width: string) => Promise<boolean>;
+  restoreWidth: (panel: PanelImperativeHandle) => void;
+}
+
+/**
+ * Saves the width a resize settles on. The panel follows the drag itself; that
+ * is the only preview. The stored width moves once the backend confirms the new
+ * one, and a failed write puts the panel back at the width it still holds.
+ */
+function useSidebarWidthWrites({
+  panelRef,
+  widthAppliedRef,
+  storedWidth,
+  setStoredWidth,
+  restoreWidth,
+}: SidebarWidthWrites): () => void {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendingWidthRef = useRef<number | null>(null);
+  // Read when a write fails, after the render that may have changed the width.
+  const restoreWidthRef = useRef(restoreWidth);
+  restoreWidthRef.current = restoreWidth;
+
+  useEffect(
+    () => (): void => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
+  return useCallback((): void => {
+    if (!widthAppliedRef.current) return;
+    const size = panelRef.current?.getSize();
+    if (!size || size.inPixels < 50) return;
+    const width = Math.round(size.inPixels);
+    // Percent-based layout rounds a restored width by a pixel; persisting that
+    // would shrink the sidebar a little on every launch.
+    if (Math.abs(width - storedWidth) <= 1) {
+      sendingWidthRef.current = null;
+      return;
+    }
+    // The layout can report that width again while it's being written, or
+    // while a failed write animates the panel back: send it once.
+    if (width === sendingWidthRef.current) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      sendingWidthRef.current = width;
+      void setStoredWidth(String(width)).then((saved) => {
+        if (saved) sendingWidthRef.current = null;
+        const panel = panelRef.current;
+        if (!saved && panel && !panel.isCollapsed()) restoreWidthRef.current(panel);
+      });
+    }, WIDTH_SAVE_DEBOUNCE_MS);
+  }, [panelRef, setStoredWidth, storedWidth, widthAppliedRef]);
+}

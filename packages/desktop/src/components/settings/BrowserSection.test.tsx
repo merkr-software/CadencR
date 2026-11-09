@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen } from "@/test-utils";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting, type Setting } from "@/hooks/useSetting";
 import { BrowserSection } from "./BrowserSection";
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn(),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: vi.fn(),
 }));
 
-type SettingSetter = (value: string) => void;
+type SettingSetter = Setting["setValue"];
 type SettingSetterMock = Mock<SettingSetter>;
 
 const setValueByKey = new Map<string, SettingSetterMock>();
@@ -16,7 +16,7 @@ const setValueByKey = new Map<string, SettingSetterMock>();
 function settingSetter(key: string): SettingSetterMock {
   const existing = setValueByKey.get(key);
   if (existing) return existing;
-  const setter = vi.fn<SettingSetter>();
+  const setter = vi.fn<SettingSetter>().mockResolvedValue(true);
   setValueByKey.set(key, setter);
   return setter;
 }
@@ -24,7 +24,7 @@ function settingSetter(key: string): SettingSetterMock {
 describe("BrowserSection", () => {
   beforeEach(() => {
     setValueByKey.clear();
-    vi.mocked(useDebouncedSetting).mockImplementation((key: string) => ({
+    vi.mocked(useSetting).mockImplementation((key: string) => ({
       value: key === "browser_default_mode" ? "normal" : null,
       setValue: settingSetter(key),
       isLoading: false,
@@ -55,8 +55,6 @@ describe("BrowserSection", () => {
     await user.click(screen.getByRole("radio", { name: "DuckDuckGo" }));
 
     expect(settingSetter("browser_search_engine")).toHaveBeenCalledWith("duckduckgo");
-    expect(vi.mocked(useDebouncedSetting)).toHaveBeenCalledWith("browser_search_engine", 0, {
-      immediateCache: false,
-    });
+    expect(vi.mocked(useSetting)).toHaveBeenCalledWith("browser_search_engine");
   });
 });

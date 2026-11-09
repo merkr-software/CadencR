@@ -16,7 +16,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 /**
  * Settings → Notifications:
  *  1. Destination picker (Notch / System / In app / Off) — persisted via
- *     `useDebouncedSetting`, which writes through to the React Query
+ *     `useSetting`, which puts the confirmed value in the React Query
  *     cache that `notifyAgentDone` reads on each fire.
  *  2. Per-device push (remote shell) and the notch island (macOS), when
  *     they apply.

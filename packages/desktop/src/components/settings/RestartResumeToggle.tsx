@@ -8,7 +8,7 @@ import { SettingsSwitchRow } from "./SettingsSwitchRow";
  * start.
  */
 export function RestartResumeToggle(): React.JSX.Element {
-  const { enabled, setEnabled, isLoading } = useRestartResumeEnabled();
+  const { enabled, setEnabled, isLoading, isSaving } = useRestartResumeEnabled();
   return (
     <SettingsSwitchRow
       label="Resume agents after a restart"
@@ -16,6 +16,7 @@ export function RestartResumeToggle(): React.JSX.Element {
       checked={enabled}
       onCheckedChange={setEnabled}
       disabled={isLoading}
+      saving={isSaving}
     />
   );
 }

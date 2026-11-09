@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { render, screen, within } from "@/test-utils";
+import { render, screen, waitFor, within } from "@/test-utils";
 import { getGetWorkspaceSettingQueryKey } from "@/api/generated";
 import { SIDEBAR_SETTING_KEYS } from "@/lib/sidebar-config";
 import { SidebarSection } from "./SidebarSection";
@@ -12,10 +12,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  useSetWorkspaceSetting: () => ({
-    mutate: ({ key, data }: { key: string; data: { value: string } }) =>
-      mocks.writes.push({ key, value: data.value }),
-  }),
+  setWorkspaceSetting: (key: string, data: { value: string }) => {
+    mocks.writes.push({ key, value: data.value });
+    return Promise.resolve({ value: data.value });
+  },
   useSetWorkspaceSettingsBatch: () => ({
     mutate: () => {
       mocks.batches += 1;
@@ -51,7 +51,9 @@ describe("SidebarSection", () => {
   it("writes changes and resets from its own rows", async () => {
     const { user } = render(<SidebarSection />, { queryClient: seededClient() });
     await user.click(screen.getByRole("switch", { name: /Type to filter/ }));
-    expect(mocks.writes).toEqual([{ key: "sidebar_type_to_filter", value: "false" }]);
+    await waitFor(() =>
+      expect(mocks.writes).toEqual([{ key: "sidebar_type_to_filter", value: "false" }]),
+    );
 
     await user.click(screen.getByRole("button", { name: /Reset/ }));
     expect(mocks.batches).toBe(1);
