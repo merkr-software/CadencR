@@ -11,7 +11,8 @@ from archive import executable, sha256
 ROOT = Path(__file__).resolve().parents[2]
 GOOS = {"linux-x86_64": ("linux", "amd64"), "darwin-aarch64": ("darwin", "arm64"),
         "darwin-x86_64": ("darwin", "amd64")}
-REGRESSION_TESTS = "^(TestRunExitStatus|TestRunReportsParentCancellation|TestRunReportsWriteFailure)$"
+REGRESSION_TESTS = ("^(TestRunExitStatus|TestRunReportsParentCancellation|TestRunReportsWriteFailure"
+                    "|TestRunExitsOnTransportEOFWhileAwaitingClientResponse)$")
 
 
 def go_environment(work, offline):

@@ -51,14 +51,14 @@
     },
     "patch": {
       "path": "plugins/lsp/native-recipes/patches/tsgo-exit-after-shutdown.patch",
-      "sha256": "d33936cdd78d89ed1fc7cb8f19d650e645cc05b7a78a8f11c65dd315154a7815",
+      "sha256": "768c63ee0f3f892baef16d4349081a013a9de44f1b7814dd34765e32ffd5ff57",
       "shipped_as": "CADENCR-PATCHES/tsgo-exit-after-shutdown.patch",
       "upstream_issue": "https://github.com/microsoft/TypeScript/issues/64742",
       "upstream_pull": "https://github.com/microsoft/TypeScript/pull/64894",
       "upstream_pull_commit": "6e9659803b89d66d39631b1f0a762ff89f924360",
       "files": {
         "internal/lsp/server.go": "c69b780dd60ccb73856c363bdab7ea15f3e9a5bd7fca19bb10d8a925e1a07c18",
-        "internal/lsp/server_shutdown_test.go": "7bafaff70e65dbca30b479a146042c066d638e14b5ac5bf5e67736ae0867e7bd"
+        "internal/lsp/server_shutdown_test.go": "84cd6e96c5b2d29c3b014d0515d29a2892fafd1a99b729dd7b12caf00af03812"
       }
     },
     "module_sums": {

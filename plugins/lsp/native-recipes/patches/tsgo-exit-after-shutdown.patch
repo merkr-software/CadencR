@@ -13,7 +13,8 @@ revision. The lifecycle tests are rewritten for this revision.
 The pull request's second commit (9437ba19107a2b00b1dbf4b113e3e53afb37bc7b)
 queues transport EOF behind dispatch. It is not applied: a handler awaiting a
 client response, such as initialized, then never sees EOF and the server
-never exits after its client closes stdin.
+never exits after its client closes stdin. The test
+TestRunExitsOnTransportEOFWhileAwaitingClientResponse covers this case.
 
 diff --git a/internal/lsp/server.go b/internal/lsp/server.go
 index 8a0b7214..2077d5c6 100644
@@ -82,18 +83,25 @@ index 8a0b7214..2077d5c6 100644
  }
  
 diff --git a/internal/lsp/server_shutdown_test.go b/internal/lsp/server_shutdown_test.go
-index f1dbc97b..4e7135e7 100644
+index f1dbc97b..8567a940 100644
 --- a/internal/lsp/server_shutdown_test.go
 +++ b/internal/lsp/server_shutdown_test.go
-@@ -2,6 +2,7 @@ package lsp
+@@ -2,10 +2,14 @@ package lsp
  
  import (
  	"context"
 +	"errors"
++	"fmt"
  	"io"
  	"testing"
++	"time"
  
-@@ -19,6 +20,103 @@ type shutdownTestWriter struct{}
+ 	"github.com/microsoft/typescript-go/internal/bundled"
++	"github.com/microsoft/typescript-go/internal/jsonrpc"
+ 	"github.com/microsoft/typescript-go/internal/lsp/lsproto"
+ 	"github.com/microsoft/typescript-go/internal/project"
+ 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
+@@ -19,6 +23,173 @@ type shutdownTestWriter struct{}
  
  func (shutdownTestWriter) Write(*lsproto.Message) error { return nil }
  
@@ -191,6 +199,76 @@ index f1dbc97b..4e7135e7 100644
 +	test := lifecycleTest{messages: []*lsproto.Message{request}, out: failingTestWriter{err: writeErr}}
 +	if err := test.run(t, t.Context()); !errors.Is(err, writeErr) {
 +		t.Fatalf("Run() error = %v, want %v", err, writeErr)
++	}
++}
++
++// TestRunExitsOnTransportEOFWhileAwaitingClientResponse covers a client that
++// closes its transport while initialized awaits client/registerCapability.
++// Transport EOF must still end the server instead of waiting behind the handler.
++func TestRunExitsOnTransportEOFWhileAwaitingClientResponse(t *testing.T) {
++	t.Parallel()
++
++	if !bundled.Embedded {
++		t.Skip("bundled files are not embedded")
++	}
++
++	serverIn, clientOut := io.Pipe()
++	clientIn, serverOut := io.Pipe()
++	server := NewServer(&ServerOptions{
++		In:                 ToReader(serverIn),
++		Out:                ToWriter(serverOut),
++		Err:                io.Discard,
++		Cwd:                "/test",
++		FS:                 bundled.WrapFS(vfstest.FromMap(map[string]string{"/test/tsconfig.json": "{}"}, false)),
++		DefaultLibraryPath: bundled.LibPath(),
++	})
++	done := make(chan error, 1)
++	go func() { done <- server.Run(t.Context()) }()
++
++	// Drain every server message so the writer never blocks; signal the pending request.
++	awaiting := make(chan struct{})
++	go func() {
++		reader := ToReader(clientIn)
++		signaled := false
++		for {
++			msg, err := reader.Read()
++			if err != nil {
++				return
++			}
++			if !signaled && msg.Kind == jsonrpc.MessageKindRequest && msg.AsRequest().Method == lsproto.MethodClientRegisterCapability {
++				signaled = true
++				close(awaiting)
++			}
++		}
++	}()
++
++	for _, body := range []string{
++		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":"file:///test","capabilities":{"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":true}}}}}`,
++		`{"jsonrpc":"2.0","method":"initialized","params":{}}`,
++	} {
++		if _, err := fmt.Fprintf(clientOut, "Content-Length: %d\r\n\r\n%s", len(body), body); err != nil {
++			t.Fatal(err)
++		}
++	}
++
++	timeout := time.After(10 * time.Second)
++	select {
++	case <-awaiting:
++	case err := <-done:
++		t.Fatalf("Run() returned %v before the client request was pending", err)
++	case <-timeout:
++		t.Fatal("server never requested client/registerCapability")
++	}
++	if err := clientOut.Close(); err != nil {
++		t.Fatal(err)
++	}
++	select {
++	case err := <-done:
++		if err != nil {
++			t.Fatalf("Run() error = %v, want nil", err)
++		}
++	case <-timeout:
++		t.Fatal("Run() did not return after transport EOF while a client response was pending")
 +	}
 +}
 +

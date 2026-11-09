@@ -61,6 +61,13 @@ class TsgoRebuildTests(unittest.TestCase):
         for spec in RECIPE["targets"].values():
             self.assertNotEqual(spec["entry_sha256"], spec["upstream_entry_sha256"])
 
+    def test_every_selected_regression_test_is_defined_by_the_shipped_patch(self):
+        shipped = (ROOT / RECIPE["build"]["patch"]["path"]).read_text()
+        names = build_tsgo.REGRESSION_TESTS.strip("^()$").split("|")
+        self.assertIn("TestRunExitsOnTransportEOFWhileAwaitingClientResponse", names)
+        for name in names:
+            self.assertIn("+func " + name + "(t *testing.T) {", shipped)
+
     def test_rebuild_refuses_an_unreviewed_npm_executable_or_patch(self):
         recipe, _ = synthetic_recipe()
         build_tsgo.upstream_entry(recipe, "darwin-aarch64", {"lib/tsgo": UPSTREAM})
