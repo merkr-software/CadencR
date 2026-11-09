@@ -126,15 +126,19 @@ pub async fn hydrate_from_login_shell() -> usize {
 
 /// Spawn `$SHELL -ilc '<sentinel>; env -0'`: `-0` preserves multiline values,
 /// `-i` sources rc files like `.zshrc`, and `-l` covers login profiles.
+/// Detached from any terminal, an rc-file prompt reads end-of-file instead of
+/// stalling hydration (or reading from the terminal `pnpm dev` runs in).
 async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
-    let mut child = Command::new(shell)
+    let mut command = Command::new(shell);
+    command
         .arg("-ilc")
         .arg(login_env_capture_script())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("spawn {shell}: {e}"))?;
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    crate::shared::terminal_shell::detach_from_terminal(&mut command);
+    let mut child = command.spawn().map_err(|e| format!("spawn {shell}: {e}"))?;
 
     let mut stdout = child
         .stdout

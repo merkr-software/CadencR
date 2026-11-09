@@ -247,7 +247,8 @@ mod tests {
     async fn run_setup_commands_uses_terminal_like_shell_setup() {
         let _guard = crate::shared::test_env::async_env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
-        let shell = temp.path().join("fake-shell.sh");
+        // Named like a POSIX shell so the script also attaches the terminal.
+        let shell = temp.path().join("zsh");
         std::fs::write(
             &shell,
             r#"#!/bin/sh
@@ -261,7 +262,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "$interactive" = "1" ] && [ -t 0 ]; then
+# Startup files run for `-i` although stdin is never a terminal.
+if [ "$interactive" = "1" ] && [ ! -t 0 ]; then
   init='nvm() { echo "nvm initialized"; PATH="$(pwd)/bin:$PATH"; export PATH; };'
   exec /bin/sh -c "$init $script"
 fi

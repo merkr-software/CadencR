@@ -2,21 +2,71 @@
 //!
 //! Both worktree setup and Cadencr-managed `!` commands use this helper so
 //! they see the same hydrated process environment, interactive/login shell
-//! startup, working directory, PTY behavior, and terminal color variables.
+//! startup, working directory, and terminal color variables.
+//!
+//! Nobody can type into these scripts, so nothing in them may wait for input.
+//! The user's shell still runs as `-l -i`, sourcing `.zshrc` & co. in the
+//! working directory, so version managers (fnm, nvm, mise) pick the
+//! project's Node exactly as a terminal would. But it starts with stdin on
+//! `/dev/null`, without a controlling terminal, and with stdout/stderr on a
+//! pipe while startup files run: zsh finds no terminal for `read -k` (Oh My
+//! Zsh's update prompt), and plain reads hit end-of-file. A POSIX script then
+//! reopens the PTY by path for stdout/stderr, so its commands still write to
+//! a color terminal — one nothing can read from: the shell does not lead its
+//! session, so opening the PTY cannot make it the controlling terminal.
 
-use std::io::Read;
 use std::path::Path;
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
-const OUTPUT_CHANNEL_CAPACITY: usize = 256;
-const MAX_PENDING_OUTPUT_BYTES: usize = 16 * 1024;
+#[cfg(unix)]
+mod output;
+#[cfg(unix)]
+mod spawn;
 
+#[cfg(unix)]
+pub(crate) use spawn::detach_from_terminal;
+
+const OUTPUT_CHANNEL_CAPACITY: usize = 256;
+
+/// Shells that understand `exec >>path 2>&1`. Others (fish, nushell, csh)
+/// keep stdout/stderr on the pipe: no color terminal, but no hang either.
+const POSIX_SHELLS: &[&str] = &[
+    "sh", "bash", "zsh", "dash", "ash", "ksh", "ksh93", "mksh", "oksh", "yash",
+];
+
+#[cfg_attr(not(unix), allow(dead_code))]
 struct ShellInvocation {
     program: String,
     args: Vec<&'static str>,
+    attaches_terminal: bool,
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+impl ShellInvocation {
+    fn new(program: String, args: Vec<&'static str>) -> Self {
+        let name = Path::new(&program)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let attaches_terminal = POSIX_SHELLS.contains(&name);
+        Self {
+            program,
+            args,
+            attaches_terminal,
+        }
+    }
+
+    /// `script`, preceded on its first line (so error line numbers match)
+    /// by the switch from the startup pipe to `terminal`.
+    fn script(&self, script: &str, terminal: &Path) -> String {
+        if !self.attaches_terminal {
+            return script.to_string();
+        }
+        let terminal = cli_discovery::shell_quote(terminal.as_os_str());
+        format!("exec >>{terminal} 2>&1; {script}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,92 +96,90 @@ pub async fn run_terminal_shell_script_cancellable(
     output_tx: Sender<String>,
     cancellation: CancellationToken,
 ) -> Result<TerminalShellExit, String> {
-    let shell = shell_invocation();
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
-            rows: 24,
-            cols: 120,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|error| format!("Failed to open terminal: {error}"))?;
+    run_shell(shell_invocation(), script, cwd, output_tx, cancellation).await
+}
 
-    let mut command = CommandBuilder::new(&shell.program);
-    crate::shared::security::inherit_sanitized_pty_env(&mut command);
-    command.cwd(cwd);
-    command.env("TERM", "xterm-256color");
-    // The renderer is truecolor-capable. Without this, TUIs that probe
-    // COLORTERM quantize their palettes to the 256-color cube.
-    command.env("COLORTERM", "truecolor");
-    command.env("FORCE_COLOR", "1");
-    for argument in &shell.args {
-        command.arg(argument);
-    }
-    command.arg(script);
+#[cfg(not(unix))]
+async fn run_shell(
+    _shell: ShellInvocation,
+    _script: &str,
+    _cwd: &Path,
+    _output_tx: Sender<String>,
+    _cancellation: CancellationToken,
+) -> Result<TerminalShellExit, String> {
+    Err("Running shell scripts is only supported on macOS and Linux.".to_string())
+}
 
-    let mut child = pair
-        .slave
-        .spawn_command(command)
+#[cfg(unix)]
+async fn run_shell(
+    shell: ShellInvocation,
+    script: &str,
+    cwd: &Path,
+    output_tx: Sender<String>,
+    cancellation: CancellationToken,
+) -> Result<TerminalShellExit, String> {
+    let terminal =
+        spawn::open_terminal().map_err(|error| format!("Failed to open terminal: {error}"))?;
+    let script = shell.script(script, &terminal.path);
+    let spawned = spawn::spawn_shell(&shell, terminal, &script, cwd)
         .map_err(|error| format!("Failed to spawn shell `{}`: {error}", shell.program))?;
-    drop(pair.slave);
-
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|error| format!("Failed to read terminal output: {error}"))?;
-    let killer = child.clone_killer();
-    let process_id = child.process_id();
-    let read_handle = tokio::task::spawn_blocking(move || read_pty_lines(&mut reader, output_tx));
-    let mut wait_handle = tokio::task::spawn_blocking(move || child.wait());
-    let (wait_result, interrupted) = tokio::select! {
-        result = &mut wait_handle => (result, false),
-        () = cancellation.cancelled() => {
-            let kill_result = tokio::task::spawn_blocking(move || {
-                terminate_shell_process(killer, process_id)
-            })
-                .await
-                .map_err(|error| format!("Shell cancellation task panicked: {error}"))?;
-            if let Err(error) = kill_result {
+    let mut child = spawned.child;
+    let process_id = child.id();
+    let sources = vec![spawned.startup_output, spawned.terminal];
+    let forward = tokio::task::spawn_blocking(move || output::forward_output(sources, &output_tx));
+    let finished = tokio::select! {
+        status = child.wait() => Some(status),
+        () = cancellation.cancelled() => None,
+    };
+    let interrupted = finished.is_none();
+    let wait_result = match finished {
+        Some(status) => status,
+        None => {
+            if let Err(error) = terminate_shell_process(&mut child, process_id) {
                 tracing::warn!(%error, "failed to terminate cancelled shell process");
             }
-            (wait_handle.await, true)
+            child.wait().await
         }
     };
-    let status = wait_result
-        .map_err(|error| format!("Shell wait task panicked: {error}"))?
-        .map_err(|error| format!("Failed to wait on shell: {error}"))?;
-    read_handle
+    drop(spawned.terminal_slave);
+    forward
         .await
         .map_err(|error| format!("Terminal output reader task panicked: {error}"))?;
-    drop(pair.master);
+    let status = wait_result.map_err(|error| format!("Failed to wait on shell: {error}"))?;
 
     if interrupted {
         return Err("Shell command interrupted by user.".to_string());
     }
 
     Ok(TerminalShellExit {
-        exit_code: status.exit_code() as i32,
+        exit_code: exit_code(status),
     })
 }
 
+#[cfg(unix)]
+fn exit_code(status: std::process::ExitStatus) -> i32 {
+    use std::os::unix::process::ExitStatusExt;
+    status
+        .code()
+        .or_else(|| status.signal().map(|signal| 128 + signal))
+        .unwrap_or(1)
+}
+
+#[cfg(unix)]
 fn terminate_shell_process(
-    mut killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
+    child: &mut tokio::process::Child,
     process_id: Option<u32>,
 ) -> std::io::Result<()> {
-    #[cfg(not(unix))]
-    let _ = process_id;
-    #[cfg(unix)]
     if let Some(process_id) = process_id {
-        // portable-pty starts the child with `setsid`, so its PID is also the
-        // process-group id. Kill the group to avoid leaving pipelines or
-        // grandchildren holding the PTY open after the shell exits.
+        // The child leads its own session, so its PID is also the
+        // process-group id. Kill the group to stop the user's shell too and
+        // avoid leaving pipelines or grandchildren holding the terminal open.
         if crate::shared::process_group::try_signal_process_group(process_id, libc::SIGKILL).is_ok()
         {
             return Ok(());
         }
     }
-    killer.kill()
+    child.start_kill()
 }
 
 pub fn terminal_output_channel() -> (Sender<String>, tokio::sync::mpsc::Receiver<String>) {
@@ -140,57 +188,11 @@ pub fn terminal_output_channel() -> (Sender<String>, tokio::sync::mpsc::Receiver
 
 fn shell_invocation() -> ShellInvocation {
     match std::env::var("SHELL") {
-        Ok(shell) if !shell.trim().is_empty() => ShellInvocation {
-            program: shell,
-            args: vec!["-l", "-i", "-c"],
-        },
-        _ => ShellInvocation {
-            program: "/bin/sh".to_string(),
-            args: vec!["-i", "-c"],
-        },
-    }
-}
-
-fn read_pty_lines(reader: &mut dyn Read, output_tx: Sender<String>) {
-    let mut buffer = [0_u8; 4096];
-    let mut pending = String::new();
-    loop {
-        let count = match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => count,
-            Err(_) => break,
-        };
-        pending.push_str(&String::from_utf8_lossy(&buffer[..count]));
-        flush_complete_segments(&mut pending, &output_tx);
-        flush_oversized_pending(&mut pending, &output_tx);
-    }
-    if !pending.is_empty() {
-        let line = pending.trim_end_matches('\r').to_string();
-        let _ = output_tx.blocking_send(line);
-    }
-}
-
-fn flush_complete_segments(pending: &mut String, output_tx: &Sender<String>) {
-    let mut consumed = 0;
-    while let Some(relative_index) = pending[consumed..].find(['\n', '\r']) {
-        let index = consumed + relative_index;
-        let line = pending[consumed..index].to_string();
-        if output_tx.blocking_send(line).is_err() {
-            return;
+        Ok(shell) if !shell.trim().is_empty() => {
+            ShellInvocation::new(shell, vec!["-l", "-i", "-c"])
         }
-        consumed = index + 1;
+        _ => ShellInvocation::new("/bin/sh".to_string(), vec!["-i", "-c"]),
     }
-    if consumed > 0 {
-        pending.drain(..consumed);
-    }
-}
-
-fn flush_oversized_pending(pending: &mut String, output_tx: &Sender<String>) {
-    if pending.len() <= MAX_PENDING_OUTPUT_BYTES {
-        return;
-    }
-    let line = std::mem::take(pending);
-    let _ = output_tx.blocking_send(line);
 }
 
 #[cfg(test)]
@@ -207,6 +209,7 @@ mod tests {
 
         assert_eq!(invocation.program, "/bin/zsh");
         assert_eq!(invocation.args, vec!["-l", "-i", "-c"]);
+        assert!(invocation.attaches_terminal);
     }
 
     #[test]
@@ -218,27 +221,233 @@ mod tests {
 
         assert_eq!(invocation.program, "/bin/sh");
         assert_eq!(invocation.args, vec!["-i", "-c"]);
+        assert!(invocation.attaches_terminal);
+    }
+
+    #[test]
+    fn only_posix_shells_attach_the_terminal() {
+        for program in [
+            "/bin/bash",
+            "/usr/bin/zsh",
+            "/bin/dash",
+            "/nix/store/x-bash/bin/bash",
+        ] {
+            assert!(invocation(program).attaches_terminal, "{program}");
+        }
+        for program in ["/opt/homebrew/bin/fish", "/usr/bin/nu", "/bin/tcsh"] {
+            assert!(!invocation(program).attaches_terminal, "{program}");
+        }
+    }
+
+    #[test]
+    fn a_posix_script_attaches_the_terminal_on_its_first_line() {
+        let terminal = Path::new("/dev/pts/3");
+        assert_eq!(
+            invocation("/bin/zsh").script("echo hi\nexit 2", terminal),
+            "exec >>'/dev/pts/3' 2>&1; echo hi\nexit 2"
+        );
+        assert_eq!(
+            invocation("/usr/bin/fish").script("echo hi", terminal),
+            "echo hi"
+        );
+    }
+
+    fn invocation(program: &str) -> ShellInvocation {
+        ShellInvocation::new(program.to_string(), vec!["-l", "-i", "-c"])
     }
 
     #[cfg(unix)]
-    #[tokio::test]
-    async fn cancellation_terminates_the_shell_process() {
-        let cancellation = CancellationToken::new();
-        cancellation.cancel();
-        let (output_tx, _output_rx) = terminal_output_channel();
+    mod running {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::{Duration, Instant};
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            run_terminal_shell_script_cancellable(
-                "while :; do :; done",
-                &std::env::current_dir().unwrap(),
-                output_tx,
-                cancellation,
-            ),
-        )
-        .await
-        .expect("cancelled shell should stop promptly");
+        /// What a script sees: a terminal to write to, end-of-file on
+        /// stdin, and no controlling terminal to fall back on.
+        const PROBE: &str = "[ -t 1 ] && echo stdout-is-a-terminal; \
+            read -r answer; echo \"stdin read=$?\"; \
+            (exec </dev/tty) 2>/dev/null || echo no-controlling-terminal";
 
-        assert_eq!(result.unwrap_err(), "Shell command interrupted by user.");
+        async fn run(shell: ShellInvocation, script: &str) -> (TerminalShellExit, Vec<String>) {
+            let (output_tx, mut output_rx) = terminal_output_channel();
+            let collect = async {
+                let mut lines = Vec::new();
+                while let Some(line) = output_rx.recv().await {
+                    lines.push(line);
+                }
+                lines
+            };
+            let cwd = std::env::temp_dir();
+            let run = run_shell(shell, script, &cwd, output_tx, CancellationToken::new());
+            let (result, lines) = tokio::time::timeout(Duration::from_secs(20), async {
+                tokio::join!(run, collect)
+            })
+            .await
+            .expect("the shell must never wait for input");
+            (result.expect("shell run"), lines)
+        }
+
+        fn has(lines: &[String], expected: &str) -> bool {
+            lines.iter().any(|line| line.trim() == expected)
+        }
+
+        fn assert_non_interactive(exit: TerminalShellExit, lines: &[String], tty: bool) {
+            assert!(exit.success(), "{lines:?}");
+            assert_eq!(has(lines, "stdout-is-a-terminal"), tty, "{lines:?}");
+            assert!(has(lines, "stdin read=1"), "{lines:?}");
+            assert!(has(lines, "no-controlling-terminal"), "{lines:?}");
+        }
+
+        /// A fake shell whose startup file asks a question through stdin,
+        /// `/dev/tty`, and whatever terminal its stdout is (how zsh's
+        /// `read -k`, used by Oh My Zsh's update prompt, finds one).
+        fn prompting_shell(dir: &Path, name: &str) -> String {
+            let path = dir.join(name);
+            std::fs::write(
+                &path,
+                r#"#!/bin/sh
+while [ "$#" -gt 1 ]; do shift; done
+echo "rc: Update? [Y/n]"
+read -r answer; echo "rc stdin read=$?"
+read -r answer </dev/tty 2>/dev/null; echo "rc tty read=$?"
+if [ -t 1 ]; then read -r answer <&1; fi; echo "rc stdout-terminal read done"
+exec /bin/sh -c "$1"
+"#,
+            )
+            .expect("write fake shell");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake shell");
+            path.to_string_lossy().into_owned()
+        }
+
+        #[tokio::test]
+        async fn startup_prompts_read_end_of_file_and_the_script_writes_to_a_terminal() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let shell = invocation(&prompting_shell(temp.path(), "zsh"));
+
+            let (exit, lines) = run(shell, PROBE).await;
+
+            assert_non_interactive(exit, &lines, true);
+            assert!(has(&lines, "rc: Update? [Y/n]"), "{lines:?}");
+            assert!(has(&lines, "rc stdin read=1"), "{lines:?}");
+            assert!(has(&lines, "rc tty read=1"), "{lines:?}");
+            assert!(has(&lines, "rc stdout-terminal read done"), "{lines:?}");
+        }
+
+        #[tokio::test]
+        async fn a_non_posix_shell_keeps_its_output_on_the_pipe() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let shell = invocation(&prompting_shell(temp.path(), "fish"));
+
+            let (exit, lines) = run(shell, PROBE).await;
+
+            assert_non_interactive(exit, &lines, false);
+        }
+
+        #[tokio::test]
+        async fn the_exit_code_and_stderr_come_through() {
+            let shell = invocation("/bin/sh");
+
+            let (exit, lines) = run(shell, "echo oops >&2; exit 3").await;
+
+            assert_eq!(exit.exit_code, 3);
+            assert!(has(&lines, "oops"), "{lines:?}");
+        }
+
+        /// bash closes inherited descriptors 3–19 as an interactive login
+        /// shell, so the terminal is reopened by path, not inherited.
+        #[tokio::test]
+        async fn a_daemon_started_by_a_startup_file_does_not_hold_the_terminal() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let daemonizing = temp.path().join("bash");
+            std::fs::write(
+                &daemonizing,
+                "#!/bin/sh\nwhile [ \"$#\" -gt 1 ]; do shift; done\n\
+                 (sleep 5 </dev/null >/dev/null 2>&1 &)\nexec /bin/sh -c \"$1\"\n",
+            )
+            .expect("write fake shell");
+            std::fs::set_permissions(&daemonizing, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod fake shell");
+            let started = Instant::now();
+
+            let (exit, lines) = run(invocation(&daemonizing.to_string_lossy()), "echo done").await;
+
+            assert!(exit.success());
+            assert!(has(&lines, "done"), "{lines:?}");
+            assert!(started.elapsed() < Duration::from_secs(4));
+        }
+
+        #[tokio::test]
+        async fn the_fallback_sh_does_not_wait_for_input() {
+            let shell = ShellInvocation::new("/bin/sh".to_string(), vec!["-i", "-c"]);
+
+            let (exit, lines) = run(shell, PROBE).await;
+
+            assert_non_interactive(exit, &lines, true);
+        }
+
+        #[tokio::test]
+        async fn bash_does_not_wait_for_input() {
+            let Some(bash) = installed("bash") else {
+                return;
+            };
+
+            let (exit, lines) = run(invocation(&bash), PROBE).await;
+
+            assert_non_interactive(exit, &lines, true);
+        }
+
+        /// The incident: `.zshrc` asking Oh My Zsh's `read -k` question.
+        #[tokio::test]
+        async fn zsh_startup_read_k_does_not_wait_for_input() {
+            let Some(zsh) = installed("zsh") else {
+                return;
+            };
+            let _guard = crate::shared::test_env::async_env_lock().lock().await;
+            let zdotdir = tempfile::tempdir().expect("tempdir");
+            std::fs::write(
+                zdotdir.path().join(".zshrc"),
+                "printf 'Update? [Y/n] '; read -r -k 1 option; echo \"rc read-k=$?\"\n",
+            )
+            .expect("write .zshrc");
+            let _zdotdir = EnvVarGuard::set("ZDOTDIR", &zdotdir.path().to_string_lossy());
+
+            let (exit, lines) = run(invocation(&zsh), PROBE).await;
+
+            assert_non_interactive(exit, &lines, true);
+            assert!(
+                lines.iter().any(|line| line.contains("rc read-k=1")),
+                "{lines:?}"
+            );
+        }
+
+        fn installed(name: &str) -> Option<String> {
+            ["/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"]
+                .iter()
+                .map(|dir| Path::new(dir).join(name))
+                .find(|path| path.is_file())
+                .map(|path| path.to_string_lossy().into_owned())
+        }
+
+        #[tokio::test]
+        async fn cancellation_terminates_the_shell_process() {
+            let cancellation = CancellationToken::new();
+            cancellation.cancel();
+            let (output_tx, _output_rx) = terminal_output_channel();
+
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                run_terminal_shell_script_cancellable(
+                    "while :; do :; done",
+                    &std::env::current_dir().unwrap(),
+                    output_tx,
+                    cancellation,
+                ),
+            )
+            .await
+            .expect("cancelled shell should stop promptly");
+
+            assert_eq!(result.unwrap_err(), "Shell command interrupted by user.");
+        }
     }
 }
