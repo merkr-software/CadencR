@@ -9,7 +9,7 @@ Recipes and qualification artifacts are candidates, not publication authority.
 | Package | Coverage | Runtime | Origin |
 | --- | --- | --- | --- |
 | `typescript-language-server` | TypeScript, JavaScript | Node | Previous catalog; package 0.1.0 published |
-| `tsgo` | TypeScript, JavaScript | Native | Previous catalog |
+| `tsgo` | TypeScript, JavaScript | Native (Cadencr source build) | Previous catalog |
 | `biome` | JavaScript, TypeScript, JSON, CSS | Native | Previous catalog |
 | `eslint` | Project-configured JavaScript and TypeScript linting | Node | Previous catalog |
 | `oxlint` | JavaScript, TypeScript linting | Native | Previous catalog |

@@ -1,0 +1,199 @@
+Cadencr backport: LSP exit status after shutdown
+
+Upstream: microsoft/typescript-go 9977d6d38fcc78de8ae71770f3aa08256e6cc861
+Issue:    https://github.com/microsoft/TypeScript/issues/64742
+Origin:   https://github.com/microsoft/TypeScript/pull/64894 commit
+          6e9659803b89d66d39631b1f0a762ff89f924360 (base 538671d3cc2dc1fa292dbb00185d3cdbef9aa73b)
+
+The server.go added and removed lines equal that commit's. Adaptations to
+the pinned source: paths drop the later tsc/ prefix, registerNotificationHandler
+is a free function and handleShutdown has no closeAPISessions call at this
+revision. The lifecycle tests are rewritten for this revision.
+
+The pull request's second commit (9437ba19107a2b00b1dbf4b113e3e53afb37bc7b)
+queues transport EOF behind dispatch. It is not applied: a handler awaiting a
+client response, such as initialized, then never sees EOF and the server
+never exits after its client closes stdin.
+
+diff --git a/internal/lsp/server.go b/internal/lsp/server.go
+index 8a0b7214..2077d5c6 100644
+--- a/internal/lsp/server.go
++++ b/internal/lsp/server.go
+@@ -104,6 +104,8 @@ type Writer interface {
+ 	Write(msg *lsproto.Message) error
+ }
+ 
++var errExitBeforeShutdown = errors.New("exit notification received before shutdown")
++
+ type lspReader struct {
+ 	r *lsproto.BaseReader
+ }
+@@ -159,6 +161,7 @@ type Server struct {
+ 
+ 	logger                  *logger
+ 	initStarted             atomic.Bool
++	shutdownRequested       atomic.Bool
+ 	clientSeq               atomic.Int32
+ 	requestQueue            *dynamicQueue[*lsproto.RequestMessage]
+ 	outgoingQueue           *dynamicQueue[*lsproto.Message]
+@@ -535,6 +538,9 @@ func (s *Server) dispatchLoop(ctx context.Context) error {
+ 	for {
+ 		req, err := s.requestQueue.Get(ctx)
+ 		if err != nil {
++			if cause := context.Cause(ctx); errors.Is(cause, io.EOF) || errors.Is(cause, errExitBeforeShutdown) {
++				return cause
++			}
+ 			return err
+ 		}
+ 
+@@ -556,8 +562,8 @@ func (s *Server) dispatchLoop(ctx context.Context) error {
+ 				if err := s.sendError(req.ID, lsproto.ErrorCodeRequestCancelled); err != nil {
+ 					lspExit(err)
+ 				}
+-			} else if errors.Is(err, io.EOF) {
+-				lspExit(nil)
++			} else if errors.Is(err, io.EOF) || errors.Is(err, errExitBeforeShutdown) {
++				lspExit(err)
+ 			} else {
+ 				if err := s.sendError(req.ID, err); err != nil {
+ 					lspExit(err)
+@@ -816,7 +822,7 @@ var handlers = sync.OnceValue(func() handlerMap {
+ 
+ func registerNotificationHandler[Req any](handlers handlerMap, info lsproto.NotificationInfo[Req], fn func(*Server, context.Context, Req) error) {
+ 	handlers[info.Method] = func(s *Server, ctx context.Context, req *lsproto.RequestMessage) (func() error, error) {
+-		if s.session == nil && req.Method != lsproto.MethodInitialized {
++		if s.session == nil && req.Method != lsproto.MethodInitialized && req.Method != lsproto.MethodExit {
+ 			return nil, lsproto.ErrorCodeServerNotInitialized
+ 		}
+ 
+@@ -1305,10 +1311,14 @@ func (s *Server) handleShutdown(ctx context.Context, _ lsproto.NoParams, _ *lspr
+ 		s.builtinWatcher.Close()
+ 	}
+ 	s.session.Close()
++	s.shutdownRequested.Store(true)
+ 	return lsproto.ShutdownResponse{}, nil
+ }
+ 
+ func (s *Server) handleExit(ctx context.Context, _ lsproto.NoParams) error {
++	if !s.shutdownRequested.Load() {
++		return errExitBeforeShutdown
++	}
+ 	return io.EOF
+ }
+ 
+diff --git a/internal/lsp/server_shutdown_test.go b/internal/lsp/server_shutdown_test.go
+index f1dbc97b..4e7135e7 100644
+--- a/internal/lsp/server_shutdown_test.go
++++ b/internal/lsp/server_shutdown_test.go
+@@ -2,6 +2,7 @@ package lsp
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"io"
+ 	"testing"
+ 
+@@ -19,6 +20,103 @@ type shutdownTestWriter struct{}
+ 
+ func (shutdownTestWriter) Write(*lsproto.Message) error { return nil }
+ 
++// scriptedTestReader delivers messages, then either reports transport EOF or
++// blocks so that only a protocol exit can end the server.
++type scriptedTestReader struct {
++	messages []*lsproto.Message
++	eof      bool
++	release  chan struct{}
++}
++
++func (r *scriptedTestReader) Read() (*lsproto.Message, error) {
++	if len(r.messages) > 0 {
++		msg := r.messages[0]
++		r.messages = r.messages[1:]
++		return msg, nil
++	}
++	if !r.eof {
++		<-r.release
++	}
++	return nil, io.EOF
++}
++
++type failingTestWriter struct{ err error }
++
++func (w failingTestWriter) Write(*lsproto.Message) error { return w.err }
++
++type lifecycleTest struct {
++	messages          []*lsproto.Message
++	eof               bool
++	initialized       bool
++	shutdownRequested bool
++	out               Writer
++}
++
++func (test lifecycleTest) run(t *testing.T, ctx context.Context) error {
++	t.Helper()
++	reader := &scriptedTestReader{messages: test.messages, eof: test.eof, release: make(chan struct{})}
++	t.Cleanup(func() { close(reader.release) })
++	out := test.out
++	if out == nil {
++		out = shutdownTestWriter{}
++	}
++	server := NewServer(&ServerOptions{In: reader, Out: out, Err: io.Discard, Cwd: "/test"})
++	if test.initialized {
++		server.initializeParams = &lsproto.InitializeParams{}
++		server.session = &project.Session{}
++	}
++	server.shutdownRequested.Store(test.shutdownRequested)
++	return server.Run(ctx)
++}
++
++func exitMessage() *lsproto.Message {
++	return (&lsproto.RequestMessage{Method: lsproto.MethodExit}).Message()
++}
++
++func TestRunExitStatus(t *testing.T) {
++	t.Parallel()
++
++	for _, tc := range []struct {
++		name string
++		test lifecycleTest
++		want error
++	}{
++		{"exit after shutdown with open transport", lifecycleTest{messages: []*lsproto.Message{exitMessage()}, initialized: true, shutdownRequested: true}, nil},
++		{"exit after shutdown followed by immediate EOF", lifecycleTest{messages: []*lsproto.Message{exitMessage()}, eof: true, initialized: true, shutdownRequested: true}, nil},
++		{"exit before shutdown with open transport", lifecycleTest{messages: []*lsproto.Message{exitMessage()}, initialized: true}, errExitBeforeShutdown},
++		{"exit before initialize", lifecycleTest{messages: []*lsproto.Message{exitMessage()}}, errExitBeforeShutdown},
++		{"transport EOF without exit", lifecycleTest{eof: true, initialized: true}, nil},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			t.Parallel()
++			if err := tc.test.run(t, t.Context()); !errors.Is(err, tc.want) {
++				t.Fatalf("Run() error = %v, want %v", err, tc.want)
++			}
++		})
++	}
++}
++
++func TestRunReportsParentCancellation(t *testing.T) {
++	t.Parallel()
++
++	ctx, cancel := context.WithCancel(t.Context())
++	cancel()
++	if err := (lifecycleTest{initialized: true, shutdownRequested: true}).run(t, ctx); !errors.Is(err, context.Canceled) {
++		t.Fatalf("Run() error = %v, want %v", err, context.Canceled)
++	}
++}
++
++func TestRunReportsWriteFailure(t *testing.T) {
++	t.Parallel()
++
++	writeErr := errors.New("write failed")
++	request := (&lsproto.RequestMessage{ID: lsproto.NewID(lsproto.IntegerOrString{Integer: new(int32(1))}), Method: lsproto.MethodShutdown}).Message()
++	test := lifecycleTest{messages: []*lsproto.Message{request}, out: failingTestWriter{err: writeErr}}
++	if err := test.run(t, t.Context()); !errors.Is(err, writeErr) {
++		t.Fatalf("Run() error = %v, want %v", err, writeErr)
++	}
++}
++
+ // TestServerShutdownNoDeadlock verifies that operations after shutdown
+ // don't block.
+ func TestServerShutdownNoDeadlock(t *testing.T) {
