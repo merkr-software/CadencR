@@ -90,8 +90,9 @@ export function useOpenThemeProject(): OpenThemeProject {
  * Written to the feature's settings rather than only into the store, because
  * layout persistence treats whatever it first observes as the saved baseline
  * and never writes it back — a store-only arrangement would be gone by the
- * next launch. Seeded into the store as well so this session doesn't wait for
- * a refetch to see it.
+ * next launch. No gesture to follow here, so the store takes the arrangement
+ * only once the backend has it: a failed save opens the workspace on its saved
+ * layout and says why.
  */
 function useArrangePanes(): (featureId: number) => Promise<void> {
   const queryClient = useQueryClient();
@@ -100,22 +101,23 @@ function useArrangePanes(): (featureId: number) => Promise<void> {
   return useCallback(
     async (featureId: number): Promise<void> => {
       const layout = themeLayoutState();
-      useFeatureLayoutStore.getState().setState(featureId, layout);
       try {
         await mutateAsync({
           id: featureId,
           data: { key: LAYOUT_STATE_KEY, value: serializeCurrentLayoutState(layout) },
         });
-        // The cached settings for this feature predate the layout; hydration
-        // reads them, and a stale copy would arrange the panes back.
-        void queryClient.invalidateQueries({ queryKey: getGetFeatureSettingsQueryKey(featureId) });
       } catch (error: unknown) {
-        // Not fatal — the arrangement is applied for this session either way,
-        // it just won't come back on the next launch.
-        toast.error(apiErrorMessage(error, "Could not save the theme's pane layout"));
+        toast.error(
+          `Could not save the theme's pane layout: ${apiErrorMessage(error, "Unknown error")}`,
+        );
+        return;
       }
+      useFeatureLayoutStore.getState().setState(featureId, layout);
+      // The cached settings for this feature predate the layout; hydration
+      // reads them, and a stale copy would arrange the panes back.
+      void queryClient.invalidateQueries({ queryKey: getGetFeatureSettingsQueryKey(featureId) });
     },
-    [mutateAsync],
+    [mutateAsync, queryClient],
   );
 }
 

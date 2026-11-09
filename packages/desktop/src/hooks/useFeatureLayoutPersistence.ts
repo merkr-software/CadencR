@@ -56,7 +56,12 @@ export function useFeatureLayoutPersistence(
     const requestSeq = requestSeqRef.current + 1;
     requestSeqRef.current = requestSeq;
 
-    const timeoutId = window.setTimeout((): void => {
+    // Layout is a gesture: the panes follow it at once and the write trails.
+    // A failed write keeps the arrangement rather than undoing a split or a
+    // move half a second after it was made; the toast says so and offers a
+    // retry. An earlier failure superseded by a newer write stays quiet: the
+    // newer one carries the whole layout and reports its own outcome.
+    const save = (): void =>
       mutate(
         { id: featureId, data: { key: LAYOUT_STATE_KEY, value: serializedLayout } },
         {
@@ -69,12 +74,15 @@ export function useFeatureLayoutPersistence(
           },
           onError: (err: unknown): void => {
             if (requestSeqRef.current !== requestSeq) return;
-            const message = apiErrorMessage(err, "Unknown error");
-            toast.error(`Could not save layout: ${message}`);
+            toast.error(`Could not save the layout: ${apiErrorMessage(err, "Unknown error")}`, {
+              id: `layout-save-${featureId}`,
+              description: "This arrangement is kept until the app restarts.",
+              action: { label: "Retry", onClick: save },
+            });
           },
         },
       );
-    }, PERSIST_DEBOUNCE_MS);
+    const timeoutId = window.setTimeout(save, PERSIST_DEBOUNCE_MS);
 
     return (): void => window.clearTimeout(timeoutId);
   }, [enabled, featureId, serializedLayout, mutate, queryClient]);

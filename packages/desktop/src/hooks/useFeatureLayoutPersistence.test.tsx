@@ -173,6 +173,34 @@ describe("feature layout hydration and persistence", () => {
     );
   });
 
+  it("keeps the gesture's layout on a failed save, says so, and retries on demand", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    useFeatureLayoutStore.getState().setState(FEATURE_ID, makeLayout("agent"));
+    renderHook(() => useFeatureLayoutPersistence(FEATURE_ID), {
+      wrapper: makeWrapper(queryClient),
+    });
+    act(() => {
+      useFeatureLayoutStore.getState().splitTabAt(FEATURE_ID, "git", ROOT_LEAF_ID, "right");
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    const callbacks = mocks.mutate.mock.calls[0]?.[1] as { onError: (error: Error) => void };
+    act(() => callbacks.onError(new Error("disk full")));
+    expect(useFeatureLayoutStore.getState().features[FEATURE_ID]?.splitRoot.type).toBe("split");
+    expect(mocks.toastError).toHaveBeenCalledWith("Could not save the layout: disk full", {
+      id: `layout-save-${FEATURE_ID}`,
+      description: "This arrangement is kept until the app restarts.",
+      action: { label: "Retry", onClick: expect.any(Function) },
+    });
+
+    const toastOptions = mocks.toastError.mock.calls[0]?.[1] as { action: { onClick: () => void } };
+    act(() => toastOptions.action.onClick());
+    expect(mocks.mutate).toHaveBeenCalledTimes(2);
+    expect(mocks.mutate.mock.calls[1]?.[0]).toEqual(mocks.mutate.mock.calls[0]?.[0]);
+  });
+
   it("persists focused pane changes for the current feature layout", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const splitLayout: FeatureLayoutState = {
