@@ -47,19 +47,19 @@ pub fn commit_staged_revision(
     let destination = storage.revision_dir(&receipt.agent.id, &revision)?;
     let parent = destination
         .parent()
-        .ok_or_else(|| AppError::Internal("managed revision has no parent".into()))?;
+        .ok_or_else(|| AppError::internal("managed revision has no parent"))?;
     create_secure_dir(parent)?;
     write_receipt(&staging_revision.join("receipt.json"), receipt)?;
     if let Err(error) = std::fs::rename(staging_revision, &destination) {
         if !destination.exists() {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "commit managed revision {}: {error}",
                 destination.display()
             )));
         }
         verify_existing_revision(&destination, receipt)?;
         std::fs::remove_dir_all(staging_revision).map_err(|cleanup_error| {
-            AppError::Internal(format!(
+            AppError::internal(format!(
                 "remove duplicate managed staging revision {} after commit collision: {cleanup_error}",
                 staging_revision.display()
             ))
@@ -67,7 +67,7 @@ pub fn commit_staged_revision(
         return Ok(destination.join("payload"));
     }
     fs_durability::sync_directory(parent)
-        .map_err(|error| AppError::Internal(format!("sync managed revision parent: {error}")))?;
+        .map_err(|error| AppError::internal(format!("sync managed revision parent: {error}")))?;
     Ok(destination.join("payload"))
 }
 
@@ -340,7 +340,7 @@ fn prepare_descriptor_sync(
         });
     };
     let mut json = serde_json::to_string_pretty(&projection.descriptor)
-        .map_err(|error| AppError::Internal(format!("serialize managed descriptor: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize managed descriptor: {error}")))?;
     json.push('\n');
     Ok(DescriptorSync::Write {
         path: projection.path,
@@ -368,13 +368,13 @@ fn retire_managed_descriptor(
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "read managed descriptor: {error}"
             )))
         }
     };
     let existing: ProviderDescriptor = serde_json::from_slice(&raw)
-        .map_err(|error| AppError::Internal(format!("parse managed descriptor: {error}")))?;
+        .map_err(|error| AppError::internal(format!("parse managed descriptor: {error}")))?;
     let command = existing
         .installation
         .executable
@@ -387,7 +387,7 @@ fn retire_managed_descriptor(
         .provider_dir(provider_id)?
         .join(format!("descriptor-retired-{}.json", uuid::Uuid::new_v4()));
     std::fs::rename(descriptor, retired)
-        .map_err(|error| AppError::Internal(format!("retire managed descriptor: {error}")))
+        .map_err(|error| AppError::internal(format!("retire managed descriptor: {error}")))
 }
 
 fn not_installed(provider_id: &str) -> AppError {

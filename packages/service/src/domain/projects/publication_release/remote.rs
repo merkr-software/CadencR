@@ -6,10 +6,11 @@ pub(crate) use cadencr_registry_publisher::author_release::{
 };
 
 impl From<Error> for AppError {
+    #[track_caller]
     fn from(error: Error) -> Self {
         match error {
             Error::BadRequest(message) => Self::BadRequest(message),
-            Error::Internal(message) => Self::Internal(message),
+            Error::Internal(message) => Self::internal(message),
             Error::Coded {
                 status,
                 code,

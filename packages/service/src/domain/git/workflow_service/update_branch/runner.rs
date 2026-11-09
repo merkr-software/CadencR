@@ -84,8 +84,9 @@ async fn invoke(worktree: &Path, args: &[&str]) -> Result<std::process::Output, 
     .await
 }
 
+#[track_caller]
 fn inspection_error(primary: &AppError, inspection: AppError) -> AppError {
-    AppError::GitCommandError(format!(
+    AppError::git_command(format!(
         "{primary}; conflict-state inspection also failed: {inspection}"
     ))
 }

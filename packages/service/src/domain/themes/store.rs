@@ -28,7 +28,7 @@ pub async fn list() -> Result<Vec<UserTheme>, AppError> {
         // No themes dir yet simply means no user themes.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "failed to read {}: {e}",
                 dir.display()
             )))
@@ -39,7 +39,7 @@ pub async fn list() -> Result<Vec<UserTheme>, AppError> {
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|e| AppError::Internal(format!("failed to read {}: {e}", dir.display())))?
+        .map_err(|e| AppError::internal(format!("failed to read {}: {e}", dir.display())))?
     {
         let Some(id) = entry.file_name().to_str().map(str::to_string) else {
             continue;
@@ -83,7 +83,7 @@ pub async fn read_at(dir: &Path) -> Result<UserTheme, AppError> {
         if e.kind() == std::io::ErrorKind::NotFound {
             AppError::NotFound(format!("theme `{id}` not found"))
         } else {
-            AppError::Internal(format!("failed to read {}: {e}", path.display()))
+            AppError::internal(format!("failed to read {}: {e}", path.display()))
         }
     })?;
     Ok(build(dir, &path, content).await)
@@ -183,7 +183,7 @@ pub async fn create(
     let base = if slug.is_empty() { "theme" } else { &slug };
     let id = next_available_id(base).await?;
     let content = serde_json::to_string_pretty(&document)
-        .map_err(|e| AppError::Internal(format!("failed to serialize theme: {e}")))?;
+        .map_err(|e| AppError::internal(format!("failed to serialize theme: {e}")))?;
     write_file(&id, &format!("{content}\n")).await?;
     // Best-effort, as before: a source that isn't a theme leaves the new theme
     // carrying the same "no such file" issue the original would have, which is
@@ -222,7 +222,7 @@ pub async fn delete(id: &str) -> Result<(), AppError> {
     if let Err(e) = fs::metadata(&dir).await {
         return Err(match e.kind() {
             std::io::ErrorKind::NotFound => AppError::NotFound(format!("theme `{id}` not found")),
-            _ => AppError::Internal(format!("failed to read theme `{id}`: {e}")),
+            _ => AppError::internal(format!("failed to read theme `{id}`: {e}")),
         });
     }
     crate::shared::trash::move_to_trash(&dir).await
@@ -241,9 +241,7 @@ async fn next_available_id(base: &str) -> Result<String, AppError> {
             return Ok(candidate);
         }
     }
-    Err(AppError::Internal(
-        "could not find an unused theme id".into(),
-    ))
+    Err(AppError::internal("could not find an unused theme id"))
 }
 
 /// Atomic write into an owner-only (`0700`) theme directory.
@@ -251,7 +249,7 @@ async fn write_file(id: &str, content: &str) -> Result<(), AppError> {
     let dir = paths::theme_dir(id)?;
     let path = dir.join(THEME_FILE_NAME);
     crate::remote::secure_fs::create_dir_owner_only(&dir)
-        .map_err(|e| AppError::Internal(format!("failed to create {}: {e}", dir.display())))?;
+        .map_err(|e| AppError::internal(format!("failed to create {}: {e}", dir.display())))?;
     // Dot-prefixed so the watcher's filter skips it (it only reports
     // `theme.json`), keeping our own write from racing a reload of a partial file.
     crate::shared::atomic_file::write_atomic(&path, content)

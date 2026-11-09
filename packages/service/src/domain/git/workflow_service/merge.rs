@@ -108,7 +108,7 @@ pub async fn merge_feature_branch(
     let permit = state
         .git_mutations
         .try_acquire(&merge_repo)
-        .map_err(mutation_guard_error)?;
+        .map_err(|error| mutation_guard_error(error))?;
     // `git merge` exits 0 with "Already up to date" here, which would report a
     // successful merge that changed nothing.
     if commands::is_branch_merged(&merge_repo, &source_branch, &target_branch).await? {

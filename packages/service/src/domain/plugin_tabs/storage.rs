@@ -67,7 +67,7 @@ pub async fn get(pool: &SqlitePool, scope: StorageScope<'_>, key: &str) -> Resul
         )
     })?;
     serde_json::from_str(&text).map_err(|error| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "stored custom tab value `{key}` is not JSON: {error}"
         ))
     })

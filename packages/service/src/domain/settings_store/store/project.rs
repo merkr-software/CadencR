@@ -111,7 +111,7 @@ pub async fn project_rename(
         std::fs::rename(&from, &to)
     };
     moved.map_err(|e| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "failed to move project settings from {} to {}: {e}",
             from.display(),
             to.display()

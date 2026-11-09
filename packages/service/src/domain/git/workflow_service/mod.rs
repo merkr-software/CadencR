@@ -50,12 +50,13 @@ use crate::domain::git::mutation_guard::GitMutationGuardError;
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_safe_refs;
 
+#[track_caller]
 pub(crate) fn mutation_guard_error(error: GitMutationGuardError) -> AppError {
     let message = error.to_string();
     match error {
         GitMutationGuardError::Busy { .. } => AppError::Conflict(message),
         GitMutationGuardError::InvalidWorktree { .. } => AppError::BadRequest(message),
-        GitMutationGuardError::RegistryUnavailable => AppError::Internal(message),
+        GitMutationGuardError::RegistryUnavailable => AppError::internal(message),
     }
 }
 

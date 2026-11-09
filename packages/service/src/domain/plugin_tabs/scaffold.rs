@@ -121,12 +121,12 @@ async fn write_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), AppError
     let path = dir.join(name);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            AppError::Internal(format!("cannot create {}: {error}", parent.display()))
+            AppError::internal(format!("cannot create {}: {error}", parent.display()))
         })?;
     }
     tokio::fs::write(&path, bytes)
         .await
-        .map_err(|error| AppError::Internal(format!("cannot write {}: {error}", path.display())))
+        .map_err(|error| AppError::internal(format!("cannot write {}: {error}", path.display())))
 }
 
 #[cfg(test)]

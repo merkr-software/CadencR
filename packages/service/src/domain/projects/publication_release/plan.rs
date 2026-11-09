@@ -40,7 +40,7 @@ pub(super) fn plan_sha(plan: &Plan, account: &str, repository_id: u64) -> Result
         release_title: &plan.tag,
         make_latest: false,
     })
-    .map_err(|error| AppError::Internal(format!("encode publication plan: {error}")))?;
+    .map_err(|error| AppError::internal(format!("encode publication plan: {error}")))?;
     Ok(super::local::digest(&bytes))
 }
 

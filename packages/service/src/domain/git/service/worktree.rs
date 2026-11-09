@@ -267,7 +267,7 @@ async fn create_and_migrate_worktree(
     let selected_project_path = Path::new(project_path);
     let source_root = resolve_source_git_root(selected_project_path)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     let (worktree_root, branch) =
         commands::create_worktree(&source_root, branch_name, project_name).await?;
     let context = build_worktree_context(
@@ -275,7 +275,7 @@ async fn create_and_migrate_worktree(
         selected_project_path,
         Path::new(&worktree_root),
     )
-    .map_err(AppError::Internal)?;
+    .map_err(|error| AppError::internal(error))?;
     migrate_provider_config_for_context(&context).await?;
     Ok((context, branch))
 }

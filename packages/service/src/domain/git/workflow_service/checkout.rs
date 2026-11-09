@@ -106,7 +106,7 @@ async fn checkout(state: &AppState, body: CheckoutBody) -> Result<SuccessRespons
     let _permit = state
         .git_mutations
         .try_acquire(repo)
-        .map_err(super::mutation_guard_error)?;
+        .map_err(|error| super::mutation_guard_error(error))?;
     run_git_capture(&["checkout"], &[], &[&resolved], repo).await?;
     Ok(SuccessResponse::ok())
 }

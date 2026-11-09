@@ -12,7 +12,7 @@ pub async fn has_git_metadata(path: &Path) -> Result<bool, AppError> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || inspect_git_metadata(&path))
         .await
-        .map_err(|error| AppError::Internal(format!("Git context inspection failed: {error}")))?
+        .map_err(|error| AppError::internal(format!("Git context inspection failed: {error}")))?
 }
 
 /// Safety checks must reject unavailable repositories, never infer a clean or absent branch.
@@ -20,7 +20,7 @@ pub async fn require_git_metadata(path: &Path) -> Result<(), AppError> {
     if has_git_metadata(path).await? {
         Ok(())
     } else {
-        Err(AppError::GitCommandError(format!(
+        Err(AppError::git_command(format!(
             "No Git metadata found for {}",
             path.display()
         )))
@@ -57,8 +57,9 @@ fn metadata_exists(path: &Path) -> Result<bool, AppError> {
     }
 }
 
+#[track_caller]
 fn context_error(error: std::io::Error) -> AppError {
-    AppError::Internal(format!("Failed to inspect Git context: {error}"))
+    AppError::internal(format!("Failed to inspect Git context: {error}"))
 }
 
 #[cfg(test)]

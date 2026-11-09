@@ -244,8 +244,7 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("force_remove_worktree=true"));
-        let failed =
-            serde_json::to_value(git_outcome(Err(AppError::Internal("x".into())))).unwrap();
+        let failed = serde_json::to_value(git_outcome(Err(AppError::internal("x")))).unwrap();
         assert_eq!(failed["status"], "failed");
     }
 

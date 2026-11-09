@@ -84,6 +84,7 @@ impl std::fmt::Display for ExtensionError {
 }
 
 impl From<ExtensionError> for AppError {
+    #[track_caller]
     fn from(error: ExtensionError) -> Self {
         match error {
             ExtensionError::Unsupported(message) => AppError::Coded {

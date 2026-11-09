@@ -24,20 +24,23 @@ pub(super) fn write(
     validate_filename(&documents.filename)?;
     ensure_root(root)?;
     let root = std::fs::canonicalize(root)
-        .map_err(|error| internal(format!("resolve contribution storage: {error}")))?;
+        .map_err(|error| AppError::internal(format!("resolve contribution storage: {error}")))?;
     ensure_capacity(&root)?;
-    let project = publication_storage::child_path(&root, &project_id.to_string())
-        .map_err(|error| internal(format!("invalid project contribution path: {error}")))?;
+    let project =
+        publication_storage::child_path(&root, &project_id.to_string()).map_err(|error| {
+            AppError::internal(format!("invalid project contribution path: {error}"))
+        })?;
     ensure_directory(&project)?;
-    let project = std::fs::canonicalize(project)
-        .map_err(|error| internal(format!("resolve project contribution storage: {error}")))?;
+    let project = std::fs::canonicalize(project).map_err(|error| {
+        AppError::internal(format!("resolve project contribution storage: {error}"))
+    })?;
     if project.parent() != Some(root.as_path()) {
         return Err(storage(
             "project contribution directory escapes its storage root",
         ));
     }
     let output = publication_storage::create_unique_directory(&project)
-        .map_err(|error| internal(format!("create contribution output: {error}")))?;
+        .map_err(|error| AppError::internal(format!("create contribution output: {error}")))?;
     let result = write_output(&output, &documents).and_then(|paths| {
         sync_dir(&project)?;
         Ok(paths)
@@ -59,7 +62,7 @@ fn write_output(root: &Path, documents: &Documents) -> Result<RelativePaths, App
     let submissions = root.join("submissions");
     std::fs::create_dir(&packages)
         .and_then(|()| std::fs::create_dir(&submissions))
-        .map_err(|error| internal(format!("create contribution directories: {error}")))?;
+        .map_err(|error| AppError::internal(format!("create contribution directories: {error}")))?;
     let paths = RelativePaths {
         package: PathBuf::from("packages").join(&documents.filename),
         submission: PathBuf::from("submissions").join(&documents.filename),
@@ -76,9 +79,9 @@ fn write_output(root: &Path, documents: &Documents) -> Result<RelativePaths, App
 
 fn ensure_root(root: &Path) -> Result<(), AppError> {
     std::fs::create_dir_all(root)
-        .map_err(|error| internal(format!("create contribution storage: {error}")))?;
+        .map_err(|error| AppError::internal(format!("create contribution storage: {error}")))?;
     let metadata = std::fs::symlink_metadata(root)
-        .map_err(|error| internal(format!("inspect contribution storage: {error}")))?;
+        .map_err(|error| AppError::internal(format!("inspect contribution storage: {error}")))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(storage("contribution storage root is not a real directory"));
     }
@@ -90,7 +93,7 @@ fn ensure_directory(path: &Path) -> Result<(), AppError> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             let metadata = std::fs::symlink_metadata(path).map_err(|error| {
-                internal(format!("inspect project contribution storage: {error}"))
+                AppError::internal(format!("inspect project contribution storage: {error}"))
             })?;
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 Err(storage(
@@ -100,7 +103,7 @@ fn ensure_directory(path: &Path) -> Result<(), AppError> {
                 Ok(())
             }
         }
-        Err(error) => Err(internal(format!(
+        Err(error) => Err(AppError::internal(format!(
             "create project contribution storage: {error}"
         ))),
     }
@@ -110,10 +113,10 @@ fn ensure_capacity(root: &Path) -> Result<(), AppError> {
     let mut exports = 0;
     let mut projects = 0;
     for project in std::fs::read_dir(root)
-        .map_err(|error| internal(format!("scan contribution storage: {error}")))?
+        .map_err(|error| AppError::internal(format!("scan contribution storage: {error}")))?
     {
-        let project =
-            project.map_err(|error| internal(format!("read contribution entry: {error}")))?;
+        let project = project
+            .map_err(|error| AppError::internal(format!("read contribution entry: {error}")))?;
         require_directory(&project.path())?;
         let name = project.file_name();
         let name = name
@@ -132,9 +135,10 @@ fn ensure_capacity(root: &Path) -> Result<(), AppError> {
             ));
         }
         for export in std::fs::read_dir(project.path())
-            .map_err(|error| internal(format!("scan project contributions: {error}")))?
+            .map_err(|error| AppError::internal(format!("scan project contributions: {error}")))?
         {
-            let export = export.map_err(|error| internal(format!("read contribution: {error}")))?;
+            let export = export
+                .map_err(|error| AppError::internal(format!("read contribution: {error}")))?;
             require_directory(&export.path())?;
             let name = export.file_name();
             let name = name
@@ -160,7 +164,7 @@ fn ensure_capacity(root: &Path) -> Result<(), AppError> {
 
 fn require_directory(path: &Path) -> Result<(), AppError> {
     let metadata = std::fs::symlink_metadata(path)
-        .map_err(|error| internal(format!("inspect contribution entry: {error}")))?;
+        .map_err(|error| AppError::internal(format!("inspect contribution entry: {error}")))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(storage("contribution storage contains an unexpected entry"));
     }
@@ -182,12 +186,12 @@ fn validate_filename(name: &str) -> Result<(), AppError> {
 
 fn write_exclusive(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
     publication_storage::write_exclusive_synced(path, bytes)
-        .map_err(|error| internal(format!("persist {}: {error}", path.display())))
+        .map_err(|error| AppError::internal(format!("persist {}: {error}", path.display())))
 }
 
 fn sync_dir(path: &Path) -> Result<(), AppError> {
     publication_storage::sync_directory(path)
-        .map_err(|error| internal(format!("sync {}: {error}", path.display())))
+        .map_err(|error| AppError::internal(format!("sync {}: {error}", path.display())))
 }
 
 fn response(output: PathBuf, paths: RelativePaths) -> WrittenContribution {
@@ -226,7 +230,7 @@ fn cleanup<T>(staging: &Path, filename: &str, error: AppError) -> Result<T, AppE
     if failures.is_empty() {
         Err(error)
     } else {
-        Err(internal(format!(
+        Err(AppError::internal(format!(
             "contribution preparation failed ({error}); cleanup also failed: {}",
             failures.join("; ")
         )))
@@ -239,10 +243,6 @@ fn storage(message: &str) -> AppError {
         "PUBLICATION_CONTRIBUTION_STORAGE_FULL",
         message,
     )
-}
-
-fn internal(message: String) -> AppError {
-    AppError::Internal(message)
 }
 
 #[cfg(test)]

@@ -281,7 +281,7 @@ async fn verify_rollback_conformance(
 ) -> Result<(), AppError> {
     let manifest_before = blocking::manifest(payload.to_path_buf()).await?;
     let workspace = tempfile::tempdir()
-        .map_err(|error| AppError::Internal(format!("create rollback workspace: {error}")))?;
+        .map_err(|error| AppError::internal(format!("create rollback workspace: {error}")))?;
     let conformance = verify_managed_provider(
         ManagedConformanceRequest::builder()
             .executable(payload.join(&receipt.executable))
@@ -293,7 +293,7 @@ async fn verify_rollback_conformance(
     )
     .await;
     let cleanup = workspace.close().map_err(|error| {
-        AppError::Internal(format!("remove rollback conformance workspace: {error}"))
+        AppError::internal(format!("remove rollback conformance workspace: {error}"))
     });
     let _report = match (conformance, cleanup) {
         (Ok(report), Ok(())) => report,

@@ -27,7 +27,7 @@ pub async fn get_pr_merge_status_handler(
         .merge_status(&forge.context, &pr)
         .await
         .map(Json)
-        .map_err(forge_to_app_error)
+        .map_err(|error| forge_to_app_error(error))
 }
 
 #[utoipa::path(post, path = "/api/git/pr/merge", request_body = PrMergeRequest, responses((status = 200, body = PrMergeResponse)))]
@@ -42,13 +42,13 @@ pub async fn post_pr_merge_handler(
         .provider
         .merge_status(&forge.context, &pr)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     let command = validate_merge(&status, &body).map_err(AppError::Conflict)?;
     let response = forge
         .provider
         .merge(&forge.context, &pr, &command, &status)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     request_refresh(&state);
     Ok(Json(response))
 }
@@ -63,7 +63,7 @@ pub async fn delete_pr_merge_handler(
         .provider
         .cancel_merge(&forge.context, &pr)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     request_refresh(&state);
     Ok(Json(PrMergeCancelResponse { cancelled: true }))
 }

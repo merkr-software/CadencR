@@ -23,14 +23,14 @@ pub fn write_atomic_private(path: &Path, content: &str) -> Result<(), AppError> 
 fn write_atomic_with_policy(path: &Path, content: &str, private: bool) -> Result<(), AppError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AppError::Internal(format!("path has no parent: {}", path.display())))?;
+        .ok_or_else(|| AppError::internal(format!("path has no parent: {}", path.display())))?;
     std::fs::create_dir_all(parent)
-        .map_err(|e| AppError::Internal(format!("failed to create {}: {e}", parent.display())))?;
+        .map_err(|e| AppError::internal(format!("failed to create {}: {e}", parent.display())))?;
 
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| AppError::Internal(format!("path has no file name: {}", path.display())))?;
+        .ok_or_else(|| AppError::internal(format!("path has no file name: {}", path.display())))?;
     let tmp = parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
     if let Err(error) = write_temp_file(&tmp, content, private) {
         let _ = std::fs::remove_file(&tmp);
@@ -39,10 +39,10 @@ fn write_atomic_with_policy(path: &Path, content: &str, private: bool) -> Result
     replace_file(&tmp, path).map_err(|e| {
         // Don't leave a stale temp file behind for the next reader to trip over.
         let _ = std::fs::remove_file(&tmp);
-        AppError::Internal(format!("failed to commit {}: {e}", path.display()))
+        AppError::internal(format!("failed to commit {}: {e}", path.display()))
     })?;
     crate::shared::fs_durability::sync_directory(parent).map_err(|error| {
-        AppError::Internal(format!("failed to sync {}: {error}", parent.display()))
+        AppError::internal(format!("failed to sync {}: {error}", parent.display()))
     })
 }
 
@@ -100,8 +100,9 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     }
 }
 
+#[track_caller]
 fn write_error(path: &Path, error: std::io::Error) -> AppError {
-    AppError::Internal(format!("failed to write {}: {error}", path.display()))
+    AppError::internal(format!("failed to write {}: {error}", path.display()))
 }
 
 #[cfg(test)]

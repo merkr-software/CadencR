@@ -22,12 +22,13 @@ enum Failure {
     Constraint,
 }
 
+#[track_caller]
 pub(super) fn from_sqlx(error: sqlx::Error) -> AppError {
     let detail = error.to_string();
     match classify(&error) {
-        Some(Failure::Busy) => AppError::DatabaseBusy(detail),
+        Some(Failure::Busy) => AppError::database_busy(detail),
         Some(Failure::Constraint) => AppError::ConstraintViolation(detail),
-        None => AppError::DatabaseError(detail),
+        None => AppError::database(detail),
     }
 }
 

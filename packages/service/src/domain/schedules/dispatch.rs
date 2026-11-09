@@ -49,7 +49,7 @@ pub async fn run(state: &AppState, schedule: &Schedule, occurrence: &str) -> Res
         TargetKind::Conversation => deliver_to_conversation(state, schedule, occurrence).await,
         TargetKind::NewConversation => spawn::run(state, schedule, occurrence).await,
         // `fire` runs these through `custom_action` before ever dispatching.
-        TargetKind::CustomAction => Err(AppError::Internal(format!(
+        TargetKind::CustomAction => Err(AppError::internal(format!(
             "schedule {} runs a custom action and has no prompt to deliver",
             schedule.id
         ))),
@@ -62,7 +62,7 @@ async fn deliver_to_conversation(
     occurrence: &str,
 ) -> Result<i64, AppError> {
     let feature_id = schedule.target.feature_id.ok_or_else(|| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "schedule {} targets a conversation but has no feature_id",
             schedule.id
         ))
@@ -95,7 +95,7 @@ pub(super) async fn deliver_prompt(
     );
     match tokio::time::timeout(DISPATCH_TIMEOUT, dispatch).await {
         Ok(result) => result.map(|outcome| outcome.delivery_confirmed()),
-        Err(_) => Err(AppError::Internal(format!(
+        Err(_) => Err(AppError::internal(format!(
             "delivering schedule {} timed out after {}s",
             schedule.id,
             DISPATCH_TIMEOUT.as_secs()

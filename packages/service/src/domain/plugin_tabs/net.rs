@@ -86,7 +86,7 @@ impl IntoResponse for Relayed {
                 self.body,
             )
                 .into_response(),
-            Err(error) => AppError::Internal(format!("relayed headers: {error}")).into_response(),
+            Err(error) => AppError::internal(format!("relayed headers: {error}")).into_response(),
         }
     }
 }
@@ -287,7 +287,7 @@ async fn client(url: &Url) -> Result<reqwest::Client, AppError> {
             PinError::MissingHost => upstream_failed_message("the URL has no host".into()),
             PinError::Resolve(reason) => upstream_failed_message(format!("DNS: {reason}")),
             PinError::NoAddress => upstream_failed_message("the host has no address".into()),
-            PinError::Build(error) => AppError::Internal(format!("relay client: {error}")),
+            PinError::Build(error) => AppError::internal(format!("relay client: {error}")),
         })
 }
 

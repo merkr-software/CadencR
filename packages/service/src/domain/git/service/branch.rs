@@ -70,7 +70,7 @@ pub async fn delete_feature_branch(
     let _permit = state
         .git_mutations
         .try_acquire(Path::new(&project_path))
-        .map_err(workflow_service::mutation_guard_error)?;
+        .map_err(|error| workflow_service::mutation_guard_error(error))?;
     let has_separate_worktree =
         feature_has_separate_worktree(state, &project_path, params.feature_id).await?;
     if !has_separate_worktree {

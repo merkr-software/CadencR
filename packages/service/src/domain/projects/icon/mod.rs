@@ -212,7 +212,7 @@ pub async fn get_project_icon_handler(
 
     let bytes = tokio::fs::read(&path)
         .await
-        .map_err(|e| AppError::Internal(format!("failed to read icon: {e}")))?;
+        .map_err(|e| AppError::internal(format!("failed to read icon: {e}")))?;
     image_response(bytes, mime)
 }
 

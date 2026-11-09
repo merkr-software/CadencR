@@ -212,7 +212,7 @@ async fn ensure_repository(dir: &Path) -> Result<(), AppError> {
         return Ok(());
     }
     std::fs::write(dir.join(".gitignore"), GITIGNORE)
-        .map_err(|e| AppError::Internal(format!("failed to write the theme's .gitignore: {e}")))?;
+        .map_err(|e| AppError::internal(format!("failed to write the theme's .gitignore: {e}")))?;
     ensure_repository_with_initial_commit(dir, COMMIT_EMAIL, "New theme").await
 }
 

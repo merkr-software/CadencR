@@ -112,7 +112,7 @@ pub(super) async fn resolve_target_project(
         (None, None) => fetch_project_by_id(pool, source_project_id)
             .await?
             .ok_or_else(|| {
-                AppError::Internal(format!(
+                AppError::internal(format!(
                     "source session's project {source_project_id} no longer exists"
                 ))
             })?,

@@ -207,7 +207,7 @@ pub async fn list() -> Result<Vec<LocalTab>, AppError> {
         Ok(tabs)
     })
     .await
-    .map_err(|error| AppError::Internal(format!("custom tab scan failed: {error}")))?
+    .map_err(|error| AppError::internal(format!("custom tab scan failed: {error}")))?
 }
 
 /// A verified marketplace revision, with its staged update if one verifies.
@@ -336,7 +336,7 @@ async fn read(id: &str, staged: Staged) -> Result<LocalTab, AppError> {
         Ok(LocalTab::local(id, inspect_tab_folder(dir)))
     })
     .await
-    .map_err(|error| AppError::Internal(format!("custom tab read failed: {error}")))?
+    .map_err(|error| AppError::internal(format!("custom tab read failed: {error}")))?
 }
 
 pub fn not_found(id: &str) -> AppError {
@@ -352,7 +352,7 @@ fn scan(root: &Path) -> Result<Vec<LocalTab>, AppError> {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "cannot read the custom tabs folder {}: {error}",
                 root.display()
             )))
@@ -361,7 +361,7 @@ fn scan(root: &Path) -> Result<Vec<LocalTab>, AppError> {
     let mut tabs = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| {
-            AppError::Internal(format!("cannot read the custom tabs folder: {error}"))
+            AppError::internal(format!("cannot read the custom tabs folder: {error}"))
         })?;
         let Some(id) = entry.file_name().to_str().map(str::to_string) else {
             continue;

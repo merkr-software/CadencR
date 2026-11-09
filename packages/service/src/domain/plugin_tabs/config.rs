@@ -206,7 +206,7 @@ async fn stored(
 
 fn parse_stored(key: &str, text: &str) -> Result<Value, AppError> {
     serde_json::from_str(text).map_err(|error| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "stored custom tab setting `{key}` is not JSON: {error}"
         ))
     })

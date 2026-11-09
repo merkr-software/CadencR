@@ -62,7 +62,7 @@ pub(super) async fn deliver(
         false,
     )
     .await
-    .map_err(|error| AppError::Internal(error.to_string()))?;
+    .map_err(|error| AppError::internal(error.to_string()))?;
     if message.inserted {
         state
             .feature_events_tx
@@ -78,7 +78,7 @@ pub(super) async fn deliver(
     );
     let result = match tokio::time::timeout(DISPATCH_TIMEOUT, dispatch).await {
         Ok(result) => result.map(|outcome| outcome.delivery_confirmed()),
-        Err(_) => Err(AppError::Internal(format!(
+        Err(_) => Err(AppError::internal(format!(
             "resuming the conversation timed out after {}s",
             DISPATCH_TIMEOUT.as_secs()
         ))),
@@ -92,7 +92,7 @@ pub(super) async fn deliver(
         )
         .await
         .map_err(|state_error| {
-            AppError::Internal(format!(
+            AppError::internal(format!(
                 "{error}; the prompt's delivery state could not be saved either: {state_error}"
             ))
         })?;

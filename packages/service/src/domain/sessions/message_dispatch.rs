@@ -39,10 +39,10 @@ async fn dispatch_status(
     match status.as_deref() {
         Some("dispatching") => Ok(DispatchClaim::InProgress),
         Some("dispatched") => Ok(DispatchClaim::Dispatched),
-        Some(other) => Err(AppError::Internal(format!(
+        Some(other) => Err(AppError::internal(format!(
             "message {message_id} has unclaimable dispatch status '{other}'"
         ))),
-        None => Err(AppError::Internal(format!(
+        None => Err(AppError::internal(format!(
             "message {message_id} has no dispatch lifecycle"
         ))),
     }
@@ -111,7 +111,7 @@ async fn update_claim(
     .execute(pool)
     .await?;
     if result.rows_affected() != 1 {
-        return Err(AppError::Internal(format!(
+        return Err(AppError::internal(format!(
             "dispatch claim for message {message_id} is no longer current"
         )));
     }

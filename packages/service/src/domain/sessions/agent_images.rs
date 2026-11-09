@@ -166,7 +166,7 @@ async fn canonical_file(path: PathBuf) -> Result<PathBuf, AppError> {
         Ok(canonical)
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))?
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?
 }
 
 #[cfg(test)]

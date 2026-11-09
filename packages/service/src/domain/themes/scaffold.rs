@@ -90,7 +90,7 @@ pub async fn refresh(dir: &Path) -> Result<(), AppError> {
 /// updates and rebuilds.
 async fn write_check_command(dir: &Path) -> Result<(), AppError> {
     let exe = std::env::current_exe()
-        .map_err(|e| AppError::Internal(format!("could not locate the Cadencr binary: {e}")))?;
+        .map_err(|e| AppError::internal(format!("could not locate the Cadencr binary: {e}")))?;
     let exe = exe.display();
     let path = dir.join(CHECK_FILE_NAME);
     let script = if cfg!(windows) {
@@ -116,7 +116,7 @@ async fn make_executable(path: &Path) -> Result<(), AppError> {
 
     let mut permissions = fs::metadata(path)
         .await
-        .map_err(|e| AppError::Internal(format!("failed to read {}: {e}", path.display())))?
+        .map_err(|e| AppError::internal(format!("failed to read {}: {e}", path.display())))?
         .permissions();
     if permissions.mode() & 0o111 == 0o111 {
         return Ok(());
@@ -124,7 +124,7 @@ async fn make_executable(path: &Path) -> Result<(), AppError> {
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions)
         .await
-        .map_err(|e| AppError::Internal(format!("failed to chmod {}: {e}", path.display())))
+        .map_err(|e| AppError::internal(format!("failed to chmod {}: {e}", path.display())))
 }
 
 #[cfg(not(unix))]
@@ -202,10 +202,10 @@ async fn exclude_from_git(dir: &Path) -> Result<(), AppError> {
     let info = path.parent().expect("exclude lives in .git/info");
     fs::create_dir_all(info)
         .await
-        .map_err(|e| AppError::Internal(format!("failed to create {}: {e}", info.display())))?;
+        .map_err(|e| AppError::internal(format!("failed to create {}: {e}", info.display())))?;
     fs::write(&path, next)
         .await
-        .map_err(|e| AppError::Internal(format!("failed to write {}: {e}", path.display())))
+        .map_err(|e| AppError::internal(format!("failed to write {}: {e}", path.display())))
 }
 
 #[cfg(test)]

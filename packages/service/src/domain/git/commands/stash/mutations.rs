@@ -22,7 +22,7 @@ pub async fn stash_common_dir(repo_path: &Path) -> Result<PathBuf, AppError> {
         repo_path.join(common_dir)
     };
     tokio::fs::canonicalize(&common_dir).await.map_err(|error| {
-        AppError::GitCommandError(format!(
+        AppError::git_command(format!(
             "failed to resolve the repository Git directory {}: {error}",
             common_dir.display()
         ))

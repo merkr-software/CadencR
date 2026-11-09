@@ -101,9 +101,7 @@ pub async fn plugin_tab_create_grant_handler(
             .build(),
     );
     let Some(expires_at) = expires_at else {
-        return Err(AppError::Internal(
-            "a tab grant was minted without expiry".into(),
-        ));
+        return Err(AppError::internal("a tab grant was minted without expiry"));
     };
     Ok(Json(PluginTabGrant {
         token,

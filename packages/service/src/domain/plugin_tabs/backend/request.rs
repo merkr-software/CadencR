@@ -88,7 +88,7 @@ impl Budget {
     ) -> Result<T, AppError> {
         match tokio::time::timeout_at(self.deadline, tokio::spawn(task)).await {
             Ok(Ok(result)) => result,
-            Ok(Err(error)) => Err(AppError::Internal(format!(
+            Ok(Err(error)) => Err(AppError::internal(format!(
                 "starting the backend failed: {error}"
             ))),
             Err(_) => Err(self.exceeded(method)),

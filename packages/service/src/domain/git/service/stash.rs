@@ -89,12 +89,12 @@ async fn acquire_stash_permits(
     let worktree = state
         .git_mutations
         .try_acquire(&repo)
-        .map_err(map_guard_error)?;
+        .map_err(|error| map_guard_error(error))?;
     let common_dir = commands::stash::stash_common_dir(&repo).await?;
     let repository = state
         .git_mutations
         .try_acquire(&common_dir)
-        .map_err(map_guard_error)?;
+        .map_err(|error| map_guard_error(error))?;
     Ok((
         repo,
         StashMutationPermits {
@@ -104,11 +104,12 @@ async fn acquire_stash_permits(
     ))
 }
 
+#[track_caller]
 fn map_guard_error(error: GitMutationGuardError) -> AppError {
     match error {
         GitMutationGuardError::Busy { .. } => AppError::Conflict(error.to_string()),
         GitMutationGuardError::InvalidWorktree { .. } => AppError::BadRequest(error.to_string()),
-        GitMutationGuardError::RegistryUnavailable => AppError::Internal(error.to_string()),
+        GitMutationGuardError::RegistryUnavailable => AppError::internal(error.to_string()),
     }
 }
 

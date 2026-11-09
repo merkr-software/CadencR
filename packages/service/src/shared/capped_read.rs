@@ -21,11 +21,11 @@ pub async fn read_file_capped(
             std::io::ErrorKind::PermissionDenied => {
                 AppError::BadRequest(format!("Permission denied: {}", path.display()))
             }
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })?;
         let len = file
             .metadata()
-            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(|e| AppError::internal(e.to_string()))?
             .len();
         if len > max_bytes as u64 {
             return Err(AppError::BadRequest(format!(
@@ -37,11 +37,11 @@ pub async fn read_file_capped(
         // through ~18 reallocations for a 25 MB file.
         let mut buf = Vec::with_capacity(len as usize);
         file.read_to_end(&mut buf)
-            .map_err(|e| AppError::Internal(e.to_string()))?;
+            .map_err(|e| AppError::internal(e.to_string()))?;
         Ok(buf)
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))?
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?
 }
 
 #[cfg(test)]

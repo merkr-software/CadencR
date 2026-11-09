@@ -96,7 +96,7 @@ fn row_to_entry(row: CustomModelRow) -> Result<ModelCatalogEntry, AppError> {
         .supported_effort_levels_json
         .map(|json| {
             serde_json::from_str(&json).map_err(|error| {
-                AppError::DatabaseError(format!(
+                AppError::database(format!(
                     "invalid effort metadata for custom model '{}': {error}",
                     row.model_id
                 ))
@@ -160,7 +160,7 @@ pub async fn upsert_custom_model(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|error| {
-            AppError::Internal(format!("failed to encode effort metadata: {error}"))
+            AppError::internal(format!("failed to encode effort metadata: {error}"))
         })?;
     sqlx::query(
         "INSERT INTO claude_code_custom_models \

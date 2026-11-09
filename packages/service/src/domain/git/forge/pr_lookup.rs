@@ -28,6 +28,6 @@ pub async fn lookup_feature_repo_pr(
         .provider
         .get_pr(&forge.context, params.pr_number)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     Ok(Json(pr))
 }

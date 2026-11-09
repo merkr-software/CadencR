@@ -164,6 +164,7 @@ pub async fn browser_origins_handler(State(state): State<AppState>) -> Json<Remo
 /// Missing renderer and an unavailable port are conditions the user can act
 /// on, so they keep their message; TLS, secret and serve setup failures are
 /// internal.
+#[track_caller]
 fn start_error(err: RemoteError) -> AppError {
     match err {
         RemoteError::NoRendererDir | RemoteError::RendererIndexMissing(_) => {
@@ -173,14 +174,18 @@ fn start_error(err: RemoteError) -> AppError {
             AppError::coded(StatusCode::CONFLICT, "REMOTE_BIND_FAILED", err.to_string())
         }
         RemoteError::Tls(_) | RemoteError::Secrets(_) | RemoteError::ServeFailed(_) => {
-            AppError::Internal(err.to_string())
+            AppError::internal(err.to_string())
         }
     }
 }
 
 #[utoipa::path(post, path = "/api/remote/enable", responses((status = 200, body = RemoteStatus)))]
 pub async fn enable_handler(State(state): State<AppState>) -> Result<Json<RemoteStatus>, AppError> {
-    state.remote.start(&state).await.map_err(start_error)?;
+    state
+        .remote
+        .start(&state)
+        .await
+        .map_err(|error| start_error(error))?;
     repository::set_setting(&state.write_pool, REMOTE_ENABLED_SETTING, "true").await?;
     Ok(Json(current_status(&state).await?))
 }
@@ -260,7 +265,7 @@ pub async fn set_tunnel_host_handler(
             repository::set_setting(&state.write_pool, REMOTE_ENABLED_SETTING, "false").await;
         return Err(match persisted {
             Ok(()) => start_error(err),
-            Err(setting_err) => AppError::Internal(format!(
+            Err(setting_err) => AppError::internal(format!(
                 "{err}; remote access is off but could not be saved as disabled: {setting_err}"
             )),
         });

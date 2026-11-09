@@ -114,7 +114,7 @@ pub async fn finish_run(
     .await?
     .rows_affected();
     if rows != 1 {
-        return Err(AppError::Internal(format!(
+        return Err(AppError::internal(format!(
             "schedule {id} dispatch claim is no longer current"
         )));
     }
@@ -143,7 +143,7 @@ pub async fn release_claim(
     .await?
     .rows_affected();
     if rows != 1 {
-        return Err(AppError::Internal(format!(
+        return Err(AppError::internal(format!(
             "schedule {id} dispatch claim is no longer current"
         )));
     }

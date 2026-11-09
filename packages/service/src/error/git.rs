@@ -13,6 +13,8 @@
 
 use axum::http::StatusCode;
 
+use super::Origin;
+
 /// Why git refused the operation. Classification is a best-effort refinement
 /// of the always-available [`GitFailureKind::CommandFailed`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,19 +137,22 @@ impl GitFailureKind {
 }
 
 /// A git refusal whose `message` is safe to show the user as-is.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct GitRejection {
     pub kind: GitFailureKind,
     pub message: String,
+    pub origin: Origin,
 }
 
 impl GitRejection {
     /// Classify git's message. Callers must pass already sanitized text.
+    #[track_caller]
     pub fn classify(message: impl Into<String>) -> Self {
         let message = message.into();
         Self {
             kind: GitFailureKind::classify(&message),
             message,
+            origin: Origin::here(),
         }
     }
 }

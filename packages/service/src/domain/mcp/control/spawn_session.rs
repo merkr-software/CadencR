@@ -257,7 +257,7 @@ async fn persist_and_announce_spawn(
         false,
     )
     .await
-    .map_err(|error| AppError::Internal(error.to_string()))?;
+    .map_err(|error| AppError::internal(error.to_string()))?;
     Ok(Some(message_id))
 }
 

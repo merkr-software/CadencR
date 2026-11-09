@@ -14,7 +14,7 @@ pub(super) fn build_package(
     let canonical_parent = prepare_output_parent(&input)?;
     let output_dir =
         publication_storage::create_unique_directory(&canonical_parent).map_err(|error| {
-            AppError::Internal(format!(
+            AppError::internal(format!(
                 "cannot exclusively create publication bundle directory: {error}"
             ))
         })?;
@@ -34,14 +34,14 @@ pub(super) fn build_package(
                 "/agent/distribution/binary/{}/sha256",
                 escape_json_pointer(&input.target)
             ))
-            .ok_or_else(|| AppError::Internal("validated metadata target disappeared".into()))?;
+            .ok_or_else(|| AppError::internal("validated metadata target disappeared"))?;
         *sha = serde_json::Value::String(built.sha256.clone());
         let final_package: ManagedProviderPackage = serde_json::from_value(input.metadata.clone())
             .map_err(|error| {
-                AppError::Internal(format!("final metadata cannot be decoded: {error}"))
+                AppError::internal(format!("final metadata cannot be decoded: {error}"))
             })?;
         final_package.validate_contract().map_err(|error| {
-            AppError::Internal(format!("final publication metadata is invalid: {error}"))
+            AppError::internal(format!("final publication metadata is invalid: {error}"))
         })?;
         write_metadata_exclusive(
             &output_dir.join("target.json"),
@@ -146,8 +146,9 @@ pub(super) fn require_real_directory_if_present(path: &FsPath) -> Result<(), App
     }
 }
 
+#[track_caller]
 fn output_error(operation: &str, error: std::io::Error) -> AppError {
-    AppError::Internal(format!("cannot {operation}: {error}"))
+    AppError::internal(format!("cannot {operation}: {error}"))
 }
 
 fn escape_json_pointer(value: &str) -> String {
@@ -156,9 +157,9 @@ fn escape_json_pointer(value: &str) -> String {
 
 fn write_metadata_exclusive(path: &FsPath, metadata: &serde_json::Value) -> Result<(), AppError> {
     let bytes = serde_json::to_vec_pretty(metadata)
-        .map_err(|error| AppError::Internal(format!("cannot encode package metadata: {error}")))?;
+        .map_err(|error| AppError::internal(format!("cannot encode package metadata: {error}")))?;
     publication_storage::write_exclusive_synced(path, &bytes)
-        .map_err(|error| AppError::Internal(format!("cannot persist package metadata: {error}")))
+        .map_err(|error| AppError::internal(format!("cannot persist package metadata: {error}")))
 }
 
 fn cleanup_failed_output<T>(
@@ -184,7 +185,7 @@ fn cleanup_failed_output<T>(
     if failures.is_empty() {
         Err(original)
     } else {
-        Err(AppError::Internal(format!(
+        Err(AppError::internal(format!(
             "publication package failed ({original}); cleanup failed and incomplete output may remain at {}: {}",
             directory.display(),
             failures.join("; ")

@@ -98,7 +98,7 @@ pub async fn list_feature_worktrees(
             Ok(metadata) => metadata.is_dir(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(error) => {
-                return Err(AppError::Internal(format!(
+                return Err(AppError::internal(format!(
                     "Failed to inspect worktree path: {error}"
                 )))
             }

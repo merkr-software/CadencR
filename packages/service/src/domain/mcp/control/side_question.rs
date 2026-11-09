@@ -55,7 +55,7 @@ async fn source_branch(
     let project_path = get_project_path(pool, source.project_id).await?;
     let Some(worktree) = resolve_live_worktree(pool, source.feature_id, &project_path)
         .await
-        .map_err(AppError::Internal)?
+        .map_err(|error| AppError::internal(error))?
     else {
         return Ok(SpawnBranch::default());
     };
@@ -156,7 +156,7 @@ pub async fn ask_session_side_question(
             Some(source.project_id),
             FeatureEventAction::Updated,
         );
-        return Err(AppError::Internal(format!(
+        return Err(AppError::internal(format!(
             "The side conversation was created (listed in the sidebar) but the question \
              was not delivered: {error}"
         )));

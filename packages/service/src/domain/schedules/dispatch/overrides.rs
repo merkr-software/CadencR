@@ -147,7 +147,7 @@ async fn merge_runtime_overrides(
             .fast_mode(stored.fast_mode)
             .build(),
     )
-    .map_err(AppError::Internal)?;
+    .map_err(|error| AppError::internal(error))?;
     if let Some(model) = &pins.model {
         overrides.model = Some(model.clone());
     }
@@ -156,7 +156,7 @@ async fn merge_runtime_overrides(
     }
     serde_json::to_string(&overrides)
         .map(Some)
-        .map_err(|error| AppError::Internal(format!("serialize runtime overrides: {error}")))
+        .map_err(|error| AppError::internal(format!("serialize runtime overrides: {error}")))
 }
 
 async fn resolve(

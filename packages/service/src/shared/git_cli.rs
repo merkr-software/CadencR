@@ -36,12 +36,13 @@ pub async fn run_git_output_with_env(
         .current_dir(cwd)
         .output()
         .await
-        .map_err(|error| AppError::GitCommandError(format!("Failed to spawn git: {error}")))
+        .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))
 }
 
 /// `git <args> failed: <stderr>` as a user-facing refusal. The arguments are
 /// path-redacted like stderr: a worktree or repository path in them would
 /// otherwise reach the response body, remote devices included.
+#[track_caller]
 pub(crate) fn git_failure(args: &[&str], stderr: &str) -> AppError {
     AppError::git_rejected(format!(
         "git {} failed: {}",
@@ -53,6 +54,7 @@ pub(crate) fn git_failure(args: &[&str], stderr: &str) -> AppError {
 /// Convert a captured non-zero Git result into the standard user-facing error
 /// while retaining both output streams when Git split useful context between
 /// them.
+#[track_caller]
 pub fn git_output_error(args: &[&str], output: &std::process::Output) -> AppError {
     let stderr = scrub_home_prefix(String::from_utf8_lossy(&output.stderr).trim());
     let stdout = scrub_home_prefix(String::from_utf8_lossy(&output.stdout).trim());
@@ -242,7 +244,7 @@ async fn run_raw_bytes(args: &[&str], cwd: &Path) -> Result<Vec<u8>, AppError> {
         .current_dir(cwd)
         .output()
         .await
-        .map_err(|e| AppError::GitCommandError(format!("Failed to spawn git: {e}")))?;
+        .map_err(|e| AppError::git_command(format!("Failed to spawn git: {e}")))?;
 
     if !output.status.success() {
         return Err(git_failure(args, &String::from_utf8_lossy(&output.stderr)));
@@ -277,7 +279,7 @@ pub async fn run_git_capture(
         .current_dir(cwd)
         .output()
         .await
-        .map_err(|e| AppError::GitCommandError(format!("Failed to spawn git: {e}")))?;
+        .map_err(|e| AppError::git_command(format!("Failed to spawn git: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

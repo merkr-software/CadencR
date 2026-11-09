@@ -32,7 +32,7 @@ invalid configuration means no delivery for that category, even when enabled.
 
 | Category         | Destination | Allowlisted data                                                                                                                                                                                          |
 | ---------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Diagnostics      | Sentry      | Fixed failure category, timestamp and event ID, random installation ID, release, OS family, architecture, process, schema version; optional packaged app frame filename/line/column and renderer build ID |
+| Diagnostics      | Sentry      | Fixed failure category, timestamp and event ID, random installation ID, release, OS family, architecture, process, schema version; optional packaged app frame filename/line/column, CadencR service source line, and renderer build ID |
 | Usage analytics  | PostHog     | Fixed event name, timestamp, random installation ID, release, OS family, architecture, process and schema version; `turn_completed` also has fixed outcome, provider, actor and duration bucket values    |
 | Monthly audience | PostHog     | One `active_installation_monthly` event per UTC calendar month and installation, with a fresh event-only distinct ID and privacy controls; no persistent installation ID or other app metadata            |
 
@@ -113,7 +113,7 @@ activity, model choice, tokens, cost, prompts or individual feature clicks.
 The category replaces the raw exception message. JavaScript frames retain only
 packaged `assets/<bundle>.js`, `main/index.js` or `preload/index.js` with numeric
 positions. Frames from user files, URLs, custom tabs and provider output are
-excluded. Curated service panic locations refer only to CadencR source. Local browser-only development reports send no stack frames because they lack
+excluded. Service locations refer only to CadencR source files (`src/…`). Local browser-only development reports send no stack frames because they lack
 the trusted packaged bundle manifest. Paired remote devices cannot read or
 change consent or ingest diagnostics; manage telemetry on the host desktop.
 Host consent still governs service-side usage events from operations initiated
@@ -128,7 +128,7 @@ exception monitor; startup and service-down recovery remain local.
 | Renderer `ErrorEvent` without usable stack frames | Its filename, line and column, only when they identify an allowlisted local bundle with valid positive positions. This also covers thrown primitives. |
 | `ResizeObserver loop` notifications (the exact messages listed in [renderer diagnostics](./RENDERER_DIAGNOSTICS.md)) | Not sent. The browser emits them without a location; they stay in local reports only. |
 | Other browser notifications without a location, string promise rejections, process exits | Category only. No synthetic capture-site stack is added. |
-| `service_internal`, `service_database`, `service_git` | Category only. `AppError` stores text, not the originating backtrace; capturing a stack in `into_response` would describe response handling instead of the failing operation. |
+| `service_internal`, `service_database`, `service_git` | One frame: the CadencR source line that built the `AppError`, or the `?` that converted a database error. Constructors such as `AppError::internal` are `#[track_caller]`; no native backtrace or function name. Failures built inside a shared async helper (for example git refusals from the `shared::git_cli` runners) report that helper's line. Sentry groups these events by category and source file, so moving lines does not split an issue. |
 | `service_panic` | A curated CadencR source location when available, not a native backtrace. |
 
 The renderer fallback never uses the page URL of a rejection or React report as

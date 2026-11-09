@@ -80,13 +80,13 @@ pub(super) fn build_debouncer(
             }
         },
     )
-    .map_err(|e| crate::error::AppError::Internal(describe_watch_error("git watcher", &e)))?;
+    .map_err(|e| crate::error::AppError::internal(describe_watch_error("git watcher", &e)))?;
 
     debouncer
         .watcher()
         .watch(&worktree_path, RecursiveMode::Recursive)
         .map_err(|e| {
-            crate::error::AppError::Internal(describe_watch_error("git watcher watch", &e))
+            crate::error::AppError::internal(describe_watch_error("git watcher watch", &e))
         })?;
 
     // Linked-worktree support: the worktree's own gitdir

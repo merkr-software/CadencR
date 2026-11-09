@@ -75,7 +75,7 @@ fn walk_entries(
 
     let mut entries: Vec<FileTreeEntry> = Vec::new();
     for result in walker.build() {
-        let entry = result.map_err(|e| AppError::Internal(e.to_string()))?;
+        let entry = result.map_err(|e| AppError::internal(e.to_string()))?;
         // Skip the project root itself.
         if entry.depth() == 0 {
             continue;
@@ -190,7 +190,7 @@ fn make_entry(
 ) -> Result<FileTreeEntry, AppError> {
     let relative = path
         .strip_prefix(project_root)
-        .map_err(|e| AppError::Internal(e.to_string()))?
+        .map_err(|e| AppError::internal(e.to_string()))?
         .to_string_lossy()
         .to_string();
     let name = path

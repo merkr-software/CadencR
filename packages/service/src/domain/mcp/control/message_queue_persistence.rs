@@ -153,7 +153,7 @@ struct QueueIdentityRow {
 pub(super) fn queued_message_uuid(message: &QueuedMessage) -> Result<uuid::Uuid, AppError> {
     match message.message_uuid.as_deref() {
         Some(value) => uuid::Uuid::parse_str(value).map_err(|_| {
-            AppError::Internal(format!(
+            AppError::internal(format!(
                 "queued message {} has an invalid canonical UUID",
                 message.id
             ))
@@ -208,7 +208,7 @@ fn require_claim_update(rows_affected: u64, id: i64) -> Result<(), AppError> {
     if rows_affected == 1 {
         Ok(())
     } else {
-        Err(AppError::Internal(format!(
+        Err(AppError::internal(format!(
             "queued message {id} delivery claim is no longer current"
         )))
     }

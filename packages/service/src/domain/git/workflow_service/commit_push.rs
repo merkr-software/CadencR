@@ -43,7 +43,7 @@ pub async fn commit(state: &AppState, body: CommitBody) -> Result<SuccessRespons
     let permit = state
         .git_mutations
         .try_acquire(&dir.cwd)
-        .map_err(mutation_guard_error)?;
+        .map_err(|error| mutation_guard_error(error))?;
     // The paths come from the changed-files list, relative to the checkout
     // root, so `git add` runs there.
     let repo = dir.root;

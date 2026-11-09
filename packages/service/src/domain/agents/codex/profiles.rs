@@ -45,7 +45,7 @@ pub async fn create(draft: ProfileDraft) -> Result<CodexProfileView, AppError> {
     read_config_and_revision(&profile)?;
     let id = profile.id.clone();
     let stored = serde_json::to_value(&profile)
-        .map_err(|error| AppError::Internal(format!("could not encode Codex profile: {error}")))?;
+        .map_err(|error| AppError::internal(format!("could not encode Codex profile: {error}")))?;
     settings_store::global_modify_object(PROFILES_KEY, move |profiles| {
         profiles.insert(id, stored);
         Ok(())
@@ -65,7 +65,7 @@ pub async fn update(
     read_config_and_revision(&profile)?;
     let id_owned = id.to_string();
     let stored = serde_json::to_value(&profile)
-        .map_err(|error| AppError::Internal(format!("could not encode Codex profile: {error}")))?;
+        .map_err(|error| AppError::internal(format!("could not encode Codex profile: {error}")))?;
     settings_store::global_modify_object(PROFILES_KEY, move |profiles| {
         profiles.insert(id_owned, stored);
         Ok(())
@@ -289,11 +289,11 @@ fn read_config_and_revision(profile: &CodexProfile) -> Result<(Option<Value>, St
         .iter()
         .collect::<std::collections::BTreeMap<_, _>>();
     digest.update(
-        serde_json::to_vec(&sorted_env).map_err(|error| AppError::Internal(error.to_string()))?,
+        serde_json::to_vec(&sorted_env).map_err(|error| AppError::internal(error.to_string()))?,
     );
     digest.update(
         serde_json::to_vec(&profile.env_unset)
-            .map_err(|error| AppError::Internal(error.to_string()))?,
+            .map_err(|error| AppError::internal(error.to_string()))?,
     );
     let config = match profile.config_path.as_deref() {
         Some(path) => {
@@ -306,7 +306,7 @@ fn read_config_and_revision(profile: &CodexProfile) -> Result<(Option<Value>, St
             digest.update(source.as_bytes());
             Some(
                 serde_json::to_value(parsed)
-                    .map_err(|error| AppError::Internal(error.to_string()))?,
+                    .map_err(|error| AppError::internal(error.to_string()))?,
             )
         }
         None => None,

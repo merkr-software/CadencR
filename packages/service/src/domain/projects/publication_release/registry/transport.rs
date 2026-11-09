@@ -25,7 +25,7 @@ impl Transport {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| {
-                AppError::Internal(format!("build GitHub registry client: {error}"))
+                AppError::internal(format!("build GitHub registry client: {error}"))
             })?;
         Ok(Self {
             client,

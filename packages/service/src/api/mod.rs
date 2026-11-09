@@ -217,7 +217,7 @@ pub async fn register_browser_bridge(
     let config = validate_browser_bridge(body)?;
     state
         .set_browser_bridge(config)
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     Ok(Json(BrowserBridgeRegistrationResponse { ok: true }))
 }
 

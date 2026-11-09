@@ -50,11 +50,9 @@ pub async fn initialize_pinned_registry_trust() -> Result<(), crate::error::AppE
                 Err(error) => invalid(format!("Cannot inspect registry trust generation: {error}")),
             },
         }
-    }).await.map_err(|error| crate::error::AppError::Internal(format!("registry trust initialization failed: {error}")))?;
+    }).await.map_err(|error| crate::error::AppError::internal(format!("registry trust initialization failed: {error}")))?;
     STATUS.set(status).map_err(|_| {
-        crate::error::AppError::Internal(
-            "registry trust was used before startup initialization".into(),
-        )
+        crate::error::AppError::internal("registry trust was used before startup initialization")
     })
 }
 

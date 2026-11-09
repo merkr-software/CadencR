@@ -44,7 +44,7 @@ pub async fn current_revision(id: &str) -> Result<CurrentRevision, AppError> {
             .managed_root(&managed_root)
             .call()?;
         let directory = selected.directory().canonicalize().map_err(|error| {
-            AppError::Internal(format!("cannot open custom tab `{id}`: {error}"))
+            AppError::internal(format!("cannot open custom tab `{id}`: {error}"))
         })?;
         Ok(match selected {
             PluginDirectory::Managed(_) => CurrentRevision::Managed { directory },
@@ -56,7 +56,7 @@ pub async fn current_revision(id: &str) -> Result<CurrentRevision, AppError> {
         })
     })
     .await
-    .map_err(|error| AppError::Internal(format!("custom tab read failed: {error}")))?
+    .map_err(|error| AppError::internal(format!("custom tab read failed: {error}")))?
 }
 
 #[cfg(test)]

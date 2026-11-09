@@ -156,7 +156,7 @@ pub async fn delete_feature_handler(
         .feature_events_tx
         .emit(id, None, FeatureEventAction::Deleted);
     if let Err(error) = runtime_cleanup {
-        return Err(crate::error::AppError::Internal(format!(
+        return Err(crate::error::AppError::internal(format!(
             "Feature was deleted, but runtime cleanup failed: {error}"
         )));
     }

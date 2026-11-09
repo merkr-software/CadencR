@@ -14,6 +14,7 @@ pub enum UpdateRequestError {
 }
 
 impl From<UpdateRequestError> for AppError {
+    #[track_caller]
     fn from(error: UpdateRequestError) -> Self {
         match error {
             UpdateRequestError::NotFound => AppError::coded(

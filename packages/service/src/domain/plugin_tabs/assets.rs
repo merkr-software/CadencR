@@ -65,10 +65,10 @@ pub async fn serve(id: &str, path: &str) -> Result<Response, AppError> {
         Ok::<_, AppError>((file, length, selected.into_lease()))
     })
     .await
-    .map_err(|error| AppError::Internal(format!("custom tab asset lookup failed: {error}")))??;
+    .map_err(|error| AppError::internal(format!("custom tab asset lookup failed: {error}")))??;
     let opened = tokio::fs::File::open(&file)
         .await
-        .map_err(|error| AppError::Internal(format!("cannot read custom tab asset: {error}")))?;
+        .map_err(|error| AppError::internal(format!("cannot read custom tab asset: {error}")))?;
     Ok(response(
         stream::body(opened, lease),
         length,

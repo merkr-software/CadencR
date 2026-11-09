@@ -141,7 +141,7 @@ pub async fn load_activity_digest(
     feature_ids: &[i64],
 ) -> Result<AgentActivityDigestResponse, AppError> {
     let ids = serde_json::to_string(feature_ids)
-        .map_err(|e| AppError::Internal(format!("Couldn't encode feature ids: {e}")))?;
+        .map_err(|e| AppError::internal(format!("Couldn't encode feature ids: {e}")))?;
     let rows: Vec<DigestRow> = sqlx::query_as(DIGEST_SQL).bind(ids).fetch_all(pool).await?;
     let entries = rows
         .into_iter()

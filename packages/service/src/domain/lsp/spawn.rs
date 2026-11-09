@@ -213,7 +213,7 @@ pub fn spawn_server(spec: &ServerSpec, workspace_root: &Path) -> Result<Child, A
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| {
-            AppError::Internal(format!("Failed to spawn {}: {error}", spec.display_name))
+            AppError::internal(format!("Failed to spawn {}: {error}", spec.display_name))
         })
 }
 

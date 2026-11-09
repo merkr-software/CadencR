@@ -4,8 +4,10 @@ use serde::Serialize;
 
 mod database;
 mod git;
+mod origin;
 
 pub use git::{GitFailureKind, GitRejection};
+pub use origin::{Detail, Origin};
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
@@ -16,21 +18,21 @@ pub struct ErrorResponse {
 #[derive(Debug)]
 pub enum AppError {
     /// Unexpected database failure — a masked 500.
-    DatabaseError(String),
+    DatabaseError(Detail),
     /// 503 — SQLite busy/locked or the pool timed out; retryable. The driver
     /// detail is logged, never returned.
-    DatabaseBusy(String),
+    DatabaseBusy(Detail),
     /// 409 — a uniqueness or foreign-key constraint rejected the write. The
     /// driver detail (SQL names) is logged, never returned.
     ConstraintViolation(String),
     /// Git could not be run or produced unexpected output — a masked 500.
-    GitCommandError(String),
+    GitCommandError(Detail),
     /// Git ran and refused the operation; its sanitized message is returned
     /// with a 4xx status and a stable `GIT_*` code.
     GitRejected(GitRejection),
     NotFound(String),
     BadRequest(String),
-    Internal(String),
+    Internal(Detail),
     Conflict(String),
     /// An endpoint-specific, stable public error code while preserving the
     /// repository-wide `{ error, code }` response envelope.
@@ -104,12 +106,34 @@ impl IntoResponse for AppError {
 }
 
 impl From<sqlx::Error> for AppError {
+    #[track_caller]
     fn from(err: sqlx::Error) -> Self {
         database::from_sqlx(err)
     }
 }
 
 impl AppError {
+    // Reported failures record their construction site; see `origin`.
+    #[track_caller]
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(Detail::new(message))
+    }
+
+    #[track_caller]
+    pub fn database(message: impl Into<String>) -> Self {
+        Self::DatabaseError(Detail::new(message))
+    }
+
+    #[track_caller]
+    pub fn database_busy(message: impl Into<String>) -> Self {
+        Self::DatabaseBusy(Detail::new(message))
+    }
+
+    #[track_caller]
+    pub fn git_command(message: impl Into<String>) -> Self {
+        Self::GitCommandError(Detail::new(message))
+    }
+
     pub fn coded(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self::Coded {
             status,
@@ -119,6 +143,7 @@ impl AppError {
     }
 
     /// Git exited non-zero: classify its (already sanitized) message.
+    #[track_caller]
     pub fn git_rejected(message: impl Into<String>) -> Self {
         Self::GitRejected(GitRejection::classify(message))
     }
@@ -170,7 +195,7 @@ impl AppError {
             }
             if let AppError::GitRejected(rejection) = self {
                 if rejection.kind == GitFailureKind::CommandFailed {
-                    diagnostic(DiagnosticCategory::ServiceGit, vec![]);
+                    diagnostic(DiagnosticCategory::ServiceGit, self.origin_frames());
                 }
             }
             return;
@@ -179,15 +204,29 @@ impl AppError {
         // Only curated application failures; never forward Display, trace fields or provider text.
         let category = match self {
             AppError::DatabaseError(_) | AppError::DatabaseBusy(_) => {
-                Some(DiagnosticCategory::ServiceDatabase)
+                DiagnosticCategory::ServiceDatabase
             }
-            AppError::Internal(_) => Some(DiagnosticCategory::ServiceInternal),
-            AppError::GitCommandError(_) => Some(DiagnosticCategory::ServiceGit),
-            _ => None,
+            AppError::Internal(_) => DiagnosticCategory::ServiceInternal,
+            AppError::GitCommandError(_) => DiagnosticCategory::ServiceGit,
+            _ => return,
         };
-        if let Some(category) = category {
-            diagnostic(category, vec![]);
+        diagnostic(category, self.origin_frames());
+    }
+
+    /// The construction site of a failure that telemetry reports.
+    fn origin(&self) -> Option<Origin> {
+        match self {
+            AppError::DatabaseError(detail)
+            | AppError::DatabaseBusy(detail)
+            | AppError::Internal(detail)
+            | AppError::GitCommandError(detail) => Some(detail.origin()),
+            AppError::GitRejected(rejection) => Some(rejection.origin),
+            _ => None,
         }
+    }
+
+    fn origin_frames(&self) -> Vec<crate::domain::telemetry::models::DiagnosticFrame> {
+        self.origin().and_then(Origin::frame).into_iter().collect()
     }
 
     fn public_message(&self, status: StatusCode) -> String {
@@ -223,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_internal_returns_500() {
-        let err = AppError::Internal("boom".into());
+        let err = AppError::internal("boom");
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -239,8 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn internal_error_body_does_not_expose_details() {
-        let response =
-            AppError::DatabaseError("SELECT secret FROM private_table".into()).into_response();
+        let response = AppError::database("SELECT secret FROM private_table").into_response();
         let bytes = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("read response body");
@@ -286,10 +324,8 @@ mod tests {
 
     #[tokio::test]
     async fn git_spawn_failure_stays_masked() {
-        let (status, body) = response_parts(AppError::GitCommandError(
-            "Failed to spawn git: ENOENT".into(),
-        ))
-        .await;
+        let (status, body) =
+            response_parts(AppError::git_command("Failed to spawn git: ENOENT")).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
             body,
@@ -338,6 +374,41 @@ mod tests {
                 "code": "DATABASE_BUSY"
             })
         );
+    }
+
+    fn origin_line(error: &AppError) -> (String, u32) {
+        let [frame] = error.origin_frames().try_into().expect("one source frame");
+        (frame.filename, frame.lineno)
+    }
+
+    #[test]
+    fn reported_failures_record_the_line_that_built_them() {
+        let first = line!() + 2;
+        let errors = [
+            AppError::internal("boom"),
+            AppError::database("boom"),
+            AppError::database_busy("boom"),
+            AppError::git_command("boom"),
+            AppError::git_rejected("fatal: boom"),
+        ];
+        for (line, error) in (first..).zip(&errors) {
+            assert_eq!(origin_line(error), ("src/error.rs".into(), line));
+        }
+        assert!(AppError::NotFound("missing".into())
+            .origin_frames()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_converted_database_error_records_the_question_mark() {
+        fn query() -> Result<(), AppError> {
+            Err(sqlx::Error::RowNotFound)?;
+            Ok(())
+        }
+        let line = line!() - 3;
+        let error = query().unwrap_err();
+        assert!(matches!(error, AppError::DatabaseError(_)), "{error:?}");
+        assert_eq!(origin_line(&error), ("src/error.rs".into(), line));
     }
 
     #[tokio::test]

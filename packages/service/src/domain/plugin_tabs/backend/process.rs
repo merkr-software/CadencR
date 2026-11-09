@@ -131,7 +131,7 @@ impl Running {
             method: method.to_owned(),
             params,
         }))
-        .map_err(|error| AppError::Internal(format!("backend request encoding failed: {error}")))?;
+        .map_err(|error| AppError::internal(format!("backend request encoding failed: {error}")))?;
         // One deadline for all three: the handshake of a backend just
         // started, and a backend that stops reading stdin fills the queue, so
         // `send` would otherwise wait on it forever.

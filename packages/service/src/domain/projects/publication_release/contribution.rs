@@ -113,7 +113,7 @@ async fn prepare(
         tokio::task::spawn_blocking(move || (output::write(&root, project_id, documents), permit))
             .await
             .map_err(|error| {
-                AppError::Internal(format!("publication contribution writer failed: {error}"))
+                AppError::internal(format!("publication contribution writer failed: {error}"))
             })?;
     let written = written?;
     Ok(Json(PreparedPublicationContribution {

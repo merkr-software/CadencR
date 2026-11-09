@@ -47,7 +47,7 @@ pub(super) async fn admit(
     })?;
     let result = admit_staged(service, &request, &staging).await;
     let cleanup = std::fs::remove_dir_all(&staging)
-        .map_err(|error| AppError::Internal(format!("remove managed staging: {error}")));
+        .map_err(|error| AppError::internal(format!("remove managed staging: {error}")));
     match (result, cleanup) {
         (Ok(receipt), Ok(())) => Ok(receipt),
         (Err(error), Ok(())) => Err(error),
@@ -83,13 +83,13 @@ async fn admit_staged(
         tokio::task::spawn_blocking(move || extract_verified(&artifact, &payload, &executable))
             .await
             .map_err(|error| {
-                AppError::Internal(format!("managed extraction task failed: {error}"))
+                AppError::internal(format!("managed extraction task failed: {error}"))
             })?
             .map_err(|error| {
                 artifact_failure(service, package, ManagedFailureStage::Extraction, error)
             })?;
     let archive_file_count = u32::try_from(extracted.file_count())
-        .map_err(|_| AppError::Internal("managed archive file count overflowed u32".into()))
+        .map_err(|_| AppError::internal("managed archive file count overflowed u32"))
         .map_err(|error| {
             payload_failure(service, package, "MANAGED_ARCHIVE_METADATA_INVALID", error)
         })?;
@@ -192,7 +192,7 @@ async fn run_conformance(
 ) -> Result<ManagedConformanceReport, AppError> {
     let workspace = staging.join("conformance-workspace");
     std::fs::create_dir(&workspace)
-        .map_err(|error| AppError::Internal(format!("create conformance workspace: {error}")))
+        .map_err(|error| AppError::internal(format!("create conformance workspace: {error}")))
         .map_err(|error| {
             failure_from_app(
                 service,
@@ -245,7 +245,7 @@ struct ReceiptInput<'a> {
 
 fn build_receipt(input: ReceiptInput<'_>) -> Result<ManagedPackageReceipt, AppError> {
     let model_count = u32::try_from(input.report.discovered_model_count)
-        .map_err(|_| AppError::Internal("managed model count overflowed u32".into()))?;
+        .map_err(|_| AppError::internal("managed model count overflowed u32"))?;
     Ok(ManagedPackageReceipt::builder()
         .schema_version(MANAGED_RECEIPT_SCHEMA_VERSION)
         .agent(input.agent)

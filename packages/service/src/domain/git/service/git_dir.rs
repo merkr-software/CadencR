@@ -57,12 +57,12 @@ impl FeatureGitDir {
     pub fn cwd_prefix(&self) -> Result<String, AppError> {
         let canonical = |path: &PathBuf| {
             std::fs::canonicalize(path).map_err(|error| {
-                AppError::Internal(format!("cannot resolve {}: {error}", path.display()))
+                AppError::internal(format!("cannot resolve {}: {error}", path.display()))
             })
         };
         let (cwd, root) = (canonical(&self.cwd)?, canonical(&self.root)?);
         let relative = cwd.strip_prefix(&root).map_err(|_| {
-            AppError::Internal(format!(
+            AppError::internal(format!(
                 "feature directory {} is outside its checkout {}",
                 cwd.display(),
                 root.display()

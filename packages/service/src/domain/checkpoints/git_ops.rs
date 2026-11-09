@@ -31,7 +31,7 @@ fn temp_index_path() -> Result<PathBuf, AppError> {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
     let parent = crate::shared::private_temp::private_temp_dir()
-        .map_err(|e| AppError::Internal(format!("checkpoint scratch dir: {e}")))?;
+        .map_err(|e| AppError::internal(format!("checkpoint scratch dir: {e}")))?;
     Ok(parent.join(format!("cadencr-checkpoint-index-{pid}-{n}")))
 }
 
@@ -119,7 +119,7 @@ async fn copy_real_index(
     tokio::fs::copy(real_index, index_path)
         .await
         .and_then(|_| copy_mtime(real_index, index_path))
-        .map_err(|error| AppError::GitCommandError(format!("failed to copy git index: {error}")))?;
+        .map_err(|error| AppError::git_command(format!("failed to copy git index: {error}")))?;
     clear_assume_unchanged(cwd, env).await
 }
 

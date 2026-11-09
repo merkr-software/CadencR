@@ -51,7 +51,7 @@ pub async fn create(
     })?;
     let root = paths::tabs_dir();
     crate::remote::secure_fs::create_dir_owner_only(&root).map_err(|error| {
-        AppError::Internal(format!("cannot create the custom tabs folder: {error}"))
+        AppError::internal(format!("cannot create the custom tabs folder: {error}"))
     })?;
     let (id, dir) = claim_folder(pool, &root, &base, name).await?;
     let input = ScaffoldInput {
@@ -87,7 +87,7 @@ fn base_id(name: &str) -> String {
 fn check_manifest(input: &ScaffoldInput<'_>) -> Result<(), AppError> {
     let manifest: TabManifest =
         serde_json::from_str(&scaffold::manifest(input)).map_err(|error| {
-            AppError::Internal(format!("the scaffold manifest is invalid: {error}"))
+            AppError::internal(format!("the scaffold manifest is invalid: {error}"))
         })?;
     let findings = validate_manifest(&manifest);
     if findings.is_valid() {
@@ -107,7 +107,7 @@ async fn populate(dir: &Path, input: &ScaffoldInput<'_>) -> Result<(), AppError>
 async fn discard(dir: &Path, error: AppError) -> AppError {
     match tokio::fs::remove_dir_all(dir).await {
         Ok(()) => error,
-        Err(cleanup) => AppError::Internal(format!(
+        Err(cleanup) => AppError::internal(format!(
             "{error}; the partial custom tab folder {} could not be removed: {cleanup}",
             dir.display()
         )),
@@ -169,7 +169,7 @@ async fn claim_folder(
             Ok(()) => return Ok((id, dir)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
-                return Err(AppError::Internal(format!(
+                return Err(AppError::internal(format!(
                     "cannot create {}: {error}",
                     dir.display()
                 )))
@@ -340,7 +340,7 @@ mod tests {
         let dir = root.path().join("half");
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("tab.json"), "{}").unwrap();
-        let error = discard(&dir, AppError::Internal("disk full".into())).await;
+        let error = discard(&dir, AppError::internal("disk full")).await;
         assert!(matches!(error, AppError::Internal(message) if message == "disk full"));
         assert!(!dir.exists());
     }

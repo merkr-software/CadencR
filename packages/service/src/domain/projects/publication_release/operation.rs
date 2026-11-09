@@ -52,8 +52,6 @@ pub(super) async fn publish(
         super::super::publication_operations::PublicationOperationResult::Release(value) => {
             Ok(Json(value))
         }
-        _ => Err(AppError::Internal(
-            "publication operation kind mismatch".into(),
-        )),
+        _ => Err(AppError::internal("publication operation kind mismatch")),
     }
 }

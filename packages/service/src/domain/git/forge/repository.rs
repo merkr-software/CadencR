@@ -32,7 +32,7 @@ pub async fn feature_forge_context(
 ) -> Result<FeatureForge, AppError> {
     let target = resolve_feature_target(state, feature_id).await;
     if let Some(error) = target.error {
-        return Err(AppError::Internal(error));
+        return Err(AppError::internal(error));
     }
     let remote = target
         .remote
@@ -43,11 +43,11 @@ pub async fn feature_forge_context(
     let provider = provider_for(kind)
         .ok_or_else(|| AppError::BadRequest("Configure this remote's forge kind".into()))?;
     let api_base_url = api_base_url(&remote.hostname, kind, config)
-        .map_err(forge_to_app_error)?
+        .map_err(|error| forge_to_app_error(error))?
         .ok_or_else(|| AppError::BadRequest("Configure this forge's API base URL".into()))?;
     let credentials = resolve_credentials(&state.forge_auth, &remote.hostname, kind, config)
         .await
-        .map_err(forge_to_app_error)?
+        .map_err(|error| forge_to_app_error(error))?
         .ok_or_else(|| AppError::BadRequest("Connect this forge in Settings first".into()))?;
     Ok(FeatureForge {
         context: ForgeContext {

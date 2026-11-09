@@ -44,7 +44,7 @@ pub fn recent_files(
     let mut entries: Vec<(String, SystemTime, bool)> = Vec::new();
 
     for result in list_walker(project) {
-        let entry = result.map_err(|e| AppError::Internal(e.to_string()))?;
+        let entry = result.map_err(|e| AppError::internal(e.to_string()))?;
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(true);
         if is_dir && !include_dirs {
             continue;
@@ -53,7 +53,7 @@ pub fn recent_files(
         let relative = entry
             .path()
             .strip_prefix(project)
-            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(|e| AppError::internal(e.to_string()))?
             .to_string_lossy()
             .to_string();
         if relative.is_empty() {
@@ -145,7 +145,7 @@ pub fn fuzzy_search_files(
     // we stream entries straight into the scorer instead of materialising
     // an intermediate `candidates` Vec.
     for result in list_walker(project) {
-        let entry = result.map_err(|e| AppError::Internal(e.to_string()))?;
+        let entry = result.map_err(|e| AppError::internal(e.to_string()))?;
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(true);
         if is_dir && !include_dirs {
             continue;
@@ -153,7 +153,7 @@ pub fn fuzzy_search_files(
         let relative = entry
             .path()
             .strip_prefix(project)
-            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(|e| AppError::internal(e.to_string()))?
             .to_string_lossy()
             .to_string();
         if relative.is_empty() {

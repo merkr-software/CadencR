@@ -35,7 +35,7 @@ pub(super) async fn persist_generated_user_message(
         crate::domain::sessions::repository::get_message_origin(&state.write_pool, persisted.id)
             .await?
             .ok_or_else(|| {
-                AppError::Internal(format!(
+                AppError::internal(format!(
                     "message {} is missing canonical provenance",
                     persisted.id
                 ))
@@ -133,7 +133,7 @@ pub(super) async fn dispatch_generated_prompt(
         )
         .await
         {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "generated prompt dispatch failed ({dispatch_error}) and its receipt state could not be persisted ({state_error})"
             )));
         }

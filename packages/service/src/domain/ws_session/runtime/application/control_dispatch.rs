@@ -98,7 +98,7 @@ async fn dispatch_to_active_owner(
     };
     let stored = prompt_selection_sync::load(&app_state.read_pool, session_id)
         .await
-        .map_err(|(code, message)| AppError::Internal(format!("{code}: {message}")))?;
+        .map_err(|(code, message)| AppError::internal(format!("{code}: {message}")))?;
     let target = {
         let mut sessions = owner.lock().await;
         let Some(handle) = sessions.get_mut(&session_id) else {
@@ -148,7 +148,7 @@ async fn dispatch_to_active_owner(
     };
     handle_followup_prompt(context, payload)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     Ok(true)
 }
 
@@ -165,7 +165,7 @@ async fn ensure_control_pending_handle(
     }
     let project_id = worktree::get_project_id_for_feature(&app_state.read_pool, feature_id)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     let handle = build_pending_handle(app_state, project_id, row).await?;
     let candidate = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
     let sessions = app_state
@@ -230,7 +230,7 @@ async fn dispatch_control_pending(
     };
     handle_pending_prompt(context)
         .await
-        .map_err(AppError::Internal)
+        .map_err(|error| AppError::internal(error))
 }
 
 async fn pending_context_from_handle(

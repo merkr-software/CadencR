@@ -87,7 +87,7 @@ pub async fn prepare_publication_package_handler(
         output::build_package(prepared)
     })
     .await
-    .map_err(|error| AppError::Internal(format!("publication package task failed: {error}")))??;
+    .map_err(|error| AppError::internal(format!("publication package task failed: {error}")))??;
     Ok(Json(response))
 }
 

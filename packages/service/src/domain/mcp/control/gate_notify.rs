@@ -35,7 +35,7 @@ async fn notify_linked_parent(
     let request_id = payload
         .get("request_id")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AppError::Internal("gate notification payload has no request_id".into()))?;
+        .ok_or_else(|| AppError::internal("gate notification payload has no request_id"))?;
     let Some(gate) = state
         .pending_gates
         .find_pending(child_session_id, request_id)
@@ -54,7 +54,7 @@ async fn notify_linked_parent(
         },
         payload,
     )
-    .map_err(|error| AppError::Internal(format!("failed to serialize gate envelope: {error}")))?;
+    .map_err(|error| AppError::internal(format!("failed to serialize gate envelope: {error}")))?;
     let delivery = deliver_gate(state, &child, &parent, &envelope).await;
     let delivery_error = delivery.as_ref().err().map(ToString::to_string);
     record_tool_audit(

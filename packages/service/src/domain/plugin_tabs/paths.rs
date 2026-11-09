@@ -78,7 +78,7 @@ pub fn resolve_plugin_directory(
         Ok(_) => return Ok(PluginDirectory::Local(local)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "cannot inspect local tab: {error}"
             )))
         }

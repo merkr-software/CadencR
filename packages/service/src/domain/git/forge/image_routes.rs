@@ -153,7 +153,7 @@ async fn pinned_image_client(url: &Url) -> Result<reqwest::Client, AppError> {
                 "Images are only loaded from public hosts, and {host} resolves to a private address"
             )),
             PinError::Build(error) => {
-                AppError::Internal(format!("Image client setup failed: {error}"))
+                AppError::internal(format!("Image client setup failed: {error}"))
             }
         })
 }
@@ -233,7 +233,7 @@ async fn read_image(
             .map_err(|error| match error {
                 ReadError::TooLarge => too_large(max_bytes),
                 ReadError::Body(error) => {
-                    AppError::Internal(format!("Image download failed: {error}"))
+                    AppError::internal(format!("Image download failed: {error}"))
                 }
             })?;
     Ok((bytes, mime))

@@ -174,11 +174,12 @@ pub(super) async fn validate_target(
     Ok(())
 }
 
+#[track_caller]
 pub(super) fn mutation_error(error: GitMutationGuardError) -> AppError {
     match error {
         GitMutationGuardError::Busy { .. } => AppError::Conflict(error.to_string()),
         GitMutationGuardError::InvalidWorktree { .. } => AppError::NotFound(error.to_string()),
-        GitMutationGuardError::RegistryUnavailable => AppError::Internal(error.to_string()),
+        GitMutationGuardError::RegistryUnavailable => AppError::internal(error.to_string()),
     }
 }
 

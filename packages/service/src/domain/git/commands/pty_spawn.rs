@@ -42,7 +42,7 @@ pub(super) async fn spawn_pty_git(
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| AppError::GitCommandError(format!("openpty failed: {e}")))?;
+        .map_err(|e| AppError::git_command(format!("openpty failed: {e}")))?;
 
     let mut cmd = CommandBuilder::new("git");
     for a in args {
@@ -85,7 +85,7 @@ pub(super) async fn spawn_pty_git(
     let mut child = pair
         .slave
         .spawn_command(cmd)
-        .map_err(|e| AppError::GitCommandError(format!("spawn git failed: {e}")))?;
+        .map_err(|e| AppError::git_command(format!("spawn git failed: {e}")))?;
     // Drop the slave in the parent so the master pipe gets EOF the moment
     // the child closes its end (otherwise the read loop would hang on
     // exit).
@@ -94,7 +94,7 @@ pub(super) async fn spawn_pty_git(
     let mut reader = pair
         .master
         .try_clone_reader()
-        .map_err(|e| AppError::GitCommandError(format!("pty reader clone failed: {e}")))?;
+        .map_err(|e| AppError::git_command(format!("pty reader clone failed: {e}")))?;
 
     // Spawn the stdin pump *before* the reader so it's ready by the time
     // the child prints a prompt. `take_writer()` consumes the master's
@@ -105,7 +105,7 @@ pub(super) async fn spawn_pty_git(
         let mut writer = pair
             .master
             .take_writer()
-            .map_err(|e| AppError::GitCommandError(format!("pty writer take failed: {e}")))?;
+            .map_err(|e| AppError::git_command(format!("pty writer take failed: {e}")))?;
         Some(tokio::task::spawn_blocking(move || {
             // Each `recv` returns one user-input chunk (e.g. a passphrase
             // line). We pass it through verbatim — the caller is
@@ -167,13 +167,9 @@ pub(super) async fn spawn_pty_git(
     let wait_result = tokio::task::spawn_blocking(move || child.wait()).await;
     let exit = match wait_result {
         Ok(Ok(status)) => status,
-        Ok(Err(e)) => {
-            return Err(AppError::GitCommandError(format!(
-                "git child wait failed: {e}"
-            )))
-        }
+        Ok(Err(e)) => return Err(AppError::git_command(format!("git child wait failed: {e}"))),
         Err(e) => {
-            return Err(AppError::GitCommandError(format!(
+            return Err(AppError::git_command(format!(
                 "git wait task panicked: {e}"
             )))
         }
@@ -199,7 +195,7 @@ pub(super) async fn spawn_pty_git(
     } else {
         let bytes = captured.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let s = String::from_utf8_lossy(&bytes).into_owned();
-        Err(AppError::GitCommandError(s.trim().to_string()))
+        Err(AppError::git_command(s.trim().to_string()))
     }
 }
 

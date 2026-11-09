@@ -73,8 +73,8 @@ pub(crate) async fn arm(
     .execute(pool)
     .await?;
     if result.rows_affected() != 1 {
-        return Err(AppError::Internal(
-            "reply wait did not match exactly one pending request message".to_string(),
+        return Err(AppError::internal(
+            "reply wait did not match exactly one pending request message",
         ));
     }
     Ok(())

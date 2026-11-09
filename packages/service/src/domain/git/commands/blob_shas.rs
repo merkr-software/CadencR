@@ -45,7 +45,7 @@ async fn branch_changed_files(
         // Exit 1 with no output: no common ancestor.
         Some(1) if merge_base.is_empty() => return Ok(HashSet::new()),
         _ => {
-            return Err(AppError::GitCommandError(format!(
+            return Err(AppError::git_command(format!(
                 "git merge-base HEAD {base_branch} failed: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             )))

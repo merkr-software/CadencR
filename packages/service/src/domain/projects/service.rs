@@ -64,7 +64,7 @@ pub async fn resolve_feature_editor_root(
         if let Some(path) =
             crate::domain::workflow::worktree::resolve_live_worktree(pool, fid, &project_path)
                 .await
-                .map_err(AppError::Internal)?
+                .map_err(|error| AppError::internal(error))?
         {
             return std::fs::canonicalize(&path).map_err(|e| {
                 AppError::BadRequest(format!("cannot resolve feature {fid} worktree root: {e}"))

@@ -64,13 +64,14 @@ pub(super) fn build(
     super::input::reject_output_overlap(&prospective, &project_root, &project_root)?;
     super::quota::ensure_capacity(&output_root)?;
     super::output::require_real_directory_if_present(&output_root)?;
-    std::fs::create_dir_all(&output_root).map_err(io_error)?;
+    std::fs::create_dir_all(&output_root).map_err(|error| io_error(error))?;
     let parent = output_root.join(project_id.to_string());
     super::output::require_real_directory_if_present(&parent)?;
-    std::fs::create_dir_all(&parent).map_err(io_error)?;
-    let parent = parent.canonicalize().map_err(io_error)?;
+    std::fs::create_dir_all(&parent).map_err(|error| io_error(error))?;
+    let parent = parent.canonicalize().map_err(|error| io_error(error))?;
     super::input::reject_output_overlap(&parent, &project_root, &project_root)?;
-    let bundle = publication_storage::create_unique_directory(&parent).map_err(io_error)?;
+    let bundle =
+        publication_storage::create_unique_directory(&parent).map_err(|error| io_error(error))?;
     let result = write_bundle()
         .project_id(project_id)
         .plugin_id(plugin_id)
@@ -87,7 +88,7 @@ pub(super) fn build(
                 Err(error) => return Err(io_error(error)),
             }
         }
-        std::fs::remove_dir(&bundle).map_err(io_error)?;
+        std::fs::remove_dir(&bundle).map_err(|error| io_error(error))?;
     }
     result
 }
@@ -100,13 +101,13 @@ fn write_bundle(
     files: std::collections::BTreeMap<String, Vec<u8>>,
     mut metadata: serde_json::Value,
 ) -> Result<PreparedPublicationPackage, AppError> {
-    let staging = tempfile::tempdir_in(bundle).map_err(io_error)?;
+    let staging = tempfile::tempdir_in(bundle).map_err(|error| io_error(error))?;
     for (name, bytes) in files {
         if let Some(parent) = staging.path().join(&name).parent() {
-            std::fs::create_dir_all(parent).map_err(io_error)?;
+            std::fs::create_dir_all(parent).map_err(|error| io_error(error))?;
         }
         publication_storage::write_exclusive_synced(&staging.path().join(name), &bytes)
-            .map_err(io_error)?;
+            .map_err(|error| io_error(error))?;
     }
     let kind = metadata["kind"].as_str().unwrap_or_default().to_owned();
     let archive_path = bundle.join(format!("{kind}.tar.gz"));
@@ -134,9 +135,9 @@ fn write_bundle(
     publication_storage::write_exclusive_synced(
         &metadata_path,
         &serde_json::to_vec_pretty(&metadata)
-            .map_err(|error| AppError::Internal(error.to_string()))?,
+            .map_err(|error| AppError::internal(error.to_string()))?,
     )
-    .map_err(io_error)?;
+    .map_err(|error| io_error(error))?;
     Ok(PreparedPublicationPackage {
         project_id,
         plugin_id,
@@ -148,8 +149,9 @@ fn write_bundle(
     })
 }
 
+#[track_caller]
 fn io_error(error: std::io::Error) -> AppError {
-    AppError::Internal(format!("theme publication package storage: {error}"))
+    AppError::internal(format!("theme publication package storage: {error}"))
 }
 
 #[cfg(test)]

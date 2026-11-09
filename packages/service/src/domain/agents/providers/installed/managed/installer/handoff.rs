@@ -53,7 +53,7 @@ pub(crate) fn session_receipt(
 ) -> Result<Option<ManagedPackageReceipt>, AppError> {
     let storage = ManagedStorage::production();
     let parsed = super::guard::parse_managed_executable(&storage, executable)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+        .map_err(|e| AppError::internal(e.to_string()))?;
     let Some((id, revision, relative)) = parsed else {
         return Ok(None);
     };
@@ -61,8 +61,8 @@ pub(crate) fn session_receipt(
     super::verify_receipt_identity(&receipt, &id, &revision)?;
     super::verify_receipt_trust(&receipt, &super::super::trust::pinned_index_trust_store())?;
     if std::path::Path::new(&receipt.executable) != relative {
-        return Err(AppError::Internal(
-            "managed session executable differs from its owner proof".into(),
+        return Err(AppError::internal(
+            "managed session executable differs from its owner proof",
         ));
     }
     Ok(Some(receipt))

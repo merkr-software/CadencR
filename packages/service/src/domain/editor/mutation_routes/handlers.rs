@@ -42,11 +42,11 @@ pub async fn create_editor_file_handler(
                     "Permission denied: {}",
                     path_for_blocking.display()
                 )),
-                _ => AppError::Internal(e.to_string()),
+                _ => AppError::internal(e.to_string()),
             })
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     let relative = path
         .strip_prefix(&project_root_for_response)
@@ -79,11 +79,11 @@ pub async fn create_editor_folder_handler(
                 "Permission denied: {}",
                 path_for_blocking.display()
             )),
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     let relative = path
         .strip_prefix(&project_root_for_response)
@@ -129,11 +129,11 @@ pub async fn rename_editor_path_handler(
                 "Permission denied: {}",
                 new_abs_for_blocking.display()
             )),
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     let relative = new_abs
         .strip_prefix(&project_root_for_response)
@@ -210,11 +210,11 @@ pub async fn move_editor_path_handler(
                 "Permission denied: {}",
                 new_abs_for_blocking.display()
             )),
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     let relative = new_abs
         .strip_prefix(&project_root_for_response)

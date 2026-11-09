@@ -100,7 +100,7 @@ async fn deliver_claimed(state: &AppState, prompt: &QueuedPrompt) -> Result<(), 
     // the transcript on each retry.
     let message_uuid = match &prompt.message_uuid {
         Some(value) => uuid::Uuid::parse_str(value).map_err(|error| {
-            AppError::Internal(format!("Invalid queued message identity: {error}"))
+            AppError::internal(format!("Invalid queued message identity: {error}"))
         })?,
         // Rows queued before message identities were persisted keep a stable
         // retry identity as well.

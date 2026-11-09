@@ -124,15 +124,15 @@ pub fn host_configs() -> Result<BTreeMap<String, ForgeHostConfig>, AppError> {
         return Ok(BTreeMap::new());
     };
     serde_json::from_str(&value)
-        .map_err(|error| AppError::Internal(format!("parse forge host settings: {error}")))
+        .map_err(|error| AppError::internal(format!("parse forge host settings: {error}")))
 }
 
 pub async fn save_host_config(hostname: &str, config: ForgeHostConfig) -> Result<(), AppError> {
-    let hostname = normalize_hostname(hostname).map_err(forge_to_app_error)?;
+    let hostname = normalize_hostname(hostname).map_err(|error| forge_to_app_error(error))?;
     let mut configs = host_configs()?;
     configs.insert(hostname, config);
     let value = serde_json::to_string(&configs)
-        .map_err(|error| AppError::Internal(format!("serialize forge settings: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize forge settings: {error}")))?;
     crate::domain::settings_store::global_set(FORGE_HOSTS_SETTING, &value).await
 }
 
@@ -210,13 +210,14 @@ pub fn normalize_hostname(hostname: &str) -> Result<String, ForgeError> {
 /// That is the same question [`ForgeError::is_setup_failure`] answers for the PR
 /// pane, so it is asked once here rather than kept as a second exhaustive match
 /// that has to be remembered whenever a variant is added.
+#[track_caller]
 pub fn forge_to_app_error(error: ForgeError) -> AppError {
     if error.is_setup_failure() {
         AppError::BadRequest(error.to_string())
     } else if matches!(error, ForgeError::Refused(_)) {
         AppError::Conflict(error.to_string())
     } else {
-        AppError::Internal(error.to_string())
+        AppError::internal(error.to_string())
     }
 }
 

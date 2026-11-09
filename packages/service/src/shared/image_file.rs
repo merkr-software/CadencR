@@ -60,7 +60,7 @@ pub fn image_response(bytes: Vec<u8>, mime: &str) -> Result<Response, AppError> 
         .header(header::CONTENT_LENGTH, len)
         .header(header::CACHE_CONTROL, "no-cache")
         .body(axum::body::Body::from(bytes))
-        .map_err(|e| AppError::Internal(format!("Failed to build response: {e}")))
+        .map_err(|e| AppError::internal(format!("Failed to build response: {e}")))
 }
 
 #[cfg(test)]

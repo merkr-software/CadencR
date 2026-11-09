@@ -241,8 +241,8 @@ async fn response(
             .as_ref()
             .is_some_and(|receipt| receipt.agent.id != provider_id)
     {
-        return Err(AppError::Internal(
-            "managed mutation returned mismatched provider identity".into(),
+        return Err(AppError::internal(
+            "managed mutation returned mismatched provider identity",
         ));
     }
     let entry = service.inventory_entry(provider_id).await?;

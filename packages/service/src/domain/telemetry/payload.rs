@@ -56,6 +56,15 @@ pub(super) fn diagnostic(
     if !frames.is_empty() {
         exception["stacktrace"] = json!({"frames":frames});
     }
+    // Service frames carry no function name for Sentry to group on. Group by the
+    // origin file, not its line, so an edit above the site does not split the issue.
+    let mut fingerprint = json!(["{{ default }}", category]);
+    if let (Some(origin), "service") = (report.frames.last(), process) {
+        fingerprint
+            .as_array_mut()
+            .expect("literal array")
+            .push(json!(origin.filename));
+    }
     let event_id = uuid::Uuid::new_v4().simple().to_string();
     let event = json!({
         "event_id":event_id, "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -63,7 +72,7 @@ pub(super) fn diagnostic(
         "release":release, "dist":report.build_id,
         "user":{"id":installation_id,"ip_address":"0.0.0.0"},
         "tags":{"process":process,"os":os(),"arch":std::env::consts::ARCH,"schema_version":"1"},
-        "fingerprint":["{{ default }}",category],
+        "fingerprint":fingerprint,
         "exception":{"values":[exception]},
     });
     format!(
@@ -167,40 +176,54 @@ mod tests {
     }
 
     #[test]
-    fn service_internal_is_category_only_while_panic_has_a_curated_source_location() {
+    fn service_failures_send_their_curated_source_site_and_group_by_it() {
         for category in [
             DiagnosticCategory::ServiceInternal,
             DiagnosticCategory::ServicePanic,
         ] {
-            let panic = matches!(category, DiagnosticCategory::ServicePanic);
             let report = DiagnosticReport {
                 category,
                 build_id: None,
-                frames: if panic {
-                    vec![DiagnosticFrame {
-                        filename: "src/main.rs".into(),
-                        lineno: 12,
-                        colno: 4,
-                    }]
-                } else {
-                    vec![]
-                },
+                frames: vec![DiagnosticFrame {
+                    filename: "src/main.rs".into(),
+                    lineno: 12,
+                    colno: 4,
+                }],
             };
             let envelope = diagnostic(&report, "id", "cadencr@1");
             let event: Value = serde_json::from_str(envelope.lines().nth(2).unwrap()).unwrap();
             assert_eq!(event["platform"], "native");
             assert!(event["dist"].is_null());
+            let category = serde_json::to_value(category).unwrap();
+            assert_eq!(
+                event["fingerprint"],
+                json!(["{{ default }}", category, "src/main.rs"])
+            );
             let exception = &event["exception"]["values"][0];
             assert_eq!(exception["value"], "Cadencr diagnostic");
-            assert_eq!(exception.get("stacktrace").is_some(), panic);
-            if panic {
-                assert_eq!(
-                    exception["stacktrace"]["frames"][0]["filename"],
-                    "src/main.rs"
-                );
-            }
+            assert_eq!(
+                exception["stacktrace"]["frames"][0]["filename"],
+                "src/main.rs"
+            );
             assert_private_context_absent(&event);
         }
+        let report = DiagnosticReport {
+            category: DiagnosticCategory::ServiceGit,
+            build_id: None,
+            frames: vec![],
+        };
+        let event: Value = serde_json::from_str(
+            diagnostic(&report, "id", "cadencr@1")
+                .lines()
+                .nth(2)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            event["fingerprint"],
+            json!(["{{ default }}", "service_git"])
+        );
+        assert!(event["exception"]["values"][0].get("stacktrace").is_none());
     }
 
     fn assert_private_context_absent(event: &Value) {

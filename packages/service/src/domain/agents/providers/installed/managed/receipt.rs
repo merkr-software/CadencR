@@ -135,7 +135,7 @@ pub fn read_receipt(path: &Path) -> Result<ManagedPackageReceipt, AppError> {
 
 pub fn write_receipt(path: &Path, receipt: &ManagedPackageReceipt) -> Result<(), AppError> {
     let mut json = serde_json::to_string_pretty(receipt)
-        .map_err(|error| AppError::Internal(format!("serialize managed receipt: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize managed receipt: {error}")))?;
     json.push('\n');
     atomic_file::write_atomic_private(path, &json)
 }
@@ -245,7 +245,7 @@ pub fn signed_payload_sha256(bytes: &[u8]) -> String {
 
 pub fn receipt_path(payload_dir: &Path) -> Result<PathBuf, AppError> {
     let revision_dir = payload_dir.parent().ok_or_else(|| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "managed payload has no revision directory: {}",
             payload_dir.display()
         ))

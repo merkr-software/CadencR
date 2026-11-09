@@ -58,11 +58,11 @@ pub const FORMULAS_HEADER: &str = "x-cadencr-formulas";
 async fn with_formula_results(bytes: Vec<u8>) -> Result<(Vec<u8>, Option<HeaderValue>), AppError> {
     let (bytes, summary) = tokio::task::spawn_blocking(move || recalculate_workbook(bytes))
         .await
-        .map_err(|e| AppError::Internal(format!("Workbook recalculation task failed: {e}")))?;
+        .map_err(|e| AppError::internal(format!("Workbook recalculation task failed: {e}")))?;
     let header = summary
         .map(|summary| HeaderValue::try_from(formulas_header(summary)))
         .transpose()
-        .map_err(|e| AppError::Internal(format!("Invalid formulas header: {e}")))?;
+        .map_err(|e| AppError::internal(format!("Invalid formulas header: {e}")))?;
     Ok((bytes, header))
 }
 

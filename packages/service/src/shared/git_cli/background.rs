@@ -29,7 +29,7 @@ pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<
         .current_dir(cwd)
         .output()
         .await
-        .map_err(|error| AppError::GitCommandError(format!("Failed to spawn git: {error}")))?;
+        .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))?;
     if output.status.success() {
         return Ok(true);
     }
@@ -39,7 +39,7 @@ pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<
     }
     // A background probe failing is plumbing, not a refusal the user asked
     // for: it stays an internal (masked, reported) error.
-    Err(AppError::GitCommandError(format!(
+    Err(AppError::git_command(format!(
         "git {} failed: {}",
         args.join(" "),
         sanitize_git_stderr(stderr.trim())

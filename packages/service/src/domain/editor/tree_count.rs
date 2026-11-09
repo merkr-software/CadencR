@@ -26,7 +26,7 @@ pub fn count_entries(project_root: &Path, exclude_gitignored: bool) -> Result<u6
 
     let mut count: u64 = 0;
     for result in walker.build() {
-        let entry = result.map_err(|e| AppError::Internal(e.to_string()))?;
+        let entry = result.map_err(|e| AppError::internal(e.to_string()))?;
         // Skip the project root itself, mirroring `tree_all::walk_entries`.
         if entry.depth() == 0 {
             continue;

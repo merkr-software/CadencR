@@ -123,7 +123,7 @@ pub(crate) async fn drain_next_queued_message(
                 .await
                 {
                     Ok(()) => Some(error),
-                    Err(notification_error) => Some(AppError::Internal(format!(
+                    Err(notification_error) => Some(AppError::internal(format!(
                         "{error}; additionally failed to notify the requesting session: {notification_error}"
                     ))),
                 };

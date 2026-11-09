@@ -35,7 +35,7 @@ pub async fn create_layout_handler(
     let id = repository::insert(&state.write_pool, body.name.trim(), &body.config).await?;
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("inserted layout vanished".into()))?;
+        .ok_or_else(|| AppError::internal("inserted layout vanished"))?;
     Ok(Json(row))
 }
 
@@ -72,7 +72,7 @@ pub async fn update_layout_handler(
 
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("updated layout vanished".into()))?;
+        .ok_or_else(|| AppError::internal("updated layout vanished"))?;
     Ok(Json(row))
 }
 
@@ -103,7 +103,7 @@ pub async fn set_default_layout_handler(
     repository::set_default(&state.write_pool, id).await?;
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("default layout vanished".into()))?;
+        .ok_or_else(|| AppError::internal("default layout vanished"))?;
     Ok(Json(row))
 }
 

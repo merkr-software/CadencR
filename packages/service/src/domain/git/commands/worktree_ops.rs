@@ -142,7 +142,7 @@ pub async fn create_worktree(
     if let Some(parent) = worktree_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to create directory: {e}")))?;
+            .map_err(|e| AppError::internal(format!("Failed to create directory: {e}")))?;
     }
 
     add_worktree_for_branch(repo_path, &worktree_str, branch_name).await?;

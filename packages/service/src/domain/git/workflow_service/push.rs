@@ -33,7 +33,7 @@ pub async fn push(state: &AppState, body: PushBody) -> Result<SuccessResponse, A
     let permit = state
         .git_mutations
         .try_acquire(&repo)
-        .map_err(mutation_guard_error)?;
+        .map_err(|error| mutation_guard_error(error))?;
 
     // ssh's prompts (`Enter passphrase…`, `(yes/no)?`) arrive on stdout
     // exactly like any other line, so the dialog can detect them and

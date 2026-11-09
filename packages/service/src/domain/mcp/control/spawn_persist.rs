@@ -25,7 +25,7 @@ pub(super) async fn insert_spawned_session(
         fast_mode: None,
     };
     let overrides = serde_json::to_string(&overrides)
-        .map_err(|error| AppError::Internal(format!("serialize runtime overrides: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize runtime overrides: {error}")))?;
     Ok(sqlx::query_scalar(
         "INSERT INTO agent_sessions
          (feature_id, agent_type, status, runtime_provider, model, profile, thinking_effort, permission_mode, codex_permission_mode, runtime_overrides, started_at)

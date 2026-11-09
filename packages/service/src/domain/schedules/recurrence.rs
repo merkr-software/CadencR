@@ -158,7 +158,7 @@ impl Recurrence {
                 raw.split(',')
                     .map(|day| {
                         day.trim().parse::<i64>().map_err(|_| {
-                            AppError::Internal(format!("corrupt weekday list '{raw}'"))
+                            AppError::internal(format!("corrupt weekday list '{raw}'"))
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()

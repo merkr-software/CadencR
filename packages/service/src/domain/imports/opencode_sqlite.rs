@@ -111,7 +111,7 @@ fn opencode_db_files() -> Result<Vec<PathBuf>, AppError> {
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(AppError::Internal(format!("read {}: {err}", dir.display()))),
+        Err(err) => return Err(AppError::internal(format!("read {}: {err}", dir.display()))),
     };
     Ok(entries
         .flatten()

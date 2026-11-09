@@ -90,7 +90,7 @@ async fn list_provider_conversations_from_source(
             let project_path = project_path_str.to_string();
             tokio::task::spawn_blocking(move || scan_claude_code_dir(&project_path))
                 .await
-                .map_err(|e| AppError::Internal(format!("scan task panicked: {e}")))?
+                .map_err(|e| AppError::internal(format!("scan task panicked: {e}")))?
         }
         ImportProvider::CodexCli => {
             let project_path = project_path_str.to_string();
@@ -98,8 +98,8 @@ async fn list_provider_conversations_from_source(
                 codex_rollout::list_project_conversations(&project_path)
             })
             .await
-            .map_err(|e| AppError::Internal(format!("scan task panicked: {e}")))?
-            .map_err(|e| AppError::Internal(format!("scan Codex rollouts: {e}")))
+            .map_err(|e| AppError::internal(format!("scan task panicked: {e}")))?
+            .map_err(|e| AppError::internal(format!("scan Codex rollouts: {e}")))
         }
         ImportProvider::Opencode => {
             opencode_sqlite::list_project_conversations(project_path_str).await
@@ -112,7 +112,7 @@ fn scan_claude_code_dir(project_path: &str) -> Result<Vec<ImportedConversation>,
         return Ok(Vec::new());
     };
     let files = list_session_files(&dir)
-        .map_err(|e| AppError::Internal(format!("read {}: {e}", dir.display())))?;
+        .map_err(|e| AppError::internal(format!("read {}: {e}", dir.display())))?;
     let mut out = Vec::with_capacity(files.len());
     for path in files {
         match parse_session_file(&path) {
@@ -156,8 +156,8 @@ pub(crate) async fn load_provider_session(
         load_provider_conversation(provider, &project_path, &session_id)
     })
     .await
-    .map_err(|e| AppError::Internal(format!("load task panicked: {e}")))?
-    .map_err(|e| AppError::Internal(format!("parse provider session: {e}")))
+    .map_err(|e| AppError::internal(format!("load task panicked: {e}")))?
+    .map_err(|e| AppError::internal(format!("parse provider session: {e}")))
 }
 
 pub async fn import_provider_session_by_id(

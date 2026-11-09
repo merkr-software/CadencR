@@ -218,7 +218,7 @@ fn read_descriptor(path: &Path, provider_id: &str) -> Result<ProviderDescriptor,
 
 fn write_descriptor(path: &Path, descriptor: &ProviderDescriptor) -> Result<(), AppError> {
     let mut json = serde_json::to_string_pretty(descriptor)
-        .map_err(|error| AppError::Internal(format!("failed to serialize descriptor: {error}")))?;
+        .map_err(|error| AppError::internal(format!("failed to serialize descriptor: {error}")))?;
     json.push('\n');
     atomic_file::write_atomic_private(path, &json)
 }

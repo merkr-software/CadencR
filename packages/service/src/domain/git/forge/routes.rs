@@ -54,7 +54,7 @@ pub async fn put_forge_token_handler(
     State(state): State<AppState>,
     Json(body): Json<ForgeTokenRequest>,
 ) -> Result<Json<ForgeAuthStatus>, AppError> {
-    let hostname = normalize_hostname(&body.hostname).map_err(forge_to_app_error)?;
+    let hostname = normalize_hostname(&body.hostname).map_err(|error| forge_to_app_error(error))?;
     let config = ForgeHostConfig {
         kind: body.kind,
         api_base_url: normalized_optional(body.api_base_url),
@@ -62,7 +62,7 @@ pub async fn put_forge_token_handler(
         username: normalized_optional(body.username),
     };
     let api_base_url = api_base_url(&hostname, body.kind, Some(&config))
-        .map_err(forge_to_app_error)?
+        .map_err(|error| forge_to_app_error(error))?
         .ok_or_else(|| AppError::BadRequest("An API base URL is required for this forge".into()))?;
     let provider = provider_for(body.kind).ok_or_else(|| {
         AppError::BadRequest("Choose GitHub, GitLab, or Bitbucket as the forge kind".into())
@@ -76,7 +76,7 @@ pub async fn put_forge_token_handler(
     } else {
         resolve_credentials(&state.forge_auth, &hostname, body.kind, Some(&config))
             .await
-            .map_err(forge_to_app_error)?
+            .map_err(|error| forge_to_app_error(error))?
             .ok_or_else(|| {
                 AppError::BadRequest("Enter an API token or enable CLI token reuse".into())
             })?
@@ -89,13 +89,13 @@ pub async fn put_forge_token_handler(
     let user = provider
         .validate_token(&context)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     if credentials.source == ForgeAuthSource::Stored {
         state
             .forge_auth
             .save(&hostname, &credentials.token, credentials.username.clone())
             .await
-            .map_err(forge_to_app_error)?;
+            .map_err(|error| forge_to_app_error(error))?;
     }
     save_host_config(&hostname, config.clone()).await?;
     let refresh_error = refresh_all(&state)
@@ -123,12 +123,13 @@ pub async fn delete_forge_token_handler(
     State(state): State<AppState>,
     Query(params): Query<ForgeTokenDeleteParams>,
 ) -> Result<Json<ForgeTokenDeleteResponse>, AppError> {
-    let hostname = normalize_hostname(&params.hostname).map_err(forge_to_app_error)?;
+    let hostname =
+        normalize_hostname(&params.hostname).map_err(|error| forge_to_app_error(error))?;
     let deleted = state
         .forge_auth
         .delete(&hostname)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     let mut configs = host_configs()?;
     let cli_auth_disabled = disable_cli_auth(configs.get_mut(&hostname));
     if cli_auth_disabled {
@@ -192,7 +193,7 @@ pub async fn get_pr_comments_handler(
         .provider
         .comments(&forge.context, pr_number)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     Ok(Json(PrCommentsResponse {
         feature_id: params.feature_id,
         threads,

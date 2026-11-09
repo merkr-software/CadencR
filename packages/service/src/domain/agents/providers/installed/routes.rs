@@ -106,7 +106,7 @@ pub async fn installed_providers_handler() -> Result<Json<InstalledProvidersResp
     let directory = descriptors_dir();
     let outcome = tokio::task::spawn_blocking(move || load_descriptors(&directory))
         .await
-        .map_err(|error| AppError::Internal(format!("provider descriptor scan failed: {error}")))?;
+        .map_err(|error| AppError::internal(format!("provider descriptor scan failed: {error}")))?;
     let registry = provider_registry();
     Ok(Json(InstalledProvidersResponse {
         directory: outcome.directory.display().to_string(),

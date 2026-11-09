@@ -56,7 +56,7 @@ pub async fn live_worktree_root(
         Ok(_) => return Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "Failed to inspect worktree path: {error}"
             )))
         }

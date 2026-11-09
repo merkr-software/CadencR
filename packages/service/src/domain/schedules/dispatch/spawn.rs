@@ -22,7 +22,7 @@ pub(super) async fn run(
     occurrence: &str,
 ) -> Result<i64, AppError> {
     let project_id = schedule.target.project_id.ok_or_else(|| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "schedule {} creates conversations but has no project_id",
             schedule.id
         ))
@@ -113,7 +113,7 @@ async fn insert_session(
 ) -> Result<i64, AppError> {
     let now = Utc::now().to_rfc3339();
     let overrides = serde_json::to_string(&runtime.overrides)
-        .map_err(|error| AppError::Internal(format!("serialize runtime overrides: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize runtime overrides: {error}")))?;
     // `codex_permission_mode` is NOT NULL: every other provider stores the
     // literal 'default', so the COALESCE is required, not cosmetic.
     // `permission_mode` is nullable and the spawn path falls back to the

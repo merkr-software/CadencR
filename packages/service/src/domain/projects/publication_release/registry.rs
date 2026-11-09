@@ -163,9 +163,7 @@ pub async fn submit_publication_registry_handler(
         super::super::publication_operations::PublicationOperationResult::Registry(value) => {
             Ok(Json(value))
         }
-        _ => Err(AppError::Internal(
-            "publication operation kind mismatch".into(),
-        )),
+        _ => Err(AppError::internal("publication operation kind mismatch")),
     }
 }
 

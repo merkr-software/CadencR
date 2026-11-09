@@ -44,7 +44,7 @@ async fn mutate_file(
     let permit = state
         .git_mutations
         .try_acquire(&dir.cwd)
-        .map_err(mutation_guard_error)?;
+        .map_err(|error| mutation_guard_error(error))?;
     match mutation {
         IndexMutation::Stage => commands::stage_file(&dir.root, &body.file_path).await?,
         IndexMutation::Reset => commands::reset_file(&dir.root, &body.file_path).await?,

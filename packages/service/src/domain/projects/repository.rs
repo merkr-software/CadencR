@@ -95,7 +95,7 @@ fn project_from_row(row: ProjectRow) -> Result<Project, AppError> {
         .as_deref()
         .map(ProjectAuthoringTarget::try_from)
         .transpose()
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     Ok(Project {
         id: row.0,
         name: row.1,

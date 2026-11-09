@@ -74,7 +74,7 @@ async fn detached(
 ) -> Result<(), AppError> {
     tokio::spawn(work)
         .await
-        .map_err(|error| AppError::Internal(format!("session control task failed: {error}")))?
+        .map_err(|error| AppError::internal(format!("session control task failed: {error}")))?
         .map_err(app_error)
 }
 

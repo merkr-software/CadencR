@@ -104,10 +104,10 @@ pub(super) async fn update(consent: Option<TelemetryConsent>, reset: bool) -> Re
             stored.first_turn_completed = false;
         }
         *object = serde_json::to_value(stored)
-            .map_err(|_| AppError::Internal("Could not save telemetry preferences".into()))?
+            .map_err(|_| AppError::internal("Could not save telemetry preferences"))?
             .as_object()
             .cloned()
-            .ok_or_else(|| AppError::Internal("Invalid telemetry preferences".into()))?;
+            .ok_or_else(|| AppError::internal("Invalid telemetry preferences"))?;
         Ok(())
     })
     .await
@@ -139,7 +139,7 @@ pub(super) async fn claim_first_turn() -> Result<bool, AppError> {
 /// Claim durably before sending: failures can undercount, never trigger a retry.
 pub(super) async fn claim_audience_month(path: &Path, month: &str) -> Result<bool, AppError> {
     if !valid_month(month) {
-        return Err(AppError::Internal("Invalid current audience month".into()));
+        return Err(AppError::internal("Invalid current audience month"));
     }
     let mut claimed = false;
     settings_store::store::modify_object_at(path, "telemetry", |object| {

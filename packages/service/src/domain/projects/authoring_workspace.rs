@@ -37,7 +37,7 @@ impl AuthoredFolder<'_> {
         let target = self.target.as_str();
         let canonical = std::fs::canonicalize(self.cwd)
             .map_err(|error| {
-                AppError::Internal(format!("canonicalize {target} project path: {error}"))
+                AppError::internal(format!("canonicalize {target} project path: {error}"))
             })?
             .to_string_lossy()
             .to_string();

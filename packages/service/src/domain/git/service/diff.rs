@@ -349,7 +349,7 @@ pub async fn get_file_blob_shas(
             )))
         }
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "Failed to inspect the feature's directory {}: {error}",
                 dir.cwd
             )))

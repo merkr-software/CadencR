@@ -41,11 +41,11 @@ pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
         {
             return Ok(None)
         }
-        Err(error) => return Err(AppError::Internal(error.to_string())),
+        Err(error) => return Err(AppError::internal(error.to_string())),
     };
     let mut text = String::new();
     file.read_to_string(&mut text).map_err(|error| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "failed to read settings file {}: {error}",
             path.display()
         ))
@@ -144,7 +144,7 @@ pub fn serialize_document(map: &serde_json::Map<String, serde_json::Value>) -> S
 pub fn write_atomic(path: &Path, content: &str) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         crate::remote::secure_fs::create_dir_owner_only(parent)
-            .map_err(|error| AppError::Internal(error.to_string()))?;
+            .map_err(|error| AppError::internal(error.to_string()))?;
     }
     crate::shared::atomic_file::write_atomic_private(path, content)
 }

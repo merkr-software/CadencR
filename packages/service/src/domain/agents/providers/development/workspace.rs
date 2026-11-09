@@ -172,7 +172,7 @@ fn descriptor_matches(
         None => return Ok(false),
     };
     let expected = serde_json::to_value(expected).map_err(|error| {
-        AppError::Internal(format!("failed to compare provider descriptor: {error}"))
+        AppError::internal(format!("failed to compare provider descriptor: {error}"))
     })?;
     Ok(actual == expected)
 }
@@ -210,10 +210,10 @@ fn validate_display_name(value: &str) -> Result<String, AppError> {
 
 fn ensure_workspace_directory(root: &Path, provider_id: &str) -> Result<PathBuf, AppError> {
     std::fs::create_dir_all(root).map_err(|error| {
-        AppError::Internal(format!("failed to create provider workspace root: {error}"))
+        AppError::internal(format!("failed to create provider workspace root: {error}"))
     })?;
     let root = std::fs::canonicalize(root).map_err(|error| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "failed to resolve provider workspace root: {error}"
         ))
     })?;
@@ -233,7 +233,7 @@ fn ensure_workspace_directory(root: &Path, provider_id: &str) -> Result<PathBuf,
             WORKSPACE_ALREADY_EXISTS,
             format!("a provider workspace already exists for {provider_id:?}"),
         )),
-        Err(error) => Err(AppError::Internal(format!(
+        Err(error) => Err(AppError::internal(format!(
             "failed to create provider workspace: {error}"
         ))),
     }

@@ -59,7 +59,7 @@ async fn notify_provider_config_created(
         worktree_root,
     )
     .await
-    .map_err(|e| AppError::Internal(e.to_string()))
+    .map_err(|e| AppError::internal(e.to_string()))
 }
 
 /// Canonicalize a path for stable comparison (resolves symlinks, trims a

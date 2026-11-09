@@ -73,7 +73,7 @@ pub async fn create_action_handler(
     .await?;
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("inserted action vanished".into()))?;
+        .ok_or_else(|| AppError::internal("inserted action vanished"))?;
     notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(row))
 }
@@ -118,7 +118,7 @@ pub async fn update_action_handler(
 
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("updated action vanished".into()))?;
+        .ok_or_else(|| AppError::internal("updated action vanished"))?;
     notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(row))
 }

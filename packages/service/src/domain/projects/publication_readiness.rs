@@ -43,7 +43,7 @@ pub async fn inspect(
         }
     })
     .await
-    .map_err(|error| AppError::Internal(format!("publication inspection task failed: {error}")))?;
+    .map_err(|error| AppError::internal(format!("publication inspection task failed: {error}")))?;
     checks.extend(git::checks(&root).await);
     let blocked = checks.iter().any(|check| check.status == Status::Fail);
     let local_preparation = if blocked {

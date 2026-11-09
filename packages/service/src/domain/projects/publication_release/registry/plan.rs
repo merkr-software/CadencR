@@ -84,7 +84,7 @@ pub(super) fn build(
         pull_request_body_sha256: digest(pull_request_body),
     };
     let bytes = serde_json::to_vec(&bound)
-        .map_err(|error| AppError::Internal(format!("encode registry plan: {error}")))?;
+        .map_err(|error| AppError::internal(format!("encode registry plan: {error}")))?;
     Ok(PublicationRegistryPreview {
         operation_id: String::new(),
         bundle_ids: release

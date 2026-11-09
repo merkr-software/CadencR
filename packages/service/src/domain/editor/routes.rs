@@ -117,7 +117,7 @@ pub async fn read_file_handler(
     let path = service::validate_path(&project_root, &params.file_path)?;
 
     let resp = tokio::task::spawn_blocking(move || -> Result<ReadFileResponse, AppError> {
-        if service::is_binary(&path).map_err(|e| AppError::Internal(e.to_string()))? {
+        if service::is_binary(&path).map_err(|e| AppError::internal(e.to_string()))? {
             return Err(AppError::BadRequest(
                 "Binary files cannot be opened".to_string(),
             ));
@@ -130,7 +130,7 @@ pub async fn read_file_handler(
             std::io::ErrorKind::NotFound => {
                 AppError::NotFound(format!("File not found: {}", path.display()))
             }
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })?;
         if metadata.len() > MAX_FILE_SIZE {
             return Err(AppError::BadRequest(
@@ -145,7 +145,7 @@ pub async fn read_file_handler(
             std::io::ErrorKind::PermissionDenied => {
                 AppError::BadRequest(format!("Permission denied: {}", path.display()))
             }
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })?;
 
         let line_count = content.lines().count() as u64;
@@ -158,7 +158,7 @@ pub async fn read_file_handler(
         })
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(resp))
 }
@@ -187,11 +187,11 @@ pub async fn write_file_handler(
                 _ if e.raw_os_error() == Some(libc::ELOOP) => {
                     AppError::BadRequest("Refusing to write through a symbolic link".into())
                 }
-                _ => AppError::Internal(e.to_string()),
+                _ => AppError::internal(e.to_string()),
             })
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(WriteFileResponse { success: true }))
 }
@@ -219,16 +219,16 @@ pub async fn tree_handler(
             std::io::ErrorKind::PermissionDenied => {
                 AppError::BadRequest("Permission denied".to_string())
             }
-            _ => AppError::Internal(e.to_string()),
+            _ => AppError::internal(e.to_string()),
         })?;
 
         for entry in read_dir {
-            let entry = entry.map_err(|e| AppError::Internal(e.to_string()))?;
+            let entry = entry.map_err(|e| AppError::internal(e.to_string()))?;
             let name = entry.file_name().to_string_lossy().to_string();
 
             let metadata = entry
                 .metadata()
-                .map_err(|e| AppError::Internal(e.to_string()))?;
+                .map_err(|e| AppError::internal(e.to_string()))?;
             let is_dir = metadata.is_dir();
 
             let relative = entry
@@ -257,7 +257,7 @@ pub async fn tree_handler(
         Ok(entries)
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(entries))
 }
@@ -277,7 +277,7 @@ pub async fn tree_all_handler(
         tree_all::build_entries(&project_root, exclude_gitignored)
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(entries))
 }
@@ -297,7 +297,7 @@ pub async fn tree_count_handler(
         tree_count::count_entries(&project_root, exclude_gitignored)
     })
     .await
-    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(TreeCountResponse { count }))
 }
@@ -363,7 +363,7 @@ pub async fn content_search_handler(
 
     let resp = tokio::task::spawn_blocking(move || service::content_search(&project_root, &params))
         .await
-        .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+        .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(resp))
 }
@@ -425,7 +425,7 @@ pub async fn search_handler(
                 .collect())
         })
         .await
-        .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+        .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(FileSearchResponse { files }))
 }

@@ -31,27 +31,26 @@ pub fn initialize(app_version: Option<&str>) {
         runtime.spawn();
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            let frames = info
-                .location()
-                .and_then(|location| {
-                    let filename = location.file().split("packages/service/").last()?;
-                    (filename.starts_with("src/")
-                        && filename.len() <= 180
-                        && filename
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"/_.-".contains(&b)))
-                    .then(|| DiagnosticFrame {
-                        filename: filename.into(),
-                        lineno: location.line(),
-                        colno: location.column(),
-                    })
-                })
-                .into_iter()
-                .collect();
+            let frames = info.location().and_then(source_frame).into_iter().collect();
             diagnostic(DiagnosticCategory::ServicePanic, frames);
             previous(info);
         }));
     }
+}
+
+/// Only CadencR service source positions (`src/…`): no dependency, toolchain or machine paths.
+pub fn source_frame(location: &std::panic::Location<'_>) -> Option<DiagnosticFrame> {
+    let filename = location.file().split("packages/service/").last()?;
+    (filename.starts_with("src/")
+        && filename.len() <= 180
+        && filename
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/_.-".contains(&b)))
+    .then(|| DiagnosticFrame {
+        filename: filename.into(),
+        lineno: location.line(),
+        colno: location.column(),
+    })
 }
 
 pub fn snapshot() -> Result<TelemetryPreferences, AppError> {

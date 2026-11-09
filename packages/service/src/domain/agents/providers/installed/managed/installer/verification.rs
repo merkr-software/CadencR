@@ -53,7 +53,7 @@ fn immutable_metadata(receipt: &ManagedPackageReceipt) -> Result<serde_json::Val
         &receipt.assets,
         package,
     ))
-    .map_err(|error| AppError::Internal(format!("serialize immutable package metadata: {error}")))
+    .map_err(|error| AppError::internal(format!("serialize immutable package metadata: {error}")))
 }
 
 pub(super) fn verify_receipt_identity(
@@ -146,9 +146,9 @@ pub(super) fn verify_receipt_trust(
         })
         .ok_or_else(|| invalid_receipt("retained index no longer contains the receipt package"))?;
     let signed_agent = serde_json::to_value(&signed_package.agent)
-        .map_err(|error| AppError::Internal(format!("serialize signed provider entry: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize signed provider entry: {error}")))?;
     let receipt_agent = serde_json::to_value(&receipt.agent).map_err(|error| {
-        AppError::Internal(format!("serialize receipt provider entry: {error}"))
+        AppError::internal(format!("serialize receipt provider entry: {error}"))
     })?;
     if signed_agent != receipt_agent
         || package.publisher != receipt.publisher

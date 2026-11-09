@@ -164,17 +164,17 @@ fn artifact_code(code: ArtifactErrorCode) -> &'static str {
 pub(super) fn append_context(error: AppError, context: String) -> AppError {
     let message = |value: String| format!("{value}; {context}");
     match error {
-        AppError::DatabaseError(value) => AppError::DatabaseError(message(value)),
-        AppError::DatabaseBusy(value) => AppError::DatabaseBusy(message(value)),
+        AppError::DatabaseError(value) => AppError::DatabaseError(value.map(message)),
+        AppError::DatabaseBusy(value) => AppError::DatabaseBusy(value.map(message)),
         AppError::ConstraintViolation(value) => AppError::ConstraintViolation(message(value)),
-        AppError::GitCommandError(value) => AppError::GitCommandError(message(value)),
+        AppError::GitCommandError(value) => AppError::GitCommandError(value.map(message)),
         AppError::GitRejected(rejection) => AppError::GitRejected(GitRejection {
             message: message(rejection.message),
             ..rejection
         }),
         AppError::NotFound(value) => AppError::NotFound(message(value)),
         AppError::BadRequest(value) => AppError::BadRequest(message(value)),
-        AppError::Internal(value) => AppError::Internal(message(value)),
+        AppError::Internal(value) => AppError::Internal(value.map(message)),
         AppError::Conflict(value) => AppError::Conflict(message(value)),
         AppError::Coded {
             status,

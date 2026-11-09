@@ -48,7 +48,7 @@ pub(super) fn prepare(
     let output_parent =
         super::super::publication_storage::child_path(&output_root, &project_id.to_string())
             .map_err(|error| {
-                AppError::Internal(format!("invalid publication bundle parent: {error}"))
+                AppError::internal(format!("invalid publication bundle parent: {error}"))
             })?;
     reject_output_overlap(&output_parent, &staging, &project_root)?;
     Ok(PreparedInputs {
@@ -135,7 +135,7 @@ pub(super) fn reject_output_overlap(
         output.to_path_buf()
     } else {
         std::env::current_dir()
-            .map_err(|error| AppError::Internal(error.to_string()))?
+            .map_err(|error| AppError::internal(error.to_string()))?
             .join(output)
     };
     if absolute.starts_with(staging)

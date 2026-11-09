@@ -282,7 +282,7 @@ async fn prepare_context(
     })
     .await
     .map_err(|error| {
-        AppError::Internal(format!("publication release inspection failed: {error}"))
+        AppError::internal(format!("publication release inspection failed: {error}"))
     })?;
     let local = local?;
     local::validate_project_kind(&local.metadata, kind)?;
@@ -297,7 +297,7 @@ async fn prepare_context(
         config.as_ref(),
     )
     .await
-    .map_err(forge_to_app_error)?
+    .map_err(|error| forge_to_app_error(error))?
     .ok_or_else(|| {
         coded(
             "PUBLICATION_RELEASE_AUTH_REQUIRED",

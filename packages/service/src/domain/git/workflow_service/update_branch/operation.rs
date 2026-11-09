@@ -48,7 +48,7 @@ fn parse_git_paths(worktree: &Path, output: &str) -> Result<[PathBuf; 3], AppErr
         })
         .collect::<Vec<_>>();
     paths.try_into().map_err(|paths: Vec<PathBuf>| {
-        AppError::GitCommandError(format!(
+        AppError::git_command(format!(
             "git rev-parse returned {} operation paths instead of 3",
             paths.len()
         ))

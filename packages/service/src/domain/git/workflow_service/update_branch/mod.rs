@@ -29,7 +29,7 @@ pub async fn update_branch(
     let permit = state
         .git_mutations
         .try_acquire(&worktree)
-        .map_err(mutation_error)?;
+        .map_err(|error| mutation_error(error))?;
     let worktree = permit.worktree_path().to_path_buf();
 
     require_no_active_operation(&worktree).await?;
@@ -74,7 +74,7 @@ async fn control_operation(
     let permit = state
         .git_mutations
         .try_acquire(&worktree)
-        .map_err(mutation_error)?;
+        .map_err(|error| mutation_error(error))?;
     let worktree = permit.worktree_path().to_path_buf();
     let operation = detect_active_git_operation(&worktree)
         .await?

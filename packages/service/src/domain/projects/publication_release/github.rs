@@ -11,7 +11,7 @@ pub(crate) async fn inspect_publication_release(
 ) -> Result<GitHubReleaseInspection, AppError> {
     author_release::inspect_publication_release(token, repository, tag)
         .await
-        .map_err(Into::into)
+        .map_err(|error| error.into())
 }
 
 pub(crate) async fn publish_publication_release(
@@ -20,7 +20,7 @@ pub(crate) async fn publish_publication_release(
 ) -> Result<GitHubPublishedRelease, AppError> {
     author_release::publish_publication_release(token, request)
         .await
-        .map_err(Into::into)
+        .map_err(|error| error.into())
 }
 
 pub(crate) async fn verify_published_publication_release(
@@ -29,5 +29,5 @@ pub(crate) async fn verify_published_publication_release(
 ) -> Result<GitHubPublishedRelease, AppError> {
     author_release::verify_published_publication_release(token, expectation)
         .await
-        .map_err(Into::into)
+        .map_err(|error| error.into())
 }

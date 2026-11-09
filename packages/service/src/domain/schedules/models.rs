@@ -35,7 +35,7 @@ impl TargetKind {
             ("conversation", Some(_)) => Ok(Self::CustomAction),
             ("conversation", None) => Ok(Self::Conversation),
             ("new_conversation", None) => Ok(Self::NewConversation),
-            (other, _) => Err(AppError::Internal(format!(
+            (other, _) => Err(AppError::internal(format!(
                 "schedule row has an unreadable target '{other}' (custom action {custom_action_id:?})"
             ))),
         }

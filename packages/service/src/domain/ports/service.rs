@@ -45,6 +45,7 @@ async fn scan_now(state: &AppState) -> Result<Vec<FeaturePorts>, AppError> {
 
 /// A missing `lsof`/`ps` is an install problem the user can fix, so it gets a
 /// stable code and an actionable message; anything else stays internal.
+#[track_caller]
 fn scan_error(context: &str, error: anyhow::Error) -> AppError {
     match error.downcast_ref::<scan::MissingTool>() {
         Some(missing) => AppError::Coded {
@@ -57,7 +58,7 @@ fn scan_error(context: &str, error: anyhow::Error) -> AppError {
                 missing.program
             ),
         },
-        None => AppError::Internal(format!("{context}: {error}")),
+        None => AppError::internal(format!("{context}: {error}")),
     }
 }
 
