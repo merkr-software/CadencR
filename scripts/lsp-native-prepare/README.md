@@ -124,11 +124,25 @@ only an explicit minimal environment with a private HOME/cache/temp tree. Go mod
 and toolchain downloads are disabled in semantic probes.
 
 Semantic probes verify real lint/diagnostics, link hover, function hover, or document
-symbols, then exercise shutdown and successful exit. They support indexing retries,
+symbols, then require an acknowledged shutdown and exit code zero. They support indexing retries,
 server configuration requests and watcher capability registration. This protocol
 client does not prove the application's own LSP client supports every capability;
 verify app integration separately, particularly TypeScript native preview watcher
 registration and client diagnostic refresh requests.
+
+Reports record `shutdown.transport` and whether an `exit` notification was sent.
+They also retain the shutdown response's `result`: it must be `null`, except for
+LuaLS `3.19.2`, whose reviewed response is the boolean `true`. Missing results,
+errors and other values fail qualification.
+
+The pinned TypeScript native preview `7.0.0-dev.20260707.2` closes stdin after the
+successful `shutdown` response instead of sending `exit`: its upstream dispatch
+loop treats protocol-exit cancellation as a fatal `context canceled` error.
+Sending `exit` followed immediately by EOF races that error and is unreliable.
+This version-specific workaround still requires real diagnostics and exit code
+zero; it does not qualify the preview's `exit` notification handling. Other
+servers and TypeScript preview versions retain protocol `shutdown`/`exit`, with
+the bounded EOF fallback for readers that need transport closure.
 
 ## Validation recorded during preparation
 
