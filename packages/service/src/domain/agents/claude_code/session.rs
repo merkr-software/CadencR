@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+use super::background_agents::starts_shell_command;
 use super::cli_processes::CliProcesses;
 use super::prompt_receipts::ClaudePromptReceipts;
 use super::subagents::ClaudeSubagentState;
@@ -183,9 +184,10 @@ impl AgentRuntimeSession for ClaudeCodeSession {
                         if is_unmatched_replay_user_message(&sdk_msg) {
                             continue;
                         }
+                        let starts_shell = starts_shell_command(&sdk_msg);
                         let mapped = subagents.normalize(sdk_msg).await;
-                        if mapped.background_task_count().is_some() {
-                            processes.note_background_tasks();
+                        if starts_shell || mapped.background_task_count().is_some() {
+                            processes.note_commands();
                         }
                         for event in
                             acknowledge_response_start_prompt_receipts(&mapped, &prompt_receipts)

@@ -2,19 +2,23 @@
 //!
 //! The CLI leads its own process group (`Options::own_process_group`), where
 //! its stdio MCP servers run, and starts every Bash command as the leader of
-//! a group of its own. On SIGTERM it stops its background commands itself,
-//! and at the end of its input it waits for them to finish first. A CLI that
-//! dies by SIGKILL (a crash, `kill -9`, a Stop its SIGTERM did not end)
-//! cannot, and they keep running, reparented to init, where nothing ties
-//! them to the CLI any more. So every time the CLI reports its background
-//! tasks, the groups its children lead are noted with their leader's start
-//! time, and once the process has exited, what is left of its own group and
-//! of the noted groups whose leader still runs is stopped. Nothing is
-//! stopped while the CLI lives, so the runtime hold for a background task is
-//! unaffected. Not covered: a command started after the last report, a
-//! group whose leader has exited (its id may belong to someone else by
-//! then), and a CLI whose service died first, which the next start stops
-//! with its whole tree (`restart_continuations`).
+//! a group of its own, in the foreground or not. On SIGTERM it stops its
+//! commands itself, and at the end of its input it waits for its background
+//! ones to finish first. A CLI that dies by SIGKILL (a crash, `kill -9`, a
+//! Stop its SIGTERM did not end) cannot, and they keep running, reparented to
+//! init, where nothing ties them to the CLI any more. So every time the CLI
+//! reports a command as a task (a foreground one only once it has run for a
+//! few seconds) or reports its background tasks, the groups its children lead
+//! are noted with their leader's start time, and once the process has exited,
+//! what is left of its own group and of the noted groups whose leader still
+//! runs is stopped. Stopping the CLI's group alone would not reach them.
+//! Nothing is stopped while the CLI lives, so the runtime hold for a
+//! background task is unaffected. Not covered: a command killed with the CLI
+//! before it was reported, a group whose leader has exited, such as what a
+//! finished command detached with `&` (its id may belong to someone else by
+//! then, and the user meant it to outlive the command), a command started in
+//! its own group by another command, and a CLI whose service died first,
+//! which the next start stops with its whole tree (`restart_continuations`).
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -76,16 +80,17 @@ impl CliProcesses {
         }
     }
 
-    /// The CLI reported its background tasks: note, in the background, the
-    /// groups its children lead now, which would outlive its death.
-    pub(super) fn note_background_tasks(&self) {
+    /// The CLI reported a command or its background tasks: note, in
+    /// the background, the groups its children lead now, which would outlive
+    /// its death.
+    pub(super) fn note_commands(&self) {
         let Some(cli) = self.cli else {
             return;
         };
         if self.notes.exited.load(Ordering::SeqCst)
             || self.notes.scan_queued.swap(true, Ordering::SeqCst)
         {
-            // Gone, or a queued scan will see this report's processes.
+            // Gone, or a queued scan will see these processes.
             return;
         }
         let notes = Arc::clone(&self.notes);
@@ -93,8 +98,13 @@ impl CliProcesses {
             // Held across the scan, so stopping the leftovers waits for it.
             let mut groups = notes.groups.lock().await;
             notes.scan_queued.store(false, Ordering::SeqCst);
-            if let Err(error) = note_child_groups(cli, &mut groups).await {
-                tracing::warn!(cli, %error, "could not note the processes a Claude Code CLI started");
+            match note_child_groups(cli, &mut groups).await {
+                Ok(()) => {
+                    tracing::debug!(cli, groups = ?groups.keys(), "noted the groups a Claude Code CLI's commands lead")
+                }
+                Err(error) => {
+                    tracing::warn!(cli, %error, "could not note the processes a Claude Code CLI started")
+                }
             }
         });
     }
@@ -287,7 +297,7 @@ mod tests {
             notes: Arc::default(),
         };
         processes.notes.exited.store(true, Ordering::SeqCst);
-        processes.note_background_tasks();
+        processes.note_commands();
         assert!(!processes.notes.scan_queued.load(Ordering::SeqCst));
     }
 

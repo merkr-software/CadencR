@@ -94,12 +94,45 @@ pub(super) fn background_task_count(msg: &claude_agent_sdk_rs::SdkMessage) -> Op
         .map(Vec::len)
 }
 
+/// Whether Claude Code reports a running shell command, in the foreground or
+/// not: a `system/task_started` with `task_type: "local_bash"`. A foreground
+/// command is reported only once it has run for a few seconds (about 3.5 s
+/// with CLI 2.1.312).
+pub(super) fn starts_shell_command(msg: &claude_agent_sdk_rs::SdkMessage) -> bool {
+    let claude_agent_sdk_rs::SdkMessage::TaskLifecycle(event) = msg else {
+        return false;
+    };
+    event.kind() == TaskLifecycleKind::Started
+        && event.raw().get("task_type").and_then(Value::as_str) == Some("local_bash")
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{background_agent_signal, background_task_count};
+    use super::{background_agent_signal, background_task_count, starts_shell_command};
     use crate::domain::agents::adapter::BackgroundAgentSignal;
+
+    #[test]
+    fn only_a_started_shell_task_starts_a_shell_command() {
+        let starts = |value: serde_json::Value| {
+            starts_shell_command(&serde_json::from_value(value).expect("valid sdk message"))
+        };
+        // CLI 2.1.312 wire shape for a foreground Bash command.
+        assert!(starts(json!({
+            "type": "system", "subtype": "task_started", "uuid": "u", "session_id": "s",
+            "task_id": "b5v3b2ssu", "tool_use_id": "toolu_1", "is_backgrounded": false,
+            "task_type": "local_bash", "description": "Run slow-check.sh"
+        })));
+        assert!(!starts(json!({
+            "type": "system", "subtype": "task_started", "uuid": "u", "session_id": "s",
+            "task_id": "task-abc", "tool_use_id": "toolu_2", "task_type": "local_agent"
+        })));
+        assert!(!starts(json!({
+            "type": "system", "subtype": "task_notification", "uuid": "u", "session_id": "s",
+            "task_id": "b5v3b2ssu", "status": "completed", "task_type": "local_bash"
+        })));
+    }
 
     fn signal(value: serde_json::Value) -> Option<BackgroundAgentSignal> {
         let msg: claude_agent_sdk_rs::SdkMessage =
