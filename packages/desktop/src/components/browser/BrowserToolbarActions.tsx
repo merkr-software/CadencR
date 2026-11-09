@@ -1,13 +1,14 @@
 import { memo, useRef, type ReactElement } from "react";
 import {
   BugIcon,
+  DownloadIcon,
   ExternalLinkIcon,
+  MessageSquarePlusIcon,
   MonitorSmartphoneIcon,
   MoreHorizontalIcon,
   MinusIcon,
   PlusIcon,
   SearchIcon,
-  SparklesIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,8 @@ interface BrowserToolbarActionsProps {
   onFind: () => void;
   onAddComment: () => void;
   onResponsive: () => void;
+  /** Open the Downloads popover; listed in the overflow menu once its button folds away. */
+  onDownloads: () => void;
   onMenuOpenChange: (open: boolean) => void;
 }
 
@@ -62,18 +65,21 @@ function BrowserZoomMenuItems(props: BrowserToolbarActionsProps): ReactElement {
 }
 
 function BrowserOverflowMenu(
-  props: BrowserToolbarActionsProps & { devToolsShortcut: string },
+  props: BrowserToolbarActionsProps & { devToolsShortcut: string; downloadsShortcut: string },
 ): ReactElement {
-  const focusFindAfterClose = useRef(false);
+  // Find and Downloads take focus themselves, so they run once the menu has
+  // closed instead of fighting its focus restore.
+  const afterClose = useRef<(() => void) | null>(null);
   const disabled = !props.activeTab;
-  function handleFindSelect(): void {
-    focusFindAfterClose.current = true;
+  function runAfterClose(action: () => void): void {
+    afterClose.current = action;
   }
   function handleCloseAutoFocus(event: Event): void {
-    if (!focusFindAfterClose.current) return;
-    focusFindAfterClose.current = false;
+    const action = afterClose.current;
+    if (!action) return;
+    afterClose.current = null;
     event.preventDefault();
-    props.onFind();
+    action();
   }
   return (
     <DropdownMenu onOpenChange={props.onMenuOpenChange}>
@@ -83,7 +89,10 @@ function BrowserOverflowMenu(
           variant="ghost"
           size="icon-sm"
           className="hidden shrink-0 @max-[50rem]:inline-flex"
-          disabled={disabled}
+          // Stays enabled without a tab: Downloads belong to the scope, not the
+          // tab. The Downloads popover returns focus here while its own button
+          // is folded away.
+          data-browser-overflow-trigger=""
           aria-label="More Browser actions"
         >
           <MoreHorizontalIcon className="size-4" />
@@ -91,14 +100,14 @@ function BrowserOverflowMenu(
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" onCloseAutoFocus={handleCloseAutoFocus}>
         <BrowserZoomMenuItems {...props} />
-        <DropdownMenuItem onSelect={handleFindSelect}>
+        <DropdownMenuItem disabled={disabled} onSelect={() => runAfterClose(props.onFind)}>
           <SearchIcon /> Find in page
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={props.onResponsive}>
+        <DropdownMenuItem disabled={disabled} onSelect={props.onResponsive}>
           <MonitorSmartphoneIcon />
           {props.activeTab?.responsive.enabled ? "Exit responsive mode" : "Responsive mode"}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={props.onDevTools}>
+        <DropdownMenuItem disabled={disabled} onSelect={props.onDevTools}>
           <BugIcon /> DevTools
           {props.devToolsShortcut ? (
             <span className="ml-auto text-xs tracking-widest text-muted-foreground">
@@ -113,8 +122,13 @@ function BrowserOverflowMenu(
         >
           <ExternalLinkIcon /> Open in default browser
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={props.onAddComment}>
-          <SparklesIcon /> Add comment
+        <DropdownMenuItem onSelect={() => runAfterClose(props.onDownloads)}>
+          <DownloadIcon /> Downloads
+          {props.downloadsShortcut ? (
+            <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+              {props.downloadsShortcut}
+            </span>
+          ) : null}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -128,6 +142,7 @@ export const BrowserToolbarActions = memo(function BrowserToolbarActions(
   const zoomPercent = props.activeTab?.zoomPercent ?? 100;
   const responsive = props.activeTab?.responsive.enabled === true;
   const devToolsShortcut = useShortcutLabel("browser-devtools");
+  const downloadsShortcut = useShortcutLabel("browser-downloads");
   return (
     <>
       <div className="flex shrink-0 items-center rounded-md bg-muted/50 p-0.5 @max-[28rem]:hidden">
@@ -197,11 +212,25 @@ export const BrowserToolbarActions = memo(function BrowserToolbarActions(
         >
           <BugIcon className="size-4" />
         </Button>
-        <Button type="button" size="sm" disabled={disabled} onClick={props.onAddComment}>
-          <SparklesIcon className="size-3.5" /> Add comment
-        </Button>
       </div>
-      <BrowserOverflowMenu {...props} devToolsShortcut={devToolsShortcut} />
+      {/* Commenting is the main way to steer the agent from a page, so it stays
+          on the toolbar at every width and only drops its label when cramped. */}
+      <Button
+        type="button"
+        size="sm"
+        className="shrink-0 @max-[36rem]:px-2"
+        disabled={disabled}
+        onClick={props.onAddComment}
+        aria-label="Add comment"
+      >
+        <MessageSquarePlusIcon className="size-3.5" />
+        <span className="@max-[36rem]:sr-only">Add comment</span>
+      </Button>
+      <BrowserOverflowMenu
+        {...props}
+        devToolsShortcut={devToolsShortcut}
+        downloadsShortcut={downloadsShortcut}
+      />
     </>
   );
 });

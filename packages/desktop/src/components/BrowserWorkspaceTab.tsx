@@ -101,6 +101,7 @@ function BrowserWorkspaceView({
   const [responsiveMenuOpen, setResponsiveMenuOpen] = useState(false);
   const responsiveGeometry = useBrowserResponsiveGeometry(containerRef, model.activeTab);
   const toggleDownloads = useCallback((): void => setDownloadsOpen((value) => !value), []);
+  const openDownloads = useCallback((): void => setDownloadsOpen(true), []);
   useBrowserKeyboard(model, comments.addComment, toggleDownloads);
   // Freeze the native view (and show a snapshot) whenever a renderer overlay
   // needs to sit over the page region: the URL suggestions or a comment form.
@@ -125,6 +126,7 @@ function BrowserWorkspaceView({
         onChromeOverlayOpenChange={setTabMenuOpen}
         downloadsOpen={downloadsOpen}
         onDownloadsOpenChange={setDownloadsOpen}
+        onOpenDownloads={openDownloads}
         responsiveDisplayScale={responsiveGeometry?.displayScale ?? null}
         onResponsiveOverlayOpenChange={setResponsiveMenuOpen}
       />
@@ -182,6 +184,7 @@ function BrowserToolbar({
   onChromeOverlayOpenChange,
   downloadsOpen,
   onDownloadsOpenChange,
+  onOpenDownloads,
   responsiveDisplayScale,
   onResponsiveOverlayOpenChange,
 }: {
@@ -193,6 +196,7 @@ function BrowserToolbar({
   onChromeOverlayOpenChange: (open: boolean) => void;
   downloadsOpen: boolean;
   onDownloadsOpenChange: (open: boolean) => void;
+  onOpenDownloads: () => void;
   responsiveDisplayScale: number | null;
   onResponsiveOverlayOpenChange: (open: boolean) => void;
 }): ReactElement {
@@ -225,6 +229,7 @@ function BrowserToolbar({
         onAddComment={onAddComment}
         onResponsive={model.responsive.toggle}
         onSuggestionOverlayOpenChange={onSuggestionOverlayOpenChange}
+        onDownloads={onOpenDownloads}
         downloadsControl={
           <BrowserDownloadsPanel
             scopeId={scopeId}

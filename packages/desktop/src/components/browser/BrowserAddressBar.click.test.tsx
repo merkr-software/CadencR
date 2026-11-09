@@ -86,6 +86,7 @@ function setup(overrides: Partial<BrowserAddressBarProps> = {}): SetupResult {
     onOpenExternal: vi.fn(),
     onAddComment: vi.fn(),
     onResponsive: vi.fn(),
+    onDownloads: vi.fn(),
     ...overrides,
   };
   render(<BrowserAddressBar {...props} />);
@@ -302,6 +303,29 @@ describe("BrowserAddressBar omnibox interactions", () => {
     expect(screen.getByRole("menuitem", { name: /reset zoom.*100%/i })).toBeInTheDocument();
     await user.click(compactZoomOut);
     expect(onZoomOut).toHaveBeenCalledOnce();
+  });
+
+  it("opens Downloads from the overflow menu, which no longer lists Add comment", async () => {
+    const user = userEvent.setup();
+    const active = activeTab();
+    const onDownloads = vi.fn();
+    setup({ activeTab: active, tabs: [active], onDownloads });
+
+    await user.click(screen.getByRole("button", { name: "More Browser actions" }));
+    expect(screen.queryByRole("menuitem", { name: "Add comment" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("menuitem", { name: /Downloads/ }));
+    await waitFor(() => expect(onDownloads).toHaveBeenCalledOnce());
+  });
+
+  it("keeps the overflow menu usable for Downloads without an active tab", async () => {
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(screen.getByRole("button", { name: "More Browser actions" }));
+    expect(await screen.findByRole("menuitem", { name: /Downloads/ })).toBeEnabled();
+    for (const name of ["Find in page", "Responsive mode", /DevTools/]) {
+      expect(screen.getByRole("menuitem", { name })).toHaveAttribute("aria-disabled", "true");
+    }
   });
 
   it("hands overflow Find focus to its target after the menu releases focus", async () => {

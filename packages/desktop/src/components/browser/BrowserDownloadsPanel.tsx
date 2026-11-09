@@ -1,4 +1,4 @@
-import { memo, useCallback, type ReactElement } from "react";
+import { memo, useCallback, useRef, type ReactElement } from "react";
 import { Virtuoso } from "react-virtuoso";
 import {
   DownloadIcon,
@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress";
 import type { BrowserDownload } from "@/lib/desktop-bridge";
 import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
+import { cn } from "@/lib/utils";
 import { useBrowserDownloads, type BrowserDownloadsController } from "./useBrowserDownloads";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 
@@ -30,6 +31,20 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
   onOpenChange,
 }: BrowserDownloadsPanelProps): ReactElement {
   const controller = useBrowserDownloads(scopeId);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Radix returns focus to the trigger on close, which an invisible (folded)
+  // trigger cannot take; hand it to the overflow menu button standing in for
+  // it rather than letting it drop to the body.
+  const returnFocusFromFoldedTrigger = useCallback((event: Event): void => {
+    const trigger = triggerRef.current;
+    if (!trigger || getComputedStyle(trigger).visibility !== "hidden") return;
+    const overflow = trigger
+      .closest("form")
+      ?.querySelector<HTMLElement>("[data-browser-overflow-trigger]");
+    if (!overflow) return;
+    event.preventDefault();
+    overflow.focus();
+  }, []);
   const shortcut = useShortcutLabel("browser-downloads");
   const { activeCount = 0, aggregatePercent = null } = controller.snapshot ?? {};
   const summary =
@@ -40,10 +55,18 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="relative shrink-0"
+          // While idle it folds into the toolbar's overflow menu on narrow
+          // widths, but stays laid out (invisible, out of the flow) as the
+          // popover's anchor. A running download keeps it, and its count, shown.
+          className={cn(
+            "relative shrink-0",
+            activeCount === 0 &&
+              "@max-[50rem]:invisible @max-[50rem]:absolute @max-[50rem]:right-0",
+          )}
           aria-label={`Downloads: ${summary}`}
           title={`${summary} (${shortcut})`}
         >
@@ -55,7 +78,11 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] p-0">
+      <PopoverContent
+        align="end"
+        className="w-[min(24rem,calc(100vw-1rem))] p-0"
+        onCloseAutoFocus={returnFocusFromFoldedTrigger}
+      >
         <DownloadsHeader controller={controller} />
         <DownloadsBody controller={controller} />
       </PopoverContent>

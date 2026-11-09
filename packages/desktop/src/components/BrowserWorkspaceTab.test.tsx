@@ -329,6 +329,18 @@ describe("BrowserWorkspaceTab", () => {
     await waitFor(() => expect(mockBridge.setBrowserSuppressed).toHaveBeenLastCalledWith(false));
   });
 
+  it("keeps the Downloads popover open when it is opened from the overflow menu", async () => {
+    setDesktopBridgeOverrideForTests(bridge());
+    const { user } = render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "More Browser actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Downloads/ }));
+
+    expect(await screen.findByText("Saved to your Downloads folder")).toBeInTheDocument();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(screen.getByText("Saved to your Downloads folder")).toBeInTheDocument();
+  });
+
   it("supports opening a private tab from the split-button menu with the keyboard", async () => {
     const mockBridge = bridge();
     setDesktopBridgeOverrideForTests(mockBridge);
