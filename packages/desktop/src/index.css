@@ -362,6 +362,15 @@ html[data-animations="off"] [data-settings-flash] {
   }
 }
 
+/* Beside the title (uniform rows, or fixed rows without a preview), a chip
+ * that doesn't fit wraps onto the
+ * fold's clipped second line, 24px down; a halo bleeding 9px out of it would
+ * glow under the title from a chip nobody can see. The fold breathes the halo
+ * inside the chip's own box instead, so the clip hides it with the chip. */
+[data-feature-title-fold] .pr-chip-checks-running::after {
+  box-shadow: inset 0 0 5px 0 color-mix(in oklab, var(--acc-orange) 60%, transparent);
+}
+
 /* Motion off: drop the halo entirely rather than letting the global
  * `animation-duration: 0.001ms` kill-switch freeze it on a random frame. The
  * chip's orange tone already says "checks running" without any motion. */
