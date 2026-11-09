@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -11,8 +12,8 @@ from archive import executable, sha256
 ROOT = Path(__file__).resolve().parents[2]
 GOOS = {"linux-x86_64": ("linux", "amd64"), "darwin-aarch64": ("darwin", "arm64"),
         "darwin-x86_64": ("darwin", "amd64")}
-REGRESSION_TESTS = ("^(TestRunExitStatus|TestRunReportsParentCancellation|TestRunReportsWriteFailure"
-                    "|TestRunExitsOnTransportEOFWhileAwaitingClientResponse)$")
+REGRESSION_TESTS = ("TestRunExitStatus", "TestRunReportsParentCancellation", "TestRunReportsWriteFailure",
+                    "TestRunExitsOnTransportEOFWhileAwaitingClientResponse")
 
 
 def go_environment(work, offline):
@@ -49,6 +50,18 @@ def apply_patch(source, patch, data):
             raise ValueError("patched tsgo source differs from the reviewed result")
 
 
+def regression_tests(go, env, source):
+    """Run the backport's lifecycle tests; each must report PASS, so a skip fails too."""
+    # Upstream test helpers locate the repository root, which -trimpath hides.
+    test_env = {**env, "GOFLAGS": env["GOFLAGS"].replace("-trimpath ", "")}
+    tests = subprocess.run([str(go), "test", "-count=1", "-v", "-run", "^(" + "|".join(REGRESSION_TESTS) + ")$",
+                            "./internal/lsp/"], env=test_env, cwd=source, capture_output=True, check=False)
+    output = (tests.stdout + tests.stderr).decode(errors="replace")
+    passed = set(re.findall(r"^--- PASS: (\S+) ", output, re.MULTILINE))
+    if tests.returncode or not passed.issuperset(REGRESSION_TESTS):
+        raise ValueError("tsgo backport regression tests did not all pass: " + output[-4000:])
+
+
 def module_source(go, settings, env, work):
     module = settings["module"] + "@" + settings["module_version"]
     info = json.loads(subprocess.check_output([str(go), "mod", "download", "-json", module], env=env, cwd=work))
@@ -79,13 +92,7 @@ def build(recipe, target, go, work, offline=False):
     os_name, arch = GOOS[target]
     host = subprocess.check_output([str(go), "env", "GOOS", "GOARCH"], env=env).decode().split()
     if host == [os_name, arch]:
-        # Upstream test helpers locate the repository root, which -trimpath hides.
-        test_env = {**env, "GOFLAGS": env["GOFLAGS"].replace("-trimpath ", "")}
-        tests = subprocess.run([str(go), "test", "-count=1", "-run", REGRESSION_TESTS, "./internal/lsp/"],
-                               env=test_env, cwd=source, capture_output=True, check=False)
-        if tests.returncode:
-            raise ValueError("tsgo backport regression tests failed: "
-                             + (tests.stdout + tests.stderr)[-4000:].decode(errors="replace"))
+        regression_tests(go, env, source)
     binary = work / ("tsgo-" + target)
     ldflags = "-s -w -X github.com/microsoft/typescript-go/internal/core.version=" + recipe["version"]
     subprocess.run([str(go), "build", "-tags=" + ",".join(settings["tags"]), "-ldflags=" + ldflags,

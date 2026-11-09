@@ -63,10 +63,26 @@ class TsgoRebuildTests(unittest.TestCase):
 
     def test_every_selected_regression_test_is_defined_by_the_shipped_patch(self):
         shipped = (ROOT / RECIPE["build"]["patch"]["path"]).read_text()
-        names = build_tsgo.REGRESSION_TESTS.strip("^()$").split("|")
-        self.assertIn("TestRunExitsOnTransportEOFWhileAwaitingClientResponse", names)
-        for name in names:
+        self.assertIn("TestRunExitsOnTransportEOFWhileAwaitingClientResponse", build_tsgo.REGRESSION_TESTS)
+        for name in build_tsgo.REGRESSION_TESTS:
             self.assertIn("+func " + name + "(t *testing.T) {", shipped)
+
+    def test_regression_tests_require_every_selected_test_to_pass(self):
+        passing = "".join("--- PASS: " + name + " (0.00s)\n" for name in build_tsgo.REGRESSION_TESTS)
+        skipped = passing.replace("--- PASS: TestRunExitsOnTransportEOFWhileAwaitingClientResponse",
+                                  "--- SKIP: TestRunExitsOnTransportEOFWhileAwaitingClientResponse")
+        env = {"GOFLAGS": "-trimpath -mod=readonly"}
+        for output, returncode, accepted in ((passing, 0, True), (skipped, 0, False), (passing, 1, False)):
+            result = subprocess.CompletedProcess([], returncode, output.encode(), b"")
+            with self.subTest(returncode=returncode, accepted=accepted), \
+                    patch("build_tsgo.subprocess.run", return_value=result) as run:
+                if accepted:
+                    build_tsgo.regression_tests(Path("/go"), env, Path("/source"))
+                else:
+                    with self.assertRaisesRegex(ValueError, "did not all pass"):
+                        build_tsgo.regression_tests(Path("/go"), env, Path("/source"))
+                self.assertIn("-v", run.call_args.args[0])
+                self.assertEqual(run.call_args.kwargs["env"]["GOFLAGS"], "-mod=readonly")
 
     def test_rebuild_refuses_an_unreviewed_npm_executable_or_patch(self):
         recipe, _ = synthetic_recipe()
