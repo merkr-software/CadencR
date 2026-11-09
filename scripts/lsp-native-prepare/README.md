@@ -81,6 +81,10 @@ declaration libraries, `LICENSE`, `NOTICE.txt` and metadata byte for byte, and
 replaces only `lib/tsgo` with a Cadencr build of the same upstream commit:
 
 - The npm executable must match `upstream_entry_sha256` before it is replaced.
+- Files attesting the replaced executable are not shipped. The Linux npm package's
+  `lib/tsgo.sig` is Microsoft's detached signature of its own binary and does not
+  verify against the rebuild, so the recipe omits it; any other retained
+  `lib/tsgo.*` file fails the rebuild.
 - The module zip for `source_commit` is fetched through the Go proxy and checked
   against both its `h1` sum and SHA-256.
 - `plugins/lsp/native-recipes/patches/tsgo-exit-after-shutdown.patch` must match its

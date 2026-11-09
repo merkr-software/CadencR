@@ -22,21 +22,21 @@ UPSTREAM = b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x100000c) + b"microsoft"
 REBUILT = b"\xcf\xfa\xed\xfe" + struct.pack("<I", 0x100000c) + b"cadencr"
 
 
-def npm_tarball(entry):
+def npm_tarball(entry, extra=()):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz") as archive:
         for name, data in (("package/LICENSE", b"license"), ("package/lib/lib.d.ts", b"declare var x;"),
-                           ("package/lib/tsgo", entry)):
+                           ("package/lib/tsgo", entry), *extra):
             member = tarfile.TarInfo(name)
             member.size = len(data)
             archive.addfile(member, io.BytesIO(data))
     return output.getvalue()
 
 
-def synthetic_recipe():
+def synthetic_recipe(extra=()):
     recipe = copy.deepcopy(RECIPE)
     spec = recipe["targets"]["darwin-aarch64"]
-    data = npm_tarball(UPSTREAM)
+    data = npm_tarball(UPSTREAM, extra)
     spec.update(sha256=sha256(data), size=len(data), upstream_entry_sha256=sha256(UPSTREAM),
                 upstream_entry_size=len(UPSTREAM), entry_sha256=sha256(REBUILT), entry_size=len(REBUILT))
     return recipe, data
@@ -91,6 +91,8 @@ class TsgoRebuildTests(unittest.TestCase):
             build_tsgo.upstream_entry(recipe, "darwin-aarch64", {"lib/tsgo": UPSTREAM + b"x"})
         with self.assertRaisesRegex(ValueError, "reviewed upstream build"):
             build_tsgo.upstream_entry(recipe, "darwin-aarch64", {})
+        with self.assertRaisesRegex(ValueError, "sidecars of the replaced executable"):
+            build_tsgo.upstream_entry(recipe, "darwin-aarch64", {"lib/tsgo": UPSTREAM, "lib/tsgo.sig": b"sig"})
         recipe["build"]["patch"]["sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "reviewed patch"):
             build_tsgo.reviewed_patch(recipe["build"])
@@ -136,6 +138,24 @@ class TsgoRebuildTests(unittest.TestCase):
         self.assertEqual({entry["path"]: (entry["sha256"], entry["mode"]) for entry in built["files"]}, {
             "lib/tsgo": (sha256(REBUILT), "100755"),
             recipe["build"]["patch"]["shipped_as"]: (sha256(b"patch"), "100644")})
+
+    def test_prepare_omits_the_upstream_signature_of_the_replaced_executable(self):
+        signature = ("package/lib/tsgo.sig", b"-----BEGIN PGP SIGNATURE-----")
+        recipe, data = synthetic_recipe([signature])
+        recipe["targets"]["darwin-aarch64"].pop("omit_files", None)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("prepare.acquire", return_value=data), \
+                patch("go_toolchain.toolchain", no_toolchain), \
+                patch("build_tsgo.build", return_value=(REBUILT, b"patch", "")) as build:
+            with self.assertRaisesRegex(ValueError, "sidecars of the replaced executable"):
+                prepare(recipe, "darwin-aarch64", Path(directory) / "cache", Path(directory) / "rejected")
+            build.assert_not_called()
+            recipe["targets"]["darwin-aarch64"]["omit_files"] = ["lib/tsgo.sig"]
+            output = Path(directory) / "output"
+            prepare(recipe, "darwin-aarch64", Path(directory) / "cache", output)
+            self.assertFalse((output / "runtime/lib/tsgo.sig").exists())
+            lock = json.loads((output / "source-lock.json").read_text())
+        self.assertNotIn("lib/tsgo.sig", [entry["path"] for source in lock["sources"] for entry in source["files"]])
 
     def test_prepare_rejects_a_rebuild_that_differs_from_the_pinned_executable(self):
         recipe, data = synthetic_recipe()

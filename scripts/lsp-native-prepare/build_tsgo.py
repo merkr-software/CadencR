@@ -30,6 +30,9 @@ def upstream_entry(recipe, target, files):
     entry = files.get(spec["entry"])
     if entry is None or len(entry) != spec["upstream_entry_size"] or sha256(entry) != spec["upstream_entry_sha256"]:
         raise ValueError("npm executable differs from the reviewed upstream build")
+    # A sidecar such as a detached signature attests the replaced bytes, not the rebuild.
+    if any(name.startswith(spec["entry"] + ".") for name in files):
+        raise ValueError("omit upstream sidecars of the replaced executable")
 
 
 def reviewed_patch(settings):

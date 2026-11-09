@@ -82,6 +82,9 @@
       "member": "package/lib/tsgo",
       "retain_tree": true,
       "strip_prefix": "package/",
+      "omit_files": [
+        "lib/tsgo.sig"
+      ],
       "upstream_entry_sha256": "138b9ab195ae0ad372dae2f952090e07d4c504bbccf63240172ae843116009ce",
       "upstream_entry_size": 24101026,
       "entry_sha256": "8f0a7541d28e7094df4cac08af76b877d3bb558beee0d1d2aa2abe784a215d7b",
