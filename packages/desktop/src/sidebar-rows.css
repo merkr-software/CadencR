@@ -374,9 +374,8 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
 [data-sidebar-highlight="colorMode"]
   :is(
     [data-feature-time],
-    [data-feature-preview],
     [data-feature-branch],
-    [data-feature-model],
+    [data-feature-worktree-icon],
     [data-feature-todos],
     [data-feature-activity-indicators]
   ),

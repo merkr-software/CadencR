@@ -13,7 +13,8 @@ interface FeatureMetaBadgeProps {
 /**
  * One chip on a sidebar conversation's meta line — shell counts, browser tabs,
  * listening ports. Shared so the row's chips stay visually identical; only the
- * text colour is ever varied.
+ * text colour is ever varied here ("Colors: Increased" also lets a count shed
+ * its box, `sidebar-row-colors.css`).
  */
 export function FeatureMetaBadge({
   icon,

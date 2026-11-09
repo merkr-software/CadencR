@@ -42,7 +42,7 @@ const PendingRequestLine = memo(function PendingRequestLine({
   if (isLoading) return <Skeleton data-feature-pending-request className="my-0.5 h-3 w-28" />;
   if (errorMessage) {
     return (
-      <span data-feature-pending-request title={errorMessage} className={LINE_CLASS}>
+      <span data-feature-pending-request="empty" title={errorMessage} className={LINE_CLASS}>
         Request details unavailable
       </span>
     );
@@ -50,7 +50,7 @@ const PendingRequestLine = memo(function PendingRequestLine({
   const prompt = gate ? gatePrompt(gate) : null;
   if (!gate || !prompt) {
     return fillsLine ? (
-      <span data-feature-pending-request className={LINE_CLASS}>
+      <span data-feature-pending-request="empty" className={LINE_CLASS}>
         Waiting for you
       </span>
     ) : null;

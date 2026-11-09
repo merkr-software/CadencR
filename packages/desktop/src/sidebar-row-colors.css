@@ -1,38 +1,49 @@
-/* Colors ("Colors: Increased"): besides what already carries a state (status,
- * diff, pull request, label, request, ports), every detail takes a discreet
- * color of its own, its accent mixed toward the muted ink, so each kind of
- * information reads at a glance while the title stays the brightest text.
- * Unique within a line; red stays for errors (a failed turn, failing checks,
- * removed lines); an error or an empty placeholder keeps its own tone. */
+/* Colors ("Colors: Increased", the Detailed preset's). The text a row reads
+ * stays in neutral ink, so the title leads and the reply follows it: only the
+ * details take a color, each kind its own hue, mixed toward the muted ink so
+ * none outshines the title.
+ *
+ * - The time takes the color of the status glyph at the other end of its
+ *   line: blue while the agent works, amber while it waits, green for an
+ *   unread reply, red for a failure (a collapsed parent's glyph, and so its
+ *   time, speaks for its hidden children). An idle row keeps it muted, and so
+ *   does a row whose status the "hidden" style leaves out: the time never
+ *   says what the status was asked not to.
+ * - The code reads lavender (branch and worktree glyph), beside the diff's
+ *   green and red and the pull request's tone.
+ * - The activity counts are bare glyphs and numbers: todos amber, shells
+ *   orange, browser tabs cyan, downloads lavender.
+ * - The model stays neutral mono, like the provider mark it names.
+ *
+ * The status tones are mixed toward the ink, the detail tones toward the muted
+ * ink, so the 10.5px text holds its contrast on light grounds, where some
+ * themes' raw accents don't. Red stays for errors (a failed turn, failing
+ * checks, removed lines); an error or an empty placeholder keeps its own tone. */
 [data-sidebar-color="increased"] {
-  --row-tone-time: color-mix(in oklab, var(--acc-purple) 35%, var(--muted-foreground));
-  --row-tone-reply: color-mix(
-    in oklab,
-    var(--acc-cyan) 25%,
-    color-mix(in oklab, var(--muted-foreground) 65%, var(--sidebar-foreground))
-  );
-  --row-tone-branch: color-mix(
-    in oklab,
-    color-mix(in oklab, var(--acc-cyan), var(--acc-purple)) 72%,
-    var(--muted-foreground)
-  );
-  --row-tone-model: color-mix(in oklab, var(--acc-green) 50%, var(--muted-foreground));
-  --row-tone-todos: color-mix(in oklab, var(--acc-yellow) 72%, var(--muted-foreground));
-  --row-tone-shell: color-mix(in oklab, var(--acc-orange) 72%, var(--muted-foreground));
-  --row-tone-browser: color-mix(in oklab, var(--acc-cyan) 72%, var(--muted-foreground));
-  --row-tone-download: color-mix(in oklab, var(--acc-purple) 72%, var(--muted-foreground));
+  --row-tone-working: color-mix(in oklab, var(--color-blue-500) 65%, var(--sidebar-foreground));
+  --row-tone-waiting: color-mix(in oklab, var(--acc-yellow) 65%, var(--sidebar-foreground));
+  --row-tone-unread: color-mix(in oklab, var(--acc-green) 65%, var(--sidebar-foreground));
+  --row-tone-failed: color-mix(in oklab, var(--acc-red) 65%, var(--sidebar-foreground));
+  --row-tone-branch: color-mix(in oklab, var(--acc-purple) 82%, var(--muted-foreground));
+  --row-tone-todos: color-mix(in oklab, var(--acc-yellow) 80%, var(--muted-foreground));
+  --row-tone-shell: color-mix(in oklab, var(--acc-orange) 80%, var(--muted-foreground));
+  --row-tone-browser: color-mix(in oklab, var(--acc-cyan) 80%, var(--muted-foreground));
+  --row-tone-download: color-mix(in oklab, var(--acc-purple) 80%, var(--muted-foreground));
 
-  & [data-feature-time] {
-    color: var(--row-tone-time);
+  & [data-feature-title-line]:has(> [data-sidebar-status="working"]) [data-feature-time] {
+    color: var(--row-tone-working);
   }
-  & [data-feature-preview]:not([data-feature-preview="empty"]) {
-    color: var(--row-tone-reply);
+  & [data-feature-title-line]:has(> [data-sidebar-status="waiting"]) [data-feature-time] {
+    color: var(--row-tone-waiting);
+  }
+  & [data-feature-title-line]:has(> [data-sidebar-status="unread"]) [data-feature-time] {
+    color: var(--row-tone-unread);
+  }
+  & [data-feature-title-line]:has(> [data-sidebar-status="failed"]) [data-feature-time] {
+    color: var(--row-tone-failed);
   }
   & :is([data-feature-branch], [data-feature-worktree-icon]) {
     color: var(--row-tone-branch);
-  }
-  & [data-feature-model] {
-    color: var(--row-tone-model);
   }
   & [data-feature-todos] > :not(.text-destructive) {
     color: var(--row-tone-todos);
@@ -45,5 +56,19 @@
   }
   & [data-feature-activity="download"] > * {
     color: var(--row-tone-download);
+  }
+  /* Counts (todos, shells, tabs, downloads) shed their box: the hue already
+   * says which is which, so a glyph and a semibold number are enough. Boxes
+   * stay for what carries a state or opens something: the label, the pull
+   * request, the ports; and for a todo count that couldn't load. */
+  & [data-feature-activity-indicators] {
+    gap: 0.5rem;
+  }
+  & :is([data-feature-todos], [data-feature-activity]) > :not(.text-destructive) {
+    gap: 0.1875rem;
+    border-color: transparent;
+    background: none;
+    padding-inline: 0;
+    font-weight: 600;
   }
 }

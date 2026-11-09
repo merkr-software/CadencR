@@ -81,11 +81,11 @@ export const CHOICE_ROWS: readonly { [K in ChoiceId]: ChoiceRow<K> }[ChoiceId][]
   {
     id: "colorMode",
     description:
-      "Light: color only where it carries a state (status, diff, pull request, label, request). Increased: every other detail takes a discreet color of its own too (time, reply, branch, model, todos, shells, tabs), so each one reads at a glance.",
+      "Light: color only where it carries a state (status, diff, pull request, label, request). Increased: the time takes the status's color, and the branch, todos, shells and tabs a hue of their own, counts without their box, so each one reads at a glance while the title and reply stay in neutral ink.",
     label: "Colors",
     options: [
       { value: "light", label: "Light", title: "Color only where it carries a state" },
-      { value: "increased", label: "Increased", title: "A discreet color for every detail" },
+      { value: "increased", label: "Increased", title: "A color for each kind of detail" },
     ],
   },
   {

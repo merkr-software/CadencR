@@ -1,10 +1,9 @@
 /* Fixed row height ("Row height: Fixed"): every row is as tall as the lines
  * its options can fill (a one-line title, then FeatureRowLanes' 20px lines,
  * `--feature-row-detail-height`), never its own data, and each row fills
- * every one of them: the reply wraps over what its details leave. The title
- * leads in medium weight over the 11px lines. The hover actions stack over
- * the time in one slot as wide as the wider of the two, so pointing at a row
- * swaps them without moving the title. */
+ * every one of them: the reply wraps over what its details leave. The hover
+ * actions stack over the time in one slot as wide as the wider of the two, so
+ * pointing at a row swaps them without moving the title. */
 [data-sidebar-row-height="fixed"] {
   & [data-feature-row-body] {
     height: calc(1.5rem + var(--feature-row-detail-height, 0rem));
@@ -15,7 +14,24 @@
     flex: none;
     height: 1.5rem;
   }
+  /* Three steps of type: the title in semibold, slightly tightened; the reply
+   * in regular weight, muted ink; the details in medium, their numerals and
+   * the branch in mono. Placeholders (no reply yet, a preview or request that
+   * couldn't load) lean italic, so they never read as the agent's words. */
   & [data-feature-title] {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  & [data-feature-time] {
+    font-weight: 500;
+  }
+  & [data-feature-pending-request="empty"] {
+    font-style: italic;
+  }
+  & [data-feature-pending-request] {
+    font-weight: 500;
+  }
+  & :is([data-feature-branch], [data-feature-diff]) {
     font-weight: 500;
   }
   & [data-feature-trailing] {

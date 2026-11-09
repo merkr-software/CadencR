@@ -59,9 +59,12 @@ export function FeatureRowPreviewLine({
 const LINE_CLASS = "min-w-0 truncate pl-5 text-[11px] leading-4 text-muted-foreground";
 
 /**
- * A fixed row's reply, wrapped over exactly `lines` lines of chip height, so
- * it fills what the row's details leave. Says so while it loads (a bar per
- * line), when it couldn't load, and when the agent hasn't replied yet.
+ * A fixed row's reply, in the room of exactly `lines` lines of chip height,
+ * so it fills what the row's details leave. It sets as a paragraph: at most
+ * `lines` lines on a tighter leading than the chips', a single line centered
+ * in its lane, a longer reply leaving its spare pixels as air above the
+ * details. Says so while it loads (a bar per line), when it couldn't load,
+ * and when the agent hasn't replied yet.
  */
 export function FeatureRowReply({
   summary,
@@ -73,27 +76,27 @@ export function FeatureRowReply({
   const box = { height: `${lines * 1.25}rem` };
   if (!summary) {
     return (
-      <div data-feature-preview style={box} className="flex shrink-0 flex-col pl-5">
+      <div data-feature-preview style={box} className="flex shrink-0 flex-col py-0.5 pl-5">
         {Array.from({ length: lines }, (_, line) => (
-          <div key={line} className="flex h-5 items-center">
+          <div key={line} className="flex h-4 items-center">
             <Skeleton className={cn("h-3", line === lines - 1 ? "w-24" : "w-full")} />
           </div>
         ))}
       </div>
     );
   }
-  const text = summary.error ? "Preview unavailable" : summary.preview;
+  const placeholder = summary.error != null || !summary.preview;
   return (
     <div
-      data-feature-preview={text && !summary.error ? "" : "empty"}
+      data-feature-preview={placeholder ? "empty" : ""}
       title={summary.error ?? summary.preview ?? undefined}
       style={{ ...box, WebkitLineClamp: lines }}
       className={cn(
-        "line-clamp-1 shrink-0 pl-5 text-[11px] leading-5 break-words",
-        text ? "text-muted-foreground" : "text-muted-foreground/60 italic",
+        "line-clamp-1 shrink-0 py-0.5 pl-5 text-[11px] leading-4 break-words",
+        placeholder ? "text-muted-foreground/60 italic" : "text-muted-foreground",
       )}
     >
-      {text || "No reply yet"}
+      {summary.error ? "Preview unavailable" : summary.preview || "No reply yet"}
     </div>
   );
 }

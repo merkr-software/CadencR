@@ -34,6 +34,16 @@ describe("SidebarPendingRequestLine", () => {
     expect(screen.getByText(/^Bash: /)).toHaveTextContent("pnpm test");
   });
 
+  it("says a fixed row waits, as a placeholder, when the request has no prompt", () => {
+    const queryClient = clientWithGate();
+    queryClient.setQueryData(["/api/features", 1, "pending-gate", "req-1"], null);
+    render(<SidebarPendingRequestLine attention={WAITING} fillsLine />, { queryClient });
+    expect(screen.getByText("Waiting for you")).toHaveAttribute(
+      "data-feature-pending-request",
+      "empty",
+    );
+  });
+
   it("stays out when the row element is switched off", () => {
     useSidebarConfigStore.setState({
       config: { ...DEFAULT_SIDEBAR_CONFIG, pendingRequest: false },
