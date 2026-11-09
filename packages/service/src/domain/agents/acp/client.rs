@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -203,6 +204,13 @@ impl AcpClient {
 
     pub async fn shutdown(&self) {
         self.inner.shutdown().await;
+    }
+
+    /// The caller starts stopping the agent (its last requests, then
+    /// [`Self::shutdown`]): a transport that breaks from now on, the agent
+    /// having exited first, is the expected end and is not reported.
+    pub fn begin_close(&self) {
+        self.inner.stopping.store(true, Ordering::SeqCst);
     }
 
     fn take_server_responder(
@@ -439,6 +447,59 @@ mod tests {
         let parsed = read_frame(&mut agent_stdin).await;
         assert!(parsed.get("id").is_none());
         assert_eq!(parsed["method"], "session/cancel");
+    }
+
+    /// The WARN lines logged on this thread, so by every task of a
+    /// current-thread runtime, while the returned guard lives.
+    fn capture_warnings() -> (tracing::subscriber::DefaultGuard, impl Fn() -> String) {
+        #[derive(Clone, Default)]
+        struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        (guard, move || {
+            String::from_utf8(captured.0.lock().unwrap().clone()).unwrap()
+        })
+    }
+
+    /// An agent that exits while it is being stopped breaks the pipe under
+    /// the last notification: the expected end of a deliberate stop. The same
+    /// break with no stop under way is still reported.
+    #[tokio::test]
+    async fn a_pipe_the_agent_breaks_while_stopped_is_not_a_warning() {
+        for deliberate in [false, true] {
+            let (_guard, warnings) = capture_warnings();
+            let (client, _agent_stdout, agent_stdin) = build_in_memory_client().await;
+            if deliberate {
+                client.begin_close();
+            }
+            drop(agent_stdin);
+            let notification = UntypedMessage::new("session/cancel", json!({"sessionId": "s1"}))
+                .expect("test notification method is valid");
+            let _ = client.send_notification_typed(notification).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            assert_eq!(
+                warnings().contains("ACP connection closed"),
+                !deliberate,
+                "deliberate stop: {deliberate}: {}",
+                warnings()
+            );
+        }
     }
 
     #[tokio::test]

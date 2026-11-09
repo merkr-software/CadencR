@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use agent_client_protocol::{ByteStreams, Client};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::Child;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
@@ -19,6 +19,10 @@ use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::event_hub::AcpEventHub;
 use crate::domain::agents::acp::process_tree::ProcessTreeControl;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
+
+mod stderr;
+
+use stderr::spawn_stderr_reader;
 
 const DEFAULT_MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 /// After the agent process exits, how long its stdout may stay open (e.g. an
@@ -38,6 +42,9 @@ pub(super) struct Inner {
     pub(super) closed: Arc<watch::Sender<bool>>,
     pub(super) client_info: AcpClientInfo,
     pub(super) pid: Option<u32>,
+    /// Set once the caller stops the agent on purpose: the transport breaking
+    /// from then on is the expected end of the connection, not a failure.
+    pub(super) stopping: Arc<AtomicBool>,
     shutdown_tx: StdMutex<Option<oneshot::Sender<()>>>,
     kill_tx: StdMutex<Option<oneshot::Sender<()>>>,
     connection_task: StdMutex<Option<JoinHandle<()>>>,
@@ -47,6 +54,7 @@ pub(super) struct Inner {
 
 impl Inner {
     pub(super) async fn shutdown(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
         self.closed.send_replace(true);
         send_once(&self.shutdown_tx);
         send_once(&self.kill_tx);
@@ -61,6 +69,7 @@ impl Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        self.stopping.store(true, Ordering::SeqCst);
         self.closed.send_replace(true);
         send_once(&self.shutdown_tx);
         send_once(&self.kill_tx);
@@ -157,6 +166,7 @@ where
     let closed = Arc::new(watch::Sender::new(false));
     let server_responders = Arc::new(StdMutex::new(HashMap::new()));
     let exit_sent = Arc::new(AtomicBool::new(false));
+    let stopping = Arc::new(AtomicBool::new(false));
     let max_line_bytes = options.max_line_bytes.unwrap_or(DEFAULT_MAX_LINE_BYTES);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (kill_tx, kill_rx) = oneshot::channel();
@@ -167,6 +177,7 @@ where
         events.clone(),
         Arc::clone(&server_responders),
         shutdown_rx,
+        Arc::clone(&stopping),
     )
     .await?;
 
@@ -199,6 +210,7 @@ where
         closed,
         client_info: options.client_info,
         pid,
+        stopping,
         shutdown_tx: StdMutex::new(Some(shutdown_tx)),
         kill_tx: StdMutex::new(Some(kill_tx)),
         connection_task: StdMutex::new(Some(connection_task)),
@@ -214,6 +226,7 @@ async fn spawn_connection<W, R>(
     events: AcpEventHub,
     server_responders: ServerResponders,
     shutdown_rx: oneshot::Receiver<()>,
+    stopping: Arc<AtomicBool>,
 ) -> Result<
     (
         agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
@@ -239,36 +252,21 @@ where
             })
             .await;
         if let Err(error) = result {
-            tracing::warn!(%error, "ACP connection closed");
+            // A deliberate stop can race the agent's own exit (the service's
+            // Ctrl-C reaches it too): its pipe then breaks first.
+            if stopping.load(Ordering::SeqCst)
+                || crate::domain::restart_continuations::is_shutting_down()
+            {
+                tracing::debug!(%error, "ACP connection closed while the agent was stopped");
+            } else {
+                tracing::warn!(%error, "ACP connection closed");
+            }
         }
     });
     let connection = connection_rx
         .await
         .map_err(|_| AcpError::Protocol("ACP connection closed during startup".to_string()))?;
     Ok((connection, task))
-}
-
-fn spawn_stderr_reader<R>(stderr: R, max_line_bytes: usize, log_contents: bool) -> JoinHandle<()>
-where
-    R: AsyncRead + Send + Unpin + 'static,
-{
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr);
-        loop {
-            match read_bounded_line(&mut reader, max_line_bytes).await {
-                Ok(Some(line)) => {
-                    if log_contents {
-                        tracing::warn!(target: "acp", "{line}");
-                    }
-                }
-                Ok(None) => break,
-                Err(error) => {
-                    tracing::warn!(%error, "ACP stderr read failed");
-                    break;
-                }
-            }
-        }
-    })
 }
 
 fn spawn_reaper(
@@ -349,43 +347,6 @@ fn send_process_exited(
             "ACP process exited with no event subscriber"
         );
     }
-}
-
-async fn read_bounded_line<R>(
-    reader: &mut R,
-    max_line_bytes: usize,
-) -> Result<Option<String>, AcpError>
-where
-    R: AsyncBufRead + Unpin,
-{
-    let mut line = Vec::new();
-    loop {
-        let available = reader.fill_buf().await?;
-        if available.is_empty() {
-            if line.is_empty() {
-                return Ok(None);
-            }
-            break;
-        }
-
-        let newline = available.iter().position(|byte| *byte == b'\n');
-        let take = newline.map_or(available.len(), |index| index + 1);
-        if line.len().saturating_add(take) > max_line_bytes {
-            reader.consume(take);
-            return Err(AcpError::Protocol(format!(
-                "ACP line exceeded {max_line_bytes} bytes"
-            )));
-        }
-        line.extend_from_slice(&available[..take]);
-        reader.consume(take);
-        if newline.is_some() {
-            break;
-        }
-    }
-    while matches!(line.last(), Some(b'\n' | b'\r')) {
-        line.pop();
-    }
-    Ok(Some(String::from_utf8_lossy(&line).to_string()))
 }
 
 fn send_once(slot: &StdMutex<Option<oneshot::Sender<()>>>) {

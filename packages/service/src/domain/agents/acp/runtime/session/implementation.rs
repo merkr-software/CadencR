@@ -7,9 +7,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 
-use agent_client_protocol::schema::v1::{CancelNotification, CloseSessionRequest};
+use agent_client_protocol::schema::v1::CancelNotification;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, RwLock};
@@ -40,10 +39,6 @@ use super::super::turn_lifecycle::{PromptCancel, PromptTurnLock};
 /// Channel buffer for the per-session runtime stream. Matches the size used
 /// by other adapters; deltas are coalesced upstream so even noisy turns fit.
 pub const MESSAGE_CHANNEL_CAPACITY: usize = 1024;
-// Must stay below the process-wide stream-reader shutdown deadline (2s): a
-// peer that advertises `session/close` but never replies must still leave time
-// to close the local runtime channel before the reader is joined.
-const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Provider-neutral ACP session.
 pub struct AcpRuntimeSession {
@@ -210,46 +205,14 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         // close the shutdown deadline cut short) finishes the local teardown,
         // which is safe to repeat, without asking the agent again.
         let first_close = !self.closing.swap(true, Ordering::SeqCst);
-        // Prefer the stable lifecycle request when advertised. A connector
-        // that accepts it must cancel ongoing work and release the session's
-        // resources. Fall back to the baseline cancel notification if the
-        // optional request fails so teardown remains bounded and best-effort.
+        self.client.begin_close();
         let session_id = if first_close {
             self.current_session_id().await
         } else {
             None
         };
         if let Some(session_id) = session_id {
-            let should_cancel = if self.supports_session_close {
-                match self
-                    .client
-                    .send_request_typed(
-                        CloseSessionRequest::new(session_id.clone()),
-                        SESSION_CLOSE_TIMEOUT,
-                    )
-                    .await
-                {
-                    Ok(_) => false,
-                    Err(error) => {
-                        // At shutdown the agent is often already gone with the
-                        // service's process group: nothing is lost.
-                        if crate::domain::restart_continuations::is_shutting_down() {
-                            tracing::info!(%error, "ACP session/close failed while the service shut down; falling back to session/cancel");
-                        } else {
-                            tracing::warn!(%error, "ACP session/close failed; falling back to session/cancel");
-                        }
-                        true
-                    }
-                }
-            } else {
-                true
-            };
-            if should_cancel {
-                let _ = self
-                    .client
-                    .send_notification_typed(CancelNotification::new(session_id))
-                    .await;
-            }
+            super::close::tell_agent(self, session_id).await;
         }
         reject_all_pending(&self.client, &self.pending_permissions).await;
         // Drop session-scoped permission grants on close.

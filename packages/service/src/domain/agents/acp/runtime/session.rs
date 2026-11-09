@@ -1,3 +1,4 @@
+mod close;
 mod compact;
 mod compact_turn;
 mod implementation;
