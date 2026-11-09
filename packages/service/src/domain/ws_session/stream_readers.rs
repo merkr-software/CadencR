@@ -165,7 +165,7 @@ async fn report_close_failure(
 
 /// `process_alive` is `None` for a runtime with no process of its own: no
 /// proof it is gone, so its failure is reported.
-fn close_failure_is_benign(turn_was_running: bool, process_alive: Option<bool>) -> bool {
+pub(super) fn close_failure_is_benign(turn_was_running: bool, process_alive: Option<bool>) -> bool {
     !turn_was_running && process_alive == Some(false)
 }
 
@@ -184,12 +184,12 @@ async fn turn_was_running(pool: &sqlx::SqlitePool, db_session_id: i64) -> bool {
 }
 
 #[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
+pub(super) fn process_alive(pid: u32) -> bool {
     crate::domain::restart_continuations::process_is_alive(pid)
 }
 
 #[cfg(not(unix))]
-fn process_alive(_pid: u32) -> bool {
+pub(super) fn process_alive(_pid: u32) -> bool {
     true
 }
 

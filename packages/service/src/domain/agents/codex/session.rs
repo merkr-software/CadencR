@@ -1,3 +1,4 @@
+mod close;
 pub(super) mod compaction;
 mod input;
 mod interrupt;
@@ -7,7 +8,7 @@ mod stream;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -28,7 +29,7 @@ use super::responses::response_value;
 use super::session_permissions::{
     is_plan_approval_request_id, permission_kind_for_request_id, take_pending,
 };
-use super::timeouts::{with_control_timeout, with_probe_timeout};
+use super::timeouts::with_probe_timeout;
 use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
@@ -315,21 +316,7 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn close(&mut self) -> Result<(), RuntimeError> {
-        self.closing.store(true, Ordering::SeqCst);
-        let unsubscribe = with_control_timeout(
-            "Codex thread/unsubscribe",
-            self.client.thread_unsubscribe(&self.thread_id),
-        )
-        .await;
-        self.temp_files.lock().await.clear();
-        self.pending_prompt_receipts.clear();
-        self.async_questions.lock().await.clear();
-        self.client.shutdown().await;
-        unsubscribe.map(|_| ()).map_err(|error| {
-            RuntimeError::new(format!(
-                "Codex session closed, but thread/unsubscribe failed: {error}"
-            ))
-        })
+        self.close_session().await
     }
 
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError> {

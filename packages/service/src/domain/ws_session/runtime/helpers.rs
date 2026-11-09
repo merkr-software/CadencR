@@ -11,12 +11,14 @@ pub(crate) use crate::domain::agents::permission_modes::{
     default_permission_mode, default_permission_mode_wire, parse_permission_mode,
     post_plan_approval_fallback_mode_wire, post_plan_approval_mode_wire, provider_supports_mode,
 };
+use crate::domain::restart_continuations::is_shutting_down;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{
     RuntimeSessionIdPayload, SessionErrorPayload, WsEnvelope,
 };
 
 use super::session_init_resume::persistable_resume_session_id_for_provider;
+use crate::domain::ws_session::stream_readers::{close_failure_is_benign, process_alive};
 
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
@@ -25,6 +27,9 @@ use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 pub(in crate::domain::ws_session) struct RuntimeCloseContext<'a> {
     pool: &'a sqlx::SqlitePool,
     feature_senders: &'a WsFeatureSenderRegistry,
+    /// The caller proved no turn needs the runtime.
+    #[builder(default)]
+    idle: bool,
 }
 
 /// Parse a session_id string from client payload into i64 DB key.
@@ -97,7 +102,18 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
         )
         .await;
     }
+    // Read first: closing may drop the process handle.
+    let pid = q.pid();
     if let Err(error) = q.close().await {
+        // The shutdown's own rule: an idle runtime whose process is already
+        // gone (the service's process group took it) lost nothing.
+        if context.idle
+            && is_shutting_down()
+            && close_failure_is_benign(false, pid.map(process_alive))
+        {
+            tracing::info!(db_session_id, %error, "idle runtime failed to close while the service shut down");
+            return resume_sid;
+        }
         let message = error.to_string();
         tracing::warn!(db_session_id, %error, "runtime close failed after local cleanup");
         WsSessionPersistence::persist_error_message_static(
@@ -278,4 +294,66 @@ pub(in crate::domain::ws_session) fn send_runtime_session_id(
         }))
         .expect("runtime session id payload should serialize");
     let _ = sender.send(Message::Text(String::from(envelope).into()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agents::adapter::{RuntimeError, RuntimeMessageRx, RuntimePermissionMode};
+    use crate::domain::ws_session::handler::tests::support::{
+        insert_running_session, make_test_app_state,
+    };
+
+    struct UnclosableRuntime;
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for UnclosableRuntime {
+        fn take_message_rx(&mut self) -> RuntimeMessageRx {
+            tokio::sync::mpsc::channel(1).1
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn stream_input(&self, _: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Err(RuntimeError::new("thread/unsubscribe failed: Broken pipe"))
+        }
+        async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// Outside the shutdown, an idle runtime that fails to close still
+    /// leaves the error in its conversation.
+    #[tokio::test]
+    async fn an_idle_close_failure_outside_shutdown_is_recorded() {
+        let state = make_test_app_state().await;
+        insert_running_session(&state, 23, 1).await;
+        let context = RuntimeCloseContext::builder()
+            .pool(&state.write_pool)
+            .feature_senders(&state.ws_feature_senders)
+            .idle(true)
+            .build();
+
+        persist_and_close_runtime(&mut UnclosableRuntime, &context, 23, "codex_cli", 1).await;
+
+        let errors: Vec<String> = sqlx::query_scalar(
+            "SELECT content FROM agent_messages WHERE session_id = 23 AND message_type = 'error'",
+        )
+        .fetch_all(&state.write_pool)
+        .await
+        .unwrap();
+        assert_eq!(errors, ["thread/unsubscribe failed: Broken pipe"]);
+    }
 }

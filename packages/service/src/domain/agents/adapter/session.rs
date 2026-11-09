@@ -94,6 +94,9 @@ pub trait AgentRuntimeSession: Send + Sync {
         ))
     }
     /// Release local resources even when graceful provider shutdown fails.
+    /// The message stream should end once the runtime is closed. Callers may
+    /// close a runtime twice (the shutdown, then its idle reader): a second
+    /// close should not ask the stopped provider again.
     async fn close(&mut self) -> Result<(), RuntimeError>;
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError>;
     async fn set_permission_mode(&self, mode: RuntimePermissionMode) -> Result<(), RuntimeError>;

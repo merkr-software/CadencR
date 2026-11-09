@@ -47,6 +47,7 @@ pub(super) async fn retire_unobserved_runtime(task: &StreamReaderTask) -> bool {
         &RuntimeCloseContext::builder()
             .pool(&task.write_pool)
             .feature_senders(&task.feature_senders)
+            .idle(true)
             .build(),
         task.db_session_id,
         &task.runtime_provider,
