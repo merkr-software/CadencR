@@ -79,6 +79,7 @@ function useSelectorMutations(queryClient: QueryClient, featureId: number | unde
         invalidateSelection();
         toast.success("Settings saved");
       },
+      onError: (error) => toastError(error, "Failed to save the model setting"),
     },
   });
   const featureMutation = useSetFeatureModelSetting({
@@ -90,6 +91,7 @@ function useSelectorMutations(queryClient: QueryClient, featureId: number | unde
         invalidateSelection();
         toast.success("Settings saved");
       },
+      onError: (error) => toastError(error, "Failed to save the model setting"),
     },
   });
   const globalProviderMutation = useSetWorkspaceProviderSetting({

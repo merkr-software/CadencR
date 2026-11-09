@@ -1,10 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  getGetProjectSettingsQueryKey,
-  useGetProjectSettings,
-  useSetProjectSetting,
-  type ProjectSetting,
-} from "@/api/generated";
+import { useGetProjectSettings, type ProjectSetting } from "@/api/generated";
 import { DEFAULT_PROJECT_COLOR } from "@/lib/project-colors";
 import { useSidebarSample } from "@/lib/sidebar-sample-context";
 
@@ -13,8 +7,8 @@ import { useSidebarSample } from "@/lib/sidebar-sample-context";
  *
  * The settings list is fetched once per project per session — `staleTime:
  * Infinity` keeps color dots from triggering a fresh GET on every project-tree
- * mount. The companion `useSetProjectColor` mutation invalidates the same
- * query so a manual color change refetches.
+ * mount. Project settings writers invalidate the query, and so does the
+ * settings watcher's `settings_event`.
  */
 export function useProjectColor(projectId: number): string {
   const sample = useSidebarSample();
@@ -34,23 +28,4 @@ export function useProjectSettingsList(projectId: number): ProjectSetting[] | un
     query: { staleTime: Infinity, enabled: sample === null },
   });
   return data;
-}
-
-/**
- * Mutation hook for changing the persisted color. Mirrors the orval-generated
- * `useSetProjectSetting` but invalidates the project-settings query on success
- * so the color dots refresh — the global 30 s `staleTime` would otherwise
- * keep the stale dot visible for half a minute.
- */
-export function useSetProjectColor(): ReturnType<typeof useSetProjectSetting> {
-  const queryClient = useQueryClient();
-  return useSetProjectSetting({
-    mutation: {
-      onSuccess: (_data, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: getGetProjectSettingsQueryKey(variables.id),
-        });
-      },
-    },
-  });
 }
