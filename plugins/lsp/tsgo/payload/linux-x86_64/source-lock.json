@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "id": "tsgo",
-  "package_version": "0.1.0",
+  "package_version": "0.1.1",
   "min_app_version": "0.16.1",
   "runtime": "native",
   "entry": "lib/tsgo",
@@ -13,7 +13,7 @@
       "url": "https://registry.npmjs.org/@typescript/native-preview-linux-x64/-/native-preview-linux-x64-7.0.0-dev.20260707.2.tgz",
       "sha256": "5e6ee1052190526ae0ac277b2fb52ba0c7e880619201493bd5342976a0b33eb6",
       "destination": ".",
-      "expanded_size": 27947075,
+      "expanded_size": 3845568,
       "files": [
         {
           "path": "LICENSE",
@@ -682,22 +682,32 @@
           "mode": "100644"
         },
         {
-          "path": "lib/tsgo",
-          "sha256": "138b9ab195ae0ad372dae2f952090e07d4c504bbccf63240172ae843116009ce",
-          "size": 24101026,
-          "mode": "100755"
-        },
-        {
-          "path": "lib/tsgo.sig",
-          "sha256": "d6391969eed9d4a3295edcd244c9244be70a9a8aaae9ce577452544c1bc06bd3",
-          "size": 481,
-          "mode": "100644"
-        },
-        {
           "path": "package.json",
           "sha256": "bfb6e862032cba56c07b02b4ca8fa3205a48d95f72c04c0061e1e73edcf5abd8",
           "size": 2091,
           "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "tsgo-patched-build",
+      "version": "v0.0.0-20260707030041-9977d6d38fcc",
+      "url": "https://proxy.golang.org/github.com/microsoft/typescript-go/@v/v0.0.0-20260707030041-9977d6d38fcc.zip",
+      "sha256": "6d7af506d89b8be98b87628e3a6c31fb6a080db8f65375d2846c788ab3a14553",
+      "destination": ".",
+      "expanded_size": 24119801,
+      "files": [
+        {
+          "path": "CADENCR-PATCHES/tsgo-exit-after-shutdown.patch",
+          "sha256": "a8a36fa0fc834cac6634817097934a271979d2a91c264b0118db8bee65f34e75",
+          "size": 10583,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/tsgo",
+          "sha256": "8f0a7541d28e7094df4cac08af76b877d3bb558beee0d1d2aa2abe784a215d7b",
+          "size": 24109218,
+          "mode": "100755"
         }
       ]
     }

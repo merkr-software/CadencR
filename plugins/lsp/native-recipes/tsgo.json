@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "tsgo",
   "version": "7.0.0-dev.20260707.2",
-  "package_version": "0.1.0",
+  "package_version": "0.1.1",
   "min_app_version": "0.16.1",
   "upstream": "https://github.com/microsoft/typescript-go",
   "license": "Apache-2.0",
@@ -12,6 +12,66 @@
     "--stdio"
   ],
   "runtime_dependencies": [],
+  "build": {
+    "kind": "patched-go-module",
+    "go_version": "go1.26.10",
+    "go_checksum_source": "https://go.dev/dl/?mode=json",
+    "flags": [
+      "-trimpath",
+      "-buildvcs=false",
+      "-tags=noembed",
+      "-ldflags=-s -w -X github.com/microsoft/typescript-go/internal/core.version=7.0.0-dev.20260707.2"
+    ],
+    "CGO_ENABLED": "0",
+    "tags": [
+      "noembed"
+    ],
+    "source_commit": "9977d6d38fcc78de8ae71770f3aa08256e6cc861",
+    "module": "github.com/microsoft/typescript-go",
+    "module_version": "v0.0.0-20260707030041-9977d6d38fcc",
+    "module_sum": "h1:BX1V/xz0ygUmVKF3b4Ev+Tuez1zkUDNDLywHOpr/psA=",
+    "module_url": "https://proxy.golang.org/github.com/microsoft/typescript-go/@v/v0.0.0-20260707030041-9977d6d38fcc.zip",
+    "module_zip_sha256": "6d7af506d89b8be98b87628e3a6c31fb6a080db8f65375d2846c788ab3a14553",
+    "toolchains": {
+      "linux-x86_64": {
+        "url": "https://go.dev/dl/go1.26.10.linux-amd64.tar.gz",
+        "sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+        "size": 66936659
+      },
+      "darwin-aarch64": {
+        "url": "https://go.dev/dl/go1.26.10.darwin-arm64.tar.gz",
+        "sha256": "0b5183492292ada170f9b561a834863808dd02edba599e4ad0e89899330020b3",
+        "size": 64669745
+      },
+      "darwin-x86_64": {
+        "url": "https://go.dev/dl/go1.26.10.darwin-amd64.tar.gz",
+        "sha256": "e820ab780c273ae4a340b79d0f3c4313b74ee029aa3874792145d44b9f4f91da",
+        "size": 67810289
+      }
+    },
+    "patch": {
+      "path": "plugins/lsp/native-recipes/patches/tsgo-exit-after-shutdown.patch",
+      "sha256": "a8a36fa0fc834cac6634817097934a271979d2a91c264b0118db8bee65f34e75",
+      "shipped_as": "CADENCR-PATCHES/tsgo-exit-after-shutdown.patch",
+      "upstream_issue": "https://github.com/microsoft/TypeScript/issues/64742",
+      "upstream_pull": "https://github.com/microsoft/TypeScript/pull/64894",
+      "upstream_pull_commit": "6e9659803b89d66d39631b1f0a762ff89f924360",
+      "files": {
+        "internal/lsp/server.go": "c69b780dd60ccb73856c363bdab7ea15f3e9a5bd7fca19bb10d8a925e1a07c18",
+        "internal/lsp/server_shutdown_test.go": "981b453fdcda159dc0e8406b384150b51ff41c2c4406832667f174fa868fd21f"
+      }
+    },
+    "module_sums": {
+      "github.com/go-json-experiment/json@v0.0.0-20260623181947-01eb4420fa68": "h1:KZaTBSyshWX3MP5jukJcNSuXDQTO+rNpt0J564dX/eg=",
+      "github.com/klauspost/cpuid/v2@v2.2.10": "h1:tBs3QSyvjDyFTq3uoc/9xFpCuOsJQFNPiAhYdw2skhE=",
+      "github.com/mackerelio/go-osstat@v0.2.7": "h1:TCavZi10wF49bT6iQZ9eT2keGZQpC69MTDfdJej5e94=",
+      "github.com/zeebo/xxh3@v1.1.0": "h1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=",
+      "golang.org/x/sync@v0.21.0": "h1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=",
+      "golang.org/x/sys@v0.46.0": "h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=",
+      "golang.org/x/term@v0.44.0": "h1:0rLvDRCtNj0gZkyIXhCyOb2OAzEhLVqc4B+hrsBhrmc=",
+      "golang.org/x/text@v0.38.0": "h1:sXmwo9DwP3OK9EZ7PqAdaooSGozfl/3a6/xJcbzPRhE="
+    }
+  },
   "targets": {
     "linux-x86_64": {
       "url": "https://registry.npmjs.org/@typescript/native-preview-linux-x64/-/native-preview-linux-x64-7.0.0-dev.20260707.2.tgz",
@@ -22,8 +82,13 @@
       "member": "package/lib/tsgo",
       "retain_tree": true,
       "strip_prefix": "package/",
-      "entry_sha256": "138b9ab195ae0ad372dae2f952090e07d4c504bbccf63240172ae843116009ce",
-      "entry_size": 24101026
+      "omit_files": [
+        "lib/tsgo.sig"
+      ],
+      "upstream_entry_sha256": "138b9ab195ae0ad372dae2f952090e07d4c504bbccf63240172ae843116009ce",
+      "upstream_entry_size": 24101026,
+      "entry_sha256": "8f0a7541d28e7094df4cac08af76b877d3bb558beee0d1d2aa2abe784a215d7b",
+      "entry_size": 24109218
     },
     "darwin-aarch64": {
       "url": "https://registry.npmjs.org/@typescript/native-preview-darwin-arm64/-/native-preview-darwin-arm64-7.0.0-dev.20260707.2.tgz",
@@ -34,8 +99,10 @@
       "member": "package/lib/tsgo",
       "retain_tree": true,
       "strip_prefix": "package/",
-      "entry_sha256": "63d89ecb27497f264b4c3ecb0e4f6d2cf09896803a81fff027ecfb336f8974e2",
-      "entry_size": 23653616,
+      "upstream_entry_sha256": "63d89ecb27497f264b4c3ecb0e4f6d2cf09896803a81fff027ecfb336f8974e2",
+      "upstream_entry_size": 23653616,
+      "entry_sha256": "595a27418cea2657233d01213496d97c85f307e2d00251d51af4d4b0ede935a2",
+      "entry_size": 23620594,
       "macos_min_version": "12.0.0"
     },
     "darwin-x86_64": {
@@ -47,8 +114,10 @@
       "member": "package/lib/tsgo",
       "retain_tree": true,
       "strip_prefix": "package/",
-      "entry_sha256": "64a1845f2bf8e2338e440a2b59ef4dbdfad2cccb2cad6e3e9eec5cda7b5e7712",
-      "entry_size": 24971184,
+      "upstream_entry_sha256": "64a1845f2bf8e2338e440a2b59ef4dbdfad2cccb2cad6e3e9eec5cda7b5e7712",
+      "upstream_entry_size": 24971184,
+      "entry_sha256": "168674568e330571cab9973bb664702361e43f10313d391824415e70449282f5",
+      "entry_size": 24748800,
       "macos_min_version": "12.0.0"
     }
   },
@@ -56,7 +125,7 @@
   "qualification": "PENDING",
   "runtime": "native",
   "name": "TypeScript native preview",
-  "description": "TypeScript and JavaScript code intelligence using the native TypeScript Go preview and bundled standard libraries.",
+  "description": "TypeScript and JavaScript code intelligence using a Cadencr source build of the native TypeScript Go preview with an upstream shutdown fix backported, and bundled standard libraries.",
   "role": "type_checker",
   "languages": [
     {

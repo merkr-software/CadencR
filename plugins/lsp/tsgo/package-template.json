@@ -12,37 +12,37 @@
         "--lsp",
         "--stdio"
       ],
-      "description": "TypeScript and JavaScript code intelligence using the native TypeScript Go preview and bundled standard libraries.",
+      "description": "TypeScript and JavaScript code intelligence using a Cadencr source build of the native TypeScript Go preview with an upstream shutdown fix backported, and bundled standard libraries.",
       "distribution": {
         "binary": {
           "darwin-aarch64": {
-            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.0/lsp-tsgo-0.1.0-darwin-aarch64.tar.gz",
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.1/lsp-tsgo-0.1.1-darwin-aarch64.tar.gz",
             "entry": "lib/tsgo",
-            "entry_sha256": "63d89ecb27497f264b4c3ecb0e4f6d2cf09896803a81fff027ecfb336f8974e2",
-            "entry_size": 23653616,
+            "entry_sha256": "595a27418cea2657233d01213496d97c85f307e2d00251d51af4d4b0ede935a2",
+            "entry_size": 23620594,
             "macos_min_version": "12.0.0",
             "runtime": "native",
-            "sha256": "d3e2e12da3b074952d41a03e2a2eb00227c1a3c4f0bce932a4977adc760d72cb",
-            "size": 9132847
+            "sha256": "857108d35ee025041a44a6ab46401d60f500ba5d41bc61edf42d3314852527bd",
+            "size": 9131751
           },
           "darwin-x86_64": {
-            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.0/lsp-tsgo-0.1.0-darwin-x86_64.tar.gz",
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.1/lsp-tsgo-0.1.1-darwin-x86_64.tar.gz",
             "entry": "lib/tsgo",
-            "entry_sha256": "64a1845f2bf8e2338e440a2b59ef4dbdfad2cccb2cad6e3e9eec5cda7b5e7712",
-            "entry_size": 24971184,
+            "entry_sha256": "168674568e330571cab9973bb664702361e43f10313d391824415e70449282f5",
+            "entry_size": 24748800,
             "macos_min_version": "12.0.0",
             "runtime": "native",
-            "sha256": "d8b40d0d13b01b74cd6d05bd1afeca5276e2f0acab44747c3420eb41674cc57b",
-            "size": 9943326
+            "sha256": "a95fcc3b2f6dc098df15707eb3e8c8970f4e1023c741b1c8ffe2ef3583359021",
+            "size": 9747571
           },
           "linux-x86_64": {
-            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.0/lsp-tsgo-0.1.0-linux-x86_64.tar.gz",
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.1/lsp-tsgo-0.1.1-linux-x86_64.tar.gz",
             "entry": "lib/tsgo",
-            "entry_sha256": "138b9ab195ae0ad372dae2f952090e07d4c504bbccf63240172ae843116009ce",
-            "entry_size": 24101026,
+            "entry_sha256": "8f0a7541d28e7094df4cac08af76b877d3bb558beee0d1d2aa2abe784a215d7b",
+            "entry_size": 24109218,
             "runtime": "native",
-            "sha256": "960a087a08547cfe62364a6f384f676d4933cfaf8f7d2fb5f7af1c1638a3be68",
-            "size": 9558673
+            "sha256": "3fa243ff28648eba2e0fd3d7edc6a7d04b249488652cbd6fbdf0fb7a687ee2bd",
+            "size": 9562864
           }
         }
       },
@@ -93,7 +93,7 @@
         "package.json",
         ".git"
       ],
-      "version": "0.1.0"
+      "version": "0.1.1"
     }
   }
 }

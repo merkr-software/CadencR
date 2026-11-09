@@ -9,7 +9,7 @@ Recipes and qualification artifacts are candidates, not publication authority.
 | Package | Coverage | Runtime | Origin |
 | --- | --- | --- | --- |
 | `typescript-language-server` | TypeScript, JavaScript | Node | Previous catalog; package 0.1.0 published |
-| `tsgo` | TypeScript, JavaScript | Native | Previous catalog |
+| `tsgo` | TypeScript, JavaScript | Native (Cadencr source build) | Previous catalog |
 | `biome` | JavaScript, TypeScript, JSON, CSS | Native | Previous catalog |
 | `eslint` | Project-configured JavaScript and TypeScript linting | Node | Previous catalog |
 | `oxlint` | JavaScript, TypeScript linting | Native | Previous catalog |
@@ -112,6 +112,13 @@ Ubuntu 22.04 and 24.04 x86_64, macOS ARM64 and macOS Intel each pass 25 real
 semantic probes using the same canonical archives. The 24 new source entries
 are `READY` for protected author inspection; that source preparation status does
 not publish assets or establish managed application lifecycle conformance.
+
+`tsgo` 0.1.1 is a Cadencr source build that backports an upstream fix for the
+exit status after shutdown; see the
+[native preparation notes](../../scripts/lsp-native-prepare/README.md#typescript-native-preview-rebuild).
+Its archives are bound to the [released CLI `0.15.7`](https://github.com/merkr-software/CadencR/releases/tag/cli/v0.15.7)
+qualification [run 42616915442](https://github.com/merkr-software/CadencR/actions/runs/42616915442),
+where all 25 packages pass on the same four hosts and tsgo exits with status 0.
 
 ## Production boundary
 

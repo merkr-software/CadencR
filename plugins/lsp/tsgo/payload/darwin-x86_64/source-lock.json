@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "id": "tsgo",
-  "package_version": "0.1.0",
+  "package_version": "0.1.1",
   "min_app_version": "0.16.1",
   "runtime": "native",
   "entry": "lib/tsgo",
@@ -13,7 +13,7 @@
       "url": "https://registry.npmjs.org/@typescript/native-preview-darwin-x64/-/native-preview-darwin-x64-7.0.0-dev.20260707.2.tgz",
       "sha256": "caa4135832fa9d6b321d7c6d48b8726054af3e3cdda5de461c43f33d49f1dfd4",
       "destination": ".",
-      "expanded_size": 28816756,
+      "expanded_size": 3845572,
       "files": [
         {
           "path": "LICENSE",
@@ -682,16 +682,32 @@
           "mode": "100644"
         },
         {
-          "path": "lib/tsgo",
-          "sha256": "64a1845f2bf8e2338e440a2b59ef4dbdfad2cccb2cad6e3e9eec5cda7b5e7712",
-          "size": 24971184,
-          "mode": "100755"
-        },
-        {
           "path": "package.json",
           "sha256": "a40181b8842b31ea695fffae9ca3115b5a17cc3dd0bd0c189d5f3214c7844376",
           "size": 2093,
           "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "tsgo-patched-build",
+      "version": "v0.0.0-20260707030041-9977d6d38fcc",
+      "url": "https://proxy.golang.org/github.com/microsoft/typescript-go/@v/v0.0.0-20260707030041-9977d6d38fcc.zip",
+      "sha256": "6d7af506d89b8be98b87628e3a6c31fb6a080db8f65375d2846c788ab3a14553",
+      "destination": ".",
+      "expanded_size": 24759383,
+      "files": [
+        {
+          "path": "CADENCR-PATCHES/tsgo-exit-after-shutdown.patch",
+          "sha256": "a8a36fa0fc834cac6634817097934a271979d2a91c264b0118db8bee65f34e75",
+          "size": 10583,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/tsgo",
+          "sha256": "168674568e330571cab9973bb664702361e43f10313d391824415e70449282f5",
+          "size": 24748800,
+          "mode": "100755"
         }
       ]
     }

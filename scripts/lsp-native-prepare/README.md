@@ -9,7 +9,7 @@ or production catalog activation. Every member requires app `0.16.1` or later.
 | --- | --- | --- |
 | rust-analyzer | 2026-11-02 | Rust toolchain, cargo and rust-src for project analysis |
 | Gopls | 0.23.0 | Source-built with Go 1.26.10; Go required for project analysis |
-| TypeScript native preview | 7.0.0-dev.20260707.2 | Bundled TypeScript standard declaration libraries |
+| TypeScript native preview | 7.0.0-dev.20260707.2 | Source-built with Go 1.26.10 and a shutdown backport; bundled standard declaration libraries |
 | Biome | 2.6.5 | Local Unix socket daemon; isolated smoke stops its own daemon |
 | Oxlint | 1.91.0 | Native language server |
 | Ruff | 0.17.3 | Native Python linting/formatting server |
@@ -71,6 +71,36 @@ LLVM license; omit compiler runtime object files unnecessary for language servic
 Upstream archives are inspected in memory under download, member count and expanded
 size budgets; only audited regular files are written. Links, unsafe paths,
 duplicate destinations and native executable companions are rejected.
+
+## TypeScript native preview rebuild
+
+Upstream `tsgo` builds through 7.0.2 exit with status 1 after a clean `shutdown`
+and `exit` ([microsoft/TypeScript#64742](https://github.com/microsoft/TypeScript/issues/64742)).
+Until a fixed upstream release exists, the package keeps the reviewed npm archive's
+declaration libraries, `LICENSE`, `NOTICE.txt` and metadata byte for byte, and
+replaces only `lib/tsgo` with a Cadencr build of the same upstream commit:
+
+- The npm executable must match `upstream_entry_sha256` before it is replaced.
+- Files attesting the replaced executable are not shipped. The Linux npm package's
+  `lib/tsgo.sig` is Microsoft's detached signature of its own binary and does not
+  verify against the rebuild, so the recipe omits it; any other retained
+  `lib/tsgo.*` file fails the rebuild.
+- The module zip for `source_commit` is fetched through the Go proxy and checked
+  against both its `h1` sum and SHA-256.
+- `plugins/lsp/native-recipes/patches/tsgo-exit-after-shutdown.patch` must match its
+  pinned hash, and the patched files must match their pinned result hashes. Its
+  header records the upstream pull request commit it backports and the adaptations.
+- On the matching host target, the patched lifecycle tests run before the build.
+- The build uses the release flags recorded in `build.flags`. The embedded version
+  string stays `7.0.0-dev.20260707.2` because module resolution and typings use it.
+- Every target must reproduce `entry_sha256`, and linked modules must match the
+  frozen `h1` sums. The patch ships as `CADENCR-PATCHES/tsgo-exit-after-shutdown.patch`,
+  and the source lock records the npm archive and the module zip as separate sources.
+
+The rebuilt macOS executables are not the Microsoft Developer ID-signed binaries.
+ARM carries the Go linker's ad hoc signature; Intel is unsigned, like Gopls.
+The Cadencr-signed catalog and pinned hashes attest Cadencr's distribution, not
+Microsoft's identity. Remove the rebuild once an upstream release ships the fix.
 
 ## Protocol and semantic qualification
 

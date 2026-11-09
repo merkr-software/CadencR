@@ -53,13 +53,28 @@ def prepare(recipe, target, cache, output, offline=False, strip_program=None):
     cache.mkdir(parents=True, exist_ok=True)
     data = acquire(spec, cache, offline)
     files = retained(data, spec)
-    files[spec["entry"]] = transform(files[spec["entry"]], spec, target, strip_program)
+    rebuilt = None
+    if recipe.get("build", {}).get("kind") == "patched-go-module":
+        from build_tsgo import build, upstream_entry
+        from go_toolchain import toolchain
+        upstream_entry(recipe, target, files)
+        with toolchain(recipe, cache, offline) as go:
+            rebuilt = build(recipe, target, go, cache / "tsgo-build", offline)
+        files[spec["entry"]] = rebuilt[0]
+    else:
+        files[spec["entry"]] = transform(files[spec["entry"]], spec, target, strip_program)
     entry = files[spec["entry"]]
     executable(entry, target)
     if len(entry) != spec["entry_size"] or sha256(entry) != spec["entry_sha256"]:
         raise ValueError("selected executable differs from reviewed recipe")
     main_files = files.copy()
     extra_files = []
+    if rebuilt:
+        patch_path = recipe["build"]["patch"]["shipped_as"]
+        if not safe_name(patch_path) or patch_path in files:
+            raise ValueError("unsafe/duplicate shipped patch destination")
+        del main_files[spec["entry"]]
+        files[patch_path] = rebuilt[1]
     for source in recipe.get("extra_sources", []):
         if not safe_name(source["path"]) or source["path"] in files:
             raise ValueError("unsafe/duplicate extra source destination")
@@ -86,6 +101,15 @@ def prepare(recipe, target, cache, output, offline=False, strip_program=None):
         lock["sources"].append({"name": source["name"], "version": source["version"], "url": source["url"],
             "sha256": source["sha256"], "destination": ".", "expanded_size": len(content),
             "files": [{"path": source["path"], "sha256": sha256(content), "size": len(content), "mode": "100644"}]})
+    if rebuilt:
+        settings = recipe["build"]
+        built = {spec["entry"]: rebuilt[0], patch_path: rebuilt[1]}
+        lock["sources"].append({"name": recipe["id"] + "-patched-build", "version": settings["module_version"],
+            "url": settings["module_url"], "sha256": settings["module_zip_sha256"], "destination": ".",
+            "expanded_size": sum(map(len, built.values())), "files": [
+            {"path": name, "sha256": sha256(content), "size": len(content),
+             "mode": "100755" if name == spec["entry"] else "100644"} for name, content in sorted(built.items())]})
+        (output / "build-provenance.txt").write_text(rebuilt[2])
     (output / "source-lock.json").write_text(json.dumps(lock, indent=2) + "\n")
     return {"id": recipe["id"], "target": target, "entry_size": len(entry),
             "entry_sha256": sha256(entry), "runtime_directory": str(runtime.resolve())}
