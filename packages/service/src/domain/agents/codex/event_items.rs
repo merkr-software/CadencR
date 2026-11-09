@@ -271,12 +271,15 @@ pub(super) fn stream_start_event(
 }
 
 fn tool_result_event(params: &Value, id: String, input: Value) -> RuntimeEvent {
-    // Collab calls carry no `error`; their failure is the item status.
-    let failed_collab_call = input.get("type").and_then(Value::as_str)
-        == Some("collabAgentToolCall")
-        && input.get("status").and_then(Value::as_str) == Some("failed");
-    let is_error = failed_collab_call || input.get("error").is_some_and(|error| !error.is_null());
+    let is_error = item_failed(&input);
     tool_result_event_with_error(params, id, input, is_error)
+}
+
+/// Whether a completed item failed: it carries an `error`, or its status says
+/// so (a command that exited non-zero, a collab call, which has no `error`).
+pub(super) fn item_failed(item: &Value) -> bool {
+    item.get("status").and_then(Value::as_str) == Some("failed")
+        || item.get("error").is_some_and(|error| !error.is_null())
 }
 
 pub(super) fn tool_result_event_with_error(

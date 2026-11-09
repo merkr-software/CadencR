@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use super::event_items::stream_start_event;
+use super::event_items::{item_failed, stream_start_event, tool_result_event_with_error};
 use super::event_json::thread_id;
 use super::event_state::IndexState;
 use crate::domain::agents::adapter::{RuntimeContentBlock, RuntimeEvent};
@@ -23,12 +23,47 @@ pub(super) fn command_action_events(
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or("codex_item");
+    let failure = completed.then(|| failure_output(item, actions)).flatten();
     actions
         .iter()
         .enumerate()
         .filter_map(|(index, action)| command_action_tool_use(action, item_id, index))
-        .filter_map(|tool| command_action_event(params, tool, completed, index_state))
+        .flat_map(|tool| command_action_tool_events(params, tool, failure.as_ref(), index_state))
         .collect()
+}
+
+/// What a failed exploring command reports: its output (`cat`'s "No such
+/// file or directory"), else its exit status. A successful one still
+/// reports no result.
+fn failure_output(item: &Value, actions: &[Value]) -> Option<Value> {
+    if !item_failed(item) {
+        return None;
+    }
+    let output = item
+        .get("aggregatedOutput")
+        .and_then(Value::as_str)
+        .map(str::trim_end)
+        .filter(|output| !output.is_empty());
+    let exit_code = item.get("exitCode").and_then(Value::as_i64);
+    if output.is_none() && exit_code == Some(1) && only_searches(actions) {
+        // `rg` and `grep` exit 1 when nothing matches: Codex reports that
+        // search as failed, but it found nothing, which is no error.
+        return None;
+    }
+    Some(json!(match (output, exit_code) {
+        (Some(output), _) => output.to_string(),
+        (None, Some(code)) => format!("Command exited with status {code}"),
+        (None, None) => "Command failed".to_string(),
+    }))
+}
+
+fn only_searches(actions: &[Value]) -> bool {
+    actions.iter().all(|action| {
+        matches!(
+            command_action_tool_name(action).as_deref(),
+            Some("Grep" | "Glob")
+        )
+    })
 }
 
 pub(super) fn has_exploring_command_actions(params: &Value) -> bool {
@@ -64,28 +99,39 @@ struct CommandActionToolUse {
     input: Value,
 }
 
-fn command_action_event(
+/// A tool's start once, and, when its command failed, its error result: the
+/// command's tools share its single output and exit status, so each one
+/// carries the failure.
+fn command_action_tool_events(
     params: &Value,
     tool: CommandActionToolUse,
-    completed: bool,
+    failure: Option<&Value>,
     index_state: &mut IndexState,
-) -> Option<RuntimeEvent> {
-    if completed && index_state.has_index(&tool.id) {
-        return None;
+) -> Vec<RuntimeEvent> {
+    let mut events = Vec::new();
+    if !index_state.has_index(&tool.id) {
+        let block = RuntimeContentBlock::ToolUse {
+            id: tool.id.clone(),
+            name: tool.name,
+            input: tool.input,
+        };
+        events.push(stream_start_event(
+            thread_id(params),
+            index_state.index_for(&tool.id),
+            block,
+        ));
     }
-    if !completed && index_state.has_index(&tool.id) {
-        return None;
+    if let Some(output) = failure {
+        if index_state.record_result(&tool.id) {
+            events.push(tool_result_event_with_error(
+                params,
+                tool.id,
+                output.clone(),
+                true,
+            ));
+        }
     }
-    let block = RuntimeContentBlock::ToolUse {
-        id: tool.id.clone(),
-        name: tool.name,
-        input: tool.input,
-    };
-    Some(stream_start_event(
-        thread_id(params),
-        index_state.index_for(&tool.id),
-        block,
-    ))
+    events
 }
 
 fn command_action_tool_use(
@@ -372,5 +418,153 @@ mod tests {
         assert!(started.is_empty());
         assert_eq!(tool_names(&completed), vec!["Bash"]);
         assert_eq!(completed.len(), 2);
+    }
+
+    /// The app-server's frames for `cat` on a missing file (codex-cli
+    /// 0.167.0): the read completes `failed`, exit code 1, with cat's error
+    /// as its output, and nothing else reports it.
+    fn missing_file_read(status: &str, exit_code: Value, output: Value) -> Value {
+        json!({
+            "threadId": "thread",
+            "turnId": "turn",
+            "item": {
+                "type": "commandExecution",
+                "id": "exec-1",
+                "command": "/bin/zsh -lc 'cat missing-file.txt'",
+                "source": "unifiedExecStartup",
+                "status": status,
+                "commandActions": [{
+                    "type": "read",
+                    "command": "cat missing-file.txt",
+                    "name": "missing-file.txt",
+                    "path": "/repo/missing-file.txt"
+                }],
+                "aggregatedOutput": output,
+                "exitCode": exit_code
+            }
+        })
+    }
+
+    fn tool_results(events: &[crate::domain::agents::adapter::RuntimeEvent]) -> Vec<(bool, Value)> {
+        events
+            .iter()
+            .filter_map(|event| event.user_message())
+            .flat_map(|message| &message.content)
+            .filter_map(|block| match block {
+                crate::domain::agents::adapter::RuntimeUserContentBlock::ToolResult {
+                    is_error,
+                    content,
+                    ..
+                } => Some((*is_error, content.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Found in QA: a read of a missing file showed as a plain read, with no
+    /// failure in any view.
+    #[test]
+    fn a_failed_read_reports_its_output_as_an_error_result() {
+        let mut indexes = IndexState::default();
+        let started = notification_events(
+            "item/started",
+            missing_file_read("inProgress", Value::Null, Value::Null),
+            None,
+            &mut indexes,
+        );
+        let completed = notification_events(
+            "item/completed",
+            missing_file_read(
+                "failed",
+                json!(1),
+                json!("cat: missing-file.txt: No such file or directory\n"),
+            ),
+            None,
+            &mut indexes,
+        );
+
+        assert_eq!(tool_names(&started), vec!["Read"]);
+        assert!(tool_results(&started).is_empty());
+        assert!(tool_names(&completed).is_empty(), "started only once");
+        assert_eq!(
+            tool_results(&completed),
+            vec![(
+                true,
+                json!("cat: missing-file.txt: No such file or directory")
+            )]
+        );
+    }
+
+    #[test]
+    fn a_failed_read_without_output_reports_its_exit_status() {
+        let mut indexes = IndexState::default();
+        let completed = notification_events(
+            "item/completed",
+            missing_file_read("failed", json!(2), json!("")),
+            None,
+            &mut indexes,
+        );
+
+        assert_eq!(tool_names(&completed), vec!["Read"]);
+        assert_eq!(
+            tool_results(&completed),
+            vec![(true, json!("Command exited with status 2"))]
+        );
+    }
+
+    #[test]
+    fn a_successful_read_still_reports_no_result() {
+        let mut indexes = IndexState::default();
+        let completed = notification_events(
+            "item/completed",
+            missing_file_read("completed", json!(0), json!("hello\n")),
+            None,
+            &mut indexes,
+        );
+
+        assert_eq!(tool_names(&completed), vec!["Read"]);
+        assert!(tool_results(&completed).is_empty());
+    }
+
+    /// `rg zzqqxxnomatch .` as codex-cli 0.167.0 reports it: `failed`, exit 1,
+    /// no output. Nothing matched; the search did not fail.
+    #[test]
+    fn a_search_that_matches_nothing_reports_no_error() {
+        let mut indexes = IndexState::default();
+        let search = |exit_code: i64, output: Value| {
+            json!({
+                "threadId": "thread",
+                "item": {
+                    "type": "commandExecution",
+                    "id": format!("exec-{exit_code}"),
+                    "command": "/bin/zsh -lc 'rg zzqqxxnomatch .'",
+                    "status": "failed",
+                    "commandActions": [{
+                        "type": "search",
+                        "command": "rg zzqqxxnomatch .",
+                        "query": "zzqqxxnomatch",
+                        "path": "."
+                    }],
+                    "aggregatedOutput": output,
+                    "exitCode": exit_code
+                }
+            })
+        };
+
+        let nothing_found =
+            notification_events("item/completed", search(1, Value::Null), None, &mut indexes);
+        let broken = notification_events(
+            "item/completed",
+            search(2, json!("rg: regex parse error")),
+            None,
+            &mut indexes,
+        );
+
+        assert_eq!(tool_names(&nothing_found), vec!["Grep"]);
+        assert!(tool_results(&nothing_found).is_empty());
+        assert_eq!(
+            tool_results(&broken),
+            vec![(true, json!("rg: regex parse error"))]
+        );
     }
 }
