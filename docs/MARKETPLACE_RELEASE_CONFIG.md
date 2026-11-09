@@ -119,6 +119,7 @@ an error.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `CADENCR_REGISTRY_CATALOG_URL`                                                                                                                          | Legacy catalog feed and activation switch for its renewal and watch. Keep older clients on this channel. |
 | `CADENCR_REGISTRY_ADMINISTRATIVE_CATALOG_URL`                                                                                                           | Administrative catalog feed; independently enables `renew-administrative-catalog` and its expiry watch. |
+| `CADENCR_REGISTRY_LSP_BLOCKLIST_URL`                                                                                                                    | Legacy `marketplace-v2/managed-lsp-blocklist.json` URL; includes the signed LSP policy in legacy renewal and expiry monitoring. |
 | `CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL`, `CADENCR_REGISTRY_THEME_BLOCKLIST_URL`, `CADENCR_REGISTRY_TAB_BLOCKLIST_URL`                                 | The three signed revocation policy feeds the watch checks (mirrors the desktop `*_BLOCKLIST_URL` pins). |
 | `CADENCR_REGISTRY_KEY_ID`, `CADENCR_REGISTRY_PUBLIC_KEY_PEM`                                                                                            | Public signing identity (PEM, not the base64 form used by desktop builds); no private material.         |
 | `CADENCR_REGISTRY_TRUST_MANIFEST_JSON`, `CADENCR_REGISTRY_ROOT_KEY_ID`, `CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM`, `CADENCR_REGISTRY_TRUST_MIN_GENERATION` | Optional root trust profile (the request's `trust` object); the first three are all-or-none.            |
@@ -510,6 +511,13 @@ operations: they preserve signed package history and installed receipts, and do
 not admit a successor or migrate conversations. Enable administrative renewal
 and expiry monitoring with `CADENCR_REGISTRY_ADMINISTRATIVE_CATALOG_URL` after
 verifying the live signed administrative catalog.
+
+Administrative maintenance covers only its catalog. Keep the legacy
+`renew-protected-catalog` and `watch-registry-expiry` workflows enabled and set
+`CADENCR_REGISTRY_LSP_BLOCKLIST_URL` to the registry's legacy
+`marketplace-v2/managed-lsp-blocklist.json` URL so they also renew and watch the
+LSP policy. A fresh catalog cannot extend that policy's signed expiry; an expired
+policy prevents LSP installation even when the catalog remains valid.
 
 ## Language server revocation
 
