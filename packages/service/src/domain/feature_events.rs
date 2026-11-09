@@ -14,7 +14,7 @@
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use crate::domain::mcp::control::archive_cleanup::CleanupReport;
+use crate::domain::features::archive_cleanup::CleanupReport;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -57,22 +57,43 @@ pub struct AgentArchivedEvent {
     pub cleanup: CleanupReport,
 }
 
+/// An archive's cleanup changed: the archive itself committed, or one of its
+/// steps started or settled — whoever asked for it (the dialog on any device,
+/// an agent). Clients apply what is theirs to apply: leave and close the
+/// archived conversations, tear down the terminal panes whose shells were
+/// killed, refetch the cleanup they show. The payload is the whole report, so
+/// a later event supersedes an earlier one.
+#[derive(Clone, Debug, Serialize)]
+pub struct ArchiveCleanupEvent {
+    pub project_id: i64,
+    pub feature_id: i64,
+    /// Every conversation the archive archived, on the event of the archive
+    /// itself; empty on later step updates.
+    pub archived_feature_ids: Vec<i64>,
+    pub cleanup: CleanupReport,
+}
+
 /// One toast per agent archive: a lagging client only misses toasts.
 const AGENT_ARCHIVED_CAPACITY: usize = 16;
+/// Up to four step transitions per archive, two events each.
+const ARCHIVE_CLEANUP_CAPACITY: usize = 64;
 
 /// Cloneable handle around the broadcast senders. Stored on `AppState`.
 #[derive(Clone, Debug)]
 pub struct FeatureEventBroadcaster {
     tx: broadcast::Sender<FeatureEvent>,
     agent_archived_tx: broadcast::Sender<AgentArchivedEvent>,
+    archive_cleanup_tx: broadcast::Sender<ArchiveCleanupEvent>,
 }
 
 impl FeatureEventBroadcaster {
     pub fn new(tx: broadcast::Sender<FeatureEvent>) -> Self {
         let (agent_archived_tx, _) = broadcast::channel(AGENT_ARCHIVED_CAPACITY);
+        let (archive_cleanup_tx, _) = broadcast::channel(ARCHIVE_CLEANUP_CAPACITY);
         Self {
             tx,
             agent_archived_tx,
+            archive_cleanup_tx,
         }
     }
 
@@ -98,5 +119,14 @@ impl FeatureEventBroadcaster {
     /// Same swallowed send error as [`Self::emit`]: no client, no toast.
     pub fn emit_agent_archived(&self, event: AgentArchivedEvent) {
         let _ = self.agent_archived_tx.send(event);
+    }
+
+    pub fn subscribe_archive_cleanup(&self) -> broadcast::Receiver<ArchiveCleanupEvent> {
+        self.archive_cleanup_tx.subscribe()
+    }
+
+    /// Same swallowed send error as [`Self::emit`]: the journal holds the state.
+    pub fn emit_archive_cleanup(&self, event: ArchiveCleanupEvent) {
+        let _ = self.archive_cleanup_tx.send(event);
     }
 }

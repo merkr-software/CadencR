@@ -1,8 +1,6 @@
 use sqlx::{QueryBuilder, Sqlite, SqlitePool, Transaction};
 
-use super::models::{
-    ArchivePreview, ArchiveProjectSessionsResponse, ArchiveRequest, ArchiveResponse,
-};
+use super::models::{ArchivePreview, ArchiveProjectSessionsResponse, ArchiveRequest};
 use crate::error::AppError;
 
 mod graph;
@@ -28,46 +26,57 @@ pub async fn preview(pool: &SqlitePool, selected_id: i64) -> Result<ArchivePrevi
         .preview(selected_id))
 }
 
-pub async fn archive(
-    pool: &SqlitePool,
-    selected_id: i64,
-    request: ArchiveRequest,
-) -> Result<ArchiveResponse, AppError> {
-    let mut tx = pool.begin().await?;
-    let ids = selection(&mut tx, selected_id, &request).await?;
-    archive_ids(&mut tx, &ids).await?;
-    tx.commit().await?;
-    Ok(ArchiveResponse { archived_ids: ids })
+/// Who archives: the user may archive any conversation; an agent
+/// (`project_archive_session`) only idle ones, and never its own.
+#[derive(Debug, Clone, Copy)]
+pub enum Archiver {
+    User,
+    Agent { caller_id: i64 },
 }
 
-/// [`archive`] on an agent's behalf (`project_archive_session`): refused when
-/// the selection includes `caller_id`, or a conversation whose agent is
-/// running or waiting at a gate — it would keep running, hidden. Checked in
-/// the archive's own transaction, so nothing starts between check and write.
-pub async fn archive_idle(
+/// Archive `selected_id` (with the relatives `request` asks for) inside the
+/// caller's transaction, so the cleanup plan commits with it.
+///
+/// For [`Archiver::Agent`] it is refused when the selection includes the
+/// caller, or a conversation whose agent is running or waiting at a gate — it
+/// would keep running, hidden. Checked in the archive's own transaction, so
+/// nothing starts between check and write.
+pub async fn archive_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    selected_id: i64,
+    request: &ArchiveRequest,
+    archiver: Archiver,
+) -> Result<Vec<i64>, AppError> {
+    let ids = selection(tx, selected_id, request).await?;
+    if let Archiver::Agent { caller_id } = archiver {
+        if ids.contains(&caller_id) {
+            return Err(AppError::BadRequest(format!(
+                "archiving {selected_id} with its parent or descendants would archive \
+                 the calling conversation {caller_id}"
+            )));
+        }
+        let busy = busy_ids(tx, &ids).await?;
+        if !busy.is_empty() {
+            return Err(AppError::Conflict(format!(
+                "conversation(s) {busy:?} have a working agent or a pending gate; \
+                 archive them once they are idle"
+            )));
+        }
+    }
+    archive_ids(tx, &ids).await?;
+    Ok(ids)
+}
+
+#[cfg(test)]
+async fn archive(
     pool: &SqlitePool,
     selected_id: i64,
     request: ArchiveRequest,
-    caller_id: i64,
-) -> Result<ArchiveResponse, AppError> {
+) -> Result<Vec<i64>, AppError> {
     let mut tx = pool.begin().await?;
-    let ids = selection(&mut tx, selected_id, &request).await?;
-    if ids.contains(&caller_id) {
-        return Err(AppError::BadRequest(format!(
-            "archiving {selected_id} with its parent or descendants would archive \
-             the calling conversation {caller_id}"
-        )));
-    }
-    let busy = busy_ids(&mut tx, &ids).await?;
-    if !busy.is_empty() {
-        return Err(AppError::Conflict(format!(
-            "conversation(s) {busy:?} have a working agent or a pending gate; \
-             archive them once they are idle"
-        )));
-    }
-    archive_ids(&mut tx, &ids).await?;
+    let ids = archive_in(&mut tx, selected_id, &request, Archiver::User).await?;
     tx.commit().await?;
-    Ok(ArchiveResponse { archived_ids: ids })
+    Ok(ids)
 }
 
 async fn selection(
@@ -268,10 +277,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            archive(&pool, 1, ArchiveRequest::default())
-                .await
-                .unwrap()
-                .archived_ids,
+            archive(&pool, 1, ArchiveRequest::default()).await.unwrap(),
             vec![1]
         );
         assert!(matches!(
@@ -299,6 +305,7 @@ mod tests {
         let request = || ArchiveRequest {
             include_parent: false,
             include_descendants: true,
+            ..Default::default()
         };
         assert!(archive(&pool, root, request()).await.is_err());
         let active: i64 = sqlx::query_scalar(
@@ -316,7 +323,7 @@ mod tests {
         let response = archive(&pool, root, request()).await.unwrap();
         let mut expected = vec![root];
         expected.extend(children);
-        assert_eq!(response.archived_ids, expected);
+        assert_eq!(response, expected);
         let archived: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM features WHERE project_id = ? AND status = 'archived'",
         )
@@ -348,6 +355,7 @@ mod tests {
                 ArchiveRequest {
                     include_parent,
                     include_descendants,
+                    ..Default::default()
                 },
             )
             .await
@@ -360,7 +368,7 @@ mod tests {
                 expected.push(child);
             }
             expected.sort_unstable();
-            assert_eq!(response.archived_ids, expected);
+            assert_eq!(response, expected);
             let actual = statuses(&pool, &[grandparent, parent, selected, child, sibling]).await;
             assert_eq!(actual[0], "active");
             assert_eq!(
@@ -456,7 +464,8 @@ mod tests {
             selected,
             ArchiveRequest {
                 include_parent: false,
-                include_descendants: true
+                include_descendants: true,
+                ..Default::default()
             },
         )
         .await

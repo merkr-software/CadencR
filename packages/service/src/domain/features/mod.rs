@@ -1,4 +1,5 @@
-mod archive;
+pub(crate) mod archive;
+pub mod archive_cleanup;
 pub mod archive_routes;
 pub mod auto_name_route;
 pub mod models;

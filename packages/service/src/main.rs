@@ -322,6 +322,7 @@ async fn main() -> anyhow::Result<()> {
             // process lifetime; survives client disconnects).
             domain::schedules::scheduler::spawn(state.clone());
             domain::restart_continuations::spawn_startup_pass(state.clone());
+            domain::features::archive_cleanup::runner::recover_at_startup(&state).await?;
             domain::mcp::control::message_queue::spawn(state.clone());
             domain::git::forge::spawn(state.clone());
             domain::git::linked_branches::spawn(state.clone());

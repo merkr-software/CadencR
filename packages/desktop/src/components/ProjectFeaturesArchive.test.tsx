@@ -58,7 +58,7 @@ vi.mock("@/api/generated", async (importOriginal) => ({
     (opts?: { mutation?: { onSuccess?: (data: { archived_ids: number[] }) => void } }) => ({
       mutateAsync: ({ id }: { id: number }) => {
         mockArchive(id);
-        const response = { archived_ids: [id] };
+        const response = { archived_ids: [id], cleanup: {} };
         opts?.mutation?.onSuccess?.(response);
         return Promise.resolve(response);
       },

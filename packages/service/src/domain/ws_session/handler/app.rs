@@ -51,6 +51,9 @@ pub(super) async fn handle_app_action(
         "subscribe.agent_archived_events" => {
             super::app_notifications::subscribe_agent_archived_events(sender, app_state)
         }
+        "subscribe.archive_cleanup_events" => {
+            super::app_notifications::subscribe_archive_cleanup_events(sender, app_state)
+        }
         "subscribe.remote_events" => {
             super::app_notifications::subscribe_remote_events(sender, app_state)
         }

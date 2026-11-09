@@ -7,10 +7,8 @@ import { ArchiveCleanupOptions } from "@/components/ArchiveCleanupOptions";
 import { KillTerminalsOption } from "@/components/KillTerminalsOption";
 import { useKillTerminalsState } from "@/components/use-kill-terminals-state";
 import { useArchiveCleanupState } from "@/components/archive-cleanup-state";
-import {
-  useArchiveRelativeOptions,
-  type ArchiveRelativeSelection,
-} from "@/components/ArchiveRelativeOptions";
+import { useArchiveRelativeOptions } from "@/components/ArchiveRelativeOptions";
+import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +34,7 @@ interface ArchiveFeatureDialogProps {
   showWorktreeRemoval: boolean;
   showBranchRemoval: boolean;
   onOpenChange: (open: boolean) => void;
-  onArchive: (featureId: number, options: ArchiveRelativeSelection) => Promise<unknown>;
+  onArchive: (featureId: number, options: ArchiveFeatureOptions) => Promise<unknown>;
 }
 
 export function ArchiveFeatureDialog({
@@ -51,7 +49,7 @@ export function ArchiveFeatureDialog({
   onArchive,
 }: ArchiveFeatureDialogProps): ReactElement {
   const confirmationLock = useConfirmSubmissionLock(open);
-  const killState = useKillTerminalsState(open, feature);
+  const killState = useKillTerminalsState(open, feature, { includeBrowserTabs: true });
   const cleanupState = useArchiveCleanupState({
     open,
     feature,
@@ -69,7 +67,6 @@ export function ArchiveFeatureDialog({
   const submission = useArchiveSubmission({
     open,
     feature,
-    projectId,
     onArchive,
     onOpenChange,
     cleanupState,
@@ -143,9 +140,10 @@ function ArchiveOptionsList(props: {
 }): ReactElement {
   return (
     <div className="space-y-3">
-      {props.killState.liveTerminalCount > 0 && (
+      {props.killState.liveTerminalCount + props.killState.liveBrowserCount > 0 && (
         <KillTerminalsOption
           count={props.killState.liveTerminalCount}
+          browserCount={props.killState.liveBrowserCount}
           checked={props.killState.killTerminals}
           onToggle={props.killState.toggleKillTerminals}
         />
@@ -165,7 +163,8 @@ function ArchiveDialogHeader(): ReactElement {
     <DialogHeader>
       <DialogTitle>Archive session?</DialogTitle>
       <DialogDescription>
-        Archive now, optionally cleaning up the related Git worktree or branch in the background.
+        Archive now, optionally cleaning up its terminals, worktree or branch. An interrupted
+        cleanup can be resumed later.
       </DialogDescription>
     </DialogHeader>
   );

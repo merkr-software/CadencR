@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
-import type { ArchiveRelativeSelection } from "@/components/ArchiveRelativeOptions";
+import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { useFeatureArchiveConfirmation } from "@/components/useFeatureArchiveConfirmation";
 import { deleteFeatureDialogTitle } from "@/lib/feature-archive-decision";
@@ -11,7 +11,7 @@ interface FeatureArchiveDialogsProps {
   confirmFeatureId: number | null;
   confirmation: ReturnType<typeof useFeatureArchiveConfirmation>;
   onClose: () => void;
-  onArchive: (featureId: number, options: ArchiveRelativeSelection) => Promise<unknown>;
+  onArchive: (featureId: number, options: ArchiveFeatureOptions) => Promise<unknown>;
   onDelete: (featureId: number) => void;
 }
 

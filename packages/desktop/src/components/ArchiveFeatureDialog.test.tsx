@@ -1,47 +1,45 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useState, type ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen, waitFor } from "@/test-utils";
+import { createTestQueryClient, fireEvent, render, screen, waitFor } from "@/test-utils";
 import { ArchiveFeatureDialog } from "./ArchiveFeatureDialog";
-import type { Feature, GitStatusSnapshot } from "@/api/generated";
+import { getListFeaturesQueryKey, type Feature, type GitStatusSnapshot } from "@/api/generated";
+import { toast } from "sonner";
+import { useBrowserStore } from "@/stores/browser-store";
 
-const {
-  mockDeleteWorktree,
-  mockDeleteBranch,
-  mockBranchCheck,
-  mockGitStatus,
-  mockKillTerminals,
-  mockListFeatureActivity,
-  mockArchivePreview,
-} = vi.hoisted(() => ({
-  mockDeleteWorktree: vi.fn(),
-  mockDeleteBranch: vi.fn(),
-  mockBranchCheck: vi.fn(),
-  mockGitStatus: vi.fn(),
-  mockKillTerminals: vi.fn(),
-  mockListFeatureActivity: vi.fn(),
-  mockArchivePreview: vi.fn(),
-}));
+const { mockBranchCheck, mockGitStatus, mockListFeatureActivity, mockArchivePreview } = vi.hoisted(
+  () => ({
+    mockBranchCheck: vi.fn(),
+    mockGitStatus: vi.fn(),
+    mockListFeatureActivity: vi.fn(),
+    mockArchivePreview: vi.fn(),
+  }),
+);
 
-vi.mock("@/api/generated", () => ({
-  useDeleteWorktree: vi.fn(() => ({ mutateAsync: mockDeleteWorktree })),
-  useDeleteFeatureBranch: vi.fn(() => ({ mutateAsync: mockDeleteBranch })),
+vi.mock("@/api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/generated")>()),
   useCheckBranchDelete: mockBranchCheck,
   useGetGitStatus: mockGitStatus,
-  useKillTerminalSessions: vi.fn(() => ({ mutateAsync: mockKillTerminals })),
   useListFeatureActivity: mockListFeatureActivity,
   useGetFeatureArchivePreview: mockArchivePreview,
 }));
 
-vi.mock("sonner", () => ({
-  toast: {
-    promise: vi.fn((promise: Promise<unknown>) => {
-      void promise.catch(() => undefined);
-      return promise;
-    }),
-    error: vi.fn(),
-  },
-}));
+vi.mock("sonner", () => ({ toast: { warning: vi.fn(), error: vi.fn(), success: vi.fn() } }));
+
+/** The single archive request, with everything the dialog left unchecked. */
+function request(overrides: Record<string, boolean> = {}): Record<string, boolean> {
+  return {
+    include_parent: false,
+    include_descendants: false,
+    kill_terminals: false,
+    close_browser_tabs: false,
+    remove_worktree: false,
+    remove_branch: false,
+    force_remove_worktree: false,
+    force_remove_branch: false,
+    ...overrides,
+  };
+}
 
 const feature: Feature = {
   id: 1,
@@ -108,8 +106,7 @@ function renderDialog(
 describe("ArchiveFeatureDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDeleteWorktree.mockResolvedValue({ success: true });
-    mockDeleteBranch.mockResolvedValue({ success: true });
+    useBrowserStore.setState({ countsByScope: {} });
     mockBranchCheck.mockReturnValue({
       data: {
         branch: "feature/one",
@@ -120,7 +117,6 @@ describe("ArchiveFeatureDialog", () => {
       isLoading: false,
     });
     mockGitStatus.mockReturnValue({ data: undefined, isLoading: false });
-    mockKillTerminals.mockResolvedValue({ killed: 0 });
     mockListFeatureActivity.mockReturnValue({ data: [] });
     mockArchivePreview.mockReturnValue({
       data: { parent_ids: [], descendant_ids: [] },
@@ -146,12 +142,7 @@ describe("ArchiveFeatureDialog", () => {
 
     await user.keyboard("{Meta>}{Enter}{/Meta}");
 
-    await waitFor(() =>
-      expect(onArchive).toHaveBeenCalledWith(1, {
-        include_parent: false,
-        include_descendants: false,
-      }),
-    );
+    await waitFor(() => expect(onArchive).toHaveBeenCalledWith(1, request()));
   });
 
   it("ignores repeated confirm keys while the archive dialog is closing", async () => {
@@ -185,10 +176,7 @@ describe("ArchiveFeatureDialog", () => {
     await user.keyboard("{Enter}");
 
     expect(onArchive).toHaveBeenCalledTimes(1);
-    expect(onArchive).toHaveBeenCalledWith(1, {
-      include_parent: false,
-      include_descendants: false,
-    });
+    expect(onArchive).toHaveBeenCalledWith(1, request());
   });
 
   it.each([
@@ -210,10 +198,10 @@ describe("ArchiveFeatureDialog", () => {
     if (choice.descendants) await user.click(screen.getByText("Archive 2 descendants"));
     await user.click(screen.getByRole("button", { name: /archive/i }));
 
-    expect(onArchive).toHaveBeenCalledWith(1, {
-      include_parent: choice.parent,
-      include_descendants: choice.descendants,
-    });
+    expect(onArchive).toHaveBeenCalledWith(
+      1,
+      request({ include_parent: choice.parent, include_descendants: choice.descendants }),
+    );
   });
 
   it("shows only eligible relative choices", () => {
@@ -315,7 +303,7 @@ describe("ArchiveFeatureDialog", () => {
     );
   });
 
-  it("waits for archive success before closing and cleanup", async () => {
+  it("sends the cleanup with the archive and closes once the service answers", async () => {
     let resolveArchive!: (value: unknown) => void;
     const onArchive = vi.fn(() => new Promise((resolve) => (resolveArchive = resolve)));
     const onOpenChange = vi.fn();
@@ -339,13 +327,12 @@ describe("ArchiveFeatureDialog", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onOpenChange).not.toHaveBeenCalled();
-    expect(mockDeleteWorktree).not.toHaveBeenCalled();
-    resolveArchive({ archived_ids: [1] });
+    expect(onArchive).toHaveBeenCalledExactlyOnceWith(1, request({ remove_worktree: true }));
+    resolveArchive({ archived_ids: [1], cleanup: { worktree: { status: "done" } } });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    await waitFor(() => expect(mockDeleteWorktree).toHaveBeenCalledOnce());
   });
 
-  it("keeps the dialog open and skips cleanup when archiving fails", async () => {
+  it("keeps the dialog open with the error when archiving fails", async () => {
     const onArchive = vi.fn().mockRejectedValue(new Error("archive refused"));
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
@@ -366,8 +353,44 @@ describe("ArchiveFeatureDialog", () => {
     await user.click(screen.getByRole("button", { name: /archive/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent("archive refused");
     expect(onOpenChange).not.toHaveBeenCalled();
-    expect(mockDeleteWorktree).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /archive/i })).toBeEnabled();
+  });
+
+  it("closes instead of offering a retry when the service announced the archive before failing", async () => {
+    const queryClient = createTestQueryClient();
+    // `app/archive_cleanup` marks it archived in the cache while the request
+    // is in flight; then the service stops and the request fails.
+    const onArchive = vi.fn(async () => {
+      queryClient.setQueryData(getListFeaturesQueryKey({ project_id: 1 }), [
+        { ...feature, status: "archived" },
+      ]);
+      throw new Error("Network Error");
+    });
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ArchiveFeatureDialog
+        open
+        feature={feature}
+        projectId={1}
+        hasLiveWorktree={false}
+        hasResidualWorktreeDirectory={false}
+        showWorktreeRemoval
+        showBranchRemoval={false}
+        onOpenChange={onOpenChange}
+        onArchive={onArchive}
+      />,
+      { queryClient },
+    );
+    await user.click(screen.getByText("Remove worktree"));
+    await user.click(screen.getByRole("button", { name: /archive/i }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Session archived, but its cleanup did not report back",
+      expect.anything(),
+    );
   });
 
   it("hides the kill-terminals option when the feature has no live shells", () => {
@@ -378,30 +401,49 @@ describe("ArchiveFeatureDialog", () => {
   it("kills running terminals via the T shortcut when archiving", async () => {
     withRunningShells(2);
     const user = userEvent.setup();
-    renderDialog();
+    const { onArchive } = renderDialog();
 
     expect(screen.getByText(/Stop the 2 running shells/i)).toBeInTheDocument();
 
     await user.keyboard("t");
     await user.click(screen.getByRole("button", { name: /archive/i }));
 
-    expect(mockKillTerminals).toHaveBeenCalledWith({ params: { feature_id: 1 } });
+    expect(onArchive).toHaveBeenCalledWith(1, request({ kill_terminals: true }));
+  });
+
+  it("closes the session's browser tabs with its shells through the same option", async () => {
+    withRunningShells(1);
+    useBrowserStore.setState({ countsByScope: { 1: 2 } });
+    const user = userEvent.setup();
+    const { onArchive } = renderDialog();
+
+    expect(screen.getByText("Close terminals & browsers")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Stop the 1 running shell and close the 2 browser tabs/i),
+    ).toBeInTheDocument();
+    await user.keyboard("t");
+    await user.click(screen.getByRole("button", { name: /archive/i }));
+
+    expect(onArchive).toHaveBeenCalledWith(
+      1,
+      request({ kill_terminals: true, close_browser_tabs: true }),
+    );
   });
 
   it("does not kill terminals when the option is left unchecked", async () => {
     withRunningShells(1);
     const user = userEvent.setup();
-    renderDialog();
+    const { onArchive } = renderDialog();
 
     await user.click(screen.getByRole("button", { name: /archive/i }));
 
-    expect(mockKillTerminals).not.toHaveBeenCalled();
+    expect(onArchive).toHaveBeenCalledWith(1, request());
   });
 
   it("warns and force-removes dirty worktrees", async () => {
     mockGitStatus.mockReturnValue({ data: dirtyStatus(), isLoading: false });
     const user = userEvent.setup();
-    renderDialog({ hasLiveWorktree: true });
+    const { onArchive } = renderDialog({ hasLiveWorktree: true });
 
     await user.click(screen.getByText("Remove worktree"));
 
@@ -409,45 +451,59 @@ describe("ArchiveFeatureDialog", () => {
 
     await user.click(screen.getByRole("button", { name: /archive/i }));
 
-    expect(mockDeleteWorktree).toHaveBeenCalledWith({
-      params: { project_id: 1, feature_id: 1, force: true },
-    });
+    expect(onArchive).toHaveBeenCalledWith(
+      1,
+      request({ remove_worktree: true, force_remove_worktree: true }),
+    );
   });
 
   it("force-removes residual files from an invalid worktree folder", async () => {
     const user = userEvent.setup();
-    renderDialog({ hasResidualWorktreeDirectory: true });
+    const { onArchive } = renderDialog({ hasResidualWorktreeDirectory: true });
 
     await user.click(screen.getByText("Remove worktree"));
 
     expect(screen.getByText(/Git no longer recognizes this worktree/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /archive/i }));
-    expect(mockDeleteWorktree).toHaveBeenCalledWith({
-      params: { project_id: 1, feature_id: 1, force: true },
-    });
+    expect(onArchive).toHaveBeenCalledWith(
+      1,
+      request({ remove_worktree: true, force_remove_worktree: true }),
+    );
   });
 
-  it("removes stale worktree metadata before deleting its branch", async () => {
+  it("asks for the worktree removal along with the branch", async () => {
     const user = userEvent.setup();
-    renderDialog({ hasLiveWorktree: false });
+    const { onArchive } = renderDialog({ hasLiveWorktree: false });
 
     await user.click(screen.getByText("Remove branch"));
 
     expect(screen.getByRole("checkbox", { name: /remove worktree/i })).toBeChecked();
     await user.click(screen.getByRole("button", { name: /archive/i }));
-    await waitFor(() => expect(mockDeleteWorktree).toHaveBeenCalledTimes(1));
-    expect(mockDeleteBranch).toHaveBeenCalledTimes(1);
+    expect(onArchive).toHaveBeenCalledWith(
+      1,
+      request({ remove_worktree: true, remove_branch: true }),
+    );
   });
 
-  it("still attempts branch deletion when worktree cleanup reports an error", async () => {
-    mockDeleteWorktree.mockResolvedValue({ success: false, error: "directory not empty" });
+  it("forces an unmerged branch only after its warning was shown", async () => {
+    mockBranchCheck.mockReturnValue({
+      data: {
+        branch: "feature/one",
+        current_branch: "feature/one",
+        target_branch: "main",
+        merged: false,
+      },
+      isLoading: false,
+    });
     const user = userEvent.setup();
-    renderDialog({ hasLiveWorktree: true });
+    const { onArchive } = renderDialog({ hasLiveWorktree: false });
 
     await user.click(screen.getByText("Remove branch"));
-    await user.click(screen.getByRole("button", { name: /archive/i }));
-
-    await waitFor(() => expect(mockDeleteBranch).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: /archive & force delete/i }));
+    expect(onArchive).toHaveBeenCalledWith(
+      1,
+      request({ remove_worktree: true, remove_branch: true, force_remove_branch: true }),
+    );
   });
 
   it("does not allow branch removal when a no-worktree session is on the target branch", async () => {

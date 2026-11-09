@@ -545,6 +545,61 @@ export interface AllocatedPort {
   source: PortSource;
 }
 
+export type StepStatus = (typeof StepStatus)[keyof typeof StepStatus];
+
+export const StepStatus = {
+  pending: "pending",
+  running: "running",
+  interrupted: "interrupted",
+  done: "done",
+  skipped: "skipped",
+  blocked: "blocked",
+  failed: "failed",
+} as const;
+
+/**
+ * One step's state. `reason` is a skip explanation, a blocked code
+ * (`dirty_worktree`, `unmerged_branch`) or what a pending step waits on.
+ */
+export interface StepOutcome {
+  /** @nullable */
+  detail?: string | null;
+  /** @nullable */
+  message?: string | null;
+  /** @nullable */
+  reason?: string | null;
+  status: StepStatus;
+}
+
+export type CleanupReportBranch = null | StepOutcome;
+
+export type CleanupReportBrowserTabs = null | StepOutcome;
+
+export type CleanupReportTerminals = null | StepOutcome;
+
+export type CleanupReportWorktree = null | StepOutcome;
+
+/**
+ * One entry per step that was asked for; absent steps were not requested.
+ */
+export interface CleanupReport {
+  branch?: CleanupReportBranch;
+  browser_tabs?: CleanupReportBrowserTabs;
+  terminals?: CleanupReportTerminals;
+  worktree?: CleanupReportWorktree;
+}
+
+export interface ArchiveCleanupStatus {
+  cleanup: CleanupReport;
+  feature_id: number;
+  project_id: number;
+  /** A run is executing its steps right now. */
+  running: boolean;
+  /** Every requested step is done or had nothing to do. */
+  settled: boolean;
+  title: string;
+}
+
 export interface ArchivePreview {
   descendant_ids: number[];
   has_relations: boolean;
@@ -562,13 +617,28 @@ export interface ArchiveProjectSessionsResponse {
   skipped_running: number;
 }
 
+/**
+ * The Archive dialog's options: which relatives to archive along, and the
+ * cleanup to run on the selected conversation once the archive commits.
+ */
 export interface ArchiveRequest {
+  close_browser_tabs?: boolean;
+  /** Delete the branch even when unmerged; only after the user confirmed it. */
+  force_remove_branch?: boolean;
+  /** Discard uncommitted changes; only after the user confirmed it. */
+  force_remove_worktree?: boolean;
   include_descendants?: boolean;
   include_parent?: boolean;
+  kill_terminals?: boolean;
+  /** Also removes the worktree, which git requires first. */
+  remove_branch?: boolean;
+  remove_worktree?: boolean;
 }
 
 export interface ArchiveResponse {
   archived_ids: number[];
+  /** Each requested cleanup step's outcome, on the selected conversation. */
+  cleanup: CleanupReport;
 }
 
 export type ArchivedCleanupRunStatus =
@@ -5974,6 +6044,16 @@ export interface RestartContinuationReport {
    * @nullable
    */
   previous_version?: string | null;
+}
+
+/**
+ * Resume an archive cleanup, forcing the steps the user confirmed.
+ */
+export interface RetryArchiveCleanupRequest {
+  /** Delete the branch even though it is not merged. */
+  force_remove_branch?: boolean;
+  /** Discard the worktree's uncommitted changes. */
+  force_remove_worktree?: boolean;
 }
 
 export interface RetryWorktreeBody {
@@ -11887,6 +11967,121 @@ export function useGetUnifiedAgents<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetUnifiedAgentsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Archived conversations whose cleanup is not settled: in progress, waiting,
+interrupted, blocked or failed.
+ */
+export const listArchiveCleanups = (signal?: AbortSignal) => {
+  return customInstance<ArchiveCleanupStatus[]>({
+    url: `/api/archive-cleanups`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListArchiveCleanupsQueryKey = () => {
+  return [`/api/archive-cleanups`] as const;
+};
+
+export const getListArchiveCleanupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListArchiveCleanupsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listArchiveCleanups>>> = ({ signal }) =>
+    listArchiveCleanups(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listArchiveCleanups>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListArchiveCleanupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listArchiveCleanups>>
+>;
+export type ListArchiveCleanupsQueryError = ErrorType<unknown>;
+
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listArchiveCleanups>>,
+          TError,
+          Awaited<ReturnType<typeof listArchiveCleanups>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listArchiveCleanups>>,
+          TError,
+          Awaited<ReturnType<typeof listArchiveCleanups>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Archived conversations whose cleanup is not settled: in progress, waiting,
+interrupted, blocked or failed.
+ */
+
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListArchiveCleanupsQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -17996,6 +18191,11 @@ export const useDeleteFeature = <TError = ErrorType<unknown>, TContext = unknown
   return useMutation(getDeleteFeatureMutationOptions(options), queryClient);
 };
 
+/**
+ * @summary Archive a conversation and run the cleanup the request asks for, all
+orchestrated here: the response carries each step's outcome. The cleanup
+keeps running if the client goes away, and is journaled for resumption.
+ */
 export const archiveFeature = (
   id: number,
   archiveRequest: ArchiveRequest,
@@ -18052,6 +18252,11 @@ export type ArchiveFeatureMutationBody = ArchiveRequest;
 export type ArchiveFeatureMutationError = ErrorType<unknown>;
 export type ArchiveFeatureMutationVariables = { id: number; data: ArchiveRequest };
 
+/**
+ * @summary Archive a conversation and run the cleanup the request asks for, all
+orchestrated here: the response carries each step's outcome. The cleanup
+keeps running if the client goes away, and is journaled for resumption.
+ */
 export const useArchiveFeature = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
     mutation?: UseMutationOptions<
@@ -18069,6 +18274,192 @@ export const useArchiveFeature = <TError = ErrorType<unknown>, TContext = unknow
   TContext
 > => {
   return useMutation(getArchiveFeatureMutationOptions(options), queryClient);
+};
+
+export const getArchiveCleanup = (id: number, signal?: AbortSignal) => {
+  return customInstance<ArchiveCleanupStatus>({
+    url: `/api/features/${id}/archive-cleanup`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetArchiveCleanupQueryKey = (id: number) => {
+  return [`/api/features/${id}/archive-cleanup`] as const;
+};
+
+export const getGetArchiveCleanupQueryOptions = <
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetArchiveCleanupQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getArchiveCleanup>>> = ({ signal }) =>
+    getArchiveCleanup(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type GetArchiveCleanupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getArchiveCleanup>>
+>;
+export type GetArchiveCleanupQueryError = ErrorType<unknown>;
+
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getArchiveCleanup>>,
+          TError,
+          Awaited<ReturnType<typeof getArchiveCleanup>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getArchiveCleanup>>,
+          TError,
+          Awaited<ReturnType<typeof getArchiveCleanup>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetArchiveCleanupQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const retryArchiveCleanup = (
+  id: number,
+  retryArchiveCleanupRequest: RetryArchiveCleanupRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ArchiveCleanupStatus>({
+    url: `/api/features/${id}/archive-cleanup/retry`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: retryArchiveCleanupRequest,
+    signal,
+  });
+};
+
+export const getRetryArchiveCleanupMutationKey = () => ["retryArchiveCleanup"] as const;
+
+export const getRetryArchiveCleanupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryArchiveCleanup>>,
+    TError,
+    RetryArchiveCleanupMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof retryArchiveCleanup>>,
+  TError,
+  RetryArchiveCleanupMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRetryArchiveCleanupMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof retryArchiveCleanup>>,
+    RetryArchiveCleanupMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return retryArchiveCleanup(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RetryArchiveCleanupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof retryArchiveCleanup>>
+>;
+export type RetryArchiveCleanupMutationBody = RetryArchiveCleanupRequest;
+export type RetryArchiveCleanupMutationError = ErrorType<unknown>;
+export type RetryArchiveCleanupMutationVariables = { id: number; data: RetryArchiveCleanupRequest };
+
+export const useRetryArchiveCleanup = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof retryArchiveCleanup>>,
+      TError,
+      RetryArchiveCleanupMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof retryArchiveCleanup>>,
+  TError,
+  RetryArchiveCleanupMutationVariables,
+  TContext
+> => {
+  return useMutation(getRetryArchiveCleanupMutationOptions(options), queryClient);
 };
 
 export const getFeatureArchivePreview = (id: number, signal?: AbortSignal) => {

@@ -1,25 +1,32 @@
 //! `project_archive_session`: archive a current-project conversation the way
 //! the sidebar's Archive dialog does — optionally with its spawn parent and
-//! descendants — then run the dialog's optional cleanup on it
-//! (`archive_cleanup`).
+//! descendants — then run the dialog's optional cleanup on it. Both go through
+//! the same service orchestration (`features::archive_cleanup`), so the
+//! cleanup is journaled and resumable whoever asked for it.
 //!
 //! Guard rails the dialog doesn't need, because here an agent picks the
 //! target: it must be in the caller's project, the caller's own conversation is
 //! never archived, and nothing about to be archived may have a working agent or
-//! a pending gate (`features::archive::archive_idle`) — that agent would be
-//! left running in a hidden conversation, possibly without its worktree.
+//! a pending gate (`Archiver::Agent`) — that agent would be left running in a
+//! hidden conversation, possibly without its worktree.
+//!
+//! A step never fails the call: the archive is already done, and the agent
+//! needs to know which part to retry. Where the dialog would show the user a
+//! warning and then force (a dirty worktree, an unmerged branch), the step is
+//! reported as blocked instead, and the agent has to ask for force explicitly.
 
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 
-use super::archive_cleanup::{run_cleanup, CleanupReport, CleanupSelection};
 use super::audit::{audit_outcome, elapsed_ms, record_tool_audit, ToolAudit};
 use super::schedule_scope::require_conversation;
 use super::scope::{resolve_session_scope, SessionScope};
 use crate::app_state::AppState;
-use crate::domain::feature_events::{AgentArchivedEvent, FeatureEventAction};
+use crate::domain::feature_events::AgentArchivedEvent;
+use crate::domain::features::archive::Archiver;
+use crate::domain::features::archive_cleanup::runner::archive_with_cleanup;
+use crate::domain::features::archive_cleanup::{CleanupReport, StepName, StepStatus};
 use crate::domain::features::models::ArchiveRequest;
-use crate::domain::features::service as features_service;
 use crate::error::AppError;
 
 const TOOL_NAME: &str = "project_archive_session";
@@ -31,8 +38,6 @@ pub(super) struct ArchiveSessionRequest {
     session_id: i64,
     #[serde(flatten)]
     archive: ArchiveRequest,
-    #[serde(flatten)]
-    cleanup: CleanupSelection,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,29 +92,13 @@ async fn archive_and_clean(
     target: &SessionScope,
     body: ArchiveSessionRequest,
 ) -> Result<ArchiveSessionResponse, AppError> {
-    let archived = features_service::archive_idle(
-        &state.write_pool,
-        target.feature_id,
-        body.archive,
-        source.feature_id,
-    )
-    .await?;
-    state
-        .plugin_tab_presence
-        .release_features(&archived.archived_ids);
-    crate::domain::workflow::worktree::cancel_setups(
-        &state.worktree_setup_runs,
-        &archived.archived_ids,
-    )
-    .await;
-    for feature_id in &archived.archived_ids {
-        state
-            .feature_events_tx
-            .emit(*feature_id, None, FeatureEventAction::Updated);
-    }
-    let cleanup = run_cleanup(state, target.project_id, target.feature_id, &body.cleanup).await;
-    // The Archive dialog's toast and local teardown, for every open window:
-    // the agent's call has no UI of its own to run them.
+    let archiver = Archiver::Agent {
+        caller_id: source.feature_id,
+    };
+    let outcome = archive_with_cleanup(state, target.feature_id, &body.archive, archiver).await?;
+    let cleanup = with_force_hints(outcome.cleanup);
+    // The Archive dialog's toast, for every open window: the agent's call has
+    // no UI of its own to show it.
     state
         .feature_events_tx
         .emit_agent_archived(AgentArchivedEvent {
@@ -117,15 +106,36 @@ async fn archive_and_clean(
             feature_id: target.feature_id,
             title: target.feature_title.clone(),
             archived_by: source.feature_title.clone(),
-            archived_feature_ids: archived.archived_ids.clone(),
+            archived_feature_ids: outcome.archived_ids.clone(),
             cleanup: cleanup.clone(),
         });
     Ok(ArchiveSessionResponse {
         session_id: target.session_id,
         feature_id: target.feature_id,
-        archived_feature_ids: archived.archived_ids,
+        archived_feature_ids: outcome.archived_ids,
         cleanup,
     })
+}
+
+/// Tell the agent which flag forces a blocked step — the dialog asks the user
+/// instead.
+fn with_force_hints(mut report: CleanupReport) -> CleanupReport {
+    for step in [StepName::Worktree, StepName::Branch] {
+        let Some(outcome) = report.slot(step).as_mut() else {
+            continue;
+        };
+        if outcome.status != StepStatus::Blocked {
+            continue;
+        }
+        let hint = match outcome.reason.as_deref() {
+            Some("dirty_worktree") => "Retry with force_remove_worktree=true to discard those changes, after checking they are not needed",
+            Some("unmerged_branch") => "Retry with force_remove_branch=true to delete it anyway, after checking its commits are not needed",
+            _ => continue,
+        };
+        let message = outcome.message.take().unwrap_or_default();
+        outcome.message = Some(format!("{message}. {hint}"));
+    }
+    report
 }
 
 async fn audit(
@@ -259,11 +269,33 @@ mod tests {
         assert_eq!(code, StatusCode::OK, "{body}");
         assert_eq!(body["archived_feature_ids"], json!([child_feature]));
         assert_eq!(body["cleanup"]["terminals"]["status"], "done");
-        assert_eq!(body["cleanup"]["browser_tabs"]["status"], "skipped");
+        // No desktop app here: the tabs close once one connects.
+        assert_eq!(body["cleanup"]["browser_tabs"]["status"], "pending");
+        assert_eq!(
+            body["cleanup"]["browser_tabs"]["reason"],
+            "waiting for the desktop app"
+        );
         assert_eq!(body["cleanup"]["branch"]["status"], "skipped");
         assert!(body["cleanup"].get("worktree").is_none());
         assert_eq!(status(&pool, child_feature).await, "archived");
         assert_eq!(status(&pool, caller_feature).await, "active");
+        let journaled: Vec<(String, String)> = sqlx::query_as(
+            "SELECT step, status FROM feature_archive_cleanup_steps \
+             WHERE feature_id = ? ORDER BY position",
+        )
+        .bind(child_feature)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            journaled,
+            [
+                ("terminals".to_string(), "done".to_string()),
+                ("browser_tabs".to_string(), "pending".to_string()),
+                ("worktree".to_string(), "skipped".to_string()),
+                ("branch".to_string(), "skipped".to_string()),
+            ]
+        );
         assert_eq!(events.try_recv().unwrap().feature_id, child_feature);
         let notice = notices.try_recv().unwrap();
         assert_eq!(notice.feature_id, child_feature);
@@ -273,6 +305,23 @@ mod tests {
             serde_json::to_value(&notice.cleanup).unwrap(),
             body["cleanup"]
         );
+    }
+
+    #[test]
+    fn a_blocked_step_names_the_flag_that_forces_it() {
+        use crate::domain::features::archive_cleanup::{CleanupReport, StepOutcome};
+        let report = super::with_force_hints(CleanupReport {
+            worktree: Some(StepOutcome::blocked(
+                "dirty_worktree".into(),
+                "Worktree has uncommitted or untracked changes".into(),
+            )),
+            branch: Some(StepOutcome::failed("boom")),
+            ..Default::default()
+        });
+        let message = report.worktree.unwrap().message.unwrap();
+        assert!(message.starts_with("Worktree has uncommitted or untracked changes. "));
+        assert!(message.contains("force_remove_worktree=true"));
+        assert_eq!(report.branch.unwrap().message.as_deref(), Some("boom"));
     }
 
     #[tokio::test]

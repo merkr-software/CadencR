@@ -199,6 +199,10 @@ pub async fn update_feature_status_handler(
     if matches!(body.status, FeatureStatus::Archived) {
         state.plugin_tab_presence.release_features(&[id]);
         crate::domain::workflow::worktree::cancel_setups(&state.worktree_setup_runs, &[id]).await;
+    } else {
+        // Back in use: whatever its archive's cleanup had left to do must not
+        // remove its worktree or branch now.
+        super::archive_cleanup::runner::abandon(&state, id).await?;
     }
     // Archive/unarchive changes which features the sidebar shows.
     state

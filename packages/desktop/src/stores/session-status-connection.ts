@@ -18,6 +18,7 @@ import { hydratePrStatuses } from "@/stores/pr-status-hydration";
 import { subscribeForgeStatus } from "@/stores/forge-visibility";
 import { clearStorageMaintenanceStatus } from "@/stores/storage-maintenance-store";
 import { resetServerClock } from "@/lib/server-clock";
+import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 import type { EnvelopeDispatcher, SessionStatusState } from "@/stores/session-status-store";
 
 const APP_WS_SOURCE = "app-ws";
@@ -42,6 +43,10 @@ function handleAppWsOpen(connection: AppWsConnection): void {
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.feature_events", {})));
   // An agent's project_archive_session: the Archive dialog's toast and teardown.
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.agent_archived_events", {})));
+  // Every archive and each of its cleanup steps, whoever made it: the local
+  // teardown and the cleanup this client shows. Refetch what a disconnect missed.
+  ws.send(JSON.stringify(createEnvelope("app", "subscribe.archive_cleanup_events", {})));
+  void invalidateByUrlPrefix(queryClient, "/api/archive-cleanups");
   // A schedule fires on the server's clock, into a conversation this client
   // need not have open, so nothing else tells the sidebar its rules moved.
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.schedule_events", {})));

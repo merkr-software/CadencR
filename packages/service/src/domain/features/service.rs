@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use super::models::{
-    ArchivePreview, ArchiveProjectSessionsResponse, ArchiveRequest, ArchiveResponse,
-    CreateFeatureResponse, Feature, FeatureActivity, FeatureModelSettings, FeatureProviderSettings,
-    FeatureSetting, FeatureStatus, IsEmptyResponse, WorkingDirResponse,
+    ArchivePreview, ArchiveProjectSessionsResponse, CreateFeatureResponse, Feature,
+    FeatureActivity, FeatureModelSettings, FeatureProviderSettings, FeatureSetting, FeatureStatus,
+    IsEmptyResponse, WorkingDirResponse,
 };
 use super::repository;
 use crate::error::AppError;
@@ -151,23 +151,6 @@ pub async fn update_status(
 
 pub async fn archive_preview(pool: &SqlitePool, id: i64) -> Result<ArchivePreview, AppError> {
     super::archive::preview(pool, id).await
-}
-
-pub async fn archive(
-    pool: &SqlitePool,
-    id: i64,
-    request: ArchiveRequest,
-) -> Result<ArchiveResponse, AppError> {
-    super::archive::archive(pool, id, request).await
-}
-
-pub async fn archive_idle(
-    pool: &SqlitePool,
-    id: i64,
-    request: ArchiveRequest,
-    caller_id: i64,
-) -> Result<ArchiveResponse, AppError> {
-    super::archive::archive_idle(pool, id, request, caller_id).await
 }
 
 pub async fn archive_project_sessions(

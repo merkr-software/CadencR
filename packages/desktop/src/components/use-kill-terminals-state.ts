@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useListFeatureActivity, type Feature } from "@/api/generated";
+import { useBrowserStore } from "@/stores/browser-store";
 
 export interface KillTerminalsState {
   liveTerminalCount: number;
+  /** Open Electron browser tabs, when the caller asked to close them too. */
+  liveBrowserCount: number;
   killTerminals: boolean;
   toggleKillTerminals: () => void;
 }
@@ -23,6 +26,7 @@ export interface KillTerminalsState {
 export function useKillTerminalsState(
   open: boolean,
   feature: Feature | undefined,
+  { includeBrowserTabs = false }: { includeBrowserTabs?: boolean } = {},
 ): KillTerminalsState {
   const [killTerminals, setKillTerminals] = useState(false);
   const activity = useListFeatureActivity(
@@ -34,18 +38,25 @@ export function useKillTerminalsState(
     return activity.data?.find((item) => item.feature_id === feature.id)?.shell_count ?? 0;
   }, [activity.data, feature]);
 
+  // Only the desktop shell reports browser tabs (the store stays empty elsewhere).
+  const browserCount = useBrowserStore((state) =>
+    feature ? (state.countsByScope[feature.id] ?? 0) : 0,
+  );
+  const liveBrowserCount = includeBrowserTabs ? browserCount : 0;
+  const liveCount = liveTerminalCount + liveBrowserCount;
+
   // Reset on close, and drop the selection if every shell goes idle while open.
   useEffect(() => {
-    if (!open || liveTerminalCount === 0) setKillTerminals(false);
-  }, [open, liveTerminalCount]);
+    if (!open || liveCount === 0) setKillTerminals(false);
+  }, [open, liveCount]);
 
   const toggleKillTerminals = useCallback((): void => {
-    if (liveTerminalCount === 0) return;
+    if (liveCount === 0) return;
     setKillTerminals((value) => !value);
-  }, [liveTerminalCount]);
+  }, [liveCount]);
 
   return useMemo(
-    () => ({ liveTerminalCount, killTerminals, toggleKillTerminals }),
-    [liveTerminalCount, killTerminals, toggleKillTerminals],
+    () => ({ liveTerminalCount, liveBrowserCount, killTerminals, toggleKillTerminals }),
+    [liveTerminalCount, liveBrowserCount, killTerminals, toggleKillTerminals],
   );
 }

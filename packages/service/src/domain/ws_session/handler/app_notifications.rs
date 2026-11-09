@@ -40,6 +40,17 @@ pub(super) fn subscribe_agent_archived_events(sender: &WsSender, app_state: &App
     );
 }
 
+/// Archives and their cleanup steps, from any origin. A lagged client gets a
+/// bare event and refetches every cleanup it shows.
+pub(super) fn subscribe_archive_cleanup_events(sender: &WsSender, app_state: &AppState) {
+    forward_app_events(
+        sender,
+        app_state.feature_events_tx.subscribe_archive_cleanup(),
+        "archive_cleanup",
+        OnLag::ResendBare,
+    );
+}
+
 /// Settings-file changes are cues for the desktop to refetch settings.
 pub(super) fn subscribe_settings_events(sender: &WsSender, app_state: &AppState) {
     forward_app_events(

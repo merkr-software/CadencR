@@ -5,11 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getListFeaturesQueryKey, type ArchiveResponse, type Feature } from "@/api/generated";
 import { useArchiveFeatureAction } from "./useArchiveFeatureAction";
 
-const { customInstance, navigate, disconnect } = vi.hoisted(() => ({
+const { customInstance, navigate, disconnect, toastSuccess } = vi.hoisted(() => ({
   customInstance: vi.fn(),
   navigate: vi.fn(),
   disconnect: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { success: toastSuccess } }));
 
 vi.mock("@/api/client", () => ({ customInstance }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
@@ -26,7 +29,16 @@ const features: Feature[] = [1, 2, 3, 4].map((id) => ({
   is_pinned: false,
   created_at: "2026-01-01T00:00:00Z",
 }));
-const options = { include_parent: true, include_descendants: true };
+const options = {
+  include_parent: true,
+  include_descendants: true,
+  kill_terminals: false,
+  close_browser_tabs: false,
+  remove_worktree: false,
+  remove_branch: false,
+  force_remove_worktree: false,
+  force_remove_branch: false,
+};
 
 function setup(activeFeatureId: number) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
@@ -76,7 +88,7 @@ describe("useArchiveFeatureAction", () => {
     expect(navigate).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveRequest?.({ archived_ids: [1, 2, 3] });
+      resolveRequest?.({ archived_ids: [1, 2, 3], cleanup: {} });
       await pending;
     });
     for (const key of [listKey, otherListKey]) {
@@ -99,13 +111,44 @@ describe("useArchiveFeatureAction", () => {
   });
 
   it("does not navigate away from a conversation outside the archived group", async () => {
-    customInstance.mockResolvedValue({ archived_ids: [1, 2, 3] });
+    customInstance.mockResolvedValue({ archived_ids: [1, 2, 3], cleanup: {} });
     const { result, client, unmount } = setup(4);
     await act(async () => {
       await result.current(2, options);
     });
     expect(disconnect).toHaveBeenCalledTimes(3);
     expect(navigate).not.toHaveBeenCalled();
+    unmount();
+    client.clear();
+  });
+
+  it("toasts a finished cleanup and leaves steps needing the user to the cleanup notices", async () => {
+    customInstance.mockResolvedValueOnce({
+      archived_ids: [2],
+      cleanup: { terminals: { status: "done" }, worktree: { status: "done" } },
+    });
+    const { result, client, unmount } = setup(4);
+    await act(async () => {
+      await result.current(2, { ...options, kill_terminals: true, remove_worktree: true });
+    });
+    expect(customInstance.mock.calls[0]?.[0]).toMatchObject({
+      data: { kill_terminals: true, remove_worktree: true },
+    });
+    expect(toastSuccess).toHaveBeenCalledExactlyOnceWith("Session archived", {
+      description: "Cleanup finished: terminals, worktree.",
+    });
+
+    customInstance.mockResolvedValueOnce({
+      archived_ids: [3],
+      cleanup: {
+        worktree: { status: "blocked", reason: "dirty_worktree", message: "dirty" },
+        branch: { status: "pending", reason: "waiting for the worktree removal" },
+      },
+    });
+    await act(async () => {
+      await result.current(3, { ...options, remove_branch: true });
+    });
+    expect(toastSuccess).toHaveBeenCalledOnce();
     unmount();
     client.clear();
   });

@@ -1,6 +1,8 @@
 import type { Dispatch, ReactElement, SetStateAction } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
+import { ArchiveCleanupDialog } from "@/components/ArchiveCleanupDialog";
+import { ArchiveCleanupNotices } from "@/components/ArchiveCleanupNotices";
 import { FeatureDeleteDialog } from "@/components/FeatureDeleteDialog";
 import { AppCloseDialog } from "@/components/AppCloseDialog";
 import { ServiceStatusNotifier } from "@/components/ServiceStatusNotifier";
@@ -20,7 +22,7 @@ import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { useListFeatureWorktrees, type Feature } from "@/api/generated";
 import { getArchiveCleanupAvailability } from "@/components/archive-cleanup-availability";
 import { type FeatureArchiveAction } from "@/lib/feature-archive-decision";
-import type { ArchiveRelativeSelection } from "@/components/ArchiveRelativeOptions";
+import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 
 export interface ConfirmFeatureAction {
   action: FeatureArchiveAction;
@@ -34,7 +36,7 @@ interface RootOverlaysProps {
   activeFeatureId: number | null;
   confirmAction: ConfirmFeatureAction | null;
   setConfirmAction: Dispatch<SetStateAction<ConfirmFeatureAction | null>>;
-  onArchiveFeature: (featureId: number, options: ArchiveRelativeSelection) => Promise<unknown>;
+  onArchiveFeature: (featureId: number, options: ArchiveFeatureOptions) => Promise<unknown>;
   onDeleteFeature: (featureId: number) => void;
   appClose: AppCloseState;
 }
@@ -113,6 +115,8 @@ export function RootOverlays({
         }}
         onDelete={onDeleteFeature}
       />
+      <ArchiveCleanupNotices />
+      <ArchiveCleanupDialog />
       <AppCloseDialog state={appClose} />
     </>
   );

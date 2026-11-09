@@ -218,6 +218,8 @@ pub async fn register_browser_bridge(
     state
         .set_browser_bridge(config)
         .map_err(|error| AppError::internal(error))?;
+    // Archives made while no desktop was connected still have tabs to close.
+    crate::domain::features::archive_cleanup::runner::resume_browser_steps(&state);
     Ok(Json(BrowserBridgeRegistrationResponse { ok: true }))
 }
 

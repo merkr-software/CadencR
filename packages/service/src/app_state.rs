@@ -215,6 +215,9 @@ pub struct AppState {
     /// Active explicit auto-rename requests keyed by feature_id. Prevents
     /// duplicate model runs racing to update the same title.
     pub auto_name_runs: Arc<FeatureRunRegistry>,
+    /// The archive cleanup running for a conversation (`features::archive_cleanup`).
+    /// Unarchiving cancels it between two steps.
+    pub archive_cleanup_runs: Arc<FeatureRunRegistry>,
     /// Pending LSP session reservations. The renderer POSTs
     /// `/api/lsp/sessions` to reserve, then upgrades
     /// `/api/lsp/sessions/{id}/connect`; this map is the bridge between the
@@ -351,6 +354,7 @@ impl AppState {
             pending_gates: Arc::new(GateRegistry::new()),
             session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
+            archive_cleanup_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
             import_jobs: ImportJobRegistry::new(),
@@ -444,6 +448,7 @@ impl AppState {
             pending_gates: Arc::new(GateRegistry::new()),
             session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
+            archive_cleanup_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
             import_jobs: ImportJobRegistry::new(),

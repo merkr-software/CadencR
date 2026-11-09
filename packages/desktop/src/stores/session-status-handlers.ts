@@ -21,6 +21,7 @@ import { useUnreadStore } from "@/stores/unread-store";
 import { handleGitEnvelope } from "@/stores/ws-git-status-handler";
 import { showRemoteConnectedToast } from "@/lib/remote/connection-toast";
 import { handleAgentArchived } from "@/lib/agent-archived";
+import { handleArchiveCleanupEvent } from "@/lib/archive-cleanup-events";
 import { applyStorageMaintenanceEvent } from "@/stores/storage-maintenance-store";
 import { applyProviderUpdatesEvent } from "@/stores/provider-updates";
 import { applyRestartContinuationsEvent } from "@/stores/restart-continuations";
@@ -164,6 +165,10 @@ export function handleAppEnvelope(
   }
   if (domain === "app" && action === "agent_archived") {
     handleAgentArchived(payload);
+    return true;
+  }
+  if (domain === "app" && action === "archive_cleanup") {
+    handleArchiveCleanupEvent(payload);
     return true;
   }
   if (domain === "app" && action === "remote_connected") {

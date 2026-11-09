@@ -9,7 +9,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 mod agent_providers;
-pub(crate) mod archive_cleanup;
 mod archive_session;
 mod audit;
 mod create_schedule;
