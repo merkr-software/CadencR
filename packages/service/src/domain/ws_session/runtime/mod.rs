@@ -1,6 +1,7 @@
 //! Service-owned session runtime state and application operations.
 
 pub(crate) mod application;
+pub(crate) mod compact_start;
 pub(crate) mod output;
 pub(crate) mod prompt;
 pub(crate) mod registry;

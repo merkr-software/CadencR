@@ -247,7 +247,7 @@ async fn mode_set_rejection_keeps_accepted_mode_as_desired_mode() {
                 profile_revision: None,
                 profile_state_identity: None,
             },
-            manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+            manual_compact_start: Default::default(),
             manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
         },
     );
@@ -355,7 +355,7 @@ async fn claude_bypass_mode_set_rearms_existing_session_before_next_prompt() {
                 profile_revision: None,
                 profile_state_identity: None,
             },
-            manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+            manual_compact_start: Default::default(),
             manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
         },
     );

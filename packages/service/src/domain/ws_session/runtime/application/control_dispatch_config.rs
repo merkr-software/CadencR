@@ -44,7 +44,7 @@ pub(in crate::domain::ws_session) async fn build_pending_handle(
         runtime_control_endpoint: None,
         resume_session_id: row.runtime_session_id.clone(),
         config,
-        manual_compact_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        manual_compact_start: Default::default(),
         manual_compact_spawn_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     })
 }

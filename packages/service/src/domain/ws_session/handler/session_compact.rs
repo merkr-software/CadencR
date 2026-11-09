@@ -3,7 +3,7 @@ use axum::extract::ws::Message;
 use super::super::protocol::*;
 use super::session_compact_lifecycle::{
     begin_compact, finish_compact_start, persist_compact_command, report_compact_stopped,
-    take_compact_cancel,
+    stopped_before_dispatch,
 };
 use super::session_compact_pending::spawn_pending_runtime_for_compact;
 use super::{parse_session_id, send_error, QueryState, SdkHandle, SdkSessions, WsSender};
@@ -114,16 +114,19 @@ async fn handle_active_runtime_compact(
         };
     let query =
         resolve_compact_runtime(envelope_id, sender, sdk_sessions, db_session_id, app_state).await;
-    let succeeded = if let Some(query) = query {
-        match query.read().await.compact().await {
-            Ok(()) => true,
-            Err(error) => {
-                send_error(sender, envelope_id, "COMPACT_REJECTED", &error.to_string());
-                false
-            }
+    let succeeded = match query {
+        Some(query) => {
+            start_runtime_compaction(
+                &query,
+                envelope_id,
+                sender,
+                sdk_sessions,
+                db_session_id,
+                app_state,
+            )
+            .await
         }
-    } else {
-        false
+        None => false,
     };
     finish_compact_start(
         sdk_sessions,
@@ -162,7 +165,6 @@ async fn resolve_compact_runtime(
                 send_error(sender, envelope_id, "INVALID_STATE", "Session not active");
                 return None;
             };
-            let feature_id = handle.feature_id;
             drop(sessions);
             // `begin_compact` marked it working and spawn-pending: a Stop now
             // cancels it (see `stop_session`).
@@ -175,13 +177,36 @@ async fn resolve_compact_runtime(
                 app_state,
             )
             .await?;
-            // A Stop while the runtime spawned (see `stop_session`).
-            if take_compact_cancel(sdk_sessions, db_session_id).await {
-                report_compact_stopped(app_state, sender, envelope_id, db_session_id, feature_id)
-                    .await;
-                return None;
-            }
             Some(query)
+        }
+    }
+}
+
+/// Ask the runtime to compact, unless a Stop came first (see `stop_session`):
+/// the compaction then gives up before it starts. Decided holding the runtime
+/// and its turn-control barrier, as a Stop interrupts, so a later Stop finds
+/// the compaction started. Whether it started.
+async fn start_runtime_compaction(
+    query: &crate::domain::agents::adapter::RuntimeSessionHandle,
+    envelope_id: &str,
+    sender: &WsSender,
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
+    app_state: Option<&AppState>,
+) -> bool {
+    let runtime = query.read().await;
+    let _barrier = runtime.turn_control_guard().await;
+    if let Some(feature_id) = stopped_before_dispatch(sdk_sessions, db_session_id).await {
+        if let Some(app_state) = app_state {
+            report_compact_stopped(app_state, sender, envelope_id, db_session_id, feature_id).await;
+        }
+        return false;
+    }
+    match runtime.compact().await {
+        Ok(()) => true,
+        Err(error) => {
+            send_error(sender, envelope_id, "COMPACT_REJECTED", &error.to_string());
+            false
         }
     }
 }
@@ -220,7 +245,7 @@ fn compact_target(handle: &SdkHandle) -> CompactTarget {
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
 
     use async_trait::async_trait;
@@ -237,6 +262,7 @@ mod tests {
 
     struct CompactRuntime {
         fail: bool,
+        compacts: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -255,6 +281,7 @@ mod tests {
             Ok(())
         }
         async fn compact(&self) -> Result<(), RuntimeError> {
+            self.compacts.fetch_add(1, Ordering::SeqCst);
             if self.fail {
                 Err(RuntimeError::new("compact failed"))
             } else {
@@ -313,7 +340,7 @@ mod tests {
                 profile_revision: None,
                 profile_state_identity: None,
             },
-            manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+            manual_compact_start: Default::default(),
             manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -364,9 +391,13 @@ mod tests {
     }
 
     fn active_sessions(fail: bool) -> SdkSessions {
+        active_sessions_counting(fail, Arc::default())
+    }
+
+    fn active_sessions_counting(fail: bool, compacts: Arc<AtomicUsize>) -> SdkSessions {
         let (permission_tx, _permission_rx) =
             crate::domain::ws_session::runtime::prompt::permission_response_channel();
-        let runtime = Box::new(CompactRuntime { fail }) as Box<dyn AgentRuntimeSession>;
+        let runtime = Box::new(CompactRuntime { fail, compacts }) as Box<dyn AgentRuntimeSession>;
         Arc::new(Mutex::new(HashMap::from([(
             1,
             handle_for_provider(
@@ -400,5 +431,61 @@ mod tests {
         };
         assert!(text.contains("\"error\""));
         assert!(text.contains("compact failed"));
+    }
+
+    /// A Stop that lands once the compaction's runtime is up, but before the
+    /// runtime is asked to compact, cancels the compaction: no compaction
+    /// turn exists yet for the Stop to interrupt.
+    #[tokio::test]
+    async fn a_stop_before_the_runtime_is_asked_to_compact_cancels_it() {
+        let app_state =
+            crate::domain::ws_session::handler::tests::support::make_test_app_state().await;
+        let compacts = Arc::new(AtomicUsize::new(0));
+        let sessions = active_sessions_counting(false, compacts.clone());
+        let runtime = match &sessions.lock().await[&1].state {
+            QueryState::Active { query, .. } => query.clone(),
+            QueryState::Pending(_) => unreachable!("active session"),
+        };
+        // Holding the runtime parks the compaction right before `compact()`.
+        let parked = runtime.write().await;
+        let (sender, mut replies) = mpsc::unbounded_channel();
+        let compaction = tokio::spawn({
+            let (sessions, app_state) = (sessions.clone(), app_state.clone());
+            async move {
+                handle_active_runtime_compact("req-3", &sender, &sessions, 1, Some(&app_state))
+                    .await;
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let stop = tokio::spawn({
+            let (sessions, app_state) = (sessions.clone(), app_state.clone());
+            async move {
+                crate::domain::ws_session::handler::session_control::stop_session(
+                    &app_state,
+                    Some(&sessions),
+                    1,
+                )
+                .await
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(parked);
+
+        let bounded = std::time::Duration::from_secs(5);
+        tokio::time::timeout(bounded, compaction)
+            .await
+            .expect("the compaction start returns")
+            .unwrap();
+        tokio::time::timeout(bounded, stop)
+            .await
+            .expect("the stop returns")
+            .unwrap()
+            .expect("the stop is taken");
+        assert_eq!(compacts.load(Ordering::SeqCst), 0, "the compaction started");
+        let mut reply = String::new();
+        while let Ok(Message::Text(text)) = replies.try_recv() {
+            reply.push_str(text.as_str());
+        }
+        assert!(reply.contains("compact.stopped"), "{reply}");
     }
 }

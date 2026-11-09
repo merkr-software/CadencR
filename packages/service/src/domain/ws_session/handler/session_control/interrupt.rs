@@ -44,16 +44,16 @@ pub(crate) async fn stop_session(
         let Some(handle) = sessions.get(&db_session_id) else {
             return Err(CommandError::new("SESSION_NOT_FOUND", "Session not found"));
         };
+        // A compaction whose runtime was not asked to compact yet (spawning,
+        // or up a moment before the request) has no turn to interrupt: it
+        // gives up before it starts and reports the session idle.
+        if handle.manual_compact_spawn_pending.load(Ordering::SeqCst)
+            && handle.manual_compact_start.cancel()
+        {
+            return Ok(());
+        }
         let query = match &handle.state {
             QueryState::Active { query, .. } => Some(std::sync::Arc::clone(query)),
-            QueryState::Pending(_)
-                if handle.manual_compact_spawn_pending.load(Ordering::SeqCst) =>
-            {
-                // Its runtime is still spawning: the compaction gives up before
-                // it starts and reports the session idle.
-                handle.manual_compact_cancel.store(true, Ordering::SeqCst);
-                return Ok(());
-            }
             QueryState::Pending(_) => None,
         };
         (query, handle.feature_id)
@@ -279,9 +279,10 @@ mod tests {
 
         stop_session(&app_state, Some(&sessions), 41).await.unwrap();
 
-        assert!(sessions.lock().await[&41]
-            .manual_compact_cancel
-            .load(Ordering::SeqCst));
+        assert!(
+            !sessions.lock().await[&41].manual_compact_start.dispatch(),
+            "the compaction never starts"
+        );
     }
 
     #[tokio::test]

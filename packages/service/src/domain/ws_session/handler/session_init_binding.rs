@@ -100,7 +100,7 @@ pub(super) fn pending_handle(
         spawned_thinking_effort: None,
         spawned_claude_profile: None,
         runtime_control_endpoint: None,
-        manual_compact_cancel: std::sync::Arc::default(),
+        manual_compact_start: Default::default(),
         manual_compact_spawn_pending: std::sync::Arc::default(),
     }
 }

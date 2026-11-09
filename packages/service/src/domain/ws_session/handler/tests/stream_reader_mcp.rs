@@ -137,7 +137,7 @@ fn make_refreshing_mcp_handle(feature_id: i64) -> SdkHandle {
             profile_revision: None,
             profile_state_identity: None,
         },
-        manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+        manual_compact_start: Default::default(),
         manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
     }
 }
