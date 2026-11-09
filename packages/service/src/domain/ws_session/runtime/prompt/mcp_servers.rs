@@ -57,10 +57,15 @@ pub(in crate::domain::ws_session) async fn refresh_mcp_servers_for_active_sessio
     sender: &impl OutputTarget,
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
+    closing: impl std::future::Future<Output = ()>,
 ) -> Result<(), ()> {
-    let Some(payload) =
-        refreshed_mcp_servers_payload_from_active_session(sdk_sessions, db_session_id).await
-    else {
+    // The refresh holds the runtime, which shutdown must close in time: once
+    // `closing` resolves it is given up, releasing the runtime.
+    let refreshed = tokio::select! {
+        () = closing => None,
+        payload = refreshed_mcp_servers_payload_from_active_session(sdk_sessions, db_session_id) => payload,
+    };
+    let Some(payload) = refreshed else {
         return Ok(());
     };
     log_payload(
@@ -335,5 +340,83 @@ mod tests {
         assert_eq!(payload.mcp_servers.len(), 1);
         assert_eq!(payload.mcp_servers[0].name, "chrome-devtools");
         assert_eq!(payload.mcp_servers[0].status, "pending");
+    }
+
+    /// A runtime whose live MCP refresh takes as long as a slow CLI answer.
+    struct SlowRefreshSession;
+
+    #[async_trait]
+    impl AgentRuntimeSession for SlowRefreshSession {
+        fn take_message_rx(&mut self) -> crate::domain::agents::adapter::RuntimeMessageRx {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            rx
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            Ok(Vec::new())
+        }
+        async fn stream_input(&self, _content: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(
+            &self,
+            _mode: RuntimePermissionMode,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// Shutdown closes a runtime under its write lock, within a 2 s deadline:
+    /// a refresh after the turn must not hold the runtime through it.
+    #[tokio::test]
+    async fn closing_the_runtime_does_not_wait_on_a_post_turn_refresh() {
+        use crate::domain::ws_session::runtime::state::{new_sdk_sessions, QueryState};
+        let sessions = new_sdk_sessions();
+        let mut handle =
+            crate::domain::ws_session::handler::tests::support::make_active_handle(1, None);
+        let runtime: crate::domain::agents::adapter::RuntimeSessionHandle =
+            std::sync::Arc::new(tokio::sync::RwLock::new(Box::new(SlowRefreshSession)));
+        let (permission_tx, _permission_rx) = super::super::permission_response_channel();
+        handle.state = QueryState::Active {
+            query: runtime.clone(),
+            permission_tx,
+        };
+        sessions.lock().await.insert(7, handle);
+        let (sender, mut sent) = tokio::sync::mpsc::unbounded_channel();
+        let closing = tokio_util::sync::CancellationToken::new();
+        let refresh = tokio::spawn({
+            let (sessions, closing) = (sessions.clone(), closing.clone());
+            async move {
+                super::refresh_mcp_servers_for_active_session(
+                    &sender,
+                    &sessions,
+                    7,
+                    closing.cancelled_owned(),
+                )
+                .await
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        closing.cancel();
+        let close = tokio::time::timeout(std::time::Duration::from_millis(500), runtime.write());
+        assert!(close.await.is_ok(), "the close waited on the refresh");
+        assert!(refresh.await.unwrap().is_ok());
+        assert!(sent.try_recv().is_err(), "a given-up refresh sends nothing");
     }
 }

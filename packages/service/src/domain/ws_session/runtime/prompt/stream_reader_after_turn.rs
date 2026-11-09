@@ -43,6 +43,7 @@ impl StreamReaderTask {
             &self.sender,
             &self.sdk_sessions,
             self.db_session_id,
+            crate::domain::ws_session::stream_readers::closing(),
         )
         .await;
         if result.is_err() {

@@ -10,6 +10,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
 use crate::domain::agents::adapter::RuntimeSessionWeakHandle;
 use crate::domain::usage_stats::health;
@@ -17,6 +18,8 @@ use crate::domain::usage_stats::health;
 #[allow(dead_code)] // Called by the service binary's shutdown module.
 const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+/// Cancelled once shutdown starts closing the runtimes.
+static CLOSING: LazyLock<CancellationToken> = LazyLock::new(CancellationToken::new);
 static READERS: LazyLock<Mutex<HashMap<u64, RegisteredReader>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -77,6 +80,13 @@ async fn record_agent_process(
     crate::domain::restart_continuations::record_agent_process(db_session_id, pid).await
 }
 
+/// Resolves once shutdown starts closing the runtimes. Work that holds a
+/// runtime only to refresh what clients show gives it up then, so the close
+/// does not wait on it.
+pub(crate) fn closing() -> WaitForCancellationFuture<'static> {
+    CLOSING.cancelled()
+}
+
 /// Close every runtime and wait for its reader to process the final events.
 ///
 /// Called only after the bounded HTTP drain has ended, so no accepted request
@@ -86,6 +96,7 @@ pub(crate) async fn shutdown(pool: &sqlx::SqlitePool) {
     let entries = std::mem::take(&mut *readers())
         .into_values()
         .collect::<Vec<_>>();
+    CLOSING.cancel();
     close_runtimes(&entries, pool).await;
     let aborted = join_within(
         entries.into_iter().map(|entry| entry.task).collect(),
