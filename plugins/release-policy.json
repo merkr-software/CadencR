@@ -1412,17 +1412,17 @@
           ],
           "files": {
             "bundle.tar.gz": {
-              "sha256": "f9458c913beb3e76b024db0c93f3a98e8b3c0c80927eac5b7a4899a5685d47ca",
+              "sha256": "3fa243ff28648eba2e0fd3d7edc6a7d04b249488652cbd6fbdf0fb7a687ee2bd",
               "mode": "100644"
             },
             "source-lock.json": {
-              "sha256": "97d3fdb39425dc48649222493c7cd6f34b982cfa8f9cba8a28023dd48dbc0792",
+              "sha256": "aff0c6bd2586e26fb3e60197d9eacab261a8fca2c82c7c1b36e4312ef68d079f",
               "mode": "100644"
             }
           }
         }
       },
-      "release_notes": "TypeScript native preview package 0.1.1\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nThis is a Cadencr source build of the upstream TypeScript native preview 7.0.0-dev.20260707.2 (microsoft/typescript-go 9977d6d38fcc78de8ae71770f3aa08256e6cc861) with one backported fix: the server now exits with status 0 after a clean shutdown and exit (microsoft/TypeScript#64742, first commit of microsoft/TypeScript#64894). Declaration libraries, license and notice files are the unmodified npm package files; the applied patch ships in CADENCR-PATCHES/. The macOS executables are not Microsoft's Developer ID-signed binaries: ARM carries the Go linker's ad hoc signature and Intel is unsigned. Cadencr's signed catalog and pinned hashes attest this distribution, not Microsoft's identity.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42606644966\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+      "release_notes": "TypeScript native preview package 0.1.1\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nThis is a Cadencr source build of the upstream TypeScript native preview 7.0.0-dev.20260707.2 (microsoft/typescript-go 9977d6d38fcc78de8ae71770f3aa08256e6cc861) with one backported fix: the server now exits with status 0 after a clean shutdown and exit (microsoft/TypeScript#64742, first commit of microsoft/TypeScript#64894). Declaration libraries, license and notice files are the unmodified npm package files; the applied patch ships in CADENCR-PATCHES/. Microsoft's detached signature of its Linux npm binary (lib/tsgo.sig) is not redistributed because it does not cover the rebuilt executable. The macOS executables are not Microsoft's Developer ID-signed binaries: ARM carries the Go linker's ad hoc signature and Intel is unsigned. Cadencr's signed catalog and pinned hashes attest this distribution, not Microsoft's identity.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42616915442\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
     },
     "lsp-vue-language-server": {
       "kind": "lsp",

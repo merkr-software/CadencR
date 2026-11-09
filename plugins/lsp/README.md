@@ -117,7 +117,7 @@ not publish assets or establish managed application lifecycle conformance.
 exit status after shutdown; see the
 [native preparation notes](../../scripts/lsp-native-prepare/README.md#typescript-native-preview-rebuild).
 Its archives are bound to the [released CLI `0.15.7`](https://github.com/merkr-software/CadencR/releases/tag/cli/v0.15.7)
-qualification [run 42606644966](https://github.com/merkr-software/CadencR/actions/runs/42606644966),
+qualification [run 42616915442](https://github.com/merkr-software/CadencR/actions/runs/42616915442),
 where all 25 packages pass on the same four hosts and tsgo exits with status 0.
 
 ## Production boundary

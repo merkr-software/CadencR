@@ -13,7 +13,7 @@
       "url": "https://registry.npmjs.org/@typescript/native-preview-linux-x64/-/native-preview-linux-x64-7.0.0-dev.20260707.2.tgz",
       "sha256": "5e6ee1052190526ae0ac277b2fb52ba0c7e880619201493bd5342976a0b33eb6",
       "destination": ".",
-      "expanded_size": 3846049,
+      "expanded_size": 3845568,
       "files": [
         {
           "path": "LICENSE",
@@ -679,12 +679,6 @@
           "path": "lib/lib.webworker.iterable.d.ts",
           "sha256": "7f57fc4404ff020bc45b9c620aff2b40f700b95fe31164024c453a5e3c163c54",
           "size": 933,
-          "mode": "100644"
-        },
-        {
-          "path": "lib/tsgo.sig",
-          "sha256": "d6391969eed9d4a3295edcd244c9244be70a9a8aaae9ce577452544c1bc06bd3",
-          "size": 481,
           "mode": "100644"
         },
         {
