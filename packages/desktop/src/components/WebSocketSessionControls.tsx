@@ -13,7 +13,12 @@ import {
   type RuntimeProviderAccessModeOption,
   type RuntimeProviderModeOption,
 } from "@/api/agentRuntime";
-import { useGetProjectSettings, useSetProjectSetting } from "@/api/generated";
+import {
+  getGetProjectSettingsQueryKey,
+  useGetProjectSettings,
+  useSetProjectSetting,
+} from "@/api/generated";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { useResolvedModelContext } from "@/contexts/ResolvedModelContext";
@@ -22,6 +27,7 @@ import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
 import {
   DEFAULT_WORKTREE_MODE_KEY,
   defaultWorktreeModeFromSettings,
+  defaultWorktreeModeMutationKey,
 } from "@/lib/default-worktree-mode";
 import {
   defaultWorktreeMode,
@@ -92,7 +98,10 @@ function useWorktreePreference(projectId: number): WorktreePreferenceControls {
   const [worktreeMode, setWorktreeModeState] = useState<WorktreeMode>("from_branch_worktree");
   const seededProjectRef = useRef<number | null>(null);
   const { data: projectSettingsData } = useGetProjectSettings(projectId);
-  const setProjectSetting = useSetProjectSetting();
+  const queryClient = useQueryClient();
+  const setProjectSetting = useSetProjectSetting({
+    mutation: { mutationKey: defaultWorktreeModeMutationKey(projectId) },
+  });
   const projectDefault = defaultWorktreeModeFromSettings(projectSettingsData, "new");
   // Seed the picker from the project's saved default once settings load — once
   // per project so a later settle doesn't clobber an explicit choice.
@@ -105,20 +114,33 @@ function useWorktreePreference(projectId: number): WorktreePreferenceControls {
   }, [projectDefault, projectId, projectSettingsData]);
   const setWorktreeMode = useCallback(
     (next: WorktreeMode): void => {
-      setWorktreeModeState(next);
-      // Persist the project default only for the two modes that map cleanly to
-      // it; branch-specific modes (reuse / from_branch) leave it untouched. A
-      // failed save still keeps the local pick for this session.
+      // Only the two modes that map to the project default are a setting;
+      // branch-specific ones (reuse / from_branch) are this conversation's own
+      // pick, as is a mode whose default the backend already holds.
       const nextDefault = worktreeModeToProjectDefault(next);
-      if (nextDefault == null || nextDefault === projectDefault) return;
+      if (nextDefault == null || nextDefault === projectDefault) {
+        setWorktreeModeState(next);
+        return;
+      }
+      // The picker shows its saving state meanwhile (`useIsMutating` on the key).
+      if (setProjectSetting.isPending) return;
       setProjectSetting.mutate(
         { id: projectId, data: { key: DEFAULT_WORKTREE_MODE_KEY, value: nextDefault } },
         {
-          onError: (err) => toast.error(apiErrorMessage(err, "Failed to save worktree preference")),
+          onSuccess: () => {
+            setWorktreeModeState(next);
+            void queryClient.invalidateQueries({
+              queryKey: getGetProjectSettingsQueryKey(projectId),
+            });
+          },
+          onError: (err) =>
+            toast.error(
+              `Could not save the project's worktree default: ${apiErrorMessage(err, "Unknown error")}`,
+            ),
         },
       );
     },
-    [projectDefault, projectId, setProjectSetting],
+    [projectDefault, projectId, queryClient, setProjectSetting],
   );
   return useMemo(() => ({ worktreeMode, setWorktreeMode }), [setWorktreeMode, worktreeMode]);
 }

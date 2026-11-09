@@ -278,6 +278,7 @@ vi.mock("@/api/generated", () => ({
   useGetBranch: vi.fn(() => ({ data: undefined })),
   useGetFeatureSettings: vi.fn(() => ({ data: [] })),
   useGetProjectSettings: vi.fn(() => ({ data: [] })),
+  getGetProjectSettingsQueryKey: (id: number) => [`/api/projects/${id}/settings`],
   useGetGitStatus: vi.fn(() => ({ data: undefined })),
   useListProjects: vi.fn(() => ({ data: [{ id: 1, name: "Test Project", path: "/test/path" }] })),
   useListFeatureWorktrees: vi.fn(() => ({ data: [], isLoading: false, error: null })),
@@ -286,7 +287,11 @@ vi.mock("@/api/generated", () => ({
     mutateAsync: mocks.mockSetWorkspaceSettingMutateAsync,
     isPending: false,
   })),
-  useSetProjectSetting: vi.fn(() => ({ mutate: vi.fn() })),
+  // The backend confirms the project default, so the picked mode applies.
+  useSetProjectSetting: vi.fn(() => ({
+    mutate: vi.fn((_vars: unknown, options?: { onSuccess?: () => void }) => options?.onSuccess?.()),
+    isPending: false,
+  })),
   useSetFeatureSetting: vi.fn(() => ({ mutateAsync: mocks.mockSetFeatureSettingMutateAsync })),
   useCheckoutBranch: vi.fn(() => ({ mutateAsync: mocks.mockCheckoutBranchMutateAsync })),
   useValidateCheckout: vi.fn(() => ({

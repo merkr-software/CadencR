@@ -221,7 +221,8 @@ function withPaneActiveTab(
   return { ...st, splitRoot, focusedPaneId: paneId };
 }
 
-function withTabAdded(
+/** `addTab` as a pure function, for a caller that saves the layout before applying it. */
+export function withTabAdded(
   st: FeatureLayoutState,
   tab: TabKind,
   opts: AddTabOptions = {},

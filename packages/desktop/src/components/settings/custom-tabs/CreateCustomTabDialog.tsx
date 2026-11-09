@@ -22,11 +22,12 @@ import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { goToCustomTabWorkspace } from "./useOpenCustomTabProject";
 import {
+  flatLayoutState,
   LAYOUT_STATE_KEY,
   pluginTabKind,
   serializeCurrentLayoutState,
 } from "@/stores/feature-layout-schema";
-import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
+import { useFeatureLayoutStore, withTabAdded } from "@/stores/feature-layout-store";
 
 /** The manifest bounds (`docs/CUSTOM_TABS.md` §3) the service checks the request against. */
 export const MAX_NAME_LENGTH = 64;
@@ -35,18 +36,26 @@ const MAX_DESCRIPTION_LENGTH = 280;
 /**
  * A brand-new conversation has no saved layout yet: seed it with the tab
  * (behind the agent) so the author sees it come alive as it is built. The
- * persistence hook takes the layout it first sees as already saved, so this
- * one is saved here or it would be gone after a restart.
+ * persistence hook takes the layout it first sees as already saved, so the
+ * layout is saved first and only reaches the store once the backend has it;
+ * a failed save leaves the conversation on its saved layout, without the tab.
  */
-function seedStarterLayout(opened: PluginTabWorkspace): void {
-  const store = useFeatureLayoutStore.getState();
-  store.addTab(opened.feature_id, pluginTabKind(opened.plugin_id), { activate: false });
-  const layout = useFeatureLayoutStore.getState().features[opened.feature_id];
-  if (!layout) return;
-  setFeatureSetting(opened.feature_id, {
-    key: LAYOUT_STATE_KEY,
-    value: serializeCurrentLayoutState(layout),
-  }).catch((error: unknown) => toastError(error, "Could not save the new tab's placement"));
+async function seedStarterLayout(opened: PluginTabWorkspace): Promise<void> {
+  const tab = pluginTabKind(opened.plugin_id);
+  const current = useFeatureLayoutStore.getState().features[opened.feature_id];
+  const layout = withTabAdded(current ?? flatLayoutState(), tab, { activate: false });
+  try {
+    await setFeatureSetting(opened.feature_id, {
+      key: LAYOUT_STATE_KEY,
+      value: serializeCurrentLayoutState(layout),
+    });
+  } catch (error: unknown) {
+    toast.error(
+      `Could not save the new tab's placement: ${apiErrorMessage(error, "Unknown error")}`,
+    );
+    return;
+  }
+  useFeatureLayoutStore.getState().addTab(opened.feature_id, tab, { activate: false });
 }
 
 /**
@@ -63,18 +72,21 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The dialog stays busy until the new tab's placement is saved too.
+  const [placing, setPlacing] = useState(false);
   const cleanName = name.trim();
-  const busy = authoring.isPending;
+  const busy = authoring.isPending || placing;
   const incomplete = cleanName.length === 0;
   const createTab = authoring.mutateAsync;
 
   const finish = useCallback(
-    (opened: PluginTabWorkspace): void => {
+    async (opened: PluginTabWorkspace): Promise<void> => {
+      setPlacing(true);
+      await seedStarterLayout(opened);
       onClose();
       toast.success("Custom tab created", {
         description: "Tell the agent what the tab should show. It builds the tab with you.",
       });
-      seedStarterLayout(opened);
       goToCustomTabWorkspace(navigate, queryClient, opened);
     },
     [navigate, onClose, queryClient],

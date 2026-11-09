@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook } from "@/test-utils";
+import { act, renderHook } from "@/test-utils";
 import { PROVIDER_IDS } from "@/lib/providers";
 import type { useAccessModeSetting } from "@/hooks/useAccessModeSetting";
 
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   useWebSocketSession: vi.fn(),
   useAgentProfileSelection: vi.fn(),
   useAccessModeSetting: vi.fn(),
+  projectSettingMutate: vi.fn(),
 }));
 
 vi.mock("@/api/agentRuntime", () => ({ useAgentCatalog: mocks.useAgentCatalog }));
@@ -24,8 +25,13 @@ vi.mock("@/contexts/ResolvedModelContext", () => ({
   }),
 }));
 vi.mock("@/api/generated", () => ({
+  getGetProjectSettingsQueryKey: (id: number) => [`/api/projects/${id}/settings`],
   useGetProjectSettings: () => ({ data: {} }),
-  useSetProjectSetting: () => ({ mutate: vi.fn() }),
+  useSetProjectSetting: () => ({ mutate: mocks.projectSettingMutate, isPending: false }),
+}));
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 vi.mock("@/hooks/useEnabledOptInModes", () => ({ useEnabledOptInModes: () => [] }));
 vi.mock("@/hooks/useAccessModeSetting", () => ({
@@ -72,6 +78,38 @@ describe("useSessionControls catalog scoping", () => {
       claudeProfilesError: false,
       handleClaudeProfileChange: vi.fn(),
     });
+  });
+
+  it("switches to a mode that moves the project default only once the backend saves it", () => {
+    mocks.useWebSocketSession.mockReturnValue(ws());
+    mocks.projectSettingMutate.mockReset();
+    const { result } = renderHook(() => useSessionControls("session", 1, 1, "/work"));
+    expect(result.current.worktreeMode).toBe("from_branch_worktree");
+
+    act(() => result.current.setWorktreeMode("on_branch"));
+    expect(mocks.projectSettingMutate).toHaveBeenCalledWith(
+      { id: 1, data: { key: "default_worktree_mode", value: "skip" } },
+      expect.anything(),
+    );
+    expect(result.current.worktreeMode).toBe("from_branch_worktree");
+
+    const failed = mocks.projectSettingMutate.mock.calls[0]?.[1] as { onError: (e: Error) => void };
+    act(() => failed.onError(new Error("disk full")));
+    expect(result.current.worktreeMode).toBe("from_branch_worktree");
+
+    act(() => result.current.setWorktreeMode("on_branch"));
+    const saved = mocks.projectSettingMutate.mock.calls[1]?.[1] as { onSuccess: () => void };
+    act(() => saved.onSuccess());
+    expect(result.current.worktreeMode).toBe("on_branch");
+  });
+
+  it("applies a branch-specific mode at once: it is the conversation's pick, not a setting", () => {
+    mocks.useWebSocketSession.mockReturnValue(ws());
+    mocks.projectSettingMutate.mockReset();
+    const { result } = renderHook(() => useSessionControls("session", 1, 1, "/work"));
+    act(() => result.current.setWorktreeMode("from_branch"));
+    expect(result.current.worktreeMode).toBe("from_branch");
+    expect(mocks.projectSettingMutate).not.toHaveBeenCalled();
   });
 
   it("queues input during compaction and restores steering when it finishes", () => {

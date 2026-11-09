@@ -250,6 +250,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
       modes={modes}
       effectHint={effectHint}
       enableModeShortcut={enableModeShortcut}
+      projectId={projectId}
     />
   );
 

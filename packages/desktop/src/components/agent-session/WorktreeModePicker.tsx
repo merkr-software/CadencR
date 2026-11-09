@@ -5,9 +5,11 @@
  * boolean "Use worktree" toggle.
  */
 import { memo, useCallback, useState, type ReactElement } from "react";
-import { CheckIcon, ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import { useIsMutating } from "@tanstack/react-query";
+import { CheckIcon, ChevronDownIcon, GitBranchIcon, LoaderCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { defaultWorktreeModeMutationKey } from "@/lib/default-worktree-mode";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { ResolvedShortcutHint } from "@/components/KbdShortcut";
@@ -48,6 +50,8 @@ interface WorktreeModePickerProps {
   enableModeShortcut?: boolean;
   /** `manifest`: an inline token of the composer's launch sentence. */
   variant?: "chip" | "manifest";
+  /** Project whose default mode a pick may save; the label changes once it is saved. */
+  projectId: number;
 }
 
 export const WorktreeModePicker = memo(function WorktreeModePicker({
@@ -58,7 +62,9 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   effectHint,
   enableModeShortcut = true,
   variant = "chip",
+  projectId,
 }: WorktreeModePickerProps): ReactElement {
+  const saving = useIsMutating({ mutationKey: defaultWorktreeModeMutationKey(projectId) }) > 0;
   const [open, setOpen] = useState(false);
   const active = modeUsesWorktree(mode);
   const label =
@@ -99,13 +105,18 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
                 : WORKTREE_MANIFEST_SEGMENT
               : cn(active ? WORKTREE_SEGMENT_ACTIVE : WORKTREE_SEGMENT, "rounded-r-md")
           }
+          aria-busy={saving}
           aria-label={
             variant === "manifest"
               ? `Where the agent works: ${label}`
               : "Branch / worktree behavior"
           }
         >
-          <GitBranchIcon className="size-3 shrink-0" />
+          {saving ? (
+            <LoaderCircle aria-label="Saving" className="size-3 shrink-0 animate-spin" />
+          ) : (
+            <GitBranchIcon className="size-3 shrink-0" />
+          )}
           <SlidingText text={label} className="max-w-[140px]" />
           <ChevronDownIcon className="size-3 shrink-0 opacity-70" />
         </button>
