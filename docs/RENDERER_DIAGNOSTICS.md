@@ -45,7 +45,8 @@ Only `error` reports with the exact messages `ResizeObserver loop completed with
 undelivered notifications` or `ResizeObserver loop limit exceeded` (with or
 without a final period) receive the lowest retention priority. The incoming
 report is also eligible for eviction, so these notifications cannot displace
-important evidence from a full buffer. Other errors and unhandled rejections
+important evidence from a full buffer. These notifications are never relayed to
+opt-in Sentry diagnostics. Other errors and unhandled rejections
 keep their priority; capture and console/text logging are unchanged. This policy
 does not establish any causal link with React #185 or demonstrate its resolution.
 

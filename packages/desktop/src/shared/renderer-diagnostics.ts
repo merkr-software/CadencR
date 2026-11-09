@@ -109,6 +109,13 @@ const resizeObserverNoiseMessages = new Set([
   "ResizeObserver loop limit exceeded.",
 ]);
 
+/** A browser layout notification, not a thrown error: it never carries a stack or location. */
+export function isResizeObserverNoise(
+  error: Pick<z.infer<typeof rendererErrorSchema>, "source" | "message">,
+): boolean {
+  return error.source === "error" && resizeObserverNoiseMessages.has(error.message);
+}
+
 export function retainDiagnosticRecord(
   records: DiagnosticRecord[],
   record: DiagnosticRecord,
@@ -117,9 +124,7 @@ export function retainDiagnosticRecord(
   if (next.length > 10) {
     // Evict known ResizeObserver noise, then React recovery, then the oldest
     // remaining report. Include the incoming record so noise cannot displace evidence.
-    const noise = next.findIndex(
-      ({ error }) => error.source === "error" && resizeObserverNoiseMessages.has(error.message),
-    );
+    const noise = next.findIndex(({ error }) => isResizeObserverNoise(error));
     const recoverable = next.findIndex((item) => item.error.source === "react-recoverable");
     next.splice(noise >= 0 ? noise : recoverable >= 0 ? recoverable : 0, 1);
   }

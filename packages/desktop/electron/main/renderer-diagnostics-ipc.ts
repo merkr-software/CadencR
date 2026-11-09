@@ -32,7 +32,8 @@ export function registerRendererDiagnosticsIpc(
     assertTrusted(event);
     const error = rendererErrorSchema.parse(payload);
     if (!gate.accept(error)) return;
-    relayRemoteDiagnostic(rendererRemoteDiagnostic(error, rendererTelemetryAssets()));
+    const remote = rendererRemoteDiagnostic(error, rendererTelemetryAssets());
+    if (remote) relayRemoteDiagnostic(remote);
     const record: DiagnosticRecord = {
       timestamp: new Date().toISOString(),
       appVersion: app.getVersion(),

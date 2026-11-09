@@ -33,6 +33,21 @@ it("drops offline reports without a retry or toast storm and exposes failure", a
   expect(request).toHaveBeenCalledTimes(1);
 });
 
+it("keeps ResizeObserver noise local without spending the relay budget", async () => {
+  request.mockResolvedValue({});
+  const relay = await import("./telemetry-relay");
+  relay.relayBrowserDiagnostic({
+    source: "error",
+    message: "ResizeObserver loop completed with undelivered notifications.",
+  });
+  relay.relayBrowserDiagnostic({ source: "unhandledrejection", message: "private" });
+  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  expect(request.mock.calls[0][0]).toEqual({
+    category: "renderer_unhandled_rejection",
+    frames: [],
+  });
+});
+
 it("never posts telemetry from paired remote clients", async () => {
   context.remote = true;
   const relay = await import("./telemetry-relay");

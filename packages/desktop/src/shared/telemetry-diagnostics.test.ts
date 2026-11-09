@@ -107,7 +107,7 @@ it("keeps the original stack rather than appending the event fallback", () => {
         column: 6,
       },
       assets,
-    ).frames,
+    )?.frames,
   ).toEqual([{ filename: "assets/ui-XyZ12345.js", lineno: 3, colno: 4 }]);
 });
 
@@ -122,25 +122,37 @@ it.each([
     rendererRemoteDiagnostic(
       { source: "error", message: "secret", url, line: 1, column: 2 },
       assets,
-    ).frames,
+    )?.frames,
   ).toEqual([]);
 });
 
 it("never fabricates frames for locationless errors, rejections or untrusted builds", () => {
   const event = {
     source: "error" as const,
-    message: "ResizeObserver loop limit exceeded",
+    message: "Script error.",
     url: "file:///app/assets/index-AbCd1234.js",
     line: 1,
     column: 2,
   };
-  expect(rendererRemoteDiagnostic(event, new Set()).frames).toEqual([]);
-  expect(rendererRemoteDiagnostic({ ...event, line: null, column: null }, assets).frames).toEqual(
+  expect(rendererRemoteDiagnostic(event, new Set())?.frames).toEqual([]);
+  expect(rendererRemoteDiagnostic({ ...event, line: null, column: null }, assets)?.frames).toEqual(
     [],
   );
   expect(
-    rendererRemoteDiagnostic({ ...event, source: "unhandledrejection" }, assets).frames,
+    rendererRemoteDiagnostic({ ...event, source: "unhandledrejection" }, assets)?.frames,
   ).toEqual([]);
+});
+
+it.each([
+  "ResizeObserver loop completed with undelivered notifications.",
+  "ResizeObserver loop limit exceeded",
+])("keeps locationless ResizeObserver noise out of remote diagnostics: %s", (message) => {
+  const url = "file:///app/index.html";
+  expect(rendererRemoteDiagnostic({ source: "error", message, url }, assets)).toBeNull();
+  expect(rendererRemoteDiagnostic({ source: "unhandledrejection", message, url }, assets)).toEqual({
+    category: "renderer_unhandled_rejection",
+    frames: [],
+  });
 });
 
 it("bounds positions and frames before transport without discarding valid neighbors", () => {
@@ -160,7 +172,7 @@ it("bounds positions and frames before transport without discarding valid neighb
             column,
           },
           assets,
-        ).frames,
+        )?.frames,
       ).toEqual([]);
     }
   }

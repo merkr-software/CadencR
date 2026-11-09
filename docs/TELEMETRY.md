@@ -126,7 +126,8 @@ exception monitor; startup and service-down recovery remain local.
 | --- | --- |
 | Renderer `Error` (including another JavaScript realm) | Bounded V8 stack frames whose local `assets/<bundle>.js` name matches the installed build allowlist; oldest frame first for Sentry. |
 | Renderer `ErrorEvent` without usable stack frames | Its filename, line and column, only when they identify an allowlisted local bundle with valid positive positions. This also covers thrown primitives. |
-| Browser notifications without a location (for example some ResizeObserver errors), string promise rejections, process exits | Category only. No synthetic capture-site stack is added. |
+| `ResizeObserver loop` notifications (the exact messages listed in [renderer diagnostics](./RENDERER_DIAGNOSTICS.md)) | Not sent. The browser emits them without a location; they stay in local reports only. |
+| Other browser notifications without a location, string promise rejections, process exits | Category only. No synthetic capture-site stack is added. |
 | `service_internal`, `service_database`, `service_git` | Category only. `AppError` stores text, not the originating backtrace; capturing a stack in `into_response` would describe response handling instead of the failing operation. |
 | `service_panic` | A curated CadencR source location when available, not a native backtrace. |
 

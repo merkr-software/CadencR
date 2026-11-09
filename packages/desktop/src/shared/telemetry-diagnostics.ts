@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { rendererErrorSchema } from "./renderer-diagnostics";
+import { isResizeObserverNoise, type rendererErrorSchema } from "./renderer-diagnostics";
 import type { DiagnosticFrame, DiagnosticReport } from "../api/generated";
 
 export type RemoteDiagnosticFrame = DiagnosticFrame;
@@ -55,10 +55,12 @@ export function remoteDiagnosticFrames(
   return frames.reverse();
 }
 
+/** Null for known locationless browser noise: it stays in local reports but never reaches Sentry. */
 export function rendererRemoteDiagnostic(
   error: z.infer<typeof rendererErrorSchema>,
   assets: ReadonlySet<string>,
-): RemoteDiagnostic {
+): RemoteDiagnostic | null {
+  if (isResizeObserverNoise(error)) return null;
   const buildId = error.diagnostics?.buildId;
   const frames = remoteDiagnosticFrames(error.stack, assets);
   // A thrown primitive or browser ErrorEvent may have a location but no Error.stack.

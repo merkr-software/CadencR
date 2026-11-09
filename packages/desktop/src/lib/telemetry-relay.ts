@@ -13,11 +13,13 @@ export function browserTelemetryRelayStatus(): Promise<"idle" | "unavailable"> {
 
 /** The local development browser has no trusted bundle manifest. Paired remote devices never relay. */
 export function relayBrowserDiagnostic(payload: RendererErrorReportPayload): void {
-  if (isBrowserRemote()) return;
-  if (pending || Date.now() - lastAttempt < 1000) return;
+  if (isBrowserRemote() || pending || Date.now() - lastAttempt < 1000) return;
+  // Known noise returns before taking the slot, so it never spends the budget.
+  const diagnostic = rendererRemoteDiagnostic(payload, new Set());
+  if (!diagnostic) return;
   pending = true;
   lastAttempt = Date.now();
-  void ingestDiagnostic(rendererRemoteDiagnostic(payload, new Set()), AbortSignal.timeout(2000))
+  void ingestDiagnostic(diagnostic, AbortSignal.timeout(2000))
     .then(() => {
       unavailable = false;
     })
