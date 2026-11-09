@@ -28,14 +28,29 @@ impl Query {
     /// This writes a `user` message to CLI stdin and resets the turn state
     /// to `AgentWorking`.
     pub async fn stream_input(&self, content: serde_json::Value) -> Result<(), SdkError> {
+        self.stream_input_with_uuid(content, None).await
+    }
+
+    /// [`stream_input`](Query::stream_input) with a client `uuid` on the
+    /// message. The CLI then reports its fate in `command_lifecycle` frames,
+    /// and [`cancel_async_message`](Query::cancel_async_message) can withdraw
+    /// it while it waits in the CLI's queue.
+    pub async fn stream_input_with_uuid(
+        &self,
+        content: serde_json::Value,
+        uuid: Option<&str>,
+    ) -> Result<(), SdkError> {
         let session_id = self.session_id.lock().await.clone().unwrap_or_default();
 
-        let msg = serde_json::json!({
+        let mut msg = serde_json::json!({
             "type": "user",
             "message": { "role": "user", "content": content },
             "parent_tool_use_id": null,
             "session_id": session_id
         });
+        if let Some(uuid) = uuid {
+            msg["uuid"] = serde_json::Value::String(uuid.to_string());
+        }
 
         // Working from before the write: set after it, a fast `result` read
         // meanwhile would be overwritten and the finished turn would look open.
@@ -49,6 +64,22 @@ impl Query {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Withdraw a user message sent with `uuid` that still waits in the
+    /// CLI's queue. `Ok(false)`: it was not waiting (a turn already took it
+    /// in, or the CLI never got it), so it stays with that turn.
+    pub async fn cancel_async_message(&self, uuid: &str) -> Result<bool, SdkError> {
+        let response = self
+            .send_control_request(serde_json::json!({
+                "subtype": "cancel_async_message",
+                "message_uuid": uuid,
+            }))
+            .await?;
+        Ok(response
+            .get("cancelled")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true))
     }
 
     /// Change the active model. The CLI applies the new model on the next
@@ -266,6 +297,62 @@ read -r DUMMY
         );
         assert_eq!(captured["request"]["subtype"], "set_permission_mode");
         assert_eq!(captured["request"]["mode"], "acceptEdits");
+    }
+
+    /// A queued follow-up carries its client `uuid`, and `cancel_async_message`
+    /// withdraws it by that uuid, reading the CLI's `cancelled` answer.
+    #[tokio::test]
+    async fn a_uuid_message_is_withdrawn_by_cancel_async_message() {
+        let dir = TempDir::new().unwrap();
+        let captured_input = dir.path().join("input.json");
+        let captured_cancel = dir.path().join("cancel.json");
+        let script = format!(
+            r#"#!/bin/sh
+set -e
+read -r INIT_REQ
+INIT_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{}}}}}}\n' "$INIT_ID"
+read -r MCP_REQ
+MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{"mcpServers":[]}}}}}}\n' "$MCP_ID"
+read -r USER_PROMPT
+echo '{{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_q","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}}'
+read -r FOLLOW_UP
+printf '%s' "$FOLLOW_UP" > '{input}'
+read -r CANCEL_REQ
+printf '%s' "$CANCEL_REQ" > '{cancel}'
+CANCEL_ID=$(printf '%s' "$CANCEL_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{"cancelled":true}}}}}}\n' "$CANCEL_ID"
+read -r DUMMY
+"#,
+            input = captured_input.display(),
+            cancel = captured_cancel.display(),
+        );
+        let script_path = write_mock_cli(dir.path(), &script);
+        let options = Options {
+            path_to_cli: Some(script_path),
+            mcp_servers: Some(mock_mcp_servers()),
+            ..Options::default()
+        };
+        let mut q = query(serde_json::Value::String("first".into()), options)
+            .await
+            .unwrap();
+        let _init_msg = q.next().await.expect("init message");
+
+        q.stream_input_with_uuid(serde_json::json!("again"), Some("follow-1"))
+            .await
+            .unwrap();
+        assert!(q.cancel_async_message("follow-1").await.unwrap());
+        q.close().await;
+
+        let input: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&captured_input).unwrap()).unwrap();
+        assert_eq!(input["type"], "user");
+        assert_eq!(input["uuid"], "follow-1");
+        let cancel: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&captured_cancel).unwrap()).unwrap();
+        assert_eq!(cancel["request"]["subtype"], "cancel_async_message");
+        assert_eq!(cancel["request"]["message_uuid"], "follow-1");
     }
 
     /// CLI-reported error → `SdkError::ControlRequestFailed`. Gates the

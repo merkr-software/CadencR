@@ -10,6 +10,10 @@ const MAX_PENDING_PROMPT_RECEIPTS: usize = 64;
 #[derive(Debug, Clone)]
 struct PendingClaudePromptReceipt {
     client_message_id: String,
+    /// The `uuid` the message carries to the CLI, fresh per tracked message
+    /// (a resend before its echo reuses it): a later retry of the same
+    /// client message is a new CLI message, never a duplicate.
+    wire_uuid: String,
     expected_text: String,
 }
 
@@ -19,22 +23,36 @@ pub(super) struct ClaudePromptReceipts {
 }
 
 impl ClaudePromptReceipts {
-    pub(super) fn enqueue(&self, client_message_id: String, content: &Value) {
+    /// Track `client_message_id` until the CLI echoes it. Returns the `uuid`
+    /// to send it with.
+    pub(super) fn enqueue(&self, client_message_id: String, content: &Value) -> String {
         let expected_text = normalize_text(&prompt_text(content));
         let mut pending = self.pending.lock().expect("ClaudePromptReceipts poisoned");
-        if pending
+        if let Some(receipt) = pending
             .iter()
-            .any(|receipt| receipt.client_message_id == client_message_id)
+            .find(|receipt| receipt.client_message_id == client_message_id)
         {
-            return;
+            return receipt.wire_uuid.clone();
         }
+        let wire_uuid = uuid::Uuid::new_v4().to_string();
         pending.push_back(PendingClaudePromptReceipt {
             client_message_id,
+            wire_uuid: wire_uuid.clone(),
             expected_text,
         });
         while pending.len() > MAX_PENDING_PROMPT_RECEIPTS {
             pending.pop_front();
         }
+        wire_uuid
+    }
+
+    /// The CLI `uuid` of a prompt it has not echoed yet, so not taken in.
+    pub(super) fn waiting_wire_uuid(&self, client_message_id: &str) -> Option<String> {
+        let pending = self.pending.lock().expect("ClaudePromptReceipts poisoned");
+        pending
+            .iter()
+            .find(|receipt| receipt.client_message_id == client_message_id)
+            .map(|receipt| receipt.wire_uuid.clone())
     }
 
     /// Acknowledge the pending prompts a root user echo is made of. The echo
@@ -184,6 +202,20 @@ mod tests {
             .filter_map(|event| event.prompt_received_client_message_id())
             .map(ToOwned::to_owned)
             .collect()
+    }
+
+    #[test]
+    fn a_waiting_prompt_keeps_one_cli_uuid_until_its_echo() {
+        let receipts = ClaudePromptReceipts::default();
+        let wire = receipts.enqueue("client-1".to_string(), &json!("hello Claude"));
+        assert_eq!(
+            receipts.enqueue("client-1".to_string(), &json!("hello Claude")),
+            wire
+        );
+        assert_eq!(receipts.waiting_wire_uuid("client-1"), Some(wire));
+
+        receipts.acknowledge_echo(&json!({"content": "hello Claude"}));
+        assert_eq!(receipts.waiting_wire_uuid("client-1"), None, "taken in");
     }
 
     #[test]

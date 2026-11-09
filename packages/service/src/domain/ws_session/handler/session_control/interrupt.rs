@@ -4,6 +4,7 @@ use super::super::types::{QueryState, SdkSessions};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
+use crate::domain::ws_session::runtime::prompt::followup_withdrawal::report_withdrawn_followups;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
@@ -12,6 +13,8 @@ pub(crate) const NOTHING_TO_STOP: &str = "NOTHING_TO_STOP";
 /// starts anyway, so the user must stop it again once it runs. (A socket's
 /// Stop waits for the launch instead: see `lifecycle::stop_once_started`.)
 pub(crate) const AGENT_STARTING: &str = "AGENT_STARTING";
+/// The turn stopped, but a follow-up sent just before could not be withdrawn.
+const FOLLOWUP_NOT_WITHDRAWN: &str = "FOLLOWUP_NOT_WITHDRAWN";
 
 /// Stop `db_session_id`'s running work: its user shell command, the starting
 /// manual compaction, or the live runtime's turn. Shared by the socket's
@@ -36,12 +39,12 @@ pub(crate) async fn stop_session(
     if !app_state.session_status_tx.is_busy(db_session_id) {
         return Err(nothing_to_stop());
     }
-    let query = {
+    let (query, feature_id) = {
         let sessions = sessions.lock().await;
         let Some(handle) = sessions.get(&db_session_id) else {
             return Err(CommandError::new("SESSION_NOT_FOUND", "Session not found"));
         };
-        match &handle.state {
+        let query = match &handle.state {
             QueryState::Active { query, .. } => Some(std::sync::Arc::clone(query)),
             QueryState::Pending(_)
                 if handle.manual_compact_spawn_pending.load(Ordering::SeqCst) =>
@@ -52,7 +55,8 @@ pub(crate) async fn stop_session(
                 return Ok(());
             }
             QueryState::Pending(_) => None,
-        }
+        };
+        (query, handle.feature_id)
     };
     let Some(query) = query else {
         if app_state.session_runtimes.is_spawning(db_session_id).await {
@@ -72,6 +76,8 @@ pub(crate) async fn stop_session(
     // eventually reported to its parent.
     let q = query.read().await;
     let _barrier = q.turn_control_guard().await;
+    // Under the barrier: no follow-up is handed over between these steps.
+    let withdrawn = withdraw_followups(app_state, &**q, db_session_id, feature_id).await;
     interrupt_as_intended(
         app_state,
         &query,
@@ -84,7 +90,48 @@ pub(crate) async fn stop_session(
     .map_err(|error| {
         tracing::error!(db_session_id, %error, "interrupt failed");
         CommandError::new("SDK_ERROR", error)
-    })
+    })?;
+    withdrawn
+}
+
+/// A user Stop cancels the follow-ups the agent has not taken in yet (see
+/// `runtime::followup_stops`): those not handed over yet see the Stop, and the
+/// runtime withdraws those it holds, before the interrupt lets one start a
+/// turn of its own.
+async fn withdraw_followups(
+    app_state: &AppState,
+    runtime: &dyn AgentRuntimeSession,
+    db_session_id: i64,
+    feature_id: i64,
+) -> Result<(), CommandError> {
+    // Drained here: a later Stop cannot retry one this withdrawal fails on,
+    // which the error then reports.
+    let handed_off = app_state
+        .active_turns
+        .followups()
+        .record_stop(db_session_id);
+    if handed_off.is_empty() {
+        return Ok(());
+    }
+    let outcome = runtime.withdraw_pending_inputs(&handed_off).await;
+    report_withdrawn_followups(
+        &app_state.write_pool,
+        &app_state.ws_feature_senders,
+        feature_id,
+        db_session_id,
+        outcome.withdrawn,
+    )
+    .await;
+    match outcome.error {
+        None => Ok(()),
+        Some(error) => {
+            tracing::error!(db_session_id, %error, "follow-up withdrawal failed");
+            Err(CommandError::new(
+                FOLLOWUP_NOT_WITHDRAWN,
+                format!("The agent stopped, but a message sent just before may still run: {error}"),
+            ))
+        }
+    }
 }
 
 /// Why a control stops the running turn.

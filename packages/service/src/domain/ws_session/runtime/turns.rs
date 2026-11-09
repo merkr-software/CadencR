@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::domain::agents::adapter::{RuntimeSessionHandle, RuntimeSessionWeakHandle};
 
+use super::followup_stops::FollowupStops;
 use super::state::{QueryState, SdkHandle, SdkSessions};
 
 /// Inner of [`SdkSessions`] (`Arc<Mutex<HashMap<i64, SdkHandle>>>`) — the
@@ -37,11 +38,17 @@ struct InterruptedTurn {
 #[derive(Default)]
 pub struct ActiveTurnRegistry {
     turns: Mutex<HashMap<i64, ActiveTurn>>,
+    followups: FollowupStops,
 }
 
 impl ActiveTurnRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Which follow-ups a user Stop cancels (see [`FollowupStops`]).
+    pub(crate) fn followups(&self) -> &FollowupStops {
+        &self.followups
     }
 
     /// Record a new logical turn for `db_session_id` in its runtime cell.
@@ -122,6 +129,15 @@ impl ActiveTurnRegistry {
             return true;
         }
         false
+    }
+
+    /// The newest logical turn's generation for a session.
+    pub(crate) async fn current_generation(&self, db_session_id: i64) -> Option<u64> {
+        self.turns
+            .lock()
+            .await
+            .get(&db_session_id)
+            .map(|turn| turn.generation)
     }
 
     /// Whether `generation` still identifies the newest prompt for a session.

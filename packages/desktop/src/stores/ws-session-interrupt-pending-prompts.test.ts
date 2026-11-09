@@ -173,6 +173,35 @@ describe("interrupt pending steering prompts", () => {
     expect(block?.promptDeliveryState).toBe("received_agent");
   });
 
+  it("shows a steering prompt the Stop cancelled as not delivered, after the turn ended", async () => {
+    // The service cancels a follow-up the agent had not taken in when Stop
+    // came; its verdict may arrive after the stopped turn's `ended`, which has
+    // already marked the prompt unknown.
+    const ws = await connectInitializedReceiptSession();
+    const store = useWsSessionStore.getState();
+
+    store.sendPrompt("s1", "and the docs too");
+    const prompt = JSON.parse(ws.sent.at(-1) ?? "{}");
+    confirmPrompt(ws, prompt, "and the docs too", 41);
+    store.interrupt("s1");
+    ws.simulateMessage({
+      domain: "session",
+      action: "ended",
+      payload: { reason: "turn_interrupted" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "prompt_received",
+      payload: { message_uuid: prompt.payload.message_uuid, delivery_state: "delivery_failed" },
+    });
+
+    const block = useWsSessionStore
+      .getState()
+      .sessions.s1.blocks.find((b) => b.messageUuid === prompt.payload.message_uuid);
+    expect(block?.promptDeliveryState).toBe("delivery_failed");
+    expect(block?.content).toBe("and the docs too");
+  });
+
   it("reconciles a missed receipt at the prompt's current replay boundary", async () => {
     const ws = await connectInitializedReceiptSession();
     const store = useWsSessionStore.getState();

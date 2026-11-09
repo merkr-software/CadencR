@@ -14,6 +14,7 @@ mod app;
 mod bidirectional_controls;
 mod codex_provider;
 mod dispatch;
+mod followup_stop;
 mod gate;
 mod gate_cancellation;
 mod init;

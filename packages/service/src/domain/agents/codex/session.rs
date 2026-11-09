@@ -8,7 +8,7 @@ mod stream;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -67,6 +67,8 @@ pub(super) struct CodexSession {
     pending_prompt_receipts: Arc<PendingPromptReceipts>,
     temp_files: Arc<Mutex<Vec<TempPath>>>,
     closing: Arc<AtomicBool>,
+    /// Interrupts so far: an input that raced one starts no turn (see `session/input.rs`).
+    interrupts: AtomicU64,
     compaction: Arc<compaction::CompactionState>,
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
@@ -106,6 +108,7 @@ impl CodexSession {
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             temp_files: Arc::new(Mutex::new(Vec::new())),
             closing: Arc::new(AtomicBool::new(false)),
+            interrupts: AtomicU64::new(0),
             compaction: Arc::default(),
             mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
@@ -256,6 +259,7 @@ impl AgentRuntimeSession for CodexSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
+        let interrupts_at_entry = self.interrupts.load(Ordering::SeqCst);
         if let Some(client_message_id) = client_message_id.as_ref() {
             self.pending_prompt_receipts
                 .enqueue(client_message_id.clone());
@@ -263,8 +267,12 @@ impl AgentRuntimeSession for CodexSession {
 
         let result = match self.convert_input(content).await {
             Ok(input) => {
-                self.stream_converted_input(input, client_message_id.as_deref())
-                    .await
+                self.stream_converted_input(
+                    input,
+                    client_message_id.as_deref(),
+                    interrupts_at_entry,
+                )
+                .await
             }
             Err(error) => Err(error),
         };
@@ -284,6 +292,7 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
+        self.interrupts.fetch_add(1, Ordering::SeqCst);
         // Snapshot before awaiting RPCs; completion events keep updating the tracker.
         let children = self.child_turn_ids.read().await.clone();
         let root_turn = self.active_turn_id.read().await.clone();

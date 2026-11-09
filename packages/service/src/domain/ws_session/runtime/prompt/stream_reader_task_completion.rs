@@ -23,6 +23,12 @@ use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
 impl StreamReaderTask {
     async fn record_turn_outcome(&self, state: &StreamReaderState, outcome: TurnOutcome) {
+        // What the turn was handed, it or the turn the runtime starts for it
+        // took in: a later Stop stops it with that turn.
+        self.app_state
+            .active_turns
+            .followups()
+            .turn_ended(self.db_session_id);
         turn_completed(TurnSummary::new(
             outcome,
             &self.runtime_provider,

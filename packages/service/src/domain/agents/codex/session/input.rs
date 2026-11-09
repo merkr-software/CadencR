@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use codex_app_server_sdk_rs::SdkError;
 use serde_json::Value;
 use tracing::warn;
@@ -26,9 +28,20 @@ impl CodexSession {
         &self,
         input: Vec<Value>,
         client_message_id: Option<&str>,
+        // Read on entry, before the conversion awaits: a stop meanwhile counts.
+        interrupts_at_entry: u64,
     ) -> Result<(), RuntimeError> {
         let mut recovered_steer_failure = false;
         loop {
+            if raced_an_interrupt(
+                recovered_steer_failure,
+                interrupts_at_entry,
+                self.interrupts.load(Ordering::SeqCst),
+            ) {
+                return Err(RuntimeError::input_withdrawn(
+                    "Codex turn was stopped before this follow-up reached it",
+                ));
+            }
             let Some(turn_id) = self.active_turn_id.read().await.clone() else {
                 return self.start_turn(input, client_message_id).await;
             };
@@ -93,5 +106,30 @@ impl CodexSession {
     ) -> Result<(), RuntimeError> {
         let prompt = plan_approval_prompt(response.decision, response.feedback);
         self.stream_input(Value::String(prompt)).await
+    }
+}
+
+/// The turn an input steered was stopped while the input was on its way (its
+/// steer failed and an interrupt came since): a retry, or a turn started for
+/// it, would run past the Stop.
+fn raced_an_interrupt(steer_failed: bool, interrupts_at_entry: u64, interrupts_now: u64) -> bool {
+    steer_failed && interrupts_now != interrupts_at_entry
+}
+
+#[cfg(test)]
+mod tests {
+    use super::raced_an_interrupt;
+
+    #[test]
+    fn only_a_failed_steer_that_raced_an_interrupt_is_withdrawn() {
+        assert!(raced_an_interrupt(true, 3, 4));
+        assert!(
+            !raced_an_interrupt(true, 3, 3),
+            "the turn just ended: start one"
+        );
+        assert!(
+            !raced_an_interrupt(false, 3, 4),
+            "a first try still steers or starts"
+        );
     }
 }

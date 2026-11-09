@@ -3,6 +3,8 @@ mod bridge_user_message;
 pub(in crate::domain::ws_session) mod content;
 mod conversation_references;
 mod errors;
+mod followup_dispatch;
+pub(in crate::domain::ws_session) mod followup_withdrawal;
 pub(in crate::domain::ws_session) mod mcp_servers;
 mod permission_responses;
 mod prompt_checkpoint;

@@ -9,7 +9,7 @@ use crate::domain::agents::adapter::{
     AgentRuntimeSession, KnownSubagent, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionUpdate,
     RuntimeStreamEvent, RuntimeToolPermissionHandler, RuntimeToolPermissionRequest,
-    RuntimeToolPermissionResult,
+    RuntimeToolPermissionResult, WithdrawnInputs,
 };
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
@@ -262,11 +262,12 @@ impl AgentRuntimeSession for ClaudeCodeSession {
             return self.stream_input(content).await;
         };
 
-        self.prompt_receipts
+        let wire_uuid = self
+            .prompt_receipts
             .enqueue(client_message_id.clone(), &content);
         let result = self
             .query
-            .stream_input(content)
+            .stream_input_with_uuid(content, Some(&wire_uuid))
             .await
             .map_err(RuntimeError::from);
         if result.is_err() {
@@ -286,6 +287,28 @@ impl AgentRuntimeSession for ClaudeCodeSession {
             self.stop_escalation.as_ref(),
         )
         .await
+    }
+
+    /// A follow-up the CLI still queues would start a turn of its own once
+    /// the stop ends this one: withdraw it by its CLI `uuid`. One the CLI has
+    /// echoed (taken in) stays with the turn, as does one it no longer holds.
+    async fn withdraw_pending_inputs(&self, client_message_ids: &[String]) -> WithdrawnInputs {
+        let mut outcome = WithdrawnInputs::default();
+        for client_message_id in client_message_ids {
+            let Some(wire_uuid) = self.prompt_receipts.waiting_wire_uuid(client_message_id) else {
+                continue;
+            };
+            match self.query.cancel_async_message(&wire_uuid).await {
+                Ok(true) => {
+                    self.prompt_receipts.discard(client_message_id);
+                    outcome.withdrawn.push(client_message_id.clone());
+                }
+                Ok(false) => {}
+                // Keep going: the others may still be withdrawn.
+                Err(error) => outcome.error = Some(RuntimeError::from(error)),
+            }
+        }
+        outcome
     }
 
     async fn interrupt_before_sleep(&self) -> Result<(), RuntimeError> {

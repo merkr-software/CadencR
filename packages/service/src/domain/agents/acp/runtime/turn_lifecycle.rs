@@ -69,6 +69,16 @@ impl PromptCancel {
         self.epoch.load(Ordering::Relaxed)
     }
 
+    /// The cancel count now, to tell later whether a cancel came since.
+    pub fn cancels(&self) -> u64 {
+        self.current_epoch()
+    }
+
+    /// Whether a turn was cancelled since `cancels` was read.
+    pub fn cancelled_since(&self, cancels: u64) -> bool {
+        self.current_epoch() > cancels
+    }
+
     async fn wait_for_cancel_after(&self, epoch: u64) {
         loop {
             // Register before re-checking the epoch: `notify_waiters` only
@@ -307,6 +317,16 @@ mod tests {
     use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
 
     struct NoUsageHooks;
+
+    #[test]
+    fn a_cancel_after_reading_the_count_is_seen() {
+        let cancel = PromptCancel::new();
+        let cancels = cancel.cancels();
+        assert!(!cancel.cancelled_since(cancels));
+        cancel.cancel_current_turn();
+        assert!(cancel.cancelled_since(cancels));
+        assert!(!cancel.cancelled_since(cancel.cancels()));
+    }
 
     #[async_trait::async_trait]
     impl AcpProviderHooks for NoUsageHooks {
