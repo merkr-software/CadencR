@@ -91,7 +91,7 @@ blocklist checks remain authoritative; build validation does not replace them.
 | `CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64` | Canonical base64 representation of the host-owned 32-byte Ed25519 public key. Never a private key.                                                                                                                                                                                                                                                         |
 | `CADENCR_MANAGED_PROVIDER_INDEX_URL`         | Credential-free HTTPS provider catalog URL. Existing schema-1 feeds remain supported; current clients may point at the signed mixed schema-2 feed.                                                                                                                                                                                                         |
 | `CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL`     | Credential-free HTTPS signed policy URL, configured together with the provider catalog and both key variables.                                                                                                                                                                                                                                             |
-| `CADENCR_MANAGED_THEME_INDEX_URL`            | Additional activation pair with the theme blocklist, requiring the complete four-variable trust group. It must point at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-index.json`.                                                                                                                             |
+| `CADENCR_MANAGED_THEME_INDEX_URL`            | Additional activation pair with the theme blocklist, requiring the complete four-variable trust group. Use the registry's `marketplace-v2/managed-index.json` or, for clients supporting administrative handoffs, `marketplace-v2-admin/managed-index.json` on `raw.githubusercontent.com/<owner>/<repository>/refs/heads/`. |
 | `CADENCR_MANAGED_THEME_BLOCKLIST_URL`        | Theme-only signed revocation policy at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-theme-blocklist.json`; same reviewed repository as the mixed catalog.                                                                                                                                                     |
 | `CADENCR_MANAGED_TAB_BLOCKLIST_URL`          | Custom-tab-only signed revocation policy (`kind: "tab-blocklist"`), e.g. `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-tab-blocklist.json`; same signing key and reviewed repository as the mixed catalog.                                                                                                     |
 | `CADENCR_MANAGED_LSP_BLOCKLIST_URL`          | Optional LSP-only signed revocation policy (`kind: "lsp-blocklist"`) at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-lsp-blocklist.json`; requires shared trust and the mixed catalog in the same reviewed repository. Without it, LSP installation is disabled; existing marketplace kinds remain available. |
@@ -117,7 +117,8 @@ an error.
 
 | Variable                                                                                                                                                | Meaning                                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `CADENCR_REGISTRY_CATALOG_URL`                                                                                                                          | Stable catalog feed; the activation switch. Same URL the desktop `CADENCR_MANAGED_*_INDEX_URL` pins.    |
+| `CADENCR_REGISTRY_CATALOG_URL`                                                                                                                          | Legacy catalog feed and activation switch for its renewal and watch. Keep older clients on this channel. |
+| `CADENCR_REGISTRY_ADMINISTRATIVE_CATALOG_URL`                                                                                                           | Administrative catalog feed; independently enables `renew-administrative-catalog` and its expiry watch. |
 | `CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL`, `CADENCR_REGISTRY_THEME_BLOCKLIST_URL`, `CADENCR_REGISTRY_TAB_BLOCKLIST_URL`                                 | The three signed revocation policy feeds the watch checks (mirrors the desktop `*_BLOCKLIST_URL` pins). |
 | `CADENCR_REGISTRY_KEY_ID`, `CADENCR_REGISTRY_PUBLIC_KEY_PEM`                                                                                            | Public signing identity (PEM, not the base64 form used by desktop builds); no private material.         |
 | `CADENCR_REGISTRY_TRUST_MANIFEST_JSON`, `CADENCR_REGISTRY_ROOT_KEY_ID`, `CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM`, `CADENCR_REGISTRY_TRUST_MIN_GENERATION` | Optional root trust profile (the request's `trust` object); the first three are all-or-none.            |
@@ -496,11 +497,19 @@ The registry template pins the qualified CLI in
 [`ci/released-cli.env`](../tooling/marketplace-registry/ci/released-cli.env),
 including the LSP package and policy commands.
 
-**LSP production rollout is held for application `v0.16.1`.** Keep LSP entries
-out of the shared production catalog and leave
-`CADENCR_MANAGED_LSP_BLOCKLIST_URL` unset until the reviewed cutover. A CLI
-release, QA catalog, prepared package archive or local pin change does not
-authorize an earlier activation.
+Production LSP packages are available to `v0.16.1` and later through the signed
+`marketplace-v2-admin` catalog. Compatible builds point both provider and theme
+catalog variables at that channel. The signed LSP policy remains on
+`marketplace-v2/managed-lsp-blocklist.json`; older clients retain their legacy
+catalog and policy URLs.
+
+Admit only qualified package versions through the protected publisher after a
+compatible client is delivered. A prepared archive, QA catalog or local CLI pin
+does not publish a package. Provider handoffs remain separate administrative
+operations: they preserve signed package history and installed receipts, and do
+not admit a successor or migrate conversations. Enable administrative renewal
+and expiry monitoring with `CADENCR_REGISTRY_ADMINISTRATIVE_CATALOG_URL` after
+verifying the live signed administrative catalog.
 
 ## Language server revocation
 
