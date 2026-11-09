@@ -10,11 +10,11 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket};
-use futures::stream::SplitSink;
-use futures::SinkExt;
+use axum::extract::ws::{close_code, CloseFrame, Message};
+use futures::{Sink, SinkExt};
 use serde_json::json;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{mpsc, oneshot, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -128,27 +128,30 @@ fn resync_message(subscription_id: &str, topic: &str) -> Message {
 
 /// The writer task: drains the queue into the peer, delivers what is owed
 /// once the queue is idle, and sends the policy close frame when told to.
-pub async fn write(
-    mut sink: SplitSink<WebSocket, Message>,
+pub async fn write<S>(
+    mut sink: S,
     mut rx: mpsc::Receiver<Message>,
     shared: Arc<Shared>,
     mut close: oneshot::Receiver<&'static str>,
-) {
+) where
+    S: Sink<Message> + Unpin,
+{
     loop {
         tokio::select! {
             biased;
             reason = &mut close => {
-                // A dropped sender means the peer already left: no frame.
-                if let Ok(reason) = reason {
-                    let frame = CloseFrame { code: close_code::POLICY, reason: reason.into() };
-                    if sink.send(Message::Close(Some(frame))).await.is_err() {
-                        tracing::debug!("plugin socket closed before the policy close frame");
-                    }
-                }
+                send_close(&mut sink, reason).await;
                 return;
             }
             message = rx.recv() => {
-                let Some(message) = message else { return };
+                // Every producer is gone because the socket loop is closing,
+                // and the loop still decides whether a policy frame goes out.
+                // The last producer can be an aborted subscription task
+                // dropped on another worker before that decision arrives.
+                let Some(message) = message else {
+                    send_close(&mut sink, (&mut close).await).await;
+                    return;
+                };
                 if sink.send(message).await.is_err() {
                     return;
                 }
@@ -170,9 +173,26 @@ pub async fn write(
     }
 }
 
+/// Send the policy close frame. A dropped sender means the peer already
+/// left: no frame.
+async fn send_close<S>(sink: &mut S, reason: Result<&'static str, RecvError>)
+where
+    S: Sink<Message> + Unpin,
+{
+    let Ok(reason) = reason else { return };
+    let frame = CloseFrame {
+        code: close_code::POLICY,
+        reason: reason.into(),
+    };
+    if sink.send(Message::Close(Some(frame))).await.is_err() {
+        tracing::debug!("plugin socket closed before the policy close frame");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
     use serde_json::Value;
 
     fn decode(message: Message) -> Value {
@@ -208,6 +228,45 @@ mod tests {
         assert!(out.shared.owed().is_empty());
         drop(rx);
         assert!(!out.event("7".into(), "s2", "git.status"));
+    }
+
+    #[tokio::test]
+    async fn the_policy_close_frame_follows_the_last_producer_leaving_first() {
+        let (out, rx) = channel(4);
+        let (sink, mut peer) = futures::channel::mpsc::unbounded();
+        let (close_tx, close_rx) = oneshot::channel();
+        let writer = write(sink, rx, out.shared(), close_rx);
+        tokio::pin!(writer);
+        drop(out);
+        // The writer sees the queue closed before the reason arrives.
+        assert!(futures::poll!(&mut writer).is_pending());
+        close_tx
+            .send("grant revoked")
+            .expect("the writer still waits for the reason");
+        writer.await;
+        match peer.next().await {
+            Some(Message::Close(Some(frame))) => {
+                assert_eq!(frame.code, close_code::POLICY);
+                assert_eq!(frame.reason.as_str(), "grant revoked");
+            }
+            other => panic!("expected the policy close frame, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_peer_that_left_gets_no_close_frame() {
+        let (out, rx) = channel(4);
+        let (sink, mut peer) = futures::channel::mpsc::unbounded();
+        let (close_tx, close_rx) = oneshot::channel::<&'static str>();
+        let writer = write(sink, rx, out.shared(), close_rx);
+        tokio::pin!(writer);
+        drop(out);
+        assert!(futures::poll!(&mut writer).is_pending());
+        drop(close_tx);
+        tokio::time::timeout(std::time::Duration::from_secs(1), writer)
+            .await
+            .expect("the writer stops once the peer left");
+        assert!(peer.next().await.is_none());
     }
 
     #[test]

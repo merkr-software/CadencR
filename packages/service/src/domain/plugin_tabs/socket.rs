@@ -160,12 +160,16 @@ async fn finish(
     close_tx: oneshot::Sender<&'static str>,
     reason: Option<&'static str>,
 ) {
-    // No reason: the peer left, so the writer only drains and stops.
-    if let Some(reason) = reason {
+    match reason {
         // The writer may have just exited on its own; then there is no peer.
-        if close_tx.send(reason).is_err() {
-            tracing::debug!("plugin socket writer gone before the close frame");
+        Some(reason) => {
+            if close_tx.send(reason).is_err() {
+                tracing::debug!("plugin socket writer gone before the close frame");
+            }
         }
+        // The peer left: dropping the sender lets the writer stop now
+        // instead of waiting out the grace for a frame that never comes.
+        None => drop(close_tx),
     }
     if tokio::time::timeout(CLOSE_GRACE, &mut writer)
         .await
@@ -256,6 +260,18 @@ mod tests {
             format!("cadencr-token.{token}").parse().unwrap(),
         );
         assert!(authenticate(&headers, &grants).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_peer_that_left_does_not_wait_out_the_close_grace() {
+        let (out, rx) = outbound::channel(4);
+        let (sink, _peer) = futures::channel::mpsc::unbounded();
+        let (close_tx, close_rx) = oneshot::channel();
+        let writer = tokio::spawn(outbound::write(sink, rx, out.shared(), close_rx));
+        drop(out);
+        let start = Instant::now();
+        finish(writer, close_tx, None).await;
+        assert!(start.elapsed() < CLOSE_GRACE);
     }
 
     #[test]
