@@ -113,6 +113,13 @@ semantic probes using the same canonical archives. The 24 new source entries
 are `READY` for protected author inspection; that source preparation status does
 not publish assets or establish managed application lifecycle conformance.
 
+`tsgo` 0.1.1 is a Cadencr source build that backports an upstream fix for the
+exit status after shutdown; see the
+[native preparation notes](../../scripts/lsp-native-prepare/README.md#typescript-native-preview-rebuild).
+Its archives are bound to the [released CLI `0.15.7`](https://github.com/merkr-software/CadencR/releases/tag/cli/v0.15.7)
+qualification [run 42606644966](https://github.com/merkr-software/CadencR/actions/runs/42606644966),
+where all 25 packages pass on the same four hosts and tsgo exits with status 0.
+
 ## Production boundary
 
 Publishing package releases does **not** activate the production marketplace.

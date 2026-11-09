@@ -1368,7 +1368,7 @@
     "lsp-tsgo": {
       "kind": "lsp",
       "id": "tsgo",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source_path": "plugins/lsp/tsgo",
       "package": "plugins/lsp/tsgo/package-template.json",
       "preparation": "READY",
@@ -1380,11 +1380,11 @@
           ],
           "files": {
             "bundle.tar.gz": {
-              "sha256": "d3e2e12da3b074952d41a03e2a2eb00227c1a3c4f0bce932a4977adc760d72cb",
+              "sha256": "857108d35ee025041a44a6ab46401d60f500ba5d41bc61edf42d3314852527bd",
               "mode": "100644"
             },
             "source-lock.json": {
-              "sha256": "271cd82eeb1d693d7ae6fcacf7903d53e7bfa294927d487b17afbfe6eedfc421",
+              "sha256": "d3b0aa7c4f02b510199ebb4211122b9cb7876975569f4cae9da17d93d17bf2fa",
               "mode": "100644"
             }
           }
@@ -1396,11 +1396,11 @@
           ],
           "files": {
             "bundle.tar.gz": {
-              "sha256": "d8b40d0d13b01b74cd6d05bd1afeca5276e2f0acab44747c3420eb41674cc57b",
+              "sha256": "a95fcc3b2f6dc098df15707eb3e8c8970f4e1023c741b1c8ffe2ef3583359021",
               "mode": "100644"
             },
             "source-lock.json": {
-              "sha256": "d369608cc667ee70c84d5b3650595177e535fec464776322e784c5fe1d0d88a0",
+              "sha256": "241890c2553a7a4b8630354919ffb5205213c88d746fa2107a01d775fc1678f8",
               "mode": "100644"
             }
           }
@@ -1412,17 +1412,17 @@
           ],
           "files": {
             "bundle.tar.gz": {
-              "sha256": "960a087a08547cfe62364a6f384f676d4933cfaf8f7d2fb5f7af1c1638a3be68",
+              "sha256": "f9458c913beb3e76b024db0c93f3a98e8b3c0c80927eac5b7a4899a5685d47ca",
               "mode": "100644"
             },
             "source-lock.json": {
-              "sha256": "1a89bf7a160b39ef8fa4591f6966c097c35eae32b3ea41e6df73f85b105319dc",
+              "sha256": "97d3fdb39425dc48649222493c7cd6f34b982cfa8f9cba8a28023dd48dbc0792",
               "mode": "100644"
             }
           }
         }
       },
-      "release_notes": "TypeScript native preview package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+      "release_notes": "TypeScript native preview package 0.1.1\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nThis is a Cadencr source build of the upstream TypeScript native preview 7.0.0-dev.20260707.2 (microsoft/typescript-go 9977d6d38fcc78de8ae71770f3aa08256e6cc861) with one backported fix: the server now exits with status 0 after a clean shutdown and exit (microsoft/TypeScript#64742, first commit of microsoft/TypeScript#64894). Declaration libraries, license and notice files are the unmodified npm package files; the applied patch ships in CADENCR-PATCHES/. The macOS executables are not Microsoft's Developer ID-signed binaries: ARM carries the Go linker's ad hoc signature and Intel is unsigned. Cadencr's signed catalog and pinned hashes attest this distribution, not Microsoft's identity.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42606644966\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
     },
     "lsp-vue-language-server": {
       "kind": "lsp",
