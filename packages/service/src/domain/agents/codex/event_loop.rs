@@ -170,6 +170,15 @@ impl EventLoop {
                 return false;
             }
         }
+        for dropped in self.pending_prompt_receipts.drop_after_interrupted_turn(
+            &method,
+            &params,
+            &self.turns.root_thread_id,
+        ) {
+            if self.tx.send(Ok(dropped)).await.is_err() {
+                return false;
+            }
+        }
         // A reroute of the root turn moves the model the rest of it runs on.
         if method == "model/rerouted" && params["threadId"] == self.turns.root_thread_id.as_str() {
             if let Some(model) = rerouted_model(&params) {

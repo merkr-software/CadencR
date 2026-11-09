@@ -155,6 +155,11 @@ pub enum RuntimeEventKind {
     PromptReceived {
         client_message_id: String,
     },
+    /// The runtime dropped a user prompt it had accepted (a stopped turn
+    /// ended before taking it in): it never reached the agent.
+    PromptDropped {
+        client_message_id: String,
+    },
     /// Provider-native usage that is persisted by the accounting path only.
     /// It must not become a transcript block or a context-window update.
     UsageAccounting,

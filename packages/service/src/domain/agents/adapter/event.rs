@@ -343,35 +343,6 @@ impl RuntimeEvent {
         }
     }
 
-    pub fn prompt_received_client_message_id(&self) -> Option<&str> {
-        match &self.kind {
-            RuntimeEventKind::PromptReceived { client_message_id } => Some(client_message_id),
-            _ => None,
-        }
-    }
-
-    pub fn prompt_received_event(client_message_id: String) -> Self {
-        Self::prompt_received_event_with_provider_message_id(client_message_id, None)
-    }
-
-    pub fn prompt_received_event_with_provider_message_id(
-        client_message_id: String,
-        provider_message_id: Option<String>,
-    ) -> Self {
-        Self::new(
-            RuntimeEventMetadata {
-                raw: serde_json::json!({
-                    "type": "prompt_received",
-                    "client_message_id": client_message_id,
-                    "provider_message_id": provider_message_id.clone(),
-                }),
-                ..RuntimeEventMetadata::default()
-            },
-            RuntimeEventKind::PromptReceived { client_message_id },
-        )
-        .with_provider_message_id(provider_message_id)
-    }
-
     /// Convenience constructor for stream-status events. Emitters don't
     /// have meaningful session_id / usage / context_window metadata for
     /// these — the WS bridge ignores those fields for status envelopes.

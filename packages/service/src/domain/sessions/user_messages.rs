@@ -4,7 +4,7 @@ use uuid::Uuid;
 mod delivery;
 mod models;
 
-pub use delivery::{resolve_pending_delivery_states, update_delivery_state};
+pub use delivery::{reopen_delivery, resolve_pending_delivery_states, update_delivery_state};
 use models::CanonicalUserMessageRow;
 pub use models::{NewUserMessage, PersistUserMessageError, PersistedUserMessage};
 

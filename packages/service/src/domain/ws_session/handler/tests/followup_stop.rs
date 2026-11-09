@@ -14,6 +14,8 @@ struct StopAwareSession {
     withdraw_asked: Arc<std::sync::Mutex<Vec<String>>>,
     /// Drop every input as a runtime does that saw the Stop first.
     withdraws_inputs: bool,
+    /// Keep what it was handed at a Stop, as Codex keeps an accepted steer.
+    keeps_inputs: bool,
     message_rx: Option<RuntimeMessageRx>,
 }
 
@@ -41,7 +43,11 @@ impl AgentRuntimeSession for StopAwareSession {
             .unwrap()
             .extend(ids.iter().cloned());
         WithdrawnInputs {
-            withdrawn: ids.to_vec(),
+            withdrawn: if self.keeps_inputs {
+                Vec::new()
+            } else {
+                ids.to_vec()
+            },
             error: None,
         }
     }
@@ -81,6 +87,10 @@ async fn fixture(turn_running: bool) -> Fixture {
 }
 
 async fn fixture_with(turn_running: bool, withdraws_inputs: bool) -> Fixture {
+    fixture_full(turn_running, withdraws_inputs, false).await
+}
+
+async fn fixture_full(turn_running: bool, withdraws_inputs: bool, keeps_inputs: bool) -> Fixture {
     let app_state = make_test_app_state().await;
     let (tx, mut rx) = mpsc::unbounded_channel();
     let sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
@@ -100,6 +110,7 @@ async fn fixture_with(turn_running: bool, withdraws_inputs: bool) -> Fixture {
                 barrier: barrier.clone(),
                 withdraw_asked: withdraw_asked.clone(),
                 withdraws_inputs,
+                keeps_inputs,
                 message_rx: Some(message_rx),
             }))),
             permission_tx,
@@ -130,6 +141,11 @@ impl Fixture {
     /// Send a follow-up while the test holds the turn barrier, and wait until
     /// it is accepted (persisted) and waits at that barrier.
     async fn send_held_follow_up(&self) -> tokio::task::JoinHandle<()> {
+        self.send_follow_up(true).await
+    }
+
+    /// `track`: whether the client asks for the agent's receipt.
+    async fn send_follow_up(&self, track: bool) -> tokio::task::JoinHandle<()> {
         let envelope = make_envelope(
             "session",
             "prompt.send",
@@ -137,7 +153,7 @@ impl Fixture {
                 "session_id": self.session_id,
                 "text": "and the docs too",
                 "message_uuid": FOLLOW_UP,
-                "track_prompt_receipt": true,
+                "track_prompt_receipt": track,
             }),
         );
         let (tx, sessions, app_state) = (
@@ -156,6 +172,31 @@ impl Fixture {
         .await
         .expect("the follow-up is persisted");
         dispatch
+    }
+
+    /// What the stopped turn's end does with what its Stop left.
+    async fn settle(&self, unwithdrawn: Vec<String>) {
+        crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups(
+            &self.app_state.write_pool,
+            &self.app_state.ws_feature_senders,
+            1,
+            self.db_id,
+            unwithdrawn,
+        )
+        .await;
+    }
+
+    async fn dispatch_status(&self) -> String {
+        sqlx::query_scalar(
+            "SELECT d.status FROM agent_message_dispatches d
+             JOIN agent_messages m ON m.id = d.message_id
+             WHERE m.session_id = ? AND m.message_uuid = ?",
+        )
+        .bind(self.db_id)
+        .bind(FOLLOW_UP)
+        .fetch_one(&self.app_state.write_pool)
+        .await
+        .unwrap()
     }
 
     /// `Some(state)` once the follow-up row exists (`"none"` for no state).
@@ -297,4 +338,114 @@ async fn a_prompt_the_runtime_dropped_ends_its_turn_idle() {
     })
     .await
     .expect("the session ends idle");
+}
+
+/// Found live: the withdrawn follow-up's dispatch still read as done, so its
+/// Retry was taken for a duplicate and never reached the agent.
+#[tokio::test]
+async fn a_retry_sends_a_withdrawn_follow_up_again() {
+    let mut fixture = fixture(true).await;
+    fixture.send_held_follow_up().await.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), fixture.streamed.recv())
+        .await
+        .expect("the follow-up reaches the runtime");
+    stop_session(&fixture.app_state, Some(&fixture.sessions), fixture.db_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.delivery_state().await.as_deref(),
+        Some("delivery_failed")
+    );
+
+    // Sent while idle, as the desktop does: untracked, yet tracked as a retry.
+    fixture.send_follow_up(false).await.await.unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), fixture.streamed.recv())
+        .await
+        .expect("the retry reaches the runtime");
+    assert_eq!(
+        fixture.delivery_state().await.as_deref(),
+        Some("pending_agent"),
+        "pending again, until the agent's receipt"
+    );
+}
+
+/// A runtime that keeps an accepted follow-up (Codex) leaves it to the
+/// stopped turn's end, which reads it as not delivered unless acknowledged.
+#[tokio::test]
+async fn a_follow_up_the_runtime_kept_waits_for_the_stopped_turn() {
+    let mut fixture = fixture_full(true, false, true).await;
+    fixture.send_held_follow_up().await.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), fixture.streamed.recv())
+        .await
+        .expect("the follow-up reaches the runtime");
+
+    stop_session(&fixture.app_state, Some(&fixture.sessions), fixture.db_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.delivery_state().await.as_deref(),
+        Some("pending_agent")
+    );
+
+    let unwithdrawn = fixture
+        .app_state
+        .active_turns
+        .followups()
+        .turn_ended(fixture.db_id);
+    assert_eq!(unwithdrawn, vec![FOLLOW_UP.to_string()]);
+    fixture.settle(unwithdrawn).await;
+    assert_eq!(
+        fixture.delivery_state().await.as_deref(),
+        Some("delivery_failed")
+    );
+    assert_eq!(
+        fixture.dispatch_status().await,
+        "error",
+        "a retry may send it again"
+    );
+    assert!(
+        !crate::domain::sessions::user_messages::update_delivery_state(
+            &fixture.app_state.write_pool,
+            fixture.db_id,
+            FOLLOW_UP,
+            "received_agent",
+        )
+        .await
+        .unwrap(),
+        "a receipt after the stopped turn does not count"
+    );
+}
+
+/// One the stopped turn acknowledged before it ended was taken in by it.
+#[tokio::test]
+async fn a_follow_up_acknowledged_before_the_stopped_turn_ended_stays_received() {
+    let mut fixture = fixture_full(true, false, true).await;
+    fixture.send_held_follow_up().await.await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), fixture.streamed.recv())
+        .await
+        .expect("the follow-up reaches the runtime");
+    stop_session(&fixture.app_state, Some(&fixture.sessions), fixture.db_id)
+        .await
+        .unwrap();
+    crate::domain::sessions::user_messages::update_delivery_state(
+        &fixture.app_state.write_pool,
+        fixture.db_id,
+        FOLLOW_UP,
+        "received_agent",
+    )
+    .await
+    .unwrap();
+
+    let unwithdrawn = fixture
+        .app_state
+        .active_turns
+        .followups()
+        .turn_ended(fixture.db_id);
+    fixture.settle(unwithdrawn).await;
+
+    assert_eq!(
+        fixture.delivery_state().await.as_deref(),
+        Some("received_agent")
+    );
 }

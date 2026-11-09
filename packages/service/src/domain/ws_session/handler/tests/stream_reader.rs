@@ -1075,3 +1075,66 @@ async fn test_session_message_envelopes_carry_monotonic_seq() {
     );
     assert!(seqs.len() >= 2, "both deltas must be forwarded");
 }
+
+/// A prompt the runtime dropped at a Stop (a Codex steer the stopped turn
+/// never took in) reads as not delivered, for every viewer.
+#[tokio::test]
+async fn test_stream_reader_marks_a_dropped_prompt_not_delivered() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, _ws_rx) = mpsc::unbounded_channel();
+    let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel();
+    let db_session_id = 89i64;
+    let feature_id = 1i64;
+    sdk_sessions
+        .lock()
+        .await
+        .insert(db_session_id, make_active_handle(feature_id, None));
+    app_state
+        .ws_feature_senders
+        .register(feature_id, viewer_tx)
+        .await;
+    seed_pending_prompt(&app_state, db_session_id, feature_id, "client-dropped").await;
+
+    let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(2);
+    msg_tx
+        .send(Ok(RuntimeEvent::prompt_dropped_event(
+            "client-dropped".to_string(),
+        )))
+        .await
+        .unwrap();
+    drop(msg_tx);
+    spawn_test_stream_reader(
+        &app_state,
+        db_session_id,
+        feature_id,
+        msg_rx,
+        ws_tx,
+        sdk_sessions.clone(),
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
+    );
+
+    let failed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let Some(Message::Text(text)) = viewer_rx.recv().await else {
+                continue;
+            };
+            let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+            if envelope.action == "prompt_received" {
+                return envelope.payload;
+            }
+        }
+    })
+    .await
+    .expect("viewers learn the prompt was not delivered");
+    assert_eq!(failed["delivery_state"], "delivery_failed");
+    let state: Option<String> = sqlx::query_scalar(
+        "SELECT delivery_state FROM agent_messages WHERE session_id = ? AND message_uuid = ?",
+    )
+    .bind(db_session_id)
+    .bind("client-dropped")
+    .fetch_one(&app_state.write_pool)
+    .await
+    .unwrap();
+    assert_eq!(state.as_deref(), Some("delivery_failed"));
+}

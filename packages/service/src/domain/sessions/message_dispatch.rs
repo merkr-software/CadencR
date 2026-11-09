@@ -65,6 +65,30 @@ pub async fn mark_failed(
     update_claim(pool, message_id, token, "error", Some(error)).await
 }
 
+/// A message a user Stop withdrew after it was handed over: its dispatch
+/// failed, so a retry can claim it again and a late receipt does not count.
+pub async fn mark_withdrawn(
+    pool: &sqlx::SqlitePool,
+    session_id: i64,
+    message_uuid: &str,
+    error: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE agent_message_dispatches
+         SET status = 'error', error = ?, claim_token = NULL, claimed_at = NULL,
+             dispatched_at = NULL, updated_at = datetime('now')
+         WHERE status = 'dispatched'
+           AND message_id = (SELECT id FROM agent_messages
+                             WHERE session_id = ? AND message_uuid = ?)",
+    )
+    .bind(error)
+    .bind(session_id)
+    .bind(message_uuid)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 async fn update_claim(
     pool: &sqlx::SqlitePool,
     message_id: i64,
@@ -250,6 +274,40 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(delivered_wait, ("delivered".into(), None, None));
+    }
+
+    /// A follow-up a Stop withdrew after its hand-over: a retry may dispatch
+    /// it again, and only the retry's receipt counts.
+    #[tokio::test]
+    async fn a_withdrawn_follow_up_can_be_retried_and_ignores_a_late_receipt() {
+        use crate::domain::sessions::user_messages::{reopen_delivery, update_delivery_state};
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        run_migrations(&MigrationContext::pool_only(&pool))
+            .await
+            .unwrap();
+        seed(&pool).await;
+        let uuid = "00000000-0000-0000-0000-000000000001";
+        mark_succeeded(&pool, 1, "a").await.unwrap();
+
+        assert!(update_delivery_state(&pool, 1, uuid, "delivery_failed")
+            .await
+            .unwrap());
+        mark_withdrawn(&pool, 1, uuid, "stopped").await.unwrap();
+        assert!(
+            !update_delivery_state(&pool, 1, uuid, "received_agent")
+                .await
+                .unwrap(),
+            "a receipt after the Stop does not count"
+        );
+
+        let DispatchClaim::Claimed { token } = claim(&pool, 1).await.unwrap() else {
+            panic!("the retry claims the withdrawn dispatch");
+        };
+        reopen_delivery(&pool, 1, uuid).await.unwrap();
+        mark_succeeded(&pool, 1, &token).await.unwrap();
+        assert!(update_delivery_state(&pool, 1, uuid, "received_agent")
+            .await
+            .unwrap());
     }
 
     async fn seed(pool: &sqlx::SqlitePool) {

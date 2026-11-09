@@ -20,12 +20,15 @@ use super::content::{
 };
 use super::errors::persist_pause_and_send_session_error;
 use super::followup_dispatch::{mark_followup_dispatch_failed, mark_followup_succeeded};
-use super::followup_withdrawal::{stopped_since_accepted, withdraw_followup, FollowupDelivery};
+use super::followup_withdrawal::{
+    fail_stopped_followups, stopped_since_accepted, withdraw_followup, FollowupDelivery,
+};
 use super::prompt_receipt::clear_pending_prompt_receipt;
 use super::prompt_status::{
     mark_agent_running, persist_and_publish_prompt, PromptPersistenceOutcome,
 };
 use super::user_shell_context::{claim_pending_user_shell_context, PendingUserShellContext};
+use crate::domain::ws_session::runtime::followup_stops::HandOff;
 
 pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub query: RuntimeSessionHandle,
@@ -249,16 +252,25 @@ async fn stream_followup_prompt(
         .runtime
         .stream_input_with_client_message_id(content, receipt_message_uuid.clone())
         .await;
-    // Listed before the barrier drops, so a Stop that follows withdraws it.
-    if let (Some(_), Some(id), true) = (
-        delivery.accepted,
-        receipt_message_uuid.as_ref(),
-        stream_result.is_ok(),
-    ) {
-        context
-            .active_turns
-            .followups()
-            .handed_off(context.db_session_id, id.clone());
+    // Recorded before the barrier drops: a Stop that follows withdraws it,
+    // and finds its dispatch final.
+    if stream_result.is_ok() {
+        mark_followup_succeeded(&context, dispatch_claim.as_ref()).await;
+        if let (Some(accepted), Some(id)) = (delivery.accepted, receipt_message_uuid.as_ref()) {
+            let followups = context.active_turns.followups();
+            if followups.handed_off(context.db_session_id, accepted, id.clone())
+                == HandOff::SettleNow
+            {
+                fail_stopped_followups(
+                    &context.write_pool,
+                    &context.ws_feature_senders,
+                    context.feature_id,
+                    context.db_session_id,
+                    vec![id.clone()],
+                )
+                .await;
+            }
+        }
     }
     drop(turn_guard);
     drop(context.delivery_lease.take());
@@ -298,7 +310,6 @@ async fn stream_followup_prompt(
             &error,
         );
     }
-    mark_followup_succeeded(&context, dispatch_claim.as_ref()).await;
     Ok(())
 }
 

@@ -15,44 +15,21 @@ use crate::domain::ws_session::persistence::{
     raw_event_with_agent_message_id, PersistedEventRef, WsSessionPersistence,
 };
 use crate::domain::ws_session::protocol::{
-    SessionEndedPayload, SessionErrorPayload, SessionMessagePayload, SessionUsageUpdatePayload,
-    WsEnvelope,
+    SessionEndedPayload, SessionErrorPayload, SessionMessagePayload, WsEnvelope,
 };
 
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
 impl StreamReaderTask {
     async fn record_turn_outcome(&self, state: &StreamReaderState, outcome: TurnOutcome) {
-        // What the turn was handed, it or the turn the runtime starts for it
-        // took in: a later Stop stops it with that turn.
-        self.app_state
-            .active_turns
-            .followups()
-            .turn_ended(self.db_session_id);
+        let stopped = matches!(outcome, TurnOutcome::Interrupted);
+        self.settle_followups(stopped, false).await;
         turn_completed(TurnSummary::new(
             outcome,
             &self.runtime_provider,
             state.turn_state.elapsed_seconds(),
         ))
         .await;
-    }
-
-    pub(in crate::domain::ws_session) async fn send_usage_update(
-        &self,
-        input_tokens: u64,
-        output_tokens: u64,
-        context_window: Option<u64>,
-    ) {
-        let usage_env =
-            WsEnvelope::session_event(&WsSessionEvent::UsageUpdate(SessionUsageUpdatePayload {
-                input_tokens,
-                output_tokens,
-                context_window,
-            }))
-            .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(usage_env).into()))
-            .await;
     }
 
     pub(in crate::domain::ws_session) async fn runtime_event_envelope(
@@ -197,6 +174,7 @@ impl StreamReaderTask {
             .is_current_generation(self.db_session_id, interrupted_generation)
             .await
         {
+            self.settle_followups(true, true).await;
             info!(
                 self.db_session_id,
                 interrupted_generation,

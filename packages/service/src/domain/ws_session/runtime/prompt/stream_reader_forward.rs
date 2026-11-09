@@ -1,7 +1,7 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::domain::ws_session::runtime::output::OutputTarget;
 use axum::extract::ws::Message;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::domain::agents::adapter::RuntimeStreamStatus;
 use crate::domain::agents::adapter::{RuntimeEvent, RuntimeSlashCommandKind};
@@ -38,6 +38,17 @@ pub(in crate::domain::ws_session) async fn forward_immediate_event(
     state: &mut StreamReaderState,
     runtime_event: &RuntimeEvent,
 ) -> ForwardOutcome {
+    if let Some(message_uuid) = runtime_event.prompt_dropped_client_message_id() {
+        super::followup_withdrawal::fail_stopped_followups(
+            &task.write_pool,
+            &task.feature_senders,
+            task.feature_id,
+            task.db_session_id,
+            vec![message_uuid.to_string()],
+        )
+        .await;
+        return ForwardOutcome::Suppressed;
+    }
     if let Some(message_uuid) = runtime_event.prompt_received_client_message_id() {
         if !persist_prompt_receipt(task, state, message_uuid).await {
             return ForwardOutcome::Suppressed;
@@ -129,7 +140,8 @@ async fn persist_prompt_receipt(
             true
         }
         Ok(false) => {
-            error!(task.db_session_id, %message_uuid, "ignored receipt for an unknown canonical prompt");
+            // Unknown, or a follow-up a Stop withdrew (see `update_delivery_state`).
+            warn!(task.db_session_id, %message_uuid, "ignored receipt for a prompt that is unknown or was withdrawn");
             false
         }
         Err(error) => {

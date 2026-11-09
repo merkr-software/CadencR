@@ -53,6 +53,32 @@ impl PendingPromptReceipts {
         received_id.map(RuntimeEvent::prompt_received_event)
     }
 
+    /// A stopped root turn ended: Codex recorded the steers it kept before
+    /// this (their receipts came first) and dropped the rest, returned here.
+    /// Their receipts would otherwise acknowledge a later message that carries
+    /// no client id.
+    pub(super) fn drop_after_interrupted_turn(
+        &self,
+        method: &str,
+        params: &Value,
+        root_thread_id: &str,
+    ) -> Vec<RuntimeEvent> {
+        let interrupted = method == "turn/completed"
+            && belongs_to_root_thread(params, root_thread_id)
+            && params["turn"]["status"] == "interrupted";
+        if !interrupted {
+            return Vec::new();
+        }
+        let mut pending = self
+            .client_message_ids
+            .lock()
+            .expect("PendingPromptReceipts poisoned");
+        pending
+            .drain(..)
+            .map(RuntimeEvent::prompt_dropped_event)
+            .collect()
+    }
+
     pub(super) fn discard(&self, client_message_id: &str) {
         let mut pending = self
             .client_message_ids
@@ -119,6 +145,39 @@ mod tests {
                     .map(ToOwned::to_owned)
             }),
             Some("client-1".to_string())
+        );
+        assert!(receipts.front().is_none());
+    }
+
+    /// Found live: a steer Codex dropped at a Stop kept its receipt, and the
+    /// next prompt's user message (no client id) acknowledged it.
+    #[test]
+    fn an_interrupted_turn_forgets_the_steers_codex_dropped() {
+        let receipts = PendingPromptReceipts::default();
+        receipts.enqueue("dropped".to_string());
+        let completed = |status: &str| json!({"threadId": "thread-root", "turn": {"id": "t", "status": status}});
+
+        let normal = receipts.drop_after_interrupted_turn(
+            "turn/completed",
+            &completed("completed"),
+            "thread-root",
+        );
+        assert!(normal.is_empty());
+        assert_eq!(
+            receipts.front().as_deref(),
+            Some("dropped"),
+            "a normal end keeps it"
+        );
+
+        let dropped = receipts.drop_after_interrupted_turn(
+            "turn/completed",
+            &completed("interrupted"),
+            "thread-root",
+        );
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(
+            dropped[0].prompt_dropped_client_message_id(),
+            Some("dropped")
         );
         assert!(receipts.front().is_none());
     }

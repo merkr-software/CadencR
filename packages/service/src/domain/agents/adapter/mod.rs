@@ -5,6 +5,7 @@ mod config;
 mod error;
 mod event;
 mod event_mode;
+mod event_prompt;
 mod event_types;
 mod permission;
 mod prompt_attachments;

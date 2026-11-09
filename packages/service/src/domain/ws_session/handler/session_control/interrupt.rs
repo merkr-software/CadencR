@@ -4,7 +4,7 @@ use super::super::types::{QueryState, SdkSessions};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
-use crate::domain::ws_session::runtime::prompt::followup_withdrawal::report_withdrawn_followups;
+use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
@@ -114,7 +114,22 @@ async fn withdraw_followups(
         return Ok(());
     }
     let outcome = runtime.withdraw_pending_inputs(&handed_off).await;
-    report_withdrawn_followups(
+    // A failed withdrawal leaves them as they are: the runtime may still run
+    // one, so none can be called not delivered.
+    let held: Vec<String> = if outcome.error.is_some() {
+        Vec::new()
+    } else {
+        handed_off
+            .into_iter()
+            .filter(|id| !outcome.withdrawn.contains(id))
+            .collect()
+    };
+    // Those it still holds or took in: the stopped turn's end settles them.
+    app_state
+        .active_turns
+        .followups()
+        .await_stopped_turn(db_session_id, held);
+    fail_stopped_followups(
         &app_state.write_pool,
         &app_state.ws_feature_senders,
         feature_id,

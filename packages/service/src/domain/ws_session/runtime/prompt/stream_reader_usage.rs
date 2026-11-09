@@ -8,6 +8,8 @@ use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 use super::stream_reader_turn_state::StreamTurnState;
+use crate::domain::ws_session::protocol::{SessionUsageUpdatePayload, WsEnvelope, WsSessionEvent};
+use axum::extract::ws::Message;
 
 impl StreamReaderState {
     pub(in crate::domain::ws_session) fn new(initial_usage: RuntimeUsageSnapshot) -> Self {
@@ -109,5 +111,25 @@ impl StreamReaderTask {
             output_tokens: persisted(row.as_ref().and_then(|row| row.output_tokens)),
             context_window,
         }
+    }
+}
+
+impl StreamReaderTask {
+    pub(in crate::domain::ws_session) async fn send_usage_update(
+        &self,
+        input_tokens: u64,
+        output_tokens: u64,
+        context_window: Option<u64>,
+    ) {
+        let usage_env =
+            WsEnvelope::session_event(&WsSessionEvent::UsageUpdate(SessionUsageUpdatePayload {
+                input_tokens,
+                output_tokens,
+                context_window,
+            }))
+            .expect("session event payload should serialize");
+        let _ = self
+            .send_and_mirror(Message::Text(String::from(usage_env).into()))
+            .await;
     }
 }

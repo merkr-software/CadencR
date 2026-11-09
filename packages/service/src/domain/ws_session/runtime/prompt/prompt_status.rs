@@ -22,6 +22,9 @@ pub(in crate::domain::ws_session) enum PromptPersistenceOutcome {
     Dispatch {
         message: PersistedUserMessage,
         claim_token: String,
+        /// A retry of a message that was not delivered: tracked until the
+        /// agent's receipt, whatever the client asked.
+        retried: bool,
     },
     Dispatched(PersistedUserMessage),
 }
@@ -49,7 +52,8 @@ impl PromptPersistenceOutcome {
     }
 
     pub fn tracked_message_uuid(&self, payload: &PromptSendPayload) -> Option<String> {
-        if !payload.track_prompt_receipt {
+        let retried = matches!(self, Self::Dispatch { retried: true, .. });
+        if !payload.track_prompt_receipt && !retried {
             return None;
         }
         match self {
@@ -65,6 +69,7 @@ impl PromptPersistenceOutcome {
             Self::Dispatch {
                 message,
                 claim_token,
+                ..
             } => Some((message.id, claim_token)),
             Self::Replay | Self::Dispatched(_) => None,
         }
@@ -111,10 +116,36 @@ pub(in crate::domain::ws_session) async fn persist_and_publish_prompt(
         .await
         .map_err(|error| error.to_string())?
     {
-        DispatchClaim::Claimed { token } => Ok(PromptPersistenceOutcome::Dispatch {
-            message,
-            claim_token: token,
-        }),
+        DispatchClaim::Claimed { token } => {
+            let message_id = message.id;
+            let reopened = reopen_retried_delivery(
+                pool,
+                feature_senders,
+                sender,
+                feature_id,
+                session_id,
+                message,
+            )
+            .await;
+            let (message, retried) = match reopened {
+                Ok(reopened) => reopened,
+                Err(error) => {
+                    // Release the claim, or every later retry reads "already
+                    // being dispatched" until a restart.
+                    if let Err(release) =
+                        message_dispatch::mark_failed(pool, message_id, &token, &error).await
+                    {
+                        return Err(format!("{error}; the retry stays claimed: {release}"));
+                    }
+                    return Err(error);
+                }
+            };
+            Ok(PromptPersistenceOutcome::Dispatch {
+                message,
+                claim_token: token,
+                retried,
+            })
+        }
         DispatchClaim::Dispatched => {
             let message = resolve_dispatched_pending_state(
                 pool,
@@ -132,6 +163,47 @@ pub(in crate::domain::ws_session) async fn persist_and_publish_prompt(
             message.message_uuid
         )),
     }
+}
+
+/// A retry dispatches a message that read as not delivered (or unknown) again:
+/// it is pending once more, and its receipt then shows it reached the agent.
+async fn reopen_retried_delivery(
+    pool: &sqlx::SqlitePool,
+    feature_senders: &WsFeatureSenderRegistry,
+    sender: &impl OutputTarget,
+    feature_id: i64,
+    session_id: i64,
+    mut message: PersistedUserMessage,
+) -> Result<(PersistedUserMessage, bool), String> {
+    let undelivered = matches!(
+        message.delivery_state.as_deref(),
+        Some("delivery_failed" | "delivery_unknown")
+    );
+    if message.inserted || !undelivered {
+        return Ok((message, false));
+    }
+    crate::domain::sessions::user_messages::reopen_delivery(
+        pool,
+        session_id,
+        &message.message_uuid,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    message.delivery_state = Some("pending_agent".to_string());
+    // As for the first publish: a closed owner socket does not stop the retry.
+    if let Err(error) = publish_user_message(
+        feature_senders,
+        sender.recipient(),
+        feature_id,
+        &message,
+        None,
+        true,
+    )
+    .await
+    {
+        tracing::warn!(feature_id, session_id, error = %error, "retried user-message owner disconnected");
+    }
+    Ok((message, true))
 }
 
 async fn resolve_dispatched_pending_state(

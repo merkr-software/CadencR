@@ -128,9 +128,11 @@ async fn end_withdrawn_turn(context: &FollowupPromptContext, generation: u64) {
     );
 }
 
-/// Mark follow-ups the runtime withdrew at a Stop as not delivered, for every
-/// client viewing the conversation.
-pub(in crate::domain::ws_session) async fn report_withdrawn_followups(
+/// Mark follow-ups a Stop left undelivered (withdrawn by the runtime, or
+/// never acknowledged by the turn it stopped) as not delivered, for every
+/// client viewing the conversation. Their failed dispatch lets a retry send
+/// them again, and keeps a late receipt from counting.
+pub(in crate::domain::ws_session) async fn fail_stopped_followups(
     pool: &sqlx::SqlitePool,
     feature_senders: &WsFeatureSenderRegistry,
     feature_id: i64,
@@ -153,8 +155,67 @@ pub(in crate::domain::ws_session) async fn report_withdrawn_followups(
                 continue;
             }
         }
+        if let Err(error) = crate::domain::sessions::message_dispatch::mark_withdrawn(
+            pool,
+            session_id,
+            &message_uuid,
+            WITHDRAWN_BY_STOP,
+        )
+        .await
+        {
+            error!(session_id, %error, "failed to persist a withdrawn follow-up's dispatch");
+            broadcast_warning(
+                feature_senders,
+                feature_id,
+                "Couldn't record that a message was not sent: Retry may not send it again. Copy it into a new message instead.",
+            )
+            .await;
+        }
         let envelope = prompt_received_envelope(message_uuid, PromptReceiptState::DeliveryFailed);
         let message = axum::extract::ws::Message::Text(String::from(envelope).into());
         feature_senders.broadcast_all(feature_id, &message).await;
     }
+}
+
+impl super::stream_reader_task::StreamReaderTask {
+    /// A turn ended. What it was handed, it or the turn the runtime starts for
+    /// it took in: a later Stop stops it with that turn. A stopped turn
+    /// (`stopped`) also ends the follow-ups its Stop could not withdraw: those
+    /// it did not acknowledge (their receipts came before this result) never
+    /// ran.
+    ///
+    /// `superseded`: a newer turn already began, whose follow-ups stay listed.
+    pub(super) async fn settle_followups(&self, stopped: bool, superseded: bool) {
+        let followups = self.app_state.active_turns.followups();
+        let unwithdrawn = if superseded {
+            followups.stopped_turn_ended(self.db_session_id)
+        } else {
+            followups.turn_ended(self.db_session_id)
+        };
+        if stopped && !unwithdrawn.is_empty() {
+            fail_stopped_followups(
+                &self.write_pool,
+                &self.feature_senders,
+                self.feature_id,
+                self.db_session_id,
+                unwithdrawn,
+            )
+            .await;
+        }
+    }
+}
+
+async fn broadcast_warning(
+    feature_senders: &WsFeatureSenderRegistry,
+    feature_id: i64,
+    message: &str,
+) {
+    use crate::domain::ws_session::protocol::{SessionWarningPayload, WsEnvelope, WsSessionEvent};
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::Warning(SessionWarningPayload {
+        code: "STATE_NOT_SAVED".into(),
+        message: message.into(),
+    }))
+    .expect("session warning should serialize");
+    let message = axum::extract::ws::Message::Text(String::from(envelope).into());
+    feature_senders.broadcast_all(feature_id, &message).await;
 }
