@@ -77,11 +77,7 @@ pub async fn unmerged_paths(repo_path: &Path) -> Result<Vec<String>, AppError> {
         repo_path,
     )
     .await?;
-    Ok(output
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(ToOwned::to_owned)
-        .collect())
+    Ok(crate::shared::git_z::paths(&output))
 }
 
 /// Return true when `branch_name` is fully contained in `target_branch`.

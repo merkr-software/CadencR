@@ -9,14 +9,11 @@ use crate::error::AppError;
 use crate::shared::git_cli::{
     git_ref_resolves_background, run_git, run_git_background, run_git_output_with_env, run_git_safe,
 };
+use crate::shared::git_z;
 
-/// Non-empty lines of a `--name-only` style listing.
-fn name_lines(output: &str) -> HashSet<String> {
-    output
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect()
+/// The paths of a `--name-only -z` style listing.
+fn name_set(output: &str) -> HashSet<String> {
+    git_z::paths(output).into_iter().collect()
 }
 
 /// Files changed on the branch since it forked from `base_branch`. A base
@@ -51,8 +48,12 @@ async fn branch_changed_files(
             )))
         }
     }
-    Ok(name_lines(
-        &run_git_background(&["diff", &merge_base, "HEAD", "--name-only"], worktree_path).await?,
+    Ok(name_set(
+        &run_git_background(
+            &["diff", &merge_base, "HEAD", "--name-only", "-z"],
+            worktree_path,
+        )
+        .await?,
     ))
 }
 
@@ -77,20 +78,20 @@ pub async fn get_file_blob_shas(
     // exactly what is staged.
     let has_head = git_ref_resolves_background("HEAD", worktree_path).await?;
     let changed_args: &[&str] = if has_head {
-        &["diff", "HEAD", "--name-only"]
+        &["diff", "HEAD", "--name-only", "-z"]
     } else {
-        &["diff", "--cached", "--name-only"]
+        &["diff", "--cached", "--name-only", "-z"]
     };
     let (changed_out, untracked_out, branch_changed) = tokio::try_join!(
         run_git_background(changed_args, worktree_path),
         run_git_background(
-            &["ls-files", "--others", "--exclude-standard"],
+            &["ls-files", "--others", "--exclude-standard", "-z"],
             worktree_path
         ),
         branch_changed_files(worktree_path, base_branch, has_head),
     )?;
-    let changed_files = name_lines(&changed_out);
-    let untracked_files = name_lines(&untracked_out);
+    let changed_files = name_set(&changed_out);
+    let untracked_files = name_set(&untracked_out);
 
     let all_files: HashSet<String> = changed_files
         .union(&untracked_files)
@@ -189,6 +190,26 @@ mod tests {
             shas.get("feature.txt").map(String::as_str),
             Some(edited.trim())
         );
+    }
+
+    /// Without `-z` these names came back C-quoted or split, failed both
+    /// lookups and were dropped, retiring their review comments.
+    #[tokio::test]
+    async fn awkward_file_names_keep_their_blob_shas() {
+        let repo = repo_on_develop().await;
+        let names = ["café é.txt", "line\nbreak.txt", "with space.txt"];
+        std::fs::write(repo.path().join(names[0]), "committed").unwrap();
+        git(&["add", "-A"], repo.path()).await;
+        git(&["commit", "-qm", "accented"], repo.path()).await;
+        std::fs::write(repo.path().join(names[1]), "untracked").unwrap();
+        std::fs::write(repo.path().join("base.txt"), "edited").unwrap();
+        git(&["mv", "base.txt", names[2]], repo.path()).await;
+
+        let shas = get_file_blob_shas(repo.path(), "develop").await.unwrap();
+
+        for name in names {
+            assert!(shas.contains_key(name), "{name:?} missing from {shas:?}");
+        }
     }
 
     #[tokio::test]

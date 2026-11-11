@@ -85,11 +85,11 @@ pub async fn scan_icon_candidates(
     project_id: i64,
 ) -> Result<Vec<ProjectIconCandidate>, AppError> {
     let root = service::resolve_project_root(&state.read_pool, project_id).await?;
-    let listing = git_cli::run_git(&["ls-files", "-z"], &root).await?;
+    let listing = crate::shared::git_z::paths(&git_cli::run_git(&["ls-files", "-z"], &root).await?);
 
     let mut ranked: Vec<(i32, &str)> = listing
-        .split('\0')
-        .filter(|entry| !entry.is_empty())
+        .iter()
+        .map(String::as_str)
         .filter(|entry| icon_mime_for_path(Path::new(entry)).is_some())
         .map(|entry| (score_path(entry), entry))
         .collect();

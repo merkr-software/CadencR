@@ -9,6 +9,7 @@ use crate::error::AppError;
 use crate::shared::git_cli::{
     guard_positionals, run_git_safe_background, run_git_safe_refs_background,
 };
+use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::{count_untracked_lines, synthesize_untracked_new_file_diff};
@@ -55,7 +56,7 @@ pub async fn get_stats(
         run_git_quiet(&["diff", "--stat"], worktree_path),
         run_git_quiet(&["diff", "--cached", "--stat"], worktree_path),
         run_git_quiet(
-            &["ls-files", "--others", "--exclude-standard"],
+            &["ls-files", "--others", "--exclude-standard", "-z"],
             worktree_path
         ),
     );
@@ -70,7 +71,7 @@ pub async fn get_stats(
     // paths, so we only see files that count. Lines are counted with a buffered
     // stream (bounded memory, not a full read-into-String of every file) and
     // binaries are skipped.
-    for file in untracked.trim().lines().filter(|l| !l.is_empty()) {
+    for file in git_z::paths(&untracked) {
         let full_path = worktree_path.join(file);
         if let Some(line_count) = count_untracked_lines(&full_path).await {
             stats_unstaged.files_changed += 1;
@@ -98,7 +99,7 @@ pub async fn get_diff(
         run_git_quiet(&["diff"], worktree_path),
         run_git_quiet(&["diff", "--cached"], worktree_path),
         run_git_quiet(
-            &["ls-files", "--others", "--exclude-standard"],
+            &["ls-files", "--others", "--exclude-standard", "-z"],
             worktree_path
         ),
     );
@@ -110,8 +111,8 @@ pub async fn get_diff(
     // paths, so we never synthesize a diff for an ignored file. Each remaining
     // untracked file is bounded per-file (see `untracked`) so a giant generated
     // file can't blow up the aggregate response.
-    for file in untracked_list.trim().lines().filter(|l| !l.is_empty()) {
-        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, file).await {
+    for file in git_z::paths(&untracked_list) {
+        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await {
             result.push_str(&block);
         }
     }
@@ -208,13 +209,16 @@ pub async fn get_file_diff(
 
     let new_only = [file_path];
     let untracked = run_git_safe_background(
-        &["ls-files", "--others", "--exclude-standard"],
+        &["ls-files", "--others", "--exclude-standard", "-z"],
         &[],
         &new_only,
         worktree_path,
     )
     .await?;
-    if untracked.lines().any(|l| l == file_path) {
+    if git_z::paths(&untracked)
+        .iter()
+        .any(|path| path == file_path)
+    {
         return Ok(
             match synthesize_untracked_new_file_diff(worktree_path, file_path).await {
                 Some(block) => block,

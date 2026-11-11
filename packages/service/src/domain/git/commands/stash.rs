@@ -1,6 +1,6 @@
 //! `git stash list` orchestration for the Git-tab Stashes view.
 //!
-//! A single `git stash list --first-parent --numstat` call yields, for every
+//! A single `git stash list --first-parent --numstat -z` call yields, for every
 //! stash, its SHA, reflog selector, description, creation date, parent list
 //! *and* the numstat block — all in one git invocation. `--first-parent` is what
 //! makes the numstat meaningful: a stash is a merge commit (HEAD + index [+
@@ -38,11 +38,13 @@ pub use mutations::{apply_stash, drop_stash, pop_stash, push_stash};
 /// *after* the formatted output) off into its own field.
 const FORMAT: &str = "%x1e%H%x1f%gd%x1f%gs%x1f%cI%x1f%P%x1f";
 
-/// Sum a `git diff --numstat` block into `(files_changed, additions, deletions)`.
+/// Sum a `git diff --numstat -z` block into `(files_changed, additions, deletions)`.
 /// Binary files (numstat `-`) contribute a changed file but zero line counts,
 /// matching [`parse_numstat`].
 fn sum_numstat(numstat: &str) -> (i32, i32, i32) {
-    let map = parse_numstat(numstat);
+    // `stash list -z` separates the format from the numstat with `\0\n`; a
+    // numstat record starts with its counts, so this never eats a path.
+    let map = parse_numstat(numstat.trim_start_matches(['\0', '\n']));
     let files = map.len() as i32;
     let (adds, dels) = map
         .values()
@@ -57,7 +59,7 @@ struct ParsedStash {
     untracked_parent: Option<String>,
 }
 
-/// Parse `git stash list --numstat --format=<FORMAT>` output into `StashEntry`
+/// Parse `git stash list --numstat -z --format=<FORMAT>` output into `StashEntry`
 /// rows in git's native order (newest stash first). Field 5 (after the format's
 /// closing separator) holds the trailing numstat block.
 fn parse_stashes(output: &str) -> Vec<ParsedStash> {
@@ -90,7 +92,14 @@ fn parse_stashes(output: &str) -> Vec<ParsedStash> {
 pub async fn list_stashes(repo_path: &Path) -> Result<Vec<StashEntry>, AppError> {
     let format_arg = format!("--format={FORMAT}");
     let stdout = run_git(
-        &["stash", "list", "--first-parent", "--numstat", &format_arg],
+        &[
+            "stash",
+            "list",
+            "--first-parent",
+            "--numstat",
+            "-z",
+            &format_arg,
+        ],
         repo_path,
     )
     .await?;
@@ -122,6 +131,7 @@ async fn add_untracked_totals(
             "--no-commit-id",
             "--root",
             "--numstat",
+            "-z",
             "-r",
             parent,
         ],
@@ -141,7 +151,7 @@ mod tests {
 
     #[test]
     fn parse_stashes_multiple_entries_with_numstat() {
-        let output = "\x1eabc123\x1fstash@{0}\x1fWIP on main: 1234 subject\x1f2024-01-02T03:04:05+00:00\x1fbase0 index0 untracked0\x1f\n10\t2\tsrc/a.rs\n\x1edef456\x1fstash@{1}\x1fOn main: my work\x1f2024-01-01T00:00:00+00:00\x1fbase1 index1\x1f\n3\t4\tsrc/b.rs\n1\t0\tsrc/c.rs\n";
+        let output = "\x1eabc123\x1fstash@{0}\x1fWIP on main: 1234 subject\x1f2024-01-02T03:04:05+00:00\x1fbase0 index0 untracked0\x1f\0\n10\t2\tsrc/a.rs\0\x1edef456\x1fstash@{1}\x1fOn main: my work\x1f2024-01-01T00:00:00+00:00\x1fbase1 index1\x1f\0\n3\t4\tsrc/b.rs\x001\t0\tsrc/c d.rs\0";
         let rows = parse_stashes(output);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].entry.sha, "abc123");
@@ -186,13 +196,13 @@ mod tests {
 
     #[test]
     fn sum_numstat_totals_lines_and_files() {
-        let numstat = "10\t2\tsrc/a.rs\n3\t4\tsrc/b.rs\n";
+        let numstat = "10\t2\tsrc/a.rs\x003\t4\tsrc/b.rs\0";
         assert_eq!(sum_numstat(numstat), (2, 13, 6));
     }
 
     #[test]
     fn sum_numstat_binary_counts_file_not_lines() {
-        let numstat = "-\t-\tassets/logo.png\n5\t1\tsrc/a.rs\n";
+        let numstat = "-\t-\tassets/logo.png\x005\t1\tsrc/a.rs\0";
         assert_eq!(sum_numstat(numstat), (2, 5, 1));
     }
 
@@ -203,7 +213,7 @@ mod tests {
 
     /// End-to-end against real git: two stashes must be listed newest-first
     /// with their reflog selector, description and numstat summary — all from
-    /// the single `git stash list --first-parent --numstat` call.
+    /// the single `git stash list --first-parent --numstat -z` call.
     #[tokio::test]
     async fn list_stashes_reports_entries_with_numstat() {
         let dir = tempfile::tempdir().unwrap();

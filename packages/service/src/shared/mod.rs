@@ -15,6 +15,7 @@ pub mod frontmatter;
 pub mod fs_durability;
 pub mod git_cli;
 pub mod git_context;
+pub mod git_z;
 pub mod http_relay;
 pub mod ignore_watch;
 pub mod image_file;
