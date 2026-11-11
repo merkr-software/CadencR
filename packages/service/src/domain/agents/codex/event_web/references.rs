@@ -15,12 +15,6 @@ struct PendingWebInvocation {
 }
 
 impl WebEventState {
-    pub(in crate::domain::agents::codex) fn reset(&mut self) {
-        self.reference_urls.clear();
-        self.web_call_ids.clear();
-        self.pending.clear();
-    }
-
     pub(super) fn record_call(&mut self, item: &Value) {
         let Some(input) = item.get("input").and_then(Value::as_str) else {
             return;

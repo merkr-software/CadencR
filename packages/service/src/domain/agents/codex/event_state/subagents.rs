@@ -88,7 +88,8 @@ impl IndexState {
         sender_thread_id: &str,
         task_name: Option<&str>,
     ) {
-        self.pending_spawn_calls.insert(call_id.to_string());
+        self.pending_spawn_calls
+            .insert(call_id.to_string(), sender_thread_id.to_string());
         self.pending_spawn_routes.insert(
             call_id.to_string(),
             PendingSpawnRoute {
@@ -105,7 +106,7 @@ impl IndexState {
         &mut self,
         call_id: &str,
     ) -> bool {
-        self.pending_spawn_calls.remove(call_id)
+        self.pending_spawn_calls.remove(call_id).is_some()
     }
 
     pub(in crate::domain::agents::codex) fn discard_pending_spawn_route(&mut self, call_id: &str) {
@@ -178,7 +179,7 @@ mod tests {
         assert!(!state.record_subagent_thread("", "invalid"));
         state.subagent_threads.insert("root".into(), "stale".into());
         assert_eq!(state.subagent_parent_tool_use_id("root"), None);
-        state.reset();
+        state.reset(|_| false);
         assert_eq!(state.subagent_parent_tool_use_id("root"), None);
         assert!(state.is_session_thread("root"));
         assert!(state.is_untracked_thread("unknown"));
@@ -250,7 +251,7 @@ mod tests {
         state.record_subagent_thread("thread_child", "toolu_spawn");
         state.record_pending_spawn_call("stale_call", "thread_root", Some("stale_task"));
         state.index_for("anything");
-        state.reset();
+        state.reset(|_| false);
         // Per-turn caches and unresolved routes are cleared, while established
         // sub-agent mappings outlive turns.
         assert!(!state.has_index("anything"));

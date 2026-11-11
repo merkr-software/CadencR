@@ -252,7 +252,7 @@ mod tests {
             json!({"threadId": "child", "turn": {"id": "ct1", "status": "completed"}}),
         );
         // followup_task in a later root turn resumes the same child.
-        indexes.reset();
+        indexes.reset(|_| false);
         let resumed = only(updates(
             &mut indexes,
             "turn/started",

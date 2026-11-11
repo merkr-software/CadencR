@@ -40,6 +40,9 @@ pub fn notification_events(
     model: Option<&str>,
     index_state: &mut IndexState,
 ) -> Vec<RuntimeEvent> {
+    // Again here, not only in the event loop: route recovery runs synthetic
+    // notifications without `threadId` in between, which enter the root.
+    index_state.enter_notification(&params);
     // Read before routing consumes the params; resolve after it, since
     // routing is what registers a newly spawned child thread.
     let facts = read_subagent_facts(method, &params);
