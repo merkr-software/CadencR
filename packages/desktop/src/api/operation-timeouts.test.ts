@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { customInstance } from "./client";
-import { agentExtensionOperationTimeout, neovimOperationTimeout } from "./operation-timeouts";
+import {
+  agentExtensionOperationTimeout,
+  archiveOperationTimeout,
+  neovimOperationTimeout,
+} from "./operation-timeouts";
 
 describe("Neovim initialization request timeout", () => {
   it.each(["/api/neovim/start", "/api/features/7/neovim/open"])(
@@ -48,5 +52,30 @@ describe("agent extension request timeout", () => {
     expect(
       agentExtensionOperationTimeout({ method: "POST", url: "/api/git/status" }),
     ).toBeUndefined();
+  });
+});
+
+describe("archive request timeout", () => {
+  it("waits for the whole cleanup the service runs before answering", async () => {
+    const timeout = await customInstance<number>({
+      method: "POST",
+      url: "/api/features/7/archive",
+      adapter: async (config) => ({
+        data: config.timeout,
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      }),
+    });
+    expect(timeout).toBe(600000);
+  });
+
+  it.each([
+    { method: "GET", url: "/api/features/7/archive" },
+    { method: "POST", url: "/api/features/7/archive-cleanup/retry" },
+    { method: "POST", url: "/api/features/7/archive-preview" },
+  ])("keeps $method $url on its normal timeout", (config) => {
+    expect(archiveOperationTimeout(config)).toBeUndefined();
   });
 });

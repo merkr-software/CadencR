@@ -1,23 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import type { Feature } from "@/api/generated";
 import type { useArchiveCleanupState } from "@/components/archive-cleanup-state";
 import type { useArchiveRelativeOptions } from "@/components/ArchiveRelativeOptions";
-import { isArchivedInCachedLists } from "@/components/project-feature-navigation";
 import type { useKillTerminalsState } from "@/components/use-kill-terminals-state";
 import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 
 interface ConfirmationLock {
   isConfirming: boolean;
   lockConfirm: () => boolean;
-  unlockConfirm: () => void;
 }
 
 interface ArchiveSubmissionArgs {
-  open: boolean;
   feature: Feature | undefined;
-  onArchive: (featureId: number, options: ArchiveFeatureOptions) => Promise<unknown>;
+  onArchive: (featureId: number, options: ArchiveFeatureOptions) => void;
   onOpenChange: (open: boolean) => void;
   cleanupState: ReturnType<typeof useArchiveCleanupState>;
   killState: ReturnType<typeof useKillTerminalsState>;
@@ -49,21 +44,14 @@ function archiveOptions(
 }
 
 /**
- * Sends the archive and its cleanup as one request: the service archives,
- * then runs and journals each step. The dialog stays on "Archiving…" until
- * the service answers with the per-step report, and shows its error inline —
- * unless the service already announced the archive (`app/archive_cleanup`)
- * before the request failed, typically because it stopped mid-cleanup: then
- * the archive is done, and retrying it from here would be misleading.
+ * Hands the archive and its cleanup to the service as one request and closes
+ * the dialog at once: the service archives, then runs and journals each step,
+ * and a toast follows it from there (`useArchiveFeatureAction`).
  */
 export function useArchiveSubmission(args: ArchiveSubmissionArgs): {
   isConfirming: boolean;
-  archiveError: unknown;
   confirm: () => void;
 } {
-  const [archiveError, setArchiveError] = useState<unknown>(null);
-  const queryClient = useQueryClient();
-  useEffect(() => setArchiveError(null), [args.open, args.feature?.id]);
   const {
     feature,
     relativeState,
@@ -83,36 +71,13 @@ export function useArchiveSubmission(args: ArchiveSubmissionArgs): {
       !confirmationLock.lockConfirm()
     )
       return;
-    setArchiveError(null);
-    onArchive(feature.id, archiveOptions(relativeState, killState, cleanupState)).then(
-      () => onOpenChange(false),
-      (error: unknown) => {
-        if (isArchivedInCachedLists(queryClient, feature.id)) {
-          toast.warning("Session archived, but its cleanup did not report back", {
-            description:
-              "The connection to the service was lost during the cleanup. Any step left unfinished will be listed for review once the service is back.",
-          });
-          onOpenChange(false);
-          return;
-        }
-        setArchiveError(error);
-        confirmationLock.unlockConfirm();
-      },
-    );
-  }, [
-    cleanupState,
-    confirmationLock,
-    feature,
-    killState,
-    onArchive,
-    onOpenChange,
-    queryClient,
-    relativeState,
-  ]);
+    onArchive(feature.id, archiveOptions(relativeState, killState, cleanupState));
+    onOpenChange(false);
+  }, [cleanupState, confirmationLock, feature, killState, onArchive, onOpenChange, relativeState]);
 
   return useMemo(
-    () => ({ isConfirming: confirmationLock.isConfirming, archiveError, confirm }),
-    [confirmationLock.isConfirming, archiveError, confirm],
+    () => ({ isConfirming: confirmationLock.isConfirming, confirm }),
+    [confirmationLock.isConfirming, confirm],
   );
 }
 
@@ -130,12 +95,5 @@ export function useConfirmSubmissionLock(open: boolean): ConfirmationLock {
     setIsConfirming(true);
     return true;
   }, []);
-  const unlockConfirm = useCallback((): void => {
-    isConfirmingRef.current = false;
-    setIsConfirming(false);
-  }, []);
-  return useMemo(
-    () => ({ isConfirming, lockConfirm, unlockConfirm }),
-    [isConfirming, lockConfirm, unlockConfirm],
-  );
+  return useMemo(() => ({ isConfirming, lockConfirm }), [isConfirming, lockConfirm]);
 }

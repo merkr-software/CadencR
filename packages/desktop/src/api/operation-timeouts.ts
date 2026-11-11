@@ -66,3 +66,18 @@ export function agentExtensionOperationTimeout(config: TimeoutConfig): number | 
   if (typeof config.url !== "string" || !AGENT_EXTENSION_PATH.test(config.url)) return undefined;
   return config.method?.toUpperCase() === "POST" ? 900000 : 600000;
 }
+
+// Archiving answers once its whole cleanup has run (terminals, browser tabs,
+// worktree removal, branch deletion), which a large worktree can stretch past
+// the default. The cleanup goes on if the request gives up; only the
+// confirmation is lost.
+const ARCHIVE_PATH = /^\/api\/features\/\d+\/archive$/;
+
+export function archiveOperationTimeout(config: TimeoutConfig): number | undefined {
+  if (config.timeout !== undefined) return config.timeout;
+  return config.method?.toUpperCase() === "POST" &&
+    typeof config.url === "string" &&
+    ARCHIVE_PATH.test(config.url)
+    ? 600000
+    : undefined;
+}

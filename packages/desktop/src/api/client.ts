@@ -9,6 +9,7 @@ import { developmentApiBaseUrl } from "./runtime-origin";
 import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
 import {
   agentExtensionOperationTimeout,
+  archiveOperationTimeout,
   managedProviderOperationTimeout,
   neovimOperationTimeout,
   NO_TIMEOUT_PATHS,
@@ -175,7 +176,8 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
     publicationOperationTimeout(config) ??
     managedProviderOperationTimeout(config) ??
     neovimOperationTimeout(config) ??
-    agentExtensionOperationTimeout(config);
+    agentExtensionOperationTimeout(config) ??
+    archiveOperationTimeout(config);
   let finalConfig: AxiosRequestConfig =
     typeof config.url === "string" && NO_TIMEOUT_PATHS.some((p) => config.url!.startsWith(p))
       ? { ...config, timeout: 0 }

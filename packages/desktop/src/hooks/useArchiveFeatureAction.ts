@@ -1,27 +1,20 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { toast } from "sonner";
-import {
-  useArchiveFeature,
-  type ArchiveRequest,
-  type ArchiveResponse,
-  type CleanupReport,
-  type Feature,
-} from "@/api/generated";
+import { isAxiosError } from "axios";
+import { useArchiveFeature, type ArchiveRequest, type Feature } from "@/api/generated";
 import {
   archiveNavigationTarget,
   archiveFeaturesInCachedLists,
   closeFeatureSession,
+  isArchivedInCachedLists,
   navigateToFeatureOrHome,
 } from "@/components/project-feature-navigation";
 import {
-  doneSummary,
-  isSettledReport,
-  reportDescription,
-  reportedSteps,
-  stepsNeedingAttention,
-} from "@/lib/archive-cleanup-report";
+  failArchiveProgress,
+  finishArchiveProgress,
+  startArchiveProgress,
+} from "@/lib/archive-progress-toast";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 
 export type ArchiveFeatureOptions = Required<ArchiveRequest>;
@@ -32,6 +25,10 @@ interface UseArchiveFeatureActionOptions {
   projectId: number | null;
 }
 
+/**
+ * Archives without holding the dialog: a toast follows the request — the
+ * cleanup steps as the service runs them, then the outcome or the error.
+ */
 export function useArchiveFeatureAction({
   activeFeatureId,
   activeFeatures,
@@ -41,41 +38,44 @@ export function useArchiveFeatureAction({
   const queryClient = useQueryClient();
   const mutation = useArchiveFeature({
     mutation: {
-      onSuccess: (response) => {
+      // The dialog closes as the request leaves: its project and the list to
+      // navigate within are read now, not from the options when it answers.
+      onMutate: ({ id }) => {
+        startArchiveProgress(id);
+        return { projectId, activeFeatures };
+      },
+      onSuccess: (response, { id }, context) => {
         const archivedIds = new Set(response.archived_ids);
         archiveFeaturesInCachedLists(queryClient, response.archived_ids);
         for (const featureId of response.archived_ids) closeFeatureSession(featureId);
         void invalidateByUrlPrefix(queryClient, "/api/features");
-        showCleanupOutcome(response.cleanup);
-        if (projectId == null) return;
-        const target = archiveNavigationTarget(activeFeatures, activeFeatureId, archivedIds);
+        finishArchiveProgress(id, response.cleanup);
+        if (context.projectId == null) return;
+        const target = archiveNavigationTarget(
+          context.activeFeatures,
+          activeFeatureId,
+          archivedIds,
+        );
         if (target === undefined) return;
-        navigateToFeatureOrHome(navigate, projectId, target ?? undefined);
+        navigateToFeatureOrHome(navigate, context.projectId, target ?? undefined);
       },
+      // A request that got no answer after `app/archive_cleanup` marked the
+      // archive in the cached lists (it commits before any cleanup step) lost
+      // only the report; any answer from the service is its own error.
+      onError: (error, { id }) =>
+        failArchiveProgress(
+          id,
+          error,
+          isAxiosError(error) &&
+            error.response === undefined &&
+            isArchivedInCachedLists(queryClient, id),
+        ),
     },
   });
-  const { mutateAsync } = mutation;
+  const { mutate } = mutation;
   return useCallback(
-    (featureId: number, options: ArchiveFeatureOptions): Promise<ArchiveResponse> =>
-      mutateAsync({ id: featureId, data: options }),
-    [mutateAsync],
+    (featureId: number, options: ArchiveFeatureOptions): void =>
+      mutate({ id: featureId, data: options }),
+    [mutate],
   );
-}
-
-/**
- * The service ran the whole cleanup before answering. Steps that need the
- * user (interrupted, failed, blocked) are surfaced by `ArchiveCleanupNotices`
- * from the service's journal, on every client; this toast covers the rest.
- */
-function showCleanupOutcome(report: CleanupReport): void {
-  const steps = reportedSteps(report);
-  if (steps.length === 0 || stepsNeedingAttention(report).length > 0) return;
-  if (isSettledReport(report)) {
-    toast.success("Session archived", { description: doneSummary(report) });
-    return;
-  }
-  const waiting = steps.filter(
-    ({ step }) => step.status === "pending" || step.status === "running",
-  );
-  toast.success("Session archived", { description: reportDescription(waiting) });
 }

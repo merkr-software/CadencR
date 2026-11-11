@@ -50,7 +50,7 @@ export function describeStep({ step }: ReportedStep): string {
   return why ? `${status}: ${why}` : status;
 }
 
-const STATUS_LABELS: Record<StepOutcome["status"], string> = {
+export const STATUS_LABELS: Record<StepOutcome["status"], string> = {
   pending: "Pending",
   running: "In progress",
   interrupted: "Interrupted",
