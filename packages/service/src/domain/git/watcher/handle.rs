@@ -12,9 +12,10 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tracing::debug;
 
-use super::debouncer::{build_debouncer, spawn_compute_task};
+use super::debouncer::{build_debouncer, resolve_git_roots, spawn_compute_task};
 use crate::app_state::AppState;
 use crate::error::AppError;
+use crate::shared::keyed_locks::KeyedLocks;
 
 /// Grace period before tearing down a watcher whose refcount hits zero.
 pub(super) const GRACE_PERIOD: Duration = Duration::from_secs(30);
@@ -70,12 +71,29 @@ impl WatcherHandle {
 }
 
 /// Inner registry state — a `HashMap` keyed by canonicalized worktree path.
+///
+/// Held only for bookkeeping, never across a Git command or a filesystem walk:
+/// every subscription, WebSocket teardown and refresh in the app waits on it.
 pub(super) struct RegistryInner {
     pub(super) handles: HashMap<PathBuf, WatcherHandle>,
+    /// Serializes the Git work of one repository (status snapshots, watcher
+    /// start) without holding up the others.
+    pub(super) repo_locks: Arc<KeyedLocks<PathBuf>>,
 }
 
-/// Spawn a fresh handle: build the fs filter, debouncer, and compute task.
-pub(super) fn spawn_handle(
+/// The lock serializing Git work on `worktree_path`.
+pub(super) async fn repo_lock(
+    registry: &Mutex<RegistryInner>,
+    worktree_path: &Path,
+) -> Arc<Mutex<()>> {
+    let locks = registry.lock().await.repo_locks.clone();
+    locks.lock_for(&worktree_path.to_path_buf()).await
+}
+
+/// Spawn a fresh handle: resolve the Git directories, start the fs watcher
+/// off the async runtime (a recursive watch walks the whole tree), and spawn
+/// the compute task. The caller must not hold the registry lock.
+pub(super) async fn spawn_handle(
     registry: Arc<Mutex<RegistryInner>>,
     worktree_path: PathBuf,
     state: AppState,
@@ -86,12 +104,24 @@ pub(super) fn spawn_handle(
     let epoch = Arc::new(AtomicU64::new(0));
     let (ping_tx, ping_rx) = mpsc::unbounded_channel::<RecomputePing>();
 
-    let debouncer = build_debouncer(
-        worktree_path.clone(),
-        ping_tx.clone(),
-        last_nudge_ms.clone(),
-        write_generation.clone(),
-    )?;
+    let extra_git_roots = resolve_git_roots(&worktree_path).await;
+    let debouncer = tokio::task::spawn_blocking({
+        let worktree_path = worktree_path.clone();
+        let ping_tx = ping_tx.clone();
+        let last_nudge_ms = last_nudge_ms.clone();
+        let write_generation = write_generation.clone();
+        move || {
+            build_debouncer(
+                worktree_path,
+                extra_git_roots,
+                ping_tx,
+                last_nudge_ms,
+                write_generation,
+            )
+        }
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("git watcher start failed: {error}")))??;
 
     let compute_task = spawn_compute_task(
         registry,

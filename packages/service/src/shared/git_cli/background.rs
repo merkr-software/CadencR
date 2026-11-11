@@ -2,7 +2,9 @@ use std::path::Path;
 
 use crate::error::AppError;
 
-use super::{run_raw, safe_path_args, safe_ref_args, sanitize_git_stderr, validate_positionals};
+use super::{
+    run_raw_observer, safe_path_args, safe_ref_args, sanitize_git_stderr, validate_positionals,
+};
 
 /// Run a **periodic / read-style** git command with `--no-optional-locks`
 /// so it can't race a concurrent user-initiated mutation (`git rebase`,
@@ -14,9 +16,10 @@ use super::{run_raw, safe_path_args, safe_ref_args, sanitize_git_stderr, validat
 /// that lock.
 ///
 /// Do not use this for state-changing commands (`commit`, `push`, `rebase`,
-/// `merge`, `fetch`, `stash`, etc.); those need normal Git locking semantics.
+/// `merge`, `fetch`, `stash`, etc.); those need normal Git locking semantics
+/// and must not be killed when their caller is cancelled.
 pub async fn run_git_background(args: &[&str], cwd: &Path) -> Result<String, AppError> {
-    run_raw(&prepend_no_optional_locks(args), cwd).await
+    run_raw_observer(&prepend_no_optional_locks(args), cwd).await
 }
 
 /// Resolve a ref without optional locks while distinguishing an absent ref
@@ -25,6 +28,7 @@ pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<
     validate_positionals(&[reference])?;
     let args = prepend_no_optional_locks(&["rev-parse", "--verify", "--quiet", reference]);
     let output = super::git_command()
+        .kill_on_drop(true)
         .args(&args)
         .current_dir(cwd)
         .output()
@@ -57,7 +61,7 @@ pub async fn run_git_safe_background(
     validate_positionals(positionals)?;
     let safe_args = safe_path_args(subcommand_args, flags, positionals);
     let args = prepend_no_optional_locks(&safe_args);
-    run_raw(&args, cwd).await
+    run_raw_observer(&args, cwd).await
 }
 
 /// Read-only counterpart to `run_git_safe_refs`. Ref-like positionals remain
@@ -71,7 +75,7 @@ pub async fn run_git_safe_refs_background(
     validate_positionals(positionals)?;
     let safe_args = safe_ref_args(subcommand_args, flags, positionals);
     let args = prepend_no_optional_locks(&safe_args);
-    run_raw(&args, cwd).await
+    run_raw_observer(&args, cwd).await
 }
 
 fn prepend_no_optional_locks<'a>(args: &[&'a str]) -> Vec<&'a str> {

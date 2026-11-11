@@ -18,10 +18,11 @@ use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use super::filter::is_relevant;
-use super::handle::{RecomputePing, RegistryInner};
+use super::handle::{repo_lock, RecomputePing, RegistryInner};
 use crate::app_state::AppState;
 use crate::domain::git::git_status;
 use crate::domain::ws_session::protocol::WsEnvelope;
+use crate::shared::git_cli::run_git_background;
 use crate::shared::watch_limits::describe_watch_error;
 
 /// Debounce window for raw fs events before triggering a recompute.
@@ -40,19 +41,19 @@ pub(super) fn now_ms() -> i64 {
 }
 
 /// Build the underlying `notify-debouncer-mini` and start watching the
-/// worktree recursively.
+/// worktree recursively. Blocking: a recursive watch walks the whole tree.
 ///
 /// For linked worktrees (`git worktree add`), the worktree's gitdir and the
-/// shared common dir live outside the worktree path. We resolve both via
-/// `git rev-parse` and add them as additional watched roots so events on
-/// `index`, `HEAD`, refs, etc. are not missed.
+/// shared common dir live outside the worktree path ([`resolve_git_roots`]);
+/// they are watched as additional roots so events on `index`, `HEAD`, refs,
+/// etc. are not missed.
 pub(super) fn build_debouncer(
     worktree_path: PathBuf,
+    extra_git_roots: Vec<PathBuf>,
     ping_tx: mpsc::UnboundedSender<RecomputePing>,
     last_nudge_ms: Arc<AtomicI64>,
     write_generation: Arc<AtomicU64>,
 ) -> Result<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>, crate::error::AppError> {
-    let extra_git_roots = resolve_git_roots(&worktree_path);
     let cb_path = worktree_path.clone();
     let cb_extra = extra_git_roots.clone();
     let mut debouncer = new_debouncer(
@@ -132,47 +133,36 @@ fn has_relevant_event(
 }
 
 /// Resolve the worktree-specific gitdir and the shared common dir for
-/// `worktree_path`. Returns canonicalized paths, deduped. Empty on error
-/// (caller logs and continues — see `build_debouncer`).
-fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
+/// `worktree_path`. Returns canonicalized paths, deduped. Empty when Git
+/// fails: the watcher then runs without them (see `build_debouncer`).
+pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
+    let output = match run_git_background(
+        &["rev-parse", "--git-dir", "--git-common-dir"],
+        worktree_path,
+    )
+    .await
+    {
+        Ok(output) => output,
+        Err(error) => {
+            warn!(
+                path = %worktree_path.display(),
+                %error,
+                "git watcher: Git dirs unknown; HEAD, index and refs are not watched"
+            );
+            return Vec::new();
+        }
+    };
     let mut roots: Vec<PathBuf> = Vec::with_capacity(2);
-    for arg in ["--git-dir", "--git-common-dir"] {
-        let Some(raw) = run_git_rev_parse(worktree_path, arg) else {
-            continue;
-        };
-        // `git rev-parse --git-dir` may return a path relative to the
-        // worktree (`.git`) or absolute (linked worktree). Normalize.
-        let candidate = if Path::new(&raw).is_absolute() {
-            PathBuf::from(&raw)
-        } else {
-            worktree_path.join(&raw)
-        };
+    // Each is relative to the worktree (`.git`) or absolute (a linked
+    // worktree's); joining handles both.
+    for raw in output.lines().filter(|line| !line.is_empty()) {
+        let candidate = worktree_path.join(raw);
         let canonical = std::fs::canonicalize(&candidate).unwrap_or(candidate);
-        if !roots.iter().any(|p| p == &canonical) {
+        if !roots.contains(&canonical) {
             roots.push(canonical);
         }
     }
     roots
-}
-
-/// Synchronous `git rev-parse <arg>` helper — `build_debouncer` itself is
-/// sync (called from `spawn_handle`) and the cost is one fork per watcher
-/// startup, which is negligible.
-fn run_git_rev_parse(cwd: &Path, arg: &str) -> Option<String> {
-    let output = crate::shared::git_cli::git_std_command()
-        .args(["rev-parse", arg])
-        .current_dir(cwd)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
 }
 
 fn path_starts_with(child: &Path, parent: &Path) -> bool {
@@ -280,6 +270,16 @@ pub(super) async fn recompute_for_path(
     // protected by `--no-optional-locks` and the update runner's bounded lock
     // recovery; terminal-driven mutations keep the existing read protection.
     if state.git_mutations.is_active_canonical(worktree_path) {
+        return;
+    }
+    // One refresh of a repository at a time; other repositories never wait.
+    let repo_lock = repo_lock(registry, worktree_path).await;
+    let _repo = repo_lock.lock().await;
+    // A write confirmed, or a foreground mutation started, while this
+    // waited: skip the Git work.
+    if generation_changed(&expected_write_generation)
+        || state.git_mutations.is_active_canonical(worktree_path)
+    {
         return;
     }
 
