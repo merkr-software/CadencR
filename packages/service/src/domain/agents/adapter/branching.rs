@@ -66,4 +66,12 @@ pub trait SessionBranching: Send + Sync {
     /// Produce a NEW provider session id whose context ends immediately before
     /// the cut point described by `ctx`. Used by both rewind and fork.
     async fn truncate_before(&self, ctx: &BranchContext) -> Result<BranchResult, BranchError>;
+
+    /// Whether the session can still be branched under its stored `profile`.
+    /// Checked before any mutation, also for a cut that needs no surgery (the
+    /// first message), so such a branch fails like any other instead of
+    /// creating a session that only fails on its first prompt.
+    async fn check_profile(&self, _profile: Option<&str>) -> Result<(), BranchError> {
+        Ok(())
+    }
 }

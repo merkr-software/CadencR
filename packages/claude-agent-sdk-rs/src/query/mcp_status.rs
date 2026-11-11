@@ -92,17 +92,15 @@ mod tests {
     use futures::StreamExt;
     use tempfile::TempDir;
 
-    use super::super::test_support::{mock_mcp_servers, write_mock_cli, HomeIsolationGuard};
+    use super::super::test_support::{mock_mcp_servers, write_mock_cli};
 
     #[tokio::test]
     async fn available_mcp_servers_queries_live_mcp_status() {
         let dir = TempDir::new().unwrap();
-        // Isolate HOME so configured_mcp_servers doesn't pick up the
-        // developer's real ~/.claude.json, and use the temp dir as cwd so
-        // no project .mcp.json leaks in. With no explicit mcp_servers,
+        // No user config file is given and the temp dir is the cwd, so no
+        // project .mcp.json leaks in. With no explicit mcp_servers,
         // configured_mcp_servers is empty and available_mcp_servers falls
         // through to the live mcp_status control request.
-        let _home = HomeIsolationGuard::new(dir.path()).await;
         let captured_path = dir.path().join("mcp_status_request.json");
         let script = live_mcp_status_script(&captured_path);
         let script_path = write_mock_cli(dir.path(), &script);

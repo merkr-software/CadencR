@@ -21,6 +21,9 @@ pub struct ClaudeCodeSession {
     /// Working directory the CLI runs in; custom agent definitions resolve
     /// from it.
     pub(super) cwd: std::path::PathBuf,
+    /// Claude config dir of the session's profile; user-level agent
+    /// definitions resolve from it.
+    pub(super) config_dir: Option<std::path::PathBuf>,
     /// Sub-agents earlier runtimes launched, handed to the message pump.
     pub(super) known_subagents: Vec<KnownSubagent>,
     /// The message pump's output, where an escalated Stop reports itself.
@@ -38,6 +41,7 @@ impl ClaudeCodeSession {
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: std::path::PathBuf::new(),
+            config_dir: None,
             known_subagents: Vec::new(),
             stop_escalation: None,
             processes: CliProcesses::untracked(),
@@ -163,8 +167,11 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         let (tx, rx) = mpsc::channel(64);
         self.stop_escalation = Some(tx.downgrade());
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
-        let mut subagents =
-            ClaudeSubagentState::new(&self.cwd, std::mem::take(&mut self.known_subagents));
+        let mut subagents = ClaudeSubagentState::new(
+            &self.cwd,
+            self.config_dir.as_deref(),
+            std::mem::take(&mut self.known_subagents),
+        );
         let processes = self.processes.clone();
 
         tokio::spawn(async move {

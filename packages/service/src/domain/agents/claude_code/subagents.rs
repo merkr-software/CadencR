@@ -108,9 +108,10 @@ pub(super) struct ClaudeSubagentState {
 }
 
 impl ClaudeSubagentState {
-    pub(super) fn new(cwd: &Path, known: Vec<KnownSubagent>) -> Self {
+    /// `config_dir`: the Claude config dir of the session's profile.
+    pub(super) fn new(cwd: &Path, config_dir: Option<&Path>, known: Vec<KnownSubagent>) -> Self {
         let mut state = Self {
-            definitions: AgentDirs::new(cwd, dirs::home_dir().as_deref()),
+            definitions: AgentDirs::new(cwd, dirs::home_dir().as_deref(), config_dir),
             ..Self::default()
         };
         state.seed(known);
@@ -1040,7 +1041,7 @@ mod tests {
             "---\nname: reviewer\nmodel: haiku\neffort: high\n---\n",
         )
         .unwrap();
-        let mut state = ClaudeSubagentState::new(&cwd, Vec::new());
+        let mut state = ClaudeSubagentState::new(&cwd, None, Vec::new());
 
         let event = state
             .normalize(launch(

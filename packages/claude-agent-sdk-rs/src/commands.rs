@@ -1,7 +1,7 @@
 use crate::error::SdkError;
 use crate::types::SlashCommand;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 mod builtins;
 mod filesystem;
@@ -28,17 +28,29 @@ impl CommandCollector {
 
 /// Every slash command available for `cwd`: filesystem entries first, then
 /// built-ins. Built-ins are live-probed; the static catalog backs the probe.
+/// `config_dir` is Claude Code's configuration directory (user commands,
+/// skills and installed plugins), as the caller resolves it for the
+/// environment the CLI runs with.
 pub async fn list_commands(
     cwd: &str,
+    config_dir: Option<&Path>,
     path_to_cli: Option<&Path>,
 ) -> Result<Vec<SlashCommand>, SdkError> {
-    list_commands_with_home(cwd, home_dir(), path_to_cli).await
+    let mut collector = CommandCollector::default();
+    filesystem::collect_filesystem_commands(&mut collector, cwd, config_dir)?;
+    for command in list_builtin_commands(path_to_cli).await {
+        collector.add(command.name, command.description);
+    }
+    Ok(collector.into_commands())
 }
 
 /// Filesystem-discovered commands and skills only. Built-ins are cwd-
 /// invariant and excluded so callers can cache them independently.
-pub async fn list_filesystem_commands(cwd: &str) -> Result<Vec<SlashCommand>, SdkError> {
-    list_filesystem_commands_with_home(cwd, home_dir())
+pub async fn list_filesystem_commands(
+    cwd: &str,
+    config_dir: Option<&Path>,
+) -> Result<Vec<SlashCommand>, SdkError> {
+    filesystem_commands(cwd, config_dir)
 }
 
 /// Built-in slash commands from the live CLI, falling back to the bundled
@@ -76,29 +88,12 @@ pub async fn list_builtin_commands(path_to_cli: Option<&Path>) -> Vec<SlashComma
     }
 }
 
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
-}
-
-async fn list_commands_with_home(
+fn filesystem_commands(
     cwd: &str,
-    home: Option<PathBuf>,
-    path_to_cli: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> Result<Vec<SlashCommand>, SdkError> {
     let mut collector = CommandCollector::default();
-    filesystem::collect_filesystem_commands(&mut collector, cwd, home.as_deref())?;
-    for command in list_builtin_commands(path_to_cli).await {
-        collector.add(command.name, command.description);
-    }
-    Ok(collector.into_commands())
-}
-
-fn list_filesystem_commands_with_home(
-    cwd: &str,
-    home: Option<PathBuf>,
-) -> Result<Vec<SlashCommand>, SdkError> {
-    let mut collector = CommandCollector::default();
-    filesystem::collect_filesystem_commands(&mut collector, cwd, home.as_deref())?;
+    filesystem::collect_filesystem_commands(&mut collector, cwd, config_dir)?;
     Ok(collector.into_commands())
 }
 
@@ -118,9 +113,7 @@ fn static_builtin_commands() -> Vec<SlashCommand> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        list_builtin_commands, list_commands_with_home, list_filesystem_commands_with_home,
-    };
+    use super::{filesystem_commands, list_builtin_commands, list_commands};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -245,9 +238,9 @@ exec sleep 60
         )
         .unwrap();
 
-        let commands = list_filesystem_commands_with_home(
+        let commands = filesystem_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
         )
         .unwrap();
 
@@ -283,9 +276,9 @@ exec sleep 60
         )
         .unwrap();
 
-        let commands = list_filesystem_commands_with_home(
+        let commands = filesystem_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
         )
         .unwrap();
 
@@ -331,9 +324,9 @@ exec sleep 60
         // Force the static-catalog fallback so `compact` reliably appears
         // from the built-in slice (the live-CLI probe is non-deterministic
         // in the test environment).
-        let commands = list_commands_with_home(
+        let commands = list_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
             Some(&missing_cli_path()),
         )
         .await
@@ -368,9 +361,9 @@ exec sleep 60
         )
         .unwrap();
 
-        let commands = list_filesystem_commands_with_home(
+        let commands = filesystem_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
         )
         .unwrap();
 
@@ -395,9 +388,9 @@ exec sleep 60
         )
         .unwrap();
 
-        let commands = list_commands_with_home(
+        let commands = list_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
             Some(&missing_cli_path()),
         )
         .await
@@ -447,9 +440,9 @@ exec sleep 60
         )
         .unwrap();
 
-        let commands = list_filesystem_commands_with_home(
+        let commands = filesystem_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
         )
         .unwrap();
 
@@ -493,9 +486,9 @@ exec sleep 60
         )
         .unwrap();
 
-        let commands = list_filesystem_commands_with_home(
+        let commands = filesystem_commands(
             workspace.path().to_str().unwrap(),
-            Some(home.path().to_path_buf()),
+            Some(&home.path().join(".claude")),
         )
         .unwrap();
 

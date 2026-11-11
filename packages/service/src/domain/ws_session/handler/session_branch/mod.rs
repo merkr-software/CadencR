@@ -26,7 +26,7 @@ use super::helpers::{parse_session_id, send_error};
 use super::session_control::{reply_and_broadcast, resolve_owner_sessions};
 use super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::{BranchContext, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{BranchContext, BranchError, RuntimeSpawnConfig};
 use crate::domain::agents::providers::runtime_adapter;
 use crate::error::AppError;
 
@@ -215,6 +215,18 @@ pub(super) async fn truncate_context(
     inputs: &BranchInputs,
     source: Option<String>,
 ) -> Result<TruncateOutcome, BranchAbort> {
+    let adapter = runtime_adapter(&inputs.provider_id);
+    let branching = adapter
+        .as_ref()
+        .and_then(|adapter| adapter.session_branching());
+    // The session's profile must still resolve, whatever the cut: starting
+    // fresh would otherwise create a branch that fails on its first prompt.
+    if let Some(branching) = branching {
+        branching
+            .check_profile(inputs.profile.as_deref())
+            .await
+            .map_err(|error| surgery_abort(inputs, error))?;
+    }
     // Rewinding to (or before) the first prompt keeps no prior context.
     if inputs.cut_user_ordinal <= 1 {
         return Ok(TruncateOutcome::Fresh);
@@ -224,13 +236,13 @@ pub(super) async fn truncate_context(
         // so there is no full history to accidentally carry over: start fresh.
         return Ok(TruncateOutcome::Fresh);
     };
-    let Some(adapter) = runtime_adapter(&inputs.provider_id) else {
+    if adapter.is_none() {
         return Err(BranchAbort::Unsupported(format!(
             "Provider '{}' is not available, so this conversation can't be branched.",
             inputs.provider_id
         )));
-    };
-    let Some(branching) = adapter.session_branching() else {
+    }
+    let Some(branching) = branching else {
         return Err(BranchAbort::Unsupported(format!(
             "Rewind & Fork isn't supported for the '{}' provider yet.",
             inputs.provider_id
@@ -245,17 +257,17 @@ pub(super) async fn truncate_context(
     };
     match branching.truncate_before(&ctx).await {
         Ok(result) => Ok(TruncateOutcome::Truncated(result.new_runtime_session_id)),
-        Err(error) => {
-            warn!(
-                inputs.db_session_id,
-                error = %error,
-                "transcript surgery failed; aborting branch before any mutation"
-            );
-            Err(BranchAbort::Surgery(format!(
-                "The conversation couldn't be branched: {error}"
-            )))
-        }
+        Err(error) => Err(surgery_abort(inputs, error)),
     }
+}
+
+fn surgery_abort(inputs: &BranchInputs, error: BranchError) -> BranchAbort {
+    warn!(
+        inputs.db_session_id,
+        error = %error,
+        "transcript surgery failed; aborting branch before any mutation"
+    );
+    BranchAbort::Surgery(format!("The conversation couldn't be branched: {error}"))
 }
 
 /// Interrupt and close any live turn for this session, then reset the handle to
@@ -363,5 +375,42 @@ mod tests {
         );
         // The carried message is surfaced verbatim to the user.
         assert_eq!(BranchAbort::Surgery("boom".into()).message(), "boom");
+    }
+
+    fn first_message_of(profile: Option<&str>) -> BranchInputs {
+        BranchInputs {
+            db_session_id: 1,
+            feature_id: 1,
+            message_id: 1,
+            provider_id: "claude_code".into(),
+            profile: profile.map(ToOwned::to_owned),
+            cwd: std::path::PathBuf::from("/tmp/cadencr-branch-test"),
+            message_text: "first".into(),
+            cut_user_ordinal: 1,
+            cut_provider_uuid: None,
+        }
+    }
+
+    /// Found in QA: a fork from the first message of a session whose profile
+    /// was deleted created the fork, which only failed on its first prompt.
+    /// It must abort before any mutation, like a cut after the first message.
+    #[tokio::test]
+    async fn a_first_message_branch_aborts_when_the_sessions_profile_is_gone() {
+        let inputs = first_message_of(Some("deleted"));
+        for source in [None, Some("source-session".to_string())] {
+            match truncate_context(&inputs, source).await {
+                Err(BranchAbort::Surgery(message)) => {
+                    assert!(message.contains("profile 'deleted' not found"), "{message}");
+                }
+                Err(other) => panic!("unexpected abort: {}", other.message()),
+                Ok(_) => panic!("a branch under a deleted profile must abort"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_first_message_branch_under_a_live_profile_starts_fresh() {
+        let outcome = truncate_context(&first_message_of(None), Some("source".into())).await;
+        assert!(matches!(outcome, Ok(TruncateOutcome::Fresh)));
     }
 }

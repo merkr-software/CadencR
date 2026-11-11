@@ -4,7 +4,8 @@
 //! overrides. For a `subagent_type` naming a custom agent, the adapter reads
 //! that agent's frontmatter (`model`, `effort`) where the CLI finds it: the
 //! nearest `.claude/agents/<name>.md` walking up from the session's working
-//! directory, then the user's `~/.claude/agents/<name>.md`. Input overrides
+//! directory, then `agents/<name>.md` in the Claude config dir the session's
+//! profile resolves (`~/.claude` unless it moves it). Input overrides
 //! win, so the file is read only for the fields the launch left unset, once
 //! per launch. Built-in agents have no file and resolve to nothing.
 
@@ -50,8 +51,9 @@ pub(super) struct AgentDirs {
 
 impl AgentDirs {
     /// `cwd` must be absolute; a relative one would resolve against the
-    /// service's own directory, so it is ignored.
-    pub(super) fn new(cwd: &Path, home: Option<&Path>) -> Self {
+    /// service's own directory, so it is ignored. The walk up from it stops
+    /// at `home`; user-level definitions come from `config_dir`.
+    pub(super) fn new(cwd: &Path, home: Option<&Path>, config_dir: Option<&Path>) -> Self {
         let mut roots: Vec<PathBuf> = if cwd.is_absolute() {
             cwd.ancestors()
                 .take_while(|dir| Some(*dir) != home)
@@ -60,8 +62,8 @@ impl AgentDirs {
         } else {
             Vec::new()
         };
-        if let Some(home) = home {
-            roots.push(home.join(".claude").join("agents"));
+        if let Some(config_dir) = config_dir {
+            roots.push(config_dir.join("agents"));
         }
         Self { roots }
     }
@@ -218,7 +220,7 @@ mod tests {
             &home.join(".claude/agents/planner.md"),
             "---\nmodel: sonnet\neffort: low\n---\n",
         );
-        let dirs = AgentDirs::new(&cwd, Some(&home));
+        let dirs = AgentDirs::new(&cwd, Some(&home), Some(&home.join(".claude")));
 
         let lookup = DefinitionLookup::for_launch("t1", &json!({"subagent_type": "reviewer"}));
         let update = dirs.resolve(&lookup.unwrap()).await.unwrap();
@@ -242,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn relative_cwd_is_not_searched() {
-        let dirs = AgentDirs::new(Path::new("relative/dir"), None);
+        let dirs = AgentDirs::new(Path::new("relative/dir"), None, None);
         let lookup = DefinitionLookup::for_launch("t1", &json!({"subagent_type": "reviewer"}));
         assert_eq!(dirs.resolve(&lookup.unwrap()).await, None);
     }

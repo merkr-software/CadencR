@@ -36,6 +36,11 @@ pub struct Options {
     pub allow_dangerously_skip_permissions: bool,
     /// MCP server configurations, keyed by server name.
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
+    /// Claude Code's user file (`.claude.json`), whose user and per-project
+    /// MCP servers are listed as configured before the CLI reports them. The
+    /// caller resolves it for the environment the CLI runs with; `None` lists
+    /// none from it.
+    pub user_config_file: Option<PathBuf>,
     /// Settings sources (default: ["user", "project", "local"]).
     #[builder(default = default_setting_sources())]
     pub setting_sources: Vec<String>,

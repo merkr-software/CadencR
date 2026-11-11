@@ -64,7 +64,6 @@ struct EventLoop {
 }
 
 struct NotificationState {
-    command_outputs: HashMap<String, String>,
     index_state: IndexState,
     lifecycle: SessionLifecycle,
 }
@@ -74,7 +73,6 @@ impl EventLoop {
         let mut index_state = IndexState::for_root_thread(&self.turns.root_thread_id);
         index_state.seed_known_subagents(known_subagents);
         let mut state = NotificationState {
-            command_outputs: HashMap::new(),
             index_state,
             lifecycle: SessionLifecycle::default(),
         };
@@ -139,18 +137,16 @@ impl EventLoop {
         if super::event_turn_state::belongs_to_root_thread(&params, &self.turns.root_thread_id) {
             self.compaction.observe(&method, &params);
         }
+        // Codex multiplexes every thread (root + each sub-agent) onto one
+        // stream; item caches are kept per thread so a root turn/started
+        // never clobbers a sub-agent the lifecycle still counts as live.
+        state.index_state.enter_notification(&params);
         if method == "turn/started" {
-            let thread_id = params
-                .get("threadId")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("");
-            // Codex multiplexes every thread (root + each
-            // sub-agent) onto one stream; sub-agent turn/starteds
-            // must not clobber the root's per-turn caches.
-            if state.index_state.should_reset_for_turn_started(thread_id) {
-                state.index_state.reset();
-                state.command_outputs.clear();
-            }
+            let thread = params["threadId"].as_str().unwrap_or_default();
+            let live = &state.lifecycle.children;
+            state
+                .index_state
+                .observe_turn_started(thread, |child| live.contains_key(child));
         }
         update_turn_state(
             &method,
@@ -161,7 +157,16 @@ impl EventLoop {
         )
         .await;
         clear_resolved_request(&method, &params, &self.pending_requests).await;
-        enrich_command_output(&method, &mut params, &mut state.command_outputs);
+        if matches!(
+            method.as_str(),
+            "item/commandExecution/outputDelta" | "command/exec/outputDelta" | "item/completed"
+        ) {
+            enrich_command_output(
+                &method,
+                &mut params,
+                state.index_state.command_outputs_mut(),
+            );
+        }
         if let Some(receipt_event) = self
             .pending_prompt_receipts
             .acknowledge_completed_user_message(&method, &params, &self.turns.root_thread_id)

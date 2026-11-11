@@ -52,8 +52,11 @@ use super::wire::{build_control_request, write_to_stdin, PendingControl};
 /// ```
 pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Query, SdkError> {
     let cli_path = find_cli(options.path_to_cli.as_deref()).await?;
-    let configured_mcp_servers =
-        crate::mcp_discovery::configured_mcp_servers(&options.cwd, options.mcp_servers.as_ref());
+    let configured_mcp_servers = crate::mcp_discovery::configured_mcp_servers(
+        &options.cwd,
+        options.mcp_servers.as_ref(),
+        options.user_config_file.as_deref(),
+    );
     let configured_mcp_names = configured_mcp_servers
         .iter()
         .map(|server| format!("{}:{}", server.name, server.status))

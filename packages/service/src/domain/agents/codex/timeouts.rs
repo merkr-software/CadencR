@@ -5,6 +5,9 @@ use super::super::adapter::RuntimeError;
 
 // Match the Codex app-server SDK's default request timeout.
 pub(super) const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+// The profile fingerprint runs before a prompt reaches the agent and needs
+// only `config/read`; the model list it also asks for must not hold it up.
+pub(super) const FINGERPRINT_MODELS_TIMEOUT: Duration = Duration::from_secs(5);
 // Stream recovery and user-requested shutdown must remain responsive.
 pub(super) const RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
@@ -23,7 +26,7 @@ pub(super) async fn with_control_timeout<T>(
     with_timeout(CONTROL_TIMEOUT, operation, future).await
 }
 
-async fn with_timeout<T>(
+pub(super) async fn with_timeout<T>(
     timeout: Duration,
     operation: &'static str,
     future: impl Future<Output = Result<T, codex_app_server_sdk_rs::SdkError>>,

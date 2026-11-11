@@ -9,7 +9,7 @@
 //!   same `TurnError`, so the turn id is remembered and that second copy is
 //!   not surfaced again.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
@@ -22,23 +22,28 @@ pub(in crate::domain::agents::codex) const CODEX_TURN_FAILED: &str = "CODEX_TURN
 pub(in crate::domain::agents::codex) struct TurnErrorState {
     /// Threads whose stream is currently being retried by Codex.
     retrying_threads: HashSet<String>,
-    /// Turns whose terminal error was already surfaced from `error`.
-    surfaced_turns: HashSet<String>,
+    /// Turns whose terminal error was already surfaced from `error`, with
+    /// their thread.
+    surfaced_turns: HashMap<String, String>,
 }
 
 impl TurnErrorState {
     pub(in crate::domain::agents::codex) fn was_surfaced(&self, turn_id: &str) -> bool {
-        self.surfaced_turns.contains(turn_id)
+        self.surfaced_turns.contains_key(turn_id)
     }
 
     pub(super) fn take_surfaced(&mut self, turn_id: &str) -> bool {
-        self.surfaced_turns.remove(turn_id)
+        self.surfaced_turns.remove(turn_id).is_some()
     }
 
-    /// Root turn start: surfaced-turn bookkeeping is per turn. Retrying
-    /// threads are kept so their degraded status is still cleared.
-    pub(in crate::domain::agents::codex) fn reset_turns(&mut self) {
-        self.surfaced_turns.clear();
+    /// Root turn start: surfaced-turn bookkeeping is per turn, except for
+    /// live sub-agents, whose `turn/completed` has yet to arrive.
+    /// Retrying threads are kept so their degraded status is still cleared.
+    pub(in crate::domain::agents::codex) fn reset_turns(
+        &mut self,
+        live_child: &impl Fn(&str) -> bool,
+    ) {
+        self.surfaced_turns.retain(|_, thread| live_child(thread));
     }
 
     /// Any non-`error` notification from a retrying thread (its
@@ -83,7 +88,9 @@ pub(super) fn error_notification_events(
         )];
     }
     if let Some(turn_id) = params.get("turnId").and_then(Value::as_str) {
-        state.surfaced_turns.insert(turn_id.to_string());
+        state
+            .surfaced_turns
+            .insert(turn_id.to_string(), thread.to_string());
     }
     vec![provider_error_event(thread, message, CODEX_TURN_FAILED)]
 }

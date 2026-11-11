@@ -18,9 +18,9 @@ struct InstalledPlugin {
 
 pub(super) fn scan_installed_plugins(
     collector: &mut CommandCollector,
-    home: &Path,
+    config_dir: &Path,
 ) -> Result<(), SdkError> {
-    let manifest_path = home.join(".claude/plugins/installed_plugins.json");
+    let manifest_path = config_dir.join("plugins/installed_plugins.json");
     if !manifest_path.is_file() {
         return Ok(());
     }

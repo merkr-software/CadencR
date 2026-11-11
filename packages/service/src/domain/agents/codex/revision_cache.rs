@@ -1,17 +1,21 @@
 //! Memoized effective-config fingerprints.
 //!
 //! Every prompt re-resolves the session profile, and the fingerprint behind it
-//! comes from a throwaway `codex app-server` (`initialize` + `config/read`):
-//! ~0.1 s paid before the prompt reaches the agent. The fingerprint only moves
-//! when a config file moves, so it is reused while every layer file Codex
-//! reported — and every place a project layer could appear — is unchanged.
+//! comes from a throwaway `codex app-server` (`initialize` + `config/read`),
+//! paid before the prompt reaches the agent. The fingerprint only moves when a
+//! config file moves, so it is reused while every layer file Codex reported —
+//! and every place a project layer could appear — is unchanged. The same probe
+//! also lists the models, which the session's effective configuration reads
+//! shortly after (see `profile_runtime::MODELS_REUSE`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value;
+
+use codex_app_server_sdk_rs::CodexModel;
 
 /// Safety net for inputs no file stamp captures (managed preferences, ...).
 const MAX_AGE: Duration = Duration::from_secs(600);
@@ -52,8 +56,25 @@ impl RevisionKey {
 
 type FileStamp = Option<(SystemTime, u64)>;
 
+/// What a fingerprint probe read.
+pub(super) struct ProfileProbe {
+    /// The `config/read` response, layers included.
+    pub(super) config: Value,
+    /// The `model/list` answer, or why it failed.
+    pub(super) models: Result<Vec<CodexModel>, String>,
+}
+
+/// A profile's effective-config fingerprint and the probe it came from.
+pub(super) struct Fingerprint {
+    pub(super) revision: String,
+    pub(super) probe: Arc<ProfileProbe>,
+    /// Time since the probe.
+    pub(super) age: Duration,
+}
+
 struct CachedRevision {
     revision: String,
+    probe: Arc<ProfileProbe>,
     stamps: Vec<(PathBuf, FileStamp)>,
     cached_at: Instant,
 }
@@ -61,7 +82,7 @@ struct CachedRevision {
 static CACHE: LazyLock<Mutex<HashMap<RevisionKey, CachedRevision>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub(super) fn cached(key: &RevisionKey) -> Option<String> {
+pub(super) fn cached(key: &RevisionKey) -> Option<Fingerprint> {
     let cache = CACHE.lock().ok()?;
     let entry = cache.get(key)?;
     let fresh = entry.cached_at.elapsed() < MAX_AGE
@@ -69,18 +90,28 @@ pub(super) fn cached(key: &RevisionKey) -> Option<String> {
             .stamps
             .iter()
             .all(|(path, stamp)| file_stamp(path) == *stamp);
-    fresh.then(|| entry.revision.clone())
+    fresh.then(|| Fingerprint {
+        revision: entry.revision.clone(),
+        probe: Arc::clone(&entry.probe),
+        age: entry.cached_at.elapsed(),
+    })
 }
 
-/// Remember `revision` for `key`, stamping the layer files `config` (a
-/// `config/read` response with layers) was built from. A file modified since
+/// Remember `revision` and the `probe` it was computed from for `key`,
+/// stamping the layer files its config (a `config/read` response with layers)
+/// was built from. A file modified since
 /// `probe_started` may postdate what Codex read, so nothing is cached then —
 /// "since" widened by [`MTIME_GRANULARITY`], as mtimes lag the wall clock.
-pub(super) fn store(key: RevisionKey, revision: String, config: &Value, probe_started: SystemTime) {
+pub(super) fn store(
+    key: RevisionKey,
+    revision: String,
+    probe: Arc<ProfileProbe>,
+    probe_started: SystemTime,
+) {
     let edit_horizon = probe_started
         .checked_sub(MTIME_GRANULARITY)
         .unwrap_or(SystemTime::UNIX_EPOCH);
-    let stamps: Vec<_> = watched_paths(config, &key.cwd)
+    let stamps: Vec<_> = watched_paths(&probe.config, &key.cwd)
         .into_iter()
         .map(|path| {
             let stamp = file_stamp(&path);
@@ -100,6 +131,7 @@ pub(super) fn store(key: RevisionKey, revision: String, config: &Value, probe_st
             key,
             CachedRevision {
                 revision,
+                probe,
                 stamps,
                 cached_at: Instant::now(),
             },
@@ -153,8 +185,15 @@ mod tests {
             .unwrap();
     }
 
-    fn config_with_layer(file: &Path) -> Value {
-        json!({ "config": {}, "layers": [{ "name": { "type": "user", "file": file } }] })
+    fn probe_with_layer(file: &Path) -> Arc<ProfileProbe> {
+        Arc::new(ProfileProbe {
+            models: Ok(Vec::new()),
+            config: json!({ "config": {}, "layers": [{ "name": { "type": "user", "file": file } }] }),
+        })
+    }
+
+    fn cached_revision(key: &RevisionKey) -> Option<String> {
+        cached(key).map(|fingerprint| fingerprint.revision)
     }
 
     /// Stores a fingerprint for a single user layer whose mtime sits `offset`
@@ -174,11 +213,11 @@ mod tests {
         store(
             key.clone(),
             "rev-1".into(),
-            &config_with_layer(&user_config),
+            probe_with_layer(&user_config),
             probe_started,
         );
 
-        cached(&key)
+        cached_revision(&key)
     }
 
     const LONG_AGO: Duration = Duration::from_secs(3600);
@@ -201,14 +240,14 @@ mod tests {
         store(
             key.clone(),
             "rev-1".into(),
-            &config_with_layer(&user_config),
+            probe_with_layer(&user_config),
             probe_started,
         );
-        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
+        assert_eq!(cached_revision(&key).as_deref(), Some("rev-1"));
 
         fs::write(&user_config, "model = \"longer\"").unwrap();
 
-        assert_eq!(cached(&key), None);
+        assert_eq!(cached_revision(&key), None);
     }
 
     #[test]
@@ -221,14 +260,14 @@ mod tests {
         store(
             key.clone(),
             "rev-1".into(),
-            &config_with_layer(&user_config),
+            probe_with_layer(&user_config),
             probe_started,
         );
-        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
+        assert_eq!(cached_revision(&key).as_deref(), Some("rev-1"));
 
         write_layer(&user_config, "model = \"b\"", probe_started - LONG_AGO / 2);
 
-        assert_eq!(cached(&key), None);
+        assert_eq!(cached_revision(&key), None);
     }
 
     #[test]
@@ -240,15 +279,18 @@ mod tests {
         store(
             key.clone(),
             "rev-1".into(),
-            &json!({ "config": {}, "layers": [] }),
+            Arc::new(ProfileProbe {
+                models: Ok(Vec::new()),
+                config: json!({ "config": {}, "layers": [] }),
+            }),
             SystemTime::now(),
         );
-        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
+        assert_eq!(cached_revision(&key).as_deref(), Some("rev-1"));
 
         fs::create_dir_all(dir.path().join(".codex")).unwrap();
         fs::write(dir.path().join(".codex").join("config.toml"), "x = 1").unwrap();
 
-        assert_eq!(cached(&key), None);
+        assert_eq!(cached_revision(&key), None);
     }
 
     #[test]
@@ -262,11 +304,11 @@ mod tests {
         store(
             key.clone(),
             "rev-1".into(),
-            &config_with_layer(&user_config),
+            probe_with_layer(&user_config),
             probe_started,
         );
 
-        assert_eq!(cached(&key), None);
+        assert_eq!(cached_revision(&key), None);
     }
 
     #[test]

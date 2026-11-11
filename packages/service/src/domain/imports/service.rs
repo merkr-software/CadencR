@@ -3,15 +3,14 @@
 //! through sqlx; provider parsing is delegated to provider modules.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
 
+use crate::domain::agents::claude_code::config_dir as claude_config_dir;
 use crate::error::AppError;
 
-use super::claude_code_jsonl::{
-    claude_projects_dir_for, list_session_files, parse_session_file, ImportedConversation,
-};
+use super::claude_code_jsonl::{list_session_files, parse_session_file, ImportedConversation};
 use super::codex_rollout;
 use super::models::{ImportConversationSummary, ImportProvider, SkipReason, SkippedRecord};
 use super::opencode_sqlite;
@@ -19,7 +18,7 @@ use super::persistence::persist_imported_conversation;
 pub use super::persistence::ImportOutcome;
 
 /// Look up a project's filesystem `path`. The caller uses it to derive the
-/// `~/.claude/projects/<encoded>/` directory.
+/// provider's on-disk conversation directory.
 pub async fn project_path(pool: &SqlitePool, project_id: i64) -> Result<String, AppError> {
     let row: Option<(String,)> = sqlx::query_as("SELECT path FROM projects WHERE id = ?")
         .bind(project_id)
@@ -87,8 +86,10 @@ async fn list_provider_conversations_from_source(
 ) -> Result<Vec<ImportedConversation>, AppError> {
     match provider {
         ImportProvider::ClaudeCode => {
+            // Conversations to import become sessions of the active profile.
+            let config_dir = claude_config_dir::for_profile(None)?;
             let project_path = project_path_str.to_string();
-            tokio::task::spawn_blocking(move || scan_claude_code_dir(&project_path))
+            tokio::task::spawn_blocking(move || scan_claude_code_dir(&config_dir, &project_path))
                 .await
                 .map_err(|e| AppError::internal(format!("scan task panicked: {e}")))?
         }
@@ -107,10 +108,11 @@ async fn list_provider_conversations_from_source(
     }
 }
 
-fn scan_claude_code_dir(project_path: &str) -> Result<Vec<ImportedConversation>, AppError> {
-    let Some(dir) = claude_projects_dir_for(&PathBuf::from(project_path)) else {
-        return Ok(Vec::new());
-    };
+fn scan_claude_code_dir(
+    config_dir: &Path,
+    project_path: &str,
+) -> Result<Vec<ImportedConversation>, AppError> {
+    let dir = claude_config_dir::transcripts_dir(config_dir, Path::new(project_path));
     let files = list_session_files(&dir)
         .map_err(|e| AppError::internal(format!("read {}: {e}", dir.display())))?;
     let mut out = Vec::with_capacity(files.len());
@@ -139,21 +141,30 @@ pub(crate) enum LoadedSession {
 /// feature) and the session-refresh path (which appends newer events to an
 /// existing session). Parse / IO errors bubble as `AppError` so callers can
 /// decide whether to skip the record or surface the failure to the user.
+/// `profile` is the provider profile the session runs under (none: the active
+/// one): a Claude profile may keep its transcripts in its own config dir.
 pub(crate) async fn load_provider_session(
     provider: ImportProvider,
     project_path: &str,
     source_session_id: &str,
+    profile: Option<&str>,
 ) -> Result<LoadedSession, AppError> {
-    if provider == ImportProvider::Opencode {
-        let loaded =
-            opencode_sqlite::load_project_conversation_by_id(project_path, source_session_id)
-                .await?;
-        return Ok(loaded.map_or(LoadedSession::NotFound, LoadedSession::Found));
-    }
+    let source = match provider {
+        ImportProvider::Opencode => {
+            let loaded =
+                opencode_sqlite::load_project_conversation_by_id(project_path, source_session_id)
+                    .await?;
+            return Ok(loaded.map_or(LoadedSession::NotFound, LoadedSession::Found));
+        }
+        ImportProvider::ClaudeCode => {
+            ConversationFiles::Claude(claude_config_dir::for_profile(profile)?)
+        }
+        ImportProvider::CodexCli => ConversationFiles::Codex,
+    };
     let project_path = project_path.to_string();
     let session_id = source_session_id.to_string();
     tokio::task::spawn_blocking(move || {
-        load_provider_conversation(provider, &project_path, &session_id)
+        load_provider_conversation(&source, &project_path, &session_id)
     })
     .await
     .map_err(|e| AppError::internal(format!("load task panicked: {e}")))?
@@ -167,7 +178,9 @@ pub async fn import_provider_session_by_id(
     project_path: &str,
     source_session_id: &str,
 ) -> Result<ImportOutcome, AppError> {
-    let loaded = match load_provider_session(provider, project_path, source_session_id).await {
+    // An imported conversation becomes a session of the active profile.
+    let loaded = match load_provider_session(provider, project_path, source_session_id, None).await
+    {
         Ok(loaded) => loaded,
         Err(err) => {
             tracing::warn!(error = %err, provider = provider.as_str(), "failed to load session for import");
@@ -202,21 +215,27 @@ async fn import_loaded_session(
     }
 }
 
+/// Where a provider keeps the conversation files a blocking load reads.
+enum ConversationFiles {
+    /// Under this Claude Code config dir.
+    Claude(PathBuf),
+    Codex,
+}
+
 fn load_provider_conversation(
-    provider: ImportProvider,
+    source: &ConversationFiles,
     project_path: &str,
     source_session_id: &str,
 ) -> std::io::Result<LoadedSession> {
-    match provider {
-        ImportProvider::ClaudeCode => {
-            load_claude_code_conversation(project_path, source_session_id)
+    match source {
+        ConversationFiles::Claude(config_dir) => {
+            load_claude_code_conversation(config_dir, project_path, source_session_id)
         }
-        ImportProvider::CodexCli => Ok(codex_rollout::load_project_conversation_by_id(
+        ConversationFiles::Codex => Ok(codex_rollout::load_project_conversation_by_id(
             project_path,
             source_session_id,
         )?
         .map_or(LoadedSession::NotFound, LoadedSession::Found)),
-        ImportProvider::Opencode => unreachable!("OpenCode conversations load asynchronously"),
     }
 }
 
@@ -230,19 +249,18 @@ pub async fn import_one(
 }
 
 /// Load a single conversation from disk by `(project_path, session_id)`.
-/// `NotFound` covers both "no home dir" and "no file on disk"; `Empty`
-/// signals the file existed but had no user/assistant messages. Parse / IO
-/// errors bubble so the caller can mark the session `Skipped(ParseError)`.
+/// `NotFound` means no file on disk; `Empty` signals the file existed but had
+/// no user/assistant messages. Parse / IO errors bubble so the caller can mark
+/// the session `Skipped(ParseError)`.
 fn load_claude_code_conversation(
+    config_dir: &Path,
     project_path: &str,
     source_session_id: &str,
 ) -> std::io::Result<LoadedSession> {
     if !is_safe_claude_session_id(source_session_id) {
         return Ok(LoadedSession::NotFound);
     }
-    let Some(dir) = claude_projects_dir_for(&PathBuf::from(project_path)) else {
-        return Ok(LoadedSession::NotFound);
-    };
+    let dir = claude_config_dir::transcripts_dir(config_dir, Path::new(project_path));
     let file_path = dir.join(format!("{source_session_id}.jsonl"));
     if !file_path.exists() {
         return Ok(LoadedSession::NotFound);
@@ -371,5 +389,38 @@ mod tests {
         for unsafe_id in ["../outside", "nested/session", ""] {
             assert!(!is_safe_claude_session_id(unsafe_id));
         }
+    }
+
+    /// The CLI sync re-reads a session's transcript where its profile keeps it.
+    #[tokio::test]
+    async fn a_claude_transcript_loads_from_the_profile_config_dir() {
+        use crate::shared::test_env::{async_env_lock, EnvVarGuard};
+        let _env = async_env_lock().lock().await;
+        let home = tempfile::tempdir().unwrap();
+        let _home = EnvVarGuard::set("HOME", home.path().to_str().unwrap());
+        let _unset = EnvVarGuard::remove("CLAUDE_CONFIG_DIR");
+        let config = tempfile::tempdir().unwrap();
+        let env = std::collections::HashMap::from([(
+            "CLAUDE_CONFIG_DIR".to_string(),
+            config.path().to_str().unwrap().to_string(),
+        )]);
+        crate::domain::agents::claude_code::profiles::upsert_profile("work", &env)
+            .await
+            .unwrap();
+        let project = "/Users/test/profiled";
+        let dir = claude_config_dir::transcripts_dir(config.path(), Path::new(project));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("sid.jsonl"),
+            r#"{"type":"user","uuid":"u1","sessionId":"sid","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"hello"}}"#,
+        )
+        .unwrap();
+
+        let loaded =
+            load_provider_session(ImportProvider::ClaudeCode, project, "sid", Some("work"))
+                .await
+                .unwrap();
+
+        assert!(matches!(loaded, LoadedSession::Found(_)));
     }
 }
