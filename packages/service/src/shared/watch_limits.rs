@@ -23,7 +23,8 @@ pub fn describe_watch_error(context: &str, error: &Error) -> String {
     }
 }
 
-fn is_watch_limit_error(kind: &ErrorKind) -> bool {
+/// Whether `kind` is the system watch limit, which no retry fixes.
+pub(crate) fn is_watch_limit_error(kind: &ErrorKind) -> bool {
     match kind {
         ErrorKind::MaxFilesWatch => true,
         ErrorKind::Io(io) => matches!(io.raw_os_error(), Some(libc::ENOSPC | libc::EMFILE)),
