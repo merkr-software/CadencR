@@ -22,7 +22,7 @@ use super::read::{preview_worker, read_theme};
 async fn staged(
     body: &InstallManagedThemeRequest,
 ) -> Result<(tempfile::TempDir, Receipt), AppError> {
-    catalog::ingest(&body.index)?;
+    crate::domain::marketplace::catalog::ingest(&body.index)?;
     let package = catalog::resolve(&body.index, &body.theme_id, &body.version)?;
     storage::owner(&body.theme_id)?;
     let archive_url = package["theme"]["distribution"]["archive"]
@@ -40,7 +40,7 @@ async fn staged(
         ));
     }
     super::policy::enforce(&body.theme_id, &body.version, sha256)?;
-    let bytes = catalog::download_archive(
+    let bytes = crate::domain::marketplace::catalog::download_archive(
         archive_url,
         package["theme"]["distribution"].get("repository"),
         archive::MAX_ARCHIVE_BYTES,
@@ -70,7 +70,7 @@ async fn staged(
         },
     ))
 }
-pub(super) fn require_archive_digest(bytes: &[u8], sha256: &str) -> Result<(), AppError> {
+pub(crate) fn require_archive_digest(bytes: &[u8], sha256: &str) -> Result<(), AppError> {
     if storage::digest(bytes) != sha256 {
         return Err(AppError::coded(
             axum::http::StatusCode::BAD_REQUEST,
@@ -99,7 +99,7 @@ async fn install_with_stage(
     let (stage, receipt) = staging.await?;
     let _guard = lock().lock().await;
     ensure_install_state(&body.theme_id, update)?;
-    catalog::ingest(&body.index)?;
+    crate::domain::marketplace::catalog::ingest(&body.index)?;
     super::policy::enforce(&receipt.id, &receipt.version, &receipt.sha256)?;
     commit_staged(body, stage, receipt)
 }
@@ -390,7 +390,7 @@ pub(super) mod tests {
     }
     #[tokio::test]
     async fn pending_download_does_not_hold_the_lifecycle_lock() {
-        let (index, _) = catalog::tests::signed();
+        let (index, _) = crate::domain::marketplace::catalog::tests::signed();
         let body = InstallManagedThemeRequest {
             index,
             theme_id: "new-theme".into(),
@@ -413,7 +413,7 @@ pub(super) mod tests {
         id: &str,
         version: &str,
     ) -> crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore {
-        let (mut index, trust) = catalog::tests::signed();
+        let (mut index, trust) = crate::domain::marketplace::catalog::tests::signed();
         index.signed.packages[0]["package"]["theme"]["id"] = serde_json::json!(id);
         index.signed.packages[0]["package"]["theme"]["version"] = serde_json::json!(version);
         storage::secure(&storage::root()).unwrap();

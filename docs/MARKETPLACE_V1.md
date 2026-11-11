@@ -111,9 +111,11 @@ checksums or revocation policy.
   protected publication, renewal and expiry-watch workflows).
 - **Official plugin sources**: [`plugins/`](../plugins/README.md), released through
   [`plugins/RELEASING.md`](../plugins/RELEASING.md).
-- **Desktop/service**: catalog acquisition and managed installs live next to each
-  kind (`providers/installed/managed`, `themes/managed`, `plugin_tabs/managed`,
-  `lsp`); the UI is the `/marketplace` route.
+- **Desktop/service**: the shared core (signed catalog and its verified cache,
+  guarded downloads, private storage, signed revocation feeds) is
+  `domain/marketplace`; each kind's installer, receipts and policy live next to
+  it (`providers/installed/managed`, `themes/managed`, `plugin_tabs/managed`,
+  `lsp/managed`); the UI is the `/marketplace` route.
 
 ## Open gates
 

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::domain::agents::providers::installed::managed::trust::pinned_index_trust_store;
 use crate::{
-    domain::themes::managed::{catalog, storage as io},
+    domain::marketplace::{catalog, storage as io},
     error::AppError,
 };
 

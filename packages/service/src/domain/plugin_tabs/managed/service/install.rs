@@ -7,7 +7,7 @@ use super::super::{
 };
 use crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore;
 use crate::{
-    domain::themes::managed::{catalog, storage as io},
+    domain::marketplace::{catalog, storage as io},
     error::AppError,
 };
 use cadencr_plugin_core::tab::TabPlatform;
@@ -232,10 +232,10 @@ fn verify_backend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::marketplace::models::SignedMixedCatalog;
     use crate::domain::plugin_tabs::managed::storage::fixtures::{
         backend_fixture, backend_revision, fixture, merged, other_platform, BackendFixture,
     };
-    use crate::domain::themes::managed::models::SignedMixedCatalog;
 
     struct Harness {
         temp: tempfile::TempDir,
@@ -338,7 +338,7 @@ mod tests {
                 .backend(tab.backend_archive.clone())
                 .call()
         };
-        let digest = crate::domain::themes::managed::storage::digest(&tab.executable);
+        let digest = crate::domain::marketplace::storage::digest(&tab.executable);
         // This platform's binary is what is blocked.
         let _policy = configure(
             serde_json::json!([{"tab_id":"graph","executable_sha256":digest,"reason":"steals keys"}]),

@@ -1,11 +1,12 @@
 //! Host-owned, signed declarative-theme revocations. Never projects ACP policy.
 //! The feed itself (envelope, high-water cache, poll cadence) is the shared
 //! [`policy_feed`]; this module decides what a theme policy allows.
-use super::policy_feed::{self, per_root, Feed, PerRoot, PollState};
-use super::{download, storage};
+use super::storage;
 use crate::domain::agents::providers::installed::managed::trust::{
     pinned_index_trust_store, ManagedTrustStore,
 };
+use crate::domain::marketplace::catalog::download;
+use crate::domain::marketplace::policy_feed::{self, per_root, Feed, PerRoot, PollState};
 use crate::error::AppError;
 use cadencr_registry_core::ThemeBlocklistEntry;
 use chrono::{DateTime, Utc};
@@ -105,9 +106,7 @@ pub(super) async fn refresh(force: bool) -> Result<Option<String>, AppError> {
             if let Some(result) = tests::configured_fetch() {
                 return result;
             }
-            download::download(url, FEED.max_bytes)
-                .await
-                .map_err(unavailable)
+            download(url, FEED.max_bytes).await.map_err(unavailable)
         },
     )
     .await
@@ -261,8 +260,8 @@ fn enforce_verified(
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::policy_feed::tests::{resign_b, signed_with};
     use super::*;
+    use crate::domain::marketplace::policy_feed::tests::{resign_b, signed_with};
     use serde_json::Value;
     struct Fixture {
         trust: ManagedTrustStore,
@@ -374,7 +373,7 @@ pub(super) mod tests {
             use std::os::unix::fs::MetadataExt as _;
             assert_eq!(std::fs::metadata(cache()).unwrap().ino(), inode);
         }
-        let trust = super::super::catalog::tests::rotation_trust(
+        let trust = crate::domain::marketplace::catalog::tests::rotation_trust(
             now - chrono::Duration::minutes(1),
             false,
             vec![],
@@ -444,7 +443,7 @@ pub(super) mod tests {
         let (old, original) = signed(-3, serde_json::json!([]));
         let now = Utc::now();
         ingest(&old, &original, now).unwrap();
-        let trust = super::super::catalog::tests::rotation_trust(
+        let trust = crate::domain::marketplace::catalog::tests::rotation_trust(
             now - chrono::Duration::minutes(1),
             false,
             vec![],
@@ -482,7 +481,7 @@ pub(super) mod tests {
             .into();
         old = signed_with(old.signed, 19, "test");
         ingest(&old, &original, now - chrono::Duration::seconds(150)).unwrap();
-        let trust = super::super::catalog::tests::rotation_trust(
+        let trust = crate::domain::marketplace::catalog::tests::rotation_trust(
             now - chrono::Duration::minutes(1),
             false,
             vec![],
@@ -504,15 +503,24 @@ pub(super) mod tests {
         let digest = cadencr_registry_core::VerifiedRegistryTrust::catalog_digest(
             &serde_json::to_value(&old).unwrap(),
         );
-        let denied = super::super::catalog::tests::rotation_trust(now, true, vec![], vec![]);
+        let denied =
+            crate::domain::marketplace::catalog::tests::rotation_trust(now, true, vec![], vec![]);
         let renewed = resign_b(old.clone());
         assert!(ingest(&renewed, &denied, now).is_err());
-        let wrong_namespace =
-            super::super::catalog::tests::rotation_trust(now, true, vec![digest.clone()], vec![]);
+        let wrong_namespace = crate::domain::marketplace::catalog::tests::rotation_trust(
+            now,
+            true,
+            vec![digest.clone()],
+            vec![],
+        );
         assert!(ingest(&renewed, &wrong_namespace, now).is_err());
         assert_eq!(std::fs::read(cache()).unwrap(), before);
-        let approved =
-            super::super::catalog::tests::rotation_trust(now, true, vec![], vec![digest]);
+        let approved = crate::domain::marketplace::catalog::tests::rotation_trust(
+            now,
+            true,
+            vec![],
+            vec![digest],
+        );
         assert!(verify(&old, &approved, true, now).is_err());
         verify(&old, &approved, false, now).unwrap();
         let mut altered = old.clone();

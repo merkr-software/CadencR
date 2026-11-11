@@ -8,7 +8,7 @@ use super::{invalid, platform};
 use crate::domain::agents::providers::installed::managed::trust::{
     pinned_index_trust_store, ManagedTrustStore,
 };
-use crate::domain::themes::managed::{catalog, models::SignedMixedCatalog, storage as io};
+use crate::domain::marketplace::{catalog, models::SignedMixedCatalog, storage as io};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

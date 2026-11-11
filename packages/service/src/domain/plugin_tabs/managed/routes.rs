@@ -3,7 +3,7 @@ use super::{invalid, service, InstallManagedTabRequest, ManagedTabInventoryEntry
 use crate::domain::plugin_tabs::consent;
 use crate::{
     app_state::AppState,
-    domain::themes::managed::{
+    domain::marketplace::{
         catalog,
         models::{ManagedThemeCatalogResponse, SignedMixedCatalog, TabVersionUnavailable},
     },

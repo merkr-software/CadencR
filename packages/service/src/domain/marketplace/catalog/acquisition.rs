@@ -1,11 +1,11 @@
 //! Downloads stay async; catalog-sized verification and private cache IO do not.
-use super::{cache, download, ingest_trusted, invalid, recommended_versions, source, verify};
+use super::{cache, download, ingest_trusted, invalid, source, verify};
 use crate::domain::agents::providers::installed::managed::trust::{
     pinned_index_trust_store, ManagedTrustStore,
 };
-use crate::domain::themes::managed::{models::*, storage};
+use crate::domain::marketplace::{models::*, storage};
 use crate::error::AppError;
-use std::{collections::BTreeMap, future::Future, path::PathBuf};
+use std::{future::Future, path::PathBuf};
 
 mod shared;
 
@@ -17,21 +17,14 @@ struct Context {
 #[derive(Debug, Clone)]
 struct VerifiedCatalog {
     index: SignedMixedCatalog,
-    recommendations: BTreeMap<String, String>,
 }
 impl VerifiedCatalog {
     fn new(index: SignedMixedCatalog) -> Self {
-        Self {
-            recommendations: recommended_versions(&index),
-            index,
-        }
+        Self { index }
     }
 }
-pub async fn acquire(refresh: bool) -> ManagedThemeCatalogResponse {
-    acquire_with_policy(refresh, true).await
-}
 pub async fn acquire_catalog(refresh: bool) -> ManagedThemeCatalogResponse {
-    acquire_with_policy(refresh, false).await
+    acquire_with_policy(refresh, std::future::ready(None)).await
 }
 /// Read authenticated current metadata without ever requesting the network.
 pub async fn cached_catalog() -> Result<Option<SignedMixedCatalog>, AppError> {
@@ -46,20 +39,15 @@ pub async fn cached_catalog() -> Result<Option<SignedMixedCatalog>, AppError> {
     })
     .await
 }
-async fn acquire_with_policy(refresh: bool, check_policy: bool) -> ManagedThemeCatalogResponse {
+/// Acquire the catalog while `policy` refreshes a kind's revocation feed;
+/// the policy's warning joins the catalog's.
+pub async fn acquire_with_policy(
+    refresh: bool,
+    policy: impl Future<Output = Option<String>>,
+) -> ManagedThemeCatalogResponse {
     let context = Context {
         root: storage::root(),
         trust: pinned_index_trust_store(),
-    };
-    let policy = async {
-        if check_policy {
-            match super::super::policy::refresh(refresh).await {
-                Ok(warning) => warning,
-                Err(error) => Some(error.to_string()),
-            }
-        } else {
-            None
-        }
     };
     let (catalog, policy_error) = tokio::join!(
         shared::acquire(
@@ -73,7 +61,7 @@ async fn acquire_with_policy(refresh: bool, check_policy: bool) -> ManagedThemeC
     match result {
         Ok(catalog) => ManagedThemeCatalogResponse {
             index: Some(catalog.index.clone()),
-            recommended_versions: catalog.recommendations.clone(),
+            recommended_versions: Default::default(),
             verified: true,
             error: match (refresh_error.clone(), policy_error) {
                 (Some(catalog), Some(policy)) => Some(format!("{catalog}; {policy}")),
@@ -249,7 +237,6 @@ mod tests {
             };
             let catalogue = response.0.unwrap();
             assert_eq!(catalogue.index.signed.packages.len(), 1_000);
-            assert_eq!(catalogue.recommendations["midnight"], "1.0.999");
             assert_eq!(response.1.is_some(), phase == 2);
             assert!(count.load(Ordering::Relaxed) > before);
         }

@@ -498,7 +498,7 @@ mod tests {
             ManagedCatalogErrorCode::Expired
         );
     }
-    fn mixed(now: DateTime<Utc>) -> crate::domain::themes::managed::models::SignedMixedCatalog {
+    fn mixed(now: DateTime<Utc>) -> crate::domain::marketplace::models::SignedMixedCatalog {
         let mut value = serde_json::to_value(signed(now)).unwrap();
         value["signed"]["schema_version"] = serde_json::json!(2);
         value["signed"]["generated_at"] =
@@ -513,12 +513,12 @@ mod tests {
             .map(|package| serde_json::json!({"kind":"provider","package":package}))
             .collect::<Vec<_>>();
         value["signed"]["packages"] = serde_json::json!(packages);
-        let mut index: crate::domain::themes::managed::models::SignedMixedCatalog =
+        let mut index: crate::domain::marketplace::models::SignedMixedCatalog =
             serde_json::from_value(value).unwrap();
         resign_mixed(&mut index);
         index
     }
-    fn resign_mixed(index: &mut crate::domain::themes::managed::models::SignedMixedCatalog) {
+    fn resign_mixed(index: &mut crate::domain::marketplace::models::SignedMixedCatalog) {
         let bytes = cadencr_registry_core::canonical_json_bytes(
             &serde_json::to_value(&index.signed).unwrap(),
         );

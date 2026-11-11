@@ -1,7 +1,7 @@
 //! One availability decision drives marketplace actions and editor suggestions.
 use super::{invalid, platform, policy};
 use crate::{
-    domain::themes::managed::{catalog, models::SignedMixedCatalog},
+    domain::marketplace::{catalog, models::SignedMixedCatalog},
     error::AppError,
 };
 use serde::Serialize;
@@ -159,7 +159,7 @@ mod tests {
             "/../../tooling/marketplace-registry/examples/lsp/package.node.json"
         )))
         .unwrap();
-        let (mut index, _) = crate::domain::themes::managed::catalog::tests::signed();
+        let (mut index, _) = crate::domain::marketplace::catalog::tests::signed();
         index.signed.packages.clear();
         for (id, floor) in [("mac12-server", "12.0.0"), ("mac15-server", "15.0.0")] {
             let mut entry = template.clone();
@@ -222,7 +222,7 @@ mod tests {
             "/../../tooling/marketplace-registry/examples/lsp/package.node.json"
         )))
         .unwrap();
-        let (mut index, _) = crate::domain::themes::managed::catalog::tests::signed();
+        let (mut index, _) = crate::domain::marketplace::catalog::tests::signed();
         index.signed.packages.clear();
         for id in [
             "ready-node",

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::trust::{ManagedTrustStore, VerifiedManagedProviderIndex};
 use super::SignedProviderCatalog;
-use crate::domain::themes::managed::models::TabVersionUnavailable;
+use crate::domain::marketplace::models::TabVersionUnavailable;
 
 mod availability;
 mod cache;

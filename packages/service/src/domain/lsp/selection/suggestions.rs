@@ -1,7 +1,7 @@
 //! Installation prompts are for missing tooling, never for choosing between installed peers.
 use super::{is_primary, managed, LspResolveResponse, LspSuggestion};
 use crate::{
-    domain::themes::managed::{catalog, models::SignedMixedCatalog},
+    domain::marketplace::{catalog, models::SignedMixedCatalog},
     error::AppError,
 };
 

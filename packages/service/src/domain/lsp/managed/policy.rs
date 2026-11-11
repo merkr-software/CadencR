@@ -3,7 +3,7 @@ use super::{invalid, storage};
 use crate::domain::agents::providers::installed::managed::trust::{
     pinned_index_trust_store, ManagedTrustStore,
 };
-use crate::domain::themes::managed::{
+use crate::domain::marketplace::{
     catalog,
     policy_feed::{Feed, PollState, Verified},
 };
@@ -152,11 +152,8 @@ pub(super) mod tests {
         CONTEXT.with(|slot| slot.borrow().clone())
     }
     pub fn configure(root: &std::path::Path, entries: Value) -> Guard {
-        let (mut envelope, trust) = crate::domain::themes::managed::policy_feed::tests::signed(
-            "lsp-blocklist",
-            -1,
-            entries,
-        );
+        let (mut envelope, trust) =
+            crate::domain::marketplace::policy_feed::tests::signed("lsp-blocklist", -1, entries);
         storage::secure(root).unwrap();
         if let Some(previous) = FEED.cached(root).unwrap() {
             let generated = chrono::DateTime::parse_from_rfc3339(
@@ -167,7 +164,7 @@ pub(super) mod tests {
             envelope.signed["generated_at"] = generated
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
                 .into();
-            envelope = crate::domain::themes::managed::policy_feed::tests::signed_with(
+            envelope = crate::domain::marketplace::policy_feed::tests::signed_with(
                 envelope.signed,
                 19,
                 "test",
@@ -214,7 +211,7 @@ pub(super) mod tests {
                 ..
             })
         ));
-        let (envelope, _) = crate::domain::themes::managed::policy_feed::tests::signed(
+        let (envelope, _) = crate::domain::marketplace::policy_feed::tests::signed(
             "lsp-blocklist",
             -120,
             serde_json::json!([]),
@@ -224,7 +221,7 @@ pub(super) mod tests {
             .to_rfc3339()
             .into();
         let envelope =
-            crate::domain::themes::managed::policy_feed::tests::signed_with(signed, 19, "test");
+            crate::domain::marketplace::policy_feed::tests::signed_with(signed, 19, "test");
         crate::shared::atomic_file::write_atomic_private(
             &FEED.cache(&root),
             &serde_json::to_string(&envelope).unwrap(),

@@ -3,7 +3,7 @@
 use super::envelope::FEED;
 use super::snapshot::{self, PolicySnapshot};
 use crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore;
-use crate::domain::themes::managed::policy_feed::{per_root, PerRoot, PollState};
+use crate::domain::marketplace::policy_feed::{per_root, PerRoot, PollState};
 use crate::error::AppError;
 use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
@@ -129,8 +129,8 @@ mod tests {
     use super::super::tests::signed;
     use super::super::PolicyFreshness;
     use super::*;
+    use crate::domain::marketplace::policy_feed::FORCE_CADENCE;
     use crate::domain::plugin_tabs::managed::storage;
-    use crate::domain::themes::managed::policy_feed::FORCE_CADENCE;
     use serde_json::json;
     use std::cell::Cell;
     use std::time::Duration;
@@ -216,8 +216,7 @@ mod tests {
             changes.borrow_and_update().freshness(),
             PolicyFreshness::Missing
         );
-        let serve = |envelope: &crate::domain::themes::managed::policy_feed::Envelope,
-                     requested| {
+        let serve = |envelope: &crate::domain::marketplace::policy_feed::Envelope, requested| {
             let bytes = serde_json::to_vec(envelope).unwrap();
             refresh_with()
                 .root(root.clone())

@@ -1,6 +1,6 @@
 use super::{catalog, invalid, platform, storage, InstallLspRequest};
 use crate::domain::agents::providers::installed::managed::trust::pinned_index_trust_store;
-use crate::domain::themes::managed::{catalog as shared_catalog, storage as io};
+use crate::domain::marketplace::{catalog as shared_catalog, storage as io};
 use crate::error::AppError;
 use std::{
     collections::HashMap,

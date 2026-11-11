@@ -1,7 +1,7 @@
 //! Original signed wire envelope plus a post-verification provider-only view.
 //! The view is never serialized, signed, cached, or retained as proof.
 use super::{ManagedProviderIndex, ManagedProviderPackage, SignedManagedProviderIndex};
-use crate::domain::themes::managed::models::SignedMixedCatalog;
+use crate::domain::marketplace::models::SignedMixedCatalog;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -1,4 +1,5 @@
 use super::{catalog, models::*, service};
+use crate::domain::marketplace::models::ManagedThemeCatalogResponse;
 use crate::domain::themes::models::UserTheme;
 use crate::{app_state::AppState, error::AppError};
 use axum::{

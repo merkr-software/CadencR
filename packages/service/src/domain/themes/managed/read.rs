@@ -75,7 +75,7 @@ fn preview_revision_snapshot(
     if receipt.id != id || receipt.version != pointer.version || receipt.sha256 != pointer.sha256 {
         return Err(archive::invalid("theme receipt identity mismatch"));
     }
-    catalog::verify(&receipt.index, trust, true)?;
+    crate::domain::marketplace::catalog::verify(&receipt.index, trust, true)?;
     let package = catalog::resolve(&receipt.index, id, &receipt.version)?;
     if package["theme"]["distribution"]["sha256"] != receipt.sha256 {
         return Err(archive::invalid(

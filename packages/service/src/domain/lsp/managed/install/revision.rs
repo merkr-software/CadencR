@@ -5,7 +5,7 @@ use std::path::Path;
 pub(super) fn commit(
     root: &Path,
     body: InstallLspRequest,
-    index: crate::domain::themes::managed::models::SignedMixedCatalog,
+    index: crate::domain::marketplace::models::SignedMixedCatalog,
     bytes: Vec<u8>,
     update: bool,
     trust: &ManagedTrustStore,
@@ -107,7 +107,7 @@ fn write_payload(
 mod tests {
     use super::super::remove_from;
     use super::*;
-    use crate::domain::themes::managed::models::SignedMixedCatalog;
+    use crate::domain::marketplace::models::SignedMixedCatalog;
     use base64::Engine as _;
     use ed25519_dalek::Signer as _;
     use serde_json::json;

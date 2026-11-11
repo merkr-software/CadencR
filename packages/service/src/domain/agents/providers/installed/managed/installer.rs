@@ -554,7 +554,7 @@ pub(crate) mod tests {
             ));
         }
         let now = Utc::now() - Duration::minutes(1);
-        let mut index: crate::domain::themes::managed::models::SignedMixedCatalog = serde_json::from_value(json!({
+        let mut index: crate::domain::marketplace::models::SignedMixedCatalog = serde_json::from_value(json!({
             "signed":{"schema_version":2,"generated_at":now.to_rfc3339_opts(SecondsFormat::Secs,true),
                 "expires_at":(now+Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs,true),"packages":[old,next],
                 "provider_handoffs":[{"provider_id":receipt.agent.id,
@@ -643,7 +643,7 @@ pub(crate) mod tests {
     #[test]
     fn mixed_provider_receipt_keeps_original_signed_proof_through_revision_commit() {
         use super::super::SignedProviderCatalog;
-        use crate::domain::themes::managed::models::SignedMixedCatalog;
+        use crate::domain::marketplace::models::SignedMixedCatalog;
         let root = tempfile::tempdir().unwrap();
         let storage = ManagedStorage::new(root.path().join("managed"));
         let (staging, mut receipt) = uncommitted_receipt();

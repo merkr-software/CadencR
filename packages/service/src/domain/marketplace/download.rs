@@ -1,4 +1,4 @@
-use super::archive::invalid;
+use super::invalid;
 use crate::domain::projects::publication_release::local::validation::{
     parse_repository, validate_archive_url,
 };
@@ -219,8 +219,10 @@ mod tests {
         )
         .await
         .unwrap();
-        super::super::service::require_archive_digest(&bytes, &digest).unwrap();
-        let error = super::super::service::require_archive_digest(&tampered, &digest).unwrap_err();
+        crate::domain::themes::managed::service::require_archive_digest(&bytes, &digest).unwrap();
+        let error =
+            crate::domain::themes::managed::service::require_archive_digest(&tampered, &digest)
+                .unwrap_err();
         assert!(matches!(
             error,
             AppError::Coded {
