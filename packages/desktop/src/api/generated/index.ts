@@ -6857,6 +6857,17 @@ export interface SettingsFileResponse {
 }
 
 export interface SideQuestionRequest {
+  /**
+   * The composer's access choice made before the source session joined.
+   * @nullable
+   */
+  access_mode?: string | null;
+  /**
+   * The composer's permission mode when the source session has not joined
+   * yet: a chip change made before then is not saved on its row.
+   * @nullable
+   */
+  permission_mode?: string | null;
   question: string;
 }
 

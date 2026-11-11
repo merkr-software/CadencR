@@ -210,7 +210,9 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
       // Pre-init: there's no CLI to be out of sync with. Hold the
       // selection locally so `buildQueuedInitEnvelopes` can replay it as
       // a `mode.set` once the backend session comes up.
-      set(updateSession(get(), sessionId, { permissionMode: mode }));
+      set(
+        updateSession(get(), sessionId, { permissionMode: mode, pendingInitPermissionMode: mode }),
+      );
     },
 
     setAccessMode(sessionId: string, mode: AccessMode) {
