@@ -347,7 +347,16 @@ exec /bin/sh -c "$1"
             assert_non_interactive(exit, &lines, true);
             assert!(has(&lines, "rc: Update? [Y/n]"), "{lines:?}");
             assert!(has(&lines, "rc stdin read=1"), "{lines:?}");
-            assert!(has(&lines, "rc tty read=1"), "{lines:?}");
+            // POSIX only promises a nonzero status: macOS sh returns 1,
+            // while Linux dash returns 2 when /dev/tty cannot be opened.
+            assert!(
+                lines.iter().any(|line| line
+                    .trim()
+                    .strip_prefix("rc tty read=")
+                    .and_then(|status| status.parse::<u8>().ok())
+                    .is_some_and(|status| status > 0)),
+                "{lines:?}"
+            );
             assert!(has(&lines, "rc stdout-terminal read done"), "{lines:?}");
         }
 
