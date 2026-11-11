@@ -324,6 +324,9 @@ async fn main() -> anyhow::Result<()> {
             domain::restart_continuations::spawn_startup_pass(state.clone());
             domain::features::archive_cleanup::runner::recover_at_startup(&state).await?;
             domain::mcp::control::message_queue::spawn(state.clone());
+            // Detect Git once, off the runtime: version-gated Git flows read
+            // the cached result, and an old Git is logged here once.
+            tokio::task::spawn_blocking(shared::git_cli::version::detect);
             domain::git::forge::spawn(state.clone());
             domain::git::linked_branches::spawn(state.clone());
 

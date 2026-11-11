@@ -311,3 +311,22 @@ mod tests {
         assert!(json.contains("oops"));
     }
 }
+
+/// The installed Git, for diagnostics.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GitVersionResponse {
+    /// `2.34.1`; `None` when Git is missing or its version unreadable.
+    pub version: Option<String>,
+    /// Why the version is unknown.
+    pub error: Option<String>,
+    /// What this Git is too old for.
+    pub unsupported: Vec<UnsupportedGitFeature>,
+}
+
+/// A feature the installed Git is too old for.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnsupportedGitFeature {
+    pub label: String,
+    /// The first Git release with it, as `2.38.0`.
+    pub minimum_version: String,
+}

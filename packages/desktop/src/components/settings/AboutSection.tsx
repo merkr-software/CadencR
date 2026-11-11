@@ -1,5 +1,6 @@
 import { TelemetrySection } from "./TelemetrySection";
 import { ExportDiagnosticsButton } from "../ExportDiagnosticsButton";
+import { GitVersionRow } from "./GitVersionRow";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateInstallActions";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ export function AboutSection(): React.JSX.Element {
           description="Recent errors and app activity, kept across restarts, to help investigate a problem. The report is saved on this computer for you to share."
           control={<ExportDiagnosticsButton />}
         />
+        <GitVersionRow />
       </SettingsGroup>
     </SettingsPageSection>
   );

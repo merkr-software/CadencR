@@ -13,7 +13,7 @@ use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::count_untracked_lines;
-use super::util::FIRST_PARENT_MERGES;
+use super::util::FirstParentDiff;
 
 /// Get list of changed files with per-file stats.
 ///
@@ -59,7 +59,7 @@ pub async fn get_changed_files(
 /// `-M` enables rename detection so a rename shows as one `R*` entry (with
 /// `old_file`) instead of an add + delete pair — matching `git diff` and letting
 /// the per-file diff scope both paths. Merge commits — every stash is one — need
-/// [`FIRST_PARENT_MERGES`]; without it `diff-tree` reports a merge as changing
+/// [`FirstParentDiff`]; without it `diff-tree` reports a merge as changing
 /// nothing and the pane renders "No changes detected". Stashes pushed with
 /// `--include-untracked` then get their untracked half appended from the third
 /// parent, which the first-parent diff can't reach.
@@ -68,9 +68,10 @@ async fn get_commit_changed_files(
     sha: &str,
 ) -> Result<Vec<ChangedFile>, AppError> {
     crate::shared::git_cli::guard_positionals(&[sha])?;
-    let revs = [sha];
+    let target = FirstParentDiff::of(worktree_path, sha).await?;
+    let (mode, revs) = ([&["-M"], target.flags].concat(), target.revs());
     let (mut files, untracked_parent) = tokio::try_join!(
-        diff_tree_changed_files(worktree_path, &["-M", FIRST_PARENT_MERGES], &revs),
+        diff_tree_changed_files(worktree_path, &mode, &revs),
         commit_diff::untracked_parent(worktree_path, sha),
     )?;
     // The untracked parent is a root commit whose tree is exactly the swept-in

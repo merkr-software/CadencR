@@ -1,10 +1,11 @@
 //! `git stash list` orchestration for the Git-tab Stashes view.
 //!
-//! A single `git stash list --first-parent --numstat -z` call yields, for every
+//! A single `git stash list --first-parent -m --numstat -z` call yields, for every
 //! stash, its SHA, reflog selector, description, creation date, parent list
 //! *and* the numstat block — all in one git invocation. `--first-parent` is what
 //! makes the numstat meaningful: a stash is a merge commit (HEAD + index [+
-//! untracked parent]), and plain `--numstat` emits nothing for a merge.
+//! untracked parent]), and plain `--numstat` emits nothing for a merge. (`-m`
+//! is implied by `--first-parent` from Git 2.29 only.)
 //! Following the first parent diffs `<sha>^1..<sha>` — the exact same range the
 //! diff viewer opens on click (via the shared `commit_sha` path).
 //!
@@ -96,6 +97,7 @@ pub async fn list_stashes(repo_path: &Path) -> Result<Vec<StashEntry>, AppError>
             "stash",
             "list",
             "--first-parent",
+            "-m",
             "--numstat",
             "-z",
             &format_arg,
@@ -213,7 +215,7 @@ mod tests {
 
     /// End-to-end against real git: two stashes must be listed newest-first
     /// with their reflog selector, description and numstat summary — all from
-    /// the single `git stash list --first-parent --numstat -z` call.
+    /// the single `git stash list --first-parent -m --numstat -z` call.
     #[tokio::test]
     async fn list_stashes_reports_entries_with_numstat() {
         let dir = tempfile::tempdir().unwrap();

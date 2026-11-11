@@ -2895,6 +2895,33 @@ export interface GitSuccessResponse {
   success: boolean;
 }
 
+/**
+ * A feature the installed Git is too old for.
+ */
+export interface UnsupportedGitFeature {
+  label: string;
+  /** The first Git release with it, as `2.38.0`. */
+  minimum_version: string;
+}
+
+/**
+ * The installed Git, for diagnostics.
+ */
+export interface GitVersionResponse {
+  /**
+   * Why the version is unknown.
+   * @nullable
+   */
+  error?: string | null;
+  /** What this Git is too old for. */
+  unsupported: UnsupportedGitFeature[];
+  /**
+   * `2.34.1`; `None` when Git is missing or its version unreadable.
+   * @nullable
+   */
+  version?: string | null;
+}
+
 export interface HasUncommittedChangesResponse {
   has_changes: boolean;
 }
@@ -24782,6 +24809,107 @@ export const useContinueUpdateBranch = <TError = ErrorType<unknown>, TContext = 
 > => {
   return useMutation(getContinueUpdateBranchMutationOptions(options), queryClient);
 };
+
+/**
+ * @summary The installed Git and the features it is too old for. Detected once at
+startup, so this never spawns Git again.
+ */
+export const getGitVersion = (signal?: AbortSignal) => {
+  return customInstance<GitVersionResponse>({ url: `/api/git/version`, method: "GET", signal });
+};
+
+export const getGetGitVersionQueryKey = () => {
+  return [`/api/git/version`] as const;
+};
+
+export const getGetGitVersionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGitVersionQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitVersion>>> = ({ signal }) =>
+    getGitVersion(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGitVersion>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetGitVersionQueryResult = NonNullable<Awaited<ReturnType<typeof getGitVersion>>>;
+export type GetGitVersionQueryError = ErrorType<unknown>;
+
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitVersion>>,
+          TError,
+          Awaited<ReturnType<typeof getGitVersion>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitVersion>>,
+          TError,
+          Awaited<ReturnType<typeof getGitVersion>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The installed Git and the features it is too old for. Detected once at
+startup, so this never spawns Git again.
+ */
+
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetGitVersionQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const createWorktree = (createWorktreeBody: CreateWorktreeBody, signal?: AbortSignal) => {
   return customInstance<CreateWorktreeResponse>({

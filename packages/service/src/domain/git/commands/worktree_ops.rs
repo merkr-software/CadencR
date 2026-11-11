@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::domain::git::models::WorktreeInfo;
 use crate::error::AppError;
+use crate::shared::git_cli::version::{self, GitFeature};
 use crate::shared::git_cli::{
     git_ref_resolves_background, run_git, run_git_background, run_git_safe_refs,
 };
@@ -13,8 +14,29 @@ use crate::shared::worktree_paths::compute_worktree_path;
 /// List all worktrees for a repository.
 pub async fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>, AppError> {
     crate::shared::git_context::require_git_metadata(repo_path).await?;
-    let stdout = run_git(&["worktree", "list", "--porcelain"], repo_path).await?;
+    let stdout = worktree_porcelain(repo_path).await?;
     Ok(parse_worktree_list(&stdout))
+}
+
+/// `git worktree list --porcelain`, NUL-terminated where Git supports it so a
+/// worktree path holding a newline stays one record.
+async fn worktree_porcelain(repo: &Path) -> Result<String, AppError> {
+    let args: &[&str] = if version::supports(GitFeature::WorktreeListNul) {
+        &["worktree", "list", "--porcelain", "-z"]
+    } else {
+        &["worktree", "list", "--porcelain"]
+    };
+    run_git(args, repo).await
+}
+
+/// The records of either `worktree list --porcelain` form; an empty record
+/// ends each worktree.
+fn porcelain_records(output: &str) -> Vec<&str> {
+    if output.contains('\0') {
+        output.split_terminator('\0').collect()
+    } else {
+        output.lines().collect()
+    }
 }
 
 /// List local branch short names with one read-only Git call.
@@ -40,7 +62,7 @@ fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
     let mut branch = String::new();
     let mut is_bare = false;
 
-    for line in output.lines() {
+    for line in porcelain_records(output) {
         if let Some(p) = line.strip_prefix("worktree ") {
             // Push previous entry if exists
             if let Some(prev_path) = path.take() {
@@ -186,7 +208,7 @@ async fn add_worktree_for_branch(
 pub async fn list_worktree_branches(
     repo: &Path,
 ) -> Result<HashMap<String, std::path::PathBuf>, AppError> {
-    let output = run_git(&["worktree", "list", "--porcelain"], repo).await?;
+    let output = worktree_porcelain(repo).await?;
     Ok(parse_worktree_branches(&output))
 }
 
@@ -196,7 +218,10 @@ fn parse_worktree_branches(output: &str) -> HashMap<String, std::path::PathBuf> 
     let mut cur_branch: Option<String> = None;
     let mut is_bare = false;
 
-    for line in output.lines().chain(std::iter::once("")) {
+    for line in porcelain_records(output)
+        .into_iter()
+        .chain(std::iter::once(""))
+    {
         if line.is_empty() {
             if !is_bare {
                 if let (Some(p), Some(b)) = (cur_path.take(), cur_branch.take()) {
@@ -261,6 +286,67 @@ mod tests {
         assert_eq!(worktrees[1].path, "/home/user/wt1");
         assert_eq!(worktrees[1].branch, "feature/test");
         assert_eq!(worktrees[1].head, "def456");
+    }
+
+    /// The `-z` form keeps a worktree path holding a newline in one record;
+    /// the line form older Git prints still parses the same way otherwise.
+    #[test]
+    fn nul_terminated_worktree_records_keep_awkward_paths() {
+        let nul = "worktree /home/user/repo\0HEAD abc123\0branch refs/heads/main\0\0\
+                   worktree /home/user/wt é\nnext\0HEAD def456\0branch refs/heads/feat\0\0";
+        let worktrees = parse_worktree_list(nul);
+        assert_eq!(worktrees.len(), 2);
+        assert_eq!(worktrees[1].path, "/home/user/wt é\nnext");
+        assert_eq!(worktrees[1].branch, "feat");
+        let branches = parse_worktree_branches(nul);
+        assert_eq!(
+            branches.get("feat"),
+            Some(&std::path::PathBuf::from("/home/user/wt é\nnext"))
+        );
+        let lines = nul.replace("\0", "\n").replace("wt é\nnext", "wt é");
+        assert_eq!(parse_worktree_list(&lines)[1].path, "/home/user/wt é");
+    }
+
+    #[tokio::test]
+    async fn real_worktree_listing_keeps_accented_paths() {
+        let base = tempfile::tempdir().unwrap();
+        let repo = base.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let run = |args: Vec<String>, cwd: std::path::PathBuf| async move {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            crate::shared::git_cli::run_git(&args, &cwd).await.unwrap();
+        };
+        run(vec!["init".into(), "-q".into()], repo.clone()).await;
+        let identity = ["-c", "user.name=t", "-c", "user.email=t@t"].map(String::from);
+        let commit = [
+            &identity[..],
+            &[
+                "commit".into(),
+                "-q".into(),
+                "--allow-empty".into(),
+                "-m".into(),
+                "i".into(),
+            ],
+        ]
+        .concat();
+        run(commit, repo.clone()).await;
+        let linked = std::fs::canonicalize(base.path()).unwrap().join("wt é x");
+        let add = ["worktree", "add", "-q", "-b", "feat"].map(String::from);
+        run(
+            [&add[..], &[linked.to_string_lossy().into_owned()]].concat(),
+            repo.clone(),
+        )
+        .await;
+
+        let worktrees = list_worktrees(&repo).await.unwrap();
+        assert!(
+            worktrees.iter().any(|w| w.path == linked.to_string_lossy()),
+            "{worktrees:?}"
+        );
+        assert_eq!(
+            list_worktree_branches(&repo).await.unwrap().get("feat"),
+            Some(&linked)
+        );
     }
 
     #[tokio::test]

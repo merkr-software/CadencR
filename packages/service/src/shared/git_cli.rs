@@ -5,6 +5,7 @@ use crate::error::AppError;
 mod background;
 mod read_only;
 mod spawn;
+pub mod version;
 
 pub use background::{
     git_ref_resolves_background, run_git_background, run_git_safe_background,
@@ -103,7 +104,9 @@ pub async fn ensure_repository_with_initial_commit(
     message: &str,
 ) -> Result<(), AppError> {
     if !dir.join(".git").exists() {
-        run_git(&["init", "-q", "-b", "main"], dir).await?;
+        // `init -b` needs Git 2.28; naming the unborn branch works on any Git.
+        run_git(&["init", "-q"], dir).await?;
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/main"], dir).await?;
     }
     let head = run_git_output_with_env(&["rev-parse", "--verify", "HEAD"], dir, &[]).await?;
     if head.status.success() {
