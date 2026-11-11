@@ -3815,6 +3815,49 @@ export interface MarkViewedRequest {
 }
 
 /**
+ * The way out of an invalid trust configuration.
+ */
+export type MarketplaceTrustRecovery =
+  (typeof MarketplaceTrustRecovery)[keyof typeof MarketplaceTrustRecovery];
+
+export const MarketplaceTrustRecovery = {
+  reinstall: "reinstall",
+  update_app: "update_app",
+  set_aside: "set_aside",
+  repair: "repair",
+} as const;
+
+export type MarketplaceTrustState =
+  (typeof MarketplaceTrustState)[keyof typeof MarketplaceTrustState];
+
+export const MarketplaceTrustState = {
+  configured: "configured",
+  unconfigured: "unconfigured",
+  invalid: "invalid",
+} as const;
+
+export type MarketplaceTrustStatusRecovery = null | MarketplaceTrustRecovery;
+
+export interface MarketplaceTrustStatus {
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  error_code?: string | null;
+  /**
+   * The file a `set_aside` recovery renames.
+   * @nullable
+   */
+  file?: string | null;
+  /**
+   * Where a set-aside file was kept, in the answer to that action.
+   * @nullable
+   */
+  kept_at?: string | null;
+  recovery?: MarketplaceTrustStatusRecovery;
+  status: MarketplaceTrustState;
+}
+
+/**
  * Where one value the user provides at install time goes.
  */
 export type McpInputKind = (typeof McpInputKind)[keyof typeof McpInputKind];
@@ -26923,6 +26966,181 @@ export const useUpdateManagedTab = <TError = ErrorType<unknown>, TContext = unkn
   TContext
 > => {
   return useMutation(getUpdateManagedTabMutationOptions(options), queryClient);
+};
+
+export const getMarketplaceTrust = (signal?: AbortSignal) => {
+  return customInstance<MarketplaceTrustStatus>({
+    url: `/api/marketplace/trust`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetMarketplaceTrustQueryKey = () => {
+  return [`/api/marketplace/trust`] as const;
+};
+
+export const getGetMarketplaceTrustQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarketplaceTrustQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketplaceTrust>>> = ({ signal }) =>
+    getMarketplaceTrust(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketplaceTrust>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetMarketplaceTrustQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarketplaceTrust>>
+>;
+export type GetMarketplaceTrustQueryError = ErrorType<unknown>;
+
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMarketplaceTrust>>,
+          TError,
+          Awaited<ReturnType<typeof getMarketplaceTrust>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMarketplaceTrust>>,
+          TError,
+          Awaited<ReturnType<typeof getMarketplaceTrust>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetMarketplaceTrustQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const setAsideMarketplaceTrust = (signal?: AbortSignal) => {
+  return customInstance<MarketplaceTrustStatus>({
+    url: `/api/marketplace/trust/set-aside`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getSetAsideMarketplaceTrustMutationKey = () => ["setAsideMarketplaceTrust"] as const;
+
+export const getSetAsideMarketplaceTrustMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getSetAsideMarketplaceTrustMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+    void
+  > = () => {
+    return setAsideMarketplaceTrust();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetAsideMarketplaceTrustMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setAsideMarketplaceTrust>>
+>;
+
+export type SetAsideMarketplaceTrustMutationError = ErrorType<unknown>;
+
+export const useSetAsideMarketplaceTrust = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getSetAsideMarketplaceTrustMutationOptions(options), queryClient);
 };
 
 export const detectRoute = (signal?: AbortSignal) => {

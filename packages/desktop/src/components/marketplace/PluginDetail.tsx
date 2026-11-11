@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { KINDS, type MarketplaceKind } from "./kinds";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { MarketplaceActivity } from "./MarketplaceActivity";
+import { MarketplaceTrustNotice } from "./MarketplaceTrustNotice";
 import { MarketplaceEmpty } from "./MarketplaceStates";
 import { DetailHero, DetailStage } from "./PluginHero";
 import {
@@ -32,6 +33,7 @@ export function PluginDetail({ kind, id }: { kind: ListingKind; id: string }): R
   const listing = state.listings.find((item) => item.kind === kind && item.id === id);
   return (
     <DetailPage kind={kind} name={listing?.name ?? id}>
+      <MarketplaceTrustNotice />
       <MarketplaceActivity />
       {listing ? (
         listing.kind === "plugin" ? (

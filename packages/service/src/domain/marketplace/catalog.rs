@@ -5,7 +5,9 @@ use super::kind::entry_invalid;
 use super::models::SignedMixedCatalog;
 use super::storage;
 use super::verified::{Stamp, VerifiedMemo};
-use crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore;
+use crate::domain::agents::providers::installed::managed::trust::{
+    ManagedTrustErrorCode, ManagedTrustStore,
+};
 use crate::error::AppError;
 use chrono::Utc;
 use serde_json::Value;
@@ -48,11 +50,12 @@ pub fn verify(
     trust
         .verify_bytes(&bytes, &index.signature)
         .map_err(|error| {
-            AppError::coded(
-                axum::http::StatusCode::BAD_REQUEST,
-                "REGISTRY_SIGNATURE_INVALID",
-                error.to_string(),
-            )
+            // An unusable trust says so; anything else is this signature.
+            let code = match error.code {
+                ManagedTrustErrorCode::ConfigurationInvalid => error.code.as_str(),
+                _ => "REGISTRY_SIGNATURE_INVALID",
+            };
+            AppError::coded(axum::http::StatusCode::BAD_REQUEST, code, error.to_string())
         })?;
     Ok(())
 }

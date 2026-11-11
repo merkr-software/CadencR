@@ -70,6 +70,9 @@ impl TrustedIndexKey {
 pub struct ManagedTrustStore {
     keys: BTreeMap<String, VerifyingKey>,
     profile: Option<std::sync::Arc<cadencr_registry_core::VerifiedRegistryTrust>>,
+    /// Why this build's trust configuration cannot be used: every
+    /// verification then fails with that cause, not as "not configured".
+    unusable: Option<std::sync::Arc<str>>,
 }
 
 mod mixed;
@@ -82,6 +85,7 @@ impl ManagedTrustStore {
                 .map(|key| (key.key_id, key.verifying_key))
                 .collect(),
             profile: None,
+            unusable: None,
         }
     }
 
@@ -156,6 +160,12 @@ impl ManagedTrustStore {
         bytes: &[u8],
         signature: &ManagedIndexSignature,
     ) -> Result<String, ManagedTrustError> {
+        if let Some(cause) = &self.unusable {
+            return Err(ManagedTrustError::new(
+                ManagedTrustErrorCode::ConfigurationInvalid,
+                format!("registry trust is unusable: {cause}"),
+            ));
+        }
         if self.keys.is_empty() {
             return Err(ManagedTrustError::new(
                 ManagedTrustErrorCode::TrustNotConfigured,
@@ -197,7 +207,7 @@ mod pinned;
 use pinned::pinned_index_trust_status_from;
 pub use pinned::{
     initialize_pinned_registry_trust, pinned_index_trust_status, pinned_index_trust_store,
-    PinnedIndexTrustStatus,
+    set_aside_registry_trust_generation, PinnedIndexTrustStatus, SetAsideGeneration, TrustRecovery,
 };
 
 /// An index whose signature was verified by a host-owned trust store.
@@ -244,6 +254,7 @@ impl VerifiedManagedProviderIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManagedTrustErrorCode {
     TrustNotConfigured,
+    ConfigurationInvalid,
     InvalidPublicKey,
     UnknownSigningKey,
     InvalidSignature,
@@ -254,6 +265,7 @@ impl ManagedTrustErrorCode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::TrustNotConfigured => "TRUST_NOT_CONFIGURED",
+            Self::ConfigurationInvalid => "PINNED_TRUST_CONFIGURATION_INVALID",
             Self::InvalidPublicKey => "INVALID_PUBLIC_KEY",
             Self::UnknownSigningKey => "UNKNOWN_SIGNING_KEY",
             Self::InvalidSignature => "REGISTRY_SIGNATURE_INVALID",

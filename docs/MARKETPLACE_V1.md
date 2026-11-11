@@ -53,6 +53,16 @@ current platform.
 - **Revocation.** Revocation policies are published independently of package
   releases. Delisting and execution revocation are distinct; an authenticated
   cached policy keeps blocking what it lists even after it expires.
+- **Unusable trust.** When the compiled trust or the data directory's stored
+  generation (`registry-trust/generation.json`) cannot be used, every
+  verification fails with `PINNED_TRUST_CONFIGURATION_INVALID` and its cause,
+  never as an empty keyring, and `/marketplace` says why
+  (`GET /api/marketplace/trust`). An unreadable or invalid stored file can be
+  set aside on request (`POST /api/marketplace/trust/set-aside`): it is renamed
+  to `generation.json.invalid-<UTC time>` beside itself, never deleted, and the
+  generation is rebuilt from the build's trust. A stored generation newer than
+  the build is never set aside — it is the rollback guard — the way out is an
+  update.
 - **Retirement and handoff.** Append-only signed records retire a provider's
   versions and assign its identity to a successor, on the separate
   `marketplace-v2-admin` channel; see [provider ownership handoff](./PI_PROVIDER_HANDOFF.md).

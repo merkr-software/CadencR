@@ -22,6 +22,7 @@ pub mod login_env;
 pub mod login_shell;
 pub mod markup;
 pub mod migrate;
+pub mod no_replace_rename;
 pub mod private_temp;
 pub mod process_group;
 pub mod quarantine;

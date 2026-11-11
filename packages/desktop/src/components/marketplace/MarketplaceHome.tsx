@@ -11,6 +11,7 @@ import { sidebarFilterTerms } from "@/lib/sidebar-filter";
 import { cn } from "@/lib/utils";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { MarketplaceActivity } from "./MarketplaceActivity";
+import { MarketplaceTrustNotice } from "./MarketplaceTrustNotice";
 import type { KindFilter } from "./MarketplaceDiscover";
 import { CheckCatalogButton, MarketplaceSkeleton } from "./MarketplaceStates";
 import { DiscoverView, LibraryView } from "./MarketplaceViews";
@@ -109,6 +110,7 @@ export function MarketplaceHome({
       />
       <div ref={setScrollParent} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1180px] space-y-6 px-5 py-5">
+          <MarketplaceTrustNotice />
           <MarketplaceActivity />
           {state.loading && !isAgentExtensionKind(kind) ? (
             <MarketplaceSkeleton />
