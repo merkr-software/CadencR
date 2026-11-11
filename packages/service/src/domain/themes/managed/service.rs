@@ -41,6 +41,7 @@ async fn staged(
     }
     super::policy::enforce(&body.theme_id, &body.version, sha256)?;
     let bytes = crate::domain::marketplace::catalog::download_archive(
+        crate::domain::marketplace::ExtensionKind::Theme,
         archive_url,
         package["theme"]["distribution"].get("repository"),
         archive::MAX_ARCHIVE_BYTES,

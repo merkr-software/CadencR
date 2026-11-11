@@ -2,7 +2,18 @@
 //! storage root, bounded regular reads and directory checks every managed
 //! extension kind relies on. The default root also holds the shared signed
 //! catalog cache (historically `plugins/managed-themes`).
-use super::invalid;
+/// A storage-layer failure about `path`; it names the path, which says
+/// which kind's store it belongs to.
+fn unsafe_path(path: &Path, problem: &str) -> AppError {
+    AppError::coded(
+        axum::http::StatusCode::BAD_REQUEST,
+        "MARKETPLACE_STORAGE_INVALID",
+        format!("{}: {problem}", path.display()),
+    )
+}
+fn io_failure<E: std::fmt::Display>(path: &Path) -> impl FnOnce(E) -> AppError + '_ {
+    move |error| unsafe_path(path, &error.to_string())
+}
 use crate::error::AppError;
 use std::path::{Path, PathBuf};
 
@@ -35,13 +46,13 @@ pub fn digest(bytes: &[u8]) -> String {
 pub fn secure(path: &Path) -> Result<(), AppError> {
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(invalid("managed theme directory is not a real directory"));
+            return Err(unsafe_path(path, "is not a real directory"));
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt as _;
             if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
-                return Err(invalid("managed theme directory must be owner-only"));
+                return Err(unsafe_path(path, "must be owner-only"));
             }
         }
     }
@@ -50,32 +61,30 @@ pub fn secure(path: &Path) -> Result<(), AppError> {
             secure(parent)?;
         } else if let Ok(info) = std::fs::symlink_metadata(parent) {
             if !info.is_dir() || info.file_type().is_symlink() {
-                return Err(invalid("plugin container must be a real directory"));
+                return Err(unsafe_path(parent, "must be a real directory"));
             }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt as _;
                 if info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o022 != 0 {
-                    return Err(invalid(
-                        "plugin container has unsafe ownership or permissions",
-                    ));
+                    return Err(unsafe_path(parent, "has unsafe ownership or permissions"));
                 }
             }
         } else {
-            crate::remote::secure_fs::create_dir_owner_only(parent).map_err(invalid)?;
+            crate::remote::secure_fs::create_dir_owner_only(parent).map_err(io_failure(parent))?;
         }
     }
-    crate::remote::secure_fs::create_dir_owner_only(path).map_err(invalid)
+    crate::remote::secure_fs::create_dir_owner_only(path).map_err(io_failure(path))
 }
 pub fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, AppError> {
     let bytes = regular(path, cadencr_registry_core::MAX_CATALOG_BYTES)?;
-    serde_json::from_slice(&bytes).map_err(invalid)
+    serde_json::from_slice(&bytes).map_err(|error| unsafe_path(path, &error.to_string()))
 }
 pub fn regular(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
     use std::io::Read as _;
-    let before = std::fs::symlink_metadata(path).map_err(invalid)?;
+    let before = std::fs::symlink_metadata(path).map_err(io_failure(path))?;
     if !before.is_file() || before.len() > limit as u64 {
-        return Err(invalid("managed theme file is not bounded regular data"));
+        return Err(unsafe_path(path, "is not bounded regular data"));
     }
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -84,8 +93,8 @@ pub fn regular(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options.open(path).map_err(invalid)?;
-    let after = file.metadata().map_err(invalid)?;
+    let file = options.open(path).map_err(io_failure(path))?;
+    let after = file.metadata().map_err(io_failure(path))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
@@ -95,17 +104,15 @@ pub fn regular(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
             || after.mode() & 0o177 != 0
             || after.nlink() != 1
         {
-            return Err(invalid(
-                "managed theme file inode or permissions are unsafe",
-            ));
+            return Err(unsafe_path(path, "inode or permissions are unsafe"));
         }
     }
     let mut bytes = Vec::new();
     file.take(limit as u64 + 1)
         .read_to_end(&mut bytes)
-        .map_err(invalid)?;
+        .map_err(io_failure(path))?;
     if bytes.len() > limit {
-        return Err(invalid("managed theme file exceeds budget"));
+        return Err(unsafe_path(path, "exceeds its byte budget"));
     }
     Ok(bytes)
 }
@@ -113,6 +120,18 @@ pub fn regular(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn storage_errors_name_the_offending_path_not_a_theme() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("managed-tabs").join("receipt.json");
+        let error = regular(&missing, 10).unwrap_err().to_string();
+        assert!(!error.contains("theme"), "{error}");
+        let file = root.path().join("data");
+        std::fs::write(&file, b"too large").unwrap();
+        let error = regular(&file, 2).unwrap_err().to_string();
+        assert!(error.contains(&file.display().to_string()), "{error}");
+        assert!(!error.contains("theme"), "{error}");
+    }
     #[cfg(unix)]
     #[test]
     fn refuses_symlinks_hardlinks_executable_bits_and_world_readable_files() {

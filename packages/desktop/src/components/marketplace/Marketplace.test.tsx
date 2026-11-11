@@ -572,7 +572,8 @@ describe("marketplace home", () => {
         verified: false,
         index: null,
         recommended_versions: {},
-        error: "theme catalog source is not configured; verified cache unavailable: os error 2",
+        error:
+          "marketplace catalog source is not configured; verified cache unavailable: os error 2",
       };
       vi.mocked(getManagedThemeCatalog).mockResolvedValue(unconfigured);
       vi.mocked(getManagedTabCatalog).mockResolvedValue(unconfigured);

@@ -97,6 +97,7 @@ pub async fn install(
         match target {
             None => Ok(None),
             Some(target) => catalog::download_archive(
+                crate::domain::marketplace::ExtensionKind::Tab,
                 &target.archive,
                 distribution.get("repository"),
                 target.size as usize,
@@ -111,6 +112,7 @@ pub async fn install(
     let (backend_archive, bytes) = tokio::try_join!(
         backend_download,
         catalog::download_archive(
+            crate::domain::marketplace::ExtensionKind::Tab,
             archive,
             distribution.get("repository"),
             cadencr_registry_core::MAX_TAB_BYTES as usize,

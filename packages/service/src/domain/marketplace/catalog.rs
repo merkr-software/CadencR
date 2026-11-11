@@ -1,6 +1,7 @@
 //! The signed mixed catalog: verification, the monotonic high-water cache
 //! and entry resolution for any extension kind.
 use super::invalid;
+use super::kind::entry_invalid;
 use super::models::SignedMixedCatalog;
 use super::storage;
 use crate::domain::agents::providers::installed::managed::trust::{
@@ -20,9 +21,7 @@ pub fn verify(
     allow_expired: bool,
 ) -> Result<(), AppError> {
     if index.signed.schema_version != 2 {
-        return Err(invalid(
-            "theme installation requires mixed catalog schema 2",
-        ));
+        return Err(invalid("catalog must use mixed schema 2"));
     }
     let payload = serde_json::to_value(&index.signed).map_err(invalid)?;
     let bytes =
@@ -57,24 +56,28 @@ pub fn resolve_kind(
                 && entry["package"][kind]["id"] == id
                 && entry["package"][kind]["version"] == version
         })
-        .ok_or_else(|| invalid("theme version is absent from signed catalog"))?;
-    ensure_compatible(&entry["package"])?;
+        .ok_or_else(|| entry_invalid(kind, "version is absent from signed catalog"))?;
+    ensure_compatible(&entry["package"], kind)?;
     Ok(entry["package"].clone())
 }
-fn ensure_compatible(package: &Value) -> Result<(), AppError> {
+fn ensure_compatible(package: &Value, kind: &str) -> Result<(), AppError> {
     let compatibility = &package["host"]["compatibility"];
     let current = semver::Version::parse(env!("CARGO_PKG_VERSION")).map_err(invalid)?;
     let minimum = compatibility["min_app_version"]
         .as_str()
-        .ok_or_else(|| invalid("theme host minimum version missing"))?;
-    let minimum = semver::Version::parse(minimum).map_err(invalid)?;
+        .ok_or_else(|| entry_invalid(kind, "host minimum version missing"))?;
+    let version = |error| entry_invalid(kind, format!("host version range is invalid: {error}"));
+    let minimum = semver::Version::parse(minimum).map_err(version)?;
     let maximum = compatibility["max_app_version"]
         .as_str()
         .map(semver::Version::parse)
         .transpose()
-        .map_err(invalid)?;
+        .map_err(version)?;
     if current < minimum || maximum.is_some_and(|maximum| current > maximum) {
-        return Err(invalid("theme is incompatible with this host version"));
+        return Err(entry_invalid(
+            kind,
+            "is incompatible with this host version",
+        ));
     }
     Ok(())
 }
@@ -94,7 +97,7 @@ pub(crate) fn ingest_trusted(
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = LOCK
         .lock()
-        .map_err(|error| invalid(format!("theme catalog lock failed: {error}")))?;
+        .map_err(|error| invalid(format!("catalog lock failed: {error}")))?;
     verify(index, trust, false)?;
     match storage::bounded_json::<SignedMixedCatalog>(&cache()) {
         Ok(previous) => {
@@ -109,7 +112,7 @@ pub(crate) fn ingest_trusted(
             let incoming_payload = serde_json::to_value(&index.signed).map_err(invalid)?;
             if incoming < earlier || incoming == earlier && prior_payload != incoming_payload {
                 return Err(invalid(
-                    "theme catalog rollback or same-time equivocation rejected",
+                    "catalog rollback or same-time equivocation rejected",
                 ));
             }
             if incoming == earlier
@@ -133,7 +136,7 @@ pub(crate) fn ingest_trusted(
             Ok(_) => return Err(error),
             Err(inspect) => {
                 return Err(invalid(format!(
-                    "cannot inspect theme catalog high-water cache: {inspect}"
+                    "catalog high-water cache cannot be inspected: {inspect}"
                 )))
             }
         },
@@ -164,7 +167,7 @@ pub fn recommended_for(
         let Some((id, version)) = package_version(entry, kind) else {
             continue;
         };
-        if ensure_compatible(&entry["package"]).is_err() || !admit(entry) {
+        if ensure_compatible(&entry["package"], kind).is_err() || !admit(entry) {
             continue;
         }
         let Ok(candidate) = semver::Version::parse(version) else {
@@ -322,6 +325,42 @@ pub(crate) mod tests {
         let cached: SignedMixedCatalog = storage::bounded_json(&cache()).unwrap();
         verify(&cached, &approved, false).unwrap();
         assert_eq!(cached.signature.key_id, "current-b");
+    }
+    fn coded(error: AppError) -> (&'static str, String) {
+        match error {
+            AppError::Coded { code, message, .. } => (code, message),
+            other => panic!("expected a coded error, got {other:?}"),
+        }
+    }
+    #[test]
+    fn shared_catalog_errors_name_the_extension_kind_they_concern() {
+        let (index, trust) = signed();
+        for (kind, code, noun) in [
+            ("tab", "MANAGED_TAB_INVALID", "custom tab"),
+            ("lsp", "LSP_PACKAGE_INVALID", "LSP server"),
+            ("theme", "MANAGED_THEME_INVALID", "theme"),
+        ] {
+            let (actual, message) =
+                coded(resolve_kind(&index, "graph", "9.9.9", kind).unwrap_err());
+            assert_eq!(actual, code);
+            assert!(message.starts_with(noun), "{message}");
+        }
+        let mut incompatible = index.clone();
+        incompatible.signed.packages[0]["kind"] = "tab".into();
+        incompatible.signed.packages[0]["package"]["tab"] =
+            incompatible.signed.packages[0]["package"]["theme"].take();
+        incompatible.signed.packages[0]["package"]["host"]["compatibility"]["min_app_version"] =
+            "999.0.0".into();
+        let (code, message) =
+            coded(resolve_kind(&incompatible, "midnight", "1.0.0", "tab").unwrap_err());
+        assert_eq!(code, "MANAGED_TAB_INVALID");
+        assert!(message.starts_with("custom tab"), "{message}");
+        // The catalog itself belongs to no single kind.
+        let mut legacy = index;
+        legacy.signed.schema_version = 1;
+        let (code, message) = coded(verify(&legacy, &trust, false).unwrap_err());
+        assert_eq!(code, "MARKETPLACE_CATALOG_INVALID");
+        assert!(!message.contains("theme"), "{message}");
     }
     #[test]
     fn signed_mixed_catalog_rejects_tampering_unknown_keys_expiry_and_acp_payloads() {

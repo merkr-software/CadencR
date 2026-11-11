@@ -7,16 +7,21 @@
 //! `agents/providers/installed/managed`).
 pub mod catalog;
 mod download;
+mod kind;
 pub mod models;
 pub(crate) mod policy_feed;
 pub mod storage;
 
 use crate::error::AppError;
 
+pub use kind::ExtensionKind;
+
+/// An error about the shared catalog, its downloads or its feeds, which no
+/// single extension kind owns.
 pub fn invalid(message: impl std::fmt::Display) -> AppError {
     AppError::coded(
         axum::http::StatusCode::BAD_REQUEST,
-        "MANAGED_THEME_INVALID",
-        message.to_string(),
+        "MARKETPLACE_CATALOG_INVALID",
+        format!("marketplace {message}"),
     )
 }

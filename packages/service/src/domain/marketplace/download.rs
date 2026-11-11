@@ -1,4 +1,4 @@
-use super::invalid;
+use super::{invalid, ExtensionKind};
 use crate::domain::projects::publication_release::local::validation::{
     parse_repository, validate_archive_url,
 };
@@ -11,16 +11,20 @@ enum DownloadKind {
     Artifact,
 }
 
+/// A `kind` package archive, from the release host its signed entry names.
 pub async fn download_archive(
+    kind: ExtensionKind,
     url: &str,
     distribution_repository: Option<&serde_json::Value>,
     limit: usize,
 ) -> Result<Vec<u8>, AppError> {
     let origin = cadencr_registry_core::theme_distribution_repository(url, distribution_repository)
-        .map_err(invalid)?;
+        .map_err(|error| kind.invalid(format!("archive origin is invalid: {error}")))?;
     let repository = parse_repository(Some(&origin))?;
     validate_archive_url(url, &repository)?;
-    download_inner(url, limit, DownloadKind::Artifact).await
+    download_inner(url, limit, DownloadKind::Artifact)
+        .await
+        .map_err(|error| kind.invalid(format!("archive download failed: {error}")))
 }
 fn allowed_redirect(url: &reqwest::Url) -> bool {
     url.scheme() == "https"
@@ -66,7 +70,7 @@ fn client_builder(kind: DownloadKind) -> reqwest::ClientBuilder {
                 || attempt.url().scheme() != "https"
                 || attempt.previous().len() >= 3
             {
-                attempt.error("unsafe theme download redirect")
+                attempt.error("unsafe download redirect")
             } else {
                 attempt.follow()
             }
@@ -81,7 +85,7 @@ async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<V
         || url.password().is_some()
     {
         return Err(invalid(
-            "theme download requires absolute HTTPS without credentials",
+            "download requires absolute HTTPS without credentials",
         ));
     }
     response_bytes(url, limit, kind, client(kind)?).await
@@ -105,14 +109,14 @@ async fn response_bytes(
             .content_length()
             .is_some_and(|size| size > limit as u64)
     {
-        return Err(invalid("unsafe or oversized theme download"));
+        return Err(invalid("unsafe or oversized download"));
     }
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(invalid)?;
         if bytes.len().saturating_add(chunk.len()) > limit {
-            return Err(invalid("theme download exceeds budget"));
+            return Err(invalid("download exceeds budget"));
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -282,6 +286,7 @@ mod tests {
             "https://github.com/other/themes/releases/download/v1/theme.tar.gz",
         ] {
             assert!(download_archive(
+                ExtensionKind::Theme,
                 url,
                 Some(&serde_json::json!("https://github.com/acme/themes")),
                 10

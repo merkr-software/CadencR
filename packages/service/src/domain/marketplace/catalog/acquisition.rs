@@ -123,7 +123,7 @@ async fn acquire_inner(
         return match cached {
             Ok(index) => Ok(index),
             Err(error) if present => Err(error),
-            Err(_) => Err(invalid("theme catalog source is not configured")),
+            Err(_) => Err(invalid("catalog source is not configured")),
         };
     };
     let bytes = fetch.await?;

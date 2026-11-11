@@ -62,8 +62,13 @@ pub async fn install(body: InstallLspRequest, update: bool) -> Result<(), AppErr
             body.lsp_id
         )));
     }
-    let bytes =
-        shared_catalog::download_archive(&target.archive, None, target.size as usize).await?;
+    let bytes = shared_catalog::download_archive(
+        crate::domain::marketplace::ExtensionKind::Lsp,
+        &target.archive,
+        None,
+        target.size as usize,
+    )
+    .await?;
     tokio::task::spawn_blocking(move || {
         let _guard = _lock;
         commit()

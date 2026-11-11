@@ -236,7 +236,14 @@ mod tests {
             .error
             .as_ref()
             .is_some_and(|message| !message.is_empty()));
-        assert_eq!(broken.error_code.as_deref(), Some("MANAGED_THEME_INVALID"));
+        assert_eq!(
+            broken.error_code.as_deref(),
+            Some("MARKETPLACE_STORAGE_INVALID")
+        );
+        assert!(broken
+            .error
+            .as_ref()
+            .is_some_and(|message| message.contains("other-theme")));
         assert!(broken.version.is_empty());
         assert!(broken.sha256.is_empty());
         assert!(broken.active);
