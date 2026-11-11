@@ -32,6 +32,9 @@ fn unavailable(message: String) -> AppError {
         message,
     )
 }
+fn no_feed() -> String {
+    crate::domain::marketplace::revocation::no_feed(crate::domain::marketplace::ExtensionKind::Lsp)
+}
 fn source() -> Option<&'static str> {
     #[cfg(test)]
     if tests::configured() {
@@ -41,9 +44,7 @@ fn source() -> Option<&'static str> {
 }
 pub async fn refresh(force: bool) -> Result<(), AppError> {
     let Some(url) = source() else {
-        return Err(unavailable(
-            "LSP installation is unavailable: this build has no LSP revocation feed".into(),
-        ));
+        return Err(unavailable(no_feed()));
     };
     static POLL: OnceLock<tokio::sync::Mutex<PollState>> = OnceLock::new();
     let requested = Instant::now();
@@ -100,16 +101,11 @@ impl PolicySnapshot {
         version: &str,
         target: &LspTarget,
     ) -> Result<(), AppError> {
-        if self.0.is_none() {
-            return Err(unavailable(
-                "LSP installation is unavailable: this build has no LSP revocation feed".into(),
-            ));
-        }
         self.require(id, version, target)
     }
     fn require(&self, id: &str, version: &str, target: &LspTarget) -> Result<(), AppError> {
         let Some(policy) = &self.0 else {
-            return Ok(());
+            return Err(unavailable(no_feed()));
         };
         if let Some(reason) = policy
             .policy
@@ -172,6 +168,33 @@ pub(super) mod tests {
         }
         FEED.ingest(root, &envelope, &trust, Utc::now()).unwrap();
         Guard(CONTEXT.with(|slot| slot.replace(Some((root.to_path_buf(), trust)))))
+    }
+    #[test]
+    fn without_a_feed_a_marketplace_server_neither_installs_nor_starts() {
+        assert!(!configured());
+        let target = cadencr_registry_core::LspTarget {
+            archive: "https://github.com/acme/lsp/releases/download/v1/lsp.tar.gz".into(),
+            sha256: "a".repeat(64),
+            size: 1,
+            entry: "server.js".into(),
+            entry_sha256: "b".repeat(64),
+            entry_size: 1,
+            runtime: cadencr_registry_core::LspRuntime::Node,
+            node_min_version: None,
+            macos_min_version: None,
+        };
+        for refused in [
+            require_install("fixture", "1.0.0", &target),
+            require("fixture", "1.0.0", &target),
+        ] {
+            assert!(matches!(
+                refused,
+                Err(AppError::Coded {
+                    code: "LSP_POLICY_UNAVAILABLE",
+                    ..
+                })
+            ));
+        }
     }
     #[test]
     fn signed_policy_blocks_matching_digest_and_expiry_fails_closed() {

@@ -284,6 +284,9 @@ mod tests {
 
     #[test]
     fn installer_admits_signed_bytes_and_preserves_local_author_tabs() {
+        // Installs need a fresh policy, like in any build.
+        let _policy =
+            crate::domain::plugin_tabs::managed::policy::tests::configure(serde_json::json!([]));
         let harness = Harness::new();
         let (receipt, archive, _, trust) = fixture(harness.temp.path());
         let call = |bytes: Vec<u8>, update: bool| {
@@ -353,6 +356,9 @@ mod tests {
 
     #[test]
     fn a_backend_tab_installs_its_platform_binary_only_from_matching_bytes() {
+        // Installs need a fresh policy, like in any build.
+        let _policy =
+            crate::domain::plugin_tabs::managed::policy::tests::configure(serde_json::json!([]));
         let harness = Harness::new();
         let tab = backend_fixture().root(harness.temp.path()).call();
         let call = |backend: Option<Vec<u8>>| {
@@ -435,6 +441,9 @@ mod tests {
 
     #[test]
     fn an_update_that_runs_a_new_binary_is_staged_only_over_an_accepted_revision() {
+        // Installs need a fresh policy, like in any build.
+        let _policy =
+            crate::domain::plugin_tabs::managed::policy::tests::configure(serde_json::json!([]));
         let harness = Harness::new();
         let (index, first, second) = two_versions(&harness);
         let install = |tab: &BackendFixture, version, update, consented: Option<String>| {

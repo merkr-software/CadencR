@@ -24,27 +24,25 @@ pub fn load_cached_blocklist(
         .transpose()
 }
 
+/// The verified policy an install or a launch is checked against; without
+/// one — no feed in this build, or nothing fetched yet — both are refused
+/// (see `marketplace::revocation`).
 pub fn load_enforced_blocklist(
     path: &Path,
     trust: &ManagedTrustStore,
     now: DateTime<Utc>,
-) -> Result<Option<VerifiedManagedBlocklist>, ManagedBlocklistError> {
-    enforce_cache(path, trust, now, super::pinned_blocklist_url().is_some())
-}
-
-fn enforce_cache(
-    path: &Path,
-    trust: &ManagedTrustStore,
-    now: DateTime<Utc>,
-    required: bool,
-) -> Result<Option<VerifiedManagedBlocklist>, ManagedBlocklistError> {
-    let cached = load_cached_blocklist(path, trust, now)?;
-    if required && cached.is_none() {
-        return Err(unavailable(
-            "managed blocklist must be fetched and verified before installation or launch",
-        ));
-    }
-    Ok(cached)
+) -> Result<VerifiedManagedBlocklist, ManagedBlocklistError> {
+    load_cached_blocklist(path, trust, now)?.ok_or_else(|| {
+        unavailable(match super::pinned_blocklist_url() {
+            None => crate::domain::marketplace::revocation::no_feed(
+                crate::domain::marketplace::ExtensionKind::Provider,
+            ),
+            Some(_) => {
+                "managed blocklist must be fetched and verified before installation or launch"
+                    .into()
+            }
+        })
+    })
 }
 
 fn read_envelope(
@@ -303,19 +301,21 @@ mod tests {
     }
 
     #[test]
-    fn configured_source_requires_verified_cache_before_execution() {
+    fn installation_and_launch_require_a_verified_cache_even_without_a_feed() {
+        // This test build compiles no blocklist feed: that is "unavailable",
+        // like a configured feed never fetched, never "nothing is blocked".
+        assert!(super::super::pinned_blocklist_url().is_none());
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("policy.json");
         let now = Utc::now();
-        assert!(enforce_cache(&path, &trust(), now, false)
-            .unwrap()
-            .is_none());
         assert_eq!(
-            enforce_cache(&path, &trust(), now, true).unwrap_err().code,
+            load_enforced_blocklist(&path, &trust(), now)
+                .unwrap_err()
+                .code,
             ManagedBlocklistErrorCode::BlocklistUnavailable
         );
         persist_verified_blocklist(&path, &trust(), signed(now, false), now).unwrap();
-        assert!(enforce_cache(&path, &trust(), now, true).unwrap().is_some());
+        load_enforced_blocklist(&path, &trust(), now).unwrap();
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub async fn inventory() -> Result<Vec<ManagedThemeInventoryEntry>, AppError> {
         return Ok(Vec::new());
     }
     let active = active_ids();
-    let refreshed = super::policy::refresh(false).await;
+    let refreshed = Ok(super::policy::refresh_for_use().await);
     let trust = pinned_index_trust_store();
     tokio::task::spawn_blocking(move || {
         storage::with_root(root, || inventory_snapshot(&trust, ids, active, refreshed))
@@ -151,7 +151,9 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn empty_inventory_skips_unusable_policy_and_blocking_snapshot_preserves_context() {
+    async fn an_unreadable_policy_cache_leaves_installed_themes_usable_with_its_cause() {
+        // A feed this build compiles, whose cache then turns unreadable.
+        let _policy = super::super::policy::tests::configured_policy();
         storage::secure(&storage::root()).unwrap();
         crate::shared::atomic_file::write_atomic_private(
             &storage::root().join("theme-blocklist.json"),
@@ -163,11 +165,12 @@ mod tests {
         settings_store::global_set("theme_current", "managed:midnight")
             .await
             .unwrap();
+        let refreshed = Ok(super::super::policy::refresh_for_use().await);
         let root = storage::root();
         let active = active_ids();
         let entries = tokio::task::spawn_blocking(move || {
             storage::with_root(root, || {
-                inventory_snapshot(&trust, installed_ids().unwrap(), active, Ok(None))
+                inventory_snapshot(&trust, installed_ids().unwrap(), active, refreshed)
             })
         })
         .await
@@ -176,15 +179,11 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "midnight");
         assert!(entries[0].active);
-        assert!(entries[0].theme.is_none());
-        assert_eq!(
-            entries[0].error_code.as_deref(),
-            Some("MANAGED_THEME_POLICY_UNAVAILABLE")
-        );
+        assert!(entries[0].theme.is_some(), "{:?}", entries[0]);
         assert!(entries[0]
-            .error
+            .warning
             .as_ref()
-            .is_some_and(|error| !error.is_empty()));
+            .is_some_and(|warning| warning.contains("theme revocation policy")));
         assert!(
             super::super::service::remove("midnight", true)
                 .await

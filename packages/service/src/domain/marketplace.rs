@@ -10,6 +10,7 @@ mod download;
 mod kind;
 pub mod models;
 pub(crate) mod policy_feed;
+pub mod revocation;
 pub mod storage;
 pub mod trust;
 pub(crate) mod verified;

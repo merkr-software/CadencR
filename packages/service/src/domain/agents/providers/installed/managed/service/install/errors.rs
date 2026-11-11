@@ -108,23 +108,21 @@ fn check_blocked(
         chrono::Utc::now(),
     )
     .map_err(|error| AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message))?;
-    if let Some(blocklist) = cached {
-        let reason = blocklist
-            .blocked_reason(id, version, digest)
-            .map_err(|error| {
-                AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
-            })?;
-        if let Some(reason) = reason {
-            return Err(failure(
-                service,
-                id,
-                version,
-                Some(digest),
-                ManagedFailureStage::Blocklist,
-                "MANAGED_PROVIDER_BLOCKED",
-                format!("managed provider {id} is blocked: {reason}"),
-            ));
-        }
+    let reason = cached
+        .blocked_reason(id, version, digest)
+        .map_err(|error| {
+            AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
+        })?;
+    if let Some(reason) = reason {
+        return Err(failure(
+            service,
+            id,
+            version,
+            Some(digest),
+            ManagedFailureStage::Blocklist,
+            "MANAGED_PROVIDER_BLOCKED",
+            format!("managed provider {id} is blocked: {reason}"),
+        ));
     }
     Ok(())
 }

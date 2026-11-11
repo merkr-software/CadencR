@@ -34,7 +34,7 @@ Authors follow [AUTHORING.md](../tooling/marketplace-registry/AUTHORING.md).
 | Theme     | Declarative `theme.json` tree                                                                                  | Platform-neutral.                                                                 |
 | Tab       | Isolated web UI, optionally with a native backend ([protocol](./TAB_BACKEND_PROTOCOL.md))                      | Native backends need per-platform executables and explicit execution consent.    |
 | Plugin    | One release combining several of the kinds above                                                               | Each member keeps its own installer, receipts, consent and revocation.           |
-| LSP       | Prepared language-server archive                                                                               | Requires the optional LSP revocation policy; minimum app version `0.16.1`.      |
+| LSP       | Prepared language-server archive                                                                               | Requires the LSP revocation policy to install or start; min. app version `0.16.1`. |
 
 There is no fixed platform matrix: each provider and native tab declares its own
 OS/architecture targets, and the client hides packages without a build for the

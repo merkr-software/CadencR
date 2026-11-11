@@ -13,7 +13,7 @@ pub(super) async fn preview_refreshed(
     id: &str,
     trust: &crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore,
 ) -> Result<ManagedThemeInventoryEntry, AppError> {
-    let warning = super::policy::refresh(false).await?;
+    let warning = super::policy::refresh_for_use().await;
     let mut entry = preview_worker(id, trust).await?;
     entry.warning = warning;
     Ok(entry)

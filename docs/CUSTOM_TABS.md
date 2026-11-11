@@ -435,7 +435,8 @@ the service resolves, starts, relays to and stops it.
   authenticated cached policy blocks, even an expired one. When a feed is
   configured but no fresh policy is cached, install, update and backend start
   are 409 `MANAGED_TAB_POLICY_UNAVAILABLE` — the tab's page keeps working,
-  and a backend already running keeps serving.
+  and a backend already running keeps serving. A build without the tab feed is
+  treated the same way: no install, update or backend start.
 - **Binaries only.** A backend is a native executable shipped in the tab
   folder, one per platform — never a script, an interpreter or a program on
   `PATH`, so what the user consents to is that file. The former

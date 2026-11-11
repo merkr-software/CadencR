@@ -50,7 +50,11 @@ fn trust_store() -> ManagedTrustStore {
     pinned_index_trust_store()
 }
 fn require_source(url: Option<&str>) -> Result<&str, AppError> {
-    url.ok_or_else(|| unavailable("managed theme revocation policy source is not configured"))
+    url.ok_or_else(|| {
+        unavailable(crate::domain::marketplace::revocation::no_feed(
+            crate::domain::marketplace::ExtensionKind::Theme,
+        ))
+    })
 }
 fn cache() -> std::path::PathBuf {
     FEED.cache(&storage::root())
@@ -208,23 +212,52 @@ async fn offload<T: Send + 'static>(
     FEED.offload(move || storage::with_root(root, operation))
         .await
 }
-pub(super) struct Snapshot(Verified);
+/// What inert use of installed themes is checked against: the authenticated
+/// cached policy, current or expired, which still blocks what it lists; none
+/// when this build has no feed or nothing was fetched yet.
+pub(super) struct Snapshot(Option<Verified>);
 pub(super) fn snapshot() -> Result<Snapshot, AppError> {
     snapshot_cached(source().is_some(), &trust_store())
 }
 fn snapshot_cached(configured: bool, trust: &ManagedTrustStore) -> Result<Snapshot, AppError> {
     if !configured {
-        return Err(unavailable(
-            "managed theme revocation policy source is not configured",
-        ));
+        return Ok(Snapshot(None));
     }
-    Ok(Snapshot(verify(&cached()?, trust, true, Utc::now())?))
+    // Like a tab's page, an installed theme stays usable when the cached
+    // policy cannot be authenticated; the refresh that fails on that same
+    // cache carries the cause to the user as the action's warning.
+    Ok(Snapshot(
+        FEED.cached(&storage::root())
+            .ok()
+            .flatten()
+            .and_then(|envelope| verify(&envelope, trust, false, Utc::now()).ok()),
+    ))
 }
 impl Snapshot {
     pub(super) fn enforce(&self, id: &str, version: &str, digest: &str) -> Result<(), AppError> {
-        enforce_verified(&self.0, id, version, digest)
+        match &self.0 {
+            Some(policy) => refuse_listed(policy, id, version, digest),
+            None => Ok(()),
+        }
     }
 }
+/// Inert use refreshes the policy too but never fails on an unavailable
+/// one: the warning says installs wait for it.
+pub(super) async fn refresh_for_use() -> Option<String> {
+    match refresh(false).await {
+        Ok(warning) => warning,
+        Err(error) => Some(format!(
+            "{error}; installed themes stay usable, but none installs or updates until the theme revocation policy is available"
+        )),
+    }
+}
+/// Installing or updating needs a current verified policy (fetched now, or
+/// cached and still valid when offline) that does not list the revision.
+pub(super) async fn require_install(id: &str, version: &str, digest: &str) -> Result<(), AppError> {
+    refresh(false).await?;
+    enforce(id, version, digest)
+}
+/// The install-time check alone, against the cached policy, which must be current.
 pub(super) fn enforce(id: &str, version: &str, digest: &str) -> Result<(), AppError> {
     enforce_cached(id, version, digest, source().is_some(), &trust_store())
 }
@@ -235,7 +268,13 @@ fn enforce_cached(
     configured: bool,
     trust: &ManagedTrustStore,
 ) -> Result<(), AppError> {
-    snapshot_cached(configured, trust)?.enforce(id, version, digest)
+    require_source(configured.then_some(""))?;
+    enforce_verified(
+        &verify(&cached()?, trust, true, Utc::now())?,
+        id,
+        version,
+        digest,
+    )
 }
 fn enforce_verified(
     policy: &Verified,
@@ -244,6 +283,9 @@ fn enforce_verified(
     digest: &str,
 ) -> Result<(), AppError> {
     ensure_current(policy, Utc::now())?;
+    refuse_listed(policy, id, version, digest)
+}
+fn refuse_listed(policy: &Verified, id: &str, version: &str, digest: &str) -> Result<(), AppError> {
     if let Some(reason) = policy
         .policy
         .blocked_reason(id, version, digest)
@@ -332,22 +374,71 @@ pub(super) mod tests {
     fn signed(offset_minutes: i64, entries: Value) -> (Envelope, ManagedTrustStore) {
         policy_feed::tests::signed("theme-blocklist", offset_minutes, entries)
     }
+    #[tokio::test]
+    async fn an_offline_refresh_over_a_current_policy_still_admits_an_install() {
+        let _policy = configured_policy();
+        respond(serde_json::json!([]), true);
+        require_install("midnight", "1.0.0", &"a".repeat(64))
+            .await
+            .unwrap();
+    }
     #[test]
-    fn unconfigured_policy_fails_closed_even_with_valid_cached_policy() {
+    fn installs_fail_closed_without_a_current_policy_while_inert_use_does_not() {
         let (envelope, trust) = signed(-1, serde_json::json!([]));
         let digest = "a".repeat(64);
         assert!(require_source(None).is_err());
         assert!(require_source(Some("https://registry.example/themes/blocklist.json")).is_ok());
-        assert!(snapshot_cached(false, &trust).is_err());
-        assert!(snapshot_cached(true, &trust).is_err());
+        // Nothing fetched yet: installing is refused, using is not.
+        snapshot_cached(false, &trust)
+            .unwrap()
+            .enforce("midnight", "1.0.0", &digest)
+            .unwrap();
+        snapshot_cached(true, &trust)
+            .unwrap()
+            .enforce("midnight", "1.0.0", &digest)
+            .unwrap();
         assert!(enforce_cached("midnight", "1.0.0", &digest, false, &trust).is_err());
+        assert!(enforce_cached("midnight", "1.0.0", &digest, true, &trust).is_err());
         ingest(&envelope, &trust, Utc::now()).unwrap();
-        assert!(snapshot_cached(false, &trust).is_err());
+        // A build without the feed never installs, even over a valid cache.
         assert!(enforce_cached("midnight", "1.0.0", &digest, false, &trust).is_err());
         let snapshot = snapshot_cached(true, &trust).unwrap();
         snapshot.enforce("midnight", "1.0.0", &digest).unwrap();
         enforce_cached("midnight", "1.0.0", &digest, true, &trust).unwrap();
-        assert!(snapshot_cached(true, &ManagedTrustStore::default()).is_err());
+        // A cache this trust cannot authenticate never blocks inert use,
+        // and never admits an install.
+        snapshot_cached(true, &ManagedTrustStore::default())
+            .unwrap()
+            .enforce("midnight", "1.0.0", &digest)
+            .unwrap();
+        assert!(enforce_cached(
+            "midnight",
+            "1.0.0",
+            &digest,
+            true,
+            &ManagedTrustStore::default()
+        )
+        .is_err());
+    }
+    #[test]
+    fn an_expired_cached_policy_still_blocks_what_it_lists() {
+        let (mut envelope, trust) = signed(
+            -2,
+            serde_json::json!([{"theme_id":"midnight","reason":"unsafe"}]),
+        );
+        envelope.signed["expires_at"] = policy_feed::tests::at(-1).into();
+        let envelope = signed_with(envelope.signed, 19, "test");
+        storage::secure(&storage::root()).unwrap();
+        crate::shared::atomic_file::write_atomic_private(
+            &cache(),
+            &serde_json::to_string(&envelope).unwrap(),
+        )
+        .unwrap();
+        let snapshot = snapshot_cached(true, &trust).unwrap();
+        assert!(snapshot
+            .enforce("midnight", "1.0.0", &"a".repeat(64))
+            .is_err());
+        snapshot.enforce("other", "1.0.0", &"a".repeat(64)).unwrap();
     }
     #[test]
     fn authenticated_replay_does_not_replace_cache_but_b_resigning_does() {

@@ -57,6 +57,7 @@ mod tests {
         );
         history::write_state(&state_path, &state).unwrap();
         let before = std::fs::read(&state_path).unwrap();
+        installer::tests::allow_all_blocklist(&storage);
         let descriptors = root.path().join("descriptors");
         let service = ManagedProviderService::builder()
             .client(reqwest::Client::new())

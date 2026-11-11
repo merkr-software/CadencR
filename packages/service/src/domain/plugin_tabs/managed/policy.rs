@@ -346,10 +346,11 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn unconfigured_build_blocks_nothing_and_never_fetches() {
+    async fn unconfigured_build_never_fetches_and_starts_no_backend() {
         let snapshot = refresh(true).await.unwrap();
         assert_eq!(snapshot.freshness(), PolicyFreshness::NotConfigured);
-        current().unwrap().require_backend_start(ports()).unwrap();
+        assert!(current().unwrap().require_backend_start(ports()).is_err());
+        current().unwrap().require_not_blocked(ports()).unwrap();
         let status = status().unwrap();
         assert!(!status.source_configured);
         assert_eq!(status.cache_status, PolicyFreshness::NotConfigured);

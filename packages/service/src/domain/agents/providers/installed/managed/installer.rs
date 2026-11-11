@@ -496,6 +496,38 @@ pub(crate) mod tests {
         (directory, receipt)
     }
 
+    /// A current, empty blocklist signed with the test key: installs and
+    /// launches need a verified policy, like in any build.
+    pub(crate) fn allow_all_blocklist(storage: &ManagedStorage) {
+        use crate::domain::agents::providers::installed::managed::blocklist::{
+            ManagedProviderBlocklist, SignedManagedProviderBlocklist,
+        };
+        let now = chrono::Utc::now();
+        let signed = ManagedProviderBlocklist {
+            schema_version: 1,
+            generated_at: now - chrono::Duration::minutes(1),
+            expires_at: now + chrono::Duration::hours(1),
+            entries: Vec::new(),
+        };
+        let signature = SigningKey::from_bytes(&[23; 32]).sign(&signed.signing_bytes().unwrap());
+        let envelope = SignedManagedProviderBlocklist {
+            signed,
+            signature: serde_json::from_value(serde_json::json!({
+                "algorithm": "ed25519",
+                "key_id": "managed-installer-test",
+                "value": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            }))
+            .unwrap(),
+        };
+        let path = storage.blocklist_cache_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        crate::shared::atomic_file::write_atomic_private(
+            &path,
+            &serde_json::to_string(&envelope).unwrap(),
+        )
+        .unwrap();
+    }
+
     pub(crate) fn test_trust_store() -> ManagedTrustStore {
         let signing_key = SigningKey::from_bytes(&[23; 32]);
         ManagedTrustStore::new([TrustedIndexKey::new(
