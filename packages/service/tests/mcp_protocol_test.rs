@@ -10,6 +10,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use cadencr_service::domain::mcp::{
+    control_grant::McpControlServer,
     servers::{create_mcp_server, AgentType, McpServer},
     McpContext,
 };
@@ -17,6 +18,8 @@ use rmcp::ServiceExt;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tokio::task::JoinHandle;
+
+use support::mcp_service::served_mcp_context;
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const MODERN_VERSION: &str = "2026-07-28";
@@ -30,7 +33,7 @@ struct WireClient {
 impl WireClient {
     fn connect(agent: AgentType) -> Self {
         let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
-        let ctx = McpContext::new(pool.clone(), pool, 1);
+        let ctx = Arc::new(McpContext::builder().read_pool(pool).feature_id(1).build());
         Self::with_context(agent, ctx)
     }
 
@@ -247,7 +250,7 @@ async fn legacy_clients_still_initialize_and_list_tools_without_metadata() {
 #[tokio::test]
 async fn real_workspace_tool_succeeds_over_modern_and_legacy_wire() {
     let pool = support::mcp_control::seeded_control_pool().await;
-    let ctx = McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777));
+    let ctx = served_mcp_context(pool, McpControlServer::Workspace, 42, 777).await;
 
     for modern in [true, false] {
         let mut client = WireClient::with_context(AgentType::Workspace, ctx.clone());

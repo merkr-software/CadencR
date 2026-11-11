@@ -20,6 +20,7 @@ mod git_branch_cleanup;
 mod git_status;
 mod mcp_control_model_validation;
 mod mcp_control_runtime;
+mod mcp_service_writes;
 mod mcp_spawn;
 mod message_content_revision_migration;
 mod migration_versions;

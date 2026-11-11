@@ -426,7 +426,8 @@ impl AppState {
             provider_updates,
             file_watcher: crate::domain::editor::watcher::new_shared(),
             auth_token: "test-token".to_string(),
-            mcp_control_secret: "test-mcp-secret".to_string(),
+            mcp_control_secret: crate::domain::mcp::control_grant::TEST_MCP_CONTROL_SECRET
+                .to_string(),
             frontend_port: 1420,
             port: 0,
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),

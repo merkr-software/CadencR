@@ -3,11 +3,16 @@
 //! Tools read it via plain field access rather than a task-local scope —
 //! `rmcp` sometimes dispatches handlers on freshly-spawned tokio tasks that
 //! wouldn't inherit a task-local, which was breaking the workflow path.
+//! The process opens the database read-only and changes state only through
+//! the service's `/internal/mcp/*` routes.
+
+use std::sync::Arc;
 
 use rmcp::ServiceExt;
 use tracing::info;
 
 use super::context::McpContext;
+use super::control_client::McpControlClient;
 use super::servers::McpServer;
 use crate::shared::db;
 
@@ -26,14 +31,18 @@ pub async fn run_mcp_stdio(
         feature_id, "starting MCP stdio server"
     );
 
-    let write_pool = db::create_write_pool(db_path).await?;
+    // Read-only: every write a tool causes goes through the service over the
+    // control client, so this process never competes for the write lock nor
+    // changes state without the service broadcasting it.
     let read_pool = db::create_read_pool(db_path).await?;
-    let ctx = match source_session_id {
-        Some(session_id) => {
-            McpContext::new_with_source_session(read_pool, write_pool, feature_id, Some(session_id))
-        }
-        None => McpContext::new(read_pool, write_pool, feature_id),
-    };
+    let ctx = Arc::new(
+        McpContext::builder()
+            .read_pool(read_pool)
+            .feature_id(feature_id)
+            .maybe_source_session_id(source_session_id)
+            .control(McpControlClient::from_env())
+            .build(),
+    );
 
     let server = super::servers::create_mcp_server(agent_type, ctx);
     let stdio = rmcp::transport::io::stdio();

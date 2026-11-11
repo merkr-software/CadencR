@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use cadencr_service::domain::mcp::context::McpContext;
+use cadencr_service::domain::mcp::control_grant::McpControlServer;
 use cadencr_service::domain::mcp::tools::workspace::run_workspace_tool;
 use cadencr_service::domain::settings_store::global_write_content;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
+use crate::support::mcp_service::served_mcp_context;
 use crate::SETTINGS_TEST_LOCK;
 
 #[tokio::test]
@@ -145,7 +147,7 @@ async fn workspace_read_sessions_without_query_defaults_to_recent_window() {
     )
     .bind(old_created_at)
     .bind(recent_created_at)
-    .execute(&ctx.write_pool)
+    .execute(&ctx.read_pool)
     .await
     .unwrap();
 
@@ -246,7 +248,7 @@ async fn workspace_read_session_caps_total_returned_message_content() {
          VALUES (2001, 200, 'assistant', 'text', ?, '2026-06-18T11:02:00Z')",
     )
     .bind(large_content)
-    .execute(&ctx.write_pool)
+    .execute(&ctx.read_pool)
     .await
     .unwrap();
 
@@ -284,7 +286,7 @@ async fn workspace_read_session_uses_configured_result_char_cap() {
          VALUES (2001, 200, 'assistant', 'text', ?, '2026-06-18T11:02:00Z')",
     )
     .bind(large_content)
-    .execute(&ctx.write_pool)
+    .execute(&ctx.read_pool)
     .await
     .unwrap();
 
@@ -313,7 +315,7 @@ async fn minimal_ctx() -> Arc<McpContext> {
     .execute(&pool)
     .await
     .unwrap();
-    McpContext::new(pool.clone(), pool, 10)
+    Arc::new(McpContext::builder().read_pool(pool).feature_id(10).build())
 }
 
 async fn enabled_workspace_ctx() -> Arc<McpContext> {
@@ -360,7 +362,9 @@ async fn enabled_workspace_ctx() -> Arc<McpContext> {
     .execute(&pool)
     .await
     .expect("seed workspace test database");
-    McpContext::new_with_source_session(pool.clone(), pool, 10, Some(100))
+    // The tools only read `pool`; tests seed more rows through `ctx.read_pool`,
+    // the same in-memory database the service writes.
+    served_mcp_context(pool, McpControlServer::Workspace, 10, 100).await
 }
 
 fn result_text(result: rmcp::model::CallToolResult) -> String {

@@ -21,7 +21,7 @@ pub(crate) async fn archive_session(
     args: &serde_json::Value,
     ctx: &McpContext,
 ) -> Result<serde_json::Value, String> {
-    archive_session_with_client(args, ctx, McpControlClient::from_env()?).await
+    archive_session_with_client(args, ctx, ctx.control()?.clone()).await
 }
 
 async fn archive_session_with_client(
@@ -56,7 +56,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777))
+        std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        )
     }
 
     #[tokio::test]

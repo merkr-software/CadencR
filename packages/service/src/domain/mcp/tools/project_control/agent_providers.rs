@@ -8,7 +8,7 @@ pub(crate) const AGENT_PROVIDERS_ENDPOINT: &str = "/internal/mcp/project/agent-p
 /// so a catalog probed here could disagree with the picker (another CLI, no
 /// `refresh_error` for a catalog the service serves as the last known one).
 pub(crate) async fn list_agent_providers(ctx: &McpContext) -> Result<serde_json::Value, String> {
-    list_agent_providers_with_client(ctx, McpControlClient::from_env()?).await
+    list_agent_providers_with_client(ctx, ctx.control()?.clone()).await
 }
 
 async fn list_agent_providers_with_client(
@@ -58,7 +58,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        let ctx = McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777));
+        let ctx = std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        );
 
         let result = list_agent_providers_with_client(&ctx, client)
             .await

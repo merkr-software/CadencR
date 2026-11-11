@@ -10,7 +10,7 @@ pub(crate) async fn get_settings(
     ctx: &McpContext,
     tool: SettingsTool,
 ) -> Result<Value, String> {
-    get_settings_with_client(args, ctx, tool, McpControlClient::from_env()?).await
+    get_settings_with_client(args, ctx, tool, ctx.control()?.clone()).await
 }
 
 /// Relay `*_update_settings` to the service, which validates every value,
@@ -20,7 +20,7 @@ pub(crate) async fn update_settings(
     ctx: &McpContext,
     tool: SettingsTool,
 ) -> Result<Value, String> {
-    update_settings_with_client(args, ctx, tool, McpControlClient::from_env()?).await
+    update_settings_with_client(args, ctx, tool, ctx.control()?.clone()).await
 }
 
 async fn get_settings_with_client(
@@ -83,7 +83,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777))
+        std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        )
     }
 
     async fn control_plane(path: &'static str, captured: Captured) -> McpControlClient {

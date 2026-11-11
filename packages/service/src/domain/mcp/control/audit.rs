@@ -43,11 +43,11 @@ pub(super) async fn record_tool_audit(
     Ok(())
 }
 
-pub(super) fn elapsed_ms(started_at: std::time::Instant) -> i64 {
+pub(crate) fn elapsed_ms(started_at: std::time::Instant) -> i64 {
     i64::try_from(started_at.elapsed().as_millis()).unwrap_or(i64::MAX)
 }
 
-pub(super) fn result_size_bytes<T: serde::Serialize>(value: &T) -> i64 {
+pub(crate) fn result_size_bytes<T: serde::Serialize>(value: &T) -> i64 {
     serde_json::to_vec(value)
         .map(|bytes| i64::try_from(bytes.len()).unwrap_or(i64::MAX))
         .unwrap_or(0)

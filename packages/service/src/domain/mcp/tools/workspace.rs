@@ -5,8 +5,9 @@ use serde_json::json;
 use sqlx::{FromRow, QueryBuilder, Sqlite};
 
 use crate::domain::mcp::context::McpContext;
+use crate::domain::mcp::control_grant::McpControlServer;
+use crate::domain::mcp::read_audit::{audited, is_read_tool};
 use crate::domain::mcp::settings_tool::SettingsTool;
-use crate::domain::mcp::tools::audit::record_read_tool_audit;
 use crate::domain::mcp::tools::helpers::{error_result, require_i64, text_result};
 use crate::domain::mcp::tools::messages::{
     cap_message_content, fts_literal_query, messages_json, MessageRow,
@@ -84,10 +85,16 @@ pub async fn run_workspace_tool(
         }
         _ => Err(format!("Unknown tool: {name}")),
     };
-    let result = if is_workspace_read_tool(name) {
-        record_read_tool_audit("cadencr-workspace", name, &args, &ctx, &result, started_at)
-            .await
-            .map_or_else(Err, |_| result)
+    let result = if is_read_tool(McpControlServer::Workspace, name) {
+        audited(
+            McpControlServer::Workspace,
+            name,
+            &args,
+            &ctx,
+            result,
+            started_at,
+        )
+        .await
     } else {
         result
     };
@@ -95,17 +102,6 @@ pub async fn run_workspace_tool(
         Ok(value) => text_result(&value.to_string()),
         Err(error) => error_result(&error),
     }
-}
-
-fn is_workspace_read_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "workspace_list_projects"
-            | "workspace_read_session"
-            | "workspace_read_sessions"
-            | "workspace_session_graph"
-            | "workspace_recent_activity"
-    )
 }
 
 fn workspace_mcp_enabled() -> bool {
