@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use cadencr_service::domain::mcp::context::McpContext;
+use cadencr_service::domain::mcp::control_grant::McpControlServer;
 use cadencr_service::domain::mcp::tools::project::run_project_tool;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
+
+use crate::support::mcp_service::served_mcp_context;
 
 async fn compare_ctx() -> Arc<McpContext> {
     let pool = SqlitePoolOptions::new()
@@ -42,7 +45,7 @@ async fn compare_ctx() -> Arc<McpContext> {
     .execute(&pool)
     .await
     .expect("seed compare test database");
-    McpContext::new_with_source_session(pool.clone(), pool, 100, Some(1000))
+    served_mcp_context(pool, McpControlServer::Project, 100, 1000).await
 }
 
 fn result_text(result: rmcp::model::CallToolResult) -> String {

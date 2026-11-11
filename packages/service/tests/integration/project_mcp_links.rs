@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use cadencr_service::domain::mcp::context::McpContext;
+use cadencr_service::domain::mcp::control_grant::McpControlServer;
 use cadencr_service::domain::mcp::tools::project::run_project_tool;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
+
+use crate::support::mcp_service::served_mcp_context;
 
 async fn link_ctx() -> Arc<McpContext> {
     let pool = SqlitePoolOptions::new()
@@ -15,7 +18,7 @@ async fn link_ctx() -> Arc<McpContext> {
         r#"
         CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL);
         CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, title TEXT NOT NULL);
-        CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL, status TEXT NOT NULL);
+        CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL, status TEXT NOT NULL, pending_permission TEXT, pending_questions TEXT);
         CREATE TABLE agent_session_links (id INTEGER PRIMARY KEY AUTOINCREMENT, source_session_id INTEGER NOT NULL, target_session_id INTEGER NOT NULL, link_type TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), note TEXT);
         CREATE TABLE mcp_tool_audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, server_name TEXT NOT NULL, tool_name TEXT NOT NULL, source_session_id INTEGER, source_feature_id INTEGER, source_project_id INTEGER, target_session_id INTEGER, target_feature_id INTEGER, target_project_id INTEGER, status TEXT NOT NULL, result_size_bytes INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
         INSERT INTO projects (id, name, path) VALUES (10, 'Current', '/tmp/current'), (20, 'Other', '/tmp/other');
@@ -26,7 +29,7 @@ async fn link_ctx() -> Arc<McpContext> {
     .execute(&pool)
     .await
     .expect("seed link test database");
-    McpContext::new_with_source_session(pool.clone(), pool, 100, Some(1000))
+    served_mcp_context(pool, McpControlServer::Project, 100, 1000).await
 }
 
 fn result_text(result: rmcp::model::CallToolResult) -> String {

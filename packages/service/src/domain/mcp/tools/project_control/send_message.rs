@@ -7,13 +7,8 @@ pub(crate) async fn send_session_message(
     args: &serde_json::Value,
     ctx: &McpContext,
 ) -> Result<serde_json::Value, String> {
-    send_session_message_with_client(
-        args,
-        ctx,
-        McpControlClient::from_env()?,
-        SendMessageTool::Project,
-    )
-    .await
+    send_session_message_with_client(args, ctx, ctx.control()?.clone(), SendMessageTool::Project)
+        .await
 }
 
 pub(crate) async fn send_workspace_session_message(
@@ -23,7 +18,7 @@ pub(crate) async fn send_workspace_session_message(
     send_session_message_with_client(
         args,
         ctx,
-        McpControlClient::from_env()?,
+        ctx.control()?.clone(),
         SendMessageTool::Workspace,
     )
     .await
@@ -101,7 +96,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        let ctx = McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777));
+        let ctx = std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        );
         let client = McpControlClient::from_env_values(Some(url), Some("secret".to_string()))
             .expect("control client");
 
@@ -145,7 +146,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        let ctx = McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777));
+        let ctx = std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        );
         let client = McpControlClient::from_env_values(Some(url), Some("secret".to_string()))
             .expect("control client");
 
@@ -238,7 +245,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        let ctx = McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777));
+        let ctx = std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        );
         let client = McpControlClient::from_env_values(Some(url), Some("secret".to_string()))
             .expect("control client");
 

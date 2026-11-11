@@ -1,5 +1,11 @@
 use sqlx::SqlitePool;
-use std::sync::Arc;
+
+use super::control_client::McpControlClient;
+
+/// Why a context built without `.control(...)` cannot reach the service.
+/// `mcp-serve` always sets it, from its environment (see `stdio.rs`).
+const NO_CONTROL_CHANNEL: &str =
+    "this Cadencr MCP server has no control channel to the Cadencr service";
 
 /// Shared context injected into all MCP tool handlers. The `feature_id` is
 /// pinned at subprocess spawn time (1:1 subprocess ↔ feature, see
@@ -7,40 +13,30 @@ use std::sync::Arc;
 /// depending on task-local propagation — `rmcp`'s internal request dispatch
 /// sometimes runs handlers on freshly-spawned tokio tasks that don't inherit
 /// a task-local scope, so the earlier scope-based approach was unreliable.
+///
+/// The subprocess only reads the database (`read_pool` is read-only): every
+/// write goes through the service over `control`, so the service stays the
+/// one writer and broadcasts each change to connected clients.
+#[derive(bon::Builder)]
 pub struct McpContext {
-    // Reserved for the future `cadencr-workspace` MCP server's conversation
-    // read tools.
-    #[allow(dead_code)]
     pub read_pool: SqlitePool,
-    #[allow(dead_code)]
-    pub write_pool: SqlitePool,
     pub feature_id: i64,
     pub source_session_id: Option<i64>,
+    /// The client for the service's `/internal/mcp/*` routes, or why this
+    /// subprocess has none (its control env is missing or invalid).
+    #[builder(default = Err(NO_CONTROL_CHANNEL.to_string()))]
+    control: Result<McpControlClient, String>,
 }
 
 impl McpContext {
-    pub fn new(read_pool: SqlitePool, write_pool: SqlitePool, feature_id: i64) -> Arc<Self> {
-        Self::new_with_source_session(read_pool, write_pool, feature_id, None)
-    }
-
-    pub fn new_with_source_session(
-        read_pool: SqlitePool,
-        write_pool: SqlitePool,
-        feature_id: i64,
-        source_session_id: Option<i64>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            read_pool,
-            write_pool,
-            feature_id,
-            source_session_id,
+    /// The service's control routes, or a clear error when this subprocess
+    /// cannot reach them: a tool that changes state never falls back to
+    /// writing the database itself, and a read is not served unaudited.
+    pub fn control(&self) -> Result<&McpControlClient, String> {
+        self.control.as_ref().map_err(|reason| {
+            format!(
+                "Cannot reach the Cadencr service, so this call could not be completed: {reason}"
+            )
         })
-    }
-
-    // Reserved for future MCP tools that should read the pinned feature id via
-    // an accessor instead of direct field access.
-    #[allow(dead_code)]
-    pub fn feature_id(&self) -> i64 {
-        self.feature_id
     }
 }

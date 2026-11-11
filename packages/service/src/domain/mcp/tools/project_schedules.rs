@@ -46,7 +46,13 @@ mod tests {
             .await
             .unwrap();
 
-        let ctx = McpContext::new_with_source_session(pool.clone(), pool, feature_id, Some(1));
+        let ctx = std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(feature_id)
+                .source_session_id(1)
+                .build(),
+        );
         let result = list_schedules(&ctx).await.unwrap();
 
         let schedules = result["schedules"].as_array().unwrap();

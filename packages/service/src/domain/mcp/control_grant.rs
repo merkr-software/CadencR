@@ -22,6 +22,10 @@ use crate::shared::security::{constant_time_str_eq, hmac_sha256_base64url};
 
 const PREFIX: &str = "mc1";
 
+/// The control secret of `AppState::with_pool`, for tests that mint grants
+/// against it.
+pub const TEST_MCP_CONTROL_SECRET: &str = "test-mcp-secret";
+
 /// The Cadencr MCP server a control grant was minted for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpControlServer {
@@ -42,6 +46,14 @@ impl McpControlServer {
             "p" => Some(Self::Project),
             "w" => Some(Self::Workspace),
             _ => None,
+        }
+    }
+
+    /// The MCP server name agents see (`cadencr-<short name>`).
+    pub(crate) fn server_name(self) -> &'static str {
+        match self {
+            Self::Project => "cadencr-project",
+            Self::Workspace => "cadencr-workspace",
         }
     }
 

@@ -24,14 +24,14 @@ pub(crate) async fn update_schedule(
     args: &serde_json::Value,
     ctx: &McpContext,
 ) -> Result<serde_json::Value, String> {
-    update_schedule_with_client(args, ctx, McpControlClient::from_env()?).await
+    update_schedule_with_client(args, ctx, ctx.control()?.clone()).await
 }
 
 pub(crate) async fn delete_schedule(
     args: &serde_json::Value,
     ctx: &McpContext,
 ) -> Result<serde_json::Value, String> {
-    delete_schedule_with_client(args, ctx, McpControlClient::from_env()?).await
+    delete_schedule_with_client(args, ctx, ctx.control()?.clone()).await
 }
 
 async fn update_schedule_with_client(
@@ -86,7 +86,13 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777))
+        std::sync::Arc::new(
+            McpContext::builder()
+                .read_pool(pool)
+                .feature_id(42)
+                .source_session_id(777)
+                .build(),
+        )
     }
 
     async fn control_plane(path: &'static str, captured: Captured) -> McpControlClient {

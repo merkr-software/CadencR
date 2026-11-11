@@ -5,8 +5,9 @@ use serde_json::json;
 use sqlx::{FromRow, QueryBuilder, Sqlite};
 
 use crate::domain::mcp::context::McpContext;
+use crate::domain::mcp::control_grant::McpControlServer;
+use crate::domain::mcp::read_audit::{audited, is_read_tool};
 use crate::domain::mcp::settings_tool::SettingsTool;
-use crate::domain::mcp::tools::audit::record_read_tool_audit;
 use crate::domain::mcp::tools::helpers::{error_result, require_i64, text_result};
 use crate::domain::mcp::tools::messages::{
     cap_message_content, fts_literal_query, messages_json, MessageRow,
@@ -14,7 +15,6 @@ use crate::domain::mcp::tools::messages::{
 };
 use crate::domain::mcp::tools::project_compare;
 use crate::domain::mcp::tools::project_control;
-use crate::domain::mcp::tools::project_links;
 use crate::domain::mcp::tools::project_list;
 use crate::domain::mcp::tools::project_schedules;
 use crate::domain::mcp::tools::project_search;
@@ -64,7 +64,7 @@ pub async fn run_project_tool(
         "project_get_session_status" => project_status::get_session_status(&ctx, &args).await,
         "project_find_related_sessions" => project_search::find_related_sessions(&ctx, &args).await,
         "project_read_session_tail" => project_tail::read_session_tail(&ctx, &args).await,
-        "project_link_sessions" => project_links::link_sessions(&ctx, &args).await,
+        "project_link_sessions" => project_control::link_sessions(&args, &ctx).await,
         "project_get_worktree_status" => project_worktree::get_worktree_status(&ctx, &args).await,
         "project_compare_sessions" => project_compare::compare_sessions(&ctx, &args).await,
         "project_list_agent_providers" => project_control::list_agent_providers(&ctx).await,
@@ -85,34 +85,23 @@ pub async fn run_project_tool(
         }
         _ => Err(format!("Unknown tool: {name}")),
     };
-    let result = if is_project_read_tool(name) {
-        record_read_tool_audit("cadencr-project", name, &args, &ctx, &result, started_at)
-            .await
-            .map_or_else(Err, |_| result)
+    let result = if is_read_tool(McpControlServer::Project, name) {
+        audited(
+            McpControlServer::Project,
+            name,
+            &args,
+            &ctx,
+            result,
+            started_at,
+        )
+        .await
     } else {
         result
     };
-
     match result {
         Ok(value) => text_result(&value.to_string()),
         Err(error) => error_result(&error),
     }
-}
-
-fn is_project_read_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "project_list_sessions"
-            | "project_read_session"
-            | "project_get_session_status"
-            | "project_find_related_sessions"
-            | "project_read_session_tail"
-            | "project_link_sessions"
-            | "project_get_worktree_status"
-            | "project_compare_sessions"
-            | "project_list_agent_providers"
-            | "project_list_schedules"
-    )
 }
 
 pub(super) async fn current_project(ctx: &McpContext) -> Result<ProjectSummary, String> {

@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use cadencr_service::domain::mcp::context::McpContext;
+use cadencr_service::domain::mcp::control_grant::McpControlServer;
 use cadencr_service::domain::mcp::tools::workspace::run_workspace_tool;
 use cadencr_service::domain::settings_store::global_write_content;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
+use crate::support::mcp_service::served_mcp_context;
 use crate::SETTINGS_TEST_LOCK;
 
 async fn activity_ctx() -> Arc<McpContext> {
@@ -38,7 +40,7 @@ async fn activity_ctx() -> Arc<McpContext> {
     .execute(&pool)
     .await
     .expect("seed activity test database");
-    McpContext::new_with_source_session(pool.clone(), pool, 10, Some(100))
+    served_mcp_context(pool, McpControlServer::Workspace, 10, 100).await
 }
 
 fn result_text(result: rmcp::model::CallToolResult) -> String {
