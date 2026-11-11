@@ -20,11 +20,19 @@ use crate::error::AppError;
 pub use kind::ExtensionKind;
 
 /// An error about the shared catalog, its downloads or its feeds, which no
-/// single extension kind owns.
+/// single extension kind owns. Wrapping one of these errors again keeps a
+/// single "marketplace" prefix.
 pub fn invalid(message: impl std::fmt::Display) -> AppError {
+    const PREFIX: &str = "marketplace ";
+    let message = message.to_string();
+    let message = if message.starts_with(PREFIX) {
+        message
+    } else {
+        format!("{PREFIX}{message}")
+    };
     AppError::coded(
         axum::http::StatusCode::BAD_REQUEST,
         "MARKETPLACE_CATALOG_INVALID",
-        format!("marketplace {message}"),
+        message,
     )
 }

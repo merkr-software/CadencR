@@ -314,6 +314,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unconfigured_catalog_says_marketplace_once() {
+        let (_, trust) = super::super::tests::signed();
+        let (_root, context) = private_context(trust);
+        let (result, _) = acquire_or_cached(context, false, none()).await;
+        let message = result.unwrap_err().to_string();
+        assert!(!message.contains("marketplace marketplace"), "{message}");
+        assert!(
+            message.starts_with("marketplace catalog source is not configured; "),
+            "{message}"
+        );
+        // Wrapping an already prefixed error never stacks the prefix.
+        let wrapped = invalid(invalid("catalog lock failed")).to_string();
+        assert_eq!(wrapped, "marketplace catalog lock failed");
+    }
+
+    #[tokio::test]
     async fn a_catalog_version_is_verified_once_however_often_it_is_read() {
         let (index, trust) = super::super::tests::signed();
         let bytes = serde_json::to_vec(&index).unwrap();
