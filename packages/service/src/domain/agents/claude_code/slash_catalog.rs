@@ -3,17 +3,22 @@ use crate::domain::agents::adapter::{RuntimeError, RuntimeSlashCommand, RuntimeS
 use super::ClaudeCodeAdapter;
 
 impl ClaudeCodeAdapter {
+    /// Commands of `cwd` under `profile` (none: the active one), whose config
+    /// dir holds the user-level commands, skills and plugins.
     pub(super) async fn discover_runtime_slash_commands(
         &self,
         cwd: &str,
+        profile: Option<&str>,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
+        let config_dir = super::config_dir::for_profile(profile)
+            .map_err(|error| RuntimeError::new(error.to_string()))?;
         // Filesystem entries are cwd-specific and re-scanned per call;
         // built-ins are cwd-invariant and cached. The two probes are
         // independent, so run them concurrently. Filesystem entries come
         // first so `resolve_commands`'s downstream first-seen dedup keeps
         // user-defined commands over identically-named built-ins.
         let (filesystem, builtins) = tokio::join!(
-            claude_agent_sdk_rs::list_filesystem_commands(cwd),
+            claude_agent_sdk_rs::list_filesystem_commands(cwd, Some(&config_dir)),
             self.load_builtin_slash_commands(),
         );
         let filesystem = filesystem.map_err(RuntimeError::from)?;

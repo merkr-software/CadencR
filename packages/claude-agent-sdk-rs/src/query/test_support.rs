@@ -9,39 +9,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use once_cell::sync::Lazy;
-
 use crate::mcp::McpServerConfig;
-
-/// Serializes tests that mutate the `HOME` environment variable so they
-/// don't race with each other or with tests that read `~/.claude.json`.
-static HOME_ENV_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
-
-/// RAII guard that points `HOME` at `dir` for the duration of a test, so
-/// `mcp_discovery::configured_mcp_servers` doesn't pick up the developer's
-/// real `~/.claude.json`. Restore the original value on drop.
-pub(super) struct HomeIsolationGuard {
-    _lock: tokio::sync::MutexGuard<'static, ()>,
-    prior: Option<std::ffi::OsString>,
-}
-
-impl HomeIsolationGuard {
-    pub(super) async fn new(dir: &Path) -> Self {
-        let lock = HOME_ENV_LOCK.lock().await;
-        let prior = std::env::var_os("HOME");
-        std::env::set_var("HOME", dir);
-        Self { _lock: lock, prior }
-    }
-}
-
-impl Drop for HomeIsolationGuard {
-    fn drop(&mut self) {
-        match &self.prior {
-            Some(value) => std::env::set_var("HOME", value),
-            None => std::env::remove_var("HOME"),
-        }
-    }
-}
 
 /// Write `script` to `<dir>/claude` and chmod +x. Returns the path.
 ///

@@ -1,8 +1,8 @@
 //! Claude Code release detection and self-update.
 //!
 //! Releases are published to npm under two dist-tags, and `claude update`
-//! follows the `autoUpdatesChannel` from `~/.claude/settings.json`
-//! (`latest` by default, or `stable`). Detection reads the same channel so
+//! follows the `autoUpdatesChannel` from the `settings.json` of the config dir
+//! it runs with (`latest` by default, or `stable`). Detection reads the same channel so
 //! Cadencr never announces a version `claude update` would not install.
 
 use crate::domain::agents::updates::native_cli::LatestVersionFuture;
@@ -18,7 +18,8 @@ pub(crate) fn latest_version(http: &reqwest::Client) -> LatestVersionFuture<'_> 
 }
 
 async fn configured_channel() -> &'static str {
-    let Some(path) = dirs::home_dir().map(|home| home.join(".claude").join("settings.json")) else {
+    // `claude update` runs with the service's own environment, no profile.
+    let Some(path) = super::config_dir::for_env(None).map(|dir| dir.join("settings.json")) else {
         return "latest";
     };
     let Ok(contents) = tokio::fs::read(&path).await else {

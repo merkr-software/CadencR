@@ -34,6 +34,9 @@ struct SessionRef {
     /// on-disk log directory after the cwd they ran in, so for a worktree-backed
     /// feature this must be the worktree path, not the project root.
     cwd: String,
+    /// Provider profile the session runs under; it may move the provider's
+    /// log directory (Claude's `CLAUDE_CONFIG_DIR`).
+    profile: Option<String>,
 }
 
 /// Append provider events newer than the newest stored message into the
@@ -50,8 +53,13 @@ pub async fn refresh_feature_from_provider(
 ) -> Result<RefreshOutcome, AppError> {
     let session = resolve_feature_session(read_pool, feature_id).await?;
 
-    let loaded =
-        load_provider_session(session.provider, &session.cwd, &session.runtime_session_id).await?;
+    let loaded = load_provider_session(
+        session.provider,
+        &session.cwd,
+        &session.runtime_session_id,
+        session.profile.as_deref(),
+    )
+    .await?;
     let cursor = max_message_id(read_pool, session.id).await?;
     let conv = match loaded {
         LoadedSession::Found(conv) => conv,
@@ -92,20 +100,21 @@ async fn resolve_feature_session(
     pool: &SqlitePool,
     feature_id: i64,
 ) -> Result<SessionRef, AppError> {
-    let row: Option<(i64, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "SELECT s.id, s.runtime_provider, s.runtime_session_id, s.status
+    let row: Option<(i64, Option<String>, Option<String>, String, Option<String>)> =
+        sqlx::query_as(
+            "SELECT s.id, s.runtime_provider, s.runtime_session_id, s.status, s.profile
          FROM agent_sessions s
          WHERE s.feature_id = ?
            AND s.runtime_session_id IS NOT NULL
            AND s.runtime_session_id != ''
          ORDER BY s.id DESC
          LIMIT 1",
-    )
-    .bind(feature_id)
-    .fetch_optional(pool)
-    .await?;
+        )
+        .bind(feature_id)
+        .fetch_optional(pool)
+        .await?;
 
-    let (id, provider, runtime_session_id, status) = row.ok_or_else(|| {
+    let (id, provider, runtime_session_id, status, profile) = row.ok_or_else(|| {
         AppError::BadRequest("This conversation has no CLI-backed session to sync from yet.".into())
     })?;
 
@@ -149,6 +158,7 @@ async fn resolve_feature_session(
         provider,
         runtime_session_id,
         cwd,
+        profile,
     })
 }
 
