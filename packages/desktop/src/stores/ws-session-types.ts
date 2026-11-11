@@ -178,6 +178,8 @@ export interface SessionEntry extends SessionConfigState {
   pendingQuestionToolInput: Record<string, unknown>;
   permissionMode: PermissionMode;
   accessMode: AccessMode;
+  /** Mode chosen before initialization, which the service has not saved yet. */
+  pendingInitPermissionMode: PermissionMode | null;
   /** Access choice made before initialization, replayed before queued prompts. */
   pendingInitAccessMode: AccessMode | null;
   currentThinkingEffort?: string;
@@ -266,6 +268,7 @@ export function createSessionEntry(): SessionEntry {
     pendingQuestionToolInput: {},
     permissionMode: defaultEditModeFor(DEFAULT_PROVIDER),
     accessMode: "default",
+    pendingInitPermissionMode: null,
     pendingInitAccessMode: null,
     currentThinkingEffort: undefined,
     fastMode: false,

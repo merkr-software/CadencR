@@ -764,6 +764,7 @@ describe("ws-session-store", () => {
     store.setPermissionMode("s1", "plan");
     expect(ws.sent).toHaveLength(0);
     expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("plan");
+    expect(useWsSessionStore.getState().sessions["s1"].pendingInitPermissionMode).toBe("plan");
 
     ws.simulateMessage({
       domain: "session",
@@ -778,6 +779,7 @@ describe("ws-session-store", () => {
       session_id: "srv-1",
       mode: "plan",
     });
+    expect(useWsSessionStore.getState().sessions["s1"].pendingInitPermissionMode).toBeNull();
   });
 
   it.each(["autoReview", "default", "fullAccess"] as const)(

@@ -123,6 +123,8 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     mcpServers: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
     initRequestId: null,
+    // `session.init` carried the chip's mode, and the init replay resends it.
+    pendingInitPermissionMode: null,
     // A fresh stream: a retry reported on the previous connection (whose
     // recovery or turn end may have been missed) no longer applies.
     streamHealth: createStreamHealth(),

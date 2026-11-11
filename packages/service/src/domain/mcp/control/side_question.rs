@@ -2,9 +2,9 @@
 //! its thread nor interrupt its agent.
 //!
 //! The question goes to a new, linked conversation in the same working
-//! directory, in Plan (read-only) mode, seeded with an excerpt of the source
-//! conversation — through the same spawn pipeline as `project_spawn_session`,
-//! so provider, model and profile follow the source session.
+//! directory, seeded with an excerpt of the source conversation — through the
+//! same spawn pipeline as `project_spawn_session`, so provider, model, profile
+//! and permission mode follow the source session.
 //!
 //! The side conversation is born archived: it is temporary, read inline under
 //! the source conversation, and joins the sidebar only when the user keeps it
@@ -37,6 +37,13 @@ const MAX_QUESTION_CHARS: usize = 8_000;
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SideQuestionRequest {
     pub question: String,
+    /// The composer's permission mode when the source session has not joined
+    /// yet: a chip change made before then is not saved on its row.
+    #[serde(default)]
+    pub permission_mode: Option<String>,
+    /// The composer's access choice made before the source session joined.
+    #[serde(default)]
+    pub access_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -81,14 +88,17 @@ fn side_brief(excerpt: &str, question: &str) -> String {
     )
 }
 
-/// The spawn request of a side conversation: read-only (Plan; Codex access
-/// pinned to Default so it never inherits Full Access) on the source's
-/// provider, model, effort and profile. It follows neither the source's gates
+/// The spawn request of a side conversation, on the source's provider, model,
+/// effort, profile and permission mode (Claude mode and Codex access alike;
+/// the composer's unsaved choice first), so it asks for exactly what the user
+/// already allows there; the brief asks it not to modify anything. It follows
+/// neither the source's gates
 /// nor its completion: the source agent is never steered by it — a permission
 /// the side agent asks for, or its answer, stays in the side conversation,
 /// where the user reads it.
 fn side_request(
     source: &SessionRow,
+    asked: &SideQuestionRequest,
     question: &str,
     excerpt: &str,
     branch: SpawnBranch,
@@ -103,8 +113,14 @@ fn side_request(
         model: source.model.clone(),
         thinking_level: source.thinking_effort.clone(),
         profile: source.profile.clone(),
-        permission_mode: Some("plan".to_string()),
-        codex_permission_mode: Some("default".to_string()),
+        permission_mode: asked
+            .permission_mode
+            .clone()
+            .or_else(|| source.permission_mode.clone()),
+        codex_permission_mode: asked
+            .access_mode
+            .clone()
+            .or_else(|| source.codex_permission_mode.clone()),
         source_note: Some("cadencr:side-question".to_string()),
         follow: Some(SpawnFollowOptions::detached()),
         link_to_current_session: None,
@@ -143,7 +159,7 @@ pub async fn ask_session_side_question(
     let branch = source_branch(&state.read_pool, &source).await?;
     let Json(spawned) = spawn_session_handler(
         State(state.clone()),
-        Json(side_request(&row, question, &excerpt, branch)),
+        Json(side_request(&row, &body, question, &excerpt, branch)),
     )
     .await?;
     // The conversation exists but the question never reached its agent:
@@ -200,7 +216,7 @@ mod tests {
             model: Some("claude-opus-4-8".to_string()),
             profile: None,
             permission_mode: Some("acceptEdits".to_string()),
-            codex_permission_mode: Some("full_access".to_string()),
+            codex_permission_mode: Some("fullAccess".to_string()),
             status: "completed".to_string(),
             pending_permission: None,
             pending_questions: None,
@@ -213,19 +229,38 @@ mod tests {
         }
     }
 
+    fn asked(permission_mode: Option<&str>, access_mode: Option<&str>) -> SideQuestionRequest {
+        SideQuestionRequest {
+            question: "q".to_string(),
+            permission_mode: permission_mode.map(str::to_string),
+            access_mode: access_mode.map(str::to_string),
+        }
+    }
+
     #[test]
     fn side_conversation_never_steers_the_source_agent() {
-        let request = side_request(&source_row(), "q", "", SpawnBranch::default());
+        let request = side_request(
+            &source_row(),
+            &asked(None, None),
+            "q",
+            "",
+            SpawnBranch::default(),
+        );
         assert!(!request.follows_gates());
         assert!(!request.follows_completion());
     }
 
     #[test]
-    fn side_conversation_is_read_only_on_the_source_runtime() {
-        let request = side_request(&source_row(), "q", "", SpawnBranch::default());
-        assert_eq!(request.permission_mode.as_deref(), Some("plan"));
-        // Never the source's Full Access.
-        assert_eq!(request.codex_permission_mode.as_deref(), Some("default"));
+    fn side_conversation_follows_the_source_runtime_and_modes() {
+        let request = side_request(
+            &source_row(),
+            &asked(None, None),
+            "q",
+            "",
+            SpawnBranch::default(),
+        );
+        assert_eq!(request.permission_mode.as_deref(), Some("acceptEdits"));
+        assert_eq!(request.codex_permission_mode.as_deref(), Some("fullAccess"));
         assert_eq!(request.provider.as_deref(), Some("claude_code"));
         assert_eq!(request.model.as_deref(), Some("claude-opus-4-8"));
         assert_eq!(request.thinking_level.as_deref(), Some("high"));
@@ -233,8 +268,27 @@ mod tests {
     }
 
     #[test]
+    fn side_conversation_takes_the_composer_choice_not_yet_saved() {
+        let request = side_request(
+            &source_row(),
+            &asked(Some("plan"), Some("default")),
+            "q",
+            "",
+            SpawnBranch::default(),
+        );
+        assert_eq!(request.permission_mode.as_deref(), Some("plan"));
+        assert_eq!(request.codex_permission_mode.as_deref(), Some("default"));
+    }
+
+    #[test]
     fn side_conversation_is_temporary_until_kept() {
-        let request = side_request(&source_row(), "q", "", SpawnBranch::default());
+        let request = side_request(
+            &source_row(),
+            &asked(None, None),
+            "q",
+            "",
+            SpawnBranch::default(),
+        );
         assert!(request.start_archived);
     }
 }

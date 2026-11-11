@@ -27,7 +27,7 @@ export function useContextualSend(
 ) {
   const key = composerKeyFor(featureId);
   const items = useComposerContextItems(key);
-  const routeSideQuestion = useSideQuestionRoute(sessionId);
+  const routeSideQuestion = useSideQuestionRoute(sessionId, featureId);
   const withContext = useCallback(
     (send: SendFn): SendFn =>
       routeSideQuestion(async (text, attachments) => {
