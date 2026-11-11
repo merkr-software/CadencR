@@ -15,7 +15,7 @@ import { queryClient } from "@/lib/queryClient";
 import { STOPPED_EXIT_CODE } from "./run-state";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { isViewingFeature } from "@/lib/notify-agent-done";
-import { activateFeatureTab } from "@/stores/feature-layout-store";
+import { activateBuiltinFeatureTab } from "@/lib/plugin-tabs/builtin-fallback";
 import {
   useCustomActionsUiStore,
   type CustomActionLaunchTarget,
@@ -107,7 +107,7 @@ async function startCustomAction(
       const { command } = await resolveCommand(action.id, { feature_id: featureId });
       // Written verbatim to a fresh terminal split: the newline executes it.
       useTerminalStore.getState().sendToTerminal(featureId, `${command}\n`);
-      activateFeatureTab(featureId, "terminal");
+      activateBuiltinFeatureTab(featureId, "terminal");
       return;
     }
     const { run_id: runId } = await runCustomAction(action.id, { feature_id: featureId });

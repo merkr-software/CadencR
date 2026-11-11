@@ -42,7 +42,12 @@ afterEach(() => {
 
 function renderView(overrides: Parameters<typeof pluginTabSummary>[0] = {}) {
   return render(
-    <PluginTabView featureId={7} summary={pluginTabSummary(overrides)} context={CONTEXT} />,
+    <PluginTabView
+      featureId={7}
+      summary={pluginTabSummary(overrides)}
+      context={CONTEXT}
+      tab="plugin:graph"
+    />,
   );
 }
 
@@ -138,7 +143,12 @@ describe("PluginTabView", () => {
 
   it("explains a backend with no build for this platform, without a guest", async () => {
     const { user } = render(
-      <PluginTabView featureId={7} summary={linuxOnlyBackendTab()} context={CONTEXT} />,
+      <PluginTabView
+        featureId={7}
+        summary={linuxOnlyBackendTab()}
+        context={CONTEXT}
+        tab="plugin:graph"
+      />,
     );
     expect(
       screen.getByText("Changed files graph isn't available on this platform"),
@@ -151,7 +161,9 @@ describe("PluginTabView", () => {
 
   it("closes an open tab that gets blocked, and says why", async () => {
     const live = linuxOnlyBackendTab({ backend_availability: "available" });
-    const view = render(<PluginTabView featureId={7} summary={live} context={CONTEXT} />);
+    const view = render(
+      <PluginTabView featureId={7} summary={live} context={CONTEXT} tab="plugin:graph" />,
+    );
     await waitFor(() => expect(mock.bridge.open).toHaveBeenCalled());
     view.rerender(
       <PluginTabView
@@ -163,6 +175,7 @@ describe("PluginTabView", () => {
           enablement: { ...live.enablement, effective: false },
         }}
         context={CONTEXT}
+        tab="plugin:graph"
       />,
     );
     expect(screen.getByText("Changed files graph is blocked")).toBeInTheDocument();

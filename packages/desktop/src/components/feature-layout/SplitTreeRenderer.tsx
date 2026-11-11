@@ -9,6 +9,7 @@ import {
 } from "@/stores/feature-layout-store";
 import { storedSplitPath } from "@/stores/feature-layout-tree";
 import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
+import { useReplacementShownTabs } from "@/lib/plugin-tabs/builtin-fallback";
 
 import { usePopPanel } from "./use-pop-panel";
 import { TabPane } from "./TabPane";
@@ -64,7 +65,7 @@ function SplitRenderer({
 }: SplitTreeRendererProps & { node: LayoutSplit }): ReactNode {
   const setSplitSizes = useFeatureLayoutStore((s) => s.setSplitSizes);
   const focusedPaneId = useFocusedPaneId(featureId);
-  const pop = usePopPanel(node, focusedPaneId);
+  const pop = usePopPanel(node, focusedPaneId, useReplacementShownTabs(featureId));
 
   const pathKey = path.join("-");
   const ids = [`panel-${pathKey}-0`, `panel-${pathKey}-1`] as const;

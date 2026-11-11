@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PluginTabSummary } from "@/api/generated";
@@ -8,11 +9,18 @@ import {
 import { selectFeatureLayout, useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { getPluginTabs } from "@/stores/feature-layout-tree";
 import { usePluginTabRuntimeStore } from "@/lib/plugin-tabs/runtime-store";
+import {
+  setReplacedTabs,
+  showBuiltinTab,
+  useBuiltinTabFallbacks,
+} from "@/lib/plugin-tabs/builtin-fallback";
+import { getFocusedTab } from "@/stores/feature-layout-store";
 import { render, screen } from "@/test-utils";
 
 import {
   createPluginTabsBridgeMock,
   linuxOnlyBackendTab,
+  OFF_ENABLEMENT,
   pluginTabSummary,
 } from "./plugin-tab-fixtures";
 import { PluginTabAddMenu } from "./PluginTabAddMenu";
@@ -21,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(() => Promise.resolve()),
   tabs: [] as PluginTabSummary[],
   noteUserLayoutChange: vi.fn(),
+  replacements: null as string | null,
 }));
 
 vi.mock("@/lib/auto-layout/auto-layout-controller", async (importOriginal) => ({
@@ -32,9 +41,12 @@ vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mocks.navigate }))
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
   usePluginTabList: () => ({ data: mocks.tabs, isLoading: false, error: null }),
+  useGetWorkspaceSetting: (
+    key: string,
+    options: { query: { select: (setting: { key: string; value: string | null }) => unknown } },
+  ) => ({ data: options.query.select({ key, value: mocks.replacements }) }),
 }));
 
-const OFF = { global: false, project: null, effective: false, consent_required: false };
 let bridge: ReturnType<typeof createPluginTabsBridgeMock>["bridge"];
 const setBrowserSuppressed = vi.fn(() => Promise.resolve());
 
@@ -42,12 +54,14 @@ beforeEach(() => {
   bridge = createPluginTabsBridgeMock().bridge;
   setDesktopBridgeOverrideForTests({ isElectron: true, pluginTabs: bridge, setBrowserSuppressed });
   useFeatureLayoutStore.setState({ features: {} });
+  useBuiltinTabFallbacks.setState({ replaced: {}, shown: {} });
+  mocks.replacements = null;
   mocks.navigate.mockClear();
   setBrowserSuppressed.mockClear();
   mocks.tabs = [
     pluginTabSummary(),
     pluginTabSummary({ id: "ci", name: "CI", label: "Pipelines", description: "GitLab pipelines" }),
-    pluginTabSummary({ id: "off", name: "Off", label: "Disabled tab", enablement: OFF }),
+    pluginTabSummary({ id: "off", name: "Off", label: "Disabled tab", enablement: OFF_ENABLEMENT }),
   ];
 });
 
@@ -122,6 +136,38 @@ describe("PluginTabAddMenu", () => {
     expect(bridge.openDevTools).toHaveBeenCalledWith("7:plugin:graph");
   });
 
+  it("opens a replacement in the built-in's place and switches the place back and forth", async () => {
+    mocks.tabs = [pluginTabSummary({ id: "vcs", label: "VCS", replaces: ["git"] })];
+    mocks.replacements = '{"git":"vcs"}';
+    setReplacedTabs(7, { git: "vcs" }, { git: "vcs" });
+    const { user } = await openMenu();
+    expect(screen.getByText("Shown in place of Git")).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "VCS (open)" }));
+    expect(placedTabs()).toEqual([]);
+    expect(getFocusedTab(selectFeatureLayout(7)(useFeatureLayoutStore.getState()))).toBe("git");
+
+    // Focused: the replacement's own actions, and the way to the built-in.
+    await user.click(screen.getByRole("button", { name: "Add custom tab" }));
+    await user.click(screen.getByRole("menuitem", { name: "Open DevTools" }));
+    expect(bridge.openDevTools).toHaveBeenCalledWith("7:plugin:vcs");
+    await user.click(screen.getByRole("button", { name: "Add custom tab" }));
+    await user.click(screen.getByRole("menuitem", { name: "Show the built-in Git" }));
+    expect(useBuiltinTabFallbacks.getState().shown[7]).toEqual({ git: "vcs" });
+
+    await user.click(screen.getByRole("button", { name: "Add custom tab" }));
+    expect(screen.queryByRole("menuitem", { name: "Open DevTools" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Show VCS instead of Git" }));
+    expect(useBuiltinTabFallbacks.getState().shown[7]).toEqual({});
+
+    // Picking it from the list while the built-in shows takes the place back.
+    act(() => showBuiltinTab(7, "git"));
+    await user.click(screen.getByRole("button", { name: "Add custom tab" }));
+    expect(screen.getByText("Replaces Git; the built-in shows here now")).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "VCS" }));
+    expect(useBuiltinTabFallbacks.getState().shown[7]).toEqual({});
+    expect(placedTabs()).toEqual([]);
+  });
+
   it("marks tabs that run commands or native code and opens their Activity", async () => {
     mocks.tabs = [
       pluginTabSummary(),
@@ -144,7 +190,7 @@ describe("PluginTabAddMenu", () => {
   });
 
   it("says so when no tab is on for the project", async () => {
-    mocks.tabs = [pluginTabSummary({ enablement: OFF })];
+    mocks.tabs = [pluginTabSummary({ enablement: OFF_ENABLEMENT })];
     await openMenu();
     expect(screen.getByText("No custom tab is on for this project yet.")).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Reload" })).not.toBeInTheDocument();

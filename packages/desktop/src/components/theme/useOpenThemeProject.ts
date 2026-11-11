@@ -12,6 +12,7 @@ import {
 import { useSystemAppearance } from "@/hooks/useSystemAppearance";
 import { useTheme } from "@/hooks/useTheme";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { userThemeId, userThemeLabel } from "@/lib/themes/user-theme";
 import { DEFAULT_PANE_ID } from "@/stores/editor-helpers";
@@ -61,6 +62,7 @@ export function useOpenThemeProject(): OpenThemeProject {
           if (opened.created) await arrangePanes(opened.feature_id);
           // Every open, not only the first: editor tabs live for the session,
           // and "edit this theme" has to put the theme in front of the user.
+          showBuiltinTab(opened.feature_id, "editor");
           useEditorStore.getState().openFile(opened.feature_id, DEFAULT_PANE_ID, THEME_FILE_NAME);
           // The project may have just been created; the sidebar is showing a
           // list that predates it.

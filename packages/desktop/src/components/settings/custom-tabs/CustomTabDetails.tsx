@@ -14,12 +14,14 @@ import { Button } from "@/components/ui/button";
 import { toastError } from "@/lib/api-errors";
 import { copyToClipboard } from "@/lib/clipboard";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
+import { declaredReplacements } from "@/lib/plugin-tabs/tab-replacements";
 import { cn } from "@/lib/utils";
 import { CustomTabAvailability } from "./CustomTabAvailability";
 import { customTabStatus } from "./custom-tab-model";
 import type { CustomTabCardProps } from "./CustomTabCard";
 import { CustomTabConfiguration } from "./CustomTabConfiguration";
 import { CustomTabPermissions } from "./CustomTabPermissions";
+import { CustomTabReplaces } from "./CustomTabReplaces";
 import { CustomTabShortcuts } from "./CustomTabShortcuts";
 import { CustomTabUpdateNotice } from "./CustomTabUpdateNotice";
 
@@ -60,6 +62,11 @@ export function CustomTabDetails({
           enablement={enablement}
         />
       </DetailBlock>
+      {declaredReplacements(tab.replaces).length > 0 ? (
+        <DetailBlock title="Replaces">
+          <CustomTabReplaces tab={tab} />
+        </DetailBlock>
+      ) : null}
       {tab.shortcuts.length > 0 ? (
         <DetailBlock title="Keyboard shortcuts">
           <CustomTabShortcuts tab={tab} />

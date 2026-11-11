@@ -10,6 +10,7 @@ import { useSessionTabs } from "@/components/WebSocketSessionFeatureBlockTabs";
 import { requestAutoReveal } from "@/lib/auto-layout/auto-layout-controller";
 import { isBinaryDocumentFile, isDocumentFile } from "@/lib/document-file";
 import { openDocumentPreview } from "@/lib/open-document-preview";
+import { activateBuiltinFeatureTab, showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { toRelativePath } from "@/lib/utils";
 import { ROOT_LEAF_ID, type TabKind } from "@/stores/feature-layout-schema";
 import {
@@ -86,7 +87,9 @@ export function useOpenDiffFileInEditor({
   return useMemo(
     () => ({
       openInPlace: (filePath, lineNumber, column) =>
-        open(filePath, lineNumber, column, () => activateFeatureTab(layoutFeatureId, "editor")),
+        open(filePath, lineNumber, column, () =>
+          activateBuiltinFeatureTab(layoutFeatureId, "editor"),
+        ),
       openBesideAgent: (filePath, lineNumber, column) => {
         // Documents clicked in the conversation go to the Preview tab, which
         // auto layout splits in beside the agent like it does the Editor.
@@ -110,6 +113,8 @@ export function useOpenDiffFileInEditor({
 }
 
 function revealEditorBesideAgent(featureId: number, layoutFeatureId: number): void {
+  // The file shows in the built-in Editor, even where a custom tab replaces it.
+  showBuiltinTab(layoutFeatureId, "editor");
   const outcome = requestAutoReveal(layoutFeatureId, "editor", "user-link");
   if (outcome === "declined") {
     activateFeatureTab(layoutFeatureId, "editor");

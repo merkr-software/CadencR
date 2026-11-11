@@ -60,6 +60,14 @@ impl TabManifest {
             .unwrap_or(&self.name)
     }
 
+    /// The built-in tabs this tab declares it can replace (`tab.replaces`).
+    pub fn replaces(&self) -> &[String] {
+        self.tab
+            .as_ref()
+            .map(|tab| tab.replaces.as_slice())
+            .unwrap_or_default()
+    }
+
     /// See [`TabAccessLevel`]: a backend outranks commands.
     pub fn access_level(&self) -> TabAccessLevel {
         if self.backend.is_some() {
@@ -156,12 +164,17 @@ pub enum TabAccessLevel {
     Backend,
 }
 
-/// Presentation of the tab trigger.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+/// Presentation of the tab trigger, and the built-in tabs it can stand in for.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TabSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Built-in tabs ([`REPLACEABLE_TABS`](super::REPLACEABLE_TABS)) the user
+    /// may show this tab in place of, from Settings. A declaration, not a
+    /// permission: it leaves the permissions hash unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replaces: Vec<String>,
 }
 
 /// Origins the plugin may reach through the host's egress relay.
@@ -239,10 +252,13 @@ mod tests {
         .unwrap();
         assert_eq!(manifest.label(), "Graph");
         assert!(manifest.allowed_origins().is_empty());
+        assert!(manifest.replaces().is_empty());
         manifest.tab = Some(TabSection {
             label: Some("G".into()),
+            replaces: vec!["git".into()],
         });
         assert_eq!(manifest.label(), "G");
+        assert_eq!(manifest.replaces(), ["git"]);
     }
 
     #[test]

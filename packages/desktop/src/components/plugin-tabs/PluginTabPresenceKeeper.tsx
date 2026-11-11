@@ -7,11 +7,17 @@ import { pluginTabsAvailable } from "@/lib/plugin-tabs/availability";
 import { PresenceRegistry, type WantedLease } from "@/lib/plugin-tabs/broker-presence";
 import { usePluginTabFeatureProjects } from "@/lib/plugin-tabs/feature-projects";
 import { pluginTabInstanceId } from "@/lib/plugin-tabs/instance-id";
+import {
+  hasTabReplacements,
+  NO_TAB_REPLACEMENTS,
+  type TabReplacementChoices,
+} from "@/lib/plugin-tabs/tab-replacements";
 import { pluginIdOfTab, type LayoutNode } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { getPluginTabs } from "@/stores/feature-layout-tree";
 
 import { staticOverlayState } from "./PluginTabView";
+import { resolveTabReplacements, useTabReplacementChoices } from "./tab-replacement";
 
 interface Placed {
   featureId: number;
@@ -62,19 +68,38 @@ function runsBackend(summary: PluginTabSummary): boolean {
   return summary.backend != null && staticOverlayState(summary, true) === null;
 }
 
+/** Custom tabs shown in place of built-ins in each remembered conversation. */
+function replacing(
+  choices: TabReplacementChoices,
+  projects: Readonly<Record<number, number>>,
+  listOf: (projectId: number) => PluginTabSummary[] | undefined,
+): Placed[] {
+  if (!hasTabReplacements(choices)) return [];
+  return Object.entries(projects).flatMap(([featureId, projectId]) =>
+    [...resolveTabReplacements(choices, listOf(projectId), true).values()].map((summary) => ({
+      featureId: Number(featureId),
+      pluginId: summary.id,
+    })),
+  );
+}
+
 export function wantedLeases(
   placed: readonly Placed[],
   projects: Readonly<Record<number, number>>,
   listOf: (projectId: number) => PluginTabSummary[] | undefined,
+  choices: TabReplacementChoices = NO_TAB_REPLACEMENTS,
 ): WantedLease[] {
-  return placed.flatMap(({ featureId, pluginId }) => {
+  const leases = new Map<string, WantedLease>();
+  for (const { featureId, pluginId } of [...placed, ...replacing(choices, projects, listOf)]) {
     const projectId = projects[featureId];
     const summary =
       projectId === undefined ? undefined : listOf(projectId)?.find((tab) => tab.id === pluginId);
-    if (!summary || !runsBackend(summary)) return [];
+    if (!summary || !runsBackend(summary)) continue;
+    // Placed and replacing a built-in is still one instance.
     const instanceId = pluginTabInstanceId(featureId, pluginId);
-    return [{ instanceId, pluginId, featureId, name: summary.name }];
-  });
+    leases.set(instanceId, { instanceId, pluginId, featureId, name: summary.name });
+  }
+  return [...leases.values()];
 }
 
 /**
@@ -87,15 +112,24 @@ export function wantedLeases(
  * when it is closed or its conversation deleted (`forgetFeatureProject`: the
  * deleted conversation's layout stays in the store; deleted from another
  * client, the service refuses its renewals instead), or once it may not run
- * (turned off, blocked, removed, invalid, no build for this platform).
+ * (turned off, blocked, removed, invalid, no build for this platform). A tab
+ * shown in place of a built-in (docs/CUSTOM_TABS.md §10) is held like a placed
+ * one in every conversation whose page showed a custom tab.
  * Renders nothing; mount it once.
  */
 export const PluginTabPresenceKeeper = memo(function PluginTabPresenceKeeper(): null {
   const desktop = pluginTabsAvailable();
   const everyPlaced = useFeatureLayoutStore(useShallow(selectPlacedPluginTabs));
   const projects = usePluginTabFeatureProjects((state) => state.projects);
+  const choices = useTabReplacementChoices(desktop) ?? NO_TAB_REPLACEMENTS;
   const placed = desktop ? everyPlaced : NONE;
-  const projectIds = [...new Set(placed.flatMap(({ featureId }) => projects[featureId] ?? []))];
+  const replaces = hasTabReplacements(choices);
+  const projectIds = [
+    ...new Set([
+      ...placed.flatMap(({ featureId }) => projects[featureId] ?? []),
+      ...(replaces ? Object.values(projects) : []),
+    ]),
+  ];
   // The very queries the conversation page lists its tabs with: one cache,
   // kept current by `app/plugin_tab_changed` and every enablement write.
   const lists = useQueries({
@@ -107,7 +141,7 @@ export const PluginTabPresenceKeeper = memo(function PluginTabPresenceKeeper(): 
     ),
   });
   const byProject = new Map(projectIds.map((projectId, index) => [projectId, lists[index]?.data]));
-  const wanted = wantedLeases(placed, projects, (projectId) => byProject.get(projectId));
+  const wanted = wantedLeases(placed, projects, (projectId) => byProject.get(projectId), choices);
   const wantedKey = wanted.map((lease) => lease.instanceId).join("|");
   const latest = useRef(wanted);
   latest.current = wanted;

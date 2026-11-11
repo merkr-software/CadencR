@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use super::issues::{TabFindings, TabIssueCode as Code};
 use super::manifest::TabManifest;
 use super::{
-    configuration, execution, network, shortcuts, SCOPES, SUPPORTED_API_VERSION,
+    configuration, execution, network, shortcuts, REPLACEABLE_TABS, SCOPES, SUPPORTED_API_VERSION,
     SUPPORTED_SCHEMA_VERSION,
 };
 
@@ -28,6 +28,7 @@ pub fn validate_manifest(manifest: &TabManifest) -> TabFindings {
     validate_text(manifest, &mut findings);
     validate_paths(manifest, &mut findings);
     validate_permissions(&manifest.permissions, &mut findings);
+    validate_replaces(manifest.replaces(), &mut findings);
     if let Some(network) = &manifest.network {
         network::validate(network, &mut findings);
     }
@@ -180,6 +181,29 @@ fn validate_permissions(permissions: &[String], findings: &mut TabFindings) {
     }
 }
 
+fn validate_replaces(replaces: &[String], findings: &mut TabFindings) {
+    let mut seen = BTreeSet::new();
+    for (index, tab) in replaces.iter().enumerate() {
+        let field = format!("tab.replaces[{index}]");
+        if !REPLACEABLE_TABS.contains(&tab.as_str()) {
+            findings.error(
+                Code::ReplacesInvalid,
+                field,
+                format!(
+                    "`{tab}` cannot be replaced; replaceable tabs: {}",
+                    REPLACEABLE_TABS.join(", ")
+                ),
+            );
+        } else if !seen.insert(tab.as_str()) {
+            findings.error(
+                Code::ReplacesDuplicate,
+                field,
+                format!("`{tab}` is listed twice"),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +314,22 @@ mod tests {
         );
         assert_eq!(findings.errors[1].field.as_deref(), Some("permissions[2]"));
         let all = validate_manifest(&manifest(json!({ "permissions": SCOPES })));
+        assert!(all.is_valid(), "{all:?}");
+    }
+
+    #[test]
+    fn replaced_tabs_are_replaceable_built_ins_listed_once() {
+        let findings = validate_manifest(&manifest(json!({
+            "tab": {"label": "VCS", "replaces": ["git", "agent", "browser", "git"]}
+        })));
+        assert_eq!(
+            codes(&findings.errors),
+            ["REPLACES_INVALID", "REPLACES_INVALID", "REPLACES_DUPLICATE"]
+        );
+        assert_eq!(findings.errors[2].field.as_deref(), Some("tab.replaces[3]"));
+        let all = validate_manifest(&manifest(json!({
+            "tab": {"label": "VCS", "replaces": REPLACEABLE_TABS}
+        })));
         assert!(all.is_valid(), "{all:?}");
     }
 }

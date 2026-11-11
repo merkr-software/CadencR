@@ -6,6 +6,7 @@ import {
   FolderGit2Icon,
   Loader2Icon,
   PlusIcon,
+  Repeat2Icon,
   RotateCwIcon,
   Settings2Icon,
   SparklesIcon,
@@ -30,8 +31,16 @@ import { desktopBridge } from "@/lib/desktop-bridge";
 import { pluginTabInstanceId } from "@/lib/plugin-tabs/instance-id";
 import { refreshPluginTabsOrToast, reloadLivePluginTab } from "@/lib/plugin-tabs/live-instances";
 import { setPluginTabActivityOpen } from "@/lib/plugin-tabs/runtime-store";
+import { activateBuiltinFeatureTab, showReplacementTab } from "@/lib/plugin-tabs/builtin-fallback";
+import {
+  BUILTIN_TAB_LABELS,
+  isReplaceableTab,
+  NO_TAB_REPLACEMENTS,
+  type ReplaceableTab,
+} from "@/lib/plugin-tabs/tab-replacements";
 import { pluginIdOfTab, pluginTabKind } from "@/stores/feature-layout-schema";
 import {
+  activateFeatureTab,
   getFocusedTab,
   selectFeatureLayout,
   useFeatureLayoutStore,
@@ -40,6 +49,7 @@ import {
 import { PluginTabAccessMark } from "./PluginTabAccess";
 import { PluginTabIcon } from "./PluginTabIcon";
 import { ACCESS_LEVEL_COPY, backendUnavailableHere, UNAVAILABLE_HERE } from "./plugin-tab-access";
+import { useReplacementsHere, useTabReplacementChoices } from "./tab-replacement";
 import { usePlacedPluginTabsKey, useProjectPluginTabs } from "./usePluginTabDefs";
 import { usePluginTabNavigation, type PluginTabNavigation } from "./usePluginTabNavigation";
 
@@ -86,11 +96,26 @@ function PluginTabMenuBody({
   const focusedTab = useFeatureLayoutStore((state) =>
     getFocusedTab(selectFeatureLayout(featureId)(state)),
   );
+  const replacements = useReplacementsHere(
+    featureId,
+    useTabReplacementChoices() ?? NO_TAB_REPLACEMENTS,
+    query.data,
+  );
+  const focusedSlot = focusedTab && isReplaceableTab(focusedTab) ? focusedTab : null;
+  const focusedReplacement = focusedSlot ? replacements.get(focusedSlot) : undefined;
   const focusedPluginId = focusedTab ? pluginIdOfTab(focusedTab) : null;
-  const focused = query.data?.find((tab) => tab.id === focusedPluginId) ?? null;
+  const focused =
+    focusedReplacement && !focusedReplacement.fallback
+      ? focusedReplacement.summary
+      : (query.data?.find((tab) => tab.id === focusedPluginId) ?? null);
   const placedIds = new Set(placed.split("|"));
   // A blocked tab is never effective.
   const enabledTabs = query.data?.filter((tab) => tab.enablement.effective) ?? [];
+  const bySummary = new Map(
+    [...replacements].map(([slot, { summary, fallback }]) => [summary.id, { slot, fallback }]),
+  );
+  const replacementOf = (tab: PluginTabSummary): TabReplacementHere | null =>
+    bySummary.get(tab.id) ?? null;
 
   return (
     <>
@@ -98,19 +123,35 @@ function PluginTabMenuBody({
       <AvailableTabs
         state={query}
         tabs={enabledTabs}
-        isPlaced={(tab) => placedIds.has(pluginTabKind(tab.id))}
+        isPlaced={(tab) => {
+          const here = replacementOf(tab);
+          return here ? !here.fallback : placedIds.has(pluginTabKind(tab.id));
+        }}
+        replacing={replacementOf}
         onSelect={(tab) => {
+          // A replacement opens in the built-in's place, taking it back if
+          // the built-in shows there now, rather than as a second tab.
+          const here = replacementOf(tab);
+          if (here) {
+            showReplacementTab(featureId, here.slot);
+            activateFeatureTab(featureId, here.slot);
+            return;
+          }
           // A structural user edit: drops any auto-layout undo snapshot, which
           // would otherwise restore a layout without this tab.
           noteUserLayoutChange(featureId, { structural: true });
           useFeatureLayoutStore.getState().addTab(featureId, pluginTabKind(tab.id));
         }}
       />
-      {focused && (
-        <>
-          <DropdownMenuSeparator />
-          <FocusedTabActions featureId={featureId} tab={focused} />
-        </>
+      {(focused || focusedReplacement) && <DropdownMenuSeparator />}
+      {focused && <FocusedTabActions featureId={featureId} tab={focused} />}
+      {focusedSlot && focusedReplacement && (
+        <ReplacementSwitch
+          featureId={featureId}
+          slot={focusedSlot}
+          label={focusedReplacement.summary.label}
+          fallback={focusedReplacement.fallback}
+        />
       )}
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={navigation.openSettings}>
@@ -130,15 +171,50 @@ interface TabsQueryState {
   error: unknown;
 }
 
+/** The built-in place a custom tab holds in this conversation. */
+interface TabReplacementHere {
+  slot: ReplaceableTab;
+  /** The built-in shows there now. */
+  fallback: boolean;
+}
+
+/** Switch a replaced built-in's place between the custom tab and the built-in. */
+function ReplacementSwitch({
+  featureId,
+  slot,
+  label,
+  fallback,
+}: {
+  featureId: number;
+  slot: ReplaceableTab;
+  label: string;
+  fallback: boolean;
+}): ReactElement {
+  const builtin = BUILTIN_TAB_LABELS[slot];
+  return (
+    <DropdownMenuItem
+      onSelect={() =>
+        fallback ? showReplacementTab(featureId, slot) : activateBuiltinFeatureTab(featureId, slot)
+      }
+    >
+      <Repeat2Icon />
+      {fallback ? `Show ${label} instead of ${builtin}` : `Show the built-in ${builtin}`}
+    </DropdownMenuItem>
+  );
+}
+
 function AvailableTabs({
   state,
   tabs,
   isPlaced,
+  replacing,
   onSelect,
 }: {
   state: TabsQueryState;
   tabs: readonly PluginTabSummary[];
   isPlaced: (tab: PluginTabSummary) => boolean;
+  /** The built-in whose place the tab holds here, if any. */
+  replacing: (tab: PluginTabSummary) => TabReplacementHere | null;
   onSelect: (tab: PluginTabSummary) => void;
 }): ReactNode {
   if (state.isLoading) {
@@ -164,7 +240,8 @@ function AvailableTabs({
     // Listed, so the user sees why it does not open; an already placed one
     // still jumps to its tab, which explains the same.
     const unavailable = backendUnavailableHere(tab);
-    const note = unavailable ? UNAVAILABLE_HERE : tab.description;
+    const here = replacing(tab);
+    const note = unavailable ? UNAVAILABLE_HERE : here ? replacementNote(here) : tab.description;
     return (
       <DropdownMenuItem
         key={tab.id}
@@ -185,6 +262,13 @@ function AvailableTabs({
       </DropdownMenuItem>
     );
   });
+}
+
+function replacementNote({ slot, fallback }: TabReplacementHere): string {
+  const builtin = BUILTIN_TAB_LABELS[slot];
+  return fallback
+    ? `Replaces ${builtin}; the built-in shows here now`
+    : `Shown in place of ${builtin}`;
 }
 
 function FocusedTabActions({

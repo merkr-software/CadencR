@@ -117,6 +117,9 @@ fn build(
         shortcuts: manifest
             .map(|manifest| manifest.shortcuts.clone())
             .unwrap_or_default(),
+        replaces: manifest
+            .map(|manifest| manifest.replaces().to_vec())
+            .unwrap_or_default(),
         backend: manifest.and_then(|manifest| manifest.backend.clone()),
         backend_availability: manifest.and_then(|manifest| manifest.backend.as_ref()).map(
             |backend| {
@@ -245,6 +248,7 @@ mod tests {
         let graph = &summaries[1];
         assert_eq!(graph.status, PluginTabStatus::Valid);
         assert_eq!(graph.label, "Graph");
+        assert!(graph.replaces.is_empty());
         assert_eq!(graph.permissions, ["features:read", "git:read"]);
         assert_eq!(graph.access_level, models::TabAccessLevel::Ui);
         assert!(graph.commands.is_empty() && graph.backend.is_none());

@@ -4834,6 +4834,8 @@ export const TabIssueCode = {
   SHORTCUT_KEYS_INVALID: "SHORTCUT_KEYS_INVALID",
   SHORTCUT_KEYS_DUPLICATE: "SHORTCUT_KEYS_DUPLICATE",
   SHORTCUT_DESCRIPTION_INVALID: "SHORTCUT_DESCRIPTION_INVALID",
+  REPLACES_INVALID: "REPLACES_INVALID",
+  REPLACES_DUPLICATE: "REPLACES_DUPLICATE",
 } as const;
 
 /**
@@ -4935,6 +4937,12 @@ export interface PluginTabSummary {
    * @nullable
    */
   project_overrides?: PluginTabProjectOverride[] | null;
+  /**
+   * Built-in tabs (`terminal`, `git`, `editor`, `preview`) the tab declares
+   * it can replace (`tab.replaces`); which one it does is a workspace
+   * setting (`custom_tab_replacements`).
+   */
+  replaces: string[];
   /** Keyboard shortcuts the tab handles while it has focus. */
   shortcuts: TabShortcut[];
   status: PluginTabStatus;

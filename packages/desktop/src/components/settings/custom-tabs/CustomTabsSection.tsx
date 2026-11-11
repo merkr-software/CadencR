@@ -11,6 +11,7 @@ import { CUSTOM_TABS_SECTION_ID } from "./custom-tab-model";
 import { CreateCustomTabDialog } from "./CreateCustomTabDialog";
 import { CustomTabCard } from "./CustomTabCard";
 import { CustomTabConsentDialog } from "./CustomTabConsentDialog";
+import { CustomTabReplacements } from "./CustomTabReplacements";
 import { KeptDraftsProvider } from "./kept-drafts";
 import { useCustomTabEnablement } from "./useCustomTabEnablement";
 import { useCustomTabsData, type CustomTabsData } from "./useCustomTabsData";
@@ -35,6 +36,7 @@ export function CustomTabsSection(): React.JSX.Element {
 
   return (
     <SettingsPageSection pageId="custom-tabs">
+      <CustomTabReplacements data={data} />
       <SettingsGroup
         bare
         title="Your custom tabs"

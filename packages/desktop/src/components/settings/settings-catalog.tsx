@@ -301,7 +301,14 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         icon: icon(Puzzle),
         description:
           "Web apps you build that open as tabs in a conversation, next to Agent, Terminal and Git. Each one only sees what you allow. Desktop only.",
-        entries: [{ label: "Create custom tab", keywords: ["plugin", "extension"] }],
+        entries: [
+          { label: "Create custom tab", keywords: ["plugin", "extension"] },
+          {
+            label: "Replace built-in tabs",
+            anchor: A.tabReplacements,
+            keywords: ["replace", "override", "git", "terminal", "editor", "preview"],
+          },
+        ],
       },
       {
         id: "actions",

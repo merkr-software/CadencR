@@ -124,7 +124,9 @@ pub(super) fn catalog(scope: SettingsScope, only: &[String]) -> Catalog {
 fn catalog_entry(scope: Scope, key: &'static str) -> CatalogEntry {
     let spec = scope.spec(key);
     let (kind, allowed, min, max) = match spec.map(|spec| spec.kind) {
-        Some(ValueKind::LspLanguages | ValueKind::StringArray) => ("string", None, None, None),
+        Some(ValueKind::LspLanguages | ValueKind::StringArray | ValueKind::TabReplacements) => {
+            ("string", None, None, None)
+        }
         Some(ValueKind::Bool) => ("boolean", None, None, None),
         Some(ValueKind::Enum(values)) => ("enum", Some(values), None, None),
         Some(ValueKind::Number) => ("number", None, None, None),
@@ -235,6 +237,10 @@ fn expected_shape(kind: ValueKind) -> String {
         ValueKind::IdList(values) => format!(
             "expected a comma-separated list of distinct values among {}",
             values.join(", ")
+        ),
+        ValueKind::TabReplacements => format!(
+            "expected a JSON object mapping built-in tabs ({}) to distinct custom tab ids",
+            cadencr_plugin_core::tab::REPLACEABLE_TABS.join(", ")
         ),
     }
 }

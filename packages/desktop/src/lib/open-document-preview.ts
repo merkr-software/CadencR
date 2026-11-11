@@ -4,6 +4,7 @@ import {
   type RevealSource,
 } from "@/lib/auto-layout/auto-layout-controller";
 import { useDocumentPreviewStore } from "@/stores/document-preview-store";
+import { showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { activateFeatureTab } from "@/stores/feature-layout-store";
 
 /**
@@ -26,6 +27,7 @@ export function openDocumentPreview({
   source: RevealSource;
 }): AutoRevealOutcome {
   useDocumentPreviewStore.getState().open(featureId, filePath);
+  showBuiltinTab(layoutFeatureId, "preview");
   const outcome = requestAutoReveal(layoutFeatureId, "preview", source);
   if (outcome === "declined" && source === "user-link") {
     activateFeatureTab(layoutFeatureId, "preview");

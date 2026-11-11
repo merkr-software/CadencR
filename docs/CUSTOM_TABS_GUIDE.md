@@ -192,6 +192,22 @@ not available and names the Cadencr shortcut that takes it. The keyboard
 shortcuts cheatsheet (⌘⇧?) lists the shortcuts that can fire. The format is
 in [CUSTOM_TABS.md](CUSTOM_TABS.md#3-manifest--tabjson).
 
+### Replace a built-in tab
+
+A tab can offer to take the place of Terminal, Git, Editor or Preview:
+
+```json
+"tab": { "label": "VCS", "replaces": ["git"] }
+```
+
+The user then picks it in Settings → Custom tabs → Replace built-in tabs. It
+shows in the built-in's place, with its shortcut, wherever the tab is on, and
+the built-in shows wherever it is not. When Cadencr has something only the
+built-in can show — a file to open, a pull request, a document, a custom action
+to run — the built-in comes back in that conversation; the tab strip's **+**
+menu switches back. If several tabs offer to replace the same built-in, the user
+chooses one. The details are in [CUSTOM_TABS.md §10](CUSTOM_TABS.md#10-replacing-a-built-in-tab).
+
 ### Look native
 
 Import the kit once:
