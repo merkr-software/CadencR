@@ -112,7 +112,16 @@ function PolicyLine(): React.JSX.Element | null {
     );
   }
   const status = policy.data;
-  if (status.cache_status === "not_configured") return null;
+  if (status.cache_status === "not_configured")
+    return (
+      <p className="flex items-start gap-1.5 text-[var(--acc-orange)]">
+        <ShieldAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+        <span>
+          This build has no revocation list for custom tabs — they can&apos;t be installed, and
+          native code won&apos;t start.
+        </span>
+      </p>
+    );
   if (status.cache_status === "fresh") {
     const published = formatAgo(status.generated_at);
     return <p>Revocation list is current{published ? ` (published ${published})` : ""}.</p>;

@@ -7,6 +7,23 @@ impl ManagedTrustStore {
     pub(crate) fn generation(&self) -> Option<u64> {
         self.profile.as_ref().map(|profile| profile.generation())
     }
+    /// What this store trusts — its keys and its root-signed generation — so
+    /// a verification done under it is reused only while the same trust holds.
+    pub(crate) fn fingerprint(&self) -> String {
+        let mut material = Vec::new();
+        for (id, key) in &self.keys {
+            material.extend_from_slice(id.as_bytes());
+            material.push(0);
+            material.extend_from_slice(key.as_bytes());
+        }
+        if let Some(profile) = &self.profile {
+            material.extend_from_slice(&cadencr_registry_core::canonical_json_bytes(
+                &serde_json::to_value(profile.envelope())
+                    .expect("a verified trust envelope serializes"),
+            ));
+        }
+        crate::shared::file_digest::sha256_hex(&material)
+    }
     pub fn from_registry_trust(profile: VerifiedRegistryTrust) -> Result<Self, ManagedTrustError> {
         let keys = profile
             .envelope()

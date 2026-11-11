@@ -1,9 +1,12 @@
-use super::archive::invalid;
+use super::{invalid, ExtensionKind};
 use crate::domain::projects::publication_release::local::validation::{
     parse_repository, validate_archive_url,
 };
 use crate::error::AppError;
 use futures::StreamExt as _;
+
+mod conditional;
+pub use conditional::{download_if_modified, Fetched, Validators};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DownloadKind {
@@ -11,16 +14,20 @@ enum DownloadKind {
     Artifact,
 }
 
+/// A `kind` package archive, from the release host its signed entry names.
 pub async fn download_archive(
+    kind: ExtensionKind,
     url: &str,
     distribution_repository: Option<&serde_json::Value>,
     limit: usize,
 ) -> Result<Vec<u8>, AppError> {
     let origin = cadencr_registry_core::theme_distribution_repository(url, distribution_repository)
-        .map_err(invalid)?;
+        .map_err(|error| kind.invalid(format!("archive origin is invalid: {error}")))?;
     let repository = parse_repository(Some(&origin))?;
     validate_archive_url(url, &repository)?;
-    download_inner(url, limit, DownloadKind::Artifact).await
+    download_inner(url, limit, DownloadKind::Artifact)
+        .await
+        .map_err(|error| kind.invalid(format!("archive download failed: {error}")))
 }
 fn allowed_redirect(url: &reqwest::Url) -> bool {
     url.scheme() == "https"
@@ -66,14 +73,14 @@ fn client_builder(kind: DownloadKind) -> reqwest::ClientBuilder {
                 || attempt.url().scheme() != "https"
                 || attempt.previous().len() >= 3
             {
-                attempt.error("unsafe theme download redirect")
+                attempt.error("unsafe download redirect")
             } else {
                 attempt.follow()
             }
         }))
         .timeout(std::time::Duration::from_secs(30))
 }
-async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<Vec<u8>, AppError> {
+fn checked_url(url: &str) -> Result<reqwest::Url, AppError> {
     let url = reqwest::Url::parse(url).map_err(invalid)?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -81,10 +88,13 @@ async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<V
         || url.password().is_some()
     {
         return Err(invalid(
-            "theme download requires absolute HTTPS without credentials",
+            "download requires absolute HTTPS without credentials",
         ));
     }
-    response_bytes(url, limit, kind, client(kind)?).await
+    Ok(url)
+}
+async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<Vec<u8>, AppError> {
+    response_bytes(checked_url(url)?, limit, kind, client(kind)?).await
 }
 async fn response_bytes(
     url: reqwest::Url,
@@ -99,20 +109,27 @@ async fn response_bytes(
         .map_err(invalid)?
         .error_for_status()
         .map_err(invalid)?;
+    body_bytes(response, limit, kind).await
+}
+async fn body_bytes(
+    response: reqwest::Response,
+    limit: usize,
+    kind: DownloadKind,
+) -> Result<Vec<u8>, AppError> {
     if (kind == DownloadKind::Artifact && !allowed_redirect(response.url()))
         || response.url().scheme() != "https"
         || response
             .content_length()
             .is_some_and(|size| size > limit as u64)
     {
-        return Err(invalid("unsafe or oversized theme download"));
+        return Err(invalid("unsafe or oversized download"));
     }
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(invalid)?;
         if bytes.len().saturating_add(chunk.len()) > limit {
-            return Err(invalid("theme download exceeds budget"));
+            return Err(invalid("download exceeds budget"));
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -155,6 +172,19 @@ mod tests {
             )
             .route("/exact", get(|| async { "fresh TLS fixture archive" }))
             .route(
+                "/catalog",
+                get(|headers: axum::http::HeaderMap| async move {
+                    let fresh = headers
+                        .get("if-none-match")
+                        .is_some_and(|etag| etag == "\"v1\"");
+                    Response::builder()
+                        .status(if fresh { 304 } else { 200 })
+                        .header("etag", "\"v1\"")
+                        .body(Body::from(if fresh { "" } else { "catalog body" }))
+                        .unwrap()
+                }),
+            )
+            .route(
                 "/tampered",
                 get(|| async { "tampered TLS fixture archive" }),
             )
@@ -191,6 +221,37 @@ mod tests {
         (client, handle)
     }
     #[tokio::test]
+    async fn an_unchanged_catalog_is_confirmed_without_its_body() {
+        let (client, handle) = tls_fixture().await;
+        let url = reqwest::Url::parse("https://github.com/catalog").unwrap();
+        let Fetched::Body { bytes, validators } =
+            conditional::fetch_with(&client, url.clone(), 1024, None)
+                .await
+                .unwrap()
+        else {
+            panic!("an unconditional request returns the body");
+        };
+        assert_eq!(bytes, b"catalog body");
+        assert_eq!(validators.etag.as_deref(), Some("\"v1\""));
+        assert!(matches!(
+            conditional::fetch_with(&client, url.clone(), 1024, Some(&validators))
+                .await
+                .unwrap(),
+            Fetched::NotModified
+        ));
+        let stale = Validators {
+            etag: Some("\"v0\"".into()),
+            last_modified: None,
+        };
+        assert!(matches!(
+            conditional::fetch_with(&client, url, 1024, Some(&stale))
+                .await
+                .unwrap(),
+            Fetched::Body { .. }
+        ));
+        handle.shutdown();
+    }
+    #[tokio::test]
     async fn fresh_tls_github_origin_redirect_bytes_digest_and_rejections() {
         let (client, handle) = tls_fixture().await;
         let origin =
@@ -219,8 +280,10 @@ mod tests {
         )
         .await
         .unwrap();
-        super::super::service::require_archive_digest(&bytes, &digest).unwrap();
-        let error = super::super::service::require_archive_digest(&tampered, &digest).unwrap_err();
+        crate::domain::themes::managed::service::require_archive_digest(&bytes, &digest).unwrap();
+        let error =
+            crate::domain::themes::managed::service::require_archive_digest(&tampered, &digest)
+                .unwrap_err();
         assert!(matches!(
             error,
             AppError::Coded {
@@ -280,6 +343,7 @@ mod tests {
             "https://github.com/other/themes/releases/download/v1/theme.tar.gz",
         ] {
             assert!(download_archive(
+                ExtensionKind::Theme,
                 url,
                 Some(&serde_json::json!("https://github.com/acme/themes")),
                 10

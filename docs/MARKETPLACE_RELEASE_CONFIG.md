@@ -94,7 +94,7 @@ blocklist checks remain authoritative; build validation does not replace them.
 | `CADENCR_MANAGED_THEME_INDEX_URL`            | Additional activation pair with the theme blocklist, requiring the complete four-variable trust group. Use the registry's `marketplace-v2/managed-index.json` or, for clients supporting administrative handoffs, `marketplace-v2-admin/managed-index.json` on `raw.githubusercontent.com/<owner>/<repository>/refs/heads/`. |
 | `CADENCR_MANAGED_THEME_BLOCKLIST_URL`        | Theme-only signed revocation policy at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-theme-blocklist.json`; same reviewed repository as the mixed catalog.                                                                                                                                                     |
 | `CADENCR_MANAGED_TAB_BLOCKLIST_URL`          | Custom-tab-only signed revocation policy (`kind: "tab-blocklist"`), e.g. `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-tab-blocklist.json`; same signing key and reviewed repository as the mixed catalog.                                                                                                     |
-| `CADENCR_MANAGED_LSP_BLOCKLIST_URL`          | Optional LSP-only signed revocation policy (`kind: "lsp-blocklist"`) at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-lsp-blocklist.json`; requires shared trust and the mixed catalog in the same reviewed repository. Without it, LSP installation is disabled; existing marketplace kinds remain available. |
+| `CADENCR_MANAGED_LSP_BLOCKLIST_URL`          | Optional LSP-only signed revocation policy (`kind: "lsp-blocklist"`) at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-lsp-blocklist.json`; requires shared trust and the mixed catalog in the same reviewed repository. Without it, marketplace LSP servers neither install nor start; other kinds are unaffected. |
 
 The first four variables are all-or-none. The two theme feeds are also all-or-none.
 The tab policy URL goes with the theme feeds: the desktop release workflow forwards it, and
@@ -411,13 +411,32 @@ A stolen or lost laptop with an unlocked Keychain is a suspected compromise.
   polls occur at most 15 minutes apart when the app uses managed themes; concurrent
   refreshes coalesce. Failures retry after 60 seconds; forced refreshes have a
   five-second minimum interval to avoid request storms.
-- With an authenticated, unexpired cached policy, existing revisions remain usable
-  offline with a visible diagnostic. New remote preview/install/update fails with
-  `MANAGED_THEME_POLICY_OFFLINE` until an online policy check succeeds.
-- Missing, invalid, expired or revoked policy fails closed for theme usage;
-  confirmed removal remains available. Renewal of an unchanged policy is automated
+- Themes follow the shared rule (see "One revocation rule" below): with an
+  authenticated, unexpired cached policy, install and update work offline too.
+  Without one (no feed in the build, nothing fetched, expired), install and update
+  fail with `MANAGED_THEME_POLICY_UNAVAILABLE`, while installed themes still preview
+  and apply with a visible warning. A revoked theme is refused even by an expired
+  cached policy; confirmed removal remains available. Renewal of an unchanged policy is automated
   by the registry's renewal workflow (about every five days, with 13-day windows);
   incident ownership and entry changes remain release-owner responsibilities.
+
+## One revocation rule
+
+Every kind — themes, custom tabs, LSP servers, providers — applies the same rule
+to its own signed feed (`domain/marketplace/revocation.rs`). A policy is
+**available** when an authenticated policy is cached and unexpired, fetched now
+or served from the cache while the feed is unreachable; it is **unavailable**
+when the build compiles no feed, nothing was fetched yet, or it expired.
+
+| Policy      | Install, update | Start native code¹ | Inert use²                                     | Remove |
+| ----------- | --------------- | ------------------ | ---------------------------------------------- | ------ |
+| available   | unless listed   | unless listed      | unless listed                                  | yes    |
+| unavailable | refused         | refused            | unless an authenticated cached policy lists it | yes    |
+
+¹ A tab's backend, an LSP server, a provider's agent. ² Applying a theme, serving
+a tab's page. Unavailable fails closed because native marketplace code runs
+unsandboxed with the user's rights: its trust rests on review, signing, consent
+and the blocklist, and without a policy the host cannot learn of a revocation.
 
 ## Custom tab revocation
 
@@ -430,15 +449,12 @@ mixed catalog without this feed (or the reverse), and requires the
 `marketplace-v2/managed-tab-blocklist.json` path in the catalog's repository;
 `desktop-release.yml` forwards it from the repository variable of the same name.
 
-**Custom builds have no such guard.** Only that release validator ties the two
-together; the service itself treats an unset tab feed as "no policy source". A
-build compiled with the mixed catalog URL but without
+**Custom builds fail closed.** A build compiled without
 `CADENCR_MANAGED_TAB_BLOCKLIST_URL` (a fork, a local `cargo build` with only the
-catalog variables) therefore lists, installs, updates and starts marketplace tabs
-with **no tab revocation at all**: nothing is ever blocked, and nothing is refused
-for want of a fresh policy. This is the same accepted gap as the other feeds'
-build-time pairing, not a runtime fail-closed rule; anyone shipping such a build
-to users owns the consequence, and should set both variables (or neither).
+catalog variables) has no tab policy, which the service treats like a policy never
+fetched: marketplace tabs neither install nor update, and their native backends do
+not start (`MANAGED_TAB_POLICY_UNAVAILABLE`); their pages keep working. The same
+holds for every kind's feed (see "One revocation rule").
 
 Payload (`schema_version: 1`, `kind: "tab-blocklist"`, canonical UTC whole-second
 `generated_at` / `expires_at`, window at most 14 days, entries sorted and unique):
@@ -486,8 +502,8 @@ Client behavior:
 - Any authenticated cached policy blocks what it lists, even after it expires or after
   its key is retired. Blocked tabs can still be removed.
 - Only a fresh policy (active signer, unexpired) lets a managed tab install, update or
-  start its native backend while the feed is configured. Otherwise those fail with
-  `MANAGED_TAB_POLICY_UNAVAILABLE`; the tab's web UI keeps working.
+  start its native backend. Otherwise — no feed in the build included — those fail
+  with `MANAGED_TAB_POLICY_UNAVAILABLE`; the tab's web UI keeps working.
 - Key rotation and compromise recovery work as for the other policies, with their own
   checkpoint list `recovery_tab_policy_sha256` in the registry trust manifest. A theme or
   provider checkpoint never authenticates a tab policy.

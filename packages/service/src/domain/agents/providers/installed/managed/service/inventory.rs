@@ -273,7 +273,7 @@ fn trust_inventory() -> ManagedTrustInventory {
             error_code: None,
             error: None,
         },
-        PinnedIndexTrustStatus::Invalid { code, message } => ManagedTrustInventory {
+        PinnedIndexTrustStatus::Invalid { code, message, .. } => ManagedTrustInventory {
             status: ManagedTrustConfigurationStatus::Invalid,
             key_id: None,
             error_code: Some(code.to_string()),

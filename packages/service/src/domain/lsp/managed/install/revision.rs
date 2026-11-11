@@ -5,12 +5,13 @@ use std::path::Path;
 pub(super) fn commit(
     root: &Path,
     body: InstallLspRequest,
-    index: crate::domain::themes::managed::models::SignedMixedCatalog,
+    /// The verified catalog the revision is resolved from.
+    index: crate::domain::marketplace::models::SignedMixedCatalog,
     bytes: Vec<u8>,
     update: bool,
+    /// Authenticates the committed receipt.
     trust: &ManagedTrustStore,
 ) -> Result<(), AppError> {
-    shared_catalog::verify(&index, trust, false)?;
     let package = shared_catalog::resolve_kind(&index, &body.lsp_id, &body.version, "lsp")?;
     let target = cadencr_registry_core::signed_lsp_target(&package, platform()).map_err(invalid)?;
     crate::domain::lsp::managed::policy::require_install(&body.lsp_id, &body.version, &target)?;
@@ -107,7 +108,7 @@ fn write_payload(
 mod tests {
     use super::super::remove_from;
     use super::*;
-    use crate::domain::themes::managed::models::SignedMixedCatalog;
+    use crate::domain::marketplace::models::SignedMixedCatalog;
     use base64::Engine as _;
     use ed25519_dalek::Signer as _;
     use serde_json::json;

@@ -14,8 +14,8 @@ use crate::domain::agents::providers::installed::managed::quarantine::ManagedFai
 use crate::domain::agents::providers::installed::managed::receipt::{
     ManagedPackageReceipt, ManagedRevision,
 };
+use crate::domain::agents::providers::installed::managed::trust::VerifiedManagedProviderIndex;
 use crate::domain::agents::providers::installed::managed::ResolvedManagedProviderPackage;
-use crate::domain::agents::providers::installed::managed::SignedProviderCatalog;
 use crate::error::AppError;
 use admission::AdmissionRequest;
 use errors::{
@@ -57,6 +57,7 @@ mod tests {
         );
         history::write_state(&state_path, &state).unwrap();
         let before = std::fs::read(&state_path).unwrap();
+        installer::tests::allow_all_blocklist(&storage);
         let descriptors = root.path().join("descriptors");
         let service = ManagedProviderService::builder()
             .client(reqwest::Client::new())
@@ -96,12 +97,32 @@ pub(super) async fn ingest(
     service: &ManagedProviderService,
     provider_id: &str,
     version: &str,
-    index: SignedProviderCatalog,
     kind: IngestKind,
 ) -> Result<ManagedMutation, AppError> {
     validate_request_identity(provider_id, version)?;
     let (expected_active, enabled) = lifecycle_precondition(service, provider_id, kind)?;
-    let resolved = resolve_admission(service, provider_id, version, &index)?;
+    // The client names a version; the package comes from the verified cache.
+    // A memo miss reads and verifies a catalog-sized file: off the async worker.
+    let (path, trust) = (
+        service.storage.catalog_cache_path(),
+        service.trust_store.clone(),
+    );
+    let verified =
+        tokio::task::spawn_blocking(move || super::super::catalog::cached_verified(&path, &trust))
+            .await
+            .map_err(|error| AppError::internal(format!("provider catalog read failed: {error}")))?
+            .map_err(|error| {
+                failure(
+                    service,
+                    provider_id,
+                    version,
+                    None,
+                    ManagedFailureStage::Trust,
+                    error.code.as_str(),
+                    error.message,
+                )
+            })?;
+    let resolved = resolve_admission(service, provider_id, version, &verified)?;
     super::super::installer::verify_admission_owner(
         &service.storage,
         provider_id,
@@ -115,7 +136,7 @@ pub(super) async fn ingest(
         AdmissionRequest {
             package: &resolved.package,
             agent: resolved.agent,
-            signed_index: index,
+            signed_index: verified.envelope().clone(),
             signer_key_id: &resolved.signer_key_id,
             signed_payload_sha256: &resolved.signed_payload_sha256,
         },
@@ -155,22 +176,8 @@ fn resolve_admission(
     service: &ManagedProviderService,
     provider_id: &str,
     version: &str,
-    index: &SignedProviderCatalog,
+    verified: &VerifiedManagedProviderIndex,
 ) -> Result<ResolvedAdmission, AppError> {
-    let verified = service
-        .trust_store
-        .verify_index(index.clone())
-        .map_err(|error| {
-            failure(
-                service,
-                provider_id,
-                version,
-                None,
-                ManagedFailureStage::Trust,
-                error.code.as_str(),
-                error.message,
-            )
-        })?;
     super::ensure_current_catalog(verified.index())?;
     let package = verified
         .resolve_current_platform(provider_id, version, env!("CARGO_PKG_VERSION"))
@@ -185,11 +192,6 @@ fn resolve_admission(
                 error.message,
             )
         })?;
-    super::super::catalog::admit_request(
-        &service.storage.catalog_cache_path(),
-        &service.trust_store,
-        index.clone(),
-    )?;
     let agent = verified
         .index()
         .packages

@@ -13,7 +13,8 @@ use utoipa::ToSchema;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyFreshness {
-    /// This build has no tab policy feed: nothing is blocked, nothing refused.
+    /// This build has no tab policy feed: like a policy never fetched, no
+    /// marketplace tab installs, updates or starts a backend; pages serve.
     NotConfigured,
     /// An unexpired policy signed by an active key.
     Fresh,
@@ -96,15 +97,16 @@ impl PolicySnapshot {
         }
     }
 
-    /// Starting a backend: not blocked, and, when a source is configured, a
-    /// fresh policy (409 `MANAGED_TAB_POLICY_UNAVAILABLE` otherwise).
+    /// Starting a backend: not blocked, and a fresh policy (409
+    /// `MANAGED_TAB_POLICY_UNAVAILABLE` otherwise, a build without a feed
+    /// included; see `marketplace::revocation`).
     pub fn require_backend_start(&self, subject: PolicySubject<'_>) -> Result<(), AppError> {
         self.require_not_blocked(subject)?;
         self.require_fresh("start its backend", subject.id)
     }
 
-    /// Installing or updating: fresh when configured, and 409
-    /// `MANAGED_TAB_BLOCKED` when the policy blocks the revision.
+    /// Installing or updating: a fresh policy, and 409 `MANAGED_TAB_BLOCKED`
+    /// when it blocks the revision.
     pub fn require_install(&self, subject: PolicySubject<'_>) -> Result<(), AppError> {
         if let Some(reason) = self.blocked_reason(subject)? {
             return Err(super::install_blocked(subject, &reason));
@@ -114,7 +116,15 @@ impl PolicySnapshot {
 
     fn require_fresh(&self, action: &str, id: &str) -> Result<(), AppError> {
         let state = match self.freshness() {
-            PolicyFreshness::NotConfigured | PolicyFreshness::Fresh => return Ok(()),
+            PolicyFreshness::Fresh => return Ok(()),
+            PolicyFreshness::NotConfigured => {
+                return Err(unavailable(format!(
+                    "{}; cannot {action} for {id}",
+                    crate::domain::marketplace::revocation::no_feed(
+                        crate::domain::marketplace::ExtensionKind::Tab
+                    )
+                )))
+            }
             PolicyFreshness::Stale => "is out of date",
             PolicyFreshness::Missing => "is unavailable",
         };
@@ -244,16 +254,29 @@ mod tests {
     }
 
     #[test]
-    fn unconfigured_blocks_and_refuses_nothing_even_with_a_cache() {
+    fn without_a_feed_a_tab_neither_installs_nor_starts_but_its_page_still_serves() {
         let root = storage::root();
         let (envelope, trust) = signed(-1, json!([{"tab_id":"ports","reason":"unsafe"}]));
         FEED.ingest(&root, &envelope, &trust, Utc::now()).unwrap();
         let snapshot = load(&root, false, &trust, Utc::now(), None);
         assert_eq!(snapshot.freshness(), PolicyFreshness::NotConfigured);
+        for refused in [
+            snapshot.require_backend_start(subject("other", None)),
+            snapshot.require_install(subject("other", None)),
+        ] {
+            assert!(matches!(
+                refused,
+                Err(AppError::Coded {
+                    code: "MANAGED_TAB_POLICY_UNAVAILABLE",
+                    ..
+                })
+            ));
+        }
+        // Inert content stays usable; a cache another build left is not
+        // this build's policy.
         snapshot
-            .require_backend_start(subject("ports", None))
+            .require_not_blocked(subject("ports", None))
             .unwrap();
-        snapshot.require_install(subject("ports", None)).unwrap();
         assert!(!snapshot.status().source_configured);
     }
 

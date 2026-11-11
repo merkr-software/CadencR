@@ -8,7 +8,7 @@ mod retention;
 mod write;
 use super::invalid;
 use crate::{
-    domain::themes::managed::{catalog, models::SignedMixedCatalog, storage as io},
+    domain::marketplace::{catalog, models::SignedMixedCatalog, storage as io},
     error::AppError,
 };
 pub use backend::{revision_id, BackendPayload, InstalledBackend};

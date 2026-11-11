@@ -1,6 +1,73 @@
 use super::*;
 use std::{fs::File, io::Read as _, path::Path};
 
+/// Why the stored generation could not be held against this build's.
+#[derive(Debug)]
+pub(super) enum AdvanceFailure {
+    /// The stored file itself is unreadable, unsafe or not a valid generation.
+    StoredFile(String),
+    /// The stored generation is not one this build may succeed (it is newer,
+    /// or equivocates): only an update helps.
+    Successor(String),
+    /// The directory around it, or this build's own generation, is at fault.
+    Environment(String),
+}
+
+impl AdvanceFailure {
+    pub(super) fn status(self, path: &Path) -> PinnedIndexTrustStatus {
+        match self {
+            Self::StoredFile(error) => invalid_with(
+                format!("{}: {error}", path.display()),
+                TrustRecovery::SetAside {
+                    path: path.to_path_buf(),
+                },
+            ),
+            Self::Successor(error) => invalid_with(
+                format!("{}: {error}; update Cadencr", path.display()),
+                TrustRecovery::UpdateApp,
+            ),
+            Self::Environment(error) => invalid_with(
+                format!("{}: {error}", path.display()),
+                TrustRecovery::Repair,
+            ),
+        }
+    }
+}
+
+/// A stored generation this build cannot verify. One that looks written by a
+/// newer Cadencr (a later generation, another schema, another root) is never
+/// offered for setting aside: it is the guard against rolling back to older
+/// keys, and only an update reads it.
+fn unverifiable(
+    bytes: &[u8],
+    current: &VerifiedRegistryTrust,
+    root_id: &str,
+    error: impl std::fmt::Display,
+) -> AdvanceFailure {
+    let newer = serde_json::from_slice::<serde_json::Value>(bytes).is_ok_and(|stored| {
+        stored["signed"]["generation"]
+            .as_u64()
+            .is_some_and(|generation| generation > current.generation())
+            || stored["signed"]["schema_version"]
+                .as_u64()
+                .is_some_and(|schema| schema != 1)
+            || stored["signature"]["key_id"]
+                .as_str()
+                .is_some_and(|key| key != root_id)
+    });
+    if newer {
+        AdvanceFailure::Successor(format!("{error}; it was written by a newer Cadencr"))
+    } else {
+        stored(error)
+    }
+}
+fn stored(error: impl std::fmt::Display) -> AdvanceFailure {
+    AdvanceFailure::StoredFile(error.to_string())
+}
+fn environment(error: impl std::fmt::Display) -> AdvanceFailure {
+    AdvanceFailure::Environment(error.to_string())
+}
+
 /// The sibling lock is never renamed: locking the generation file itself would
 /// lock an obsolete inode after the atomic replacement. Dropping the handle
 /// releases the OS lock, including on process termination.
@@ -9,25 +76,34 @@ pub(super) fn advance(
     current: &VerifiedRegistryTrust,
     root: &[u8; 32],
     id: &str,
-) -> Result<(), String> {
-    inspect_parents(path)?;
-    let parent = path.parent().ok_or("trust generation path has no parent")?;
+) -> Result<(), AdvanceFailure> {
+    inspect_parents(path).map_err(environment)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| environment("trust generation path has no parent"))?;
     if let Ok(metadata) = parent.symlink_metadata() {
-        validate_owner(&metadata)?;
+        validate_owner(&metadata).map_err(environment)?;
     }
-    crate::remote::secure_fs::create_dir_owner_only(parent).map_err(|e| e.to_string())?;
-    inspect_parents(path)?;
-    validate_owner(&parent.symlink_metadata().map_err(|e| e.to_string())?)?;
+    crate::remote::secure_fs::create_dir_owner_only(parent).map_err(environment)?;
+    inspect_parents(path).map_err(environment)?;
+    validate_owner(&parent.symlink_metadata().map_err(environment)?).map_err(environment)?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or("invalid trust generation filename")?;
+        .ok_or_else(|| environment("invalid trust generation filename"))?;
+    let _lock = lock(parent, name).map_err(environment)?;
+    advance_locked(path, current, root, id)
+}
+
+/// The generation's sibling lock, held while the stored file is replaced or
+/// set aside.
+pub(super) fn lock(parent: &Path, name: &str) -> Result<File, String> {
     let lock_path = parent.join(format!(".{name}.lock"));
     let lock = open_private(&lock_path, true)?;
     lock.lock()
         .map_err(|e| format!("cannot lock registry trust generation: {e}"))?;
     validate_handle(&lock_path, &lock)?;
-    advance_locked(path, current, root, id)
+    Ok(lock)
 }
 
 fn advance_locked(
@@ -35,44 +111,44 @@ fn advance_locked(
     current: &VerifiedRegistryTrust,
     root: &[u8; 32],
     id: &str,
-) -> Result<(), String> {
-    let encoded = serde_json::to_string(current.envelope()).map_err(|e| e.to_string())?;
+) -> Result<(), AdvanceFailure> {
+    let encoded = serde_json::to_string(current.envelope()).map_err(environment)?;
     // A Verified value from another root is not authority for this data directory.
     verify_registry_trust_manifest()
         .bytes(encoded.as_bytes())
         .root_public_key(root)
         .root_key_id(id)
         .call()
-        .map_err(|e| e.to_string())?;
+        .map_err(environment)?;
     match path.symlink_metadata() {
         Ok(_) => {
-            let file = open_private(path, false)?;
+            let file = open_private(path, false).map_err(stored)?;
             let mut bytes = Vec::new();
             (&file)
                 .take(cadencr_registry_core::MAX_TRUST_MANIFEST_BYTES + 1)
                 .read_to_end(&mut bytes)
-                .map_err(|e| e.to_string())?;
+                .map_err(stored)?;
             if bytes.len() as u64 > cadencr_registry_core::MAX_TRUST_MANIFEST_BYTES {
-                return Err("registry trust generation exceeds its size limit".into());
+                return Err(stored("registry trust generation exceeds its size limit"));
             }
-            validate_handle(path, &file)?;
+            validate_handle(path, &file).map_err(stored)?;
             let previous = verify_registry_trust_manifest()
                 .bytes(&bytes)
                 .root_public_key(root)
                 .root_key_id(id)
                 .call()
-                .map_err(|e| e.to_string())?;
+                .map_err(|error| unverifiable(&bytes, current, id, error))?;
             current
                 .validate_successor(&previous)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| AdvanceFailure::Successor(e.to_string()))?;
             if current.generation() == previous.generation() {
                 return Ok(());
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(environment(error)),
     }
-    crate::shared::atomic_file::write_atomic_private(path, &encoded).map_err(|e| e.to_string())
+    crate::shared::atomic_file::write_atomic_private(path, &encoded).map_err(environment)
 }
 
 fn open_private(path: &Path, create: bool) -> Result<File, String> {
@@ -197,6 +273,53 @@ mod tests {
     }
 
     #[test]
+    fn an_unreadable_stored_generation_is_left_untouched_and_offered_for_setting_aside() {
+        let (_temporary, directory) = directory();
+        let path = directory.join("generation.json");
+        crate::shared::atomic_file::write_atomic_private(&path, "{ corrupt").unwrap();
+        let failure = advance(&path, &profile(&directory, 1, false), &root(), ROOT_ID).unwrap_err();
+        assert!(
+            matches!(failure, AdvanceFailure::StoredFile(_)),
+            "{failure:?}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"{ corrupt");
+        let PinnedIndexTrustStatus::Invalid { recovery, .. } = failure.status(&path) else {
+            panic!("an unreadable generation is an invalid configuration");
+        };
+        assert_eq!(recovery, TrustRecovery::SetAside { path });
+    }
+
+    #[test]
+    fn a_generation_from_a_newer_build_is_never_offered_for_setting_aside() {
+        let (_temporary, directory) = directory();
+        let path = directory.join("generation.json");
+        let current = profile(&directory, 1, false);
+        let mut newer = serde_json::to_value(current.envelope()).unwrap();
+        newer["signed"]["recovery_future_sha256"] = json!([]);
+        newer["signed"]["generation"] = json!(7);
+        let schema = {
+            let mut schema = serde_json::to_value(current.envelope()).unwrap();
+            schema["signed"]["schema_version"] = json!(2);
+            schema
+        };
+        for stored in [newer, schema] {
+            crate::shared::atomic_file::write_atomic_private(&path, &stored.to_string()).unwrap();
+            let failure = advance(&path, &current, &root(), ROOT_ID).unwrap_err();
+            assert!(
+                matches!(failure, AdvanceFailure::Successor(_)),
+                "{failure:?}"
+            );
+            assert!(matches!(
+                failure.status(&path),
+                PinnedIndexTrustStatus::Invalid {
+                    recovery: TrustRecovery::UpdateApp,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[test]
     fn high_water_is_idempotent_advances_and_refuses_rollback_or_equivocation() {
         let (_temporary, directory) = directory();
         let path = directory.join("generation.json");
@@ -208,14 +331,14 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), initial);
         advance(&path, &second, &root(), ROOT_ID).unwrap();
         let latest = std::fs::read(&path).unwrap();
-        assert!(advance(&path, &first, &root(), ROOT_ID)
-            .unwrap_err()
-            .contains("rollback"));
-        assert!(
-            advance(&path, &profile(&directory, 2, true), &root(), ROOT_ID)
-                .unwrap_err()
-                .contains("equivocation")
-        );
+        assert!(matches!(
+            advance(&path, &first, &root(), ROOT_ID),
+            Err(AdvanceFailure::Successor(error)) if error.contains("rollback")
+        ));
+        assert!(matches!(
+            advance(&path, &profile(&directory, 2, true), &root(), ROOT_ID),
+            Err(AdvanceFailure::Successor(error)) if error.contains("equivocation")
+        ));
         assert_eq!(std::fs::read(&path).unwrap(), latest);
         assert!(advance(&path, &second, &[23; 32], ROOT_ID).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), latest);
@@ -315,14 +438,10 @@ mod tests {
         ));
         drop(probe);
         std::fs::write(directory.join("child-ready"), b"ready").unwrap();
-        assert!(advance(
-            &directory.join("generation.json"),
-            &current,
-            &root(),
-            ROOT_ID
-        )
-        .unwrap_err()
-        .contains("rollback"));
+        assert!(matches!(
+            advance(&directory.join("generation.json"), &current, &root(), ROOT_ID),
+            Err(AdvanceFailure::Successor(error)) if error.contains("rollback")
+        ));
     }
 
     #[test]

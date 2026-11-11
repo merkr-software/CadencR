@@ -168,7 +168,7 @@ async fn fetch(url: String) -> Result<Vec<u8>, AppError> {
     if let Some(fixture) = tests::fixture() {
         return tests::fetched(fixture.response);
     }
-    crate::domain::themes::managed::catalog::download(&url, envelope::FEED.max_bytes)
+    crate::domain::marketplace::catalog::download(&url, envelope::FEED.max_bytes)
         .await
         .map_err(unavailable)
 }
@@ -188,9 +188,7 @@ pub fn status() -> Result<ManagedTabPolicyStatus, AppError> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    pub(super) use crate::domain::themes::managed::policy_feed::tests::{
-        at, resign_b, signed_with,
-    };
+    pub(super) use crate::domain::marketplace::policy_feed::tests::{at, resign_b, signed_with};
     use chrono::{DateTime, Utc};
     use serde_json::{json, Value};
     use std::collections::HashMap;
@@ -284,10 +282,10 @@ pub(crate) mod tests {
         offset_minutes: i64,
         entries: Value,
     ) -> (
-        crate::domain::themes::managed::policy_feed::Envelope,
+        crate::domain::marketplace::policy_feed::Envelope,
         ManagedTrustStore,
     ) {
-        crate::domain::themes::managed::policy_feed::tests::signed(
+        crate::domain::marketplace::policy_feed::tests::signed(
             "tab-blocklist",
             offset_minutes,
             entries,
@@ -300,7 +298,7 @@ pub(crate) mod tests {
         revoked: bool,
         tab_checkpoints: Vec<String>,
     ) -> ManagedTrustStore {
-        crate::domain::themes::managed::catalog::tests::rotation_trust_with(
+        crate::domain::marketplace::catalog::tests::rotation_trust_with(
             cutoff,
             revoked,
             &[("recovery_tab_policy_sha256", tab_checkpoints)],
@@ -348,10 +346,11 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn unconfigured_build_blocks_nothing_and_never_fetches() {
+    async fn unconfigured_build_never_fetches_and_starts_no_backend() {
         let snapshot = refresh(true).await.unwrap();
         assert_eq!(snapshot.freshness(), PolicyFreshness::NotConfigured);
-        current().unwrap().require_backend_start(ports()).unwrap();
+        assert!(current().unwrap().require_backend_start(ports()).is_err());
+        current().unwrap().require_not_blocked(ports()).unwrap();
         let status = status().unwrap();
         assert!(!status.source_configured);
         assert_eq!(status.cache_status, PolicyFreshness::NotConfigured);

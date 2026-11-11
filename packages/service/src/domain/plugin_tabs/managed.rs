@@ -4,7 +4,6 @@ pub mod routes;
 pub mod service;
 pub mod storage;
 
-use crate::domain::themes::managed::models::SignedMixedCatalog;
 use crate::error::AppError;
 use axum::http::StatusCode;
 use cadencr_plugin_core::tab::TabPlatform;
@@ -15,7 +14,6 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InstallManagedTabRequest {
-    pub index: SignedMixedCatalog,
     pub tab_id: String,
     pub version: String,
 }
@@ -126,8 +124,8 @@ pub fn invalid(message: impl std::fmt::Display) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::marketplace::catalog;
     use crate::domain::plugin_tabs::test_support::error_code;
-    use crate::domain::themes::managed::catalog;
 
     #[test]
     fn a_backend_this_cadencr_does_not_know_needs_a_newer_app() {

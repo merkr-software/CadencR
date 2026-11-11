@@ -22,8 +22,8 @@ use super::read::{preview_worker, read_theme};
 async fn staged(
     body: &InstallManagedThemeRequest,
 ) -> Result<(tempfile::TempDir, Receipt), AppError> {
-    catalog::ingest(&body.index)?;
-    let package = catalog::resolve(&body.index, &body.theme_id, &body.version)?;
+    let index = crate::domain::marketplace::catalog::verified_catalog().await?;
+    let package = catalog::resolve(&index, &body.theme_id, &body.version)?;
     storage::owner(&body.theme_id)?;
     let archive_url = package["theme"]["distribution"]["archive"]
         .as_str()
@@ -32,15 +32,9 @@ async fn staged(
         .as_str()
         .ok_or_else(|| archive::invalid("theme archive digest missing"))?;
     storage::revision(&body.theme_id, &body.version, sha256)?;
-    if let Some(warning) = super::policy::refresh(false).await? {
-        return Err(AppError::coded(
-            axum::http::StatusCode::CONFLICT,
-            "MANAGED_THEME_POLICY_OFFLINE",
-            warning,
-        ));
-    }
-    super::policy::enforce(&body.theme_id, &body.version, sha256)?;
-    let bytes = catalog::download_archive(
+    super::policy::require_install(&body.theme_id, &body.version, sha256).await?;
+    let bytes = crate::domain::marketplace::catalog::download_archive(
+        crate::domain::marketplace::ExtensionKind::Theme,
         archive_url,
         package["theme"]["distribution"].get("repository"),
         archive::MAX_ARCHIVE_BYTES,
@@ -62,7 +56,7 @@ async fn staged(
     Ok((
         stage,
         Receipt {
-            index: body.index.clone(),
+            index: (*index).clone(),
             id: body.theme_id.clone(),
             version: body.version.clone(),
             sha256: sha256.into(),
@@ -70,7 +64,7 @@ async fn staged(
         },
     ))
 }
-pub(super) fn require_archive_digest(bytes: &[u8], sha256: &str) -> Result<(), AppError> {
+pub(crate) fn require_archive_digest(bytes: &[u8], sha256: &str) -> Result<(), AppError> {
     if storage::digest(bytes) != sha256 {
         return Err(AppError::coded(
             axum::http::StatusCode::BAD_REQUEST,
@@ -99,9 +93,21 @@ async fn install_with_stage(
     let (stage, receipt) = staging.await?;
     let _guard = lock().lock().await;
     ensure_install_state(&body.theme_id, update)?;
-    catalog::ingest(&body.index)?;
+    ensure_still_published(&receipt).await?;
     super::policy::enforce(&receipt.id, &receipt.version, &receipt.sha256)?;
     commit_staged(body, stage, receipt)
+}
+/// The verified catalog may have advanced while the archive downloaded; the
+/// revision still has to be the one it publishes.
+async fn ensure_still_published(receipt: &Receipt) -> Result<(), AppError> {
+    let index = crate::domain::marketplace::catalog::verified_catalog().await?;
+    let package = catalog::resolve(&index, &receipt.id, &receipt.version)?;
+    if package["theme"]["distribution"]["sha256"] != receipt.sha256.as_str() {
+        return Err(archive::invalid(
+            "theme revision changed in the signed catalog during installation",
+        ));
+    }
+    Ok(())
 }
 fn ensure_install_state(id: &str, update: bool) -> Result<(), AppError> {
     if storage::owner(id)?.join("active.json").exists() != update {
@@ -148,7 +154,7 @@ async fn apply_trusted(
     id: &str,
     trust: &crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore,
 ) -> Result<ManagedThemeInventoryEntry, AppError> {
-    let warning = super::policy::refresh(false).await?;
+    let warning = super::policy::refresh_for_use().await;
     let _guard = lock().lock().await;
     preview_worker(id, trust).await?;
     settings_store::global_set("theme_current", &format!("managed:{id}")).await?;
@@ -209,7 +215,7 @@ async fn duplicate_trusted(
     label: &str,
     trust: &crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore,
 ) -> Result<ManagedThemeDuplicateResponse, AppError> {
-    let warning = super::policy::refresh(false).await?;
+    let warning = super::policy::refresh_for_use().await;
     let _guard = lock().lock().await;
     let root = storage::root();
     let id = id.to_owned();
@@ -365,7 +371,7 @@ pub(super) mod tests {
         );
     }
     #[tokio::test]
-    async fn direct_actions_fail_closed_when_offline_policy_cache_expires() {
+    async fn an_expired_policy_refuses_installs_but_not_inert_use() {
         let _policy = super::super::policy::tests::configured_policy();
         let trust = commit_fixture("midnight", "1.0.0");
         super::super::policy::tests::respond(serde_json::json!([]), true);
@@ -373,26 +379,38 @@ pub(super) mod tests {
             .await
             .unwrap();
         super::super::policy::tests::expire_cache();
-        let before = settings_store::global_get("theme_current");
-        assert!(super::super::read::preview_refreshed("midnight", &trust)
+        let preview = super::super::read::preview_refreshed("midnight", &trust)
             .await
-            .is_err());
-        assert!(apply_trusted("midnight", &trust).await.is_err());
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .connect_lazy("sqlite::memory:")
             .unwrap();
-        assert!(duplicate_trusted(&pool, "midnight", "Expired Copy", &trust)
+        assert!(preview.warning.is_some(), "{preview:?}");
+        assert!(apply_trusted("midnight", &trust)
             .await
-            .is_err());
-        assert_eq!(settings_store::global_get("theme_current"), before);
-        assert!(super::super::super::store::list().await.unwrap().is_empty());
+            .unwrap()
+            .warning
+            .is_some());
+        let digest = storage::pointer("midnight").unwrap().sha256;
+        assert!(super::super::policy::enforce("midnight", "1.0.0", &digest).is_err());
         assert_eq!(super::super::policy::tests::fetch_count(), 1);
     }
     #[tokio::test]
+    async fn without_a_feed_an_installed_theme_still_applies_with_a_warning() {
+        let trust = commit_fixture("midnight", "1.0.0");
+        let entry = apply_trusted("midnight", &trust).await.unwrap();
+        assert!(
+            entry
+                .warning
+                .as_deref()
+                .is_some_and(|warning| warning.contains("revocation")),
+            "{entry:?}"
+        );
+        assert_eq!(
+            settings_store::global_get("theme_current").as_deref(),
+            Some("managed:midnight")
+        );
+    }
+    #[tokio::test]
     async fn pending_download_does_not_hold_the_lifecycle_lock() {
-        let (index, _) = catalog::tests::signed();
         let body = InstallManagedThemeRequest {
-            index,
             theme_id: "new-theme".into(),
             version: "1.0.0".into(),
         };
@@ -413,7 +431,7 @@ pub(super) mod tests {
         id: &str,
         version: &str,
     ) -> crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore {
-        let (mut index, trust) = catalog::tests::signed();
+        let (mut index, trust) = crate::domain::marketplace::catalog::tests::signed();
         index.signed.packages[0]["package"]["theme"]["id"] = serde_json::json!(id);
         index.signed.packages[0]["package"]["theme"]["version"] = serde_json::json!(version);
         storage::secure(&storage::root()).unwrap();
@@ -468,18 +486,19 @@ pub(super) mod tests {
         trust
     }
     #[tokio::test]
-    async fn missing_policy_prevents_preview_apply_and_duplicate_but_not_removal() {
+    async fn without_a_policy_installed_themes_stay_usable_and_removable() {
         let trust = commit_fixture("midnight", "1.0.0");
-        let before = settings_store::global_get("theme_current");
-        assert!(preview_trusted("midnight", &trust).is_err());
-        assert!(apply_trusted("midnight", &trust).await.is_err());
-        assert_eq!(settings_store::global_get("theme_current"), before);
+        assert!(preview_trusted("midnight", &trust).unwrap().theme.is_some());
+        assert!(apply_trusted("midnight", &trust).await.unwrap().active);
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .connect_lazy("sqlite::memory:")
             .unwrap();
-        assert!(duplicate_trusted(&pool, "midnight", "Copy", &trust)
-            .await
-            .is_err());
+        // This pool has no schema: whatever fails, it is not the policy.
+        if let Err(AppError::Coded { code, .. }) =
+            duplicate_trusted(&pool, "midnight", "Copy", &trust).await
+        {
+            assert_ne!(code, "MANAGED_THEME_POLICY_UNAVAILABLE");
+        }
         assert!(remove_inner("midnight", true).await.unwrap().success);
     }
     #[tokio::test]

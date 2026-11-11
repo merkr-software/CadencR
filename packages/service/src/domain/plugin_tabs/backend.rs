@@ -781,9 +781,7 @@ mod tests {
             "{status:?}"
         );
         // The signed binary starts, and holds its revision while it runs.
-        launch.expected_sha256 = Some(crate::domain::themes::managed::storage::digest(
-            &tab.executable,
-        ));
+        launch.expected_sha256 = Some(crate::domain::marketplace::storage::digest(&tab.executable));
         let running = supervisor.ensure_running(&grants, &launch).await.unwrap();
         drop(launch);
         // Its working directory is the sealed revision: it cannot write there.

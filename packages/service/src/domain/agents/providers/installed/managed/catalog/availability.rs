@@ -2,7 +2,7 @@
 
 use super::super::validation::ships_for_platform;
 use super::super::ManagedProviderPackage;
-use crate::domain::themes::managed::models::TabVersionUnavailable;
+use crate::domain::marketplace::models::TabVersionUnavailable;
 use std::collections::BTreeMap;
 
 pub(super) type UnavailableVersions = BTreeMap<String, BTreeMap<String, TabVersionUnavailable>>;

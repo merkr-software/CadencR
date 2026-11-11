@@ -3,7 +3,7 @@ use super::{invalid, storage};
 use crate::domain::agents::providers::installed::managed::trust::{
     pinned_index_trust_store, ManagedTrustStore,
 };
-use crate::domain::themes::managed::{
+use crate::domain::marketplace::{
     catalog,
     policy_feed::{Feed, PollState, Verified},
 };
@@ -32,6 +32,9 @@ fn unavailable(message: String) -> AppError {
         message,
     )
 }
+fn no_feed() -> String {
+    crate::domain::marketplace::revocation::no_feed(crate::domain::marketplace::ExtensionKind::Lsp)
+}
 fn source() -> Option<&'static str> {
     #[cfg(test)]
     if tests::configured() {
@@ -41,9 +44,7 @@ fn source() -> Option<&'static str> {
 }
 pub async fn refresh(force: bool) -> Result<(), AppError> {
     let Some(url) = source() else {
-        return Err(unavailable(
-            "LSP installation is unavailable: this build has no LSP revocation feed".into(),
-        ));
+        return Err(unavailable(no_feed()));
     };
     static POLL: OnceLock<tokio::sync::Mutex<PollState>> = OnceLock::new();
     let requested = Instant::now();
@@ -100,16 +101,11 @@ impl PolicySnapshot {
         version: &str,
         target: &LspTarget,
     ) -> Result<(), AppError> {
-        if self.0.is_none() {
-            return Err(unavailable(
-                "LSP installation is unavailable: this build has no LSP revocation feed".into(),
-            ));
-        }
         self.require(id, version, target)
     }
     fn require(&self, id: &str, version: &str, target: &LspTarget) -> Result<(), AppError> {
         let Some(policy) = &self.0 else {
-            return Ok(());
+            return Err(unavailable(no_feed()));
         };
         if let Some(reason) = policy
             .policy
@@ -152,11 +148,8 @@ pub(super) mod tests {
         CONTEXT.with(|slot| slot.borrow().clone())
     }
     pub fn configure(root: &std::path::Path, entries: Value) -> Guard {
-        let (mut envelope, trust) = crate::domain::themes::managed::policy_feed::tests::signed(
-            "lsp-blocklist",
-            -1,
-            entries,
-        );
+        let (mut envelope, trust) =
+            crate::domain::marketplace::policy_feed::tests::signed("lsp-blocklist", -1, entries);
         storage::secure(root).unwrap();
         if let Some(previous) = FEED.cached(root).unwrap() {
             let generated = chrono::DateTime::parse_from_rfc3339(
@@ -167,7 +160,7 @@ pub(super) mod tests {
             envelope.signed["generated_at"] = generated
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
                 .into();
-            envelope = crate::domain::themes::managed::policy_feed::tests::signed_with(
+            envelope = crate::domain::marketplace::policy_feed::tests::signed_with(
                 envelope.signed,
                 19,
                 "test",
@@ -175,6 +168,33 @@ pub(super) mod tests {
         }
         FEED.ingest(root, &envelope, &trust, Utc::now()).unwrap();
         Guard(CONTEXT.with(|slot| slot.replace(Some((root.to_path_buf(), trust)))))
+    }
+    #[test]
+    fn without_a_feed_a_marketplace_server_neither_installs_nor_starts() {
+        assert!(!configured());
+        let target = cadencr_registry_core::LspTarget {
+            archive: "https://github.com/acme/lsp/releases/download/v1/lsp.tar.gz".into(),
+            sha256: "a".repeat(64),
+            size: 1,
+            entry: "server.js".into(),
+            entry_sha256: "b".repeat(64),
+            entry_size: 1,
+            runtime: cadencr_registry_core::LspRuntime::Node,
+            node_min_version: None,
+            macos_min_version: None,
+        };
+        for refused in [
+            require_install("fixture", "1.0.0", &target),
+            require("fixture", "1.0.0", &target),
+        ] {
+            assert!(matches!(
+                refused,
+                Err(AppError::Coded {
+                    code: "LSP_POLICY_UNAVAILABLE",
+                    ..
+                })
+            ));
+        }
     }
     #[test]
     fn signed_policy_blocks_matching_digest_and_expiry_fails_closed() {
@@ -214,7 +234,7 @@ pub(super) mod tests {
                 ..
             })
         ));
-        let (envelope, _) = crate::domain::themes::managed::policy_feed::tests::signed(
+        let (envelope, _) = crate::domain::marketplace::policy_feed::tests::signed(
             "lsp-blocklist",
             -120,
             serde_json::json!([]),
@@ -224,7 +244,7 @@ pub(super) mod tests {
             .to_rfc3339()
             .into();
         let envelope =
-            crate::domain::themes::managed::policy_feed::tests::signed_with(signed, 19, "test");
+            crate::domain::marketplace::policy_feed::tests::signed_with(signed, 19, "test");
         crate::shared::atomic_file::write_atomic_private(
             &FEED.cache(&root),
             &serde_json::to_string(&envelope).unwrap(),

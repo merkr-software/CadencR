@@ -1,6 +1,6 @@
 //! Explicit signed marketplace lifecycle. Opening a file only reads installed state.
 use super::probe::ServerProbe;
-use crate::domain::themes::managed::{catalog, models::SignedMixedCatalog};
+use crate::domain::marketplace::{catalog, models::SignedMixedCatalog};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

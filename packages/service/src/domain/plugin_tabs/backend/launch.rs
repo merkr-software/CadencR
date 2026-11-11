@@ -377,7 +377,7 @@ pub(super) mod tests {
         );
         write_executable(&dir.join("bin/backend"), &native);
         let mut launch = launch_in(&dir, "bin/backend");
-        launch.expected_sha256 = Some(crate::domain::themes::managed::storage::digest(&native));
+        launch.expected_sha256 = Some(crate::domain::marketplace::storage::digest(&native));
         assert_eq!(executable(&launch).unwrap(), dir.join("bin/backend"));
         // One appended byte: still native, no longer the signed binary.
         let mut tampered = native.clone();

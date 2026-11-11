@@ -1,6 +1,9 @@
 //! Immutable revisions with verified receipts and one atomic desired revision pointer.
 use super::archive::invalid;
 use super::models::{Pointer, Receipt};
+pub(crate) use crate::domain::marketplace::storage::{
+    bounded_json, digest, regular, root, secure, with_root,
+};
 use crate::error::AppError;
 use std::path::{Path, PathBuf};
 
@@ -14,29 +17,6 @@ pub fn staging() -> Result<tempfile::TempDir, AppError> {
         builder.permissions(std::fs::Permissions::from_mode(0o700));
     }
     builder.tempdir_in(root()).map_err(invalid)
-}
-thread_local! {
-    static ROOT_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
-}
-/// Carry the request's resolved storage directory into a blocking worker.
-pub(crate) fn with_root<T>(root: PathBuf, operation: impl FnOnce() -> T) -> T {
-    struct Restore(Option<PathBuf>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            ROOT_OVERRIDE.with(|slot| {
-                slot.replace(self.0.take());
-            });
-        }
-    }
-    let _restore = Restore(ROOT_OVERRIDE.with(|slot| slot.replace(Some(root))));
-    operation()
-}
-pub fn root() -> PathBuf {
-    ROOT_OVERRIDE
-        .with(|slot| slot.borrow().clone())
-        .unwrap_or_else(|| {
-            crate::domain::settings_store::dir::data_sibling_dir("plugins").join("managed-themes")
-        })
 }
 pub fn valid_id(id: &str) -> bool {
     cadencr_registry_core::valid_theme_id(id)
@@ -59,48 +39,6 @@ pub fn revision(id: &str, version: &str, digest: &str) -> Result<PathBuf, AppErr
     }
     Ok(owner(id)?.join(version).join(digest))
 }
-pub fn digest(bytes: &[u8]) -> String {
-    crate::shared::file_digest::sha256_hex(bytes)
-}
-pub fn secure(path: &Path) -> Result<(), AppError> {
-    if let Ok(metadata) = std::fs::symlink_metadata(path) {
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(invalid("managed theme directory is not a real directory"));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt as _;
-            if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
-                return Err(invalid("managed theme directory must be owner-only"));
-            }
-        }
-    }
-    if let Some(parent) = path.parent() {
-        if Some(parent) != root().parent() {
-            secure(parent)?;
-        } else if let Ok(info) = std::fs::symlink_metadata(parent) {
-            if !info.is_dir() || info.file_type().is_symlink() {
-                return Err(invalid("plugin container must be a real directory"));
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt as _;
-                if info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o022 != 0 {
-                    return Err(invalid(
-                        "plugin container has unsafe ownership or permissions",
-                    ));
-                }
-            }
-        } else {
-            crate::remote::secure_fs::create_dir_owner_only(parent).map_err(invalid)?;
-        }
-    }
-    crate::remote::secure_fs::create_dir_owner_only(path).map_err(invalid)
-}
-pub fn bounded_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, AppError> {
-    let bytes = regular(path, cadencr_registry_core::MAX_CATALOG_BYTES)?;
-    serde_json::from_slice(&bytes).map_err(invalid)
-}
 /// Catalog proof plus bounded revision metadata, never an unbounded receipt.
 const MAX_RECEIPT_BYTES: usize = cadencr_registry_core::MAX_CATALOG_BYTES + 64 * 1024;
 pub fn receipt(path: &Path) -> Result<Receipt, AppError> {
@@ -112,44 +50,6 @@ fn receipt_document(receipt: &Receipt) -> Result<String, AppError> {
         return Err(invalid("managed theme receipt exceeds byte budget"));
     }
     Ok(document)
-}
-pub fn regular(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
-    use std::io::Read as _;
-    let before = std::fs::symlink_metadata(path).map_err(invalid)?;
-    if !before.is_file() || before.len() > limit as u64 {
-        return Err(invalid("managed theme file is not bounded regular data"));
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let file = options.open(path).map_err(invalid)?;
-    let after = file.metadata().map_err(invalid)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt as _;
-        if before.dev() != after.dev()
-            || before.ino() != after.ino()
-            || after.uid() != unsafe { libc::geteuid() }
-            || after.mode() & 0o177 != 0
-            || after.nlink() != 1
-        {
-            return Err(invalid(
-                "managed theme file inode or permissions are unsafe",
-            ));
-        }
-    }
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(invalid)?;
-    if bytes.len() > limit {
-        return Err(invalid("managed theme file exceeds budget"));
-    }
-    Ok(bytes)
 }
 /// Persist the original authenticated archive, not just mutable derived payload hashes.
 pub fn write_archive(staging: &Path, bytes: &[u8]) -> Result<(), AppError> {
@@ -213,7 +113,7 @@ mod tests {
     use super::*;
     #[test]
     fn maximum_catalog_receipt_roundtrips_and_oversize_fails_before_commit() {
-        let (index, trust) = super::super::catalog::tests::signed();
+        let (index, trust) = crate::domain::marketplace::catalog::tests::signed();
         let mut proof = Receipt {
             index,
             id: "near-limit".into(),
@@ -235,7 +135,7 @@ mod tests {
                 ))
                 .to_bytes(),
         );
-        super::super::catalog::verify(&proof.index, &trust, false).unwrap();
+        crate::domain::marketplace::catalog::verify(&proof.index, &trust, false).unwrap();
         assert!(
             serde_json::to_string(&proof.index).unwrap().len()
                 <= cadencr_registry_core::MAX_CATALOG_BYTES
@@ -259,27 +159,5 @@ mod tests {
         assert!(revision("theme", "../escape", &"a".repeat(64)).is_err());
         assert!(revision("theme", "1.0.0", "bad").is_err());
         assert!(revision("theme", "1.0.0", &"a".repeat(64)).is_ok());
-    }
-    #[cfg(unix)]
-    #[test]
-    fn refuses_symlinks_hardlinks_executable_bits_and_world_readable_files() {
-        use std::os::unix::fs::{symlink, PermissionsExt as _};
-        let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("data");
-        std::fs::write(&file, b"inert").unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(regular(&file, 10).unwrap(), b"inert");
-        assert!(regular(&file, 2).is_err());
-        let link = root.path().join("link");
-        symlink(&file, &link).unwrap();
-        assert!(regular(&link, 10).is_err());
-        let hard = root.path().join("hard");
-        std::fs::hard_link(&file, &hard).unwrap();
-        assert!(regular(&hard, 10).is_err());
-        std::fs::remove_file(hard).unwrap();
-        for mode in [0o700, 0o644, 0o666] {
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
-            assert!(regular(&file, 10).is_err());
-        }
     }
 }

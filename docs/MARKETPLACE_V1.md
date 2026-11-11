@@ -34,7 +34,7 @@ Authors follow [AUTHORING.md](../tooling/marketplace-registry/AUTHORING.md).
 | Theme     | Declarative `theme.json` tree                                                                                  | Platform-neutral.                                                                 |
 | Tab       | Isolated web UI, optionally with a native backend ([protocol](./TAB_BACKEND_PROTOCOL.md))                      | Native backends need per-platform executables and explicit execution consent.    |
 | Plugin    | One release combining several of the kinds above                                                               | Each member keeps its own installer, receipts, consent and revocation.           |
-| LSP       | Prepared language-server archive                                                                               | Requires the optional LSP revocation policy; minimum app version `0.16.1`.      |
+| LSP       | Prepared language-server archive                                                                               | Requires the LSP revocation policy to install or start; min. app version `0.16.1`. |
 
 There is no fixed platform matrix: each provider and native tab declares its own
 OS/architecture targets, and the client hides packages without a build for the
@@ -53,6 +53,16 @@ current platform.
 - **Revocation.** Revocation policies are published independently of package
   releases. Delisting and execution revocation are distinct; an authenticated
   cached policy keeps blocking what it lists even after it expires.
+- **Unusable trust.** When the compiled trust or the data directory's stored
+  generation (`registry-trust/generation.json`) cannot be used, every
+  verification fails with `PINNED_TRUST_CONFIGURATION_INVALID` and its cause,
+  never as an empty keyring, and `/marketplace` says why
+  (`GET /api/marketplace/trust`). An unreadable or invalid stored file can be
+  set aside on request (`POST /api/marketplace/trust/set-aside`): it is renamed
+  to `generation.json.invalid-<UTC time>` beside itself, never deleted, and the
+  generation is rebuilt from the build's trust. A stored generation newer than
+  the build is never set aside — it is the rollback guard — the way out is an
+  update.
 - **Retirement and handoff.** Append-only signed records retire a provider's
   versions and assign its identity to a successor, on the separate
   `marketplace-v2-admin` channel; see [provider ownership handoff](./PI_PROVIDER_HANDOFF.md).
@@ -111,9 +121,17 @@ checksums or revocation policy.
   protected publication, renewal and expiry-watch workflows).
 - **Official plugin sources**: [`plugins/`](../plugins/README.md), released through
   [`plugins/RELEASING.md`](../plugins/RELEASING.md).
-- **Desktop/service**: catalog acquisition and managed installs live next to each
-  kind (`providers/installed/managed`, `themes/managed`, `plugin_tabs/managed`,
-  `lsp`); the UI is the `/marketplace` route.
+- **Desktop/service**: the shared core (signed catalog and its verified cache,
+  guarded downloads, private storage, signed revocation feeds) is
+  `domain/marketplace`; each kind's installer, receipts and policy live next to
+  it (`providers/installed/managed`, `themes/managed`, `plugin_tabs/managed`,
+  `lsp/managed`); the UI is the `/marketplace` route.
+- **Catalog cache**: the service verifies each catalog version once and keeps
+  it in memory beside its on-disk cache; refreshes are conditional
+  (`If-None-Match` / `If-Modified-Since`) and an unchanged body is not
+  verified again. Install, update and preview requests name only an id and a
+  version: the service resolves the entry from its verified cache and never
+  accepts a catalog from the client.
 
 ## Open gates
 

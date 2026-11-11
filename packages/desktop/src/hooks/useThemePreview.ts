@@ -63,7 +63,7 @@ function themePreviewQuery(
     queryFn: async ({ signal }) => {
       if (!index) throw new Error("A current signed catalog is required to preview a theme.");
       const response = await withPreviewSlot(signal, () =>
-        previewManagedThemePackage({ theme_id: id, version, index }, signal),
+        previewManagedThemePackage({ theme_id: id, version }, signal),
       );
       const parsed = managedThemeDataSchema.parse(response);
       return toThemeDefinition(id, parsed.theme, parsed.assets);

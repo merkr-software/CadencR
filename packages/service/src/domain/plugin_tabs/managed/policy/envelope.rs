@@ -2,8 +2,8 @@
 //! ([`policy_feed`]) with this feed's budget, cache, trust scope and error.
 use super::unavailable;
 use crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore;
+use crate::domain::marketplace::policy_feed::{self, Feed};
 use crate::domain::plugin_tabs::managed::storage;
-use crate::domain::themes::managed::policy_feed::{self, Feed};
 use crate::error::AppError;
 use cadencr_registry_core::TabBlocklistEntry;
 use std::path::Path;

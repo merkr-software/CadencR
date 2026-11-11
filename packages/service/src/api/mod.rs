@@ -270,6 +270,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(usage_stats_router())
         .merge(crate::domain::maintenance::routes::routes())
         .merge(themes_router())
+        .merge(crate::domain::marketplace::trust::router())
         .merge(crate::domain::plugin_tabs::plugin_tabs_router())
         .merge(crate::domain::plugin_tabs::managed::routes::router())
         .merge(prompt_commands_router())

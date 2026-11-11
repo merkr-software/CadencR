@@ -496,7 +496,7 @@ mod tests {
         let backend = tab.facts().unwrap().backend.as_ref().unwrap();
         assert_eq!(
             backend.executable_sha256,
-            crate::domain::themes::managed::storage::digest(&first.executable)
+            crate::domain::marketplace::storage::digest(&first.executable)
         );
         let (manifest, current) = tab.require_valid().unwrap();
         assert_eq!(manifest.version, "1.0.0");

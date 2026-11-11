@@ -2,14 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { createTestQueryClient } from "@/test-utils";
-import {
-  catalog,
-  inventory,
-  enabled,
-  install,
-  update,
-  type SignedMixedCatalog,
-} from "@/api/generated";
+import { catalog, inventory, enabled, install, update } from "@/api/generated";
 import { useMarketplace } from "./useMarketplace";
 
 vi.mock("@/api/generated", () => ({
@@ -88,63 +81,18 @@ describe("useMarketplace", () => {
     );
     expect(result.current.notice?.text).toContain("Restart Cadencr");
   });
-  it("passes the original exact signed envelope to the install API", async () => {
-    const index = {
-      signature: { algorithm: "ed25519" as const, key_id: "release", value: "signature" },
-      signed: {
-        schema_version: 1,
-        generated_at: "2026-01-01T00:00:00Z",
-        expires_at: "2099-01-01T00:00:00Z",
-        packages: [],
-      },
-    };
-    vi.mocked(install).mockResolvedValue(entry);
-    const { result } = setup();
-    act(() =>
-      result.current.mutation.mutate({ kind: "install", id: "example", version: "1.0.0", index }),
-    );
-    await waitFor(() =>
-      expect(install).toHaveBeenCalledWith({ provider_id: "example", version: "1.0.0", index }),
-    );
-    expect(vi.mocked(install).mock.calls[0][0].index).toBe(index);
-  });
-
-  it("passes the complete mixed envelope unchanged for install and update", async () => {
-    const index: SignedMixedCatalog = {
-      signature: { algorithm: "ed25519", key_id: "mixed-release", value: "original-signature" },
-      signed: {
-        schema_version: 2,
-        generated_at: "2026-01-01T00:00:00Z",
-        expires_at: "2099-01-01T00:00:00Z",
-        packages: [
-          { kind: "theme", package: { signed_theme_body: "untouched" } },
-          { kind: "provider", package: { signed_provider_body: "untouched" } },
-        ],
-      },
-    };
+  it("names only the provider and version: the service installs from its verified catalog", async () => {
     vi.mocked(install).mockResolvedValue(entry);
     vi.mocked(update).mockResolvedValue(entry);
     const { result } = setup();
     await act(() =>
-      result.current.mutation.mutateAsync({
-        kind: "install",
-        id: "example",
-        version: "1.0.0",
-        index,
-      }),
+      result.current.mutation.mutateAsync({ kind: "install", id: "example", version: "1.0.0" }),
     );
-    expect(vi.mocked(install).mock.calls[0][0].index).toBe(index);
+    expect(install).toHaveBeenCalledWith({ provider_id: "example", version: "1.0.0" });
     await act(() =>
-      result.current.mutation.mutateAsync({
-        kind: "update",
-        id: "example",
-        version: "2.0.0",
-        index,
-      }),
+      result.current.mutation.mutateAsync({ kind: "update", id: "example", version: "2.0.0" }),
     );
-    expect(vi.mocked(update).mock.calls[0][1].index).toBe(index);
-    expect(index.signed.packages).toHaveLength(2);
-    expect(index.signature.value).toBe("original-signature");
+    expect(update).toHaveBeenCalledWith("example", { version: "2.0.0" });
   });
   it("surfaces backend rejection and rechecks inventory", async () => {
     vi.mocked(enabled).mockRejectedValue(new Error("provider blocked"));

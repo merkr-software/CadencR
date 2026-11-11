@@ -5,9 +5,9 @@ use super::super::policy::{self, PolicySnapshot, PolicySubject};
 use super::super::{
     invalid, require_host_target, storage, InstallManagedTabRequest, ManagedTabInventoryEntry,
 };
-use crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore;
+use crate::domain::marketplace::models::SignedMixedCatalog;
 use crate::{
-    domain::themes::managed::{catalog, storage as io},
+    domain::marketplace::{catalog, storage as io},
     error::AppError,
 };
 use cadencr_plugin_core::tab::TabPlatform;
@@ -41,7 +41,8 @@ pub(super) fn install_bytes(
     root: PathBuf,
     local: PathBuf,
     body: InstallManagedTabRequest,
-    trust: &ManagedTrustStore,
+    /// The verified catalog the revision is resolved from.
+    index: &SignedMixedCatalog,
     bytes: Vec<u8>,
     backend_archive: Option<Vec<u8>>,
     update: bool,
@@ -49,9 +50,7 @@ pub(super) fn install_bytes(
     consented: Option<String>,
 ) -> Result<ManagedTabInventoryEntry, AppError> {
     require_expected_state(&root, &local, &body.tab_id, update)?;
-    catalog::verify(&body.index, trust, false)?;
-    catalog::ingest_trusted(&body.index, trust)?;
-    let package = catalog::resolve_kind(&body.index, &body.tab_id, &body.version, "tab")?;
+    let package = catalog::resolve_kind(index, &body.tab_id, &body.version, "tab")?;
     if package["tab"]["distribution"]["sha256"].as_str() != Some(io::digest(&bytes).as_str()) {
         return Err(invalid("tab archive SHA-256 mismatch"));
     }
@@ -72,7 +71,7 @@ pub(super) fn install_bytes(
     storage::commit_revision()
         .root(&root)
         .receipt(&storage::Receipt {
-            index: body.index,
+            index: index.clone(),
             id: body.tab_id.clone(),
             version: body.version.clone(),
             platform: backend.as_ref().map(|backend| backend.platform),
@@ -235,7 +234,6 @@ mod tests {
     use crate::domain::plugin_tabs::managed::storage::fixtures::{
         backend_fixture, backend_revision, fixture, merged, other_platform, BackendFixture,
     };
-    use crate::domain::themes::managed::models::SignedMixedCatalog;
 
     struct Harness {
         temp: tempfile::TempDir,
@@ -257,7 +255,6 @@ mod tests {
             &self,
             index: &SignedMixedCatalog,
             #[builder(default = "1.0.0")] version: &str,
-            trust: &ManagedTrustStore,
             bytes: Vec<u8>,
             backend: Option<Vec<u8>>,
             #[builder(default)] update: bool,
@@ -268,15 +265,14 @@ mod tests {
                     .root(self.root.clone())
                     .local(self.local.clone())
                     .body(InstallManagedTabRequest {
-                        index: index.clone(),
                         tab_id: "graph".into(),
                         version: version.into(),
                     })
+                    .index(index)
                     .bytes(bytes)
                     .maybe_backend_archive(backend)
                     .update(update)
                     .maybe_consented(consented)
-                    .trust(trust)
                     .call()
             })
         }
@@ -288,13 +284,15 @@ mod tests {
 
     #[test]
     fn installer_admits_signed_bytes_and_preserves_local_author_tabs() {
+        // Installs need a fresh policy, like in any build.
+        let _policy =
+            crate::domain::plugin_tabs::managed::policy::tests::configure(serde_json::json!([]));
         let harness = Harness::new();
         let (receipt, archive, _, trust) = fixture(harness.temp.path());
         let call = |bytes: Vec<u8>, update: bool| {
             harness
                 .install()
                 .index(&receipt.index)
-                .trust(&trust)
                 .bytes(bytes)
                 .update(update)
                 .call()
@@ -333,12 +331,11 @@ mod tests {
             harness
                 .install()
                 .index(&tab.receipt.index)
-                .trust(&tab.trust)
                 .bytes(tab.archive.clone())
                 .backend(tab.backend_archive.clone())
                 .call()
         };
-        let digest = crate::domain::themes::managed::storage::digest(&tab.executable);
+        let digest = crate::domain::marketplace::storage::digest(&tab.executable);
         // This platform's binary is what is blocked.
         let _policy = configure(
             serde_json::json!([{"tab_id":"graph","executable_sha256":digest,"reason":"steals keys"}]),
@@ -359,13 +356,15 @@ mod tests {
 
     #[test]
     fn a_backend_tab_installs_its_platform_binary_only_from_matching_bytes() {
+        // Installs need a fresh policy, like in any build.
+        let _policy =
+            crate::domain::plugin_tabs::managed::policy::tests::configure(serde_json::json!([]));
         let harness = Harness::new();
         let tab = backend_fixture().root(harness.temp.path()).call();
         let call = |backend: Option<Vec<u8>>| {
             harness
                 .install()
                 .index(&tab.receipt.index)
-                .trust(&tab.trust)
                 .bytes(tab.archive.clone())
                 .maybe_backend(backend)
                 .call()
@@ -397,11 +396,10 @@ mod tests {
         }
         // A UI-only package cannot smuggle a binary in.
         let ui = Harness::new();
-        let (receipt, archive, _, trust) = fixture(ui.temp.path());
+        let (receipt, archive, _, _) = fixture(ui.temp.path());
         assert!(ui
             .install()
             .index(&receipt.index)
-            .trust(&trust)
             .bytes(archive)
             .backend(tab.backend_archive.clone())
             .call()
@@ -419,7 +417,6 @@ mod tests {
         let result = harness
             .install()
             .index(&tab.receipt.index)
-            .trust(&tab.trust)
             .bytes(tab.archive.clone())
             .backend(tab.backend_archive.clone())
             .call();
@@ -444,6 +441,9 @@ mod tests {
 
     #[test]
     fn an_update_that_runs_a_new_binary_is_staged_only_over_an_accepted_revision() {
+        // Installs need a fresh policy, like in any build.
+        let _policy =
+            crate::domain::plugin_tabs::managed::policy::tests::configure(serde_json::json!([]));
         let harness = Harness::new();
         let (index, first, second) = two_versions(&harness);
         let install = |tab: &BackendFixture, version, update, consented: Option<String>| {
@@ -451,7 +451,6 @@ mod tests {
                 .install()
                 .index(&index)
                 .version(version)
-                .trust(&first.trust)
                 .bytes(tab.archive.clone())
                 .backend(tab.backend_archive.clone())
                 .update(update)
@@ -517,11 +516,10 @@ mod tests {
                     .root(plugins.join("managed-tabs"))
                     .local(plugins.join("tabs/graph"))
                     .body(InstallManagedTabRequest {
-                        index: index.clone(),
                         tab_id: "graph".into(),
                         version: format!("1.0.{number}"),
                     })
-                    .trust(&crate::domain::plugin_tabs::managed::storage::fixtures::trust())
+                    .index(index)
                     .bytes(std::fs::read(work.join(format!("tab-{number}.tar.gz"))).unwrap())
                     .backend_archive(
                         std::fs::read(work.join(format!("backend-{number}.tar.gz"))).unwrap(),

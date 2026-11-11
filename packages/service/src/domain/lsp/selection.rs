@@ -51,16 +51,16 @@ pub async fn resolve_handler(
     };
     let installed = managed::inventory().await?;
     // Only a current authenticated disk cache can supply suggestions. File opens never fetch.
-    let cached = crate::domain::themes::managed::catalog::cached_catalog().await;
+    let cached = crate::domain::marketplace::catalog::cached_catalog().await;
     let (index, catalog_error) = match cached {
         Ok(index) => (index, None),
         Err(error) => (None, Some(error.to_string())),
     };
-    let language = resolve_language(&params, &installed, index.as_ref());
+    let language = resolve_language(&params, &installed, index.as_deref());
     let mut response = resolve(&language, &global, &project, installed)?;
     if let Some(index) = index {
         if suggestions::needed(&response) {
-            suggestions::add(&mut response, index).await?;
+            suggestions::add(&mut response, (*index).clone()).await?;
         }
     }
     let mut errors = global_warnings
@@ -79,7 +79,7 @@ pub async fn resolve_handler(
 fn resolve_language(
     params: &LspResolveParams,
     installed: &[ServerProbe],
-    index: Option<&crate::domain::themes::managed::models::SignedMixedCatalog>,
+    index: Option<&crate::domain::marketplace::models::SignedMixedCatalog>,
 ) -> String {
     if let Some(language) = params
         .language_id

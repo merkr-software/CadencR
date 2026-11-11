@@ -9,7 +9,6 @@ import {
   updateManagedTab,
   removeManagedTab,
   pluginTabList,
-  type SignedMixedCatalog,
 } from "@/api/generated";
 import { themeCatalogSchema } from "@/lib/theme-marketplace";
 import { apiErrorCode } from "@/lib/api-errors";
@@ -28,7 +27,7 @@ const entry = z.object({
   pending_version: z.string().nullable().optional(),
 });
 type Action =
-  | { kind: "install" | "update"; id: string; version: string; index: SignedMixedCatalog }
+  | { kind: "install" | "update"; id: string; version: string }
   | { kind: "remove"; id: string };
 
 /** Shared with read-only consumers (the sidebar's update badge) so they hit one cache entry. */
@@ -89,7 +88,7 @@ export function useTabMarketplace() {
           z.literal(true).parse(await removeManagedTab(action.id));
           return null;
         }
-        const body = { tab_id: action.id, version: action.version, index: action.index };
+        const body = { tab_id: action.id, version: action.version };
         const result = entry.parse(
           action.kind === "install"
             ? await installManagedTab(body)

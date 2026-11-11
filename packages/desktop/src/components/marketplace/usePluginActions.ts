@@ -46,15 +46,14 @@ function kindDispatch(
       listing.installed && !(listing.kind === "lsp" && !listing.installed.managed)
         ? "update"
         : "install";
-    const providerIndex = providers.catalogQuery.data?.index;
-    const themeIndex = themes.catalog.data?.index;
-    const tabIndex = tabs.catalog.data?.index;
-    if (listing.kind === "provider" && providerIndex)
-      return providers.mutation[mode]({ kind, id: listing.id, version, index: providerIndex });
-    if (listing.kind === "theme" && themeIndex)
-      return themes.mutation[mode]({ kind, id: listing.id, version, index: themeIndex });
-    if (listing.kind === "tab" && tabIndex)
-      return tabs.mutation[mode]({ kind, id: listing.id, version, index: tabIndex });
+    // The service installs from its own verified catalog; the request only
+    // names a version, which the loaded catalog listed.
+    if (listing.kind === "provider" && providers.catalogQuery.data?.index)
+      return providers.mutation[mode]({ kind, id: listing.id, version });
+    if (listing.kind === "theme" && themes.catalog.data?.index)
+      return themes.mutation[mode]({ kind, id: listing.id, version });
+    if (listing.kind === "tab" && tabs.catalog.data?.index)
+      return tabs.mutation[mode]({ kind, id: listing.id, version });
     if (listing.kind === "lsp" && lsps.catalog.data?.index)
       return lsps.mutation[mode]({ kind, id: listing.id, version });
     throw new Error(NO_CATALOG);

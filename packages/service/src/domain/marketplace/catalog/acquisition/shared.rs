@@ -1,5 +1,5 @@
 //! Concurrent theme/tab requests share acquisition without sharing theme policy.
-use super::{Context, VerifiedCatalog};
+use super::{Context, Fetched, Validators, VerifiedCatalog};
 use crate::error::AppError;
 use std::{
     collections::HashMap,
@@ -27,11 +27,15 @@ fn flight(root: &PathBuf) -> Result<Arc<Flight>, AppError> {
     Ok(flight)
 }
 
-pub(super) async fn acquire(
+pub(super) async fn acquire<F, Fut>(
     context: Context,
     refresh: bool,
-    fetch: Option<impl Future<Output = Result<Vec<u8>, AppError>> + Send>,
-) -> Arc<Outcome> {
+    fetch: Option<F>,
+) -> Arc<Outcome>
+where
+    F: FnOnce(Option<Validators>) -> Fut,
+    Fut: Future<Output = Result<Fetched, AppError>> + Send,
+{
     let requested = Instant::now();
     let flight = match flight(&context.root) {
         Ok(flight) => flight,
@@ -72,10 +76,15 @@ mod tests {
             trust,
         };
         let calls = AtomicUsize::new(0);
-        let fetch = || async {
-            calls.fetch_add(1, Ordering::Relaxed);
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            Ok(bytes.clone())
+        let fetch = || {
+            |_| async {
+                calls.fetch_add(1, Ordering::Relaxed);
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                Ok(Fetched::Body {
+                    bytes: bytes.clone(),
+                    validators: Validators::default(),
+                })
+            }
         };
         let (theme, tab) = tokio::join!(
             acquire(context.clone(), true, Some(fetch())),
@@ -97,10 +106,12 @@ mod tests {
             trust,
         };
         let calls = AtomicUsize::new(0);
-        let fetch = || async {
-            calls.fetch_add(1, Ordering::Relaxed);
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            Err(super::super::invalid("offline fixture"))
+        let fetch = || {
+            |_| async {
+                calls.fetch_add(1, Ordering::Relaxed);
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                Err::<Fetched, _>(super::super::invalid("offline fixture"))
+            }
         };
         let (theme, tab) = tokio::join!(
             acquire(context.clone(), true, Some(fetch())),

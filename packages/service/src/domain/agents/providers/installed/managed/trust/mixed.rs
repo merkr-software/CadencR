@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::themes::managed::models::SignedMixedCatalog;
+use crate::domain::marketplace::models::SignedMixedCatalog;
 
 impl ManagedTrustStore {
     pub(super) fn verify_mixed(
@@ -156,7 +156,7 @@ mod tests {
             json!({"kind":"skill","package":{"skill":{"id":"review"}}}),
         ];
         sign(&mut index);
-        let theme_entry = crate::domain::themes::managed::catalog::resolve_kind(
+        let theme_entry = crate::domain::marketplace::catalog::resolve_kind(
             &index,
             "acme-agent-theme",
             "1.2.3",
