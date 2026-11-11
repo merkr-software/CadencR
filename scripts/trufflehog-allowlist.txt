@@ -208,3 +208,7 @@ fec9b4129900288f7a12750dc49e467f26065e674c4c5fd2a6210cfbb53143cb
 # v0.16.1 moved CLI stderr credential-redaction test fixture.
 # Same synthetic URI as the older extensions/cli.rs fixture; exact new binding.
 d0bac2516010ab301c0f1ea0fc930cd5a4b2092dea4459bd8eb56188d96ad4db
+
+# v0.16.2 synthetic user:pass@proxy URI in cli_stderr secret-masking tests.
+# Exact detector/value/commit/file/line binding, independently reviewed.
+fea9faa98751ac6e1d6a3e06f599eeea32bebd060eea918e8a5097708edc138a
