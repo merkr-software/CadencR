@@ -23,7 +23,7 @@ import { useGlobalShortcutById, useShortcut } from "@/hooks/useShortcut";
 import { useThemeSync } from "@/hooks/useTheme";
 import { useRouteFeatureIds } from "@/hooks/useRouteFeatureIds";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
-import { useZoomHotkeys } from "@/hooks/useZoom";
+import { useAppZoom } from "@/hooks/useZoom";
 import { resolveFeatureArchiveAction } from "@/lib/feature-archive-decision";
 import {
   initNotificationPermission,
@@ -52,7 +52,7 @@ function useRootEnvironment(isMobile: boolean) {
   usePowerBusySignal();
   useRemoteSleepGuard();
   useAutoUpdateBridge();
-  useZoomHotkeys();
+  useAppZoom();
   useVisualViewportHeight(isMobile);
   const navigate = useNavigate();
   const queryClient = useQueryClient();

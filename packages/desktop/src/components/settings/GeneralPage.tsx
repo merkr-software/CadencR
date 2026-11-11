@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { ResolvedKbdChord } from "@/components/KbdShortcut";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { useZoom } from "@/hooks/useZoom";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { RestartResumeToggle } from "./RestartResumeToggle";
@@ -38,16 +37,15 @@ export function GeneralPage(): React.JSX.Element {
 }
 
 function ZoomRow(): React.JSX.Element {
-  const { zoomLevel, zoomIn, zoomOut, resetZoom } = useZoom();
   // Desktop and mobile keep independent zoom levels, so this control only ever
   // shows (and edits) the option for the device type it's running on.
-  const isMobile = useIsMobile();
+  const { device, zoomLevel, step } = useZoom();
   return (
     <SettingsRow
       align="start"
       label="UI zoom"
       description={
-        isMobile ? (
+        device === "mobile" ? (
           "Scales the interface on this device only. This is separate from the desktop app's zoom."
         ) : (
           <>
@@ -67,7 +65,7 @@ function ZoomRow(): React.JSX.Element {
             variant="outline"
             size="sm"
             className="size-7 p-0"
-            onClick={zoomOut}
+            onClick={() => step("out")}
             aria-label="Zoom out"
           >
             −
@@ -79,12 +77,17 @@ function ZoomRow(): React.JSX.Element {
             variant="outline"
             size="sm"
             className="size-7 p-0"
-            onClick={zoomIn}
+            onClick={() => step("in")}
             aria-label="Zoom in"
           >
             +
           </Button>
-          <Button variant="ghost" size="sm" onClick={resetZoom} disabled={zoomLevel === 100}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => step("reset")}
+            disabled={zoomLevel === 100}
+          >
             Reset
           </Button>
         </div>

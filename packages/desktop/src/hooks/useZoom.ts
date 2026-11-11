@@ -1,26 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import { useGetWorkspaceSetting } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
 import { notifyZoomApplied } from "@/lib/zoom-coordinator";
+import { parseZoomLevel, stepZoom, type ZoomStep } from "@/lib/zoom-level";
 import { useShortcut } from "./useShortcut";
-import { useSetting } from "./useSetting";
+import { useSetting, type Setting } from "./useSetting";
 import { useIsMobile } from "./useIsMobile";
 
-// Zoom is kept per DEVICE TYPE (desktop vs mobile), not per connection: a phone
-// and the desktop app each want their own level, so they persist under separate
-// keys. `zoom_global` stays the desktop key to preserve existing preferences;
-// mobile uses `zoom_mobile`. (The apply mechanism — native vs CSS — is chosen
-// separately in `applyZoom` based on whether we're in the Electron shell.)
+// The app zoom scales the whole window. It is kept per DEVICE TYPE (desktop vs
+// mobile), not per connection: a phone and the desktop app each want their own
+// level, so they persist under separate keys. `zoom_global` stays the desktop
+// key to preserve existing preferences; mobile uses `zoom_mobile`. (The apply
+// mechanism — native vs CSS — is chosen separately in `applyZoom`.)
+//
+// A zoom per workspace tab (agent, editor, terminal) would be a separate scope
+// applied inside the tab: the native factor below is shared by the whole window.
 const ZOOM_KEY_DESKTOP = "zoom_global";
 const ZOOM_KEY_MOBILE = "zoom_mobile";
-const ZOOM_DEFAULT = 100;
-const ZOOM_MIN = 50;
-const ZOOM_MAX = 200;
-const ZOOM_STEP = 10;
 
-function clampZoom(level: number): number {
-  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, level));
+export type ZoomDevice = "desktop" | "mobile";
+
+/**
+ * The Electron shell is always the desktop device. Zooming in narrows its CSS
+ * viewport, so going by width would swap in the phone level past the breakpoint
+ * and bounce between the two levels.
+ */
+export function zoomDevice(inDesktopShell: boolean, isPhoneViewport: boolean): ZoomDevice {
+  return !inDesktopShell && isPhoneViewport ? "mobile" : "desktop";
+}
+
+function zoomSettingKey(device: ZoomDevice): string {
+  return device === "mobile" ? ZOOM_KEY_MOBILE : ZOOM_KEY_DESKTOP;
 }
 
 // Browsers default the root font-size to 16px; mobile zoom scales from this.
@@ -50,73 +62,74 @@ function applyZoom(level: number): void {
   notifyZoomApplied();
 }
 
-/**
- * Returns zoom state and actions for the *current* device type — desktop and
- * mobile read/write distinct settings and never affect each other. Call
- * `useZoomHotkeys` separately in the single root component that should own the
- * keyboard shortcuts.
- */
-export function useZoom() {
-  const isMobile = useIsMobile();
-  const setting = useSetting(isMobile ? ZOOM_KEY_MOBILE : ZOOM_KEY_DESKTOP);
-  // The level the last step asked for, so steps pressed before the previous one
-  // is confirmed still add up. Never applied: the page zooms once the backend
-  // confirms, and a failed write falls back to the confirmed level.
-  const targetRef = useRef(ZOOM_DEFAULT);
+interface ZoomState {
+  key: string;
+  device: ZoomDevice;
+  setting: Setting;
+  zoomLevel: number;
+  step: (step: ZoomStep) => void;
+}
 
-  const hasPersistedValue = setting.value != null;
-  const persisted = hasPersistedValue ? Number(setting.value) : ZOOM_DEFAULT;
-  if (!setting.isSaving && (!setting.isLoading || hasPersistedValue)) {
-    targetRef.current = persisted;
-  }
-
-  useEffect(() => {
-    if (setting.isLoading && !hasPersistedValue) return;
-    applyZoom(persisted);
-  }, [hasPersistedValue, persisted, setting.isLoading]);
-
+function useZoomState(): ZoomState {
+  const device = zoomDevice(isDesktopShell(), useIsMobile());
+  const key = zoomSettingKey(device);
+  const setting = useSetting(key);
   const { setValue } = setting;
-  const setZoom = useCallback(
-    (level: number) => {
-      const clamped = clampZoom(level);
-      targetRef.current = clamped;
-      void setValue(String(clamped));
+  // Each step applies to the level the backend confirmed when its write goes
+  // out, so quick steps add up across callers. A level that never loaded is
+  // left alone rather than overwritten from a guess.
+  const step = useCallback(
+    (next: ZoomStep) => {
+      void setValue((confirmed) =>
+        confirmed === undefined ? null : String(stepZoom(parseZoomLevel(confirmed), next)),
+      );
     },
     [setValue],
   );
-
-  const zoomIn = useCallback(() => {
-    setZoom(targetRef.current + ZOOM_STEP);
-  }, [setZoom]);
-
-  const zoomOut = useCallback(() => {
-    setZoom(targetRef.current - ZOOM_STEP);
-  }, [setZoom]);
-
-  const resetZoom = useCallback(() => {
-    setZoom(ZOOM_DEFAULT);
-  }, [setZoom]);
-
-  return useMemo(
-    () => ({ zoomLevel: persisted, zoomIn, zoomOut, resetZoom, setZoom }),
-    [persisted, zoomIn, zoomOut, resetZoom, setZoom],
-  );
+  return { key, device, setting, zoomLevel: parseZoomLevel(setting.value), step };
 }
 
-/** Registers Cmd+=/Cmd+-/Cmd+0 hotkeys. Call only once (root layout). */
-export function useZoomHotkeys() {
-  const { zoomIn, zoomOut, resetZoom } = useZoom();
+/**
+ * The app zoom of the *current* device type and its controls. Reading it never
+ * changes the zoom: only {@link useAppZoom}, mounted once, applies it.
+ */
+export function useZoom() {
+  const { device, zoomLevel, step } = useZoomState();
+  return useMemo(() => ({ device, zoomLevel, step }), [device, zoomLevel, step]);
+}
+
+/**
+ * Owns the app zoom: applies the confirmed level and registers Cmd+=/Cmd+-/Cmd+0.
+ * Call only once (root layout); a second owner would re-apply on mount.
+ */
+export function useAppZoom(): void {
+  const { key, setting, zoomLevel, step } = useZoomState();
+  const { error } = useGetWorkspaceSetting(key);
+  // Unset applies the default; a level that failed to load keeps the current
+  // zoom instead of resetting it until a later fetch succeeds.
+  const known = setting.value != null || (setting.isFetched && error == null);
+
+  useEffect(() => {
+    if (known) applyZoom(zoomLevel);
+  }, [known, zoomLevel]);
+
+  useEffect(() => {
+    if (known || error == null) return;
+    toast.error(`Could not load the zoom level: ${apiErrorMessage(error, "Unknown error")}`, {
+      id: "zoom-load-error",
+    });
+  }, [known, error]);
 
   useShortcut("zoom-in", (e) => {
     e.preventDefault();
-    zoomIn();
+    step("in");
   });
   useShortcut("zoom-out", (e) => {
     e.preventDefault();
-    zoomOut();
+    step("out");
   });
   useShortcut("zoom-reset", (e) => {
     e.preventDefault();
-    resetZoom();
+    step("reset");
   });
 }
