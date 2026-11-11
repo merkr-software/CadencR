@@ -576,8 +576,14 @@ pub(crate) mod tests {
             .descriptors(descriptors)
             .trust_store(test_trust_store())
             .build();
+        super::super::catalog::admit_request(
+            &storage.catalog_cache_path(),
+            &test_trust_store(),
+            index.into(),
+        )
+        .unwrap();
         let error = service
-            .update(&receipt.agent.id, "2.0.0", index)
+            .update(&receipt.agent.id, "2.0.0")
             .await
             .unwrap_err();
         assert!(

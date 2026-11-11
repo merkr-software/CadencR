@@ -12,8 +12,11 @@ use crate::domain::agents::providers::installed::managed::trust::{
 #[cfg(test)]
 use crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex;
 use crate::domain::agents::providers::installed::managed::SignedProviderCatalog;
+use crate::domain::marketplace::verified::{Stamp, VerifiedMemo};
 
 static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
+/// Each cached catalog version is verified once (see `marketplace::verified`).
+static VERIFIED: VerifiedMemo<LoadedCatalog> = VerifiedMemo::new();
 // The on-disk wrapper adds `cached_at` and the `index` field around an envelope
 // that is itself allowed to occupy MAX_CATALOG_BYTES.
 const MAX_CACHED_CATALOG_BYTES: usize = MAX_CATALOG_BYTES + 128;
@@ -25,7 +28,7 @@ struct CachedCatalog {
     index: SignedProviderCatalog,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct LoadedCatalog {
     pub cached_at: DateTime<Utc>,
     pub verified: VerifiedManagedProviderIndex,
@@ -36,10 +39,35 @@ pub(super) fn load(
     trust: &ManagedTrustStore,
     now: DateTime<Utc>,
 ) -> Result<Option<LoadedCatalog>, ManagedCatalogError> {
+    let Some(stamp) = stamp(path)? else {
+        return Ok(None);
+    };
+    let fresh = |loaded: &LoadedCatalog| validate_freshness(&loaded.verified, now).is_ok();
+    if let Some(loaded) = VERIFIED
+        .recall(path, &stamp, trust, fresh)
+        .map_err(|error| unavailable(error.to_string()))?
+    {
+        return Ok(Some(loaded));
+    }
     let Some(cached) = read(path)? else {
         return Ok(None);
     };
-    verify(cached, trust, now).map(Some)
+    let loaded = verify(cached, trust, now)?;
+    remember(path, stamp, trust, &loaded)?;
+    Ok(Some(loaded))
+}
+fn stamp(path: &Path) -> Result<Option<Stamp>, ManagedCatalogError> {
+    Stamp::of(path).map_err(|error| unavailable(format!("could not read catalog cache: {error}")))
+}
+fn remember(
+    path: &Path,
+    stamp: Stamp,
+    trust: &ManagedTrustStore,
+    loaded: &LoadedCatalog,
+) -> Result<(), ManagedCatalogError> {
+    VERIFIED
+        .remember(path, stamp, trust, loaded.clone())
+        .map_err(|error| unavailable(error.to_string()))
 }
 
 pub(super) fn persist(
@@ -61,6 +89,7 @@ pub(super) fn persist(
             "serialized managed provider catalog exceeds the cache limit",
         ));
     }
+    signature_check("provider-admit");
     let verified = trust
         .verify_index(index.clone())
         .map_err(|error| invalid(error.message))?;
@@ -103,7 +132,21 @@ pub(super) fn persist(
     }
     crate::shared::atomic_file::write_atomic_private(path, &json)
         .map_err(|error| unavailable(format!("could not cache verified catalog: {error}")))?;
+    if let Some(stamp) = stamp(path)? {
+        let loaded = LoadedCatalog {
+            cached_at: now,
+            verified: verified.clone(),
+        };
+        remember(path, stamp, trust, &loaded)?;
+    }
     Ok(verified)
+}
+
+/// The provider catalog's signature checks, traced like the shared catalog's.
+fn signature_check(purpose: &'static str) {
+    tracing::debug!(target: "cadencr::marketplace", purpose, "catalog signature check");
+    #[cfg(test)]
+    tests::CHECKS.with(|checks| checks.set(checks.get() + 1));
 }
 
 fn verify(
@@ -111,6 +154,7 @@ fn verify(
     trust: &ManagedTrustStore,
     now: DateTime<Utc>,
 ) -> Result<LoadedCatalog, ManagedCatalogError> {
+    signature_check("provider-cache");
     let verified = trust
         .verify_index(cached.index)
         .map_err(|error| invalid(error.message))?;
@@ -360,6 +404,33 @@ mod tests {
             .map(String::as_str),
             Some("1.0.119")
         );
+    }
+
+    thread_local! {
+        pub(super) static CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn a_cached_catalog_version_is_verified_once_however_often_it_is_loaded() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.json");
+        let now = Utc::now();
+        persist(&path, &trust(), signed(now), now).unwrap();
+        let admitted = CHECKS.with(std::cell::Cell::get);
+        for _ in 0..3 {
+            assert!(load(&path, &trust(), now).unwrap().is_some());
+        }
+        assert_eq!(CHECKS.with(std::cell::Cell::get), admitted);
+        // A replaced cache file is a new version: verified again.
+        let replaced = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        crate::shared::atomic_file::write_atomic_private(
+            &path,
+            std::str::from_utf8(&replaced).unwrap(),
+        )
+        .unwrap();
+        assert!(load(&path, &trust(), now).unwrap().is_some());
+        assert_eq!(CHECKS.with(std::cell::Cell::get), admitted + 1);
     }
 
     #[test]

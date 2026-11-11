@@ -1,5 +1,5 @@
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{DefaultBodyLimit, Path};
+use axum::extract::Path;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,6 @@ use super::service::{
     ManagedMutation, ManagedProviderInventoryEntry, ManagedProviderService,
     ManagedProvidersInventory,
 };
-use super::SignedProviderCatalog;
 use crate::app_state::AppState;
 use crate::error::AppError;
 
@@ -18,13 +17,11 @@ use crate::error::AppError;
 pub struct InstallManagedProviderRequest {
     pub provider_id: String,
     pub version: String,
-    pub index: SignedProviderCatalog,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct UpdateManagedProviderRequest {
     pub version: String,
-    pub index: SignedProviderCatalog,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
@@ -67,7 +64,7 @@ pub async fn install_handler(
     let Json(request) = payload.map_err(json_rejection)?;
     let service = ManagedProviderService::production()?;
     let mutation = service
-        .install(&request.provider_id, &request.version, request.index)
+        .install(&request.provider_id, &request.version)
         .await?;
     response(&service, &request.provider_id, mutation).await
 }
@@ -85,9 +82,7 @@ pub async fn update_handler(
 ) -> Result<Json<ManagedProviderInventoryEntry>, AppError> {
     let Json(request) = payload.map_err(json_rejection)?;
     let service = ManagedProviderService::production()?;
-    let mutation = service
-        .update(&provider_id, &request.version, request.index)
-        .await?;
+    let mutation = service.update(&provider_id, &request.version).await?;
     response(&service, &provider_id, mutation).await
 }
 
@@ -196,12 +191,7 @@ pub fn inventory_router() -> Router<AppState> {
 
 pub fn lifecycle_router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/api/agents/managed-providers",
-            post(install_handler).layer(DefaultBodyLimit::max(
-                cadencr_registry_core::MAX_CATALOG_BYTES + 4096,
-            )),
-        )
+        .route("/api/agents/managed-providers", post(install_handler))
         .route(
             "/api/agents/managed-providers/blocklist/refresh",
             post(refresh_blocklist_handler),
@@ -212,9 +202,7 @@ pub fn lifecycle_router() -> Router<AppState> {
         )
         .route(
             "/api/agents/managed-providers/{provider_id}/update",
-            post(update_handler).layer(DefaultBodyLimit::max(
-                cadencr_registry_core::MAX_CATALOG_BYTES + 4096,
-            )),
+            post(update_handler),
         )
         .route(
             "/api/agents/managed-providers/{provider_id}/rollback",

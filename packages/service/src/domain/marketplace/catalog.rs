@@ -4,22 +4,35 @@ use super::invalid;
 use super::kind::entry_invalid;
 use super::models::SignedMixedCatalog;
 use super::storage;
-use crate::domain::agents::providers::installed::managed::trust::{
-    pinned_index_trust_store, ManagedTrustStore,
-};
+use super::verified::{Stamp, VerifiedMemo};
+use crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore;
 use crate::error::AppError;
 use chrono::Utc;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 mod acquisition;
-pub use acquisition::{acquire_catalog, acquire_with_policy, cached_catalog};
+pub use acquisition::{acquire_catalog, acquire_with_policy, cached_catalog, verified_catalog};
 
+/// Every catalog signature check goes through here; its debug event is how a
+/// running service shows how often it pays for one.
+fn signature_check(purpose: &'static str) {
+    tracing::debug!(
+        target: "cadencr::marketplace",
+        purpose,
+        root = %storage::root().display(),
+        "catalog signature check"
+    );
+    #[cfg(test)]
+    tests::count_signature_check();
+}
 pub fn verify(
     index: &SignedMixedCatalog,
     trust: &ManagedTrustStore,
     allow_expired: bool,
 ) -> Result<(), AppError> {
+    signature_check("verify");
     if index.signed.schema_version != 2 {
         return Err(invalid("catalog must use mixed schema 2"));
     }
@@ -87,65 +100,128 @@ fn source() -> Option<&'static str> {
 fn cache() -> std::path::PathBuf {
     crate::shared::registry_catalog_cache::path(&storage::root(), source())
 }
-pub fn ingest(index: &SignedMixedCatalog) -> Result<(), AppError> {
-    ingest_trusted(index, &pinned_index_trust_store())
+static VERIFIED: VerifiedMemo<Arc<SignedMixedCatalog>> = VerifiedMemo::new();
+fn unexpired(catalog: &Arc<SignedMixedCatalog>) -> bool {
+    chrono::DateTime::parse_from_rfc3339(&catalog.signed.expires_at)
+        .is_ok_and(|expiry| expiry > Utc::now())
 }
+fn stamp(path: &std::path::Path) -> Result<Option<Stamp>, AppError> {
+    Stamp::of(path).map_err(|error| invalid(format!("{}: {error}", path.display())))
+}
+/// The cached catalog, verified under `trust` once per version.
+pub(crate) fn load_verified(
+    trust: &ManagedTrustStore,
+) -> Result<Arc<SignedMixedCatalog>, AppError> {
+    let path = cache();
+    let stamp = stamp(&path)?.ok_or_else(|| invalid("catalog has not been fetched yet"))?;
+    if let Some(catalog) = VERIFIED.recall(&path, &stamp, trust, unexpired)? {
+        return Ok(catalog);
+    }
+    let index = storage::bounded_json::<SignedMixedCatalog>(&path)?;
+    verify(&index, trust, false)?;
+    let index = Arc::new(index);
+    VERIFIED.remember(&path, stamp, trust, index.clone())?;
+    Ok(index)
+}
+/// The cached catalog already verified under `trust`, if any: an exact replay
+/// of it needs no new signature check.
+fn remembered(trust: &ManagedTrustStore) -> Result<Option<Arc<SignedMixedCatalog>>, AppError> {
+    let path = cache();
+    match stamp(&path)? {
+        Some(stamp) => VERIFIED.recall(&path, &stamp, trust, unexpired),
+        None => Ok(None),
+    }
+}
+fn same_envelope(left: &SignedMixedCatalog, right: &SignedMixedCatalog) -> Result<bool, AppError> {
+    Ok(left.signature.key_id == right.signature.key_id
+        && left.signature.value == right.signature.value
+        && serde_json::to_value(&left.signed).map_err(invalid)?
+            == serde_json::to_value(&right.signed).map_err(invalid)?)
+}
+/// Admit `index` as the cached catalog: verified, and never a rollback or an
+/// equivocation of the cached one.
 pub(crate) fn ingest_trusted(
     index: &SignedMixedCatalog,
     trust: &ManagedTrustStore,
-) -> Result<(), AppError> {
+) -> Result<Arc<SignedMixedCatalog>, AppError> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = LOCK
         .lock()
         .map_err(|error| invalid(format!("catalog lock failed: {error}")))?;
-    verify(index, trust, false)?;
-    match storage::bounded_json::<SignedMixedCatalog>(&cache()) {
-        Ok(previous) => {
-            trust
-                .authenticate_catalog_baseline(&serde_json::to_value(&previous).map_err(invalid)?)
-                .map_err(|error| invalid(error.to_string()))?;
-            let earlier = chrono::DateTime::parse_from_rfc3339(&previous.signed.generated_at)
-                .map_err(invalid)?;
-            let incoming = chrono::DateTime::parse_from_rfc3339(&index.signed.generated_at)
-                .map_err(invalid)?;
-            let prior_payload = serde_json::to_value(&previous.signed).map_err(invalid)?;
-            let incoming_payload = serde_json::to_value(&index.signed).map_err(invalid)?;
-            if incoming < earlier || incoming == earlier && prior_payload != incoming_payload {
-                return Err(invalid(
-                    "catalog rollback or same-time equivocation rejected",
-                ));
-            }
-            if incoming == earlier
-                && previous.signature.key_id == index.signature.key_id
-                && previous.signature.value == index.signature.value
-            {
-                // Both envelopes were authenticated above. Exact payload replay is
-                // an idempotent admission, not a newly published catalog revision.
-                return Ok(());
-            }
-            if incoming > earlier {
-                cadencr_registry_core::validate_catalog_continuity(
-                    &prior_payload,
-                    &incoming_payload,
-                )
-                .map_err(invalid)?;
-            }
+    let current = remembered(trust)?;
+    if let Some(current) = &current {
+        if same_envelope(current, index)? {
+            return Ok(current.clone());
         }
-        Err(error) => match cache().symlink_metadata() {
-            Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => {}
-            Ok(_) => return Err(error),
-            Err(inspect) => {
-                return Err(invalid(format!(
-                    "catalog high-water cache cannot be inspected: {inspect}"
-                )))
-            }
-        },
+    }
+    verify(index, trust, false)?;
+    let previous = match current {
+        Some(current) => Some(current),
+        None => previous_baseline(trust)?,
+    };
+    if let Some(previous) = previous {
+        let earlier =
+            chrono::DateTime::parse_from_rfc3339(&previous.signed.generated_at).map_err(invalid)?;
+        let incoming =
+            chrono::DateTime::parse_from_rfc3339(&index.signed.generated_at).map_err(invalid)?;
+        let prior_payload = serde_json::to_value(&previous.signed).map_err(invalid)?;
+        let incoming_payload = serde_json::to_value(&index.signed).map_err(invalid)?;
+        if incoming < earlier || incoming == earlier && prior_payload != incoming_payload {
+            return Err(invalid(
+                "catalog rollback or same-time equivocation rejected",
+            ));
+        }
+        if incoming == earlier
+            && previous.signature.key_id == index.signature.key_id
+            && previous.signature.value == index.signature.value
+        {
+            // Both envelopes were authenticated above. Exact payload replay is
+            // an idempotent admission, not a newly published catalog revision.
+            return admitted(index, trust);
+        }
+        if incoming > earlier {
+            cadencr_registry_core::validate_catalog_continuity(&prior_payload, &incoming_payload)
+                .map_err(invalid)?;
+        }
     }
     storage::secure(&storage::root())?;
     crate::shared::atomic_file::write_atomic_private(
         &cache(),
         &serde_json::to_string(index).map_err(invalid)?,
-    )
+    )?;
+    admitted(index, trust)
+}
+/// The cached catalog, authenticated as a baseline (a retired key before its
+/// cutoff, or an exact recovery checkpoint); `None` when there is none yet.
+fn previous_baseline(
+    trust: &ManagedTrustStore,
+) -> Result<Option<Arc<SignedMixedCatalog>>, AppError> {
+    match storage::bounded_json::<SignedMixedCatalog>(&cache()) {
+        Ok(previous) => {
+            signature_check("baseline");
+            trust
+                .authenticate_catalog_baseline(&serde_json::to_value(&previous).map_err(invalid)?)
+                .map_err(|error| invalid(error.to_string()))?;
+            Ok(Some(Arc::new(previous)))
+        }
+        Err(error) => match cache().symlink_metadata() {
+            Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Ok(_) => Err(error),
+            Err(inspect) => Err(invalid(format!(
+                "catalog high-water cache cannot be inspected: {inspect}"
+            ))),
+        },
+    }
+}
+fn admitted(
+    index: &SignedMixedCatalog,
+    trust: &ManagedTrustStore,
+) -> Result<Arc<SignedMixedCatalog>, AppError> {
+    let path = cache();
+    let admitted = Arc::new(index.clone());
+    let stamp = stamp(&path)?.ok_or_else(|| invalid("catalog cache vanished after admission"))?;
+    VERIFIED.remember(&path, stamp, trust, admitted.clone())?;
+    Ok(admitted)
 }
 /// A `kind` catalog entry's id and version.
 pub fn package_version<'a>(entry: &'a Value, kind: &str) -> Option<(&'a str, &'a str)> {
@@ -190,6 +266,18 @@ pub use super::download::{download, download_archive};
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    type Checks = std::collections::HashMap<std::path::PathBuf, usize>;
+    fn checks() -> &'static std::sync::Mutex<Checks> {
+        static CHECKS: std::sync::OnceLock<std::sync::Mutex<Checks>> = std::sync::OnceLock::new();
+        CHECKS.get_or_init(Default::default)
+    }
+    pub(super) fn count_signature_check() {
+        *checks().lock().unwrap().entry(storage::root()).or_default() += 1;
+    }
+    /// Catalog signature checks done so far under storage root `root`.
+    pub(crate) fn signature_checks(root: &std::path::Path) -> usize {
+        checks().lock().unwrap().get(root).copied().unwrap_or(0)
+    }
     use crate::domain::agents::providers::installed::managed::trust::TrustedIndexKey;
     use base64::Engine as _;
     use ed25519_dalek::{Signer as _, SigningKey};

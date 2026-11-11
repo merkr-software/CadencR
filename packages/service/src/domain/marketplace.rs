@@ -11,6 +11,7 @@ mod kind;
 pub mod models;
 pub(crate) mod policy_feed;
 pub mod storage;
+pub(crate) mod verified;
 
 use crate::error::AppError;
 

@@ -132,6 +132,23 @@ impl ManagedCatalogResponse {
     }
 }
 
+/// The verified cached catalog installs resolve their package from; it is
+/// never fetched here, and never the client's copy.
+pub(crate) fn cached_verified(
+    path: &Path,
+    trust: &ManagedTrustStore,
+) -> Result<VerifiedManagedProviderIndex, ManagedCatalogError> {
+    cache::load(path, trust, Utc::now())?
+        .map(|catalog| catalog.verified)
+        .ok_or_else(|| {
+            ManagedCatalogError::new(
+                ManagedCatalogErrorCode::Unavailable,
+                "the provider catalog has not been fetched yet; refresh the marketplace and try again",
+            )
+        })
+}
+
+#[cfg(test)]
 pub(crate) fn admit_request(
     path: &Path,
     trust: &ManagedTrustStore,

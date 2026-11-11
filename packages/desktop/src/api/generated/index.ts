@@ -3044,122 +3044,17 @@ export interface InstallLspRequest {
   version: string;
 }
 
-/**
- * Algorithms accepted by index schema v1.
- */
-export type ManagedSignatureAlgorithm =
-  (typeof ManagedSignatureAlgorithm)[keyof typeof ManagedSignatureAlgorithm];
-
-export const ManagedSignatureAlgorithm = {
-  ed25519: "ed25519",
-} as const;
-
-/**
- * Detached index signature. Cryptographic verification is intentionally a
- * caller concern; contract validation only validates this envelope's shape.
- */
-export interface ManagedIndexSignature {
-  algorithm: ManagedSignatureAlgorithm;
-  key_id: string;
-  /** Standard padded base64. Ed25519 signatures decode to exactly 64 bytes. */
-  value: string;
-}
-
-/**
- * Package-owned files, all relative to the extracted package root.
- */
-export interface ManagedPackageAssets {
-  icon: string;
-  /** @nullable */
-  license?: string | null;
-  /** @nullable */
-  readme?: string | null;
-}
-
-/**
- * Inclusive Cadencr application compatibility bounds.
- */
-export interface ManagedAppCompatibility {
-  /** @nullable */
-  max_app_version?: string | null;
-  min_app_version: string;
-}
-
-/**
- * Strict host metadata that must never be moved into the portable ACP entry.
- */
-export interface ManagedProviderHost {
-  assets: ManagedPackageAssets;
-  compatibility: ManagedAppCompatibility;
-  /**
-   * Stable registry publisher identity. Signature trust is resolved from the
-   * index key separately; this field records who owns the package entry.
-   */
-  publisher: string;
-}
-
-/**
- * One versioned provider package in the signed index.
- */
-export interface ManagedProviderPackage {
-  /** Lossless ACP Registry v1 payload. */
-  agent: AcpAgentEntry;
-  /** Cadencr-only host and package policy. */
-  host: ManagedProviderHost;
-}
-
-/**
- * The deterministic payload covered by an index signature.
- */
-export interface ManagedProviderIndex {
-  /** Hard freshness boundary. Expired catalogs are never exposed or installed. */
-  expires_at: string;
-  /** Monotonic publication time used to reject replayed catalog snapshots. */
-  generated_at: string;
-  packages: ManagedProviderPackage[];
-  /** @minimum 0 */
-  schema_version: number;
-}
-
-/**
- * A detached signature over [`ManagedProviderIndex::signing_bytes`].
- */
-export interface SignedManagedProviderIndex {
-  signature: ManagedIndexSignature;
-  /** The exact payload covered by `signature`. */
-  signed: ManagedProviderIndex;
-}
-
-export interface MixedCatalogPayload {
-  expires_at: string;
-  generated_at: string;
-  packages: unknown[];
-  provider_handoffs?: unknown[];
-  /** @minimum 0 */
-  schema_version: number;
-}
-
-export interface SignedMixedCatalog {
-  signature: ManagedIndexSignature;
-  signed: MixedCatalogPayload;
-}
-
-export type SignedProviderCatalog = SignedManagedProviderIndex | SignedMixedCatalog;
-
 export interface InstallManagedProviderRequest {
-  index: SignedProviderCatalog;
   provider_id: string;
   version: string;
 }
 
 export interface InstallManagedTabRequest {
-  index: SignedMixedCatalog;
   tab_id: string;
   version: string;
 }
 
 export interface InstallManagedThemeRequest {
-  index: SignedMixedCatalog;
   theme_id: string;
   version: string;
 }
@@ -3357,6 +3252,41 @@ export interface ListServersResponse {
 
 export type LspCatalogResponseBlockedVersions = { [key: string]: { [key: string]: string } };
 
+/**
+ * Algorithms accepted by index schema v1.
+ */
+export type ManagedSignatureAlgorithm =
+  (typeof ManagedSignatureAlgorithm)[keyof typeof ManagedSignatureAlgorithm];
+
+export const ManagedSignatureAlgorithm = {
+  ed25519: "ed25519",
+} as const;
+
+/**
+ * Detached index signature. Cryptographic verification is intentionally a
+ * caller concern; contract validation only validates this envelope's shape.
+ */
+export interface ManagedIndexSignature {
+  algorithm: ManagedSignatureAlgorithm;
+  key_id: string;
+  /** Standard padded base64. Ed25519 signatures decode to exactly 64 bytes. */
+  value: string;
+}
+
+export interface MixedCatalogPayload {
+  expires_at: string;
+  generated_at: string;
+  packages: unknown[];
+  provider_handoffs?: unknown[];
+  /** @minimum 0 */
+  schema_version: number;
+}
+
+export interface SignedMixedCatalog {
+  signature: ManagedIndexSignature;
+  signed: MixedCatalogPayload;
+}
+
 export type LspCatalogResponseIndex = null | SignedMixedCatalog;
 
 export type LspCatalogResponseRecommendedVersions = { [key: string]: string };
@@ -3415,6 +3345,15 @@ export interface LspRootResponse {
   root: string;
 }
 
+/**
+ * Inclusive Cadencr application compatibility bounds.
+ */
+export interface ManagedAppCompatibility {
+  /** @nullable */
+  max_app_version?: string | null;
+  min_app_version: string;
+}
+
 export type ManagedBlocklistCacheStatus =
   (typeof ManagedBlocklistCacheStatus)[keyof typeof ManagedBlocklistCacheStatus];
 
@@ -3467,6 +3406,64 @@ export const ManagedCatalogCacheStatus = {
   invalid: "invalid",
   expired: "expired",
 } as const;
+
+/**
+ * Package-owned files, all relative to the extracted package root.
+ */
+export interface ManagedPackageAssets {
+  icon: string;
+  /** @nullable */
+  license?: string | null;
+  /** @nullable */
+  readme?: string | null;
+}
+
+/**
+ * Strict host metadata that must never be moved into the portable ACP entry.
+ */
+export interface ManagedProviderHost {
+  assets: ManagedPackageAssets;
+  compatibility: ManagedAppCompatibility;
+  /**
+   * Stable registry publisher identity. Signature trust is resolved from the
+   * index key separately; this field records who owns the package entry.
+   */
+  publisher: string;
+}
+
+/**
+ * One versioned provider package in the signed index.
+ */
+export interface ManagedProviderPackage {
+  /** Lossless ACP Registry v1 payload. */
+  agent: AcpAgentEntry;
+  /** Cadencr-only host and package policy. */
+  host: ManagedProviderHost;
+}
+
+/**
+ * The deterministic payload covered by an index signature.
+ */
+export interface ManagedProviderIndex {
+  /** Hard freshness boundary. Expired catalogs are never exposed or installed. */
+  expires_at: string;
+  /** Monotonic publication time used to reject replayed catalog snapshots. */
+  generated_at: string;
+  packages: ManagedProviderPackage[];
+  /** @minimum 0 */
+  schema_version: number;
+}
+
+/**
+ * A detached signature over [`ManagedProviderIndex::signing_bytes`].
+ */
+export interface SignedManagedProviderIndex {
+  signature: ManagedIndexSignature;
+  /** The exact payload covered by `signature`. */
+  signed: ManagedProviderIndex;
+}
+
+export type SignedProviderCatalog = SignedManagedProviderIndex | SignedMixedCatalog;
 
 export type ManagedCatalogResponseIndex = null | SignedProviderCatalog;
 
@@ -7255,7 +7252,6 @@ export interface UpdateLabelRequest {
 }
 
 export interface UpdateManagedProviderRequest {
-  index: SignedProviderCatalog;
   version: string;
 }
 

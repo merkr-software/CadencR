@@ -5,6 +5,9 @@ use crate::domain::projects::publication_release::local::validation::{
 use crate::error::AppError;
 use futures::StreamExt as _;
 
+mod conditional;
+pub use conditional::{download_if_modified, Fetched, Validators};
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DownloadKind {
     Catalog,
@@ -77,7 +80,7 @@ fn client_builder(kind: DownloadKind) -> reqwest::ClientBuilder {
         }))
         .timeout(std::time::Duration::from_secs(30))
 }
-async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<Vec<u8>, AppError> {
+fn checked_url(url: &str) -> Result<reqwest::Url, AppError> {
     let url = reqwest::Url::parse(url).map_err(invalid)?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -88,7 +91,10 @@ async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<V
             "download requires absolute HTTPS without credentials",
         ));
     }
-    response_bytes(url, limit, kind, client(kind)?).await
+    Ok(url)
+}
+async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<Vec<u8>, AppError> {
+    response_bytes(checked_url(url)?, limit, kind, client(kind)?).await
 }
 async fn response_bytes(
     url: reqwest::Url,
@@ -103,6 +109,13 @@ async fn response_bytes(
         .map_err(invalid)?
         .error_for_status()
         .map_err(invalid)?;
+    body_bytes(response, limit, kind).await
+}
+async fn body_bytes(
+    response: reqwest::Response,
+    limit: usize,
+    kind: DownloadKind,
+) -> Result<Vec<u8>, AppError> {
     if (kind == DownloadKind::Artifact && !allowed_redirect(response.url()))
         || response.url().scheme() != "https"
         || response
@@ -159,6 +172,19 @@ mod tests {
             )
             .route("/exact", get(|| async { "fresh TLS fixture archive" }))
             .route(
+                "/catalog",
+                get(|headers: axum::http::HeaderMap| async move {
+                    let fresh = headers
+                        .get("if-none-match")
+                        .is_some_and(|etag| etag == "\"v1\"");
+                    Response::builder()
+                        .status(if fresh { 304 } else { 200 })
+                        .header("etag", "\"v1\"")
+                        .body(Body::from(if fresh { "" } else { "catalog body" }))
+                        .unwrap()
+                }),
+            )
+            .route(
                 "/tampered",
                 get(|| async { "tampered TLS fixture archive" }),
             )
@@ -193,6 +219,37 @@ mod tests {
             .build()
             .unwrap();
         (client, handle)
+    }
+    #[tokio::test]
+    async fn an_unchanged_catalog_is_confirmed_without_its_body() {
+        let (client, handle) = tls_fixture().await;
+        let url = reqwest::Url::parse("https://github.com/catalog").unwrap();
+        let Fetched::Body { bytes, validators } =
+            conditional::fetch_with(&client, url.clone(), 1024, None)
+                .await
+                .unwrap()
+        else {
+            panic!("an unconditional request returns the body");
+        };
+        assert_eq!(bytes, b"catalog body");
+        assert_eq!(validators.etag.as_deref(), Some("\"v1\""));
+        assert!(matches!(
+            conditional::fetch_with(&client, url.clone(), 1024, Some(&validators))
+                .await
+                .unwrap(),
+            Fetched::NotModified
+        ));
+        let stale = Validators {
+            etag: Some("\"v0\"".into()),
+            last_modified: None,
+        };
+        assert!(matches!(
+            conditional::fetch_with(&client, url, 1024, Some(&stale))
+                .await
+                .unwrap(),
+            Fetched::Body { .. }
+        ));
+        handle.shutdown();
     }
     #[tokio::test]
     async fn fresh_tls_github_origin_redirect_bytes_digest_and_rejections() {

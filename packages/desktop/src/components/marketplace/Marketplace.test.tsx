@@ -316,13 +316,13 @@ describe("plugin detail", () => {
     expect(screen.getByRole("combobox", { name: "Exact version" })).toHaveTextContent("3.0.0");
   });
 
-  it("installs the recommended exact version with the untouched signed envelope", async () => {
+  it("installs the recommended exact version by name, never sending the catalog", async () => {
     stubBackend([], "2.0.0");
     vi.mocked(install).mockResolvedValue({ ...pi, version: "2.0.0" });
     const { user } = inMarketplace(<PluginDetail kind="provider" id="pi" />);
     await user.click(await screen.findByRole("button", { name: "Install 2.0.0" }));
     await waitFor(() =>
-      expect(install).toHaveBeenCalledWith({ provider_id: "pi", version: "2.0.0", index }),
+      expect(install).toHaveBeenCalledWith({ provider_id: "pi", version: "2.0.0" }),
     );
     expect(await screen.findByText(/pi: changes saved/)).toBeTruthy();
   });
@@ -332,7 +332,7 @@ describe("plugin detail", () => {
     vi.mocked(update).mockResolvedValue({ ...pi, version: "2.0.0" });
     const { user } = inMarketplace(<PluginDetail kind="provider" id="pi" />);
     await user.click(await screen.findByRole("button", { name: "Update to 2.0.0" }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith("pi", { version: "2.0.0", index }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("pi", { version: "2.0.0" }));
   });
 
   it("removes only after confirmation, and keeps the dialog open with the error on failure", async () => {
@@ -396,14 +396,13 @@ describe("plugin detail", () => {
     expect(screen.getByRole("combobox", { name: "Exact version" })).toHaveTextContent("0.2.0");
     expect(await screen.findByText("Preview of 0.2.0 — not installed")).toBeTruthy();
     expect(previewManagedThemePackage).toHaveBeenCalledWith(
-      { theme_id: "graphite", version: "0.2.0", index },
+      { theme_id: "graphite", version: "0.2.0" },
       expect.anything(),
     );
     await waitFor(() =>
       expect(updateManagedTheme).toHaveBeenCalledWith("graphite", {
         theme_id: "graphite",
         version: "0.2.0",
-        index,
       }),
     );
   });
@@ -487,11 +486,10 @@ describe("marketplace home", () => {
       <MarketplaceHome view="updates" kind="all" query="" onChange={vi.fn()} />,
     );
     await user.click(await screen.findByRole("button", { name: "Update all 2" }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith("pi", { version: "2.0.0", index }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("pi", { version: "2.0.0" }));
     expect(updateManagedTheme).toHaveBeenCalledWith("graphite", {
       theme_id: "graphite",
       version: "0.2.0",
-      index,
     });
     expect(vi.mocked(updateManagedTheme).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(update).mock.invocationCallOrder[0],
@@ -713,8 +711,8 @@ describe("custom tabs in the marketplace", () => {
     expect(tabMutations.enable).not.toHaveBeenCalled();
   });
 
-  it("installs an exact tab version with its original signed catalog", async () => {
-    const tabIndex = stubTabs();
+  it("installs an exact tab version by name, never sending the catalog", async () => {
+    stubTabs();
     vi.mocked(installManagedTab).mockResolvedValue({
       id: "graph",
       name: "Files graph",
@@ -727,14 +725,13 @@ describe("custom tabs in the marketplace", () => {
       expect(installManagedTab).toHaveBeenCalledWith({
         tab_id: "graph",
         version: "1.1.0",
-        index: tabIndex,
       }),
     );
     expect(install).not.toHaveBeenCalled();
     expect(await screen.findByText("graph: install confirmed by Cadencr.")).toBeInTheDocument();
   });
   it("updates a tab without sending it to the provider or theme endpoints", async () => {
-    const tabIndex = stubTabs(true);
+    stubTabs(true);
     vi.mocked(updateManagedTab).mockResolvedValue({
       id: "graph",
       name: "Files graph",
@@ -747,7 +744,6 @@ describe("custom tabs in the marketplace", () => {
       expect(updateManagedTab).toHaveBeenCalledWith("graph", {
         tab_id: "graph",
         version: "1.1.0",
-        index: tabIndex,
       }),
     );
     expect(updateManagedTheme).not.toHaveBeenCalled();
@@ -1242,7 +1238,7 @@ describe("multi-export plugins in the marketplace", () => {
     expect(screen.getByRole("button", { name: "Install 2 missing" })).toBeTruthy();
   });
 
-  it("installs every member in catalog order, each with its kind's signed catalog", async () => {
+  it("installs every member in catalog order, each at the plugin's version", async () => {
     stubPlugin();
     stubPluginInstalls();
     const { user } = inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
@@ -1251,18 +1247,15 @@ describe("multi-export plugins in the marketplace", () => {
       expect(installManagedTheme).toHaveBeenCalledWith({
         theme_id: "aurora-theme",
         version: "1.0.0",
-        index: auroraIndex,
       }),
     );
     expect(install).toHaveBeenCalledWith({
       provider_id: "aurora-agent",
       version: "1.0.0",
-      index: auroraIndex,
     });
     expect(installManagedTab).toHaveBeenCalledWith({
       tab_id: "aurora-tab",
       version: "1.0.0",
-      index: auroraIndex,
     });
     const order = [install, installManagedTab, installManagedTheme].map(
       (fn) => vi.mocked(fn).mock.invocationCallOrder[0],

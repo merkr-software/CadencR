@@ -1,4 +1,4 @@
-use super::{catalog, invalid, platform, storage, InstallLspRequest};
+use super::{invalid, platform, storage, InstallLspRequest};
 use crate::domain::agents::providers::installed::managed::trust::pinned_index_trust_store;
 use crate::domain::marketplace::{catalog as shared_catalog, storage as io};
 use crate::error::AppError;
@@ -24,14 +24,7 @@ pub async fn install(body: InstallLspRequest, update: bool) -> Result<(), AppErr
     storage::owner(&root, &body.lsp_id)?;
     let _lock = lock(&body.lsp_id).await;
     // The caller supplies only an identity. Downloads always come from the verified feed.
-    let catalog = catalog(false).await;
-    let index = catalog.index.ok_or_else(|| {
-        invalid(
-            catalog
-                .error
-                .unwrap_or_else(|| "LSP catalog unavailable".into()),
-        )
-    })?;
+    let index = shared_catalog::verified_catalog().await?;
     let package = shared_catalog::resolve_kind(&index, &body.lsp_id, &body.version, "lsp")?;
     let target = cadencr_registry_core::signed_lsp_target(&package, platform()).map_err(invalid)?;
     super::policy::require_install(&body.lsp_id, &body.version, &target)?;
@@ -74,7 +67,7 @@ pub async fn install(body: InstallLspRequest, update: bool) -> Result<(), AppErr
         commit()
             .root(&root)
             .body(body)
-            .index(index)
+            .index((*index).clone())
             .bytes(bytes)
             .update(update)
             .trust(&pinned_index_trust_store())

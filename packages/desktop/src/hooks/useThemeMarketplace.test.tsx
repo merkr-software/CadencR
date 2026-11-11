@@ -124,7 +124,7 @@ describe("server-confirmed theme operations", () => {
     rerender();
     expect(result.current).toBe(updated);
   });
-  it("passes the exact signed envelope and never changes inventory optimistically", async () => {
+  it("names only the theme and version and never changes inventory optimistically", async () => {
     let complete: ((response: typeof entry) => void) | undefined;
     vi.mocked(installManagedTheme).mockImplementation(
       () =>
@@ -134,15 +134,9 @@ describe("server-confirmed theme operations", () => {
     );
     const { result } = setup();
     await waitFor(() => expect(result.current.inventory.isSuccess).toBe(true));
-    act(() =>
-      result.current.mutation.mutate({ kind: "install", id: "other", version: "1.0.0", index }),
-    );
+    act(() => result.current.mutation.mutate({ kind: "install", id: "other", version: "1.0.0" }));
     await waitFor(() => expect(result.current.mutation.isPending).toBe(true));
-    expect(installManagedTheme).toHaveBeenCalledWith({
-      theme_id: "other",
-      version: "1.0.0",
-      index,
-    });
+    expect(installManagedTheme).toHaveBeenCalledWith({ theme_id: "other", version: "1.0.0" });
     expect(result.current.inventory.data).toHaveLength(1);
     act(() => complete?.(entry));
     await waitFor(() => expect(result.current.mutation.isSuccess).toBe(true));

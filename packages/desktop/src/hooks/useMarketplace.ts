@@ -8,7 +8,6 @@ import {
   update,
   enabled,
   remove,
-  type SignedProviderCatalog,
 } from "@/api/generated";
 import {
   catalogSchema,
@@ -19,7 +18,7 @@ import {
 import { useStableMutation, useStableQuery } from "./stable-query";
 
 type MarketplaceAction =
-  | { kind: "install" | "update"; id: string; version: string; index: SignedProviderCatalog }
+  | { kind: "install" | "update"; id: string; version: string }
   | { kind: "enabled"; id: string; enabled: boolean }
   | { kind: "remove"; id: string };
 const catalogKey = ["marketplace", "catalog"];
@@ -68,16 +67,12 @@ export function useMarketplace() {
             const result = await install({
               provider_id: action.id,
               version: action.version,
-              index: action.index,
             });
             entrySchema.parse(result);
             return result;
           }
           case "update": {
-            const result = await update(action.id, {
-              version: action.version,
-              index: action.index,
-            });
+            const result = await update(action.id, { version: action.version });
             entrySchema.parse(result);
             return result;
           }

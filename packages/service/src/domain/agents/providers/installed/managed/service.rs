@@ -7,7 +7,6 @@ use super::history::ManagedProviderState;
 use super::installer::ManagedStorage;
 use super::receipt::{ManagedPackageReceipt, ManagedRevision};
 use super::trust::{pinned_index_trust_store, ManagedTrustStore};
-use super::SignedProviderCatalog;
 use crate::error::AppError;
 
 mod install;
@@ -52,34 +51,16 @@ impl ManagedProviderService {
         &self,
         provider_id: &str,
         version: &str,
-        index: impl Into<SignedProviderCatalog>,
     ) -> Result<ManagedMutation, AppError> {
-        let index = index.into();
-        install::ingest(
-            self,
-            provider_id,
-            version,
-            index,
-            install::IngestKind::Install,
-        )
-        .await
+        install::ingest(self, provider_id, version, install::IngestKind::Install).await
     }
 
     pub async fn update(
         &self,
         provider_id: &str,
         version: &str,
-        index: impl Into<SignedProviderCatalog>,
     ) -> Result<ManagedMutation, AppError> {
-        let index = index.into();
-        install::ingest(
-            self,
-            provider_id,
-            version,
-            index,
-            install::IngestKind::Update,
-        )
-        .await
+        install::ingest(self, provider_id, version, install::IngestKind::Update).await
     }
 
     pub async fn rollback(

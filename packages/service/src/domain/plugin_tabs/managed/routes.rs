@@ -45,9 +45,6 @@ pub fn router() -> Router<AppState> {
             "/api/marketplace/tabs/{id}/pending",
             axum::routing::delete(discard_managed_tab_update),
         )
-        .layer(axum::extract::DefaultBodyLimit::max(
-            cadencr_registry_core::MAX_CATALOG_BYTES + 1024 * 1024,
-        ))
 }
 #[utoipa::path(get, path="/api/marketplace/tabs", operation_id="getManagedTabs", responses((status=200, body=Vec<ManagedTabInventoryEntry>)))]
 pub async fn get_managed_tabs() -> Result<Json<Vec<ManagedTabInventoryEntry>>, AppError> {

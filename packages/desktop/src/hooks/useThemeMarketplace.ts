@@ -9,7 +9,6 @@ import {
   applyManagedTheme,
   removeManagedTheme,
   duplicateManagedTheme,
-  type SignedMixedCatalog,
 } from "@/api/generated";
 import { getWorkspaceSettingsQueryKey } from "@/api/settings";
 import {
@@ -24,7 +23,7 @@ import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import type { MarketplaceNotice } from "@/lib/marketplace";
 
 type ThemeAction =
-  | { kind: "install" | "update"; id: string; version: string; index: SignedMixedCatalog }
+  | { kind: "install" | "update"; id: string; version: string }
   | { kind: "apply"; id: string }
   | { kind: "remove"; id: string; confirmFallback: boolean }
   | { kind: "duplicate"; id: string; label: string };
@@ -95,7 +94,7 @@ async function executeThemeAction(action: ThemeAction): Promise<string | null> {
   switch (action.kind) {
     case "install":
     case "update": {
-      const body = { theme_id: action.id, version: action.version, index: action.index };
+      const body = { theme_id: action.id, version: action.version };
       const response =
         action.kind === "install"
           ? await installManagedTheme(body)

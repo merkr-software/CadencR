@@ -6,7 +6,6 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InstallManagedThemeRequest {
-    pub index: SignedMixedCatalog,
     pub theme_id: String,
     pub version: String,
 }

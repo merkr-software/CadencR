@@ -43,9 +43,6 @@ pub fn router() -> Router<AppState> {
             "/api/themes/managed/{id}/duplicate",
             post(duplicate_managed_theme),
         )
-        .layer(axum::extract::DefaultBodyLimit::max(
-            cadencr_registry_core::MAX_CATALOG_BYTES + 1024 * 1024,
-        ))
 }
 #[utoipa::path(get, path="/api/themes/managed", operation_id="getManagedThemes", responses((status=200, body=Vec<ManagedThemeInventoryEntry>)))]
 pub async fn get_managed_themes() -> Result<Json<Vec<ManagedThemeInventoryEntry>>, AppError> {

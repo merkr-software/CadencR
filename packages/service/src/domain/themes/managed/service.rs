@@ -22,8 +22,8 @@ use super::read::{preview_worker, read_theme};
 async fn staged(
     body: &InstallManagedThemeRequest,
 ) -> Result<(tempfile::TempDir, Receipt), AppError> {
-    crate::domain::marketplace::catalog::ingest(&body.index)?;
-    let package = catalog::resolve(&body.index, &body.theme_id, &body.version)?;
+    let index = crate::domain::marketplace::catalog::verified_catalog().await?;
+    let package = catalog::resolve(&index, &body.theme_id, &body.version)?;
     storage::owner(&body.theme_id)?;
     let archive_url = package["theme"]["distribution"]["archive"]
         .as_str()
@@ -63,7 +63,7 @@ async fn staged(
     Ok((
         stage,
         Receipt {
-            index: body.index.clone(),
+            index: (*index).clone(),
             id: body.theme_id.clone(),
             version: body.version.clone(),
             sha256: sha256.into(),
@@ -100,9 +100,21 @@ async fn install_with_stage(
     let (stage, receipt) = staging.await?;
     let _guard = lock().lock().await;
     ensure_install_state(&body.theme_id, update)?;
-    crate::domain::marketplace::catalog::ingest(&body.index)?;
+    ensure_still_published(&receipt).await?;
     super::policy::enforce(&receipt.id, &receipt.version, &receipt.sha256)?;
     commit_staged(body, stage, receipt)
+}
+/// The verified catalog may have advanced while the archive downloaded; the
+/// revision still has to be the one it publishes.
+async fn ensure_still_published(receipt: &Receipt) -> Result<(), AppError> {
+    let index = crate::domain::marketplace::catalog::verified_catalog().await?;
+    let package = catalog::resolve(&index, &receipt.id, &receipt.version)?;
+    if package["theme"]["distribution"]["sha256"] != receipt.sha256.as_str() {
+        return Err(archive::invalid(
+            "theme revision changed in the signed catalog during installation",
+        ));
+    }
+    Ok(())
 }
 fn ensure_install_state(id: &str, update: bool) -> Result<(), AppError> {
     if storage::owner(id)?.join("active.json").exists() != update {
@@ -391,9 +403,7 @@ pub(super) mod tests {
     }
     #[tokio::test]
     async fn pending_download_does_not_hold_the_lifecycle_lock() {
-        let (index, _) = crate::domain::marketplace::catalog::tests::signed();
         let body = InstallManagedThemeRequest {
-            index,
             theme_id: "new-theme".into(),
             version: "1.0.0".into(),
         };

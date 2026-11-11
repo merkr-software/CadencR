@@ -56,11 +56,11 @@ pub async fn resolve_handler(
         Ok(index) => (index, None),
         Err(error) => (None, Some(error.to_string())),
     };
-    let language = resolve_language(&params, &installed, index.as_ref());
+    let language = resolve_language(&params, &installed, index.as_deref());
     let mut response = resolve(&language, &global, &project, installed)?;
     if let Some(index) = index {
         if suggestions::needed(&response) {
-            suggestions::add(&mut response, index).await?;
+            suggestions::add(&mut response, (*index).clone()).await?;
         }
     }
     let mut errors = global_warnings

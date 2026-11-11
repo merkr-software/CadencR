@@ -4,7 +4,6 @@ pub mod routes;
 pub mod service;
 pub mod storage;
 
-use crate::domain::marketplace::models::SignedMixedCatalog;
 use crate::error::AppError;
 use axum::http::StatusCode;
 use cadencr_plugin_core::tab::TabPlatform;
@@ -15,7 +14,6 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InstallManagedTabRequest {
-    pub index: SignedMixedCatalog,
     pub tab_id: String,
     pub version: String,
 }

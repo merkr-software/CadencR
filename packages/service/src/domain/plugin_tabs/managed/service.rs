@@ -2,7 +2,6 @@ use super::{
     invalid, policy, require_host_target, signed_backend, storage, InstallManagedTabRequest,
     ManagedTabInventoryEntry,
 };
-use crate::domain::agents::providers::installed::managed::trust::pinned_index_trust_store;
 use crate::{
     domain::marketplace::{catalog, storage as io},
     error::AppError,
@@ -69,16 +68,8 @@ pub async fn install(
     let catalog_root = io::root();
     storage::owner(&root, &body.tab_id)?;
     let local = super::super::paths::tabs_dir().join(&body.tab_id);
-    let trust = pinned_index_trust_store();
-    let index = body.index.clone();
-    let id = body.tab_id.clone();
-    let version = body.version.clone();
-    let package = tokio::task::spawn_blocking(move || {
-        catalog::verify(&index, &trust, false)?;
-        catalog::resolve_kind(&index, &id, &version, "tab")
-    })
-    .await
-    .map_err(invalid)??;
+    let index = catalog::verified_catalog().await?;
+    let package = catalog::resolve_kind(&index, &body.tab_id, &body.version, "tab")?;
     let distribution = &package["tab"]["distribution"];
     let signed = signed_backend(&body.tab_id, &package)?;
     let target = signed
@@ -119,14 +110,16 @@ pub async fn install(
         )
     )?;
     let _guard = MUTATION.lock().await;
-    let commit_trust = pinned_index_trust_store();
+    // The catalog may have advanced during the download: commit against the
+    // verified one now, which still has to publish these exact bytes.
+    let index = catalog::verified_catalog().await?;
     tokio::task::spawn_blocking(move || {
         io::with_root(catalog_root, || {
             install_bytes()
                 .root(root)
                 .local(local)
                 .body(body)
-                .trust(&commit_trust)
+                .index(&index)
                 .bytes(bytes)
                 .maybe_backend_archive(backend_archive)
                 .update(update)

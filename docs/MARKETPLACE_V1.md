@@ -116,6 +116,12 @@ checksums or revocation policy.
   `domain/marketplace`; each kind's installer, receipts and policy live next to
   it (`providers/installed/managed`, `themes/managed`, `plugin_tabs/managed`,
   `lsp/managed`); the UI is the `/marketplace` route.
+- **Catalog cache**: the service verifies each catalog version once and keeps
+  it in memory beside its on-disk cache; refreshes are conditional
+  (`If-None-Match` / `If-Modified-Since`) and an unchanged body is not
+  verified again. Install, update and preview requests name only an id and a
+  version: the service resolves the entry from its verified cache and never
+  accepts a catalog from the client.
 
 ## Open gates
 
