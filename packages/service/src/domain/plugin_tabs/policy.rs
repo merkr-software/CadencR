@@ -146,6 +146,9 @@ pub static POLICY: &[PolicyEntry] = &[
     read("/api/git/commit-graph", GitRead, FEATURE_ID),
     read("/api/git/file-content", GitRead, FEATURE_ID),
     read("/api/git/blame", GitRead, FEATURE_ID),
+    // Git paths are checkout-relative, editor paths feature-relative: the
+    // prefix converts one into the other in a monorepo subfolder project.
+    read("/api/git/path-prefix", GitRead, FEATURE_ID),
     read("/api/git/branches", GitRead, PROJECT_ID),
     read("/api/git/branch", GitRead, PROJECT_ID),
     // forge:read — the bound feature's PR/MR.

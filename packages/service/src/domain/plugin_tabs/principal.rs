@@ -255,6 +255,40 @@ mod tests {
         }
     }
 
+    /// A tab turns Git paths (checkout-relative) into editor paths with its
+    /// feature's prefix, and only its own feature's.
+    #[tokio::test]
+    async fn git_read_covers_the_path_prefix_of_the_granted_feature_only() {
+        let prefix = "/api/git/path-prefix";
+        let (store, token) = store_with(vec![Scope::GitRead]);
+        for (uri, expected) in [
+            ("/api/git/path-prefix?feature_id=42", "OK"),
+            (
+                "/api/git/path-prefix?feature_id=43",
+                "PLUGIN_BINDING_DENIED",
+            ),
+            (prefix, "PLUGIN_BINDING_DENIED"),
+        ] {
+            assert_eq!(
+                check(&store, &token, "GET", prefix, uri).await,
+                expected,
+                "{uri}"
+            );
+        }
+        let (store, token) = store_with(vec![Scope::FilesRead, Scope::FeaturesRead]);
+        assert_eq!(
+            check(
+                &store,
+                &token,
+                "GET",
+                prefix,
+                "/api/git/path-prefix?feature_id=42"
+            )
+            .await,
+            "PLUGIN_SCOPE_DENIED"
+        );
+    }
+
     #[tokio::test]
     async fn walks_grant_policy_scope_and_binding_in_order() {
         let (store, token) = store_with(vec![Scope::GitRead, Scope::FeaturesRead]);
