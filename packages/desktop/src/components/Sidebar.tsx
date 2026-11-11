@@ -21,6 +21,7 @@ import {
   SidebarRenameDialog,
   useSidebarRowShortcuts,
 } from "@/components/SidebarShortcuts";
+import { PendingGateHost } from "@/components/sidebar-gate-popover/PendingGateHost";
 import { handleSidebarTypeToFilter, SidebarFilterInput } from "@/components/SidebarFilterInput";
 import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
@@ -136,6 +137,10 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
           </SidebarDisplayOptionsHost>
           <SidebarFooter anchorsToasts={!isMobile && !collapsed} />
           <SidebarRenameDialog />
+          <PendingGateHost
+            activeFeatureId={effectiveFeatureId}
+            onSelectFeature={setSelectedFeatureId}
+          />
         </aside>
       </ShortcutHintsProvider>
     </SidebarConfigProvider>

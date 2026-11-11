@@ -50,7 +50,7 @@ export const SidebarStatusIndicator = memo(function SidebarStatusIndicator({
 });
 
 /**
- * The gate popover, auto-opening only on the surface that owns it (a waiting
+ * The quick reply, auto-opening only on the surface that owns it (a waiting
  * conversation can show in the rail, "For me" and the tree at once) and never
  * for the conversation already open.
  */
@@ -68,6 +68,7 @@ function WaitingIndicator({
     <SidebarPendingGatePopover
       featureId={featureId}
       allowAutoOpen={ownsAutoOpen && !isActive}
+      isActive={isActive}
       onOpenConversation={onOpenConversation}
     />
   );

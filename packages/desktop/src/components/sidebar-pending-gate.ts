@@ -1,5 +1,5 @@
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
-import { agentQuestionOptionValue } from "@/types/agent-question";
+import type { AgentQuestion } from "@/types/agent-question";
 import { getPermissionPreview } from "@/components/permission-preview";
 import {
   FeaturePermissionAction,
@@ -10,15 +10,69 @@ import { normalizeGateKind, type SessionGateKind } from "@/lib/session-gate";
 import { asRecord } from "@/stores/ws-envelope-payload-primitives";
 import type { PendingKind } from "@/types/agent";
 
+type PermissionActionValue = (typeof FeaturePermissionAction)[keyof typeof FeaturePermissionAction];
+
 export interface PermissionOptionView {
   key: string;
   label: string;
   description?: string;
   decision: FeatureGateDecision;
+  /** Set for permission options: what the option does, whatever its label says. */
+  action?: PermissionActionValue;
+  /** The provider takes a message with this option (a deny asks what to do instead). */
+  collectFeedback?: boolean;
+}
+
+const PERMISSION_FALLBACK_LABEL: Record<PermissionActionValue, string> = {
+  allow_once: "Allow once",
+  allow_always: "Always allow",
+  deny: "Deny",
+};
+
+/** What a permission gate shows above its actions. */
+interface PermissionContext {
+  toolName: string | null;
+  /** The command or path being requested; null when the payload carries none. */
+  command: string | null;
+  /** Why the agent asks: its own justification, muted context for the command. */
+  justification: string | null;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function permissionContext(gate: FeaturePendingGateResponse): PermissionContext {
+  const payload = asRecord(gate.payload) ?? {};
+  const toolInput = asRecord(payload.tool_input);
+  const command =
+    getPermissionPreview({
+      preview: payload.preview,
+      input: toolInput,
+      fallbackToJson: false,
+    }) ?? nonEmptyString(payload.pattern);
+  const justification =
+    nonEmptyString(toolInput?.description) ??
+    nonEmptyString(gate.last_assistant_text) ??
+    nonEmptyString(payload.description);
+  return {
+    toolName: nonEmptyString(payload.tool_name),
+    command: command?.trim() ? command : null,
+    justification: justification && justification !== command?.trim() ? justification : null,
+  };
 }
 
 export function effectiveGateKind(gate: FeaturePendingGateResponse): SessionGateKind {
   return normalizeGateKind(gate.kind, gate.payload);
+}
+
+/** What a plan's row says: it is read in the conversation, not answered from the sidebar. */
+export const PLAN_READY_LABEL = "Plan ready for review";
+
+/** The questions an `AskUserQuestion` request carries; empty for any other request. */
+export function gateQuestions(gate: FeaturePendingGateResponse): AgentQuestion[] {
+  const toolInput = asRecord(asRecord(gate.payload)?.tool_input);
+  return toolInput ? parseAskUserQuestions(toolInput) : [];
 }
 
 export function gatePrompt(gate: FeaturePendingGateResponse): string | null {
@@ -26,38 +80,20 @@ export function gatePrompt(gate: FeaturePendingGateResponse): string | null {
   const payload = asRecord(gate.payload);
   if (!payload) return null;
 
-  if (kind === "question") {
-    const toolInput = asRecord(payload.tool_input);
-    if (toolInput) {
-      const questions = parseAskUserQuestions(toolInput);
-      if (questions[0]?.question) return questions[0].question;
-    }
-    return null;
-  }
+  if (kind === "question") return gateQuestions(gate)[0]?.question || null;
 
   if (kind === "permission") {
-    const toolName = typeof payload.tool_name === "string" ? payload.tool_name.trim() : "";
-    const preview =
-      getPermissionPreview({
-        preview: payload.preview,
-        input: asRecord(payload.tool_input),
-        fallbackToJson: false,
-      }) ??
-      (typeof payload.pattern === "string" && payload.pattern.trim()
-        ? payload.pattern.trim()
-        : null);
-    if (preview && toolName) return `${toolName}: ${preview}`;
-    if (preview) return preview;
-    if (typeof payload.description === "string" && payload.description.trim()) {
-      return payload.description.trim();
-    }
-    return toolName || null;
+    const { toolName, command } = permissionContext(gate);
+    if (command && toolName) return `${toolName}: ${command}`;
+    return command ?? nonEmptyString(payload.description) ?? toolName;
   }
 
-  if (typeof payload.description === "string" && payload.description.trim()) {
-    return payload.description.trim();
-  }
-  return null;
+  return nonEmptyString(payload.description);
+}
+
+/** `gatePrompt`, with a plan named by its label. */
+export function sidebarGatePrompt(gate: FeaturePendingGateResponse): string | null {
+  return effectiveGateKind(gate) === "plan" ? PLAN_READY_LABEL : gatePrompt(gate);
 }
 
 export function buildOptions(gate: FeaturePendingGateResponse): PermissionOptionView[] {
@@ -73,10 +109,7 @@ export function buildOptions(gate: FeaturePendingGateResponse): PermissionOption
       const decisionRaw = typeof option.decision === "string" ? option.decision : null;
       const action = permissionActionFromDecision(decisionRaw);
       if (!action) return [];
-      const label =
-        typeof option.label === "string" && option.label.trim()
-          ? option.label.trim()
-          : action.replaceAll("_", " ");
+      const label = nonEmptyString(option.label) ?? PERMISSION_FALLBACK_LABEL[action];
       return [
         {
           key: `${decisionRaw}-${index}`,
@@ -86,29 +119,10 @@ export function buildOptions(gate: FeaturePendingGateResponse): PermissionOption
             type: "permission",
             action,
           },
+          action,
+          collectFeedback: option.collect_feedback === true,
         },
       ];
-    });
-  }
-
-  if (kind === "question") {
-    const toolInput = asRecord(payload.tool_input) ?? {};
-    const questions = parseAskUserQuestions(toolInput);
-    // Sidebar only answers simple single-select questions; complex forms open the chat.
-    if (questions.length !== 1 || questions[0]?.multiSelect || !questions[0]?.options?.length) {
-      return [];
-    }
-    return questions[0].options.map((option, index) => {
-      const value = agentQuestionOptionValue(option);
-      return {
-        key: `q-${index}-${value}`,
-        label: option.label,
-        description: option.description,
-        decision: {
-          type: "question",
-          answers: [[value]],
-        },
-      };
     });
   }
 
@@ -131,9 +145,7 @@ export function triggerPendingKind(
   return liveKind === "question" ? "question" : "permission";
 }
 
-function permissionActionFromDecision(
-  decision: string | null,
-): (typeof FeaturePermissionAction)[keyof typeof FeaturePermissionAction] | null {
+function permissionActionFromDecision(decision: string | null): PermissionActionValue | null {
   if (decision === "allow_once") return FeaturePermissionAction.allow_once;
   if (decision === "allow_future") return FeaturePermissionAction.allow_always;
   if (decision === "deny") return FeaturePermissionAction.deny;

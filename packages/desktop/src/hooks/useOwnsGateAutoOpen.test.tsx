@@ -13,8 +13,10 @@ import {
 } from "@/stores/sidebar-surface-store";
 
 const newest = vi.hoisted(() => ({ featureId: null as number | null }));
+const phone = vi.hoisted(() => ({ value: false }));
+vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => phone.value }));
 vi.mock("@/stores/pending-gate-popover-selectors", () => ({
-  useMostRecentPendingFeatureId: () => newest.featureId,
+  useNewestQuickReplyFeatureId: () => newest.featureId,
 }));
 
 const feature = (id: number) => ({ id, project_id: 1 }) as Feature;
@@ -39,6 +41,7 @@ function ownsOn(surface: SidebarSurface) {
 
 describe("useOwnsGateAutoOpen", () => {
   beforeEach(() => {
+    phone.value = false;
     useSidebarConfigStore.setState({ config: { ...DEFAULT_SIDEBAR_CONFIG, forMeLimit: "3" } });
     useSidebarSurfaceStore.setState({ forMeShowAll: false });
   });
@@ -66,5 +69,13 @@ describe("useOwnsGateAutoOpen", () => {
   it("keeps For me as the owner while the newest request is still being looked up", () => {
     newest.featureId = 99;
     expect(ownsOn("for-me").result.current).toBe(true);
+  });
+
+  it("owns nothing on a phone, whatever the drawer shows: a tap opens the sheet instead", () => {
+    phone.value = true;
+    newest.featureId = 3;
+    expect(ownsOn("for-me").result.current).toBe(false);
+    expect(ownsOn("tree").result.current).toBe(false);
+    expect(ownsOn("rail").result.current).toBe(false);
   });
 });

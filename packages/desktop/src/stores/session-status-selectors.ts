@@ -24,6 +24,16 @@ export function aggregateFeatureStatus(entries: readonly SessionStatusEntry[]): 
   return best;
 }
 
+/** Whether any session of `featureId` is waiting on the user. */
+export function isFeatureWaiting(
+  bySession: Record<number, SessionStatusEntry>,
+  featureId: number,
+): boolean {
+  return Object.values(bySession).some(
+    (entry) => entry.featureId === featureId && entry.status === "question",
+  );
+}
+
 /**
  * Each feature's aggregated status (as `aggregateFeatureStatus` ranks it), in
  * `featureIds` order, from one pass over the sessions.

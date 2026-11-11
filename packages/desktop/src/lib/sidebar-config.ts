@@ -96,7 +96,7 @@ export const SIDEBAR_OPTIONS = {
   recentCount: enumOption("sidebar_recent_count", ["3", "5", "10"], "5"),
   blockCounts: enumOption("sidebar_block_counts", ["count", "dot", "none"], "count"),
   hideEmptyBlocks: boolOption("sidebar_hide_empty_blocks", true),
-  gatePopover: enumOption("sidebar_gate_popover", ["auto", "hover", "click"], "auto"),
+  gatePopover: enumOption("sidebar_gate_popover", ["auto", "hover", "click", "off"], "auto"),
   flashOnChange: boolOption("sidebar_flash_on_change", true),
   autoCollapse: boolOption("sidebar_auto_collapse", false),
   lens: enumOption(

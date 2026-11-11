@@ -114,10 +114,17 @@ export function ResolvedShortcutHint({ shortcutId }: { shortcutId: ShortcutId })
  * Hint for a button that also works without a keyboard (a dialog's Cancel /
  * submit). Hidden when the primary pointer is touch, where no key can trigger it.
  */
-export function KeyboardOnlyShortcutHint({ keys }: { keys: string[] }) {
+export function KeyboardOnlyShortcutHint({
+  keys,
+  disabled,
+}: {
+  keys: string[];
+  /** Dimmed: the key doesn't act right now (a text field has the keyboard). */
+  disabled?: boolean;
+}) {
   return (
     <span aria-hidden="true" className="shrink-0 pointer-coarse:hidden">
-      <KbdShortcut keys={keys} variant="hint" />
+      <KbdShortcut keys={keys} variant="hint" disabled={disabled} />
     </span>
   );
 }

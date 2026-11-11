@@ -119,6 +119,18 @@ describe("shortcut registry", () => {
   });
 });
 
+describe("answer-newest-request shortcut", () => {
+  it("is global on a free chord (⌘⇧A is the Agent tab's)", () => {
+    expect(shortcutKeys("answer-newest-request")).toEqual(["mod", "alt", "a"]);
+    const chord = "mod+alt+a";
+    const clashes = SHORTCUTS.filter(
+      (shortcut) => shortcut.id !== "answer-newest-request" && shortcut.keys.join("+") === chord,
+    );
+    expect(clashes).toEqual([]);
+    expect(SHORTCUTS.find((s) => s.id === "answer-newest-request")?.scope).toBe("global");
+  });
+});
+
 describe("sidebar reorder shortcuts", () => {
   it("add Shift to the focus moves and collide with no global or sidebar chord", () => {
     expect(shortcutKeys("sidebar-reorder-up")).toEqual(["mod", "alt", "shift", "up"]);

@@ -85,9 +85,10 @@ pub(super) fn sidebar_display_spec(key: &str) -> Option<SettingSpec> {
         "sidebar_row_preview" => {
             SettingSpec::new(ValueKind::Enum(&["none", "last_message"]), Some("none"))
         }
-        "sidebar_gate_popover" => {
-            SettingSpec::new(ValueKind::Enum(&["auto", "hover", "click"]), Some("auto"))
-        }
+        "sidebar_gate_popover" => SettingSpec::new(
+            ValueKind::Enum(&["auto", "hover", "click", "off"]),
+            Some("auto"),
+        ),
         "sidebar_row_branch"
         | "sidebar_block_working"
         | "sidebar_block_recent"
@@ -146,6 +147,7 @@ mod tests {
         assert!(!rail.is_valid("hidden"));
         let popover = workspace_spec("sidebar_gate_popover").unwrap();
         assert_eq!(popover.default, Some("auto"));
+        assert!(popover.is_valid("off"));
         assert!(!popover.is_valid("never"));
         let recent = workspace_spec("sidebar_recent_count").unwrap();
         assert!(recent.is_valid("10"));

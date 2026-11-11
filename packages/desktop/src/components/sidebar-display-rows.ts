@@ -232,12 +232,13 @@ export const CHOICE_ROWS: readonly { [K in ChoiceId]: ChoiceRow<K> }[ChoiceId][]
   {
     id: "gatePopover",
     description:
-      "When a pending request's popover opens: by itself on the newest request, on pointing at its icon, or only on a click.",
-    label: "Gate popover",
+      "How a waiting conversation's quick reply opens: by itself on the newest request, on pointing at its icon, only on a click, or never.",
+    label: "Quick reply",
     options: [
-      { value: "auto", label: "Auto", title: "Opens by itself on the newest pending request" },
+      { value: "auto", label: "Auto", title: "Opens by itself on the newest request" },
       { value: "hover", label: "Hover", title: "Opens while you point at the pending icon" },
       { value: "click", label: "Click", title: "Opens only when you click the pending icon" },
+      { value: "off", label: "Off", title: "Never: answer in the conversation" },
     ],
   },
   {

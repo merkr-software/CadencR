@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@/test-utils";
+import { act, render, screen, waitFor, within } from "@/test-utils";
 import {
   getGetFeatureQueryKey,
   getGetProjectSettingsQueryKey,
@@ -8,6 +8,7 @@ import {
 } from "@/api/generated";
 import { createTestQueryClient } from "@/test-utils";
 import { DEFAULT_SIDEBAR_CONFIG, type SidebarConfig } from "@/lib/sidebar-config";
+import { usePendingGatePopoverStore } from "@/stores/pending-gate-popover-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useSidebarFilterStore } from "@/stores/sidebar-filter-store";
@@ -185,6 +186,69 @@ describe("SidebarForMeSection", () => {
 
     await user.click(within(section()).getByRole("button", { name: "Show less" }));
     expect(rowLabels()).toHaveLength(3);
+  });
+
+  it("keeps its rows in place while a quick reply is open, and re-sorts once it closes", () => {
+    renderSection();
+    const before = rowLabels();
+    expect(before.slice(0, 2)).toEqual(["Answer Asked first", "Approve Asks permission"]);
+    act(() =>
+      usePendingGatePopoverStore
+        .getState()
+        .openGate({ featureId: 1, surface: "for-me", origin: "user" }),
+    );
+    // The first request is re-asked later: the live order now puts it second.
+    act(() =>
+      useSessionStatusStore.setState((state) => ({
+        bySession: {
+          ...state.bySession,
+          12: { featureId: 5, status: "question", kind: "question", seq: 20, requestId: "r-5b" },
+        },
+      })),
+    );
+    expect(rowLabels().slice(0, 2)).toEqual(before.slice(0, 2));
+    act(() => usePendingGatePopoverStore.getState().closeGate());
+    expect(rowLabels().slice(0, 2)).toEqual(["Approve Asks permission", "Answer Asked first"]);
+  });
+
+  it("lets rows re-sort behind an automatic card nobody is using", () => {
+    renderSection();
+    const before = rowLabels();
+    act(() =>
+      usePendingGatePopoverStore
+        .getState()
+        .openGate({ featureId: 1, surface: "for-me", origin: "auto" }),
+    );
+    act(() =>
+      useSessionStatusStore.setState((state) => ({
+        bySession: {
+          ...state.bySession,
+          12: { featureId: 5, status: "question", kind: "question", seq: 20, requestId: "r-5b" },
+        },
+      })),
+    );
+    expect(rowLabels().slice(0, 2)).toEqual(["Approve Asks permission", "Answer Asked first"]);
+    expect(before.slice(0, 2)).toEqual(["Answer Asked first", "Approve Asks permission"]);
+  });
+
+  it("keeps its rows in place while the pointer is over the list", async () => {
+    // No popover opens by itself: only the pointer holds the rows.
+    configure({ gatePopover: "click" });
+    const { user } = renderSection();
+    await user.hover(section());
+    act(() =>
+      useSessionStatusStore.setState((state) => ({
+        bySession: {
+          ...state.bySession,
+          12: { featureId: 5, status: "question", kind: "question", seq: 20, requestId: "r-5b" },
+        },
+      })),
+    );
+    expect(rowLabels().slice(0, 2)).toEqual(["Answer Asked first", "Approve Asks permission"]);
+    await user.pointer({ target: document.body });
+    await waitFor(() =>
+      expect(rowLabels().slice(0, 2)).toEqual(["Approve Asks permission", "Answer Asked first"]),
+    );
   });
 
   it("shows 5 or every action per the limit option", () => {

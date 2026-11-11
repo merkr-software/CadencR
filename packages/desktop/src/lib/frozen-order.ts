@@ -30,3 +30,21 @@ export function applyOrder<T extends { id: number }>(
   const rank = new Map(order.map((id, index) => [id, index]));
   return [...items].sort((a, b) => (rank.get(a.id) ?? -1) - (rank.get(b.id) ?? -1));
 }
+
+/**
+ * `items` ordered like `previousIds` (as last shown): the ones still there keep
+ * their place, new ones go after them, gone ones drop out. Returns `items`
+ * itself when that changes nothing.
+ */
+export function holdOrder<T>(
+  items: readonly T[],
+  previousIds: readonly number[],
+  idOf: (item: T) => number,
+): readonly T[] {
+  const rank = new Map(previousIds.map((id, index) => [id, index]));
+  const known = items.filter((item) => rank.has(idOf(item)));
+  const added = items.filter((item) => !rank.has(idOf(item)));
+  known.sort((a, b) => (rank.get(idOf(a)) ?? 0) - (rank.get(idOf(b)) ?? 0));
+  const held = [...known, ...added];
+  return held.every((item, index) => item === items[index]) ? items : held;
+}
