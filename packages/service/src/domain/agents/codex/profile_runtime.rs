@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, SystemTime};
 
 use codex_app_server_sdk_rs::{AppServerSpawnOptions, CodexAppServerClient, CodexModel};
 use serde_json::Value;
@@ -8,7 +9,9 @@ use sha2::{Digest, Sha256};
 
 use super::app_server_failure;
 use super::revision_cache;
-use super::timeouts::{with_probe_timeout, PROBE_TIMEOUT};
+use super::timeouts::{
+    with_probe_timeout, with_timeout, FINGERPRINT_MODELS_TIMEOUT, PROBE_TIMEOUT,
+};
 
 pub(super) use super::native_config::{
     catalog_with_effective_config, enrich_resume_config, native_effective_config,
@@ -19,11 +22,23 @@ use crate::domain::agents::adapter::{ResolvedRuntimeProfile, RuntimeError};
 use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimeEffectiveConfig};
 use crate::domain::agents::runtime::ProviderCatalogEntry;
 use crate::domain::agents::runtime::{ProviderProfileEntry, ProviderProfilesResponse};
+use crate::shared::keyed_locks::KeyedLocks;
 
 pub(super) async fn probe_models_and_config(
     profile: Option<&ResolvedRuntimeProfile>,
     cwd: &Path,
 ) -> Result<(Vec<CodexModel>, Value), RuntimeError> {
+    let (config, models) = probe_config_and_models(profile, cwd, PROBE_TIMEOUT).await?;
+    Ok((models?, config))
+}
+
+/// One throwaway app-server's `config/read`, then its `model/list`, whose
+/// failure is returned apart: the fingerprint stands on the config alone.
+async fn probe_config_and_models(
+    profile: Option<&ResolvedRuntimeProfile>,
+    cwd: &Path,
+    models_timeout: Duration,
+) -> Result<(Value, Result<Vec<CodexModel>, RuntimeError>), RuntimeError> {
     let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
         profile.map(|profile| profile.env.clone()),
         profile
@@ -37,15 +52,15 @@ pub(super) async fn probe_models_and_config(
         let config = with_probe_timeout("Codex config/read", client.config_read(cwd))
             .await
             .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
-        let models = with_probe_timeout("Codex model/list", client.model_list()).await?;
-        Ok::<_, RuntimeError>((models, config))
+        let models = with_timeout(models_timeout, "Codex model/list", client.model_list()).await;
+        Ok::<_, RuntimeError>((config, models))
     }
     .await;
     client.shutdown().await;
-    result.map_err(|error| {
-        let secrets = app_server_failure::secrets(profile.map(|profile| &profile.env));
-        app_server_failure::explain(&client, error, &secrets)
-    })
+    let secrets = app_server_failure::secrets(profile.map(|profile| &profile.env));
+    let explain = |error| app_server_failure::explain(&client, error, &secrets);
+    let (config, models) = result.map_err(explain)?;
+    Ok((config, models.map_err(explain)))
 }
 
 pub(super) async fn resolved_effective_config(
@@ -54,11 +69,23 @@ pub(super) async fn resolved_effective_config(
     overrides: &RuntimeConfigOverrides,
 ) -> Result<RuntimeEffectiveConfig, RuntimeError> {
     let profile = resolve_profile_for_selection(selection)?;
-    // Fresh: the result is written into the session's runtime config, so a
-    // config the user just edited must win. While the app-server is down, the
-    // configuration behind the catalog the picker still shows stands in.
-    match probe_models_and_config(Some(&profile), cwd).await {
-        Ok((models, config)) => Ok(effective_config_from(&models, &config, overrides)),
+    // The result is written into the session's runtime config, so a config
+    // the user just edited must win: a probe is reused only while no config
+    // file changed, and its models only briefly. While the app-server is down,
+    // the configuration behind the catalog the picker still shows stands in.
+    let probe = match fingerprint(&profile, cwd).await {
+        Ok(cached) if cached.age < MODELS_REUSE && cached.probe.models.is_ok() => Ok(cached.probe),
+        Ok(_) => probe_fingerprint(&profile, cwd, PROBE_TIMEOUT)
+            .await
+            .map(|fresh| fresh.probe),
+        Err(error) => Err(error),
+    };
+    let models = probe.and_then(|probe| match &probe.models {
+        Ok(models) => Ok((models.clone(), probe)),
+        Err(error) => Err(RuntimeError::new(error.clone())),
+    });
+    match models {
+        Ok((models, probe)) => Ok(effective_config_from(&models, &probe.config, overrides)),
         Err(error) => {
             let Some(probe) = super::live_catalog::last_known_probe(&profile, cwd).await else {
                 return Err(error);
@@ -95,37 +122,63 @@ fn effective_config_from(
     }
 }
 
-pub(super) async fn effective_config_revision(
-    env: HashMap<String, String>,
-    env_unset: Vec<String>,
+/// How long the models a fingerprint probe listed stand in for a fresh
+/// `model/list` when resolving the effective configuration. They follow the
+/// account and the CLI, which no file stamp tracks, so only a session-opening
+/// burst (profile, then effective configuration) shares them.
+const MODELS_REUSE: Duration = Duration::from_secs(30);
+
+/// One fingerprint probe per profile and directory at a time: a session
+/// resolves its profile and its effective configuration concurrently.
+static FINGERPRINT_FLIGHTS: LazyLock<KeyedLocks<revision_cache::RevisionKey>> =
+    LazyLock::new(KeyedLocks::default);
+
+/// The fingerprint of `profile`'s effective configuration in `cwd`, and the
+/// probe behind it, reused while no config layer file changes.
+async fn fingerprint(
+    profile: &ResolvedRuntimeProfile,
     cwd: &Path,
-    stored_revision: &str,
-) -> Result<String, RuntimeError> {
-    let key = revision_cache::RevisionKey::new(&env, &env_unset, cwd, stored_revision);
-    if let Some(revision) = revision_cache::cached(&key) {
-        return Ok(revision);
+) -> Result<revision_cache::Fingerprint, RuntimeError> {
+    let key = revision_key(profile, cwd);
+    if let Some(cached) = revision_cache::cached(&key) {
+        return Ok(cached);
     }
+    let flight = FINGERPRINT_FLIGHTS.lock_for(&key).await;
+    let _flight = flight.lock().await;
+    // A probe that ran while we waited answered for us.
+    match revision_cache::cached(&key) {
+        Some(cached) => Ok(cached),
+        None => probe_fingerprint(profile, cwd, FINGERPRINT_MODELS_TIMEOUT).await,
+    }
+}
+
+/// One throwaway app-server answers both the runtime fingerprint
+/// (`config/read`) and the effective configuration (`model/list` too, given
+/// `models_timeout`).
+async fn probe_fingerprint(
+    profile: &ResolvedRuntimeProfile,
+    cwd: &Path,
+    models_timeout: Duration,
+) -> Result<revision_cache::Fingerprint, RuntimeError> {
     let probe_started = SystemTime::now();
-    let secrets = app_server_failure::secrets(Some(&env));
-    let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
-        Some(env),
-        env_unset,
-        Some(cwd.to_path_buf()),
-    ))
-    .await?;
-    let result = async {
-        client.initialize_with_timeout(PROBE_TIMEOUT).await?;
-        with_probe_timeout("Codex config/read", client.config_read(cwd))
-            .await
-            .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))
-    }
-    .await;
-    client.shutdown().await;
-    let mut config =
-        result.map_err(|error| app_server_failure::explain(&client, error, &secrets))?;
-    let revision = fingerprint_effective_config(stored_revision, &mut config)?;
-    revision_cache::store(key, revision.clone(), &config, probe_started);
-    Ok(revision)
+    let (mut config, models) = probe_config_and_models(Some(profile), cwd, models_timeout).await?;
+    let revision = fingerprint_effective_config(&profile.revision, &mut config)?;
+    let probe = Arc::new(revision_cache::ProfileProbe {
+        config,
+        // Kept with the probe: the effective configuration surfaces it.
+        models: models.map_err(|error| error.to_string()),
+    });
+    let key = revision_key(profile, cwd);
+    revision_cache::store(key, revision.clone(), Arc::clone(&probe), probe_started);
+    Ok(revision_cache::Fingerprint {
+        revision,
+        probe,
+        age: Duration::ZERO,
+    })
+}
+
+fn revision_key(profile: &ResolvedRuntimeProfile, cwd: &Path) -> revision_cache::RevisionKey {
+    revision_cache::RevisionKey::new(&profile.env, &profile.env_unset, cwd, &profile.revision)
 }
 
 fn fingerprint_effective_config(
@@ -192,13 +245,7 @@ pub(super) async fn resolve_profile(
     cwd: &Path,
 ) -> Result<ResolvedRuntimeProfile, RuntimeError> {
     let mut profile = resolve_profile_for_selection(selection)?;
-    profile.revision = effective_config_revision(
-        profile.env.clone(),
-        profile.env_unset.clone(),
-        cwd,
-        &profile.revision,
-    )
-    .await?;
+    profile.revision = fingerprint(&profile, cwd).await?.revision;
     Ok(profile)
 }
 
