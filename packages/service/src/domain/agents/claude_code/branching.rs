@@ -25,8 +25,7 @@ impl SessionBranching for ClaudeSessionBranching {
     async fn truncate_before(&self, ctx: &BranchContext) -> Result<BranchResult, BranchError> {
         // The session's profile may keep its transcripts elsewhere
         // (`CLAUDE_CONFIG_DIR`): branch where `--resume` will look.
-        let config_dir = config_dir::for_profile(ctx.profile.as_deref())
-            .map_err(|error| BranchError::Unsupported(error.to_string()))?;
+        let config_dir = session_config_dir(ctx.profile.as_deref())?;
         let dir = config_dir::transcripts_dir(&config_dir, &ctx.cwd);
         let source = dir.join(format!("{}.jsonl", ctx.source_runtime_session_id));
 
@@ -67,6 +66,16 @@ impl SessionBranching for ClaudeSessionBranching {
             new_runtime_session_id: new_id,
         })
     }
+
+    async fn check_profile(&self, profile: Option<&str>) -> Result<(), BranchError> {
+        session_config_dir(profile).map(|_| ())
+    }
+}
+
+/// The config dir of the session's profile (none: the active one); a deleted
+/// profile makes the session unbranchable.
+fn session_config_dir(profile: Option<&str>) -> Result<std::path::PathBuf, BranchError> {
+    config_dir::for_profile(profile).map_err(|error| BranchError::Unsupported(error.to_string()))
 }
 
 /// Parse the JSONL, tolerating only a malformed *final* line (a transcript whose
