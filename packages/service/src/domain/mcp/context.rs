@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use super::control_client::McpControlClient;
+use super::control_client::{service_unreachable, McpControlClient};
 
 /// Why a context built without `.control(...)` cannot reach the service.
 /// `mcp-serve` always sets it, from its environment (see `stdio.rs`).
@@ -33,10 +33,6 @@ impl McpContext {
     /// cannot reach them: a tool that changes state never falls back to
     /// writing the database itself, and a read is not served unaudited.
     pub fn control(&self) -> Result<&McpControlClient, String> {
-        self.control.as_ref().map_err(|reason| {
-            format!(
-                "Cannot reach the Cadencr service, so this call could not be completed: {reason}"
-            )
-        })
+        self.control.as_ref().map_err(service_unreachable)
     }
 }

@@ -126,7 +126,15 @@ async fn record(
         .post_json_quick(endpoint(server), body)
         .await
         .map(|_| ())
-        .map_err(|e| format!("Failed to record MCP tool audit: {e}"))
+        .map_err(|error| {
+            // Unreachable: the read is withheld, which is what the agent needs
+            // to know, not that an audit row is missing.
+            if error.is_unreachable() {
+                error.into()
+            } else {
+                format!("Failed to record MCP tool audit: {error}")
+            }
+        })
 }
 
 fn target_session_id(args: &Value) -> Option<i64> {

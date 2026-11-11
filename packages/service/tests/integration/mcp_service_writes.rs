@@ -163,7 +163,10 @@ async fn without_the_service_tools_fail_and_write_nothing() {
     );
 
     for (ctx, expected) in [
-        (unreachable, "Control endpoint request failed"),
+        (
+            unreachable,
+            "Cannot reach the Cadencr service, so this call could not be completed",
+        ),
         (
             unconfigured,
             "Cannot reach the Cadencr service, so this call could not be completed",
@@ -184,6 +187,71 @@ async fn without_the_service_tools_fail_and_write_nothing() {
             assert_eq!(value["isError"], true, "{tool}: {value}");
             let text = value["content"][0]["text"].as_str().unwrap();
             assert!(text.contains(expected), "{tool}: {text}");
+        }
+    }
+    let written: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM agent_session_links), (SELECT COUNT(*) FROM mcp_tool_audit_log)",
+    )
+    .fetch_one(&server.pool)
+    .await
+    .unwrap();
+    assert_eq!(written, (0, 0));
+}
+
+/// A stopped service, or one that drops the connection, reads to the agent as
+/// "the service is unreachable": a read is not served, a write is not made,
+/// and neither looks like a failed audit or leaks the internal URL.
+#[tokio::test]
+async fn an_unreachable_service_is_reported_as_unreachable() {
+    let server = service().await;
+    let read_pool = mcp_serve_context(&server).await.read_pool.clone();
+    let stopped_port = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let dropping = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dropping_port = dropping.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = dropping.accept().await {
+            drop(socket);
+        }
+    });
+
+    for port in [stopped_port, dropping_port] {
+        let ctx = mcp_context(
+            read_pool.clone(),
+            format!("http://127.0.0.1:{port}"),
+            McpControlServer::Project,
+            SOURCE_FEATURE,
+            SOURCE_SESSION,
+        );
+        for (tool, args) in [
+            (
+                "project_read_session",
+                json!({"session_id": TARGET_SESSION}),
+            ),
+            (
+                "project_link_sessions",
+                json!({"target_session_id": TARGET_SESSION}),
+            ),
+            (
+                "project_archive_session",
+                json!({"session_id": TARGET_SESSION}),
+            ),
+        ] {
+            let value =
+                serde_json::to_value(run_project_tool(tool, args, ctx.clone()).await).unwrap();
+            assert_eq!(value["isError"], true, "{tool}: {value}");
+            let text = value["content"][0]["text"].as_str().unwrap();
+            let detail = text
+                .strip_prefix(
+                    "Cannot reach the Cadencr service, so this call could not be completed: ",
+                )
+                .unwrap_or_else(|| panic!("{tool} on port {port}: {text}"));
+            assert!(!detail.is_empty(), "{tool}: {text}");
+            for leaked in ["127.0.0.1", "/internal/mcp", "audit"] {
+                assert!(!text.contains(leaked), "{tool} leaks {leaked}: {text}");
+            }
         }
     }
     let written: (i64, i64) = sqlx::query_as(

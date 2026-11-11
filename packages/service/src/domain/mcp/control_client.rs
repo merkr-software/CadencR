@@ -16,17 +16,26 @@ const CONTROL_TOKEN_ENV: &str = "CADENCR_MCP_CONTROL_TOKEN";
 /// work (spawn, send) stay unbounded: they legitimately outlast it.
 const QUICK_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug)]
-struct ControlRequestError {
-    message: String,
-    retryable: bool,
+/// What every control call that cannot reach the service tells the agent.
+/// The reason goes last, so the sentence reads the same whatever failed.
+pub(crate) fn service_unreachable(reason: impl std::fmt::Display) -> String {
+    format!("Cannot reach the Cadencr service, so this call could not be completed: {reason}")
 }
 
-impl ControlRequestError {
+/// Why a control call failed, as the tool reports it.
+#[derive(Debug)]
+pub(crate) struct ControlError {
+    message: String,
+    retryable: bool,
+    unreachable: bool,
+}
+
+impl ControlError {
     fn permanent(message: String) -> Self {
         Self {
             message,
             retryable: false,
+            unreachable: false,
         }
     }
 
@@ -34,7 +43,52 @@ impl ControlRequestError {
         Self {
             message,
             retryable: true,
+            unreachable: false,
         }
+    }
+
+    /// The service never answered: the connection was refused, reset or timed
+    /// out. reqwest's own message names the internal URL, so only its root
+    /// cause is kept.
+    fn unreachable(error: &reqwest::Error) -> Self {
+        Self {
+            message: service_unreachable(transport_cause(error)),
+            retryable: true,
+            unreachable: true,
+        }
+    }
+
+    /// No HTTP answer came back, as opposed to the service refusing the call.
+    pub(crate) fn is_unreachable(&self) -> bool {
+        self.unreachable
+    }
+}
+
+impl std::fmt::Display for ControlError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl From<ControlError> for String {
+    fn from(error: ControlError) -> Self {
+        error.message
+    }
+}
+
+/// The innermost cause of a transport failure (`Connection refused (os error
+/// 61)`, `operation timed out`…), which never carries the request URL.
+fn transport_cause(error: &reqwest::Error) -> String {
+    let mut cause: &dyn std::error::Error = error;
+    while let Some(source) = cause.source() {
+        cause = source;
+    }
+    if !std::ptr::addr_eq(cause, error) {
+        cause.to_string()
+    } else if error.is_timeout() {
+        "the request timed out".to_string()
+    } else {
+        "the connection failed".to_string()
     }
 }
 
@@ -87,10 +141,9 @@ impl McpControlClient {
         &self,
         path: &str,
         body: serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
+    ) -> Result<serde_json::Value, ControlError> {
         self.post_json_attempt(path, body, Some(QUICK_CALL_TIMEOUT))
             .await
-            .map_err(|error| error.message)
     }
 
     async fn post_json_attempt(
@@ -98,12 +151,12 @@ impl McpControlClient {
         path: &str,
         body: serde_json::Value,
         timeout: Option<Duration>,
-    ) -> Result<serde_json::Value, ControlRequestError> {
+    ) -> Result<serde_json::Value, ControlError> {
         let url = self
             .service_url
             .join(path.trim_start_matches('/'))
             .map_err(|e| {
-                ControlRequestError::permanent(format!("Control endpoint URL is invalid: {e}"))
+                ControlError::permanent(format!("Control endpoint URL is invalid: {e}"))
             })?;
         let mut request = self
             .client
@@ -113,13 +166,15 @@ impl McpControlClient {
         if let Some(timeout) = timeout {
             request = request.timeout(timeout);
         }
-        let response = request.send().await.map_err(|e| {
-            ControlRequestError::retryable(format!("Control endpoint request failed: {e}"))
-        })?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ControlError::unreachable(&e))?;
         let status = response.status();
-        let text = response.text().await.map_err(|e| {
-            ControlRequestError::retryable(format!("Control endpoint response read failed: {e}"))
-        })?;
+        let text = response
+            .text()
+            .await
+            .map_err(|e| ControlError::unreachable(&e))?;
         if !status.is_success() {
             let message = format!("Control endpoint returned {status}: {text}");
             return Err(
@@ -127,16 +182,14 @@ impl McpControlClient {
                     || status == reqwest::StatusCode::REQUEST_TIMEOUT
                     || status == reqwest::StatusCode::TOO_MANY_REQUESTS
                 {
-                    ControlRequestError::retryable(message)
+                    ControlError::retryable(message)
                 } else {
-                    ControlRequestError::permanent(message)
+                    ControlError::permanent(message)
                 },
             );
         }
         serde_json::from_str(&text).map_err(|e| {
-            ControlRequestError::permanent(format!(
-                "Control endpoint response was invalid JSON: {e}"
-            ))
+            ControlError::permanent(format!("Control endpoint response was invalid JSON: {e}"))
         })
     }
 
@@ -156,6 +209,6 @@ impl McpControlClient {
                 tokio::time::sleep(Duration::from_millis(50 * (attempt + 1))).await;
             }
         }
-        Err(last_error.unwrap_or_else(|| "Control endpoint request failed".to_string()))
+        Err(last_error.unwrap_or_else(|| service_unreachable("no attempt was made")))
     }
 }

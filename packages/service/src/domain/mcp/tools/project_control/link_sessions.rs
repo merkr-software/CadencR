@@ -20,4 +20,5 @@ pub(crate) async fn link_sessions(
     ctx.control()?
         .post_json_quick("/internal/mcp/project/link-sessions", request)
         .await
+        .map_err(String::from)
 }
