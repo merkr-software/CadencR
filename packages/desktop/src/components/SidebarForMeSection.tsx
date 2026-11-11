@@ -1,10 +1,12 @@
-import { useMemo, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { InboxIcon } from "lucide-react";
 import { SidebarConversationBlock } from "@/components/SidebarConversationBlock";
 import { useSidebarAttention } from "@/components/SidebarAttentionProvider";
 import { SidebarShowMoreButton } from "@/components/SidebarShowMore";
 import { useForMeShowMore } from "@/hooks/useForMeShowMore";
+import { useFrozenActionOrder } from "@/hooks/useFrozenActionOrder";
 import { isStrongAction, type ResolvedNextAction } from "@/lib/next-actions";
+import { usePendingGatePopoverStore } from "@/stores/pending-gate-popover-store";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 
 interface SectionProps {
@@ -26,7 +28,14 @@ export function SidebarForMeSection(props: SectionProps): ReactElement | null {
 }
 
 function ForMeBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactElement | null {
-  const { actions, actionsLoading } = useSidebarAttention();
+  const { actions: liveActions, actionsLoading } = useSidebarAttention();
+  // Rows hold their place while the pointer is on the list or the user works a quick
+  // reply (clicked or hovered open): not for an automatic card, which nobody is using.
+  const [pointerOver, setPointerOver] = useState(false);
+  const gateInUse = usePendingGatePopoverStore(
+    (state) => state.open?.origin === "user" || state.open?.origin === "hover",
+  );
+  const actions = useFrozenActionOrder(liveActions, pointerOver || gateInUse);
   const more = useForMeShowMore(actions.length);
   const { features, kinds } = useMemo(
     () => visibleActions(actions, more.visibleCount),
@@ -34,20 +43,26 @@ function ForMeBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactEl
   );
   const strongCount = useMemo(() => actions.filter(isStrongAction).length, [actions]);
   return (
-    <SidebarConversationBlock
-      label="For me"
-      icon={InboxIcon}
-      surface="for-me"
-      features={features}
-      count={actions.length}
-      nextActions={kinds}
-      footer={<SidebarShowMoreButton more={more} />}
-      loading={actionsLoading}
-      empty="Nothing waiting on you"
-      strongCount={strongCount}
-      activeFeatureId={activeFeatureId}
-      onSelectFeature={onSelectFeature}
-    />
+    <div
+      className="contents"
+      onPointerEnter={() => setPointerOver(true)}
+      onPointerLeave={() => setPointerOver(false)}
+    >
+      <SidebarConversationBlock
+        label="For me"
+        icon={InboxIcon}
+        surface="for-me"
+        features={features}
+        count={actions.length}
+        nextActions={kinds}
+        footer={<SidebarShowMoreButton more={more} />}
+        loading={actionsLoading}
+        empty="Nothing waiting on you"
+        strongCount={strongCount}
+        activeFeatureId={activeFeatureId}
+        onSelectFeature={onSelectFeature}
+      />
+    </div>
   );
 }
 

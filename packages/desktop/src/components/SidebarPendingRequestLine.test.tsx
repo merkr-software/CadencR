@@ -34,6 +34,20 @@ describe("SidebarPendingRequestLine", () => {
     expect(screen.getByText(/^Bash: /)).toHaveTextContent("pnpm test");
   });
 
+  it("says only that a plan is ready for review, not what the plan holds", () => {
+    const queryClient = clientWithGate();
+    queryClient.setQueryData(["/api/features", 1, "pending-gate", "req-1"], {
+      request_id: "req-1",
+      kind: "plan",
+      payload: { tool_name: "ExitPlanMode", description: "Refactor the whole thing" },
+    });
+    render(<SidebarPendingRequestLine attention={WAITING} />, { queryClient });
+    expect(screen.getByText("Plan ready for review")).toHaveAttribute(
+      "data-feature-pending-request",
+    );
+    expect(screen.queryByText(/Refactor/)).not.toBeInTheDocument();
+  });
+
   it("says a fixed row waits, as a placeholder, when the request has no prompt", () => {
     const queryClient = clientWithGate();
     queryClient.setQueryData(["/api/features", 1, "pending-gate", "req-1"], null);

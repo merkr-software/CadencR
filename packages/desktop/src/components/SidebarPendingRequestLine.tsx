@@ -2,8 +2,8 @@ import { memo, type ReactElement } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   effectiveGateKind,
-  gatePrompt,
   PENDING_KIND_TEXT_CLASS,
+  sidebarGatePrompt,
 } from "@/components/sidebar-pending-gate";
 import { useFeaturePendingGate } from "@/hooks/useFeaturePendingGate";
 import type { Attention } from "@/lib/sidebar-attention";
@@ -47,7 +47,8 @@ const PendingRequestLine = memo(function PendingRequestLine({
       </span>
     );
   }
-  const prompt = gate ? gatePrompt(gate) : null;
+  // A plan asks to be read, not answered from here: no payload, just that it waits.
+  const prompt = gate ? sidebarGatePrompt(gate) : null;
   if (!gate || !prompt) {
     return fillsLine ? (
       <span data-feature-pending-request="empty" className={LINE_CLASS}>

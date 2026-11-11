@@ -34,6 +34,8 @@ export interface AgentQuestionForm {
   handleOptionToggle: (option: string) => void;
   handleOtherToggle: () => void;
   handleNext: () => void;
+  /** Answers the current question with exactly this option, and moves on or submits. */
+  handleChoose: (option: string) => void;
   handleFreeTextSubmit: () => void;
   flashHighlight: (index: number) => void;
   hasAnswer: boolean;
@@ -108,25 +110,46 @@ function useQuestionSubmission(
   onSubmit: (response: AgentQuestionAnswers) => void,
   state: QuestionFormState,
 ) {
-  const handleNext = useCallback(() => {
-    const current = currentSavedAnswer(questions[state.currentIndex], state);
-    if (!current.text) return;
-    const newAnswers = [...state.answers];
-    newAnswers[state.currentIndex] = current;
-    if (state.currentIndex < questions.length - 1) {
-      state.moveTo(state.currentIndex + 1, newAnswers);
-      return;
-    }
-    onSubmit(
-      questions.map((question, index) =>
-        answerValues(question, newAnswers[index] ?? EMPTY_ANSWER()),
-      ),
-    );
-  }, [onSubmit, questions, state]);
+  const advance = useCallback(
+    (current: SavedAnswer) => {
+      if (!current.text) return;
+      const newAnswers = [...state.answers];
+      newAnswers[state.currentIndex] = current;
+      if (state.currentIndex < questions.length - 1) {
+        state.moveTo(state.currentIndex + 1, newAnswers);
+        return;
+      }
+      onSubmit(
+        questions.map((question, index) =>
+          answerValues(question, newAnswers[index] ?? EMPTY_ANSWER()),
+        ),
+      );
+    },
+    [onSubmit, questions, state],
+  );
+  const handleNext = useCallback(
+    () => advance(currentSavedAnswer(questions[state.currentIndex], state)),
+    [advance, questions, state],
+  );
+  const handleChoose = useCallback(
+    (option: string) => {
+      const snapshot = {
+        text: "",
+        selectedOptions: new Set([option]),
+        freeText: "",
+        showOther: false,
+      };
+      advance({ ...snapshot, text: answerText(questions[state.currentIndex], snapshot) });
+    },
+    [advance, questions, state.currentIndex],
+  );
   const handleFreeTextSubmit = useCallback(() => {
     if (state.freeText.trim()) handleNext();
   }, [handleNext, state.freeText]);
-  return useMemo(() => ({ handleFreeTextSubmit, handleNext }), [handleFreeTextSubmit, handleNext]);
+  return useMemo(
+    () => ({ handleChoose, handleFreeTextSubmit, handleNext }),
+    [handleChoose, handleFreeTextSubmit, handleNext],
+  );
 }
 
 function useQuestionOptions(question: AgentQuestion | undefined, state: QuestionFormState) {

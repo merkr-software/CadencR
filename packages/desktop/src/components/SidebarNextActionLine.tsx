@@ -2,8 +2,8 @@ import { memo, type ReactElement } from "react";
 import type { PrStatusSnapshot } from "@/api/generated";
 import {
   effectiveGateKind,
-  gatePrompt,
   PENDING_KIND_TEXT_CLASS,
+  sidebarGatePrompt,
   triggerPendingKind,
 } from "@/components/sidebar-pending-gate";
 import { useFeaturePendingGate } from "@/hooks/useFeaturePendingGate";
@@ -111,7 +111,8 @@ function WaitingLine({ featureId }: { featureId: number }): ReactElement {
         ? triggerPendingKind(liveKind, gate ? effectiveGateKind(gate) : null)
         : "unknown"
     ];
-  const prompt = gate ? gatePrompt(gate) : null;
+  // A plan is read in the conversation: the line only says it waits.
+  const prompt = gate ? sidebarGatePrompt(gate) : null;
   return (
     <ActionLine
       verb={verb}

@@ -19,6 +19,17 @@ export const SIDEBAR_SHORTCUTS = [
     aliases: ["for me", "next action", "pending", "approval", "pull request", "inbox"],
   },
   {
+    // ⌥⌘A — "answer": opens the newest pending permission or question as a
+    // quick reply (a popover beside its row, a sheet on a phone), focus inside.
+    // Plans are read in their conversation, so they are skipped. ⌘⇧A is the
+    // Agent tab's.
+    id: "answer-newest-request",
+    keys: ["mod", "alt", "a"],
+    description: "Answer the newest request",
+    scope: "global",
+    aliases: ["for me", "pending", "approval", "permission", "question", "quick reply"],
+  },
+  {
     id: "attention-next-unread",
     keys: ["mod", "alt", "j"],
     description: "Next unread conversation",

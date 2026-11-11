@@ -107,13 +107,13 @@ describe("SidebarDisplayOptionsForm", () => {
   it("shows the essentials and folds the other groups", async () => {
     const { user } = render(<SidebarDisplayOptionsForm />, { queryClient: clientWith({}) });
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
-    expect(screen.queryByRole("radiogroup", { name: "Gate popover" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Quick reply" })).not.toBeInTheDocument();
     await openGroup(user, "Attention");
     expect(screen.getByRole("button", { name: "Attention" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    expect(screen.getByRole("radiogroup", { name: "Gate popover" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Quick reply" })).toBeInTheDocument();
   });
 
   it("names the option under the pointer, so the sidebar outlines what it changes", async () => {

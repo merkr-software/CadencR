@@ -56,6 +56,19 @@ describe("useGlobalShortcut", () => {
     expect(callback).toHaveBeenCalledOnce();
   });
 
+  it("fires meta+alt+a on QWERTY, on AZERTY by the labelled key, and with macOS Option's glyph", () => {
+    renderHook(() => useGlobalShortcut("meta+alt+a", callback));
+    fireKey("a", { metaKey: true, altKey: true, code: "KeyA" });
+    // AZERTY: the labelled "A" sits where QWERTY has Q.
+    fireKey("a", { metaKey: true, altKey: true, code: "KeyQ" });
+    // macOS Option turns the letter into a glyph; the physical key still says A.
+    fireKey("å", { metaKey: true, altKey: true, code: "KeyA" });
+    expect(callback).toHaveBeenCalledTimes(3);
+    // The physical A on AZERTY is the labelled Q: that is not this shortcut.
+    fireKey("q", { metaKey: true, altKey: true, code: "KeyA" });
+    expect(callback).toHaveBeenCalledTimes(3);
+  });
+
   it("handles TanStack Mod+Shift+letter syntax on AZERTY by labelled key", () => {
     renderHook(() => useGlobalShortcut("Mod+Shift+A", callback));
     fireKey("A", { metaKey: true, shiftKey: true, code: "KeyQ" });

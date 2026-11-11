@@ -141,11 +141,11 @@ describe("sidebar sample preview", () => {
         title.closest("[data-sidebar-sample-row]")?.getAttribute("data-sidebar-flash"),
       );
     expect(flashing).toContain("waiting");
-    const popover = await screen.findByText("Permission needed");
+    const popover = await screen.findByRole("img", { name: "Permission needed" });
     expect(popover.closest("[data-sidebar-sample]")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Allow once" }));
-    expect(screen.queryByText("Permission needed")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Permission needed" })).not.toBeInTheDocument();
     expect(within(forMe).queryByText("Fix flaky checkout test")).not.toBeInTheDocument();
   });
 
@@ -161,7 +161,7 @@ describe("sidebar sample preview", () => {
     rerender(<Preview enabled={false} />);
     rerender(<Preview />);
     expect(within(forMe()).getByText("Fix flaky checkout test")).toBeInTheDocument();
-    expect(screen.queryByText("Permission needed")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Permission needed" })).not.toBeInTheDocument();
   });
 
   it("outlines the pointed option without re-rendering", () => {
