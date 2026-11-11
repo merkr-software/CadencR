@@ -692,6 +692,14 @@ Always available, no scope: context, theme, `state`, `storage`, `config`,
 `ui.*`. `net.fetch` requires `network.allowed_origins`, `exec.run` a listed
 program in `commands`, `backend.request` a `backend`.
 
+File paths in `git:read` routes, returned and accepted, are relative to the
+root of the Git checkout. `files:read` routes use paths relative to the
+feature's editor root (`/api/editor/root`). The two differ when a project is
+registered on a subdirectory of a repository (a monorepo package): `git:read`
+then lists changes across the whole checkout, with paths that include the
+subdirectory, and a changed file outside the subdirectory cannot be opened
+through `files:read`.
+
 ### 6.1 Policy table (v1)
 
 The entries of `domain/plugin_tabs/policy.rs`, in order; every one is tier
