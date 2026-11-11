@@ -6,14 +6,15 @@ use crate::shared::git_cli::run_git_background;
 
 /// Detect the merge/rebase state belonging to `worktree` without assuming
 /// `.git` is a directory. `git rev-parse --git-path` resolves the per-worktree
-/// administrative path correctly for both primary and linked worktrees.
+/// administrative path correctly for both primary and linked worktrees, as a
+/// path relative to `worktree` or an absolute one (`--path-format=absolute`
+/// would need Git 2.31; older Git echoes it as a fourth line).
 pub async fn detect_active_git_operation(
     worktree: &Path,
 ) -> Result<Option<GitOperationKind>, AppError> {
     let paths = run_git_background(
         &[
             "rev-parse",
-            "--path-format=absolute",
             "--git-path",
             "MERGE_HEAD",
             "--git-path",

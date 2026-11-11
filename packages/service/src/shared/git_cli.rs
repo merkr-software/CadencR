@@ -5,6 +5,7 @@ use crate::error::AppError;
 mod background;
 mod read_only;
 mod spawn;
+pub mod version;
 
 pub use background::{
     git_ref_resolves_background, run_git_background, run_git_safe_background,
@@ -103,7 +104,9 @@ pub async fn ensure_repository_with_initial_commit(
     message: &str,
 ) -> Result<(), AppError> {
     if !dir.join(".git").exists() {
-        run_git(&["init", "-q", "-b", "main"], dir).await?;
+        // `init -b` needs Git 2.28; naming the unborn branch works on any Git.
+        run_git(&["init", "-q"], dir).await?;
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/main"], dir).await?;
     }
     let head = run_git_output_with_env(&["rev-parse", "--verify", "HEAD"], dir, &[]).await?;
     if head.status.success() {
@@ -239,7 +242,26 @@ async fn run_raw(args: &[&str], cwd: &Path) -> Result<String, AppError> {
 }
 
 async fn run_raw_bytes(args: &[&str], cwd: &Path) -> Result<Vec<u8>, AppError> {
-    let output = git_command()
+    run_raw_bytes_with(git_command(), args, cwd).await
+}
+
+/// [`run_raw`] for observational reads: the Git child dies with the future,
+/// so a cancelled refresh (an unsubscribe, a disconnect, a shutdown) leaves no
+/// Git process behind to contend with the next one. Never for mutations,
+/// which must run to completion.
+async fn run_raw_observer(args: &[&str], cwd: &Path) -> Result<String, AppError> {
+    let mut command = git_command();
+    command.kill_on_drop(true);
+    let stdout = run_raw_bytes_with(command, args, cwd).await?;
+    Ok(String::from_utf8_lossy(&stdout).to_string())
+}
+
+async fn run_raw_bytes_with(
+    mut command: tokio::process::Command,
+    args: &[&str],
+    cwd: &Path,
+) -> Result<Vec<u8>, AppError> {
+    let output = command
         .args(args)
         .current_dir(cwd)
         .output()

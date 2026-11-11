@@ -546,6 +546,28 @@ export interface GateClosedPayload {
   session_id: string;
 }
 
+/**
+ * Where the feature's directory sits in its checkout. Git tab paths are
+ * relative to the checkout root; editor paths are relative to the feature's
+ * directory, so the two differ by this prefix.
+ */
+export interface GitPathPrefixResponse {
+  /**
+   * The feature's directory relative to the checkout root, with `/`
+   * separators: empty at the root, `packages/app` for a monorepo project.
+   * `None` when the directory has no Git metadata.
+   * @nullable
+   */
+  prefix?: string | null;
+  /**
+   * Absolute path of the checkout root, where Git runs. Names a Git path
+   * outside the feature's directory without ambiguity. `None` when the
+   * directory has no Git metadata.
+   * @nullable
+   */
+  root?: string | null;
+}
+
 export interface GitStats {
   deletions: number;
   files_changed: number;
@@ -1075,7 +1097,7 @@ export type WsSessionAction = (typeof WsSessionAction)[keyof typeof WsSessionAct
 export const WsSessionAction = {
   initialized: "initialized",
   acknowledged: "acknowledged",
-  compacting: "compacting",
+  transcript_block: "transcript_block",
   featurerenamed: "feature.renamed",
   featureautonaming: "feature.autonaming",
   branchneeds_confirm: "branch.needs_confirm",
@@ -1098,6 +1120,7 @@ export const WsSessionAction = {
   access_modechanged: "access_mode.changed",
   providersetok: "provider.set.ok",
   compactstarted: "compact.started",
+  compactstopped: "compact.stopped",
   modelsetok: "model.set.ok",
   effortsetok: "effort.set.ok",
   configsnapshot: "config.snapshot",
@@ -1174,8 +1197,13 @@ export interface SessionAcknowledgedPayload {
   action: string;
 }
 
-export interface SessionCompactingPayload {
-  active: boolean;
+/**
+ * A transcript row Cadencr wrote itself (a turn's closing line, a model
+ * switch), pushed to every device viewing the conversation.
+ */
+export interface SessionTranscriptBlockPayload {
+  block: AgentBlock;
+  session_id: string;
 }
 
 export interface FeatureRenamedPayload {
@@ -1374,6 +1402,14 @@ export interface ProviderSetOkPayload {
  * @nullable
  */
 export type SessionCompactStartedPayload = null;
+
+/**
+ * `compact.stopped`: a Stop cancelled the manual compaction before it began.
+ * An intended outcome, not a failure; the transcript marker is persisted.
+ */
+export interface SessionCompactStoppedPayload {
+  [key: string]: unknown;
+}
 
 export interface ModelSetOkPayload {
   /**
@@ -1576,8 +1612,8 @@ export type WsSessionEvent =
       payload: SessionAcknowledgedPayload;
     }
   | {
-      action: "compacting";
-      payload: SessionCompactingPayload;
+      action: "transcript_block";
+      payload: SessionTranscriptBlockPayload;
     }
   | {
       action: "feature.renamed";
@@ -1666,6 +1702,10 @@ export type WsSessionEvent =
   | {
       action: "compact.started";
       payload: SessionCompactStartedPayload;
+    }
+  | {
+      action: "compact.stopped";
+      payload: SessionCompactStoppedPayload;
     }
   | {
       action: "model.set.ok";
@@ -1929,6 +1969,10 @@ export type GetFileDiffParams = {
   mode: string;
   commit_sha?: string;
   target_branch?: string;
+};
+
+export type GetGitPathPrefixParams = {
+  feature_id: number;
 };
 
 export type GetPrParams = {
@@ -2603,6 +2647,32 @@ export const getFileDiff = async (
   options?: Parameters<typeof pluginFetch>[1],
 ): Promise<DiffResponse> => {
   return pluginFetch<DiffResponse>(getGetFileDiffUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetGitPathPrefixUrl = (params: GetGitPathPrefixParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/git/path-prefix?${stringifiedParams}`
+    : `/api/git/path-prefix`;
+};
+
+export const getGitPathPrefix = async (
+  params: GetGitPathPrefixParams,
+  options?: Parameters<typeof pluginFetch>[1],
+): Promise<GitPathPrefixResponse> => {
+  return pluginFetch<GitPathPrefixResponse>(getGetGitPathPrefixUrl(params), {
     ...options,
     method: "GET",
   });

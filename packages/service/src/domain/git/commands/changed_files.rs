@@ -1,4 +1,4 @@
-//! `git diff --name-status` + `--numstat` parsing and the staged/unstaged
+//! `git diff --name-status -z` + `--numstat -z` parsing and the staged/unstaged
 //! merge that produces `Vec<ChangedFile>`. Used by both the branch-mode
 //! and worktree-mode change listings.
 
@@ -9,10 +9,11 @@ use crate::domain::git::models::{ChangedFile, FileStageState};
 use crate::domain::git::porcelain::{attach_stats, parse_porcelain_v2_entries, PorcelainFileEntry};
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_background;
+use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::count_untracked_lines;
-use super::util::FIRST_PARENT_MERGES;
+use super::util::FirstParentDiff;
 
 /// Get list of changed files with per-file stats.
 ///
@@ -39,21 +40,15 @@ pub async fn get_changed_files(
     crate::shared::git_cli::guard_positionals(&[branch])?;
     let diff_arg = format!("{branch}...HEAD");
 
-    let name_status_args = ["diff", "--name-status", diff_arg.as_str()];
-    let numstat_args = ["diff", "--numstat", diff_arg.as_str()];
+    let name_status_args = ["diff", "--name-status", "-z", diff_arg.as_str()];
+    let numstat_args = ["diff", "--numstat", "-z", diff_arg.as_str()];
     let (name_status, numstat) = tokio::try_join!(
         run_git_background(&name_status_args, worktree_path),
         run_git_background(&numstat_args, worktree_path),
     )?;
-
-    let name_status = name_status.trim();
-    if name_status.is_empty() {
-        return Ok(vec![]);
-    }
-    let stat_map = parse_numstat(&numstat);
-    Ok(parse_name_status_with_stats(
-        name_status,
-        &stat_map,
+    Ok(changed_files_with_stats(
+        &name_status,
+        &parse_numstat(&numstat),
         FileStageState::NotApplicable,
     ))
 }
@@ -64,7 +59,7 @@ pub async fn get_changed_files(
 /// `-M` enables rename detection so a rename shows as one `R*` entry (with
 /// `old_file`) instead of an add + delete pair — matching `git diff` and letting
 /// the per-file diff scope both paths. Merge commits — every stash is one — need
-/// [`FIRST_PARENT_MERGES`]; without it `diff-tree` reports a merge as changing
+/// [`FirstParentDiff`]; without it `diff-tree` reports a merge as changing
 /// nothing and the pane renders "No changes detected". Stashes pushed with
 /// `--include-untracked` then get their untracked half appended from the third
 /// parent, which the first-parent diff can't reach.
@@ -73,8 +68,10 @@ async fn get_commit_changed_files(
     sha: &str,
 ) -> Result<Vec<ChangedFile>, AppError> {
     crate::shared::git_cli::guard_positionals(&[sha])?;
+    let target = FirstParentDiff::of(worktree_path, sha).await?;
+    let (mode, revs) = ([&["-M"], target.flags].concat(), target.revs());
     let (mut files, untracked_parent) = tokio::try_join!(
-        diff_tree_changed_files(worktree_path, &["-M", FIRST_PARENT_MERGES], sha),
+        diff_tree_changed_files(worktree_path, &mode, &revs),
         commit_diff::untracked_parent(worktree_path, sha),
     )?;
     // The untracked parent is a root commit whose tree is exactly the swept-in
@@ -82,7 +79,7 @@ async fn get_commit_changed_files(
     // additions they were. Rename detection is pointless there — no other side
     // to rename from.
     if let Some(parent) = untracked_parent {
-        files.extend(diff_tree_changed_files(worktree_path, &[], &parent).await?);
+        files.extend(diff_tree_changed_files(worktree_path, &[], &[&parent]).await?);
     }
     Ok(files)
 }
@@ -95,12 +92,13 @@ async fn get_commit_changed_files(
 async fn diff_tree_changed_files(
     worktree_path: &Path,
     mode: &[&str],
-    rev: &str,
+    revs: &[&str],
 ) -> Result<Vec<ChangedFile>, AppError> {
     let args = |format| {
         let mut args = vec!["diff-tree", "--no-commit-id", "--root"];
         args.extend_from_slice(mode);
-        args.extend_from_slice(&[format, "-r", rev]);
+        args.extend_from_slice(&[format, "-z", "-r"]);
+        args.extend_from_slice(revs);
         args
     };
     let (name_status_args, numstat_args) = (args("--name-status"), args("--numstat"));
@@ -108,13 +106,8 @@ async fn diff_tree_changed_files(
         run_git_background(&name_status_args, worktree_path),
         run_git_background(&numstat_args, worktree_path),
     )?;
-
-    let name_status = name_status.trim();
-    if name_status.is_empty() {
-        return Ok(vec![]);
-    }
-    Ok(parse_name_status_with_stats(
-        name_status,
+    Ok(changed_files_with_stats(
+        &name_status,
         &parse_numstat(&numstat),
         FileStageState::NotApplicable,
     ))
@@ -168,111 +161,36 @@ pub(crate) async fn get_uncommitted_entries(
     Ok(entries)
 }
 
+/// Line counts of a `--numstat -z` listing, keyed by (new) path.
 pub(crate) fn parse_numstat(numstat: &str) -> HashMap<String, (i32, i32)> {
-    if numstat.contains('\0') {
-        return parse_numstat_z(numstat);
-    }
-    let mut stat_map: HashMap<String, (i32, i32)> = HashMap::new();
-    for line in numstat.trim().lines().filter(|l| !l.is_empty()) {
-        let parts: Vec<&str> = line.splitn(3, '\t').collect();
-        if parts.len() >= 3 {
-            let additions = if parts[0] == "-" {
-                0
-            } else {
-                parts[0].parse().unwrap_or(0)
-            };
-            let deletions = if parts[1] == "-" {
-                0
-            } else {
-                parts[1].parse().unwrap_or(0)
-            };
-            stat_map.insert(parts[2].to_string(), (additions, deletions));
-        }
-    }
-    stat_map
+    git_z::numstat(numstat)
+        .into_iter()
+        .map(|entry| (entry.path, (entry.additions, entry.deletions)))
+        .collect()
 }
 
-fn parse_numstat_z(numstat: &str) -> HashMap<String, (i32, i32)> {
-    let mut stat_map = HashMap::new();
-    let mut records = numstat.split_terminator('\0');
-    while let Some(record) = records.next() {
-        let mut fields = record.splitn(3, '\t');
-        let Some(additions) = fields.next().and_then(parse_numstat_value) else {
-            continue;
-        };
-        let Some(deletions) = fields.next().and_then(parse_numstat_value) else {
-            continue;
-        };
-        let Some(path) = fields.next() else {
-            continue;
-        };
-        let path = if path.is_empty() {
-            let _old_path = records.next();
-            records.next().unwrap_or_default()
-        } else {
-            path
-        };
-        if !path.is_empty() {
-            stat_map.insert(path.to_string(), (additions, deletions));
-        }
-    }
-    stat_map
-}
-
-fn parse_numstat_value(value: &str) -> Option<i32> {
-    if value == "-" {
-        Some(0)
-    } else {
-        value.parse().ok()
-    }
-}
-
-fn parse_name_status_with_stats(
+/// Rows of a `--name-status -z` listing with their `--numstat` counts.
+fn changed_files_with_stats(
     name_status: &str,
     stat_map: &HashMap<String, (i32, i32)>,
     stage_state: FileStageState,
 ) -> Vec<ChangedFile> {
-    let mut files = vec![];
-    for line in name_status.lines().filter(|l| !l.is_empty()) {
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.is_empty() {
-            continue;
-        }
-        let status_code = parts[0];
-        let (file, old_file) = if status_code.starts_with('R') || status_code.starts_with('C') {
-            if parts.len() >= 3 {
-                (parts[2].to_string(), Some(parts[1].to_string()))
-            } else {
-                continue;
+    git_z::name_status(name_status)
+        .into_iter()
+        .map(|entry| {
+            let (additions, deletions) = stat_map.get(&entry.path).copied().unwrap_or((0, 0));
+            ChangedFile {
+                file: entry.path,
+                status: entry.status,
+                old_file: entry.old_path,
+                additions,
+                deletions,
+                is_staged: stage_state.is_staged(),
+                stage_state,
+                conflict_kind: None,
             }
-        } else if parts.len() >= 2 {
-            (parts[1].to_string(), None)
-        } else {
-            continue;
-        };
-
-        let (additions, deletions) = stat_map
-            .get(&file)
-            .or_else(|| {
-                old_file
-                    .as_ref()
-                    .and_then(|old| stat_map.get(&format!("{old} => {file}")))
-            })
-            .copied()
-            .unwrap_or((0, 0));
-
-        files.push(ChangedFile {
-            file,
-            status: status_code.to_string(),
-            old_file,
-            additions,
-            deletions,
-            is_staged: stage_state.is_staged(),
-            stage_state,
-            conflict_kind: None,
-        });
-    }
-    files
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -280,41 +198,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_name_status_marks_is_staged_flag() {
-        let stats: HashMap<String, (i32, i32)> =
-            [("a.rs".to_string(), (3, 1))].into_iter().collect();
-        let staged = parse_name_status_with_stats("M\ta.rs\n", &stats, FileStageState::Staged);
+    fn name_status_rows_carry_stats_and_stage_state() {
+        let stats = parse_numstat("3\t1\ta.rs\0");
+        let staged = changed_files_with_stats("M\0a.rs\0", &stats, FileStageState::Staged);
         assert_eq!(staged.len(), 1);
         assert_eq!(staged[0].file, "a.rs");
         assert_eq!(staged[0].status, "M");
         assert!(staged[0].is_staged);
-        assert_eq!(staged[0].additions, 3);
-        assert_eq!(staged[0].deletions, 1);
+        assert_eq!((staged[0].additions, staged[0].deletions), (3, 1));
 
-        let unstaged = parse_name_status_with_stats("M\ta.rs\n", &stats, FileStageState::Unstaged);
+        let unstaged = changed_files_with_stats("M\0a.rs\0", &stats, FileStageState::Unstaged);
         assert!(!unstaged[0].is_staged);
     }
 
     #[test]
-    fn parse_name_status_handles_renames() {
-        let stats: HashMap<String, (i32, i32)> = [("old.rs => new.rs".to_string(), (0, 0))]
-            .into_iter()
-            .collect();
-        let cf = parse_name_status_with_stats(
-            "R100\told.rs\tnew.rs\n",
+    fn renames_get_the_stats_of_their_new_path() {
+        let stats = parse_numstat("3\t1\t\0src/old.rs\0src/new.rs\0");
+        let cf = changed_files_with_stats(
+            "R090\0src/old.rs\0src/new.rs\0",
             &stats,
             FileStageState::Unstaged,
         );
         assert_eq!(cf.len(), 1);
-        assert_eq!(cf[0].file, "new.rs");
-        assert_eq!(cf[0].old_file.as_deref(), Some("old.rs"));
-        assert!(cf[0].status.starts_with('R'));
-    }
-
-    #[test]
-    fn parse_numstat_handles_nul_delimited_rename_paths() {
-        let stats = parse_numstat("3\t1\t\0src/old.rs\0src/new.rs\0");
-        assert_eq!(stats.get("src/new.rs"), Some(&(3, 1)));
+        assert_eq!(cf[0].file, "src/new.rs");
+        assert_eq!(cf[0].old_file.as_deref(), Some("src/old.rs"));
+        assert_eq!((cf[0].additions, cf[0].deletions), (3, 1));
     }
 
     fn git(repo: &Path, args: &[&str]) {
@@ -403,6 +311,42 @@ mod tests {
         assert!(renamed.status.starts_with('R'));
     }
 
+    /// Branch and commit listings keep accented, spaced and newline names
+    /// verbatim and pair renames with their stats. Line-based parsing split
+    /// the newline name in two and lost rename stats.
+    #[tokio::test]
+    async fn branch_and_commit_listings_keep_awkward_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        init(repo);
+        std::fs::write(repo.join("résumé.md"), b"one\ntwo\n").unwrap();
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-q", "-m", "accented"]);
+        git(repo, &["checkout", "-q", "-b", "feature"]);
+        std::fs::create_dir(repo.join("dossier é")).unwrap();
+        git(repo, &["mv", "résumé.md", "dossier é/résumé final.md"]);
+        std::fs::write(repo.join("line\nbreak.txt"), b"a\nb\nc\n").unwrap();
+        std::fs::write(repo.join("staged"), b"edited\nmore\n").unwrap();
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-q", "-m", "feature"]);
+
+        let branch = get_changed_files(repo, "branch", Some("main"), None)
+            .await
+            .unwrap();
+        let commit = get_changed_files(repo, "commit", None, Some("HEAD"))
+            .await
+            .unwrap();
+        for files in [branch, commit] {
+            assert_eq!(files.len(), 3, "{files:?}");
+            let renamed = find(&files, "dossier é/résumé final.md");
+            assert_eq!(renamed.old_file.as_deref(), Some("résumé.md"));
+            assert!(renamed.status.starts_with('R'));
+            let added = find(&files, "line\nbreak.txt");
+            assert_eq!((added.status.as_str(), added.additions), ("A", 3));
+            assert_eq!(find(&files, "staged").additions, 2);
+        }
+    }
+
     #[tokio::test]
     async fn untracked_files_get_line_count_numstats() {
         let temp = tempfile::tempdir().unwrap();
@@ -459,10 +403,10 @@ mod tests {
             .unwrap();
         assert!(!merge.status.success());
 
-        let staged = run_git_background(&["diff", "--cached", "--numstat"], repo)
+        let staged = run_git_background(&["diff", "--cached", "--numstat", "-z"], repo)
             .await
             .unwrap();
-        let unstaged = run_git_background(&["diff", "--numstat"], repo)
+        let unstaged = run_git_background(&["diff", "--numstat", "-z"], repo)
             .await
             .unwrap();
         let staged_stats = parse_numstat(&staged).get("both").copied();
@@ -484,7 +428,7 @@ mod tests {
         assert_eq!(conflicts[0].deletions, expected_stats.1);
 
         std::fs::write(repo.join("both"), b"").unwrap();
-        let unstaged = run_git_background(&["diff", "--numstat"], repo)
+        let unstaged = run_git_background(&["diff", "--numstat", "-z"], repo)
             .await
             .unwrap();
         let deletion_stats = parse_numstat(&unstaged).get("both").copied().unwrap();

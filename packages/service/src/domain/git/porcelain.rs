@@ -257,13 +257,10 @@ fn lookup_stats(
     entry: &PorcelainFileEntry,
     stats: &HashMap<String, (i32, i32)>,
 ) -> Option<(i32, i32)> {
-    stats.get(&entry.path).copied().or_else(|| {
-        let old = entry.old_path.as_ref()?;
-        stats
-            .get(&format!("{old} => {}", entry.path))
-            .or_else(|| stats.get(old))
-            .copied()
-    })
+    stats
+        .get(&entry.path)
+        .or_else(|| stats.get(entry.old_path.as_ref()?))
+        .copied()
 }
 
 /// Skip `n` whitespace-separated fields and return the remainder of the

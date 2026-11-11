@@ -7,6 +7,10 @@
 //! category changes: `LC_CTYPE` keeps the user's encoding so hooks and
 //! non-ASCII paths behave as they do in a terminal. PTY-streamed Git
 //! (`commands::pty_spawn`) and user terminals keep the user's locale.
+//!
+//! `core.quotePath` is off too: path listings use `-z` (`shared::git_z`), and
+//! the outputs that cannot (patch headers, messages) then print non-ASCII
+//! names as they are instead of `"caf\303\251"`.
 
 use std::ffi::OsString;
 
@@ -18,6 +22,7 @@ pub fn git_command() -> tokio::process::Command {
 /// Blocking counterpart of [`git_command`] for synchronous call sites.
 pub fn git_std_command() -> std::process::Command {
     let mut command = std::process::Command::new("git");
+    command.args(["-c", "core.quotePath=false"]);
     apply_machine_readable_env(
         &mut command,
         std::env::var_os("LC_ALL"),
@@ -80,6 +85,24 @@ mod tests {
         env.iter()
             .find(|(name, _)| name == key)
             .map(|(_, value)| value.clone())
+    }
+
+    #[test]
+    fn non_ascii_paths_are_not_quoted() {
+        let dir = tempfile::tempdir().unwrap();
+        let init = git_std_command()
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status()
+            .unwrap();
+        assert!(init.success());
+        std::fs::write(dir.path().join("café.txt"), "x").unwrap();
+        let output = git_std_command()
+            .args(["ls-files", "--others"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "café.txt\n");
     }
 
     #[test]

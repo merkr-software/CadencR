@@ -1,7 +1,6 @@
-//! Path filter for raw fs events. Drops chatty `.git/` internals while
-//! letting through ref/index/MERGE_MSG and any worktree path. We don't
-//! enforce gitignore here — `git status` does that automatically when the
-//! debouncer triggers a recompute.
+//! Path filter for fs events. Drops chatty `.git/` internals while letting
+//! through ref/index/MERGE_MSG and any worktree path. Gitignored paths never
+//! get here: `shared::ignore_watch` neither watches nor reports them.
 
 use std::path::Path;
 
@@ -9,7 +8,7 @@ use std::path::Path;
 ///
 /// `worktree_root` is the canonicalized worktree path; `extra_git_roots`
 /// are the worktree-specific gitdir and the shared common dir for linked
-/// worktrees (see `debouncer::build_debouncer`). Events under any of those
+/// worktrees (see `debouncer::build_watcher`). Events under any of those
 /// roots are eligible after the chatty-internals filter is applied.
 pub(super) fn is_relevant(
     worktree_root: &Path,

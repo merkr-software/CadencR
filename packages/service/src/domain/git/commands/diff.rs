@@ -9,10 +9,11 @@ use crate::error::AppError;
 use crate::shared::git_cli::{
     guard_positionals, run_git_safe_background, run_git_safe_refs_background,
 };
+use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::{count_untracked_lines, synthesize_untracked_new_file_diff};
-use super::util::{run_git_quiet, FIRST_PARENT_MERGES};
+use super::util::{run_git_quiet, FirstParentDiff};
 
 /// Parse git diff --stat summary line.
 pub(super) fn parse_stat_line(output: &str) -> GitStats {
@@ -55,7 +56,7 @@ pub async fn get_stats(
         run_git_quiet(&["diff", "--stat"], worktree_path),
         run_git_quiet(&["diff", "--cached", "--stat"], worktree_path),
         run_git_quiet(
-            &["ls-files", "--others", "--exclude-standard"],
+            &["ls-files", "--others", "--exclude-standard", "-z"],
             worktree_path
         ),
     );
@@ -70,7 +71,7 @@ pub async fn get_stats(
     // paths, so we only see files that count. Lines are counted with a buffered
     // stream (bounded memory, not a full read-into-String of every file) and
     // binaries are skipped.
-    for file in untracked.trim().lines().filter(|l| !l.is_empty()) {
+    for file in git_z::paths(&untracked) {
         let full_path = worktree_path.join(file);
         if let Some(line_count) = count_untracked_lines(&full_path).await {
             stats_unstaged.files_changed += 1;
@@ -98,7 +99,7 @@ pub async fn get_diff(
         run_git_quiet(&["diff"], worktree_path),
         run_git_quiet(&["diff", "--cached"], worktree_path),
         run_git_quiet(
-            &["ls-files", "--others", "--exclude-standard"],
+            &["ls-files", "--others", "--exclude-standard", "-z"],
             worktree_path
         ),
     );
@@ -110,8 +111,8 @@ pub async fn get_diff(
     // paths, so we never synthesize a diff for an ignored file. Each remaining
     // untracked file is bounded per-file (see `untracked`) so a giant generated
     // file can't blow up the aggregate response.
-    for file in untracked_list.trim().lines().filter(|l| !l.is_empty()) {
-        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, file).await {
+    for file in git_z::paths(&untracked_list) {
+        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await {
             result.push_str(&block);
         }
     }
@@ -158,15 +159,16 @@ pub async fn get_file_diff(
         // a `sha^..sha` probe whose errors we'd have to swallow to reach the
         // root-commit fallback. `-M` matches the rename detection the commit
         // changed-files listing uses, so file list and file diff agree, and
-        // `FIRST_PARENT_MERGES` keeps merge commits (every stash is one) from
+        // `FirstParentDiff` keeps merge commits (every stash is one) from
         // diffing to nothing.
-        let diff = run_git_safe_background(
-            &["diff-tree", "--root", "-M", FIRST_PARENT_MERGES, "-p", sha],
-            &[],
-            &paths,
-            worktree_path,
-        )
-        .await?;
+        let target = FirstParentDiff::of(worktree_path, sha).await?;
+        let args = [
+            &["diff-tree", "--root", "-M", "-p"],
+            target.flags,
+            &target.revs(),
+        ]
+        .concat();
+        let diff = run_git_safe_background(&args, &[], &paths, worktree_path).await?;
         if !diff.is_empty() {
             return Ok(diff);
         }
@@ -208,13 +210,16 @@ pub async fn get_file_diff(
 
     let new_only = [file_path];
     let untracked = run_git_safe_background(
-        &["ls-files", "--others", "--exclude-standard"],
+        &["ls-files", "--others", "--exclude-standard", "-z"],
         &[],
         &new_only,
         worktree_path,
     )
     .await?;
-    if untracked.lines().any(|l| l == file_path) {
+    if git_z::paths(&untracked)
+        .iter()
+        .any(|path| path == file_path)
+    {
         return Ok(
             match synthesize_untracked_new_file_diff(worktree_path, file_path).await {
                 Some(block) => block,
@@ -237,21 +242,19 @@ pub async fn get_file_diff(
 ///
 /// One `diff-tree --root` call covers every commit shape the viewer can open:
 /// a root commit (no `sha^` to resolve), an ordinary commit, and a merge —
-/// which, via `FIRST_PARENT_MERGES`, includes stashes. A stash's untracked
+/// which, via `FirstParentDiff`, includes stashes. A stash's untracked
 /// files are appended from its third parent, the only place they exist.
 pub async fn get_commit_diff(worktree_path: &Path, commit_sha: &str) -> Result<String, AppError> {
     guard_positionals(&[commit_sha])?;
+    let target = FirstParentDiff::of(worktree_path, commit_sha).await?;
+    let revs = target.revs();
     let args = [
-        "diff-tree",
-        "--no-commit-id",
-        "--root",
-        "-M",
-        FIRST_PARENT_MERGES,
-        "-p",
-    ];
-    let refs = [commit_sha];
+        &["diff-tree", "--no-commit-id", "--root", "-M", "-p"],
+        target.flags,
+    ]
+    .concat();
     let (mut diff, untracked_parent) = tokio::try_join!(
-        run_git_safe_refs_background(&args, &[], &refs, worktree_path),
+        run_git_safe_refs_background(&args, &[], &revs, worktree_path),
         commit_diff::untracked_parent(worktree_path, commit_sha),
     )?;
 

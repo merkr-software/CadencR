@@ -347,6 +347,7 @@ pub fn git_router() -> Router<AppState> {
         .route("/api/git/commit-url", get(get_commit_url_handler))
         .route("/api/git/file-blob-shas", get(get_file_blob_shas_handler))
         .route("/api/git/path-prefix", get(get_git_path_prefix_handler))
+        .route("/api/git/version", get(get_git_version_handler))
         .route("/api/git/stashes", get(list_stashes_handler))
         .route("/api/git/stashes/push", post(push_stash_handler))
         .route("/api/git/stashes/apply", post(apply_stash_handler))

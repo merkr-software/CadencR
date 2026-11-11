@@ -74,22 +74,36 @@ pub async fn refresh_all(state: &AppState) -> Result<(), AppError> {
     refresh(state, true, &mut last_polled).await
 }
 
-/// Re-poll every repo now, ahead of the next tick. Requests coalesce: one
-/// still waiting for the refresh lock covers every request made meanwhile.
+/// Re-poll every repo now, ahead of the next tick. Requests coalesce: those
+/// made while a requested poll runs share one follow-up poll, which resolves
+/// the branches after them.
 pub fn request_refresh(state: &AppState) {
-    if state
-        .forge_status
-        .refresh_requested
-        .swap(true, Ordering::AcqRel)
-    {
+    if !state.forge_status.forced.request() {
         return;
     }
     let state = state.clone();
     tokio::spawn(async move {
-        if let Err(error) = refresh_all(&state).await {
-            warn!(%error, "requested forge PR status refresh failed");
+        let worker = ForcedWorker(&state);
+        while state.forge_status.forced.take() {
+            if let Err(error) = refresh_all(&state).await {
+                warn!(%error, "requested forge PR status refresh failed");
+            }
         }
+        // Drained normally: `take` already let the next request start a new
+        // worker, which the guard must not mark stopped.
+        std::mem::forget(worker);
     });
+}
+
+/// Releases the forced-refresh queue if its worker unwinds.
+struct ForcedWorker<'a>(&'a AppState);
+
+impl Drop for ForcedWorker<'_> {
+    fn drop(&mut self) {
+        if self.0.forge_status.forced.abandon() {
+            request_refresh(self.0);
+        }
+    }
 }
 
 async fn refresh(
@@ -97,18 +111,25 @@ async fn refresh(
     force: bool,
     last_polled: &mut HashMap<RepoKey, Instant>,
 ) -> Result<(), AppError> {
-    let _refresh_guard = state.forge_status.refresh_lock.lock().await;
-    if force {
-        // Requests made from here on need a poll that starts after them.
-        state
-            .forge_status
-            .refresh_requested
-            .store(false, Ordering::Release);
-    }
     if !force && !state.forge_activity.has_visible_clients().await {
         return Ok(());
     }
+    // Branches and remotes come from Git, run before taking the poll lock: a
+    // repository whose Git hangs must not hold up the polls queued behind it.
+    let ticket = state
+        .forge_status
+        .resolve_tickets
+        .fetch_add(1, Ordering::Relaxed)
+        + 1;
     let targets = active_feature_targets(state).await?;
+    let mut newest_published = state.forge_status.refresh_lock.lock().await;
+    // A forced poll covers every repo; a periodic one only those due, so only
+    // a periodic poll whose branches are older than the last published view
+    // is dropped (the next tick polls again).
+    if !force && ticket < *newest_published {
+        return Ok(());
+    }
+    *newest_published = (*newest_published).max(ticket);
     let active_ids = targets
         .iter()
         .map(|target| target.feature_id)

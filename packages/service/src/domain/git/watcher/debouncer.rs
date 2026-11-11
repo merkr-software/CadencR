@@ -1,4 +1,4 @@
-//! `notify-debouncer-mini` callback wiring + the background compute task.
+//! fs watch callback wiring + the background compute task.
 //!
 //! The compute task pulls `RecomputePing`s from a channel, applies the
 //! sustained-churn cap, runs `compute_status` per registered feature, and
@@ -11,17 +11,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::Message;
-use notify_debouncer_mini::notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebouncedEvent, DebouncedEventKind, Debouncer};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use super::filter::is_relevant;
-use super::handle::{RecomputePing, RegistryInner};
+use super::handle::{repo_lock, RecomputePing, RegistryInner};
 use crate::app_state::AppState;
 use crate::domain::git::git_status;
 use crate::domain::ws_session::protocol::WsEnvelope;
+use crate::shared::git_cli::run_git_background;
+use crate::shared::ignore_watch::IgnoreAwareWatcher;
 use crate::shared::watch_limits::describe_watch_error;
 
 /// Debounce window for raw fs events before triggering a recompute.
@@ -39,144 +39,89 @@ pub(super) fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// Build the underlying `notify-debouncer-mini` and start watching the
-/// worktree recursively.
+/// Start the gitignore-aware fs watch of the worktree. Blocking: walks the
+/// non-ignored tree once.
 ///
 /// For linked worktrees (`git worktree add`), the worktree's gitdir and the
-/// shared common dir live outside the worktree path. We resolve both via
-/// `git rev-parse` and add them as additional watched roots so events on
-/// `index`, `HEAD`, refs, etc. are not missed.
-pub(super) fn build_debouncer(
+/// shared common dir live outside the worktree path ([`resolve_git_roots`]);
+/// they are watched too so events on `index`, `HEAD`, refs, etc. are not
+/// missed. A Git root that cannot be watched only costs those events: fs
+/// events inside the worktree still trigger recomputes, which pick up index
+/// changes.
+pub(super) fn build_watcher(
     worktree_path: PathBuf,
+    git_roots: Vec<PathBuf>,
     ping_tx: mpsc::UnboundedSender<RecomputePing>,
     last_nudge_ms: Arc<AtomicI64>,
     write_generation: Arc<AtomicU64>,
-) -> Result<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>, crate::error::AppError> {
-    let extra_git_roots = resolve_git_roots(&worktree_path);
+) -> Result<IgnoreAwareWatcher, crate::error::AppError> {
     let cb_path = worktree_path.clone();
-    let cb_extra = extra_git_roots.clone();
-    let mut debouncer = new_debouncer(
+    let cb_roots = git_roots.clone();
+    let on_change = move |paths: Vec<PathBuf>| {
+        let generation = write_generation.load(Ordering::Acquire);
+        // Self-write dedupe: ignore raw fs events within NUDGE_DEDUPE_MS
+        // of an explicit nudge.
+        if now_ms() - last_nudge_ms.load(Ordering::Relaxed) < NUDGE_DEDUPE_MS {
+            debug!(
+                path = %cb_path.display(),
+                "git watcher: dropping fs event in self-write window"
+            );
+            return;
+        }
+        if has_relevant_path(&cb_path, &cb_roots, &paths) {
+            // Fails only once the compute task is gone.
+            let _ = ping_tx.send(RecomputePing::FsEvent(generation));
+        }
+    };
+    let watcher = IgnoreAwareWatcher::start(
+        worktree_path,
+        git_roots,
         Duration::from_millis(GIT_WATCHER_DEBOUNCE_MS),
-        move |result: Result<Vec<DebouncedEvent>, _>| {
-            let events = match result {
-                Ok(events) => events,
-                Err(e) => {
-                    warn!("git watcher error: {e:?}");
-                    return;
-                }
-            };
-            let generation = write_generation.load(Ordering::Acquire);
-            // Self-write dedupe: ignore raw fs events within NUDGE_DEDUPE_MS
-            // of an explicit nudge.
-            if now_ms() - last_nudge_ms.load(Ordering::Relaxed) < NUDGE_DEDUPE_MS {
-                debug!(
-                    path = %cb_path.display(),
-                    "git watcher: dropping fs event in self-write window"
-                );
-                return;
-            }
-            if has_relevant_event(&cb_path, &cb_extra, &events) {
-                let _ = ping_tx.send(RecomputePing::FsEvent(generation));
-            }
-        },
+        on_change,
     )
     .map_err(|e| crate::error::AppError::internal(describe_watch_error("git watcher", &e)))?;
-
-    debouncer
-        .watcher()
-        .watch(&worktree_path, RecursiveMode::Recursive)
-        .map_err(|e| {
-            crate::error::AppError::internal(describe_watch_error("git watcher watch", &e))
-        })?;
-
-    // Linked-worktree support: the worktree's own gitdir
-    // (`<main>/.git/worktrees/<name>/`) and the shared common dir
-    // (`<main>/.git/`) hold the index, HEAD, and refs we need to observe.
-    // Skip any root that's already inside `worktree_path` (the embedded-gitdir
-    // case for the main worktree) — `notify` would otherwise emit duplicate
-    // events from overlapping recursive watches.
-    for extra in &extra_git_roots {
-        if path_starts_with(extra, &worktree_path) {
-            continue;
-        }
-        if let Err(e) = debouncer.watcher().watch(extra, RecursiveMode::Recursive) {
-            // Non-fatal: surface it, but keep the worktree watcher running.
-            // A missing common-dir watch only means linked-worktree events on
-            // refs/HEAD won't be observed; fs events inside the worktree
-            // still trigger recomputes, which still pick up index changes.
-            warn!(
-                path = %extra.display(),
-                error = %e,
-                "git watcher: failed to watch extra git root, continuing without it"
-            );
-        }
-    }
-
-    Ok(debouncer)
+    debug!(watches = watcher.watch_count(), "git watcher started");
+    Ok(watcher)
 }
 
-/// Both settled and continuous debounced events represent real filesystem
-/// changes. The compute task coalesces sustained churn, so forwarding both
-/// variants remains bounded.
-fn has_relevant_event(
-    worktree_root: &Path,
-    extra_git_roots: &[PathBuf],
-    events: &[DebouncedEvent],
-) -> bool {
-    events.iter().any(|event| {
-        matches!(
-            event.kind,
-            DebouncedEventKind::Any | DebouncedEventKind::AnyContinuous
-        ) && is_relevant(worktree_root, extra_git_roots, &event.path)
-    })
+/// The watch already dropped gitignored paths; this drops Git's own churn.
+fn has_relevant_path(worktree_root: &Path, git_roots: &[PathBuf], paths: &[PathBuf]) -> bool {
+    paths
+        .iter()
+        .any(|path| is_relevant(worktree_root, git_roots, path))
 }
 
 /// Resolve the worktree-specific gitdir and the shared common dir for
-/// `worktree_path`. Returns canonicalized paths, deduped. Empty on error
-/// (caller logs and continues — see `build_debouncer`).
-fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
+/// `worktree_path`. Returns canonicalized paths, deduped. Empty when Git
+/// fails: the watcher then runs without them (see `build_watcher`).
+pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
+    let output = match run_git_background(
+        &["rev-parse", "--git-dir", "--git-common-dir"],
+        worktree_path,
+    )
+    .await
+    {
+        Ok(output) => output,
+        Err(error) => {
+            warn!(
+                path = %worktree_path.display(),
+                %error,
+                "git watcher: Git dirs unknown; HEAD, index and refs are not watched"
+            );
+            return Vec::new();
+        }
+    };
     let mut roots: Vec<PathBuf> = Vec::with_capacity(2);
-    for arg in ["--git-dir", "--git-common-dir"] {
-        let Some(raw) = run_git_rev_parse(worktree_path, arg) else {
-            continue;
-        };
-        // `git rev-parse --git-dir` may return a path relative to the
-        // worktree (`.git`) or absolute (linked worktree). Normalize.
-        let candidate = if Path::new(&raw).is_absolute() {
-            PathBuf::from(&raw)
-        } else {
-            worktree_path.join(&raw)
-        };
+    // Each is relative to the worktree (`.git`) or absolute (a linked
+    // worktree's); joining handles both.
+    for raw in output.lines().filter(|line| !line.is_empty()) {
+        let candidate = worktree_path.join(raw);
         let canonical = std::fs::canonicalize(&candidate).unwrap_or(candidate);
-        if !roots.iter().any(|p| p == &canonical) {
+        if !roots.contains(&canonical) {
             roots.push(canonical);
         }
     }
     roots
-}
-
-/// Synchronous `git rev-parse <arg>` helper — `build_debouncer` itself is
-/// sync (called from `spawn_handle`) and the cost is one fork per watcher
-/// startup, which is negligible.
-fn run_git_rev_parse(cwd: &Path, arg: &str) -> Option<String> {
-    let output = crate::shared::git_cli::git_std_command()
-        .args(["rev-parse", arg])
-        .current_dir(cwd)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
-}
-
-fn path_starts_with(child: &Path, parent: &Path) -> bool {
-    child.starts_with(parent)
 }
 
 /// Spawn the long-lived compute task. Exits when `RecomputePing::Shutdown`
@@ -282,6 +227,16 @@ pub(super) async fn recompute_for_path(
     if state.git_mutations.is_active_canonical(worktree_path) {
         return;
     }
+    // One refresh of a repository at a time; other repositories never wait.
+    let repo_lock = repo_lock(registry, worktree_path).await;
+    let _repo = repo_lock.lock().await;
+    // A write confirmed, or a foreground mutation started, while this
+    // waited: skip the Git work.
+    if generation_changed(&expected_write_generation)
+        || state.git_mutations.is_active_canonical(worktree_path)
+    {
+        return;
+    }
 
     // Snapshot the subscriber list under the lock, then drop it before
     // running per-feature compute calls so we don't serialize on the slow
@@ -378,25 +333,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn continuous_events_trigger_a_refresh() {
+    fn worktree_changes_trigger_a_refresh() {
         let root = PathBuf::from("/repo");
-        let events = vec![DebouncedEvent::new(
-            root.join("src/main.rs"),
-            DebouncedEventKind::AnyContinuous,
-        )];
-
-        assert!(has_relevant_event(&root, &[], &events));
+        assert!(has_relevant_path(&root, &[], &[root.join("src/main.rs")]));
     }
 
     #[test]
-    fn continuous_git_noise_stays_filtered() {
+    fn git_noise_stays_filtered() {
         let root = PathBuf::from("/repo");
-        let events = vec![DebouncedEvent::new(
-            root.join(".git/objects/aa/bb"),
-            DebouncedEventKind::AnyContinuous,
-        )];
-
-        assert!(!has_relevant_event(&root, &[], &events));
+        assert!(!has_relevant_path(
+            &root,
+            &[],
+            &[root.join(".git/objects/aa/bb")]
+        ));
     }
 
     #[tokio::test]

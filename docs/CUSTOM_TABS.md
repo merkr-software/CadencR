@@ -707,7 +707,10 @@ feature's editor root (`/api/editor/root`). The two differ when a project is
 registered on a subdirectory of a repository (a monorepo package): `git:read`
 then lists changes across the whole checkout, with paths that include the
 subdirectory, and a changed file outside the subdirectory cannot be opened
-through `files:read`.
+through `files:read`. `GET /api/git/path-prefix` (`git:read`) returns that
+subdirectory as `prefix` (`packages/app`, empty at the checkout root): strip
+`prefix/` from a Git path to get its editor path; a Git path without it lies
+outside the editor root.
 
 ### 6.1 Policy table (v1)
 
@@ -732,6 +735,7 @@ name the grant's.
 | GET    | `/api/git/commit-graph`                      | `git:read`       | FeatureQuery(feature_id) |
 | GET    | `/api/git/file-content`                      | `git:read`       | FeatureQuery(feature_id) |
 | GET    | `/api/git/blame`                             | `git:read`       | FeatureQuery(feature_id) |
+| GET    | `/api/git/path-prefix`                       | `git:read`       | FeatureQuery(feature_id) |
 | GET    | `/api/git/branches`                          | `git:read`       | ProjectQuery(project_id) |
 | GET    | `/api/git/branch`                            | `git:read`       | ProjectQuery(project_id) |
 | GET    | `/api/git/pr`                                | `forge:read`     | FeatureQuery(feature_id) |

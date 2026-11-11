@@ -131,8 +131,15 @@ mod tests {
     }
 
     async fn subscribed_fixture() -> WatchFixture {
+        subscribed_fixture_with(|_| {}).await
+    }
+
+    /// A committed repository whose watcher has one subscriber, with
+    /// `setup` run on the worktree before the watch starts.
+    async fn subscribed_fixture_with(setup: impl FnOnce(&Path)) -> WatchFixture {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
+        setup(dir.path());
         let commit_status = Command::new("git")
             .args([
                 "-c",
@@ -154,8 +161,9 @@ mod tests {
             .unwrap();
         let state = AppState::with_pool(pool);
         let registry = GitWatcherRegistry::new();
-        let mut handle =
-            spawn_handle(registry.inner.clone(), canonical.clone(), state.clone()).unwrap();
+        let mut handle = spawn_handle(registry.inner.clone(), canonical.clone(), state.clone())
+            .await
+            .unwrap();
         let fs_event_tx = handle.ping_tx.clone();
         let last_nudge = handle.last_nudge_ms.clone();
         let write_generation = handle.write_generation.clone();
@@ -256,6 +264,58 @@ mod tests {
         fixture.registry.shutdown().await;
     }
 
+    /// `npm install` and builds churn ignored trees Git never reports: they
+    /// must not drive status refreshes (nor, on Linux, inotify watches).
+    #[tokio::test]
+    async fn gitignored_changes_do_not_refresh_the_status() {
+        let mut fixture = subscribed_fixture_with(|dir| {
+            std::fs::write(dir.join(".gitignore"), "node_modules/\n").unwrap();
+            std::fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+            std::fs::create_dir_all(dir.join("src")).unwrap();
+        })
+        .await;
+        let (canonical, rx) = (fixture.canonical.clone(), &mut fixture.rx);
+        // FSEvents replays the fixture's setup writes; let them settle.
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        while rx.try_recv().is_ok() {}
+
+        std::fs::write(canonical.join("node_modules/pkg/index.js"), "x").unwrap();
+        let ignored = tokio::time::timeout(std::time::Duration::from_millis(2000), rx.recv()).await;
+        assert!(ignored.is_err(), "an ignored write refreshed: {ignored:?}");
+
+        std::fs::write(canonical.join("src/main.rs"), "x").unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("a source write must refresh the status")
+            .unwrap();
+        fixture.registry.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn refreshes_of_one_repository_run_one_at_a_time() {
+        let mut fixture = subscribed_fixture().await;
+        let lock =
+            super::super::handle::repo_lock(&fixture.registry.inner, &fixture.canonical).await;
+        let held = lock.lock().await;
+        let refresh = fixture
+            .registry
+            .confirm_after_write(&fixture.canonical, &fixture.state);
+        tokio::pin!(refresh);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(300), &mut refresh)
+                .await
+                .is_err(),
+            "a refresh must wait for the one already running on its repository"
+        );
+        drop(held);
+        refresh.await;
+        assert!(matches!(
+            fixture.rx.try_recv(),
+            Ok(Message::Text(text)) if text.contains("\"action\":\"status\"")
+        ));
+        fixture.registry.shutdown().await;
+    }
+
     #[tokio::test]
     async fn recompute_is_suppressed_during_a_foreground_mutation() {
         let mut fixture = subscribed_fixture().await;
@@ -316,7 +376,9 @@ mod tests {
             .await
             .unwrap();
         let state = AppState::with_pool(pool);
-        let handle = spawn_handle(registry.inner.clone(), canonical.clone(), state).unwrap();
+        let handle = spawn_handle(registry.inner.clone(), canonical.clone(), state)
+            .await
+            .unwrap();
         {
             let mut inner = registry.inner.lock().await;
             inner.handles.insert(canonical, handle);

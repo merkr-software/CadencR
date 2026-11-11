@@ -19,9 +19,11 @@ use axum::extract::{Json, State};
 
 use crate::app_state::AppState;
 use crate::domain::git::models::{CheckoutBody, CheckoutValidateBody, SuccessResponse};
+use crate::domain::git::porcelain::parse_porcelain_v2_entries;
 use crate::domain::git::repository;
 use crate::error::AppError;
 use crate::shared::git_cli::{run_git_capture, run_git_safe_refs};
+use crate::shared::git_z;
 
 use super::{local_branch_exists, remote_branch_exists};
 
@@ -69,7 +71,8 @@ async fn validate_checkout(
     // here (single user-initiated call, not a polling loop), so we accept
     // it for now rather than duplicate `run_git_safe_refs` into a
     // `_background` variant. Revisit if a real-world race ever surfaces.
-    let status = run_git_safe_refs(&["status"], &["--porcelain", "-uno"], &[], repo).await?;
+    let status =
+        run_git_safe_refs(&["status"], &["--porcelain=v2", "-z", "-uno"], &[], repo).await?;
     let dirty_files = parse_porcelain_dirty_files(&status);
     if dirty_files.is_empty() {
         return Ok(SuccessResponse::ok());
@@ -77,19 +80,15 @@ async fn validate_checkout(
 
     let diff = run_git_safe_refs(
         &["diff"],
-        &["--name-only", "--no-renames", "HEAD"],
+        &["--name-only", "--no-renames", "-z", "HEAD"],
         &[&resolved],
         repo,
     )
     .await?;
-    let diff_files: HashSet<&str> = diff
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
+    let diff_files: HashSet<String> = git_z::paths(&diff).into_iter().collect();
     let overlap: Vec<String> = dirty_files
         .into_iter()
-        .filter(|p| diff_files.contains(p.as_str()))
+        .filter(|p| diff_files.contains(p))
         .collect();
     if overlap.is_empty() {
         return Ok(SuccessResponse::ok());
@@ -141,22 +140,13 @@ pub(crate) async fn resolve_ref(repo: &Path, branch: &str) -> Result<String, App
     )))
 }
 
-/// Parse `git status --porcelain -uno` (tracked-only). Porcelain v1 lines
-/// are `XY <path>`; rename lines are `XY old -> new` and both sides are
-/// emitted so renames are caught regardless of which side the diff names.
+/// Paths of a `git status --porcelain=v2 -z -uno` (tracked-only) listing.
+/// Both sides of a rename are kept so the diff intersection catches the move
+/// whichever side the target branch touches.
 fn parse_porcelain_dirty_files(porcelain: &str) -> Vec<String> {
-    porcelain
-        .lines()
-        .filter(|l| l.len() >= 4)
-        .flat_map(|line| {
-            let rest = &line[3..];
-            if let Some((old, new)) = rest.split_once(" -> ") {
-                vec![old.trim().to_string(), new.trim().to_string()]
-            } else {
-                vec![rest.trim().to_string()]
-            }
-        })
-        .filter(|p| !p.is_empty())
+    parse_porcelain_v2_entries(porcelain)
+        .into_iter()
+        .flat_map(|entry| entry.old_path.into_iter().chain([entry.path]))
         .collect()
 }
 
@@ -178,31 +168,45 @@ mod tests {
     use super::*;
     use crate::shared::git_cli::run_git;
 
-    #[test]
-    fn parses_modified_and_renamed_lines() {
-        let status = " M src/a.rs\nM  src/b.rs\nR  old/c.rs -> new/c.rs\n";
-        let dirty = parse_porcelain_dirty_files(status);
+    /// Real `status -z` output: before `-z`, the accented rename came back
+    /// C-quoted and never matched the target branch's diff.
+    #[tokio::test]
+    async fn parses_modified_and_renamed_entries_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        for name in ["src/a.rs", "src/b c.rs", "old/résumé.rs"] {
+            std::fs::create_dir_all(repo.join(name).parent().unwrap()).unwrap();
+            std::fs::write(repo.join(name), name).unwrap();
+        }
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["add", "-A"],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-qm",
+                "seed",
+            ],
+            &["mv", "old/résumé.rs", "new résumé.rs"],
+        ] {
+            run_git(args, repo).await.unwrap();
+        }
+        std::fs::write(repo.join("src/a.rs"), "edited").unwrap();
+        std::fs::write(repo.join("src/b c.rs"), "edited").unwrap();
+        let status = run_git(&["status", "--porcelain=v2", "-z", "-uno"], repo)
+            .await
+            .unwrap();
+        let mut dirty = parse_porcelain_dirty_files(&status);
+        dirty.sort();
         assert_eq!(
             dirty,
-            vec![
-                "src/a.rs".to_string(),
-                "src/b.rs".to_string(),
-                "old/c.rs".to_string(),
-                "new/c.rs".to_string(),
-            ],
-            "rename lines must emit both sides so the diff intersection catches the move",
+            vec!["new résumé.rs", "old/résumé.rs", "src/a.rs", "src/b c.rs"],
+            "rename entries must emit both sides so the diff intersection catches the move",
         );
-    }
-
-    #[test]
-    fn intersects_dirty_with_diff() {
-        let diff: HashSet<&str> = ["src/a.rs", "src/b.rs"].into_iter().collect();
-        let dirty = parse_porcelain_dirty_files(" M src/a.rs\n M README.md\n");
-        let overlap: Vec<String> = dirty
-            .into_iter()
-            .filter(|p| diff.contains(p.as_str()))
-            .collect();
-        assert_eq!(overlap, vec!["src/a.rs".to_string()]);
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::domain::git::models::{MergeConflictResult, MergeResult};
 use crate::error::AppError;
+use crate::shared::git_cli::version::{self, GitFeature};
 use crate::shared::git_cli::{
     git_output_error, run_git_background, run_git_output_with_env, run_git_safe_refs,
 };
@@ -21,6 +22,7 @@ pub async fn check_merge_conflicts(
     target_branch: &str,
 ) -> Result<MergeConflictResult, AppError> {
     crate::shared::git_cli::guard_positionals(&[target_branch, source_branch])?;
+    version::require(GitFeature::MergeTreeWriteTree)?;
     // `--name-only -z --no-messages` makes the conflicted-file section a
     // NUL-separated path list instead of translated `CONFLICT (...)` prose,
     // and covers modify/delete and rename conflicts that have no
@@ -77,11 +79,7 @@ pub async fn unmerged_paths(repo_path: &Path) -> Result<Vec<String>, AppError> {
         repo_path,
     )
     .await?;
-    Ok(output
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(ToOwned::to_owned)
-        .collect())
+    Ok(crate::shared::git_z::paths(&output))
 }
 
 /// Return true when `branch_name` is fully contained in `target_branch`.

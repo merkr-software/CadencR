@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Mutex, PoisonError};
 
 use tokio::sync::RwLock;
 
@@ -10,9 +11,55 @@ pub struct ForgeStatusCache {
     by_feature: RwLock<HashMap<i64, PrStatusSnapshot>>,
     /// The branch each published snapshot's top-level proposal belongs to.
     current_branches: RwLock<HashMap<i64, String>>,
-    pub(super) refresh_lock: tokio::sync::Mutex<()>,
-    /// A forced refresh is queued and has not started yet.
-    pub(super) refresh_requested: AtomicBool,
+    /// Serializes polls. Holds the ticket of the newest target resolution a
+    /// poll published, so a periodic poll that resolved its branches before
+    /// it does not republish an older view.
+    pub(super) refresh_lock: tokio::sync::Mutex<u64>,
+    /// Numbers target resolutions in the order they start.
+    pub(super) resolve_tickets: AtomicU64,
+    pub(super) forced: ForcedRefreshQueue,
+}
+
+/// Forced refreshes asked for with `request_refresh`. One worker runs them;
+/// every request made while it polls folds into a single follow-up poll, so a
+/// burst of branch moves costs one forge sweep, not one each.
+#[derive(Default)]
+pub(super) struct ForcedRefreshQueue {
+    state: Mutex<ForcedRefreshState>,
+}
+
+#[derive(Default)]
+struct ForcedRefreshState {
+    requested: bool,
+    running: bool,
+}
+
+impl ForcedRefreshQueue {
+    /// Record a request; true when the caller must start the worker.
+    pub(super) fn request(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.requested = true;
+        !std::mem::replace(&mut state.running, true)
+    }
+
+    /// Claim the pending request for the worker; false (and the worker stops)
+    /// when none is left.
+    pub(super) fn take(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if std::mem::take(&mut state.requested) {
+            return true;
+        }
+        state.running = false;
+        false
+    }
+
+    /// The worker ended without draining (it panicked): let the next request
+    /// start another. True when a request is still pending.
+    pub(super) fn abandon(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.running = false;
+        state.requested
+    }
 }
 
 impl ForgeStatusCache {
@@ -92,6 +139,25 @@ impl ForgeStatusCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requests_during_a_forced_refresh_fold_into_one_follow_up() {
+        let queue = ForcedRefreshQueue::default();
+        assert!(queue.request(), "the first request starts the worker");
+        assert!(queue.take());
+        // Three requests while the worker polls: no new worker, one more poll.
+        assert!(!queue.request());
+        assert!(!queue.request());
+        assert!(!queue.request());
+        assert!(queue.take());
+        assert!(!queue.take(), "drained: the worker stops");
+        assert!(queue.request(), "a later request starts a new worker");
+        assert!(queue.abandon(), "the request it had not claimed is pending");
+        assert!(
+            queue.request(),
+            "an abandoned worker does not block requests"
+        );
+    }
 
     #[tokio::test]
     async fn a_branch_switch_is_reported_once_and_only_after_a_poll() {

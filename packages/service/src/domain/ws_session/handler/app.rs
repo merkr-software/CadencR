@@ -80,9 +80,9 @@ pub(super) async fn handle_app_action(
 }
 
 /// Subscribe the client to real-time `git.status` envelopes for a feature's
-/// worktree. Sends an initial snapshot synchronously (as the first
-/// `git.status` event), then the watcher pushes updates whenever the worktree
-/// changes.
+/// worktree. Sends an initial snapshot (as the first `git.status` event) once
+/// it is computed, in the background, then the watcher pushes updates
+/// whenever the worktree changes.
 async fn handle_subscribe_git_status(
     envelope: WsEnvelope,
     sender: &WsSender,
@@ -96,24 +96,29 @@ async fn handle_subscribe_git_status(
         }
     };
 
-    match app_state
-        .git_watcher
-        .subscribe(app_state, feature_id, sender.clone())
-        .await
-    {
-        Ok(snapshot) => {
-            let env = WsEnvelope::new(
-                "git",
-                "status",
-                serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({})),
-            );
-            let _ = sender.send(Message::Text(String::from(env).into()));
-        }
-        Err(e) => {
-            warn!(error = %e, feature_id, "failed to subscribe git watcher");
-            super::send_error(sender, &envelope.id, "WATCHER_ERROR", &e.to_string());
-        }
-    }
+    // Git can hang on one repository (network filesystem, locked index): the
+    // subscription runs beside this socket's ordered lane so it never holds up
+    // the commands after it, other features' subscriptions included.
+    let reply = sender.clone();
+    app_state.git_watcher.subscribe_in_background(
+        app_state,
+        feature_id,
+        sender.clone(),
+        move |result| match result {
+            Ok(snapshot) => {
+                let env = WsEnvelope::new(
+                    "git",
+                    "status",
+                    serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({})),
+                );
+                let _ = reply.send(Message::Text(String::from(env).into()));
+            }
+            Err(e) => {
+                warn!(error = %e, feature_id, "failed to subscribe git watcher");
+                super::send_error(&reply, &envelope.id, "WATCHER_ERROR", &e.to_string());
+            }
+        },
+    );
 }
 
 /// Drop one feature's `git.status` subscription on this connection.

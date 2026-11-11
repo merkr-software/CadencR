@@ -7,6 +7,7 @@ use crate::domain::git::file_size::classify_content_bytes;
 use crate::domain::git::models::FileContentBatchItem;
 use crate::error::AppError;
 use crate::shared::git_cli::{run_git_safe_refs, run_git_safe_refs_bytes};
+use crate::shared::git_z;
 
 use super::util::run_git_quiet;
 
@@ -129,12 +130,8 @@ pub async fn get_file_content_batch(
 /// hand, so this endpoint deliberately steps around `.gitignore` for the
 /// env-file allowlist while leaving every other untracked path alone.
 pub async fn list_files(worktree_path: &Path) -> Result<Vec<String>, AppError> {
-    let stdout = run_git_quiet(&["ls-files"], worktree_path).await;
-    let mut files: Vec<String> = stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|s| s.to_string())
-        .collect();
+    let stdout = run_git_quiet(&["ls-files", "-z"], worktree_path).await;
+    let mut files = git_z::paths(&stdout);
 
     // The env-file scan touches the filesystem; do it off the runtime
     // thread to keep the handler non-blocking.

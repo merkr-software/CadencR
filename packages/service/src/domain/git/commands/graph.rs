@@ -16,6 +16,7 @@ use crate::shared::git_cli::guard_positionals;
 use super::graph_refs::parse_refs;
 use super::log::get_unpushed_shas;
 use super::util::{run_git_quiet, FIRST_PARENT_MERGES};
+use crate::shared::git_cli::version::{self, GitFeature};
 
 /// Record separator emitted before every commit; field separator between the
 /// `--format` placeholders. Both are control bytes that can't appear in commit
@@ -105,11 +106,16 @@ pub async fn get_commit_graph(
         "--shortstat",
         // Full ref names, so `parse_refs` can tell local from remote branches.
         "--decorate=full",
-        FIRST_PARENT_MERGES,
         &format_arg,
         &skip_arg,
         &max_arg,
     ];
+    // Older Git has no `diff-tree`-style fallback here: `-m --first-parent`
+    // would also prune the graph to first parents. Merge rows then read
+    // "0 files" while their diff still opens.
+    if version::supports(GitFeature::DiffMerges) {
+        args.push(FIRST_PARENT_MERGES);
+    }
     let tip_refs: Vec<&str> = tips.iter().map(String::as_str).collect();
     guard_positionals(&tip_refs)?;
     args.extend(tip_refs.iter().copied());
