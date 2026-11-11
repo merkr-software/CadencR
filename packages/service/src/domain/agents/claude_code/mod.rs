@@ -50,11 +50,15 @@ pub struct ClaudeCodeAdapter {
     /// something to show before the CLI probe completes; replaced with the
     /// live CLI-reported list on first successful probe.
     cached_models: std::sync::OnceLock<std::sync::RwLock<Vec<ModelCatalogEntry>>>,
-    /// Serialises concurrent probes and tracks whether the cached list is
-    /// already authoritative (live from the CLI). Unlike `OnceCell`, this
-    /// lets failures be TTL-throttled and retried later — the UI would
-    /// otherwise be stuck on fallback aliases until service restart.
+    /// Tracks whether the cached list is already authoritative (live from
+    /// the CLI). Unlike `OnceCell`, this lets failures be TTL-throttled and
+    /// retried later — the UI would otherwise be stuck on fallback aliases
+    /// until service restart. Never held while the CLI is probed.
     probe_state: tokio::sync::Mutex<ProbeState>,
+    /// One model probe per profile env at a time: concurrent readers of the
+    /// same profile wait for its answer instead of spawning their own CLI.
+    model_probe_flights:
+        std::sync::OnceLock<crate::shared::keyed_locks::KeyedLocks<catalog::ModelProbeCacheKey>>,
     /// Cache of CLI built-in slash commands. Cwd-invariant, so one cache
     /// serves every session; per-cwd filesystem entries are scanned fresh.
     /// Same process-lifetime semantics as `cached_models` / `probe_state`.
@@ -86,6 +90,7 @@ pub static CLAUDE_CODE_ADAPTER: ClaudeCodeAdapter = ClaudeCodeAdapter {
         failed_at: None,
         failure_message: None,
     }),
+    model_probe_flights: std::sync::OnceLock::new(),
     cached_slash_commands: std::sync::OnceLock::new(),
     slash_commands_probe_state: tokio::sync::Mutex::const_new(ProbeState {
         live: false,
@@ -121,6 +126,7 @@ mod test_support {
         ClaudeCodeAdapter {
             cached_models: std::sync::OnceLock::new(),
             probe_state: tokio::sync::Mutex::new(ProbeState::default()),
+            model_probe_flights: std::sync::OnceLock::new(),
             cached_slash_commands: std::sync::OnceLock::new(),
             slash_commands_probe_state: tokio::sync::Mutex::new(ProbeState::default()),
             cached_context_windows: std::sync::OnceLock::new(),

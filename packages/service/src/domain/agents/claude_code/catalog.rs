@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
 use crate::domain::agents::adapter::RuntimeError;
 use crate::domain::agents::discovery::cli_not_found_message;
 use crate::domain::agents::runtime::ModelCatalogEntry;
+use crate::shared::keyed_locks::KeyedLocks;
 
 use super::{ClaudeCodeAdapter, ProbeState};
 
@@ -35,7 +37,7 @@ pub(super) fn sdk_model_to_catalog_entry(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ModelProbeCacheKey(u64);
 const FAILED_PROBE_TTL: Duration = Duration::from_secs(30);
 
@@ -147,31 +149,65 @@ impl ClaudeCodeAdapter {
         &self,
         env: Option<HashMap<String, String>>,
     ) -> Vec<ModelCatalogEntry> {
-        let cache_key = model_probe_cache_key(env.as_ref());
-        let mut guard = self.probe_state.lock().await;
-        if guard.live_key != Some(cache_key) && guard.recent_failure_message(cache_key).is_none() {
+        self.load_models_with(env, |env| async move {
             let cwd = std::env::temp_dir().to_string_lossy().into_owned();
-            let probe_result = claude_agent_sdk_rs::supported_models_with_env(&cwd, None, env)
+            claude_agent_sdk_rs::supported_models_with_env(&cwd, None, env)
                 .await
-                .map(|models| {
-                    models
-                        .into_iter()
-                        .map(sdk_model_to_catalog_entry)
-                        .collect::<Vec<_>>()
-                })
-                .map_err(RuntimeError::from);
-            apply_model_probe_result(self.models_cell(), &mut guard, cache_key, probe_result);
+                .map(|models| models.into_iter().map(sdk_model_to_catalog_entry).collect())
+                .map_err(RuntimeError::from)
+        })
+        .await
+    }
+
+    /// The catalog under `env`, asking the CLI through `probe` when no live
+    /// or recently failed answer is cached for it. `probe_state` is never held
+    /// while the CLI answers, so a slow probe blocks only the readers of the
+    /// same profile, which wait for it rather than spawn their own.
+    async fn load_models_with<F, Fut>(
+        &self,
+        env: Option<HashMap<String, String>>,
+        probe: F,
+    ) -> Vec<ModelCatalogEntry>
+    where
+        F: FnOnce(Option<HashMap<String, String>>) -> Fut,
+        Fut: Future<Output = Result<Vec<ModelCatalogEntry>, RuntimeError>>,
+    {
+        let cache_key = model_probe_cache_key(env.as_ref());
+        if self.needs_model_probe(cache_key).await {
+            let flight = self
+                .model_probe_flights
+                .get_or_init(KeyedLocks::default)
+                .lock_for(&cache_key)
+                .await;
+            let _flight = flight.lock().await;
+            // A probe of this profile that ran while we waited answered for us.
+            if self.needs_model_probe(cache_key).await {
+                let result = probe(env).await;
+                let probed = result
+                    .as_ref()
+                    .ok()
+                    .filter(|models| !models.is_empty())
+                    .cloned();
+                let mut guard = self.probe_state.lock().await;
+                apply_model_probe_result(self.models_cell(), &mut guard, cache_key, result);
+                if let Some(models) = probed {
+                    return models;
+                }
+            }
         }
-        let cache_matches_request = guard.live_key == Some(cache_key);
+        // Read under the state lock: another profile's probe writes the cell
+        // under it too, so the cell matches `live_key` here.
+        let guard = self.probe_state.lock().await;
+        let cached = (guard.live_key == Some(cache_key))
+            .then(|| self.models_cell().read().ok().map(|models| models.clone()))
+            .flatten();
         drop(guard);
-        if cache_matches_request {
-            self.models_cell()
-                .read()
-                .map(|models| models.clone())
-                .unwrap_or_else(|_| fallback_models())
-        } else {
-            fallback_models()
-        }
+        cached.unwrap_or_else(fallback_models)
+    }
+
+    async fn needs_model_probe(&self, cache_key: ModelProbeCacheKey) -> bool {
+        let guard = self.probe_state.lock().await;
+        guard.live_key != Some(cache_key) && guard.recent_failure_message(cache_key).is_none()
     }
 
     pub(super) async fn model_probe_failure_message(
@@ -246,6 +282,68 @@ mod tests {
         // The cache stayed live for the Bedrock env key — no None-keyed re-probe.
         let guard = adapter.probe_state.lock().await;
         assert_eq!(guard.live_key, Some(env_key));
+    }
+
+    fn profile_env(name: &str) -> Option<HashMap<String, String>> {
+        Some(HashMap::from([(
+            "ANTHROPIC_BASE_URL".to_string(),
+            name.to_string(),
+        )]))
+    }
+
+    /// Finding: the probe ran under `probe_state`, so one slow CLI froze every
+    /// other profile's catalog and even the failure-status read.
+    #[tokio::test]
+    async fn a_slow_probe_blocks_neither_another_profile_nor_status_reads() {
+        let adapter: &'static ClaudeCodeAdapter = Box::leak(Box::new(new_test_adapter()));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let held = std::sync::Arc::clone(&release);
+        let slow = tokio::spawn(
+            adapter.load_models_with(profile_env("a"), move |_| async move {
+                let _ = started_tx.send(());
+                held.notified().await;
+                Ok(vec![ModelCatalogEntry::alias("model-a", "A")])
+            }),
+        );
+        started_rx.await.unwrap();
+
+        let within = std::time::Duration::from_secs(2);
+        let other = tokio::time::timeout(
+            within,
+            adapter.load_models_with(profile_env("b"), |_| async {
+                Ok(vec![ModelCatalogEntry::alias("model-b", "B")])
+            }),
+        )
+        .await
+        .expect("profile b waited for profile a's probe");
+        assert_eq!(other[0].id, "model-b");
+        tokio::time::timeout(within, adapter.model_probe_failure_message(None))
+            .await
+            .expect("the status read waited for the probe");
+
+        release.notify_one();
+        assert_eq!(slow.await.unwrap()[0].id, "model-a");
+    }
+
+    #[tokio::test]
+    async fn readers_of_one_profile_share_its_probe() {
+        let adapter: &'static ClaudeCodeAdapter = Box::leak(Box::new(new_test_adapter()));
+        let probes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let readers = (0..4).map(|_| {
+            let probes = std::sync::Arc::clone(&probes);
+            tokio::spawn(
+                adapter.load_models_with(profile_env("a"), move |_| async move {
+                    probes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    Ok(vec![ModelCatalogEntry::alias("model-a", "A")])
+                }),
+            )
+        });
+        for reader in readers.collect::<Vec<_>>() {
+            assert_eq!(reader.await.unwrap()[0].id, "model-a");
+        }
+        assert_eq!(probes.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
