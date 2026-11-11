@@ -32,6 +32,7 @@ export const SETTINGS_ANCHORS = {
   browserMode: "browser-mode",
   browserSearch: "browser-search",
   browserDomains: "browser-domains",
+  tabReplacements: "tab-replacements",
   diagnostics: "diagnostics",
   telemetry: "telemetry",
 } as const;

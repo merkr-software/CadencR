@@ -20,6 +20,7 @@ import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { requestConversationFind } from "@/stores/conversation-find-request-store";
 import { useEditorStore } from "@/stores/editor-store";
 import { DEFAULT_MAX_TABS } from "@/stores/editor-store-types";
+import { activateBuiltinFeatureTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { activateFeatureTab } from "@/stores/feature-layout-store";
 
 /** How a new conversation gets its working copy. */
@@ -50,7 +51,7 @@ function useOpenFile(activeFeatureId: number | null): PaletteOperations["openFil
   const openInNeovim = useOpenFileInNeovim(activeFeatureId ?? 0);
   return useCallback(
     (featureId: number, path: string) => {
-      activateFeatureTab(featureId, "editor");
+      activateBuiltinFeatureTab(featureId, "editor");
       if (openInNeovim && featureId === activeFeatureId) {
         openInNeovim(path);
         return;

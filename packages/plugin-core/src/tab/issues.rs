@@ -60,6 +60,8 @@ pub enum TabIssueCode {
     ShortcutKeysInvalid,
     ShortcutKeysDuplicate,
     ShortcutDescriptionInvalid,
+    ReplacesInvalid,
+    ReplacesDuplicate,
 }
 
 impl TabIssueCode {
@@ -113,6 +115,8 @@ impl TabIssueCode {
             Self::ShortcutKeysInvalid => "SHORTCUT_KEYS_INVALID",
             Self::ShortcutKeysDuplicate => "SHORTCUT_KEYS_DUPLICATE",
             Self::ShortcutDescriptionInvalid => "SHORTCUT_DESCRIPTION_INVALID",
+            Self::ReplacesInvalid => "REPLACES_INVALID",
+            Self::ReplacesDuplicate => "REPLACES_DUPLICATE",
         }
     }
 }

@@ -9,7 +9,7 @@ import { refreshPluginTabsOrToast } from "@/lib/plugin-tabs/live-instances";
 import { useOpenCustomTabProject } from "@/components/settings/custom-tabs/useOpenCustomTabProject";
 import { useDocumentVisible } from "@/hooks/useDocumentVisible";
 import type { PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
-import { pluginTabKind } from "@/stores/feature-layout-schema";
+import type { TabKind } from "@/stores/feature-layout-schema";
 import {
   isTabVisible,
   selectFeatureLayout,
@@ -28,6 +28,8 @@ export interface PluginTabViewProps {
   featureId: number;
   summary: PluginTabSummary;
   context: TabContext;
+  /** The layout tab it renders under: `plugin:<id>`, or the built-in it replaces. */
+  tab: TabKind;
 }
 
 /**
@@ -74,7 +76,7 @@ function guestOverlayState(phase: GuestPhase): PluginTabOverlayState | null {
 }
 
 /**
- * Body of a `plugin:<id>` tab. A placeholder the native guest view is laid
+ * Body of a `plugin:<id>` tab, or of the built-in tab it replaces. A placeholder the native guest view is laid
  * over (§5.1); while there is no guest to show — loading, not built,
  * invalid, unavailable on this platform, off, failed, crashed, or outside
  * the desktop app — the placeholder renders that state instead and the view
@@ -84,12 +86,13 @@ export const PluginTabView = memo(function PluginTabView({
   featureId,
   summary,
   context,
+  tab,
 }: PluginTabViewProps): ReactElement {
   const instanceId = pluginTabInstanceId(featureId, summary.id);
   const desktop = pluginTabsAvailable();
   const blocked = staticOverlayState(summary, desktop);
   const tabVisible = useFeatureLayoutStore((state) =>
-    isTabVisible(selectFeatureLayout(featureId)(state), pluginTabKind(summary.id)),
+    isTabVisible(selectFeatureLayout(featureId)(state), tab),
   );
   const documentVisible = useDocumentVisible();
   const [placeholder, setPlaceholder] = useState<HTMLDivElement | null>(null);

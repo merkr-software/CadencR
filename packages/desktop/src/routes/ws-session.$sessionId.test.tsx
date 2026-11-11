@@ -78,7 +78,9 @@ vi.mock("@/components/feature-layout/FeatureLayoutShell", () => ({
 vi.mock("@/components/plugin-tabs/usePluginTabContext", () => ({
   usePluginTabContext: () => null,
 }));
-vi.mock("@/components/plugin-tabs/usePluginTabDefs", () => ({ usePluginTabDefs: () => ({}) }));
+vi.mock("@/components/plugin-tabs/usePluginTabDefs", () => ({
+  usePluginTabDefs: () => ({ plugin: {}, replacements: {} }),
+}));
 
 vi.mock("@/components/FeatureTerminalTab", () => ({
   FeatureTerminalTab: () => <div data-testid="terminal-tab" />,

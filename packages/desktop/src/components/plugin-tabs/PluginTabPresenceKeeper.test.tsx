@@ -145,6 +145,17 @@ describe("PluginTabPresenceKeeper", () => {
     expect(wantedLeases(placed, {}, () => tabs)).toEqual([]);
   });
 
+  it("leases a backend tab shown in place of a built-in once per conversation", () => {
+    const tabs = [backendTab({ id: "ports", name: "Ports", replaces: ["terminal"] })];
+    const lease = { instanceId: "7:plugin:ports", pluginId: "ports", featureId: 7, name: "Ports" };
+    expect(wantedLeases([], { 7: 1 }, () => tabs, { terminal: "ports" })).toEqual([lease]);
+    // Placed as well: still one instance.
+    const placed = [{ featureId: 7, pluginId: "ports" }];
+    expect(wantedLeases(placed, { 7: 1 }, () => tabs, { terminal: "ports" })).toEqual([lease]);
+    // Not declared for that built-in: nothing replaces it.
+    expect(wantedLeases([], { 7: 1 }, () => tabs, { git: "ports" })).toEqual([]);
+  });
+
   it("leases nothing outside the desktop app", async () => {
     setDesktopBridgeOverrideForTests({ isElectron: false });
     place(7, "graph");

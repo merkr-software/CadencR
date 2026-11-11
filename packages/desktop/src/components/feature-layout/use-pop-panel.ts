@@ -10,7 +10,12 @@ import {
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 
 import { animationsDisabled } from "@/lib/animations/animations-disabled";
-import { isPluginTabKind, type LayoutLeaf, type LayoutSplit } from "@/stores/feature-layout-schema";
+import {
+  isPluginTabKind,
+  type LayoutLeaf,
+  type LayoutSplit,
+  type TabKind,
+} from "@/stores/feature-layout-schema";
 import { popChildIndex } from "@/stores/feature-layout-tree";
 
 /**
@@ -80,11 +85,20 @@ function openPixels(before: PanelSize, folded: boolean, share: number): number {
 }
 
 /**
- * Native views (the browser, custom tabs) are placed by bounds, not clipped by
- * the panel: a pane showing one opens and folds without sliding.
+ * Native views (the browser, custom tabs, also in a built-in's place) are
+ * placed by bounds, not clipped by the panel: a pane showing one opens and
+ * folds without sliding.
  */
-function slides(leaf: LayoutLeaf): boolean {
-  return leaf.activeTabId !== "browser" && !isPluginTabKind(leaf.activeTabId);
+function slides(leaf: LayoutLeaf, replacedTabs: readonly TabKind[]): boolean {
+  const tab = leaf.activeTabId;
+  return tab !== "browser" && !isPluginTabKind(tab) && !(tab && replacedTabs.includes(tab));
+}
+
+/** The popping child of `split`, and the leaf it is. */
+function poppingChild(split: LayoutSplit): { index: 0 | 1 | null; leaf: LayoutLeaf | null } {
+  const index = popChildIndex(split);
+  const child = index === null ? null : split.children[index];
+  return { index, leaf: child?.type === "leaf" ? child : null };
 }
 
 /**
@@ -97,12 +111,14 @@ function slides(leaf: LayoutLeaf): boolean {
  * With animations on, opening and folding slide: the group transitions its
  * panels' weights (`data-pop-motion`) while the pane holds its open size.
  */
-export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel {
-  const index = popChildIndex(split);
-  const child = index === null ? null : split.children[index];
-  const leaf = child?.type === "leaf" ? child : null;
+export function usePopPanel(
+  split: LayoutSplit,
+  focusedPaneId: string,
+  replacedTabs: readonly TabKind[] = [],
+): PopPanel {
+  const { index, leaf } = poppingChild(split);
   const folded = leaf !== null && leaf.id !== focusedPaneId;
-  const canSlide = leaf !== null && slides(leaf);
+  const canSlide = leaf !== null && slides(leaf, replacedTabs);
   const horizontal = split.orientation === "horizontal";
   const share = index === null ? null : Math.max(split.sizes?.[index] ?? 50, MIN_OPEN_SHARE);
   // One per child: a pane that stops popping is resized back as well.

@@ -68,19 +68,27 @@ export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
   const editorTab = useEditorTab(args);
   const browserTab = useBrowserTab(args);
   const previewTab = usePreviewTab(args);
-  const pluginTabs = useSessionPluginTabs(args);
+  const { plugin, replacements } = useSessionPluginTabs(args);
   return useMemo(
     () => ({
       agent: agentTab,
-      terminal: terminalTab,
-      git: gitTab,
-      editor: editorTab,
+      terminal: replaced(terminalTab, replacements.terminal),
+      git: replaced(gitTab, replacements.git),
+      editor: replaced(editorTab, replacements.editor),
       browser: browserTab,
-      preview: previewTab,
-      ...pluginTabs,
+      preview: replaced(previewTab, replacements.preview),
+      ...plugin,
     }),
-    [agentTab, browserTab, editorTab, gitTab, pluginTabs, previewTab, terminalTab],
+    [agentTab, browserTab, editorTab, gitTab, plugin, previewTab, replacements, terminalTab],
   );
+}
+
+/**
+ * A custom tab shown in a built-in's place keeps the built-in's shortcut, so
+ * ⌘⇧G still reaches "Git" (docs/CUSTOM_TABS.md §10).
+ */
+function replaced(builtin: FeatureTabDef, replacement: FeatureTabDef | undefined): FeatureTabDef {
+  return replacement ? { ...replacement, shortcutId: builtin.shortcutId } : builtin;
 }
 
 function useSessionPluginTabs(args: UseSessionTabsArgs): PluginTabDefs {

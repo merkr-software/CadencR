@@ -11,6 +11,7 @@
 //! "treat an invalid value as unset" and let the consumer's own fallback apply.
 
 mod sidebar;
+mod tab_replacements;
 
 /// The shape a setting's string value must take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +31,8 @@ pub enum ValueKind {
     },
     /// Comma-separated values from a fixed set, none twice; empty is the empty list.
     IdList(&'static [&'static str]),
+    /// A JSON object of replaceable built-in tab → custom tab id.
+    TabReplacements,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -60,6 +63,7 @@ impl SettingSpec {
                 .parse::<i64>()
                 .is_ok_and(|number| (min..=max).contains(&number)),
             ValueKind::IdList(allowed) => is_id_list(value, allowed),
+            ValueKind::TabReplacements => tab_replacements::is_valid(value),
         }
     }
 }
@@ -174,6 +178,8 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         "editor_vim_mode_level" => {
             SettingSpec::new(ValueKind::Enum(&["0", "1", "2", "3"]), Some("0"))
         }
+        // Invalid → unset: every built-in tab shows.
+        "custom_tab_replacements" => SettingSpec::new(ValueKind::TabReplacements, None),
         "agent_stream_verbosity_mode" => SettingSpec::new(
             ValueKind::Enum(&["maximal", "auto_collapse", "collapsed", "compact"]),
             None,

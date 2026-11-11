@@ -8,6 +8,7 @@ import { useEditorStore } from "@/stores/editor-store";
 import { browserTabCount } from "@/stores/browser-store";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
+import { isReplacementShown } from "@/lib/plugin-tabs/builtin-fallback";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { getListFeaturesQueryKey } from "@/api/generated";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -41,6 +42,8 @@ function lookupFeatureTitle(featureId: number | null, queryClient: QueryClient):
 export function shouldBypassAppClose(featureId: number | null): boolean {
   if (featureId == null) return false;
   const focusedTab = getFocusedTabForFeature(featureId);
+  // A custom tab holding the built-in's place has no sibling ⌘W handler.
+  if (focusedTab && isReplacementShown(featureId, focusedTab)) return false;
   if (focusedTab === "editor") {
     const panes = useEditorStore.getState().features[featureId]?.panes ?? {};
     return Object.values(panes).some((p) => p.tabs.length > 0);

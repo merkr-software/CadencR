@@ -37,6 +37,10 @@ pub struct PluginTabSummary {
     pub commands: Vec<TabCommand>,
     /// Keyboard shortcuts the tab handles while it has focus.
     pub shortcuts: Vec<TabShortcut>,
+    /// Built-in tabs (`terminal`, `git`, `editor`, `preview`) the tab declares
+    /// it can replace (`tab.replaces`); which one it does is a workspace
+    /// setting (`custom_tab_replacements`).
+    pub replaces: Vec<String>,
     /// The native process the tab ships, which runs with the user's rights.
     pub backend: Option<TabBackend>,
     /// Whether `backend` can run where Cadencr runs; `None` without one.

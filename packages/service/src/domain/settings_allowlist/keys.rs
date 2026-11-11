@@ -193,6 +193,10 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // the agent and opened links). "true" / "false"; unset means on. Each
     // feature can override it via `layout_auto_mode`.
     "layout_auto_mode_default",
+    // Custom tabs shown in place of built-in feature-page tabs, as a JSON
+    // object `{"git":"my-vcs"}` (docs/CUSTOM_TABS.md §10). Unset: every
+    // built-in shows. See packages/desktop/src/lib/plugin-tabs/tab-replacements.ts.
+    "custom_tab_replacements",
     // Monospace font family for the terminal, editor, and code snippets.
     // A missing value means "Default" (see DEFAULT_MONO_STACK in
     // packages/desktop/src/lib/fonts/constants.ts). Stored as the raw family

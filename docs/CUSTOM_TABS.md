@@ -71,7 +71,7 @@ sibling of `plugins/themes`. Cadencr rescans it on startup and watches it
   "icon": "icon.svg",
   "api_version": 1,
   "entry": "dist/index.html",
-  "tab": { "label": "Graph" },
+  "tab": { "label": "Graph", "replaces": ["git"] },
   "permissions": ["features:read", "git:read"],
   "network": {
     "allowed_origins": ["https://gitlab.example.com"],
@@ -105,7 +105,8 @@ sibling of `plugins/themes`. Cadencr rescans it on startup and watches it
 }
 ```
 
-`commands`, `backend` and `shortcuts` are optional; most tabs declare none.
+`commands`, `backend`, `shortcuts` and `tab.replaces` are optional; most tabs
+declare none.
 
 Rules (validated by `cadencr-plugin-core::tab`, the service and
 `cadencr plugin validate --kind tab`):
@@ -114,6 +115,11 @@ Rules (validated by `cadencr-plugin-core::tab`, the service and
   It is a URL host label (`cadencr-tab://<id>/`).
 - `name` 1–64 chars, `version` semver, `description` ≤ 280 chars, `tab.label`
   1–24 chars (defaults to `name`).
+- `tab.replaces`: built-in tabs the user may show this tab in place of (§10),
+  unique values among `terminal`, `git`, `editor` and `preview`
+  (`REPLACES_INVALID`, `REPLACES_DUPLICATE`). Agent and Browser cannot be
+  replaced: the agent's own surface and its browser tools need them. A
+  declaration, not a permission: it leaves the hash unchanged.
 - `api_version`: integer; v1 hosts accept `1`.
 - `entry`, `icon`: relative, normalized, no `..`, no absolute paths, no
   backslashes; `icon` must end in `.svg`.
@@ -230,7 +236,7 @@ icon_svg (string|null), api_version, entry, entry_present, permissions,
 network {allowed_origins, reasoning}, configuration, permissions_hash, status
 ("valid"|"invalid"), errors[], warnings[], dir, authoring_project_id|null,
 enablement {global: bool|null, project: bool|null, effective: bool,
-consent_required: bool}, commands[], backend|null, backend_availability
+consent_required: bool}, commands[], replaces[], backend|null, backend_availability
 ("available"|"unavailable_on_platform"|null), access_level
 ("ui"|"commands"|"backend"; "ui" when the manifest is unreadable)`.
 
@@ -522,7 +528,10 @@ the service resolves, starts, relays to and stops it.
   conversation's tab strip — shown or hidden, its conversation on screen or
   not (another conversation, Settings), idle or not — and released (`DELETE`)
   when the tab is closed, or once it may not run (turned off, blocked,
-  removed, invalid, no build for this platform). Deleting a conversation
+  removed, invalid, no build for this platform). A tab shown in place of a
+  built-in (§10), which has no close, holds one in each conversation whose
+  page showed it since the app started, released once it no longer replaces
+  the built-in there. Deleting a conversation
   (or its project) or archiving it releases every lease held in it, from
   every client. A window that still shows it gets no error: once it is
   deleted, a renewal answers 404 `PLUGIN_TAB_CONVERSATION_NOT_FOUND` and the
@@ -915,3 +924,49 @@ folder holding `entry` (`dist/` in the scaffold) reloads live instances.
 
 Both are versioned independently of the app (0.x) and target public npm with
 trusted publishing; nothing is published without the maintainer's approval.
+
+## 10. Replacing a built-in tab
+
+A tab that declares `tab.replaces` (§3) can stand in for a built-in tab:
+Terminal, Git, Editor or Preview. The user picks it in **Settings → Custom
+tabs → Replace built-in tabs**, which stores the workspace setting
+`custom_tab_replacements`, a JSON object from built-in to tab id
+(`{"git":"my-vcs"}`). Cadencr honors only replaceable built-ins mapped to
+distinct valid ids: the service drops any other value on read (and refuses it
+from an agent), and Settings says the stored value was ignored. Nothing checks
+the tabs themselves, which change without the setting being written.
+
+Rules:
+
+1. **One per built-in, one built-in per tab.** Several tabs may declare the same
+   built-in; the setting names one. Choosing a tab that already replaces
+   another built-in moves it, so a conversation never runs a tab twice.
+2. **Only where it can run.** In a conversation, the chosen tab takes the
+   built-in's place, label, icon and shortcut (`⌘⇧G` still reaches the Git
+   place) when it is listed for the project, still declares that built-in,
+   and its page would run: on, consented, valid, built, not blocked, with a
+   backend for this platform, in the desktop app. Otherwise the built-in shows
+   (`resolveTabReplacements`), and Settings says why under the row.
+3. **The built-in comes back for content only it can show.** Opening a file
+   in the Editor, a pull request in Git, a document in Preview, or running a
+   custom action in the Terminal shows the built-in again in that
+   conversation (`activateBuiltinFeatureTab`), also when that conversation
+   hasn't been shown yet. The built-in shortcuts of a place a custom tab holds
+   (`⌘P` file search, the Editor's and Terminal's `⌘W`) do not apply. The tab
+   strip's **+** menu switches the place back to the custom tab, or to the
+   built-in on demand. The built-in keeps the place until then, or until
+   another custom tab is chosen for it (not while the custom tab briefly
+   can't run, e.g. rebuilding). This choice is in memory: after a restart the
+   replacement shows again. A switch remounts the place's content: the guest
+   page reloads (its `state.*` and backend stay), and the built-in reopens
+   like a newly shown tab.
+4. **One instance.** The replacement is the same instance as the placed
+   `plugin:<id>` tab (`<feature>:plugin:<id>`), which is hidden while the
+   replacement shows. Its backend lease (§4.7) is held like a placed tab's, in
+   every conversation whose page showed it since the app started, until that
+   conversation is deleted or the replacement stops resolving there.
+
+The guest is not told which built-in it replaces; it receives the same
+context as a placed tab. A manifest using `tab.replaces` is invalid on a
+Cadencr that predates it (§3 is a closed format), so a published tab that
+declares it needs a `min_app_version` of the first release supporting it.

@@ -10,6 +10,7 @@ import {
 import { GIT_VIEW_MODE_SETTING } from "@/components/diff/useGitTabViewState";
 import { toastError } from "@/lib/api-errors";
 import type { FeatureNavigate } from "@/lib/feature-focus-handoff";
+import { showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { activateFeatureTab, useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { useViewedPrStore } from "@/stores/viewed-pr-store";
 
@@ -31,6 +32,8 @@ export function useOpenFeaturePr(
   return useCallback(
     (prNumber: number | null): void => {
       useViewedPrStore.getState().setViewedPr(feature.id, prNumber);
+      // The pull request shows in the built-in Git tab, even where a custom tab replaces it.
+      showBuiltinTab(feature.id, "git");
       // Only a hydrated layout: seeding one would shadow the saved layout.
       if (useFeatureLayoutStore.getState().features[feature.id]) {
         activateFeatureTab(feature.id, "git");

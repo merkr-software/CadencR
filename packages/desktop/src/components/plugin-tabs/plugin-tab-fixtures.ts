@@ -27,6 +27,7 @@ export function pluginTabSummary(overrides: Partial<PluginTabSummary> = {}): Plu
     configuration: [],
     commands: [],
     shortcuts: [],
+    replaces: [],
     backend: null,
     access_level: "ui",
     permissions_hash: "abc",
@@ -37,6 +38,14 @@ export function pluginTabSummary(overrides: Partial<PluginTabSummary> = {}): Plu
     ...overrides,
   };
 }
+
+/** Switched off everywhere. */
+export const OFF_ENABLEMENT: PluginTabSummary["enablement"] = {
+  global: false,
+  project: null,
+  effective: false,
+  consent_required: false,
+};
 
 /**
  * A native-code tab whose backend ships only for Linux, as the service lists
