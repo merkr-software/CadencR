@@ -43,10 +43,13 @@ function AgentQuestionContent({
 }: AgentQuestionContentProps): React.ReactElement {
   const currentQuestion = form.currentQuestion!;
   const { hasAnswer, isLastQuestion, hasOptions, selectedPreview } = form;
+  // `break-words` is inherited: long paths in the question or an option wrap
+  // instead of running under the composer's clip. The preview's `white-space:
+  // pre` keeps the ASCII art unwrapped.
   return (
     <div
       className={cn(
-        "agent-prompt-gate-panel bg-card",
+        "agent-prompt-gate-panel bg-card break-words",
         inline ? "px-3 py-2" : "border-t border-border px-4 py-3",
       )}
     >
@@ -64,8 +67,15 @@ function AgentQuestionContent({
       <p className={cn("text-sm font-medium text-foreground", inline ? "mb-2" : "mb-3")}>
         {currentQuestion.question}
       </p>
+      {/* Capped against the visible height (it shrinks with a phone keyboard
+          up) so a tall diagram scrolls in place rather than pushing Submit
+          below the fold. Keyed so each option's diagram opens scrolled to its
+          top-left. */}
       {selectedPreview && (
-        <pre className="mb-2 overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] leading-tight text-foreground">
+        <pre
+          key={selectedPreview}
+          className="mb-2 max-h-[min(16rem,calc(var(--app-vh,100dvh)*0.3))] overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] leading-tight text-foreground"
+        >
           {selectedPreview}
         </pre>
       )}
@@ -153,8 +163,13 @@ export function AgentQuestionDrawer({
     return null;
   }
 
+  // A fieldset defaults to `min-inline-size: min-content`, so a wide ASCII
+  // preview stretched the whole form past the composer, whose
+  // `overflow-x-hidden` then clipped the right-aligned Submit and dismiss
+  // buttons out of reach. `min-w-0` keeps the form at the composer's width and lets the
+  // preview scroll inside its own box instead.
   return (
-    <fieldset disabled={isSubmitting} aria-busy={isSubmitting}>
+    <fieldset disabled={isSubmitting} aria-busy={isSubmitting} className="min-w-0">
       <AgentQuestionContent
         isSubmitting={isSubmitting}
         form={form}
