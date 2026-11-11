@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useState, type ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
-import { createTestQueryClient, fireEvent, render, screen, waitFor } from "@/test-utils";
+import { fireEvent, render, screen, waitFor } from "@/test-utils";
 import { ArchiveFeatureDialog } from "./ArchiveFeatureDialog";
-import { getListFeaturesQueryKey, type Feature, type GitStatusSnapshot } from "@/api/generated";
-import { toast } from "sonner";
+import type { Feature, GitStatusSnapshot } from "@/api/generated";
 import { useBrowserStore } from "@/stores/browser-store";
 
 const { mockBranchCheck, mockGitStatus, mockListFeatureActivity, mockArchivePreview } = vi.hoisted(
@@ -23,8 +22,6 @@ vi.mock("@/api/generated", async (importOriginal) => ({
   useListFeatureActivity: mockListFeatureActivity,
   useGetFeatureArchivePreview: mockArchivePreview,
 }));
-
-vi.mock("sonner", () => ({ toast: { warning: vi.fn(), error: vi.fn(), success: vi.fn() } }));
 
 /** The single archive request, with everything the dialog left unchecked. */
 function request(overrides: Record<string, boolean> = {}): Record<string, boolean> {
@@ -161,7 +158,7 @@ describe("ArchiveFeatureDialog", () => {
           showWorktreeRemoval
           showBranchRemoval
           onOpenChange={vi.fn()}
-          onArchive={async (featureId, options) => {
+          onArchive={(featureId, options) => {
             onArchive(featureId, options);
             setDialogFeature(nextFeature);
           }}
@@ -303,9 +300,8 @@ describe("ArchiveFeatureDialog", () => {
     );
   });
 
-  it("sends the cleanup with the archive and closes once the service answers", async () => {
-    let resolveArchive!: (value: unknown) => void;
-    const onArchive = vi.fn(() => new Promise((resolve) => (resolveArchive = resolve)));
+  it("sends the cleanup with the archive and closes without waiting for the service", async () => {
+    const onArchive = vi.fn();
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -323,74 +319,8 @@ describe("ArchiveFeatureDialog", () => {
     );
     await user.click(screen.getByText("Remove worktree"));
     await user.click(screen.getByRole("button", { name: /archive/i }));
-    expect(screen.getByRole("button", { name: "Archiving…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(onOpenChange).not.toHaveBeenCalled();
     expect(onArchive).toHaveBeenCalledExactlyOnceWith(1, request({ remove_worktree: true }));
-    resolveArchive({ archived_ids: [1], cleanup: { worktree: { status: "done" } } });
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-  });
-
-  it("keeps the dialog open with the error when archiving fails", async () => {
-    const onArchive = vi.fn().mockRejectedValue(new Error("archive refused"));
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <ArchiveFeatureDialog
-        open
-        feature={feature}
-        projectId={1}
-        hasLiveWorktree={false}
-        hasResidualWorktreeDirectory={false}
-        showWorktreeRemoval
-        showBranchRemoval={false}
-        onOpenChange={onOpenChange}
-        onArchive={onArchive}
-      />,
-    );
-    await user.click(screen.getByText("Remove worktree"));
-    await user.click(screen.getByRole("button", { name: /archive/i }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("archive refused");
-    expect(onOpenChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /archive/i })).toBeEnabled();
-  });
-
-  it("closes instead of offering a retry when the service announced the archive before failing", async () => {
-    const queryClient = createTestQueryClient();
-    // `app/archive_cleanup` marks it archived in the cache while the request
-    // is in flight; then the service stops and the request fails.
-    const onArchive = vi.fn(async () => {
-      queryClient.setQueryData(getListFeaturesQueryKey({ project_id: 1 }), [
-        { ...feature, status: "archived" },
-      ]);
-      throw new Error("Network Error");
-    });
-    const onOpenChange = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <ArchiveFeatureDialog
-        open
-        feature={feature}
-        projectId={1}
-        hasLiveWorktree={false}
-        hasResidualWorktreeDirectory={false}
-        showWorktreeRemoval
-        showBranchRemoval={false}
-        onOpenChange={onOpenChange}
-        onArchive={onArchive}
-      />,
-      { queryClient },
-    );
-    await user.click(screen.getByText("Remove worktree"));
-    await user.click(screen.getByRole("button", { name: /archive/i }));
-
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(toast.warning).toHaveBeenCalledWith(
-      "Session archived, but its cleanup did not report back",
-      expect.anything(),
-    );
+    expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false);
   });
 
   it("hides the kill-terminals option when the feature has no live shells", () => {

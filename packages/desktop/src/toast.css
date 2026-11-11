@@ -117,6 +117,51 @@
   opacity: 0.6;
 }
 
+/* Archive progress (`lib/archive-progress-toast.tsx`): one line per cleanup
+ * step, its glyph toned like the toast variants. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-steps {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-steps svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  .archive-progress-steps
+  li
+  > span:first-of-type {
+  color: var(--popover-foreground);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-step-status {
+  margin-left: auto;
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  .archive-progress-steps
+  [data-status="done"]
+  svg {
+  color: var(--acc-green);
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  .archive-progress-steps
+  :is([data-status="failed"], [data-status="blocked"], [data-status="interrupted"])
+  svg {
+  color: var(--acc-yellow);
+}
+
 /* Buttons. The action mirrors the `raised` Button variant (a control sitting
  * on a popover); cancel is its ghost sibling. */
 [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {

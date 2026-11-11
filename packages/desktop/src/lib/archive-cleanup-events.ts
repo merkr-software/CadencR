@@ -15,6 +15,7 @@ import {
 } from "@/components/project-feature-navigation";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { updateArchiveProgress } from "@/lib/archive-progress-toast";
 import { isViewingFeature } from "@/lib/notify-agent-done";
 import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 
@@ -60,6 +61,7 @@ export function handleArchiveCleanupEvent(payload: unknown): void {
   const event = parsed.data;
   if (event.archived_feature_ids.length > 0) applyArchive(event);
   applyClosedActivity(event);
+  updateArchiveProgress(event.feature_id, event.cleanup);
   void queryClient.invalidateQueries({ queryKey: getListArchiveCleanupsQueryKey() });
   void queryClient.invalidateQueries({
     queryKey: getGetArchiveCleanupQueryKey(event.feature_id),

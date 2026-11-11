@@ -11,7 +11,7 @@ interface FeatureArchiveDialogsProps {
   confirmFeatureId: number | null;
   confirmation: ReturnType<typeof useFeatureArchiveConfirmation>;
   onClose: () => void;
-  onArchive: (featureId: number, options: ArchiveFeatureOptions) => Promise<unknown>;
+  onArchive: (featureId: number, options: ArchiveFeatureOptions) => void;
   onDelete: (featureId: number) => void;
 }
 

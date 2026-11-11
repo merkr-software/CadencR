@@ -36,7 +36,7 @@ interface RootOverlaysProps {
   activeFeatureId: number | null;
   confirmAction: ConfirmFeatureAction | null;
   setConfirmAction: Dispatch<SetStateAction<ConfirmFeatureAction | null>>;
-  onArchiveFeature: (featureId: number, options: ArchiveFeatureOptions) => Promise<unknown>;
+  onArchiveFeature: (featureId: number, options: ArchiveFeatureOptions) => void;
   onDeleteFeature: (featureId: number) => void;
   appClose: AppCloseState;
 }

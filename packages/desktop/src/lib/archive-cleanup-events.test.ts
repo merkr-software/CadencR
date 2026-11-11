@@ -13,8 +13,10 @@ import { handleArchiveCleanupEvent } from "@/lib/archive-cleanup-events";
 
 const navigate = vi.hoisted(() => vi.fn(async () => undefined));
 const closeFeatureSession = vi.hoisted(() => vi.fn());
+const updateArchiveProgress = vi.hoisted(() => vi.fn());
 
 vi.mock("@/router", () => ({ router: { navigate } }));
+vi.mock("@/lib/archive-progress-toast", () => ({ updateArchiveProgress }));
 vi.mock("@/components/project-feature-navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/project-feature-navigation")>()),
   closeFeatureSession,
@@ -91,5 +93,11 @@ describe("handleArchiveCleanupEvent", () => {
 
     expect(invalidate).toHaveBeenCalled();
     expect(closeFeatureSession).not.toHaveBeenCalled();
+  });
+
+  it("hands each step change to the progress toast of the archived conversation", () => {
+    const cleanup = { worktree: { status: "running" } };
+    handleArchiveCleanupEvent(event(cleanup));
+    expect(updateArchiveProgress).toHaveBeenCalledExactlyOnceWith(2, cleanup);
   });
 });
