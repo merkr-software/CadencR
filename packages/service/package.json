@@ -1,6 +1,6 @@
 {
   "name": "@cadencr/service",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "private": true,
   "description": "Cadencr Rust backend service — HTTP/WebSocket API powering the desktop app.",
   "license": "Apache-2.0",

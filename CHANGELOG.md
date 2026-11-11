@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.16.2 - 2026-11-11
+
+Previous release: v0.16.1 - 2026-11-08
+
+### ✨ Added
+
+- [**Desktop**] Added custom-tab replacements for Terminal, Git, Editor, and Preview, selected in Settings. Replacements keep the built-in location and shortcut, fall back when unavailable, and let the original tab return when opening content that needs it. Custom tabs with Git read access can also resolve monorepo paths to open files correctly — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Expanded sidebar quick replies to handle permission denials with feedback, multiple questions, multiple selections, and free-text answers, with a queue of waiting requests, open and close controls, and an Off setting. Phones use a manually opened bottom sheet; plans remain in the conversation — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added durable archive cleanup: the confirmation dialog closes immediately while a progress toast follows terminal shutdown, browser-tab closure, worktree removal, and branch deletion. Cleanup continues through window reloads, with per-step results and interrupted cleanup available to resume after a service restart. Unarchiving waits for active cleanup to stop before making the conversation usable again. Removing blocked worktrees or branches requires explicit confirmation — [@rle-mino](https://github.com/rle-mino).
+
+### 🔧 Changed
+
+- [**Desktop**] Refined the Detailed sidebar preset with clearer title and reply hierarchy, status-colored timestamps, and lighter counters, while keeping running-check indicators inside folded rows — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Made model selection more resilient and responsive by keeping the last known catalog during refresh failures, showing a visible notice, and sharing cached configuration probes when opening sessions or changing models. Agent provider listings use the same service catalog — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Reduced marketplace downloads and repeated signature verification by reusing verified catalog versions and conditional refreshes. Installation and preview requests resolve their packages from the service’s verified catalog — [@rle-mino](https://github.com/rle-mino).
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed app zoom changing when opening Settings or narrowing the desktop window. Rapid zoom steps add up consistently, and desktop and remote-phone zoom preferences stay separate — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Kept question Submit and dismiss buttons reachable when option previews contain wide or tall diagrams. Previews scroll within the form, and long paths wrap instead of clipping its controls — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Made failed tool calls visible in compact flow, expanded tool cards, and sub-agent summaries, including failed reads, searches, directory listings, commands, and MCP calls reported by Codex — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed Stop waiting behind prompt startup or manual compaction, and prevented undelivered follow-up prompts from starting a new turn after Stop. Cancelled follow-ups remain visible as not delivered and can be retried; compaction cancelled before it starts is shown as stopped — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed shutdown and cancellation leaving child processes running after custom actions, Claude commands, or worktree setup. Setup scripts no longer hang on interactive shell-startup questions, and are cancelled when their conversation or worktree is removed or the service exits — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Fixed resumed conversations ending before Claude answers when old background-task notifications arrive. Sleep interruptions use a shorter stop deadline, and a refused pause keeps pending permission requests answerable — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Fixed rewind, fork, transcript imports, commands, extensions, and usage reads ignoring a profile’s Claude configuration directory. Branching with a deleted profile now fails before changing the conversation, and a slow model probe no longer blocks other profiles — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Preserved running sub-agents’ streamed output and tool-call associations across new root turns, avoiding missing output and duplicate or unmatched tool blocks — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed pane layouts losing their latest changes during saves, made failed saves visible and retryable, and applied settings, model choices, worktree defaults, and starter layouts only after the service confirms them — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed Git gutter markers misclassifying added and removed lines, review comments naming files from the wrong directory in monorepos, and accented or newline-containing filenames losing diff statistics or review associations — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed one slow repository blocking other Git watchers and subscriptions. Watchers skip ignored directories and read-only events, reducing unnecessary refreshes and Linux watch exhaustion; older Git versions use compatible commands, with installed capabilities shown in Settings → About — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Kept Add comment accessible in narrow browser toolbars and restored keyboard focus to its composer after selecting a page element or editing a comment — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed terminal cursor shapes and blinking requested by Neovim and shells, and applied live Alacritty cursor defaults through CeleriTTY 1.3.2 — [@edjubert](https://github.com/edjubert).
+- [**Desktop**] Added qualified tsgo 0.1.1 marketplace sources with a pinned shutdown fix, so clean language-server shutdown exits successfully. The rebuilt executable is identified as a Cadencr build and does not carry the upstream executable’s signature — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Replaced misleading marketplace configuration errors with the actual trust failure and recovery guidance. Unreadable stored trust can be preserved and rebuilt; trust written by a newer app requires an update — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Made provider crashes report a bounded, credential-masked reason, avoided false idle-runtime errors during shutdown, and made MCP writes go through the running service with a clear error when it cannot be reached — [@rle-mino](https://github.com/rle-mino).
+
+### 🔒 Security
+
+- [**Desktop**] Applied one revocation policy across marketplace providers, language servers, custom tabs, and themes: installation, updates, and native-code startup are refused without a current authenticated policy, while unblocked installed themes and tab pages remain usable — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Ensured revoked custom-tab connections receive their policy close reason — [@rle-mino](https://github.com/rle-mino).
+
 ## v0.16.1 - 2026-11-08
 
 Previous release: v0.16.0 - 2026-11-03

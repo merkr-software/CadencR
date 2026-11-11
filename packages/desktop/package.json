@@ -1,6 +1,6 @@
 {
   "name": "@cadencr/desktop",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "private": true,
   "description": "Cadencr desktop shell — Electron app with a React frontend for driving local AI coding agents.",
   "homepage": "https://cadencr.com",
