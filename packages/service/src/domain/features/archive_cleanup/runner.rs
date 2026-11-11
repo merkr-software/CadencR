@@ -20,7 +20,7 @@ use crate::error::AppError;
 
 const WAITING_FOR_WORKTREE: &str = "waiting for the worktree removal";
 /// How long unarchiving waits for a step in progress to finish.
-const CANCEL_TIMEOUT: Duration = Duration::from_secs(30);
+const CANCEL_TIMEOUT: Duration = Duration::from_millis(if cfg!(test) { 100 } else { 30_000 });
 const BRIDGE_ATTEMPTS: u32 = 5;
 const BRIDGE_RETRY_DELAY: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 2_000 });
 
@@ -84,6 +84,7 @@ pub async fn resume(
     feature_id: i64,
     force: ResumeForce,
 ) -> Result<CleanupReport, AppError> {
+    let permit = acquire(state, feature_id)?;
     let project_id = archived_project_of(state, feature_id).await?;
     if journal::load(&state.write_pool, feature_id)
         .await?
@@ -93,7 +94,6 @@ pub async fn resume(
             "This session has no archive cleanup".into(),
         ));
     }
-    let permit = acquire(state, feature_id)?;
     for (forced, step) in [
         (force.worktree, StepName::Worktree),
         (force.branch, StepName::Branch),
@@ -127,11 +127,18 @@ pub fn is_running(state: &AppState, feature_id: i64) -> bool {
 
 /// Unarchiving abandons the cleanup: stop the run between two steps, then
 /// forget the plan so nothing removes the worktree of a conversation in use.
-pub async fn abandon(state: &AppState, feature_id: i64) -> Result<(), AppError> {
+/// Keep the returned permit until the active status is saved: no cleanup may
+/// acquire the conversation between cancellation and reactivation.
+pub async fn abandon(state: &AppState, feature_id: i64) -> Result<FeatureRunPermit, AppError> {
     state
         .archive_cleanup_runs
         .cancel_and_wait(feature_id, CANCEL_TIMEOUT)
         .await;
+    let permit = acquire(state, feature_id).map_err(|_| {
+        AppError::Conflict(
+            "Archive cleanup has not stopped yet; wait for it to finish before unarchiving".into(),
+        )
+    })?;
     journal::clear(&state.write_pool, feature_id).await?;
     if let Ok(project_id) = project_of(state, feature_id).await {
         emit(
@@ -142,7 +149,7 @@ pub async fn abandon(state: &AppState, feature_id: i64) -> Result<(), AppError> 
             CleanupReport::default(),
         );
     }
-    Ok(())
+    Ok(permit)
 }
 
 /// Before serving: no cleanup runs yet, so a step the last exit left pending
@@ -571,6 +578,76 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(again, report);
+    }
+
+    #[tokio::test]
+    async fn unarchive_timeout_preserves_archived_status_and_cleanup_plan() {
+        use crate::domain::features::models::{FeatureStatus, UpdateStatusRequest};
+        use crate::domain::features::routes::update_feature_status_handler;
+        use axum::extract::{Json, Path, State};
+
+        let fx = fixture().await;
+        archive_with_cleanup(&fx.state, fx.feature_id, &remove_both(), Archiver::User)
+            .await
+            .unwrap();
+        let planned = journal::load(&fx.state.write_pool, fx.feature_id)
+            .await
+            .unwrap();
+        assert!(!planned.is_empty());
+        // Represents a destructive Git operation that has not released its slot.
+        let stuck = fx
+            .state
+            .archive_cleanup_runs
+            .try_acquire(fx.feature_id)
+            .unwrap();
+        let result = update_feature_status_handler(
+            State(fx.state.clone()),
+            Path(fx.feature_id),
+            Json(UpdateStatusRequest {
+                status: FeatureStatus::Active,
+            }),
+        )
+        .await;
+        assert!(matches!(result, Err(AppError::Conflict(_))));
+        assert!(stuck.cancellation().is_cancelled());
+        assert!(is_archived(&fx.state, fx.feature_id).await.unwrap());
+        assert_eq!(
+            journal::load(&fx.state.write_pool, fx.feature_id)
+                .await
+                .unwrap()
+                .len(),
+            planned.len()
+        );
+        assert!(fx.worktree.exists());
+    }
+
+    #[tokio::test]
+    async fn unarchive_guard_excludes_cleanup_until_reactivation() {
+        let fx = fixture().await;
+        archive_with_cleanup(&fx.state, fx.feature_id, &remove_both(), Archiver::User)
+            .await
+            .unwrap();
+        let guard = abandon(&fx.state, fx.feature_id).await.unwrap();
+        assert!(fx
+            .state
+            .archive_cleanup_runs
+            .try_acquire(fx.feature_id)
+            .is_none());
+        assert!(matches!(
+            resume(&fx.state, fx.feature_id, ResumeForce::default()).await,
+            Err(AppError::Conflict(_))
+        ));
+        sqlx::query("UPDATE features SET status = 'active' WHERE id = ?")
+            .bind(fx.feature_id)
+            .execute(&fx.state.write_pool)
+            .await
+            .unwrap();
+        drop(guard);
+        assert!(matches!(
+            resume(&fx.state, fx.feature_id, ResumeForce::default()).await,
+            Err(AppError::Conflict(_))
+        ));
+        assert!(fx.worktree.exists());
     }
 
     #[tokio::test]
