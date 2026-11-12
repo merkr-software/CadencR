@@ -25,10 +25,10 @@ export function EditorBackendSetting() {
     {
       value: "neovim",
       label: "Full Neovim",
-      description: externalUnavailable
-        ? "Requires the desktop app on a supported computer."
+      description: mobile
+        ? "Unavailable on mobile."
         : "The built-in Neovim editor with your own configuration.",
-      disabled: externalUnavailable,
+      disabled: mobile,
     },
     ...(plugins.data ?? [])
       .filter((plugin) => plugin.editor)
