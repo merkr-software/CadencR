@@ -24,9 +24,9 @@
     "knip": "knip"
   },
   "devDependencies": {
-    "knip": "^6.41.0",
-    "oxfmt": "^0.72.0",
-    "oxlint": "^1.87.0",
+    "knip": "^6.44.0",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
     "sharp": "^0.35.0"
   }
 }
