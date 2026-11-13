@@ -7,6 +7,13 @@ export const THEME_SYSTEM_LIGHT_SETTING_KEY = "theme_system_light";
 export const THEME_SYSTEM_DARK_SETTING_KEY = "theme_system_dark";
 /** JSON array of user-theme ids the user hid from the picker. */
 export const THEME_USER_DISABLED_SETTING_KEY = "theme_user_disabled";
+/**
+ * JSON object of per-theme halo tuning, keyed by theme id. Kept beside the
+ * theme rather than in it: the Frost pair are built-ins with no file, a
+ * `managed:` theme is replaced on update, and a user theme's `theme.json` is a
+ * file the user is editing. See `halo-override.ts`.
+ */
+export const THEME_HALO_OVERRIDES_SETTING_KEY = "theme_halo_overrides";
 
 export const DEFAULT_SYSTEM_LIGHT_THEME_ID: ThemeId = "cadencr-light";
 export const DEFAULT_SYSTEM_DARK_THEME_ID: ThemeId = DEFAULT_THEME_ID;

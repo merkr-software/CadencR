@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/useTheme";
 import { allThemes } from "@/lib/themes";
+import { HaloControls } from "@/components/theme/HaloControls";
 import { ThemePicker } from "@/components/theme/ThemePicker";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,7 @@ function ThemeDrawerImpl(): React.JSX.Element | null {
 
 function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Element {
   const {
+    theme,
     manualThemeId,
     systemLightThemeId,
     systemDarkThemeId,
@@ -165,6 +167,8 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
             autoFocus
           />
         )}
+
+        <HaloControls theme={theme} isLoading={isLoading} />
       </div>
     </div>
   );
