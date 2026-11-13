@@ -236,12 +236,11 @@ describe("AmbientBackground", () => {
       expect(halos[0].style.animationName).toBe("cadencr-drift-1, cadencr-glow");
       expect(halos[0].style.animationDuration).toBe("28s, 10.00s");
       expect(halos[1].style.animationDuration).toBe("36s, 11.70s");
-      // The drift's `steps()` frame cap comes from the stylesheet; only the
-      // glow needs an easing of its own.
-      expect(halos[0].style.animationTimingFunction).toBe("ease-in-out");
-      // Only the glow carries a delay: the drift starts at zero.
-      expect(halos[0].style.animationDelay).toBe("0s");
-      expect(halos[1].style.animationDelay).toBe("-3.1s");
+      // Two animations make the inline list authoritative for both, so the
+      // drift restates the stylesheet's frame cap and its zero delay.
+      expect(halos[0].style.animationTimingFunction).toBe("steps(120, jump-none), ease-in-out");
+      expect(halos[0].style.animationDelay).toBe("0s, 0s");
+      expect(halos[1].style.animationDelay).toBe("0s, -3.10s");
     });
 
     it("hands the keyframes the strength to pulse around", () => {

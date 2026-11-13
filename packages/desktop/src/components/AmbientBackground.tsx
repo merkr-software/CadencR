@@ -180,6 +180,13 @@ function Halo({
       // animation needs its own.
       names.push(`cadencr-drift-${(index % 3) + 1}`);
       durations.push(`${halo.drift}s`);
+      // A second animation makes the inline list the one the browser uses for
+      // both, so the drift has to restate the stylesheet's easing and its zero
+      // delay instead of inheriting them.
+      if (glow !== null) {
+        easings.push("steps(120, jump-none)");
+        delays.push("0s");
+      }
     }
     if (glow !== null) {
       // Each halo breathes on its own period and starts mid-cycle, so the
