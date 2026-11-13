@@ -2,7 +2,12 @@ import { render, screen, within } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeDrawer } from "./ThemeDrawer";
-import { DEFAULT_SYSTEM_DARK_THEME_ID, DEFAULT_SYSTEM_LIGHT_THEME_ID } from "@/lib/themes";
+import {
+  DEFAULT_HALO_OVERRIDE,
+  DEFAULT_SYSTEM_DARK_THEME_ID,
+  DEFAULT_SYSTEM_LIGHT_THEME_ID,
+  getTheme,
+} from "@/lib/themes";
 
 const mockSetTheme = vi.fn();
 const mockSetFollowSystemTheme = vi.fn();
@@ -30,6 +35,9 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/hooks/useTheme", () => ({
   useTheme: () => ({
     themeId: mockState.followSystemTheme ? DEFAULT_SYSTEM_LIGHT_THEME_ID : "dracula",
+    // Dracula declares no texture, so the halo panel stays out of the way here;
+    // `HaloControls.test.tsx` covers the themes that do have one.
+    theme: getTheme("dracula"),
     manualThemeId: "dracula",
     systemLightThemeId: DEFAULT_SYSTEM_LIGHT_THEME_ID,
     systemDarkThemeId: DEFAULT_SYSTEM_DARK_THEME_ID,
@@ -39,6 +47,16 @@ vi.mock("@/hooks/useTheme", () => ({
     setSystemLightTheme: mockSetSystemLightTheme,
     setSystemDarkTheme: mockSetSystemDarkTheme,
     isLoading: false,
+  }),
+}));
+
+vi.mock("@/hooks/useHaloOverride", () => ({
+  useHaloOverride: () => ({
+    override: DEFAULT_HALO_OVERRIDE,
+    setOverride: vi.fn(),
+    reset: vi.fn(),
+    isLoading: false,
+    isSaving: false,
   }),
 }));
 

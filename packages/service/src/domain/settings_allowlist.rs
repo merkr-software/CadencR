@@ -231,6 +231,13 @@ mod tests {
         assert!(is_workspace_key_allowed("theme_system_dark"));
     }
     #[test]
+    fn workspace_accepts_theme_halo_overrides() {
+        // The halo panel writes one JSON object keyed by theme id (see
+        // packages/desktop/src/lib/themes/halo-override.ts). Without this the
+        // write is a 400 and the sliders silently never persist.
+        assert!(is_workspace_key_allowed("theme_halo_overrides"));
+    }
+    #[test]
     fn workspace_accepts_per_model_thinking_effort_keys() {
         assert!(is_workspace_key_allowed(
             "thinking_effort_model_claude_code_claude-opus-4"

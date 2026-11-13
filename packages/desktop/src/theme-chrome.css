@@ -272,15 +272,67 @@
 .ambient {
   overflow: hidden;
 }
+/* An orbiting field turns the whole `.ambient` box, so its own edges sweep
+ * across the viewport. Clipping to that box would cut a straight line through
+ * any halo near a corner; the window is the only clip that should apply. The
+ * corners the rotated box leaves bare show `<html>`'s background, which is the
+ * same `--ambient-base` the box paints — so nothing is exposed. */
+.ambient[data-orbit] {
+  overflow: visible;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
 .ambient-veil {
   background-color: var(--background);
 }
 .halo {
   position: absolute;
   border-radius: 50%;
+  /* The halo's strength, set inline per halo. `cadencr-glow` pulses around it,
+   * so the intensity slider keeps working while the field breathes. */
+  opacity: var(--halo-opacity, 1);
   animation-timing-function: steps(120, jump-none);
   animation-iteration-count: infinite;
   animation-direction: alternate;
+}
+
+/* One full turn of the field. `linear` rather than the drift's `steps()`: a
+ * crawl can afford to composite a few frames a second, a rotation cannot — it
+ * would read as a stutter. The cost is bounded the same way the drift's is, by
+ * `data-ambient-paused` below, and the orbit is frozen outright under the
+ * global motion kill-switch. */
+@keyframes cadencr-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The kill-switch zeroes `animation-duration`, which on an infinite animation
+ * means "run as fast as the compositor can" rather than "stop". Freeze it. */
+html[data-animations="off"] .ambient[data-orbit] {
+  animation: none !important;
+}
+
+/* One breath of the glow. `--halo-opacity` is the strength the theme authored,
+ * times the user's intensity, set inline per halo — the keyframes ride on top
+ * of it rather than replacing it, so the intensity slider keeps working while
+ * the field pulses. */
+@keyframes cadencr-glow {
+  from {
+    opacity: calc(var(--halo-opacity, 1) * 0.55);
+  }
+  to {
+    opacity: var(--halo-opacity, 1);
+  }
+}
+
+/* Same reasoning as the orbit: an infinite animation under a zeroed duration
+ * would strobe. The glow is a light, so it stops rather than flickers. */
+html[data-animations="off"] .halo {
+  animation-name: none !important;
 }
 
 /* Each halo drifts via `steps(120, …)` rather than smooth easing: the motion is
@@ -315,7 +367,9 @@
 /* Freeze the drift when the window is hidden or unfocused
  * (`data-ambient-paused` is toggled by <AmbientBackground/>). The drift runs at
  * the display refresh rate, so without this a backgrounded or off-screen window
- * keeps the GPU compositing a fresh frame every vsync for motion no one can see. */
-:root[data-ambient-paused] .halo {
+ * keeps the GPU compositing a fresh frame every vsync for motion no one can see.
+ * The orbit is paused with it — same cost, same reason. */
+:root[data-ambient-paused] .halo,
+:root[data-ambient-paused] .ambient {
   animation-play-state: paused;
 }

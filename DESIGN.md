@@ -373,6 +373,23 @@ one-dark      → One Dark
 
 The CadencR pair's _material_ (pane elevation, lamplight, machined wells, prompt chrome) stays theme-scoped in `theme-cadencr-material.css`: it depends on tokens only those themes declare, and it is a look rather than a structural choice.
 
+**Halos are tunable, and the tuning is not the theme's.** A theme that declares halos gets a **Halos** section in the theme drawer: orientation, intensity, a color per halo picked from the active theme's own accent and chart tokens, and a motion. The panel renders only for a theme whose `chrome.texture.halos` is non-empty — that is the entire compatibility test, so Frost, Catppuccin Frost and anything published later qualify without a list to maintain.
+
+| Motion | What moves | How |
+| --- | --- | --- |
+| `still` | nothing | the theme's composition, at the angle the user set |
+| `orbit` | the whole field, around the viewport center | a `transform` on `.ambient`, `linear` |
+| `lava` | each halo, rising, sinking and sliding around the others | a 20Hz simulation writing `transform` per halo |
+| `glow` | each halo's opacity, on its own period | `cadencr-glow`, riding on `--halo-opacity` |
+
+A fixed angle and a moving field answer the same question, so the panel greys out whichever control the current motion makes meaningless: the angle is only live under `still`, the pace only under the other three. The pace is a single `1`–`18` number that each motion spends differently, and the panel prints the unit the current one uses rather than a number with no meaning.
+
+The tuning is a **transform stored beside the theme**, in the `theme_halo_overrides` workspace setting keyed by theme id, never an edit of the theme file. That is what makes it work for all three kinds of theme at once: the Frost pair are built-ins with no file, a `managed:` theme is replaced on update, and a user theme's `theme.json` is a file the user is editing with live reload and a git diff on it. It is also why the override stores rotation, intensity and a sparse color array rather than a copy of the halo array — a theme that later moves or resizes its halos keeps the tuning valid.
+
+Two details are load-bearing. A picked color is re-emitted at the **alpha the theme authored** (`color-mix` against `transparent`), because halo colors are routinely translucent and an opaque swatch would otherwise raise the halo's strength by a third. And the rotation is written to `left`/`top`, never to `transform`, which belongs to the drift animation. The palette is read from the live document when a row opens, not during render: the active theme reaches `<html>` from an effect that runs after the panel renders.
+
+The mechanics of each motion — why the orbit lifts `overflow`, why the lava lamp is convection rather than billiards, why the glow reads `--halo-opacity` — live in the doc comments of `halo-override.ts`, `halo-lava.ts` and `useLavaMotion.ts`, beside the code they explain.
+
 **Chrome has colors, and they belong to the theme.** The token vocabulary has two tiers. The required set is the palette every theme defines in full; a short optional set — `--tab-track-bg`, `--tab-track-border`, `--tab-active-bg`, `--pane-border` — colors the shapes a theme opted into, and `theme-chrome.css` derives a fallback from `--foreground`/`--background` for any a theme leaves out. They are optional because most themes draw neither shape; they exist because without them the only way to recolor a segmented tab strip was to edit the app's shared stylesheet — a change no installed Cadencr can receive, applied to every theme at once. An unknown key is still an error: this widens the vocabulary, it does not open it. `--tab-active-shadow` and `--page-shadow` stay out, being `box-shadow` values rather than colors. Duplication carries whichever of them the source theme declares, which is how a copy of CadencR Dark keeps its tab colors and not just its tab _shape_. `--chart-6`, the categorical palette's sixth slot, is optional for a different reason: it arrived after themes were published, so every first-party theme defines it and every reader falls back to `color-mix(in oklch, var(--chart-2), var(--chart-4))` for a theme that doesn't.
 
 **A theme folder explains itself, and answers back.** A user theme is edited in its own project, which in practice means an agent with `theme.json` open and nothing else to go on — and the document is self-describing for colors and opaque for chrome. Worse, the verdict on what it writes lands on a settings card it cannot see, so a theme could be declared finished while the app quietly refused to apply it. Four files beside `theme.json` close that loop:
