@@ -113,6 +113,11 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // and in the gallery but is hidden from the picker. Opt-out rather than
     // opt-in so a freshly created theme is immediately usable.
     "theme_user_disabled",
+    // JSON object of per-theme halo tuning, keyed by theme id. Kept beside the
+    // theme rather than in it: the Frost pair are built-ins with no file, a
+    // marketplace theme is replaced on update, and a user theme's `theme.json`
+    // is a file the user is editing. See `lib/themes/halo-override.ts`.
+    "theme_halo_overrides",
     // Editor preferences
     "editor_vim_mode",
     "editor_auto_save",
