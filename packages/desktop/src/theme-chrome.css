@@ -260,6 +260,38 @@
   background-color: transparent;
 }
 
+/* Portable themes carry the ambient field without Frost's private stylesheet.
+ * Keep this fallback less specific than built-in material rules. */
+:root[data-texture-base]
+  :where(
+    [data-slot="popover-content"],
+    [data-slot="hover-card-content"],
+    [data-slot="dialog-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="context-menu-sub-content"],
+    [data-slot="tooltip-content"],
+    [data-slot="select-content"],
+    [data-slot="command"],
+    .cm-tooltip,
+    .glass-surface.absolute,
+    [data-sonner-toast][data-styled="true"]
+  ) {
+  backdrop-filter: blur(28px) saturate(140%);
+}
+
+:root[data-texture-base] [data-slot="dialog-overlay"] {
+  backdrop-filter: blur(2px) saturate(120%);
+}
+
+/* Use the overlay palette at near-opaque alpha, independent of page tint and
+ * GPU blur support. Relative color preserves the theme's popover hue. */
+:root[data-texture-base] [data-slot="dialog-content"] {
+  background-color: oklch(from var(--popover) l c h / 0.97);
+  color: var(--popover-foreground);
+}
+
 .ambient,
 .texture-image,
 .grain,
