@@ -106,6 +106,8 @@ Or [download the latest DMG / ZIP from GitHub Releases](https://github.com/merkr
 
 [Get oriented with the workspace guide →](https://cadencr.com/docs/feature-workspace/)
 
+From a terminal, the [`cadencr` command](https://cadencr.com/docs/cli/) opens projects and files, adds projects, starts updates, and runs CadencR headless on a server for paired devices (`cadencr serve`). Install it from **Settings → General → Command line**.
+
 Linux x86-64 packages (AppImage, DEB, RPM) are an alpha, attached by hand to selected releases ([porting status](./docs/LINUX_PORTING_PLAN.md)); native Windows packages are planned. For source builds, follow the [Linux setup](./docs/LINUX_SETUP.md) or [Windows / WSL setup](./docs/WINDOWS_WSL_SETUP.md).
 
 > CadencR is early `0.x` software, with fast iteration and frequent updates. [Report a bug](https://github.com/merkr-software/CadencR/issues/new/choose) or [join the discussion](https://github.com/merkr-software/CadencR/discussions).
@@ -183,14 +185,16 @@ For Rust commands, use `pnpm rust -- <args>`. Build artifacts stay isolated in e
 
 ### Under the hood
 
-| Package                                 | Role                                                             |
-| --------------------------------------- | ---------------------------------------------------------------- |
-| `packages/desktop`                      | Electron shell and React workspace.                              |
-| `packages/service`                      | Rust API and WebSocket service; packaged as the desktop sidecar. |
-| `packages/*-sdk-rs`                     | Focused transport SDKs for the agent integrations.               |
-| `packages/cli-discovery`                | Discover locally installed agent CLIs.                           |
-| `packages/tab-sdk` · `packages/tab-kit` | Custom tab SDK and design system.                                |
-| `packages/brand` · `packages/landing`   | Shared brand assets, marketing site, documentation, and news.    |
+| Package                                 | Role                                                                |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `packages/desktop`                      | Electron shell and React workspace.                                 |
+| `packages/service`                      | Rust API and WebSocket service; packaged as the desktop sidecar.    |
+| `packages/*-sdk-rs`                     | Focused transport SDKs for the agent integrations.                  |
+| `packages/cli-discovery`                | Discover locally installed agent CLIs.                              |
+| `packages/cli`                          | The `cadencr` command, bundled with the app and the server archive. |
+| `packages/app-paths-rs`                 | Per-user data, config, and cache locations on macOS and Linux.      |
+| `packages/tab-sdk` · `packages/tab-kit` | Custom tab SDK and design system.                                   |
+| `packages/brand` · `packages/landing`   | Shared brand assets, marketing site, documentation, and news.       |
 
 The desktop communicates with the service over HTTP and WebSocket. Provider adapters connect the service to local agent CLIs through the Rust SDKs.
 

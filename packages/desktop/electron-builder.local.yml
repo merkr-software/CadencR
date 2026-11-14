@@ -15,6 +15,10 @@ extraResources:
   # Per-arch sidecar (see `@cadencr/service build:sidecars`).
   - from: resources/bin/${arch}/cadencr-service
     to: cadencr-service
+  # The `cadencr` command line (`@cadencr/service build:sidecars`); Settings links
+  # it onto PATH, and DEB/RPM link /usr/bin/cadencr to it (build/linux/*.tpl).
+  - from: resources/bin/${arch}/cadencr
+    to: bin/cadencr
   # The built SPA on the real filesystem — loaded directly by the packaged
   # window and served over the remote listener.
   - from: out/renderer
@@ -45,6 +49,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   signIgnore:
     - Contents/Resources/cadencr-service$
+    - Contents/Resources/bin/cadencr$
   target:
     - target: dmg
       arch:
@@ -67,6 +72,9 @@ linux:
 # distro packages doesn't require touching CI. See electron-builder.yml for
 # the rationale behind the explicit depends lists.
 deb:
+  # Link /usr/bin/cadencr to the CLI rather than the Electron binary.
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
   depends:
     - libgtk-3-0
     - libnotify4
@@ -84,6 +92,8 @@ deb:
     - lsof
   priority: optional
 rpm:
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
   # Library sonames, not package names: RPM generates these provides on every
   # RPM distro, while package names differ (Fedora `nss` is openSUSE
   # `mozilla-nss`, `at-spi2-atk` does not exist there…).

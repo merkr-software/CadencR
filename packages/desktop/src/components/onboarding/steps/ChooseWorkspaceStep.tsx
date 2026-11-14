@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreateProject, getListProjectsQueryKey, type Project } from "@/api/generated";
 import { Button } from "@/components/ui/button";
+import { projectNameFromPath } from "@/hooks/useAddProjectAtPath";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { NewProjectOnboardingDialog } from "@/components/NewProjectOnboardingDialog";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
@@ -15,10 +16,8 @@ import type { OnboardingStepProps } from "../OnboardingOverlay";
  * Step 3 — pick a folder on disk and turn it into a Cadencr project.
  *
  * Mirrors the "New Project" flow in `CommandPalette.tsx` (desktop folder
- * dialog → `useCreateProject`). We don't extract a shared helper yet because
- * the surrounding mutation/UI plumbing differs (loading state, toast, inline
- * confirmation chip); if a third caller appears we should hoist the few lines
- * of folder→{name,path} logic.
+ * dialog → `useCreateProject`), keeping its own mutation for the inline
+ * loading state and confirmation chip; the folder → name rule is shared.
  */
 export function ChooseWorkspaceStep({
   isPersisting,
@@ -49,8 +48,7 @@ export function ChooseWorkspaceStep({
   const pickFolder = useCallback(async () => {
     const folder = await desktopBridge.pickDirectory();
     if (typeof folder !== "string") return;
-    const name = folder.split("/").filter(Boolean).pop() ?? folder;
-    createProjectMutation.mutate({ data: { name, path: folder } });
+    createProjectMutation.mutate({ data: { name: projectNameFromPath(folder), path: folder } });
   }, [createProjectMutation]);
 
   const isCreating = createProjectMutation.isPending;

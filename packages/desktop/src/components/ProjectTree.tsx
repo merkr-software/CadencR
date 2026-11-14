@@ -3,12 +3,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   type Project,
-  useCreateProject,
   useDeleteProject,
   getListProjectsQueryKey,
-  getGetProjectSettingsQueryKey,
   useCreateFeature,
-  useSetProjectSetting,
 } from "../api/generated";
 import { useArchiveProjectSessionsAction } from "@/hooks/useArchiveProjectSessionsAction";
 import { useOrderedProjects } from "@/hooks/useOrderedProjects";
@@ -17,7 +14,7 @@ import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ProjectRowActions, ProjectRowContextMenu } from "./ProjectRowMenus";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
-import { PROJECT_COLORS } from "@/lib/project-colors";
+import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { toast } from "sonner";
@@ -55,35 +52,12 @@ type ProjectDialogTarget = {
 
 function useProjectTreeMutations(
   projects: ProjectSummary[],
-  maybeOnboard: (project: ProjectDialogTarget) => void,
   activeProjectId: number | null,
   activeFeatureId: number | null,
 ) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pendingProjectIdRef = useRef(0);
-  const setProjectSetting = useSetProjectSetting({
-    mutation: {
-      onSuccess: (_data, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: getGetProjectSettingsQueryKey(variables.id),
-        });
-      },
-      onError: (error) => {
-        toast.error(`Could not save project setting: ${apiErrorMessage(error, "Unknown error")}`);
-      },
-    },
-  });
-  const createProject = useCreateProject({
-    mutation: {
-      onSuccess: (project) => {
-        const color = PROJECT_COLORS[project.id % PROJECT_COLORS.length];
-        setProjectSetting.mutate({ id: project.id, data: { key: "color", value: color } });
-        void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
-        maybeOnboard({ id: project.id, name: project.name });
-      },
-    },
-  });
   const deleteProject = useDeleteProject({
     mutation: {
       onSuccess: () => {
@@ -112,22 +86,21 @@ function useProjectTreeMutations(
   return useMemo(
     () => ({
       archiveProjectSessions,
-      createProject,
       createSession,
       deleteProject,
       pendingProjectIdRef,
     }),
-    [archiveProjectSessions, createProject, createSession, deleteProject],
+    [archiveProjectSessions, createSession, deleteProject],
   );
 }
 
 function useProjectTreeController(props: ProjectTreeProps) {
   const ordered = useOrderedProjects();
-  const [isSelectingFolder, setIsSelectingFolder] = useState(false);
+  const [isAddingProject, setIsAddingProject] = useState(false);
   const onboarding = useNewProjectOnboarding();
+  const addProjectAtPath = useAddProjectAtPath();
   const mutations = useProjectTreeMutations(
     ordered.projects,
-    onboarding.maybeOnboard,
     props.activeProjectId,
     props.activeFeatureId,
   );
@@ -148,18 +121,20 @@ function useProjectTreeController(props: ProjectTreeProps) {
     },
     [mutations, setProjectExpanded],
   );
+  const { maybeOnboard } = onboarding;
   const addProject = useCallback(async () => {
-    setIsSelectingFolder(true);
+    setIsAddingProject(true);
     try {
       const folder = await desktopBridge.pickDirectory();
       if (!folder) return;
-      mutations.createProject.mutate({
-        data: { name: folder.split("/").pop() ?? folder, path: folder },
-      });
+      const project = await addProjectAtPath(folder);
+      maybeOnboard({ id: project.id, name: project.name });
+    } catch (error) {
+      toast.error(apiErrorMessage(error, "Couldn't add the project"));
     } finally {
-      setIsSelectingFolder(false);
+      setIsAddingProject(false);
     }
-  }, [mutations.createProject]);
+  }, [addProjectAtPath, maybeOnboard]);
   return useMemo(
     () => ({
       addProject,
@@ -167,7 +142,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
       deleteProject,
       expansion,
       importProject,
-      isSelectingFolder,
+      isAddingProject,
       mutations,
       onboarding,
       ordered,
@@ -184,7 +159,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
       deleteProject,
       expansion,
       importProject,
-      isSelectingFolder,
+      isAddingProject,
       mutations,
       onboarding,
       ordered,
@@ -217,9 +192,7 @@ export function ProjectTree(props: ProjectTreeProps) {
         fold={fold}
         dragHandle={reorder.handle}
         onAddProject={controller.addProject}
-        isAddingProject={
-          controller.isSelectingFolder || controller.mutations.createProject.isPending
-        }
+        isAddingProject={controller.isAddingProject}
         canAddProject={isDesktopShell()}
         onRefresh={
           mode.kind !== "tree" || projectSort !== "frozen"

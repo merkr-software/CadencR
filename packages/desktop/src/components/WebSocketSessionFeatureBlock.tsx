@@ -26,6 +26,7 @@ import {
   useWsSessionEffects,
   useWsSessionShortcuts,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
+import { useCliPendingFileOpen } from "@/components/useCliPendingFileOpen";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   focusTabTrigger,
@@ -259,6 +260,7 @@ function WebSocketSessionFeatureBody(
       rootPath: data.effectiveCwd || data.projectPath || cwd,
       refs,
     });
+  useCliPendingFileOpen(featureId, !embedded, openDiffFileInEditor);
 
   const { sendFromGitTab } = useSessionFeatureActions({ layoutFeatureId, controls, refs });
 

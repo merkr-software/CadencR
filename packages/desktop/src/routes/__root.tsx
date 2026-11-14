@@ -3,6 +3,7 @@ import { ManagedThemeRegistry } from "@/hooks/useManagedThemes";
 import { NavigationHistoryTracker } from "@/hooks/useNavigationHistory";
 import { AppShell } from "@/components/AppShell";
 import { AppWindowControls } from "@/components/AppWindowControls";
+import { CliRequestBridge } from "@/components/cli/CliRequestBridge";
 import { CustomActionEditorHost } from "@/components/custom-actions/CustomActionEditorDialog";
 import { RunVariablesDialogHost } from "@/components/custom-actions/RunVariablesDialog";
 import { GlobalOperationToasts } from "@/components/GlobalOperationToasts";
@@ -61,6 +62,7 @@ function RootLayout() {
           <ManagedThemeRegistry />
           <NavigationHistoryTracker />
           <NotchChannelBridge />
+          <CliRequestBridge />
           <CustomActionEditorHost />
           <RunVariablesDialogHost />
           <RootOverlays

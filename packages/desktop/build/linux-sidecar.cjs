@@ -24,11 +24,12 @@ function readElfMachine(binary) {
 }
 
 /**
- * Refuse to package a missing or wrong-arch sidecar (the Linux counterpart of
- * the macOS `lipo` guard: v0.13.0 shipped an Intel app whose backend could not
- * start), then mark it executable for AppImage/deb/rpm.
+ * Refuse to package a missing or wrong-arch native binary (the sidecar, the
+ * `cadencr` CLI) — the Linux counterpart of the macOS `lipo` guard: v0.13.0
+ * shipped an Intel app whose backend could not start — then mark it executable
+ * for AppImage/deb/rpm.
  */
-function prepareLinuxSidecar(binary, arch) {
+function prepareLinuxSidecar(binary, arch, label = "cadencr-service") {
   const expected = ELF_MACHINE[arch];
   if (expected === undefined) throw new Error(`Unsupported Linux package arch: ${arch}`);
   if (!existsSync(binary)) throw new Error(`Missing ${binary}`);
@@ -41,7 +42,7 @@ function prepareLinuxSidecar(binary, arch) {
     chmodSync(binary, 0o755);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to mark cadencr-service executable at ${binary}: ${message}`);
+    throw new Error(`Failed to mark ${label} executable at ${binary}: ${message}`);
   }
 }
 

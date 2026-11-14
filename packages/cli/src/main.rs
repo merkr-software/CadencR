@@ -4,6 +4,7 @@ use clap::error::ErrorKind;
 use clap::Parser as _;
 use serde_json::json;
 
+mod app;
 mod args;
 mod author_release;
 mod commands;
@@ -22,6 +23,7 @@ mod trust;
 
 use args::Cli;
 
+#[derive(Debug)]
 pub(crate) struct Diagnostic {
     pub(crate) code: &'static str,
     pub(crate) message: String,
@@ -37,7 +39,7 @@ fn main() -> ExitCode {
     };
     match commands::run(&cli) {
         Ok(message) => {
-            if cli.json && !cli.writes_index_to_stdout() {
+            if cli.json && !cli.writes_index_to_stdout() && !app::prints_own_json(&cli) {
                 println!(
                     "{}",
                     json!({ "ok": true, "code": "OK", "message": message })

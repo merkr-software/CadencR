@@ -25,6 +25,8 @@ import {
   startAgentBrowserBridge,
 } from "./service-browser-bridge";
 import { registerAppLifecycleIpc } from "./app-lifecycle-ipc";
+import { registerCliIpc, type CliController } from "./cli-ipc";
+import { focusForCliRequest, registerSecondInstance } from "./second-instance";
 import { createCloseCoordinator, windowCloseQuits } from "./close-coordinator";
 import { createPackagedService } from "./packaged-service";
 import { RendererHealth } from "./renderer-health";
@@ -70,6 +72,10 @@ let shutdownReady = false;
 /** Dev-env load result from module scope; the failure is re-raised by `bootstrap()`. */
 let devProfile: DevProfile | null = null;
 let startupRecovery: StartupRecoveryState | null = null;
+let cliController: CliController | null = null;
+/** The `cadencr` command's requests; registered on first use (it may beat `ready`). */
+const cli = (): CliController =>
+  (cliController ??= registerCliIpc({ getMainWindow: () => mainWindow }));
 
 function startupRecoveryDbPath(): string {
   if (app.isPackaged) return productionDbPath();
@@ -289,6 +295,8 @@ async function bootstrap(): Promise<void> {
   mainWindow = createWindow();
   mainWindow.webContents.once("did-finish-load", closeSplash);
   wireMainProcess();
+  void cli().handleArgv(process.argv).then(focusForCliRequest);
+  void cli().refreshInstalledCommand();
 }
 
 function closeSplash(): void {
@@ -317,22 +325,20 @@ protocol.registerSchemesAsPrivileged([PLUGIN_TAB_PRIVILEGED_SCHEME]);
 
 configureLinuxOzonePlatform(app.commandLine, process.platform);
 
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-  throw new Error("second instance — exiting");
-}
-app.on("second-instance", () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  } else if (splash) {
-    splash.window.focus();
-  }
+// A second launch has already handed its argv to the running app inside
+// `requestSingleInstanceLock`: leave at once (a throw opened a blocking dialog).
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.exit(0);
+registerSecondInstance({
+  getMainWindow: () => mainWindow,
+  getSplashWindow: () => splash?.window ?? null,
+  reopenWindow: () => ipcRegistered && sidecarStopPromise === null && reopenMainWindow(),
+  handleCliArgv: (argv) => cli().handleArgv(argv),
 });
 
 app
   .whenReady()
-  .then(() => bootstrap())
+  .then(() => (primaryInstance ? bootstrap() : undefined))
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     startupRecovery = buildStartupRecovery({
@@ -443,13 +449,14 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("activate", () => {
+/** No app window left (macOS keeps running): open one, as the Dock icon does. */
+function reopenMainWindow(): void {
   // The notch island is a window too, but never a reason not to reopen the app.
   const appWindows = BrowserWindow.getAllWindows().filter(
     (win) => notch?.windowForSender(win.webContents.id) !== win,
   );
-  if (appWindows.length === 0) {
-    mainWindow = createWindow();
-    wireMainProcess();
-  }
-});
+  if (appWindows.length > 0) return;
+  mainWindow = createWindow();
+  wireMainProcess();
+}
+app.on("activate", reopenMainWindow);

@@ -1,0 +1,134 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Command line"
+description: "Open projects and files, add projects, update CadencR, and run it headless with the cadencr command."
+---
+
+import DocCallout from "@/components/docs/DocCallout.astro";
+
+The `cadencr` command opens CadencR from a terminal, adds projects, starts updates, and runs CadencR headless on a machine that paired devices connect to.
+
+## Install the command
+
+The command ships inside the app, so it always matches the installed version and updates with it.
+
+| Install                 | How `cadencr` gets on your `PATH`                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS                   | **Settings → General → Command line → Install**, or **Install the cadencr command** in the ⌘K palette. It links `/usr/local/bin/cadencr`; macOS may ask for your password. |
+| Linux DEB or RPM        | Installed with the package as `/usr/bin/cadencr`. Nothing to do.                                                                                                           |
+| Linux AppImage          | **Settings → General → Command line → Install**. It copies the command to `~/.local/bin/cadencr`, which must be on your `PATH`.                                            |
+| Server without a screen | Use the [server archive](#run-cadencr-on-a-server).                                                                                                                        |
+
+The same settings row reinstalls or removes the command. CadencR never replaces a different `cadencr` already on your `PATH` without asking you first.
+
+## Open CadencR, a project, or a file
+
+```bash
+cadencr                          # open CadencR, or bring it to the front
+cadencr open .                   # open the project containing this folder
+cadencr open src/main.rs         # open a file in the editor
+cadencr open src/main.rs --line 42
+```
+
+CadencR finds the project that contains the path, including the worktree of a conversation. A file opens in the editor of the conversation working in that checkout: the one you last opened there, otherwise the most recently active one. A path outside every project is refused with a hint to add it first.
+
+The command returns at once. CadencR starts if it is not running, and reports anything it cannot do in its window.
+
+## Add a project
+
+```bash
+cadencr add                      # the current folder
+cadencr add ~/code/my-app
+```
+
+The folder becomes a project named after it, then opens. Adding a folder that is already a project opens the existing one.
+
+## Update CadencR
+
+```bash
+cadencr update
+```
+
+The app checks for an update now; its update banner shows the download and offers to restart when it is ready, as when it finds one by itself. `cadencr update --check` only reports whether a newer release exists. On a server, `cadencr update` installs the update itself (see below).
+
+## Run CadencR on a server
+
+`cadencr serve` runs the CadencR service without the desktop app: your projects, agents, terminals, and schedules run on that machine, and you use them from a [paired device](../remote-access/).
+
+```bash
+cadencr serve
+```
+
+It turns remote access on, prints a pairing link for each network address, and keeps running until you press Ctrl+C. Remote access stays on afterwards, in the desktop app too; turn it off from the **Remote access** dialog. Pair more devices from another terminal:
+
+```bash
+cadencr pair
+```
+
+| Option              | Effect                                                                        |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `--remote-port <n>` | Port paired devices connect to over HTTPS (default `5006`).                   |
+| `--no-remote`       | Turn remote access off and serve this machine only. It stays off afterwards.  |
+| `--json`            | Print one JSON object per event: ready (with the pairing link), then stopped. |
+
+`cadencr serve` uses the same database and settings as the desktop app on that machine, and the same local port (`5004`), so the two cannot run at once: quit the app before `cadencr serve`, and stop `cadencr serve` before opening the app. While it runs, `cadencr add <folder>` adds projects through it. Closing the terminal or SSH session stops it too; use [systemd](#keep-it-running-with-systemd) to keep it running.
+
+<DocCallout title="A pairing link is a credential" variant="note">
+  Anyone who opens a pairing link within its two minutes pairs a device with full access to the
+  workspace. Share it only with the device you are pairing, and revoke devices you no longer use
+  from a paired device's Remote access dialog.
+</DocCallout>
+
+### Install the server archive
+
+Machines without a desktop session, such as a Linux server reached over SSH, use the server archive attached to each release: `cadencr-server-<version>-linux-x64.tar.gz`, with its `.sha256` checksum.
+
+```bash
+version=0.17.0   # the release you install
+curl -fLO "https://github.com/merkr-software/CadencR/releases/download/v$version/cadencr-server-$version-linux-x64.tar.gz"
+curl -fLO "https://github.com/merkr-software/CadencR/releases/download/v$version/cadencr-server-$version-linux-x64.tar.gz.sha256"
+sha256sum --check "cadencr-server-$version-linux-x64.tar.gz.sha256"
+mkdir -p ~/.local/opt
+tar -xzf "cadencr-server-$version-linux-x64.tar.gz" -C ~/.local/opt
+ln -s ~/.local/opt/cadencr-server/bin/cadencr ~/.local/bin/cadencr
+cadencr serve
+```
+
+The server needs `git` and the agent CLIs you use, installed and signed in for the same user. It stores data under `$XDG_DATA_HOME/cadencr`, like the desktop app.
+
+Update a server installation with:
+
+```bash
+cadencr update --check           # report whether a newer release exists
+cadencr update                   # download, verify, and install it
+cadencr update --archive ./cadencr-server-0.17.0-linux-x64.tar.gz   # without network access
+```
+
+Stop `cadencr serve` first, then start it again after the update. The update verifies the archive's SHA-256 checksum and that it is built for this machine, replaces the installation folder, and keeps the replaced one beside it as `.cadencr-server.previous` until the next update.
+
+### Keep it running with systemd
+
+```ini
+# ~/.config/systemd/user/cadencr.service
+[Unit]
+Description=CadencR headless
+
+[Service]
+ExecStart=%h/.local/bin/cadencr serve
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now cadencr
+loginctl enable-linger "$USER"   # keep it running after you log out
+journalctl --user -u cadencr     # read the pairing link and the service log
+```
+
+`systemctl stop` stops the service cleanly. Run `cadencr pair` on the server whenever you need a new pairing link.
+
+## Scripting
+
+Every command accepts `--json`: results and errors are printed as one JSON object with a stable `code`, and the exit status is non-zero on failure. The `cadencr plugin` and `cadencr registry` commands for marketplace authors are described in [Marketplace publishing](../marketplace-publishing/).

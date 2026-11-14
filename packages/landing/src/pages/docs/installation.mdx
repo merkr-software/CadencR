@@ -71,6 +71,8 @@ Launch CadencR from the application menu or with:
 cadencr
 ```
 
+The package installs the [`cadencr` command](../cli/), which also opens projects and files from a terminal.
+
 Uninstall the package with:
 
 ```bash
@@ -105,6 +107,14 @@ Uninstall the package with:
 sudo zypper remove cadencr
 ```
 
+## Command line
+
+The `cadencr` command opens projects and files, adds projects, starts updates, and runs CadencR headless. DEB and RPM packages install it; on macOS and with the AppImage, install it from **Settings → General → Command line**. See [Command line](../cli/).
+
+## Servers without a desktop session
+
+A Linux server reached over SSH can run CadencR headless for paired devices from the `cadencr-server-<version>-linux-x64.tar.gz` release asset. See [Run CadencR on a server](../cli/#run-cadencr-on-a-server).
+
 ## Updates
 
 Official AppImage, DEB, and RPM builds check GitHub Releases for updates from inside CadencR.
@@ -112,6 +122,8 @@ Official AppImage, DEB, and RPM builds check GitHub Releases for updates from in
 - AppImage updates replace the portable application directly.
 - DEB and RPM updates download the matching system package and may request administrator authentication before installation.
 - If an automatic installation fails, download the newest package and repeat the installation command above.
+
+`cadencr update` asks CadencR to check for an update right away. A server installation updates itself with the same command.
 
 ## User data
 

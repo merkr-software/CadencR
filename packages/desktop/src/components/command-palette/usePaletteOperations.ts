@@ -4,7 +4,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   useCreateFeature,
-  useCreateProject,
   useSetProjectSetting,
   useUpdateFeaturePinned,
   useUpdateFeatureStatus,
@@ -12,8 +11,11 @@ import {
   type MessageSearchHit,
 } from "@/api/generated";
 import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
+import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useSetting } from "@/hooks/useSetting";
+import { SETTINGS_ANCHORS } from "@/components/settings/settings-anchor-ids";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { installCliCommand } from "@/lib/cli/cli-install";
 import { DEFAULT_WORKTREE_MODE_KEY, type DefaultWorktreeMode } from "@/lib/default-worktree-mode";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
@@ -38,6 +40,8 @@ export interface PaletteOperations {
   openConversation: (projectId: number, featureId: number) => void;
   createConversation: (options: CreateConversationOptions) => Promise<void>;
   addProject: () => Promise<void>;
+  /** Puts the `cadencr` command on PATH, or says why it can't. */
+  installCli: () => Promise<void>;
   setPinned: (featureId: number, pinned: boolean) => void;
   restore: (featureId: number) => void;
   /** Opens `path` in the open conversation's editor (Neovim when it runs there). */
@@ -74,7 +78,7 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
     void invalidateByUrlPrefix(queryClient, "/api/search");
   }, [queryClient]);
   const { mutateAsync: createFeature } = useCreateFeature();
-  const { mutateAsync: createProject } = useCreateProject();
+  const addProjectAtPath = useAddProjectAtPath();
   const { mutateAsync: setProjectSetting } = useSetProjectSetting();
   const onWriteError = (fallback: string) => (error: unknown) =>
     toast.error(apiErrorMessage(error, fallback));
@@ -124,15 +128,20 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
     try {
       const folder = await desktopBridge.pickDirectory();
       if (!folder) return;
-      await createProject({
-        data: { name: folder.split("/").pop() || folder, path: folder },
-      });
-      void invalidateByUrlPrefix(queryClient, "/api/projects");
+      await addProjectAtPath(folder);
       toast.success("Project added");
     } catch (error) {
       toast.error(apiErrorMessage(error, "Couldn't add the project"));
     }
-  }, [createProject, queryClient]);
+  }, [addProjectAtPath]);
+
+  const installCli = useCallback(
+    () =>
+      installCliCommand(queryClient, () => {
+        void navigate({ to: "/settings", search: { section: SETTINGS_ANCHORS.commandLine } });
+      }),
+    [navigate, queryClient],
+  );
 
   const openMessage = useCallback(
     (hit: MessageSearchHit, query: string) => {
@@ -148,6 +157,7 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
       openConversation,
       createConversation,
       addProject,
+      installCli,
       setPinned: (featureId: number, pinned: boolean) =>
         updatePinned({ id: featureId, data: { pinned } }),
       restore: (featureId: number) => updateStatus({ id: featureId, data: { status: "active" } }),
@@ -157,6 +167,7 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
     [
       addProject,
       createConversation,
+      installCli,
       openConversation,
       openFile,
       openMessage,

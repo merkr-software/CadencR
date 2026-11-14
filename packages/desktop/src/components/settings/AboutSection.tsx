@@ -6,7 +6,8 @@ import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateIn
 import { Button } from "@/components/ui/button";
 import { APP_VERSION } from "@/lib/app-version";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { useUpdateStore, type UpdateStatus } from "@/stores/update-store";
+import { updateStatusMessage } from "@/lib/update-status-message";
+import { useUpdateStore } from "@/stores/update-store";
 import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
 import { SettingsPageSection } from "./SettingsPageSection";
@@ -87,34 +88,4 @@ export function AboutSection(): React.JSX.Element {
       </SettingsGroup>
     </SettingsPageSection>
   );
-}
-
-function updateStatusMessage(
-  status: UpdateStatus,
-  detail: {
-    progress: number;
-    version: string | null;
-    error: string | null;
-    unsupportedMessage: string | null;
-  },
-): string {
-  switch (status) {
-    case "checking":
-      return "Checking for updates…";
-    case "downloading":
-      return `Downloading update${detail.version ? ` v${detail.version}` : ""}… ${Math.round(detail.progress)}%`;
-    case "downloaded":
-      return `Update v${detail.version ?? ""} ready. Restart to install.`;
-    case "up-to-date":
-      return "You're on the latest version.";
-    case "available":
-      return `Update v${detail.version ?? ""} available.`;
-    case "error":
-      return detail.error ? `Update check failed: ${detail.error}` : "Update check failed.";
-    case "unsupported":
-      return detail.unsupportedMessage ?? "In-app updates are unavailable for this install.";
-    case "idle":
-    default:
-      return "";
-  }
 }
