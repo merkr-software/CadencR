@@ -13,6 +13,7 @@ import {
   PaletteIcon,
   SettingsIcon,
   SquarePenIcon,
+  SquareTerminalIcon,
 } from "lucide-react";
 import type { Project } from "@/api/generated";
 import {
@@ -39,6 +40,7 @@ export interface PaletteCommandContext {
   projects: readonly Project[];
   createConversation: (projectId: number) => void;
   addProject: () => void;
+  installCli: () => void;
 }
 
 type Navigate = ReturnType<typeof useNavigate>;
@@ -155,6 +157,15 @@ function createCommands(context: PaletteCommandContext): PaletteCommand[] {
       keywords: ["new project", "folder", "repository", "open"],
       description: "Choose a folder to add as a project.",
       run: context.addProject,
+    });
+    commands.push({
+      id: "install-cli",
+      title: "Install the cadencr command",
+      group: "Settings",
+      icon: <SquareTerminalIcon />,
+      keywords: ["cli", "shell command", "path", "terminal", "open from terminal"],
+      description: "Run cadencr open, add, update and serve from a terminal.",
+      run: context.installCli,
     });
   }
   return commands;

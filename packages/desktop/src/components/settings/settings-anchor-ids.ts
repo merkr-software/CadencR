@@ -21,6 +21,7 @@ export const SETTINGS_ANCHORS = {
   agentOutput: "agent-output",
   autoNaming: "auto-naming",
   restarts: "agent-restarts",
+  commandLine: "command-line",
   providerConfig: "provider-config",
   providerConnector: "provider-connector",
   editing: "editing",

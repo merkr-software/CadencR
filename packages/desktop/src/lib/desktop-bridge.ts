@@ -155,6 +155,15 @@ const browserBridge: CadencrBrowserBridge = {
   notchPushSnapshot: () => Promise.resolve(),
   notchNotify: () => unavailable("notchNotify"),
   onNotchDismissed: () => () => undefined,
+  drainCliRequests: () => Promise.resolve([]),
+  onCliRequestsPending: () => () => undefined,
+  cliInstallStatus: () =>
+    Promise.resolve({
+      state: "unavailable",
+      reason: "The cadencr command is installed from the desktop app.",
+    }),
+  installCli: () => unavailable("installCli"),
+  uninstallCli: () => unavailable("uninstallCli"),
 
   createBrowserTab: () => unavailable("createBrowserTab"),
   listBrowserTabs: () => unavailable("listBrowserTabs"),

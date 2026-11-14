@@ -118,6 +118,8 @@ test("real Turbo plans keep official providers out of executable application tas
   }
 });
 
+// The `cadencr` CLI built from packages/cli for this app (see cadencr open/serve).
+const bundledCli = { from: "resources/bin/${arch}/cadencr", to: "bin/cadencr" };
 const sidecarSources = ["resources/bin/cadencr-service", "resources/bin/${arch}/cadencr-service"];
 // The notch-island AppKit addon (packages/desktop/electron/mac-native-addon.ts).
 const macWindowAddon = { from: "resources/native", to: "native", filter: ["*.node"] };
@@ -131,6 +133,7 @@ export function assertAppOnlyResources(config) {
   assert.ok(sidecarSources.includes(source), `unreviewed sidecar source: ${source}`);
   assert.deepEqual(config.extraResources, [
     { from: source, to: "cadencr-service" },
+    bundledCli,
     { from: "out/renderer", to: "renderer", filter: ["**/*", "!**/*.map"] },
     macWindowAddon,
     linuxWindowIcon,
@@ -141,6 +144,7 @@ const resourceFixture = (source) => ({
   files: ["out/**/*", "!**/*.map", "!out/renderer/**", "package.json"],
   extraResources: [
     { from: source, to: "cadencr-service" },
+    { ...bundledCli },
     { from: "out/renderer", to: "renderer", filter: ["**/*", "!**/*.map"] },
     { ...macWindowAddon, filter: [...macWindowAddon.filter] },
     { ...linuxWindowIcon },

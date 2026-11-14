@@ -34,6 +34,12 @@ function fixture(t) {
       'exit "${SMOKE_SIDECAR_STATUS:-0}"',
       "SH",
       "chmod +x squashfs-root/resources/cadencr-service",
+      "mkdir -p squashfs-root/resources/bin",
+      "cat > squashfs-root/resources/bin/cadencr <<'SH'",
+      "#!/bin/bash",
+      'test "$1" = --version || exit 92',
+      "SH",
+      "chmod +x squashfs-root/resources/bin/cadencr",
     ].join("\n"),
     { mode: 0o644 },
   );

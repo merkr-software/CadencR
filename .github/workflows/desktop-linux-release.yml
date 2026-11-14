@@ -2,7 +2,10 @@ name: Release Linux desktop alpha
 
 # Linux ships as an alpha, by hand. desktop-release.yml publishes macOS on every
 # `v*` tag; this workflow then builds that tag for Linux and attaches the
-# packages to its published release, flagging them as alpha in the notes. A
+# packages to its published release, flagging them as alpha in the notes. It
+# also attaches the server archive (`cadencr-server-<version>-linux-x64.tar.gz`
+# and its `.sha256`) that `cadencr serve` runs from on machines without a
+# desktop session, and that `cadencr update` installs there. A
 # release left without Linux packages keeps Linux installs where they are: the
 # updater reads a missing latest-linux.yml as "no update".
 on:
@@ -61,7 +64,7 @@ jobs:
       - name: Check the release can take the Linux alpha
         run: |
           if ! release="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
-            --jq '[.isDraft, ([.assets[].name | select(test("\\.(AppImage|deb|rpm)$") or . == "latest-linux.yml")] | length)] | @tsv')"; then
+            --jq '[.isDraft, ([.assets[].name | select(test("\\.(AppImage|deb|rpm)$") or startswith("cadencr-server-") or . == "latest-linux.yml")] | length)] | @tsv')"; then
             echo "No GitHub release for $RELEASE_TAG: publish it with desktop-release.yml first" >&2
             exit 1
           fi
@@ -195,6 +198,27 @@ jobs:
           pnpm --filter @cadencr/service smoke:packaged-sidecar \
             "$GITHUB_WORKSPACE/packages/desktop/resources/bin/x64/cadencr-service"
 
+      # build:sidecars also builds the bundled `cadencr` CLI beside the service.
+      - name: Package the server archive
+        run: |
+          bash scripts/package-server-archive.sh "${RELEASE_TAG#v}" linux-x64 \
+            packages/desktop/resources/bin/x64/cadencr \
+            packages/desktop/resources/bin/x64/cadencr-service \
+            packages/desktop/out/renderer \
+            dist-server
+
+      - name: Load server archive smoke test from workflow commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/smoke-server-archive.sh?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-smoke-server-archive.sh"
+          test -s "$RUNNER_TEMP/cadencr-smoke-server-archive.sh"
+
+      - name: Smoke test the server archive
+        run: bash "$RUNNER_TEMP/cadencr-smoke-server-archive.sh" "dist-server/cadencr-server-${RELEASE_TAG#v}-linux-x64.tar.gz"
+
       - name: Build Linux AppImage, DEB, and RPM
         run: |
           pnpm --filter @cadencr/desktop exec electron-builder \
@@ -217,8 +241,10 @@ jobs:
       - name: Smoke test Linux packages
         run: bash "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh" packages/desktop/dist-electron "${RELEASE_TAG#v}" x64
 
-      - name: Stage renderer diagnostics beside Linux packages
-        run: cp packages/desktop/diagnostics/*-renderer-diagnostics.tar.gz packages/desktop/dist-electron/
+      - name: Stage renderer diagnostics and the server archive beside Linux packages
+        run: |
+          cp packages/desktop/diagnostics/*-renderer-diagnostics.tar.gz packages/desktop/dist-electron/
+          cp dist-server/cadencr-server-* packages/desktop/dist-electron/
 
       # actions/upload-artifact@v4.6.2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -233,6 +259,7 @@ jobs:
             packages/desktop/dist-electron/*.rpm
             packages/desktop/dist-electron/latest-linux.yml
             packages/desktop/dist-electron/*-renderer-diagnostics.tar.gz
+            packages/desktop/dist-electron/cadencr-server-*
 
   attach:
     needs: build
@@ -260,7 +287,9 @@ jobs:
             "dist/Cadencr-${version}-amd64.deb" \
             "dist/Cadencr-${version}-x86_64.rpm" \
             "dist/latest-linux.yml" \
-            "dist/Cadencr-${version}-linux-renderer-diagnostics.tar.gz"
+            "dist/Cadencr-${version}-linux-renderer-diagnostics.tar.gz" \
+            "dist/cadencr-server-${version}-linux-x64.tar.gz" \
+            "dist/cadencr-server-${version}-linux-x64.tar.gz.sha256"
 
       - name: Verify uploaded Linux alpha assets
         run: |
@@ -272,7 +301,9 @@ jobs:
             "Cadencr-${version}-amd64.deb" \
             "Cadencr-${version}-x86_64.rpm" \
             "latest-linux.yml" \
-            "Cadencr-${version}-linux-renderer-diagnostics.tar.gz"; do
+            "Cadencr-${version}-linux-renderer-diagnostics.tar.gz" \
+            "cadencr-server-${version}-linux-x64.tar.gz" \
+            "cadencr-server-${version}-linux-x64.tar.gz.sha256"; do
             if ! grep -Fxq "$asset" "$RUNNER_TEMP/uploaded-release-assets.txt"; then
               echo "Uploaded GitHub release is missing asset: $asset" >&2
               exit 1
@@ -309,5 +340,7 @@ jobs:
           \`\`\`
 
           Official AppImage, DEB, and RPM installs receive updates through CadencR. DEB and RPM updates may request administrator authentication when the new package is installed.
+
+          For a Linux server without a desktop session, \`cadencr-server-${version}-linux-x64.tar.gz\` runs CadencR headless for paired devices: unpack it, then run \`cadencr-server/bin/cadencr serve\`. \`cadencr update\` installs later server archives.
           MD
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"

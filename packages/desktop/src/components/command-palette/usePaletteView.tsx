@@ -85,6 +85,7 @@ function useSurfaceData(props: PaletteSurfaceProps) {
       projects: sources.projects,
       createConversation: (projectId: number) => void ops.createConversation({ projectId }),
       addProject: () => void ops.addProject(),
+      installCli: () => void ops.installCli(),
     }),
     [ops, props.activeFeatureId, props.activeProjectId, sources.projects],
   );

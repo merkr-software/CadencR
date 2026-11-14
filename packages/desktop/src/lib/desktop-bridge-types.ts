@@ -6,6 +6,7 @@ import type {
   NotchNotification,
   NotchSnapshot,
 } from "@/shared/notch";
+import type { CliInstallOptions, CliInstallStatus, CliRendererItem } from "@/shared/cli-bridge";
 import type { ChangelogImageBytes } from "@/shared/changelog-image";
 import type { RendererErrorReportPayload } from "@/shared/renderer-error";
 import type { LinkHoverContext, LinkMenuOpenPayload } from "@/lib/link-routing";
@@ -185,6 +186,12 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
   notchPushSnapshot: (snapshot: NotchSnapshot) => Promise<void>;
   notchNotify: (notification: NotchNotification) => Promise<void>;
   onNotchDismissed: (cb: (ref: NotchFeatureRef) => void) => () => void;
+  // The `cadencr` command line; off the shell no request ever arrives.
+  drainCliRequests: () => Promise<CliRendererItem[]>;
+  onCliRequestsPending: (cb: () => void) => () => void;
+  cliInstallStatus: () => Promise<CliInstallStatus>;
+  installCli: (options: CliInstallOptions) => Promise<CliInstallStatus>;
+  uninstallCli: () => Promise<CliInstallStatus>;
   createBrowserTab: (
     url?: string,
     profileId?: string,

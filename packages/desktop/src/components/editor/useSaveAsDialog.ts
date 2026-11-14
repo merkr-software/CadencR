@@ -10,6 +10,7 @@
  */
 import { useCallback } from "react";
 import { toast } from "sonner";
+import { relativeToProject } from "@/lib/relative-path";
 import { useWriteFile, useGetFeatureWorkingDir } from "@/api/generated";
 import { useEditorStore } from "@/stores/editor-store";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -27,19 +28,6 @@ interface SaveAsDialogResult {
   saveAs: (untitledPath: string, suggestedName: string, content: string) => Promise<void>;
   /** Loading state for the write API call — surface in the status bar. */
   isSaving: boolean;
-}
-
-/** Strip the project root prefix from an absolute path, handling both
- *  POSIX (`/`) and Windows (`\\`) separators. Returns `null` when the
- *  absolute path doesn't live under the project root. */
-export function relativeToProject(absPath: string, projectRoot: string): string | null {
-  const normalizedRoot = projectRoot.replace(/[\\/]+$/, "");
-  if (absPath === normalizedRoot) return "";
-  const withSep = `${normalizedRoot}/`;
-  const withSepBack = `${normalizedRoot}\\`;
-  if (absPath.startsWith(withSep)) return absPath.slice(withSep.length);
-  if (absPath.startsWith(withSepBack)) return absPath.slice(withSepBack.length);
-  return null;
 }
 
 export function useSaveAsDialog({

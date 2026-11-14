@@ -13,6 +13,7 @@ const ops = vi.hoisted(() => ({
   openConversation: vi.fn(),
   createConversation: vi.fn(() => Promise.resolve()),
   addProject: vi.fn(() => Promise.resolve()),
+  installCli: vi.fn(() => Promise.resolve()),
   setPinned: vi.fn(),
   restore: vi.fn(),
   openFile: vi.fn(),

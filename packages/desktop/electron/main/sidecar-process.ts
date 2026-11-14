@@ -62,7 +62,10 @@ export function describeServiceFailure(
 export async function assertPortAvailable(port: number): Promise<void> {
   const available = await isPortAvailable(port);
   if (!available) {
-    throw new Error(`cadencr-service cannot start because 127.0.0.1:${port} is already in use.`);
+    throw new Error(
+      `cadencr-service cannot start because 127.0.0.1:${port} is already in use. ` +
+        "A headless Cadencr started with `cadencr serve` uses this port: stop it, or quit the other program using it.",
+    );
   }
 }
 

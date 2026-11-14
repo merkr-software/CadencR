@@ -45,7 +45,7 @@ pub(crate) fn write_stdout(bytes: &[u8], output: &mut impl Write) -> Result<(), 
         .and_then(|()| output.flush())
         .map_err(|error| Diagnostic {
             code: "OUTPUT_WRITE_FAILED",
-            message: format!("failed to write index to stdout: {error}"),
+            message: format!("failed to write to stdout: {error}"),
             exit_code: 3,
         })
 }

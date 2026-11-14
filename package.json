@@ -23,7 +23,7 @@
     "lint": "pnpm run check:provider-boundaries && node scripts/cargo-env.mjs turbo run lint",
     "check:provider-boundaries": "node scripts/check-provider-boundaries.mjs",
     "vendor:tab-packages": "node scripts/vendor-tab-packages.mjs",
-    "test:release-scripts": "env -u BASH_ENV bash scripts/release-notes.test.sh && env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh && env -u BASH_ENV bash scripts/desktop-release-workflow.test.sh && env -u BASH_ENV bash scripts/package-cli-release.test.sh",
+    "test:release-scripts": "env -u BASH_ENV bash scripts/release-notes.test.sh && env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh && env -u BASH_ENV bash scripts/desktop-release-workflow.test.sh && env -u BASH_ENV bash scripts/package-cli-release.test.sh && env -u BASH_ENV bash scripts/package-server-archive.test.sh",
     "format": "turbo run format",
     "format:check": "turbo run format:check",
     "start": "node scripts/dev.mjs --filter=@cadencr/desktop",

@@ -815,10 +815,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cadencr-app-paths"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "tempfile",
+]
+
+[[package]]
 name = "cadencr-cli"
 version = "0.15.8"
 dependencies = [
  "bon",
+ "cadencr-app-paths",
  "cadencr-plugin-core",
  "cadencr-registry-core",
  "cadencr-registry-publisher",
@@ -827,9 +836,12 @@ dependencies = [
  "clap",
  "flate2",
  "libc",
+ "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tar",
  "tempfile",
  "tokio",
 ]
@@ -935,6 +947,7 @@ dependencies = [
  "base64 0.23.1",
  "bon",
  "bzip2 0.6.1",
+ "cadencr-app-paths",
  "cadencr-plugin-core",
  "cadencr-registry-core",
  "cadencr-registry-publisher",

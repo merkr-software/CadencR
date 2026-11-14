@@ -26,6 +26,7 @@ import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
 import type { RendererErrorReportPayload } from "../../src/shared/renderer-error";
 import type { AppCloseChoice, AppCloseRequest } from "../../src/shared/app-close";
 import type { ServiceStatus } from "../../src/shared/service-status";
+import { cliHostBridge } from "./cli-host-bridge";
 import { notchHostBridge } from "./notch-host-bridge";
 import { installPluginTabPortRelay, pluginTabsHostBridge } from "./plugin-tabs-host-bridge";
 
@@ -419,6 +420,7 @@ contextBridge.exposeInMainWorld("cadencr", {
     ipcRenderer.invoke("app:fetch-changelog-image", src),
   onUpdateEvent,
   ...notchHostBridge(onIpc),
+  ...cliHostBridge(onIpc),
   ...pluginTabsHostBridge(onIpc),
 });
 

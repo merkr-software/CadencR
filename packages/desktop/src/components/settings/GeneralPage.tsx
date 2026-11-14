@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { ResolvedKbdChord } from "@/components/KbdShortcut";
 import { useZoom } from "@/hooks/useZoom";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
+import { isDesktopShell } from "@/lib/desktop-bridge";
+import { CommandLineRow } from "./CommandLineRow";
 import { RestartResumeToggle } from "./RestartResumeToggle";
 import { WorkspaceJsonSettings } from "./SettingsJsonControls";
 import { SettingsGroup } from "./SettingsGroup";
@@ -23,6 +25,11 @@ export function GeneralPage(): React.JSX.Element {
       <SettingsGroup id={SETTINGS_ANCHORS.restarts} title="Restarts">
         <RestartResumeToggle />
       </SettingsGroup>
+      {isDesktopShell() ? (
+        <SettingsGroup id={SETTINGS_ANCHORS.commandLine} title="Command line">
+          <CommandLineRow />
+        </SettingsGroup>
+      ) : null}
       <SettingsGroup
         id={SETTINGS_ANCHORS.settingsFile}
         title="Advanced"
