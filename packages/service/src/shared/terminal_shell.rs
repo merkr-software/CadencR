@@ -326,7 +326,11 @@ mod tests {
 while [ "$#" -gt 1 ]; do shift; done
 echo "rc: Update? [Y/n]"
 read -r answer; echo "rc stdin read=$?"
-read -r answer </dev/tty 2>/dev/null; echo "rc tty read=$?"
+if read -r answer 2>/dev/null </dev/tty; then
+    echo "rc tty read succeeded"
+else
+    echo "rc tty read refused"
+fi
 if [ -t 1 ]; then read -r answer <&1; fi; echo "rc stdout-terminal read done"
 exec /bin/sh -c "$1"
 "#,
@@ -347,16 +351,9 @@ exec /bin/sh -c "$1"
             assert_non_interactive(exit, &lines, true);
             assert!(has(&lines, "rc: Update? [Y/n]"), "{lines:?}");
             assert!(has(&lines, "rc stdin read=1"), "{lines:?}");
-            // POSIX only promises a nonzero status: macOS sh returns 1,
-            // while Linux dash returns 2 when /dev/tty cannot be opened.
-            assert!(
-                lines.iter().any(|line| line
-                    .trim()
-                    .strip_prefix("rc tty read=")
-                    .and_then(|status| status.parse::<u8>().ok())
-                    .is_some_and(|status| status > 0)),
-                "{lines:?}"
-            );
+            // Redirection failures use shell-specific exit codes (dash uses
+            // 2, bash uses 1); either must refuse the unattended read.
+            assert!(has(&lines, "rc tty read refused"), "{lines:?}");
             assert!(has(&lines, "rc stdout-terminal read done"), "{lines:?}");
         }
 

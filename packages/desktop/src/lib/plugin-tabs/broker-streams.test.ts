@@ -50,6 +50,21 @@ afterEach(() => {
 });
 
 describe("PluginStreamSocket", () => {
+  it("sends backend calls on the authenticated socket and never replays them", async () => {
+    const { sockets, streams } = setup();
+    const call = streams.backendRequest({ method: "increment", params: null }, 500);
+    await until(() => sockets.length === 1);
+    const socket = sockets[0]!;
+    socket.open();
+    await until(() => socket.sent.length === 1);
+    const request = socket.lastRequest();
+    expect(request).toMatchObject({ action: "backend.request", payload: { method: "increment" } });
+    socket.drop();
+    await expect(call).rejects.toMatchObject({ code: "DISCONNECTED" });
+    expect(sockets).toHaveLength(1);
+    streams.dispose();
+  });
+
   it("subscribes over the plugin socket and forwards events under a local id", async () => {
     const { sockets, sink, streams } = setup();
     const subscribing = streams.subscribe("git.status");

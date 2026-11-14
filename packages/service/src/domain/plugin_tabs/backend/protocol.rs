@@ -20,6 +20,7 @@ use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+use super::events::Events;
 use super::handshake::{self, Handshake, HandshakeState};
 use super::history::History;
 use super::lines::{next_line, Line};
@@ -66,6 +67,9 @@ pub(super) async fn write_stdin(
 
 /// The backend's stdout: its `ready` line, then responses.
 pub(super) struct Stdout {
+    pub stop: CancellationToken,
+    pub events: Events,
+    pub run_id: String,
     pub stdout: ChildStdout,
     pub pending: Pending,
     pub history: Arc<History>,
@@ -81,6 +85,9 @@ pub(super) async fn read_stdout(
         history,
         handshake,
         protocol,
+        events,
+        run_id,
+        stop,
     }: Stdout,
 ) {
     let mut reader = BufReader::new(stdout);
@@ -96,20 +103,88 @@ pub(super) async fn read_stdout(
     if !ready {
         return;
     }
-    while let Ok(Some(line)) = next_line(&mut reader, MAX_LINE_BYTES).await {
+    let consumer = Consumer {
+        pending,
+        history,
+        events,
+        run_id,
+    };
+    loop {
+        let line = tokio::select! {
+            biased;
+            () = stop.cancelled() => return,
+            line = next_line(&mut reader, MAX_LINE_BYTES) => line,
+        };
+        match line {
+            Ok(Some(line)) => consumer.receive(line, protocol),
+            Ok(None) => return,
+            Err(error) => {
+                let message = format!("backend stdout could not be read: {error}");
+                consumer.history.push_stderr(&message);
+                consumer
+                    .events
+                    .error(&consumer.run_id, "PLUGIN_BACKEND_STREAM_CLOSED", &message);
+                return;
+            }
+        }
+    }
+}
+
+struct Consumer {
+    pending: Pending,
+    history: Arc<History>,
+    events: Events,
+    run_id: String,
+}
+
+impl Consumer {
+    fn receive(&self, line: Line, protocol: u32) {
+        let Self {
+            pending,
+            history,
+            events,
+            run_id,
+        } = self;
         let text = match line {
             Line::Text(bytes) => bytes,
             Line::TooLong => {
+                events.error(
+                    run_id,
+                    "PLUGIN_BACKEND_EVENT_INVALID",
+                    "backend stdout line exceeds 4 MiB",
+                );
                 history.push_stderr(format!(
                     "[cadencr] dropped a stdout line over {} MiB",
                     MAX_LINE_BYTES / (1024 * 1024)
                 ));
-                continue;
+                return;
             }
         };
+        if serde_json::from_slice::<Value>(&text)
+            .ok()
+            .is_some_and(|value| value["type"] == "event")
+        {
+            if protocol != 2 {
+                history.push_stderr("[cadencr] protocol 1 cannot emit events");
+                events.error(
+                    run_id,
+                    "PLUGIN_BACKEND_EVENTS_UNSUPPORTED",
+                    "protocol 1 cannot emit events",
+                );
+            } else {
+                match cadencr_tab_backend::protocol::parse_event(&text) {
+                    Ok(event) => events.emit(run_id, event),
+                    Err(error) => {
+                        history.push_stderr(format!("[cadencr] invalid backend event: {error}"));
+                        events.error(run_id, "PLUGIN_BACKEND_EVENT_INVALID", &error.to_string())
+                    }
+                }
+            }
+            return;
+        }
         match parse_response(&text) {
             Some((id, response)) => {
-                if let Some(waiter) = lock(&pending).remove(&id) {
+                if let Some(waiter) = lock(pending).remove(&id) {
                     let _ = waiter.send(Reply::Response(response));
                 }
             }

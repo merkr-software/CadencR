@@ -6,9 +6,8 @@ import {
 } from "@/lib/vim-mode-level";
 
 /**
- * The active vim mode level, read consistently everywhere it matters:
- * `EditorPane` (CodeMirror vs. full Neovim) and the settings UI. Introduced
- * so both never disagree about what an unset or stale setting value means.
+ * CodeMirror's Vim motions and the legacy full-Neovim selection.
+ * An explicit editor_backend takes precedence over the legacy level.
  */
 export function useVimModeLevel(): VimModeLevel {
   const { value } = useSetting(EDITOR_VIM_MODE_LEVEL_KEY);

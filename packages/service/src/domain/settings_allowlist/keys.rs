@@ -263,6 +263,7 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     crate::remote::REMOTE_TUNNEL_HOST_SETTING,
     // Neovim Power Mode intensity (Phase 1a). One of "off", "basic", "arcade".
     "editor_vim_mode_level",
+    "editor_backend",
 ];
 
 /// Prefixes whose suffix is a free-form `<provider>_<model-id>` identifier.

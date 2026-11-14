@@ -394,6 +394,16 @@ mod tests {
     }
 
     #[test]
+    fn v2_native_backends_are_accepted() {
+        let findings = check_backend(
+            2,
+            &[("linux-x86_64", "bin/linux-x86_64/backend")],
+            Some("Publishes realtime updates."),
+        );
+        assert!(findings.is_valid(), "{findings:?}");
+    }
+
+    #[test]
     fn backends_name_a_native_binary_per_known_platform() {
         let all = [
             ("darwin-aarch64", "bin/darwin-aarch64/backend"),
@@ -402,9 +412,11 @@ mod tests {
         ];
         assert!(check_backend(1, &all, Some("r")).is_valid());
         assert!(check_backend(1, &all[2..], Some("r")).is_valid());
-        let unsupported = check_backend(2, &all, Some("r"));
+        let unsupported = check_backend(3, &all, Some("r"));
         assert_eq!(codes(&unsupported.errors), ["BACKEND_PROTOCOL_UNSUPPORTED"]);
-        assert!(unsupported.errors[0].message.contains("protocol 1; got 2"));
+        assert!(unsupported.errors[0]
+            .message
+            .contains("protocol 1, 2; got 3"));
         assert_eq!(
             codes(&check_backend(1, &[], None).errors),
             ["BACKEND_BINARY_REQUIRED", "BACKEND_REASONING_REQUIRED"]

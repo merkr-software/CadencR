@@ -11,16 +11,12 @@ import {
   type CreateFeatureRequest,
   type MessageSearchHit,
 } from "@/api/generated";
-import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
-import { useSetting } from "@/hooks/useSetting";
+import { useEditorFileNavigator } from "@/hooks/useOpenEditorFile";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { DEFAULT_WORKTREE_MODE_KEY, type DefaultWorktreeMode } from "@/lib/default-worktree-mode";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { requestConversationFind } from "@/stores/conversation-find-request-store";
-import { useEditorStore } from "@/stores/editor-store";
-import { DEFAULT_MAX_TABS } from "@/stores/editor-store-types";
-import { activateBuiltinFeatureTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { activateFeatureTab } from "@/stores/feature-layout-store";
 
 /** How a new conversation gets its working copy. */
@@ -40,33 +36,19 @@ export interface PaletteOperations {
   addProject: () => Promise<void>;
   setPinned: (featureId: number, pinned: boolean) => void;
   restore: (featureId: number) => void;
-  /** Opens `path` in the open conversation's editor (Neovim when it runs there). */
+  /** Opens `path` in the open conversation's editor using its selected editor. */
   openFile: (featureId: number, path: string) => void;
   openMessage: (hit: MessageSearchHit, query: string) => void;
 }
 
-/** Opens `path` in a conversation's editor: Neovim's own buffers when it runs there. */
-function useOpenFile(activeFeatureId: number | null): PaletteOperations["openFile"] {
-  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
-  const openInNeovim = useOpenFileInNeovim(activeFeatureId ?? 0);
-  return useCallback(
-    (featureId: number, path: string) => {
-      activateBuiltinFeatureTab(featureId, "editor");
-      if (openInNeovim && featureId === activeFeatureId) {
-        openInNeovim(path);
-        return;
-      }
-      const editor = useEditorStore.getState();
-      const paneId = editor.features[featureId]?.activePaneId ?? "main";
-      const maxTabs = Number.parseInt(maxTabsSetting ?? "", 10) || DEFAULT_MAX_TABS;
-      editor.openFile(featureId, paneId, path, maxTabs);
-    },
-    [activeFeatureId, maxTabsSetting, openInNeovim],
-  );
+/** Open through the conversation's selected editor, including cold surfaces. */
+function useOpenFile(): PaletteOperations["openFile"] {
+  const navigate = useEditorFileNavigator();
+  return useCallback((featureId, path) => navigate(featureId, { path }), [navigate]);
 }
 
 /** What the palette does to the app; every failure ends in a toast. */
-export function usePaletteOperations(activeFeatureId: number | null): PaletteOperations {
+export function usePaletteOperations(_activeFeatureId: number | null): PaletteOperations {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const refresh = useCallback(() => {
@@ -84,7 +66,7 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
   const { mutate: updateStatus } = useUpdateFeatureStatus({
     mutation: { onSuccess: refresh, onError: onWriteError("Couldn't restore the conversation") },
   });
-  const openFile = useOpenFile(activeFeatureId);
+  const openFile = useOpenFile();
 
   const openConversation = useCallback(
     (projectId: number, featureId: number) => {

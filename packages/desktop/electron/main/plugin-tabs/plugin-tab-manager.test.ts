@@ -63,8 +63,20 @@ function createGuest(options: PluginTabGuestOptions): PluginTabGuest {
 }
 
 function fakeWindow() {
+  const listeners = new Map<string, Set<() => void>>();
   const win = {
     isDestroyed: () => false,
+    on: vi.fn((event: string, callback: () => void) => {
+      const handlers = listeners.get(event) ?? new Set();
+      handlers.add(callback);
+      listeners.set(event, handlers);
+    }),
+    removeListener: vi.fn((event: string, callback: () => void) =>
+      listeners.get(event)?.delete(callback),
+    ),
+    emitNative: (event: string) => {
+      for (const callback of listeners.get(event) ?? []) callback();
+    },
     getBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }),
     getContentBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }),
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
@@ -412,4 +424,47 @@ describe("PluginTabPorts", () => {
     expect(createChannel).not.toHaveBeenCalled();
     expect(guest.postMessage).not.toHaveBeenCalled();
   });
+});
+
+describe("shared plugin surfaces", () => {
+  it("keeps tab and editor instances separate and refuses reusing an identity", () => {
+    const host = manager();
+    host.open("7:plugin:graph", "graph", { kind: "tab" });
+    host.open("7:editor:graph", "graph", { kind: "editor" });
+    expect(guests).toHaveLength(2);
+    expect(() => host.open("7:plugin:graph", "graph", { kind: "editor" })).toThrow(/surface/i);
+    host.close("7:editor:graph");
+    expect(guests[0]?.destroyed).toBe(false);
+    expect(guests[1]?.destroyed).toBe(true);
+  });
+
+  it("reports focus changes and clears focus when a surface is hidden", () => {
+    const host = manager();
+    host.open("7:editor:graph", "graph", { kind: "editor" });
+    host.setBounds("7:editor:graph", BOUNDS);
+    host.setVisible("7:editor:graph", true);
+    guests[0]?.options.hooks.focusChanged?.(true);
+    host.setVisible("7:editor:graph", false);
+    expect(events()).toContainEqual({ instanceId: "7:editor:graph", type: "focused" });
+    expect(events()).toContainEqual({ instanceId: "7:editor:graph", type: "blurred" });
+  });
+});
+
+it("updates focus across native windows and releases window listeners on teardown", () => {
+  const host = manager();
+  host.open("7:editor:graph", "graph", { kind: "editor" });
+  host.setBounds("7:editor:graph", BOUNDS);
+  host.setVisible("7:editor:graph", true);
+  if (guests[0]) guests[0].focused = true;
+  host.focus("7:editor:graph");
+  expect(events().at(-1)).toEqual({ instanceId: "7:editor:graph", type: "focused" });
+  win.emitNative("blur");
+  expect(events().at(-1)).toEqual({ instanceId: "7:editor:graph", type: "blurred" });
+  win.emitNative("focus");
+  expect(events().at(-1)).toEqual({ instanceId: "7:editor:graph", type: "focused" });
+  host.destroyAll();
+  expect(win.removeListener).toHaveBeenCalledTimes(2);
+  const count = events().length;
+  win.emitNative("focus");
+  expect(events()).toHaveLength(count);
 });

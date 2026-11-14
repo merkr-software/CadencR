@@ -351,6 +351,16 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_v2_backend_tab_entry_is_supported() {
+        let mut value = package();
+        tab(&mut value)["backend"]["protocol"] = json!(2);
+        crate::validate_marketplace_package(&value).unwrap();
+        let backend = signed_tab_backend(&value).unwrap().unwrap();
+        assert_eq!(backend.protocol, 2);
+        assert_eq!(backend.targets.len(), 3);
+    }
+
+    #[test]
     fn backend_and_binary_are_declared_together_and_closed() {
         assert!(rejected(|v| {
             tab(v).as_object_mut().unwrap().remove("backend");
@@ -362,7 +372,7 @@ pub(crate) mod tests {
                 .remove("binary");
         }));
         assert!(rejected(|v| tab(v)["backend"]["binary"] = json!({})));
-        assert!(rejected(|v| tab(v)["backend"]["protocol"] = json!(2)));
+        assert!(rejected(|v| tab(v)["backend"]["protocol"] = json!(3)));
         assert!(rejected(|v| tab(v)["backend"]["protocol"] = json!("1")));
         assert!(rejected(|v| tab(v)["backend"]["reasoning"] = json!(" ")));
         assert!(rejected(|v| tab(v)["backend"]["reasoning"] = json!("a\0b")));

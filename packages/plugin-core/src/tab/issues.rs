@@ -62,11 +62,13 @@ pub enum TabIssueCode {
     ShortcutDescriptionInvalid,
     ReplacesInvalid,
     ReplacesDuplicate,
+    EditorContributionInvalid,
 }
 
 impl TabIssueCode {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::EditorContributionInvalid => "EDITOR_CONTRIBUTION_INVALID",
             Self::ManifestUnreadable => "MANIFEST_UNREADABLE",
             Self::ManifestInvalidJson => "MANIFEST_INVALID_JSON",
             Self::SchemaVersionUnsupported => "SCHEMA_VERSION_UNSUPPORTED",

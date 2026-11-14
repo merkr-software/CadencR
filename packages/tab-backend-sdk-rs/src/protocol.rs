@@ -1,4 +1,4 @@
-//! Reference types of the stdio protocol, version [`PROTOCOL_VERSION`].
+//! Reference types of stdio protocol v1 and v2.
 //!
 //! One JSON object per `\n`-terminated UTF-8 line. The normative contract is
 //! `docs/TAB_BACKEND_PROTOCOL.md`; these types follow it exactly. Every type
@@ -15,8 +15,16 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The protocol version this crate speaks, sent in `hello` and `ready`.
+mod events;
+pub use events::{parse_event, Event, MAX_EVENT_BYTES, MAX_TOPIC_BYTES};
+
+/// The legacy/default protocol version, kept at 1 for existing SDK callers.
+/// The server supports both versions and echoes [`Hello::protocol`] in `ready`.
 pub const PROTOCOL_VERSION: u32 = 1;
+/// The protocol version that allows unsolicited [`Event`] messages.
+pub const EVENT_PROTOCOL_VERSION: u32 = 2;
+/// Protocol versions accepted by this SDK's server.
+pub const SUPPORTED_PROTOCOL_VERSIONS: [u32; 2] = [PROTOCOL_VERSION, EVENT_PROTOCOL_VERSION];
 
 /// Largest stdout line (without its `\n`) a host accepts from a backend.
 /// A longer line is dropped, so its request is never answered.
@@ -51,6 +59,8 @@ pub enum BackendMessage {
     /// Always the first line, exactly once, in answer to `hello`.
     Ready(Ready),
     Response(Response),
+    /// Unsolicited, only after `ready` with protocol 2.
+    Event(Event),
 }
 
 /// The first host line: who the backend serves and how it reaches Cadencr.

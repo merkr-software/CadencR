@@ -10,6 +10,8 @@ import { getPluginTabWsUrl } from "@/lib/ws-url";
 
 import { BrokerError, toBrokerError } from "./broker-errors";
 import type { GrantHolder } from "./broker-grant";
+import { asRecord, socketEventPayload, subscriptionPayload } from "./broker-stream-messages";
+import { SocketRequests } from "./broker-socket-requests";
 
 /** Close code the service uses when a grant is revoked or expires. */
 const POLICY_VIOLATION = 1008;
@@ -58,16 +60,7 @@ interface Subscription {
   lastSeq: number;
 }
 
-interface PendingReply {
-  resolve: (payload: Record<string, unknown>) => void;
-  reject: (error: BrokerError) => void;
-}
-
 const defaultSocketFactory: SocketFactory = (url, protocol) => new WebSocket(url, [protocol]);
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
 
 /**
  * The instance's plugin socket (§4.4), opened on the first subscription and
@@ -80,8 +73,10 @@ export class PluginStreamSocket {
   private socket: SocketLike | null = null;
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly byServerId = new Map<string, string>();
-  private readonly pending = new Map<string, PendingReply>();
+  private readonly requests = new SocketRequests();
   private nextLocalId = 1;
+  private activeCalls = 0;
+  private generation = 0;
   private opening: Promise<SocketLike> | null = null;
   private disposed = false;
   private readonly reconnectKey: string;
@@ -98,8 +93,12 @@ export class PluginStreamSocket {
     this.url = options.url ?? getPluginTabWsUrl;
   }
 
-  async subscribe(topic: string, params?: Record<string, unknown>): Promise<string> {
-    const localId = `s${this.nextLocalId++}`;
+  async subscribe(
+    topic: string,
+    params?: Record<string, unknown>,
+    backend = false,
+  ): Promise<string> {
+    const localId = `${backend ? "b" : "s"}${this.nextLocalId++}`;
     const subscription: Subscription = {
       topic,
       params,
@@ -117,6 +116,21 @@ export class PluginStreamSocket {
       throw error;
     } finally {
       subscription.binding = false;
+      this.closeIfIdle();
+    }
+  }
+
+  /** One attempt only. A disconnect or timeout never replays a backend method. */
+  async backendRequest(
+    payload: Record<string, unknown>,
+    timeoutMs: number,
+  ): Promise<Record<string, unknown>> {
+    this.activeCalls++;
+    try {
+      return await this.requests.send(await this.open(), "backend.request", payload, timeoutMs);
+    } finally {
+      this.activeCalls--;
+      this.closeIfIdle();
     }
   }
 
@@ -131,7 +145,7 @@ export class PluginStreamSocket {
       }
     }
     // Nothing left to stream: don't keep an idle authenticated socket open.
-    if (this.subscriptions.size === 0 && this.opening === null) this.closeSocket();
+    this.closeIfIdle();
   }
 
   /**
@@ -140,8 +154,9 @@ export class PluginStreamSocket {
    * subscribe.
    */
   reset(): void {
+    this.generation++;
     clearReconnect(this.reconnectKey);
-    this.rejectPending("The custom tab was reloaded");
+    this.requests.rejectAll("The custom tab was reloaded");
     this.subscriptions.clear();
     this.byServerId.clear();
     this.closeSocket();
@@ -167,21 +182,36 @@ export class PluginStreamSocket {
   }
 
   private async connect(): Promise<SocketLike> {
+    const generation = this.generation;
     const token = await this.grant.token();
-    if (this.disposed) throw new BrokerError("DISCONNECTED", "The custom tab was closed");
+    if (this.disposed || generation !== this.generation)
+      throw new BrokerError("DISCONNECTED", "The custom tab was closed or reloaded");
     const socket = this.createSocket(this.url(), `cadencr-plugin.${token}`);
     this.socket = socket;
     let opened = false;
     return new Promise<SocketLike>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new BrokerError("TIMEOUT", "The plugin socket did not open"));
+        socket.close();
+      }, 10_000);
       socket.onopen = () => {
+        clearTimeout(timer);
+        if (this.socket !== socket) {
+          reject(new BrokerError("DISCONNECTED", "The plugin socket was replaced"));
+          socket.close();
+          return;
+        }
         opened = true;
         resetReconnectState(this.reconnectKey);
         resolve(socket);
         // Subscriptions a drop left unbound come back with this socket.
         void this.resubscribeAll();
       };
-      socket.onmessage = (event) => this.handleMessage(event.data);
+      socket.onmessage = (event) => {
+        if (this.socket === socket) this.handleMessage(event.data);
+      };
       socket.onclose = (event) => {
+        clearTimeout(timer);
         reject(new BrokerError("DISCONNECTED", "The plugin socket closed"));
         this.handleClose(socket, { code: event.code, token, opened });
       };
@@ -191,7 +221,7 @@ export class PluginStreamSocket {
   private async bind(localId: string, subscription: Subscription, socket: SocketLike) {
     subscription.binding = true;
     try {
-      const reply = await this.request(socket, "subscribe", {
+      const reply = await this.requests.send(socket, "subscribe", {
         topic: subscription.topic,
         params: subscription.params ?? {},
       });
@@ -212,15 +242,6 @@ export class PluginStreamSocket {
     }
   }
 
-  private request(
-    socket: SocketLike,
-    action: string,
-    payload: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    const id = this.send(socket, action, payload);
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-  }
-
   private send(socket: SocketLike, action: string, payload: Record<string, unknown>): string {
     const envelope = createEnvelope("plugin", action, payload);
     socket.send(JSON.stringify(envelope));
@@ -237,6 +258,7 @@ export class PluginStreamSocket {
       return;
     }
     const payload = asRecord(message.payload);
+    if (message.domain !== "plugin") return;
     if (message.action === "event") {
       this.forwardEvent(payload);
       return;
@@ -247,19 +269,22 @@ export class PluginStreamSocket {
       if (localId !== undefined) this.sink.resync(localId);
       return;
     }
-    const reply = message.ref === undefined ? undefined : this.pending.get(message.ref);
-    if (!reply || message.ref === undefined) return;
-    this.pending.delete(message.ref);
-    if (message.action === "subscribed") {
-      reply.resolve(payload);
-      return;
+    if (this.requests.handle(message)) return;
+    if (message.action === "error") {
+      const parsed = subscriptionPayload.safeParse(payload);
+      const localId = parsed.success ? this.byServerId.get(parsed.data.subscription_id) : undefined;
+      if (localId !== undefined)
+        this.sink.error(localId, {
+          code: String(payload.code ?? "HOST_ERROR"),
+          message: String(payload.message ?? "Stream failed"),
+        });
     }
-    const code = typeof payload.code === "string" ? payload.code : "HOST_ERROR";
-    const text = typeof payload.message === "string" ? payload.message : "Subscription refused";
-    reply.reject(new BrokerError(code, text));
   }
 
   private forwardEvent(payload: Record<string, unknown>): void {
+    const parsed = socketEventPayload.safeParse(payload);
+    if (!parsed.success) return;
+    payload = parsed.data;
     const localId = this.byServerId.get(String(payload.subscription_id));
     const subscription = localId === undefined ? undefined : this.subscriptions.get(localId);
     if (localId === undefined || !subscription) return;
@@ -279,7 +304,7 @@ export class PluginStreamSocket {
   ): void {
     if (this.socket !== socket) return;
     this.socket = null;
-    this.rejectPending("The plugin socket closed");
+    this.requests.rejectAll("The plugin socket closed");
     this.byServerId.clear();
     for (const subscription of this.subscriptions.values()) subscription.serverId = null;
     // A revoked or expired grant: the service closes an open socket with
@@ -335,9 +360,8 @@ export class PluginStreamSocket {
     }
   }
 
-  private rejectPending(message: string): void {
-    for (const reply of this.pending.values())
-      reply.reject(new BrokerError("DISCONNECTED", message));
-    this.pending.clear();
+  private closeIfIdle(): void {
+    if (this.subscriptions.size === 0 && this.activeCalls === 0 && this.opening === null)
+      this.closeSocket();
   }
 }

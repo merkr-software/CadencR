@@ -50,7 +50,18 @@ export interface PluginTabPortMessage {
  * - `shortcut`: one of the tab's own shortcuts was pressed while it had
  *   focus; `detail` is its id. The page is unaffected.
  */
-export type PluginTabEventType = "loaded" | "load-failed" | "crashed" | "recycled" | "shortcut";
+export type PluginTabEventType =
+  | "loaded"
+  | "load-failed"
+  | "crashed"
+  | "recycled"
+  | "shortcut"
+  | "focused"
+  | "blurred";
+
+export interface PluginSurfaceDescriptor {
+  kind: "tab" | "editor";
+}
 
 export interface PluginTabEvent {
   instanceId: string;
@@ -69,7 +80,10 @@ export interface PluginTabTheme {
 }
 
 /** A chord in shortcut tokens (`["mod", "shift", "k"]`), with an optional alternate. */
-export type PluginTabShortcutBinding = BrowserShortcutBinding;
+export interface PluginTabShortcutBinding extends BrowserShortcutBinding {
+  /** Container actions may apply only to editor surfaces, never ordinary tabs. */
+  surface?: "editor";
+}
 
 /** One of a tab's own `tab.json` shortcuts, delivered to its page as a `shortcut` event. */
 export interface PluginTabOwnShortcut {
@@ -90,7 +104,7 @@ export interface PluginTabKeyInput {
 /** `desktopBridge.pluginTabs` — native guest views for custom tabs (desktop only). */
 export interface PluginTabsBridge {
   /** Create (or recreate) the guest for `instanceId`; idempotent for the same plugin. */
-  open: (instanceId: string, pluginId: string) => Promise<void>;
+  open: (instanceId: string, pluginId: string, surface?: PluginSurfaceDescriptor) => Promise<void>;
   /** Placeholder rect from `getBoundingClientRect` (zoomed CSS px). */
   setBounds: (instanceId: string, bounds: PluginTabBounds) => Promise<void>;
   setVisible: (instanceId: string, visible: boolean) => Promise<void>;

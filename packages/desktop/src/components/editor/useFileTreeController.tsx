@@ -20,7 +20,9 @@ import {
 import { revealInFileTree } from "@/components/file-tree/revealInFileTree";
 import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";
 import { useActiveFileHighlight } from "@/components/file-tree/useActiveFileHighlight";
-import { useSetting } from "@/hooks/useSetting";
+import { useOpenEditorFile, type OpenEditorFile } from "@/hooks/useOpenEditorFile";
+import { useEditorBackend } from "@/hooks/useEditorBackend";
+import { useEditorNavigationStore } from "@/lib/editors/editor-navigation-store";
 import { useEditorState } from "@/hooks/useEditorState";
 import { useFileTreeMutations } from "@/hooks/useFileTreeMutations";
 import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
@@ -32,7 +34,6 @@ import { mergeFileTreeEntries, useLazyIgnoredFileTreeEntries } from "./lazyIgnor
 import { useFileTreeAgentShortcut } from "./useFileTreeAgentShortcut";
 import { useFileTreeDraft, type DraftKind } from "./useFileTreeDraft";
 import { useFileTreeEntryActions } from "./useFileTreeEntryActions";
-import { type OpenInNeovim, useOpenFileInNeovim } from "./neovim/useOpenFileInNeovim";
 import { useTrackedTreeData } from "./useTrackedTreeData";
 
 export interface FileTreeProps {
@@ -104,8 +105,7 @@ function useFileTreeModel(
   props: FileTreeProps,
   data: FileTreeData,
   editor: EditorState,
-  maxTabs: number,
-  openInNeovim: OpenInNeovim | undefined,
+  openFile: OpenEditorFile,
 ) {
   const mutations = useFileTreeMutations(props.projectId, props.featureId, data.lazyMode);
   const { model } = useCadencrFileTree({
@@ -145,16 +145,7 @@ function useFileTreeModel(
     enabled: data.lazyMode,
     onEntriesChange: data.setTrackedLazyEntries,
   });
-  const onFileCreated = useCallback(
-    (fsPath: string) => {
-      if (openInNeovim) {
-        openInNeovim(fsPath);
-      } else {
-        editor.openFile(editor.activePaneId, fsPath, maxTabs);
-      }
-    },
-    [editor.activePaneId, editor.openFile, maxTabs, openInNeovim],
-  );
+  const onFileCreated = openFile;
   const draft = useFileTreeDraft({
     model,
     projectId: props.projectId,
@@ -203,10 +194,8 @@ function useActiveFileReveal(
 }
 
 function useFileTreeMenu(
-  editor: EditorState,
   modelState: FileTreeModelState,
-  maxTabs: number,
-  openInNeovim: OpenInNeovim | undefined,
+  openFile: OpenEditorFile,
   openPreview: (filePath: string) => void,
 ) {
   const handleAction = useCallback(
@@ -223,11 +212,7 @@ function useFileTreeMenu(
         modelState.draft.startCreate(kind, parentDir);
       } else if (action === "open") {
         context.close();
-        if (openInNeovim) {
-          openInNeovim(fsItemPath);
-        } else {
-          editor.openFile(editor.activePaneId, fsItemPath, maxTabs);
-        }
+        openFile(fsItemPath);
       } else if (action === "open-preview") {
         context.close();
         openPreview(fsItemPath);
@@ -245,7 +230,7 @@ function useFileTreeMenu(
         modelState.trashPath(item.path);
       }
     },
-    [editor, maxTabs, modelState, openInNeovim, openPreview],
+    [modelState, openFile, openPreview],
   );
   return useCallback(
     (item: FileTreeContextMenuItem, context: FileTreeContextMenuOpenContext) => (
@@ -255,12 +240,7 @@ function useFileTreeMenu(
   );
 }
 
-function useFileTreeClick(
-  editor: EditorState,
-  modelState: FileTreeModelState,
-  maxTabs: number,
-  openInNeovim: OpenInNeovim | undefined,
-) {
+function useFileTreeClick(modelState: FileTreeModelState, openFile: OpenEditorFile) {
   return useCallback(
     (event: React.MouseEvent<HTMLDivElement>): void => {
       if (event.button !== 0 || event.defaultPrevented) return;
@@ -275,13 +255,9 @@ function useFileTreeClick(
       const pierrePath = row.getAttribute("data-item-path");
       if (!pierrePath || modelState.draft.isDraftPath(pierrePath)) return;
       const fsPath = fromPierrePath(pierrePath);
-      if (openInNeovim) {
-        openInNeovim(fsPath);
-      } else {
-        editor.openFile(editor.activePaneId, fsPath, maxTabs);
-      }
+      openFile(fsPath);
     },
-    [editor, maxTabs, modelState.draft, openInNeovim],
+    [modelState.draft, openFile],
   );
 }
 
@@ -317,16 +293,19 @@ function useOpenInPreview(featureId: number): (filePath: string) => void {
 
 export function useFileTreeController(props: FileTreeProps) {
   const editor = useEditorState(props.featureId);
-  const activeFilePath = editor.panes[editor.activePaneId]?.activeFilePath ?? null;
-  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
-  const maxTabs = useMemo(() => parseInt(maxTabsSetting ?? "10", 10), [maxTabsSetting]);
+  const target = useEditorBackend(props.featureId, props.projectId);
+  const opened = useEditorNavigationStore((state) => state.opened[props.featureId]);
+  const activeFilePath =
+    target.kind !== "codemirror" && opened?.backendId === target.id
+      ? opened.params.path
+      : (editor.panes[editor.activePaneId]?.activeFilePath ?? null);
   const data = useFileTreeData(props.projectId, props.featureId);
-  const openInNeovim = useOpenFileInNeovim(props.featureId);
-  const modelState = useFileTreeModel(props, data, editor, maxTabs, openInNeovim);
+  const openFile = useOpenEditorFile(props.featureId);
+  const modelState = useFileTreeModel(props, data, editor, openFile);
   useActiveFileReveal(modelState, data, activeFilePath);
   const openPreview = useOpenInPreview(props.featureId);
-  const renderContextMenu = useFileTreeMenu(editor, modelState, maxTabs, openInNeovim, openPreview);
-  const handleClick = useFileTreeClick(editor, modelState, maxTabs, openInNeovim);
+  const renderContextMenu = useFileTreeMenu(modelState, openFile, openPreview);
+  const handleClick = useFileTreeClick(modelState, openFile);
   const handleKeyDown = useFileTreeKeyboard(modelState);
   const containerRef = useRef<HTMLDivElement | null>(null);
   useFileTreeAgentShortcut(containerRef, props.featureId);

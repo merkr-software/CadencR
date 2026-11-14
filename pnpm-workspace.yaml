@@ -10,6 +10,11 @@ minimumReleaseAge: 20160
 minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeExclude:
+  # GHSA-474x-hrwr-fgx4: stop rescanning unterminated XML stop-node tags.
+  # Include its required is-unsafe dependency.
+  # Remove after 2026-11-17T12:15:08.693Z (14 days after latest publication).
+  - "fast-xml-parser@5.12.0"
+  - "is-unsafe@2.0.3"
   # GHSA-mrwp-f3q8-3g9p: preserve cross-realm sensitive header lists.
   # Remove after 2026-11-08T21:32:25.963Z (14 days after publication).
   - "follow-redirects@1.16.2"
@@ -126,6 +131,7 @@ overrides:
   "devalue@>=5.0.0 <5.9.3": 5.9.3
   "dompurify@>=3.0.0 <3.4.17": 3.4.17
   "fast-uri@>=3.0.0 <3.1.9": 3.1.9
+  "fast-xml-parser@>=5.0.0 <5.12.0": 5.12.0
   "follow-redirects@>=1.16.0 <1.16.2": 1.16.2
   # global-agent v4 preserves bootstrap() and removes roarr/sprintf-js,
   # which has no published fix for GHSA-hp3w-g68c-fv3c.

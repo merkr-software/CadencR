@@ -11,6 +11,8 @@
 mod common;
 #[path = "fixtures/native_tab_backend/install.rs"]
 mod native_tab_backend;
+#[path = "plugin_tab_runtime_test/realtime.rs"]
+mod realtime;
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -222,6 +224,15 @@ async fn fixture() -> Fixture {
         }}),
     );
     native_tab_backend::install(&tabs.join("native"), "bin/backend");
+    write_tab(
+        &tabs,
+        "events",
+        json!({"backend": {
+            "protocol": 2, "binary": {current_platform(): "bin/events"},
+            "reasoning": "Publishes generic clock events."
+        }}),
+    );
+    native_tab_backend::install(&tabs.join("events"), "bin/events");
     let repo = root.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     common::create_test_repo(&repo);
@@ -292,6 +303,8 @@ async fn custom_tab_levels_end_to_end() {
     commands(&fixture).await;
     backend(&fixture).await;
     presence(&fixture).await;
+    fixture.enable("events").await;
+    realtime::verify(&fixture).await;
 }
 
 async fn summaries(fixture: &Fixture) {
