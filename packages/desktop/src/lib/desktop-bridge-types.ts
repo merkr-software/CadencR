@@ -14,17 +14,14 @@ import type {
   BrowserBounds,
   BrowserBookmark,
   BrowserCommentBadgeClick,
-  BrowserConsoleEntry,
   BrowserDownloadSnapshot,
   BrowserElementContext,
   BrowserFindRequest,
   BrowserFindResult,
   BrowserGuestShortcutBindings,
   BrowserLibraryChange,
-  BrowserNetworkEntry,
   BrowserOmniboxQueryResult,
   BrowserPopupRequest,
-  BrowserProfileMetadata,
   BrowserShortcut,
   BrowserSiteInfo,
   BrowserSitePermission,
@@ -224,11 +221,6 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
     scopeId?: number | null,
   ) => Promise<BrowserStateSnapshot>;
   setBrowserSuppressed: (value: boolean) => Promise<void>;
-  listBrowserProfiles: () => Promise<BrowserProfileMetadata[]>;
-  clearBrowserStorage: (profileId: string) => Promise<void>;
-  createBrowserProfile: (profileId: string) => Promise<BrowserProfileMetadata>;
-  duplicateBrowserProfile: (sourceId: string, newId: string) => Promise<BrowserProfileMetadata>;
-  deleteBrowserProfile: (profileId: string) => Promise<void>;
   getBrowserSiteInfo: (tabId: string) => Promise<BrowserSiteInfo>;
   setBrowserSitePermission: (
     tabId: string,
@@ -263,13 +255,7 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
     tabId: string,
     request: BrowserResponsiveRequest,
   ) => Promise<BrowserTabMetadata>;
-  getBrowserConsole: () => Promise<BrowserConsoleEntry[]>;
-  getBrowserNetwork: () => Promise<BrowserNetworkEntry[]>;
-  getBrowserSnapshot: (tabId: string) => Promise<unknown>;
   getBrowserScreenshot: (tabId: string) => Promise<string>;
-  browserClick: (tabId: string, x: number, y: number) => Promise<void>;
-  browserType: (tabId: string, text: string) => Promise<void>;
-  browserKeypress: (tabId: string, keyCode: string) => Promise<void>;
   selectBrowserElementContext: (tabId: string, anchorId: string) => Promise<BrowserElementContext>;
   removeBrowserCommentBadge: (tabId: string, anchorId: string) => Promise<void>;
   clearBrowserCommentBadges: (tabId: string) => Promise<void>;

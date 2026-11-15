@@ -137,12 +137,6 @@ export class PluginTabManager {
     this.requireGuest(this.require(instanceId)).webContents.openDevTools({ mode: "detach" });
   }
 
-  focus(instanceId: string): void {
-    const instance = this.require(instanceId);
-    const guest = this.requireGuest(instance);
-    if (instance.visible && this.views.isAttached(guest.view)) guest.webContents.focus();
-  }
-
   /** Detach every guest while a React overlay is open (see `NativeViewAttachment`). */
   setSuppressed(value: boolean): void {
     if (!this.views.setSuppressed(value)) return;

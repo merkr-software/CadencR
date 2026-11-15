@@ -10,7 +10,6 @@ import type {
   BrowserGuestShortcutBindings,
   BrowserLibraryChange,
   BrowserOmniboxQueryResult,
-  BrowserProfileMetadata,
   BrowserResponsiveRequest,
   BrowserPopupRequest,
   BrowserSiteInfo,
@@ -312,16 +311,6 @@ contextBridge.exposeInMainWorld("cadencr", {
     ipcRenderer.invoke("browser:set-bounds", bounds, scopeId, webFrame.getZoomFactor()),
   setBrowserSuppressed: (value: boolean): Promise<void> =>
     ipcRenderer.invoke("browser:set-suppressed", value),
-  listBrowserProfiles: (): Promise<BrowserProfileMetadata[]> =>
-    ipcRenderer.invoke("browser:list-profiles"),
-  clearBrowserStorage: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke("browser:clear-storage", profileId),
-  createBrowserProfile: (profileId: string): Promise<BrowserProfileMetadata> =>
-    ipcRenderer.invoke("browser:create-profile", profileId),
-  duplicateBrowserProfile: (sourceId: string, newId: string): Promise<BrowserProfileMetadata> =>
-    ipcRenderer.invoke("browser:duplicate-profile", sourceId, newId),
-  deleteBrowserProfile: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke("browser:delete-profile", profileId),
   getBrowserSiteInfo: (tabId: string): Promise<BrowserSiteInfo> =>
     ipcRenderer.invoke("browser:get-site-info", tabId),
   setBrowserSitePermission: (
@@ -370,18 +359,8 @@ contextBridge.exposeInMainWorld("cadencr", {
     tabId: string,
     request: BrowserResponsiveRequest,
   ): Promise<BrowserTabMetadata> => ipcRenderer.invoke("browser:set-responsive", tabId, request),
-  getBrowserConsole: (): Promise<unknown[]> => ipcRenderer.invoke("browser:get-console"),
-  getBrowserNetwork: (): Promise<unknown[]> => ipcRenderer.invoke("browser:get-network"),
-  getBrowserSnapshot: (tabId: string): Promise<unknown> =>
-    ipcRenderer.invoke("browser:get-snapshot", tabId),
   getBrowserScreenshot: (tabId: string): Promise<string> =>
     ipcRenderer.invoke("browser:screenshot", tabId),
-  browserClick: (tabId: string, x: number, y: number): Promise<void> =>
-    ipcRenderer.invoke("browser:click", tabId, x, y),
-  browserType: (tabId: string, text: string): Promise<void> =>
-    ipcRenderer.invoke("browser:type", tabId, text),
-  browserKeypress: (tabId: string, keyCode: string): Promise<void> =>
-    ipcRenderer.invoke("browser:keypress", tabId, keyCode),
   selectBrowserElementContext: (tabId: string, anchorId: string): Promise<unknown> =>
     ipcRenderer.invoke("browser:select-element-context", tabId, anchorId),
   removeBrowserCommentBadge: (tabId: string, anchorId: string): Promise<void> =>

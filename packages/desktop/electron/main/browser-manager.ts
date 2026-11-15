@@ -352,9 +352,6 @@ export class BrowserManager {
     return this.opener.openExternal(url, options);
   }
 
-  readonly click = (tabId: string, x: number, y: number): Promise<void> =>
-    this.inspection.click(tabId, x, y);
-
   readonly state = (scopeId?: number | null): BrowserStateSnapshot =>
     this.stateAuthority.snapshot(scopeId);
 

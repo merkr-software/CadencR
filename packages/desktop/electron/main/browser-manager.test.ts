@@ -591,7 +591,7 @@ describe("BrowserManager", () => {
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("https://example.com/phished");
 
-    await expect(manager.click(tab.id, 10, 20)).rejects.toThrow("localhost");
+    await expect(manager.inspection.click(tab.id, 10, 20)).rejects.toThrow("localhost");
     expect(contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
@@ -601,7 +601,7 @@ describe("BrowserManager", () => {
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("http://localhost:5173/signup");
 
-    await manager.click(tab.id, 10, 20);
+    await manager.inspection.click(tab.id, 10, 20);
 
     expect(contents.sendInputEvent).toHaveBeenCalledWith({
       type: "mouseDown",
@@ -1055,7 +1055,7 @@ describe("BrowserManager", () => {
       value: Electron.HandlerDetails,
     ) => Electron.WindowOpenHandlerResponse;
 
-    await manager.click(tab.id, 1, 1);
+    await manager.inspection.click(tab.id, 1, 1);
     parent.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 1, y: 1 });
     expect(handler(popupDetails({ url: "http://localhost:3000/synthetic" })).action).toBe("deny");
 

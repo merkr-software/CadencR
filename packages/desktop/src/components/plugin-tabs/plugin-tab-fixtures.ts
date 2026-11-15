@@ -75,7 +75,6 @@ export function createPluginTabsBridgeMock() {
     reload: vi.fn(() => Promise.resolve()),
     close: vi.fn(() => Promise.resolve()),
     openDevTools: vi.fn(() => Promise.resolve()),
-    focus: vi.fn(() => Promise.resolve()),
     setTheme: vi.fn(() => Promise.resolve()),
     setAppShortcuts: vi.fn((_bindings: readonly PluginTabShortcutBinding[]) => Promise.resolve()),
     setTabShortcuts: vi.fn((_instanceId: string, _shortcuts: readonly PluginTabOwnShortcut[]) =>

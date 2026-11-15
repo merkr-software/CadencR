@@ -74,7 +74,6 @@ export const noopPluginTabs: PluginTabsBridge = {
   reload: () => Promise.resolve(),
   close: () => Promise.resolve(),
   openDevTools: () => Promise.resolve(),
-  focus: () => Promise.resolve(),
   setTheme: () => Promise.resolve(),
   setAppShortcuts: () => Promise.resolve(),
   setTabShortcuts: () => Promise.resolve(),
@@ -192,11 +191,6 @@ const browserBridge: CadencrBrowserBridge = {
   // No native browser view exists in a remote/browser tab, so suppression is a
   // no-op (resolve) rather than an error — dialogs never call it expecting work.
   setBrowserSuppressed: () => Promise.resolve(),
-  listBrowserProfiles: () => unavailable("listBrowserProfiles"),
-  clearBrowserStorage: () => unavailable("clearBrowserStorage"),
-  createBrowserProfile: () => unavailable("createBrowserProfile"),
-  duplicateBrowserProfile: () => unavailable("duplicateBrowserProfile"),
-  deleteBrowserProfile: () => unavailable("deleteBrowserProfile"),
   getBrowserSiteInfo: () => unavailable("getBrowserSiteInfo"),
   setBrowserSitePermission: () => unavailable("setBrowserSitePermission"),
   clearBrowserSiteData: () => unavailable("clearBrowserSiteData"),
@@ -219,13 +213,7 @@ const browserBridge: CadencrBrowserBridge = {
   setBrowserBookmark: () => unavailable("setBrowserBookmark"),
   toggleBrowserDevTools: () => unavailable("toggleBrowserDevTools"),
   setBrowserResponsive: () => unavailable("setBrowserResponsive"),
-  getBrowserConsole: () => unavailable("getBrowserConsole"),
-  getBrowserNetwork: () => unavailable("getBrowserNetwork"),
-  getBrowserSnapshot: () => unavailable("getBrowserSnapshot"),
   getBrowserScreenshot: () => unavailable("getBrowserScreenshot"),
-  browserClick: () => unavailable("browserClick"),
-  browserType: () => unavailable("browserType"),
-  browserKeypress: () => unavailable("browserKeypress"),
   selectBrowserElementContext: () => unavailable("selectBrowserElementContext"),
   // No native browser view in a remote/browser tab, so badge ops are no-ops.
   removeBrowserCommentBadge: () => Promise.resolve(),

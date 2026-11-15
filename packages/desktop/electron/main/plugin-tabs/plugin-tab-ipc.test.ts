@@ -54,7 +54,6 @@ describe("registerPluginTabIpc", () => {
     registerPluginTabIpc({ getMainWindow: () => mainWindow, preloadPath: "/p.js" });
     expect([...ipc.handlers.keys()].sort()).toEqual([
       "plugin-tab:close",
-      "plugin-tab:focus",
       "plugin-tab:open",
       "plugin-tab:open-devtools",
       "plugin-tab:reload",
