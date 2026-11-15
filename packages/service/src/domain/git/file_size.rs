@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn classify_content_strips_binary_even_when_opted_in() {
         // NUL byte in the first 8 KB makes the content classify as binary.
-        let bin = format!("hello\0world");
+        let bin = "hello\0world".to_string();
         let it = item("", &bin, true);
         assert!(it.is_binary);
         assert!(it.old_content.is_none());

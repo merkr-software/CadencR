@@ -162,7 +162,7 @@ fn preview_value(value: Option<&Value>) -> Option<String> {
 /// column *before* broadcasting the terminal turn (`"agent"` / `"none"`),
 /// closing the lag-recovery race where a snapshot re-read resurrected
 /// `"askUser"` from a row that had already been answered.
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub async fn wait_and_apply_decision(
     waiter: PermissionWaiter,
     tool_use_id: &str,
@@ -271,6 +271,41 @@ pub fn runtime_permission_denial_completes_session(
     matches!(decision, PermissionDecision::Deny)
         && !matches!(kind, RuntimePermissionResponseKind::PlanApproval)
         && status_after_runtime_permission(kind, decision, feedback) == AgentStatus::Idle
+}
+
+/// Apply a provider-native permission decision. Persistent approvals are only
+/// sent back when the provider supplied explicit permission updates.
+fn apply_decision(
+    tool_use_id: &str,
+    decision: PermissionDecision,
+    feedback: Option<String>,
+    input: serde_json::Value,
+    permission_updates: &[RuntimePermissionUpdate],
+) -> RuntimeToolPermissionResult {
+    match decision {
+        PermissionDecision::AllowOnce | PermissionDecision::AllowFuture => {
+            let updated_permissions = if matches!(decision, PermissionDecision::AllowFuture)
+                && !permission_updates.is_empty()
+            {
+                Some(permission_updates.to_vec())
+            } else {
+                None
+            };
+            RuntimeToolPermissionResult::Allow {
+                updated_input: input,
+                updated_permissions,
+                tool_use_id: Some(tool_use_id.to_string()),
+            }
+        }
+        PermissionDecision::Deny => {
+            let message = feedback.unwrap_or_else(|| "User denied permission".to_string());
+            RuntimeToolPermissionResult::Deny {
+                message,
+                interrupt: Some(false),
+                tool_use_id: Some(tool_use_id.to_string()),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -393,40 +428,5 @@ mod tests {
         assert!(with_persistent_updates
             .iter()
             .any(|option| option.decision == PermissionDecision::AllowFuture));
-    }
-}
-
-/// Apply a provider-native permission decision. Persistent approvals are only
-/// sent back when the provider supplied explicit permission updates.
-fn apply_decision(
-    tool_use_id: &str,
-    decision: PermissionDecision,
-    feedback: Option<String>,
-    input: serde_json::Value,
-    permission_updates: &[RuntimePermissionUpdate],
-) -> RuntimeToolPermissionResult {
-    match decision {
-        PermissionDecision::AllowOnce | PermissionDecision::AllowFuture => {
-            let updated_permissions = if matches!(decision, PermissionDecision::AllowFuture)
-                && !permission_updates.is_empty()
-            {
-                Some(permission_updates.to_vec())
-            } else {
-                None
-            };
-            RuntimeToolPermissionResult::Allow {
-                updated_input: input,
-                updated_permissions,
-                tool_use_id: Some(tool_use_id.to_string()),
-            }
-        }
-        PermissionDecision::Deny => {
-            let message = feedback.unwrap_or_else(|| "User denied permission".to_string());
-            RuntimeToolPermissionResult::Deny {
-                message,
-                interrupt: Some(false),
-                tool_use_id: Some(tool_use_id.to_string()),
-            }
-        }
     }
 }

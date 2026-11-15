@@ -203,6 +203,9 @@ mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
+    /// `(attempts, request bodies)` seen by the stub control endpoint.
+    type RetryProbe = (Arc<AtomicUsize>, Arc<Mutex<Vec<serde_json::Value>>>);
+
     #[tokio::test]
     async fn transient_retry_reuses_one_generated_message_uuid() {
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -211,10 +214,7 @@ mod tests {
             .route(
                 "/internal/mcp/project/send-message",
                 post(
-                    |State((attempts, bodies)): State<(
-                        Arc<AtomicUsize>,
-                        Arc<Mutex<Vec<serde_json::Value>>>,
-                    )>,
+                    |State((attempts, bodies)): State<RetryProbe>,
                      headers: HeaderMap,
                      Json(body): Json<serde_json::Value>| async move {
                         assert_eq!(

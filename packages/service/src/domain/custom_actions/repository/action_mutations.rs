@@ -6,6 +6,7 @@ use crate::error::AppError;
 /// Single-statement partial update using `COALESCE`: any field passed as `None`
 /// keeps its current DB value. The icon clear path uses `Some(Some(""))` to
 /// distinguish "leave alone" (`None`) from "set to NULL" (`Some(None)`).
+#[bon::builder]
 pub async fn update(
     pool: &SqlitePool,
     id: i64,
@@ -129,23 +130,21 @@ mod tests {
         assert!(get(&pool, id).await.unwrap().unwrap().run_in_terminal);
 
         // Flipping it off persists; passing None leaves it untouched.
-        update(&pool, id, None, None, None, None, None, None, Some(false))
+        update()
+            .pool(&pool)
+            .id(id)
+            .run_in_terminal(false)
+            .call()
             .await
             .unwrap();
         assert!(!get(&pool, id).await.unwrap().unwrap().run_in_terminal);
-        update(
-            &pool,
-            id,
-            Some("renamed"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        update()
+            .pool(&pool)
+            .id(id)
+            .name("renamed")
+            .call()
+            .await
+            .unwrap();
         assert!(!get(&pool, id).await.unwrap().unwrap().run_in_terminal);
     }
 
@@ -163,19 +162,13 @@ mod tests {
         )
         .await
         .unwrap();
-        update(
-            &pool,
-            id,
-            Some("renamed"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        update()
+            .pool(&pool)
+            .id(id)
+            .name("renamed")
+            .call()
+            .await
+            .unwrap();
         let row = get(&pool, id).await.unwrap().unwrap();
         assert_eq!(row.name, "renamed");
         assert_eq!(row.command, "echo");
@@ -195,7 +188,11 @@ mod tests {
         )
         .await
         .unwrap();
-        update(&pool, id, None, None, Some(None), None, None, None, None)
+        update()
+            .pool(&pool)
+            .id(id)
+            .icon_data(None)
+            .call()
             .await
             .unwrap();
         let row = get(&pool, id).await.unwrap().unwrap();
@@ -205,7 +202,11 @@ mod tests {
     #[tokio::test]
     async fn update_returns_not_found_for_missing_id() {
         let (pool, _, _) = pool_with_project_and_feature().await;
-        let err = update(&pool, 9_999, Some("x"), None, None, None, None, None, None)
+        let err = update()
+            .pool(&pool)
+            .id(9_999)
+            .name("x")
+            .call()
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));

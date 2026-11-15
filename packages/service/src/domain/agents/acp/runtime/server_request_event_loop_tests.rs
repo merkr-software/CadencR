@@ -757,7 +757,7 @@ async fn wait_for_exit_does_not_block_the_loop_and_kill_still_reaches_the_comman
     assert_eq!(output["id"], "output", "the loop must not wait for exit");
     assert!(output["result"].get("exitStatus").is_none());
     write_agent_request(&mut stdout, request("kill", "terminal/kill", terminal)).await;
-    let mut responses = vec![
+    let mut responses = [
         read_agent_response(&mut stdin).await,
         read_agent_response(&mut stdin).await,
     ];

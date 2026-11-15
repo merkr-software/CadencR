@@ -107,7 +107,7 @@ pub async fn await_event_loop_barrier(client: &AcpClient) -> Result<(), RuntimeE
         .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub async fn drive_initial_prompt(
     client: &AcpClient,
     session_id_lock: &Arc<RwLock<Option<String>>>,
@@ -497,20 +497,19 @@ mod tests {
             let tx = tx.clone();
             let hooks = Arc::clone(&hooks);
             async move {
-                drive_initial_prompt(
-                    &client,
-                    &session_id,
-                    &model,
-                    &effort,
-                    json!("first"),
-                    &tx,
-                    &indexer,
-                    None,
-                    hooks.as_ref(),
-                    &lock,
-                    &cancel,
-                )
-                .await
+                drive_initial_prompt()
+                    .client(&client)
+                    .session_id_lock(&session_id)
+                    .current_model_lock(&model)
+                    .current_effort_lock(&effort)
+                    .content(json!("first"))
+                    .tx(&tx)
+                    .indexer(&indexer)
+                    .hooks(hooks.as_ref())
+                    .prompt_turn_lock(&lock)
+                    .prompt_cancel(&cancel)
+                    .call()
+                    .await
             }
         });
 
@@ -529,20 +528,19 @@ mod tests {
             let cancel = cancel.clone();
             let hooks = Arc::clone(&hooks);
             async move {
-                drive_initial_prompt(
-                    &client,
-                    &session_id,
-                    &model,
-                    &effort,
-                    json!("second"),
-                    &tx,
-                    &indexer,
-                    None,
-                    hooks.as_ref(),
-                    &lock,
-                    &cancel,
-                )
-                .await
+                drive_initial_prompt()
+                    .client(&client)
+                    .session_id_lock(&session_id)
+                    .current_model_lock(&model)
+                    .current_effort_lock(&effort)
+                    .content(json!("second"))
+                    .tx(&tx)
+                    .indexer(&indexer)
+                    .hooks(hooks.as_ref())
+                    .prompt_turn_lock(&lock)
+                    .prompt_cancel(&cancel)
+                    .call()
+                    .await
             }
         });
         let mut peek = String::new();

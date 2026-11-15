@@ -221,10 +221,11 @@ impl LiveStatusBook {
     }
 }
 
+/// `(turn_started_at_ms, waiting_ms, waiting_since_ms, models)` of a clock.
+type PersistedClock<'a> = (Option<i64>, i64, Option<i64>, &'a [String]);
+
 /// The part of a clock the DB mirrors (the reported model's name is derived).
-fn persisted_clock(
-    entry: Option<&SessionStatusSnapshotEntry>,
-) -> Option<(Option<i64>, i64, Option<i64>, &[String])> {
+fn persisted_clock(entry: Option<&SessionStatusSnapshotEntry>) -> Option<PersistedClock<'_>> {
     entry.map(|entry| {
         let clock = &entry.clock;
         (

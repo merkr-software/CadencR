@@ -28,7 +28,8 @@ use crate::remote::RemoteContext;
 /// The authenticated device id, injected as a request extension by
 /// [`remote_auth_middleware`] once a device token verifies. Handlers on the
 /// remote router (e.g. push-subscription endpoints) read it via
-/// `Extension<DeviceId>` to key per-device state. Absent on bearer-exempt paths
+/// `Extension<DeviceId>` to key per-device state; the response carries it too
+/// (read by the remote rate limiter). Absent on bearer-exempt paths
 /// (pairing, static SPA assets, WS upgrades).
 #[derive(Clone, Copy, Debug)]
 pub struct DeviceId(pub i64);
@@ -69,9 +70,12 @@ pub async fn remote_auth_middleware(
     };
 
     // Expose the verified device id so downstream handlers (push subscription)
-    // can key per-device state without re-hashing the token.
+    // can key per-device state without re-hashing the token, and on the
+    // response so the rate limiter can give the device its own budget.
     request.extensions_mut().insert(DeviceId(device_id));
-    next.run(request).await
+    let mut response = next.run(request).await;
+    response.extensions_mut().insert(DeviceId(device_id));
+    response
 }
 
 /// Exact-match the `Host` header against the allowlist. A DNS-rebound request

@@ -52,10 +52,13 @@ pub struct PluginTabExecRecord {
     pub error: Option<String>,
 }
 
+/// Recent commands per `(plugin, feature)`.
+type ActivityByTab = HashMap<(String, i64), VecDeque<PluginTabExecRecord>>;
+
 /// The recent commands of every tab, keyed by `(plugin, feature)`. Cheap to clone.
 #[derive(Clone, Default)]
 pub struct ActivityLog {
-    inner: Arc<Mutex<HashMap<(String, i64), VecDeque<PluginTabExecRecord>>>>,
+    inner: Arc<Mutex<ActivityByTab>>,
 }
 
 impl ActivityLog {

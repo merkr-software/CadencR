@@ -52,17 +52,17 @@ pub(crate) async fn handle_prompt_send(
             Ok(stored) => stored,
             Err((code, message)) => return send_error(sender, &envelope.id, code, &message),
         };
-    let Some(payload) = dispatch_local_phase(
-        &envelope,
-        sender,
-        sdk_sessions,
-        app_state,
-        prepared.db_session_id,
-        prepared.payload,
-        prepared.profile_update.as_ref(),
-        &stored,
-    )
-    .await
+    let Some(payload) = dispatch_local_phase()
+        .envelope(&envelope)
+        .sender(sender)
+        .sdk_sessions(sdk_sessions)
+        .app_state(app_state)
+        .db_session_id(prepared.db_session_id)
+        .payload(prepared.payload)
+        .maybe_profile_update(prepared.profile_update.as_ref())
+        .stored(&stored)
+        .call()
+        .await
     else {
         return;
     };

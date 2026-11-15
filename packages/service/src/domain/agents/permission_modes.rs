@@ -35,58 +35,6 @@ pub(crate) fn permission_mode_wire(mode: &RuntimePermissionMode) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        effective_permission_mode, parse_permission_mode, permission_mode_wire,
-        supported_or_default_permission_mode,
-    };
-    use crate::domain::agents::adapter::RuntimePermissionMode;
-
-    #[test]
-    fn parses_opencode_agent_mode() {
-        let mode = parse_permission_mode("opencodeAgent:documentor");
-        assert_eq!(
-            mode,
-            RuntimePermissionMode::OpenCodeAgent("documentor".to_string())
-        );
-        assert_eq!(permission_mode_wire(&mode), "opencodeAgent:documentor");
-    }
-
-    #[test]
-    fn parses_and_serializes_ask_mode() {
-        let mode = parse_permission_mode("ask");
-        assert_eq!(mode, RuntimePermissionMode::Ask);
-        assert_eq!(permission_mode_wire(&mode), "ask");
-    }
-
-    #[test]
-    fn effective_mode_filters_values_the_adapter_does_not_support() {
-        assert_eq!(
-            effective_permission_mode("codex_cli", Some("plan")),
-            Some(RuntimePermissionMode::Plan)
-        );
-        assert_eq!(effective_permission_mode("codex_cli", Some("ask")), None);
-    }
-
-    #[test]
-    fn an_unsupported_request_falls_back_to_the_provider_default() {
-        // Claude's `auto` seeded onto a conversation that starts on Codex.
-        assert_eq!(
-            supported_or_default_permission_mode("codex_cli", Some("auto")),
-            Some(RuntimePermissionMode::Default)
-        );
-        assert_eq!(
-            supported_or_default_permission_mode("codex_cli", Some("plan")),
-            Some(RuntimePermissionMode::Plan)
-        );
-        assert_eq!(
-            supported_or_default_permission_mode("codex_cli", None),
-            Some(RuntimePermissionMode::Default)
-        );
-    }
-}
-
 /// Whether a given runtime provider can run a given permission mode.
 /// Dispatches to the adapter so the (provider, mode) matrix lives next to
 /// each adapter's CLI-arg mapping rather than as a switch in shared code.
@@ -174,4 +122,56 @@ pub(crate) fn post_plan_approval_fallback_mode_wire(
 ) -> Option<Cow<'static, str>> {
     runtime_adapter(provider)
         .and_then(|adapter| adapter.post_plan_approval_fallback_mode_wire(failed_mode_wire))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        effective_permission_mode, parse_permission_mode, permission_mode_wire,
+        supported_or_default_permission_mode,
+    };
+    use crate::domain::agents::adapter::RuntimePermissionMode;
+
+    #[test]
+    fn parses_opencode_agent_mode() {
+        let mode = parse_permission_mode("opencodeAgent:documentor");
+        assert_eq!(
+            mode,
+            RuntimePermissionMode::OpenCodeAgent("documentor".to_string())
+        );
+        assert_eq!(permission_mode_wire(&mode), "opencodeAgent:documentor");
+    }
+
+    #[test]
+    fn parses_and_serializes_ask_mode() {
+        let mode = parse_permission_mode("ask");
+        assert_eq!(mode, RuntimePermissionMode::Ask);
+        assert_eq!(permission_mode_wire(&mode), "ask");
+    }
+
+    #[test]
+    fn effective_mode_filters_values_the_adapter_does_not_support() {
+        assert_eq!(
+            effective_permission_mode("codex_cli", Some("plan")),
+            Some(RuntimePermissionMode::Plan)
+        );
+        assert_eq!(effective_permission_mode("codex_cli", Some("ask")), None);
+    }
+
+    #[test]
+    fn an_unsupported_request_falls_back_to_the_provider_default() {
+        // Claude's `auto` seeded onto a conversation that starts on Codex.
+        assert_eq!(
+            supported_or_default_permission_mode("codex_cli", Some("auto")),
+            Some(RuntimePermissionMode::Default)
+        );
+        assert_eq!(
+            supported_or_default_permission_mode("codex_cli", Some("plan")),
+            Some(RuntimePermissionMode::Plan)
+        );
+        assert_eq!(
+            supported_or_default_permission_mode("codex_cli", None),
+            Some(RuntimePermissionMode::Default)
+        );
+    }
 }

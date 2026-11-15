@@ -52,6 +52,7 @@ fn push_block(
 /// "merge into preceding sibling of the same type, else push" behavior.
 /// `include_model` is true only for text (the streaming text path tracks the
 /// model used for each turn; thinking deltas don't).
+#[bon::builder]
 fn push_or_merge_streaming(
     block_type: &str,
     msg: &AgentMessageRow,
@@ -158,26 +159,26 @@ pub(super) fn build_blocks(messages: &[AgentMessageRow]) -> Vec<AgentBlock> {
         let parent_idx = parent_id.and_then(|pid| tool_use_id_map.get(pid).copied());
 
         match msg.message_type.as_str() {
-            "text" | "text_delta" => push_or_merge_streaming(
-                "text",
-                msg,
-                id,
-                parent_id,
-                parent_idx,
-                true,
-                &mut all,
-                &mut root_indices,
-            ),
-            "thinking" | "thinking_delta" => push_or_merge_streaming(
-                "thinking",
-                msg,
-                id,
-                parent_id,
-                parent_idx,
-                false,
-                &mut all,
-                &mut root_indices,
-            ),
+            "text" | "text_delta" => push_or_merge_streaming()
+                .block_type("text")
+                .msg(msg)
+                .id(id)
+                .maybe_parent_id(parent_id)
+                .maybe_parent_idx(parent_idx)
+                .include_model(true)
+                .all(&mut all)
+                .root_indices(&mut root_indices)
+                .call(),
+            "thinking" | "thinking_delta" => push_or_merge_streaming()
+                .block_type("thinking")
+                .msg(msg)
+                .id(id)
+                .maybe_parent_id(parent_id)
+                .maybe_parent_idx(parent_idx)
+                .include_model(false)
+                .all(&mut all)
+                .root_indices(&mut root_indices)
+                .call(),
             "tool_call" => handle_tool_call(
                 msg,
                 id,

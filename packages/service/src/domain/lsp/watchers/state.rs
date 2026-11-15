@@ -119,7 +119,7 @@ mod tests {
         let rules = |pattern| {
             compile(
                 json!({"watchers":[{"globPattern":pattern,"kind":2}]}),
-                &[root.clone()],
+                std::slice::from_ref(&root),
             )
             .unwrap()
         };

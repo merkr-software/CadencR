@@ -16,19 +16,19 @@ pub(super) fn spawn_test_stream_reader(
     sdk_sessions: SdkSessions,
     runtime_provider: &str,
 ) {
-    spawn_test_stream_reader_with_cleanup(
-        app_state,
-        db_session_id,
-        feature_id,
-        msg_rx,
-        ws_tx,
-        sdk_sessions,
-        runtime_provider,
-        false,
-    );
+    spawn_test_stream_reader_with_cleanup()
+        .app_state(app_state)
+        .db_session_id(db_session_id)
+        .feature_id(feature_id)
+        .msg_rx(msg_rx)
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions)
+        .runtime_provider(runtime_provider)
+        .cleanup_session_on_end(false)
+        .call();
 }
 
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub(super) fn spawn_test_stream_reader_with_cleanup(
     app_state: &AppState,
     db_session_id: i64,
@@ -51,20 +51,20 @@ pub(super) fn spawn_test_stream_reader_with_cleanup(
             })
             .unwrap_or(None)
     };
-    spawn_test_stream_reader_for_runtime(
-        app_state,
-        db_session_id,
-        feature_id,
-        msg_rx,
-        runtime_session_handle,
-        ws_tx,
-        sdk_sessions,
-        runtime_provider,
-        cleanup_session_on_end,
-    );
+    spawn_test_stream_reader_for_runtime()
+        .app_state(app_state)
+        .db_session_id(db_session_id)
+        .feature_id(feature_id)
+        .msg_rx(msg_rx)
+        .maybe_runtime_session_handle(runtime_session_handle)
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions)
+        .runtime_provider(runtime_provider)
+        .cleanup_session_on_end(cleanup_session_on_end)
+        .call();
 }
 
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub(super) fn spawn_test_stream_reader_for_runtime(
     app_state: &AppState,
     db_session_id: i64,
@@ -76,20 +76,18 @@ pub(super) fn spawn_test_stream_reader_for_runtime(
     runtime_provider: &str,
     cleanup_session_on_end: bool,
 ) {
-    session_prompt::spawn_stream_reader(
-        db_session_id,
-        feature_id,
-        msg_rx,
-        runtime_session_handle,
-        ws_tx.into(),
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
-        sdk_sessions,
-        runtime_provider.to_string(),
-        None,
-        None,
-        app_state.clone(),
-        cleanup_session_on_end,
-    );
+    session_prompt::spawn_stream_reader()
+        .db_session_id(db_session_id)
+        .feature_id(feature_id)
+        .message_rx(msg_rx)
+        .maybe_runtime_session_handle(runtime_session_handle)
+        .sender(ws_tx.into())
+        .feature_senders(app_state.ws_feature_senders.clone())
+        .write_pool(app_state.write_pool.clone())
+        .session_status_tx(app_state.session_status_tx.clone())
+        .sdk_sessions(sdk_sessions)
+        .runtime_provider(runtime_provider.to_string())
+        .app_state(app_state.clone())
+        .cleanup_session_on_end(cleanup_session_on_end)
+        .call();
 }

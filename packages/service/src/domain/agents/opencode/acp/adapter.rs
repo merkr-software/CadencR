@@ -256,16 +256,18 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         browser_trust: CadencrBrowserTrust,
         tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     ) -> Option<JoinHandle<()>> {
-        Some(spawn_side_channel_listeners(
-            self.http.clone(),
-            cwd.to_path_buf(),
-            session_id.to_string(),
-            context_window,
-            Arc::clone(&self.pending_subagent_calls),
-            Arc::clone(&self.permissions),
-            browser_trust,
-            tx,
-        ))
+        Some(
+            spawn_side_channel_listeners()
+                .client(self.http.clone())
+                .cwd(cwd.to_path_buf())
+                .root_session_id(session_id.to_string())
+                .maybe_context_window(context_window)
+                .pending_tasks(Arc::clone(&self.pending_subagent_calls))
+                .permissions(Arc::clone(&self.permissions))
+                .browser_trust(browser_trust)
+                .runtime_tx(tx)
+                .call(),
+        )
     }
     async fn cadencr_browser_trust(
         &self,

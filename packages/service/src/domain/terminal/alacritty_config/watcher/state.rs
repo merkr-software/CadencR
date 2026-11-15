@@ -119,9 +119,7 @@ fn deepest_existing_ancestor(path: &Path) -> Option<PathBuf> {
     while !ancestor.is_dir() {
         ancestor = ancestor.parent()?;
     }
-    if ancestor.parent().is_none() {
-        return None;
-    }
+    ancestor.parent()?;
     Some(ancestor.to_path_buf())
 }
 

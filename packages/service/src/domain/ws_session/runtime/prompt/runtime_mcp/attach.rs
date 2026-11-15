@@ -75,6 +75,7 @@ pub(in crate::domain::ws_session::runtime::prompt) fn attach_cadencr_workspace_m
     )
 }
 
+#[bon::builder]
 pub(in crate::domain::ws_session::runtime::prompt) fn attach_cadencr_orchestration_mcps(
     config: &mut RuntimeSpawnConfig,
     db_path: &str,
@@ -230,14 +231,14 @@ mod tests {
         args
     }
 
-    fn server<'a>(
-        config: &'a RuntimeSpawnConfig,
-        name: &str,
-    ) -> (
+    /// `(command, args, env)` of a stdio MCP server.
+    type StdioServer<'a> = (
         &'a String,
         &'a Option<Vec<String>>,
         &'a Option<HashMap<String, String>>,
-    ) {
+    );
+
+    fn server<'a>(config: &'a RuntimeSpawnConfig, name: &str) -> StdioServer<'a> {
         let RuntimeMcpServerConfig::Stdio { command, args, env } = config
             .mcp_servers
             .as_ref()
@@ -291,17 +292,17 @@ mod tests {
     fn attach_cadencr_orchestration_mcps_adds_browser_and_project_stdio_servers() {
         let mut config = RuntimeSpawnConfig::default();
         let db_path = test_db_path();
-        attach_cadencr_orchestration_mcps(
-            &mut config,
-            "cadencr.local.db",
-            42,
-            777,
-            COMMAND,
-            Some(bridge_config()),
-            SERVICE_URL,
-            CONTROL_TOKEN,
-        )
-        .expect("attach orchestration mcps");
+        attach_cadencr_orchestration_mcps()
+            .config(&mut config)
+            .db_path("cadencr.local.db")
+            .feature_id(42)
+            .source_session_id(777)
+            .command(COMMAND)
+            .browser_bridge(bridge_config())
+            .service_url(SERVICE_URL)
+            .control_token(CONTROL_TOKEN)
+            .call()
+            .expect("attach orchestration mcps");
 
         assert!(config
             .mcp_servers

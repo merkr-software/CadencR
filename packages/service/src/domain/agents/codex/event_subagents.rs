@@ -97,7 +97,7 @@ fn path_label(path: &str) -> Option<String> {
 /// token (Fernet: `gAAAAA…`, no whitespace), which is no prompt to show.
 pub(super) fn readable_prompt(text: &str) -> bool {
     let text = text.trim();
-    !(text.starts_with("gAAAAA") && !text.contains(char::is_whitespace))
+    !text.starts_with("gAAAAA") || text.contains(char::is_whitespace)
 }
 
 /// A raw `spawn_agent` call names no description, so its carrier would get

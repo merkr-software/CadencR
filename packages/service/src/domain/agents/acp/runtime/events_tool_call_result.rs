@@ -50,7 +50,7 @@ fn build(
     // `stream_event`, `assistant`, `user`, `system`, `result`. ACP's raw
     // `session/update` shape has no `type` field and would be silently
     // dropped, so reshape into the Claude-style `user` envelope here.
-    let session_id = metadata.session_id.clone().unwrap_or_else(|| String::new());
+    let session_id = metadata.session_id.clone().unwrap_or_default();
     let claude_raw = json!({
         "type": "user",
         "session_id": session_id,

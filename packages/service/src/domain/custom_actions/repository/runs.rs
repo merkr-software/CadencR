@@ -129,12 +129,15 @@ pub async fn run_outcome(
     }))
 }
 
+/// `(action_id, id, exit_code, ended_at, started_at)` of a run.
+type LatestRunRow = (i64, i64, Option<i64>, Option<String>, String);
+
 /// Latest run per action for a given feature, keyed by `action_id`.
 pub(super) async fn latest_runs_for_feature(
     pool: &SqlitePool,
     feature_id: i64,
 ) -> Result<HashMap<i64, LastRunSummary>, AppError> {
-    let rows: Vec<(i64, i64, Option<i64>, Option<String>, String)> = sqlx::query_as(
+    let rows: Vec<LatestRunRow> = sqlx::query_as(
         r#"SELECT r.action_id, r.id, r.exit_code, r.ended_at, r.started_at
            FROM custom_action_runs r
            INNER JOIN (

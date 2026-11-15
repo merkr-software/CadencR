@@ -8,7 +8,7 @@ use super::super::SdkSessions;
 use super::stream_reader_task::StreamReaderTask;
 
 /// Spawn a background task that forwards runtime messages to the WebSocket client.
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub(crate) fn spawn_stream_reader(
     db_session_id: i64,
     feature_id: i64,
@@ -20,7 +20,6 @@ pub(crate) fn spawn_stream_reader(
     session_status_tx: SessionStatusBroadcaster,
     sdk_sessions: SdkSessions,
     runtime_provider: String,
-    _model: Option<&str>,
     provider_context_window: Option<u64>,
     app_state: AppState,
     cleanup_session_on_end: bool,

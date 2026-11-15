@@ -193,7 +193,7 @@ pub(super) async fn validate_branch(
         )
     })?;
     files.sort_by(|a, b| a.filename.cmp(&b.filename));
-    let mut expected = vec![
+    let mut expected = [
         input.preview.package_path.clone(),
         input.preview.submission_path.clone(),
     ];

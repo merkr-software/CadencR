@@ -4,6 +4,7 @@ use super::provider_hooks::AcpProviderHooks;
 use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventMetadata};
 use serde_json::Value;
 
+#[bon::builder]
 pub fn push_tool_result(
     body: &Value,
     tool_call_id: &str,

@@ -73,6 +73,7 @@ impl Drop for ConnectionLifetime {
 
 async fn detach_viewer(state: &AppState, sender: &mpsc::UnboundedSender<Message>) {
     state.git_watcher.unsubscribe_sender(sender).await;
+    state.editor_watchers.unsubscribe_sender(sender).await;
     state.ws_feature_senders.unregister_sender(sender).await;
     state
         .session_runtimes
@@ -342,6 +343,12 @@ mod tests {
         let state = AppState::with_pool(pool);
         let (sender, _receiver) = mpsc::unbounded_channel();
         state.ws_feature_senders.register(1, sender.clone()).await;
+        let root = tempfile::tempdir().unwrap();
+        state
+            .editor_watchers
+            .subscribe(&sender, root.path().canonicalize().unwrap(), Some(1))
+            .await
+            .unwrap();
         let bridge = tokio::spawn(std::future::pending::<()>());
         let socket = tokio::spawn(std::future::pending::<()>());
         drop(ConnectionLifetime {
@@ -357,6 +364,13 @@ mod tests {
         })
         .await
         .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while state.editor_watchers.counts().await != (0, 0) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the editor watch is released with the connection");
         assert!(bridge.await.unwrap_err().is_cancelled());
         assert!(socket.await.unwrap_err().is_cancelled());
     }

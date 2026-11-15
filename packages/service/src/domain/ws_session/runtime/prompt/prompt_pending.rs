@@ -169,17 +169,17 @@ pub(in crate::domain::ws_session) async fn handle_pending_prompt(
                 &error,
             )
             .await;
-            persist_pause_and_send_session_error(
-                &context.app_state.write_pool,
-                &context.app_state.session_status_tx,
-                &context.sender,
-                &context.envelope_id,
-                context.feature_id,
-                context.db_session_id,
-                "USER_SHELL_CONTEXT_ERROR",
-                &error,
-            )
-            .await;
+            persist_pause_and_send_session_error()
+                .pool(&context.app_state.write_pool)
+                .session_status_tx(&context.app_state.session_status_tx)
+                .sender(&context.sender)
+                .ref_id(&context.envelope_id)
+                .feature_id(context.feature_id)
+                .session_id(context.db_session_id)
+                .code("USER_SHELL_CONTEXT_ERROR")
+                .message(&error)
+                .call()
+                .await;
             return reported_failure(context.wait_for_delivery, &error);
         }
     };
@@ -243,17 +243,17 @@ async fn persist_initial_user_message(
         .journal()
         .flush(&app_state.write_pool, &app_state.ws_feature_senders)
         .await;
-    let outcome = persist_and_publish_prompt(
-        &context.app_state.write_pool,
-        &context.app_state.ws_feature_senders,
-        &context.sender,
-        context.feature_id,
-        context.db_session_id,
-        &context.payload,
-        &persist_content,
-        context.internal_replay,
-    )
-    .await?;
+    let outcome = persist_and_publish_prompt()
+        .pool(&context.app_state.write_pool)
+        .feature_senders(&context.app_state.ws_feature_senders)
+        .sender(&context.sender)
+        .feature_id(context.feature_id)
+        .session_id(context.db_session_id)
+        .payload(&context.payload)
+        .content(&persist_content)
+        .internal_replay(context.internal_replay)
+        .call()
+        .await?;
     if outcome.inserted() {
         context.app_state.feature_events_tx.emit(
             context.feature_id,
@@ -273,17 +273,17 @@ async fn resolve_adapter_or_report(
                 "No runtime adapter registered for provider '{}'",
                 context.provider_id
             );
-            persist_pause_and_send_session_error(
-                &context.app_state.write_pool,
-                &context.app_state.session_status_tx,
-                &context.sender,
-                &context.envelope_id,
-                context.feature_id,
-                context.db_session_id,
-                "UNSUPPORTED_PROVIDER",
-                &message,
-            )
-            .await;
+            persist_pause_and_send_session_error()
+                .pool(&context.app_state.write_pool)
+                .session_status_tx(&context.app_state.session_status_tx)
+                .sender(&context.sender)
+                .ref_id(&context.envelope_id)
+                .feature_id(context.feature_id)
+                .session_id(context.db_session_id)
+                .code("UNSUPPORTED_PROVIDER")
+                .message(&message)
+                .call()
+                .await;
             None
         }
     }
@@ -305,32 +305,32 @@ async fn prepare_worktree(context: &mut PendingPromptContext) -> Result<bool, St
 /// the git error so the agent never runs on an unexpected branch.
 async fn report_branch_setup_error(context: PendingPromptContext, message: String) {
     error!(context.db_session_id, error = %message, "branch setup failed before spawn");
-    persist_pause_and_send_session_error(
-        &context.app_state.write_pool,
-        &context.app_state.session_status_tx,
-        &context.sender,
-        &context.envelope_id,
-        context.feature_id,
-        context.db_session_id,
-        "BRANCH_SETUP_ERROR",
-        &message,
-    )
-    .await;
+    persist_pause_and_send_session_error()
+        .pool(&context.app_state.write_pool)
+        .session_status_tx(&context.app_state.session_status_tx)
+        .sender(&context.sender)
+        .ref_id(&context.envelope_id)
+        .feature_id(context.feature_id)
+        .session_id(context.db_session_id)
+        .code("BRANCH_SETUP_ERROR")
+        .message(&message)
+        .call()
+        .await;
 }
 
 async fn report_mcp_attach_error(context: PendingPromptContext, message: String) {
     error!(context.db_session_id, error = %message, "failed to attach Cadencr MCP servers");
-    persist_pause_and_send_session_error(
-        &context.app_state.write_pool,
-        &context.app_state.session_status_tx,
-        &context.sender,
-        &context.envelope_id,
-        context.feature_id,
-        context.db_session_id,
-        "MCP_ATTACH_ERROR",
-        &message,
-    )
-    .await;
+    persist_pause_and_send_session_error()
+        .pool(&context.app_state.write_pool)
+        .session_status_tx(&context.app_state.session_status_tx)
+        .sender(&context.sender)
+        .ref_id(&context.envelope_id)
+        .feature_id(context.feature_id)
+        .session_id(context.db_session_id)
+        .code("MCP_ATTACH_ERROR")
+        .message(&message)
+        .call()
+        .await;
 }
 
 fn attach_permission_bridge(context: &mut PendingPromptContext) {

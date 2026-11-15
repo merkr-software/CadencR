@@ -286,7 +286,7 @@ mod tests {
             id: json!("perm-typed"),
             method: "session/request_permission".to_string(),
             raw: json!({ "sessionId": typed.session_id, "toolCall": {}, "options": [] }),
-            typed: Some(AgentRequest::RequestPermissionRequest(typed)),
+            typed: Some(Box::new(AgentRequest::RequestPermissionRequest(typed))),
         }
     }
 
