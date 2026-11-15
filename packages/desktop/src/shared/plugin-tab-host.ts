@@ -98,8 +98,6 @@ export interface PluginTabsBridge {
   reload: (instanceId: string) => Promise<void>;
   close: (instanceId: string) => Promise<void>;
   openDevTools: (instanceId: string) => Promise<void>;
-  /** Give the guest OS keyboard focus (e.g. when its tab is activated by click). */
-  focus: (instanceId: string) => Promise<void>;
   setTheme: (theme: PluginTabTheme) => Promise<void>;
   /**
    * Cadencr's shortcuts as currently bound (`lib/plugin-tabs/tab-shortcuts.ts`):

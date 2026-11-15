@@ -29,10 +29,8 @@ export function installBrowserFaviconEvents(tab: ManagedTab, host: TabEventHost)
       })
       .catch((error: unknown) => {
         if (!isCurrent()) return;
-        host.setLastError(
-          `Could not load page icon: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        host.emitState();
+        const message = error instanceof Error ? error.message : String(error);
+        if (host.setTabError(`Could not load page icon: ${message}`)) host.emitState();
       })
       .finally(() => {
         tab.pendingSessionTasks.delete(task);
@@ -48,7 +46,7 @@ export function installBrowserFaviconEvents(tab: ManagedTab, host: TabEventHost)
     generation += 1;
     needsIconRecovery = true;
     host.invalidateFind();
-    host.setLastError(null);
+    host.setTabError(null);
     updateTabMetadata(tab, { loading: true, faviconUrl: undefined }, host);
   });
   wc.on("did-stop-loading", () => {

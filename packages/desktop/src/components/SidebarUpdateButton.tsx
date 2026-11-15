@@ -9,7 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useUpdateStore, type UpdateStatus } from "@/stores/update-store";
+import type { UpdateStatus } from "@/shared/update-state";
+import { useUpdateStore } from "@/stores/update-store";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { CHANGELOG_URL, SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
 import { ChangelogBody, type ChangelogBodyState } from "@/components/ChangelogBody";

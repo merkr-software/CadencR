@@ -4,6 +4,7 @@ import { GitVersionRow } from "./GitVersionRow";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateInstallActions";
 import { Button } from "@/components/ui/button";
+import { toastError } from "@/lib/api-errors";
 import { APP_VERSION } from "@/lib/app-version";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { updateStatusMessage } from "@/lib/update-status-message";
@@ -46,7 +47,11 @@ export function AboutSection(): React.JSX.Element {
                     size="sm"
                     variant="outline"
                     disabled={checking || unsupported}
-                    onClick={() => void checkForUpdates()}
+                    onClick={() =>
+                      checkForUpdates().catch((err: unknown) =>
+                        toastError(err, "Could not check for updates."),
+                      )
+                    }
                     title={unsupported ? (unsupportedMessage ?? undefined) : undefined}
                   >
                     {unsupported

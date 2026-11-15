@@ -1,8 +1,9 @@
 import { toast } from "sonner";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { updateStatusMessage } from "@/lib/update-status-message";
 import { useUpdateStore } from "@/stores/update-store";
 
-type UpdateSnapshot = ReturnType<typeof useUpdateStore.getState>;
+type UpdateStoreState = ReturnType<typeof useUpdateStore.getState>;
 
 /**
  * How long the toast follows a check whose outcome has not arrived yet: the
@@ -11,7 +12,7 @@ type UpdateSnapshot = ReturnType<typeof useUpdateStore.getState>;
 const FOLLOW_TIMEOUT_MS = 30_000;
 
 /** Shows how a check ended; `false` while it is still running. */
-function settle(state: UpdateSnapshot, toastId: string | number): boolean {
+function settle(state: UpdateStoreState, toastId: string | number): boolean {
   const detail = {
     progress: state.progress,
     version: state.version,
@@ -55,14 +56,21 @@ export async function followUpdateCheck(): Promise<void> {
   let done = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let unsubscribe: () => void = () => {};
-  const finish = (state: UpdateSnapshot): void => {
+  const finish = (state: UpdateStoreState): void => {
     if (done || !settle(state, toastId)) return;
     done = true;
     unsubscribe();
     clearTimeout(timer);
   };
   unsubscribe = useUpdateStore.subscribe(finish);
-  await useUpdateStore.getState().checkForUpdates();
+  try {
+    await useUpdateStore.getState().checkForUpdates();
+  } catch (err) {
+    done = true;
+    unsubscribe();
+    toast.error(apiErrorMessage(err, "Could not check for updates."), { id: toastId });
+    return;
+  }
   // The store may have settled before the subscription fired.
   finish(useUpdateStore.getState());
   if (done) return;

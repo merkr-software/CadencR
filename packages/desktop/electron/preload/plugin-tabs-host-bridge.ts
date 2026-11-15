@@ -43,7 +43,6 @@ export function pluginTabsHostBridge(onIpc: OnIpc): { pluginTabs: PluginTabsBrid
       reload: (instanceId) => ipcRenderer.invoke("plugin-tab:reload", instanceId),
       close: (instanceId) => ipcRenderer.invoke("plugin-tab:close", instanceId),
       openDevTools: (instanceId) => ipcRenderer.invoke("plugin-tab:open-devtools", instanceId),
-      focus: (instanceId) => ipcRenderer.invoke("plugin-tab:focus", instanceId),
       setTheme: (theme) => ipcRenderer.invoke("plugin-tab:set-theme", theme),
       setAppShortcuts: (bindings) => ipcRenderer.invoke("plugin-tab:set-app-shortcuts", bindings),
       setTabShortcuts: (instanceId, shortcuts) =>

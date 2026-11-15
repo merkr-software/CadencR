@@ -591,7 +591,7 @@ describe("BrowserManager", () => {
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("https://example.com/phished");
 
-    await expect(manager.click(tab.id, 10, 20)).rejects.toThrow("localhost");
+    await expect(manager.inspection.click(tab.id, 10, 20)).rejects.toThrow("localhost");
     expect(contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
@@ -601,7 +601,7 @@ describe("BrowserManager", () => {
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("http://localhost:5173/signup");
 
-    await manager.click(tab.id, 10, 20);
+    await manager.inspection.click(tab.id, 10, 20);
 
     expect(contents.sendInputEvent).toHaveBeenCalledWith({
       type: "mouseDown",
@@ -1055,7 +1055,7 @@ describe("BrowserManager", () => {
       value: Electron.HandlerDetails,
     ) => Electron.WindowOpenHandlerResponse;
 
-    await manager.click(tab.id, 1, 1);
+    await manager.inspection.click(tab.id, 1, 1);
     parent.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 1, y: 1 });
     expect(handler(popupDetails({ url: "http://localhost:3000/synthetic" })).action).toBe("deny");
 
@@ -1755,6 +1755,154 @@ describe("BrowserManager", () => {
     await manager.flushTabSessions();
     expect(replaceScope.mock.lastCall?.[1]).toMatchObject({
       tabs: [{ url: "https://updated.example/" }],
+    });
+  });
+
+  describe("per-feature errors", () => {
+    function failLoad(contents: MockWebContents, url: string): void {
+      contents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", url, true);
+    }
+
+    it("keeps a page-load error inside the feature whose tab failed", () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      manager.createTab(undefined, "fresh", 1);
+      const second = manager.createTab(undefined, "fresh", 2);
+      const [failing, healthy] = [...webContentsById.values()];
+
+      failLoad(failing, "https://bad.invalid/");
+
+      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(2).error).toBeNull();
+
+      // A successful navigation in another feature must not erase this one's error.
+      manager.navigate(second.id, "https://example.com/");
+      healthy.emit("did-start-loading");
+      healthy.emit("did-navigate");
+      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(2).error).toBeNull();
+
+      // The failing tab's own recovery clears it.
+      failing.emit("did-navigate");
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("shows the active tab's error and brings it back when that tab is reactivated", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      const validTab = manager.createTab(undefined, "fresh", 1);
+      const [failing, valid] = [...webContentsById.values()];
+
+      await manager.activateTab(failingTab.id);
+      failLoad(failing, "http://127.0.0.1:9/");
+      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+
+      valid.emit("did-navigate");
+      await manager.activateTab(validTab.id);
+      expect(manager.state(1).activeTabId).toBe(validTab.id);
+      expect(manager.state(1).error).toBeNull();
+
+      await manager.activateTab(failingTab.id);
+      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+    });
+
+    it("publishes a tab failure once, and nothing for a repeat or a closed tab", async () => {
+      const win = mainWindow();
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+      const stateSends = () =>
+        win.webContents.send.mock.calls.filter(([channel]) => channel === "browser:state").length;
+
+      const before = stateSends();
+      failLoad(contents, "http://127.0.0.1:9/");
+      failLoad(contents, "http://127.0.0.1:9/");
+      expect(stateSends() - before).toBe(1);
+
+      await manager.closeTab(tab.id);
+      const afterClose = stateSends();
+      failLoad(contents, "http://127.0.0.1:9/");
+      expect(stateSends()).toBe(afterClose);
+    });
+
+    it("keeps a feature-wide error visible on every tab of the feature", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+      const first = manager.createTab(undefined, "fresh", 1);
+      const second = manager.createTab(undefined, "fresh", 1);
+
+      await manager.activateTab(first.id);
+      expect(manager.state(1).error).toBe("network registration failed");
+      await manager.activateTab(second.id);
+      expect(manager.state(1).error).toBe("network registration failed");
+    });
+
+    it("keeps another tab's error when a sibling in the same feature navigates", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      manager.createTab(undefined, "fresh", 1);
+      const [failing, sibling] = [...webContentsById.values()];
+
+      failLoad(failing, "https://bad.invalid/");
+      sibling.emit("did-navigate");
+      await manager.activateTab(failingTab.id);
+      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+    });
+
+    it("clears a feature-wide error on that feature's next navigation only", () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+      const inOne = manager.createTab(undefined, "fresh", 1);
+      const inTwo = manager.createTab(undefined, "fresh", 2);
+
+      manager.navigate(inTwo.id, "https://example.com/");
+      expect(manager.state(1).error).toBe("network registration failed");
+
+      // A tab loading on its own (background refresh, SPA route) is no user navigation.
+      const ownLoad = [...webContentsById.values()].at(-2);
+      ownLoad?.emit("did-start-loading");
+      ownLoad?.emit("did-navigate");
+      expect(manager.state(1).error).toBe("network registration failed");
+
+      manager.navigate(inOne.id, "https://example.com/");
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("releases every error of a feature whose tabs are all closed", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+
+      await manager.closeTabsForScope(1);
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("releases a tab's error when that tab closes", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      manager.createTab(undefined, "fresh", 1);
+      const [failing] = [...webContentsById.values()];
+
+      await manager.activateTab(failingTab.id);
+      failLoad(failing, "https://bad.invalid/");
+      expect(manager.state(1).error).not.toBeNull();
+
+      await manager.closeTab(failingTab.id);
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("ignores a late load failure from a tab that is already closed", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+      await manager.closeTab(tab.id);
+
+      failLoad(contents, "https://bad.invalid/");
+      expect(manager.state(1).error).toBeNull();
     });
   });
 });

@@ -90,10 +90,6 @@ function registerRendererIpc(
     assertTrustedSender(event, getMainWindow);
     manager.openDevTools(parseInstanceId(instanceId));
   });
-  ipcMain.handle("plugin-tab:focus", (event, instanceId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    manager.focus(parseInstanceId(instanceId));
-  });
   ipcMain.handle("plugin-tab:set-theme", (event, theme: unknown) => {
     assertTrustedSender(event, getMainWindow);
     manager.setTheme(themeSchema.parse(theme));
