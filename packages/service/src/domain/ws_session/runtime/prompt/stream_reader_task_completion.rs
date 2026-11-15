@@ -137,11 +137,9 @@ impl StreamReaderTask {
         {
             error!(self.db_session_id, error = %error, "failed to resolve pending prompt receipts at turn end");
         }
-        let has_pending_user_input =
-            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
-                .await
-                .is_some_and(|row| row.has_pending_user_input());
-        if !has_pending_user_input {
+        if let Some(gate) = self.gate_left_pending().await {
+            self.show_gate_left_pending(gate);
+        } else {
             // A result reporting failure ends the turn as failed. A surfaced
             // error alone does not: an unrecognized message or a retried
             // provider error still lets the turn complete.
@@ -189,11 +187,9 @@ impl StreamReaderTask {
         // the runtime closing mid-interrupt) pass here exactly once.
         WsSessionPersistence::persist_turn_interrupted_static(&self.write_pool, self.db_session_id)
             .await;
-        let has_pending_user_input =
-            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
-                .await
-                .is_some_and(|row| row.has_pending_user_input());
-        if !has_pending_user_input {
+        if let Some(gate) = self.gate_left_pending().await {
+            self.show_gate_left_pending(gate);
+        } else {
             self.session_status_tx.broadcast(
                 self.db_session_id,
                 self.feature_id,
