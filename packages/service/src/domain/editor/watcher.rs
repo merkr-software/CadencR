@@ -15,7 +15,9 @@ use crate::domain::editor::service::{
 use crate::shared::watch_limits::describe_watch_error;
 
 mod changed_documents;
+mod subscriptions;
 use changed_documents::ChangedDocuments;
+pub use subscriptions::EditorWatchers;
 
 /// Minimum gap between successive change emissions under sustained churn.
 /// Mirrors the git watcher's `MIN_RECOMPUTE_GAP_MS` so an agent (or a build)
@@ -45,7 +47,9 @@ impl FileChangeEvent {
     }
 }
 
-/// Manages a single file-system watcher for the active project.
+/// One recursive file-system watcher over an editor root. Dropping it stops
+/// the watch.
+#[derive(Default)]
 pub struct FileWatcher {
     debouncer: Option<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>,
     watched_path: Option<PathBuf>,
@@ -56,15 +60,6 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn new() -> Self {
-        Self {
-            debouncer: None,
-            watched_path: None,
-            ping_tx: None,
-            emit_task: None,
-        }
-    }
-
     /// Start watching `project_path` recursively. Events are sent to `tx`.
     /// Any previous watcher is stopped first.
     ///
@@ -117,6 +112,31 @@ impl FileWatcher {
         if let Some(task) = self.emit_task.take() {
             task.abort();
         }
+    }
+}
+
+/// [`FileWatcher::start`] off the async runtime: starting walks the tree for
+/// `.gitignore`s and registers the recursive watch, which can take seconds on
+/// a large repository.
+pub async fn start_off_runtime(
+    root: &Path,
+    feature_id: Option<i64>,
+    tx: broadcast::Sender<FileChangeEvent>,
+) -> Result<FileWatcher, String> {
+    let root = root.to_string_lossy().into_owned();
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        let _runtime = runtime.enter();
+        let mut watcher = FileWatcher::default();
+        watcher.start(&root, feature_id, tx).map(|()| watcher)
+    })
+    .await
+    .map_err(|error| format!("file watcher start failed: {error}"))?
+}
+
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -248,13 +268,6 @@ fn is_gitignore_file(path: &Path) -> bool {
     path.file_name().is_some_and(|name| name == ".gitignore")
 }
 
-/// Shared watcher handle stored in AppState.
-pub type SharedFileWatcher = Arc<Mutex<FileWatcher>>;
-
-pub fn new_shared() -> SharedFileWatcher {
-    Arc::new(Mutex::new(FileWatcher::new()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,7 +348,7 @@ mod tests {
     async fn watcher_starts_and_stops() {
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = tokio::sync::broadcast::channel(16);
-        let mut watcher = FileWatcher::new();
+        let mut watcher = FileWatcher::default();
 
         assert!(watcher
             .start(dir.path().to_str().unwrap(), None, tx)
@@ -353,7 +366,7 @@ mod tests {
         let dir1 = tempfile::tempdir().unwrap();
         let dir2 = tempfile::tempdir().unwrap();
         let (tx, _rx) = tokio::sync::broadcast::channel(16);
-        let mut watcher = FileWatcher::new();
+        let mut watcher = FileWatcher::default();
 
         watcher
             .start(dir1.path().to_str().unwrap(), None, tx.clone())

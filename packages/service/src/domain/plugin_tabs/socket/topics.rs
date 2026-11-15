@@ -11,7 +11,7 @@ use super::emitter::{Emitter, Frame};
 use super::session_stream::{self, forward};
 use super::subscriptions::{Cleanup, Started};
 use crate::app_state::AppState;
-use crate::domain::editor::watcher::FileWatcher;
+use crate::domain::editor::watcher::start_off_runtime;
 use crate::domain::feature_events::FeatureEvent;
 use crate::domain::git::forge::PrStatusSnapshot;
 use crate::domain::plugin_tabs::grants::Grant;
@@ -149,9 +149,9 @@ async fn git_status(
     })
 }
 
-/// A dedicated watcher of the feature's worktree: the shared editor watcher
-/// follows the renderer's current project, which a hidden tab must not steal.
-/// Starting it walks the tree for `.gitignore`s, so it runs off the runtime.
+/// A dedicated watcher of the feature's worktree, owned by the tab's
+/// subscription: its events go out through the tab's emitter (which can
+/// resync), not as editor WebSocket envelopes.
 async fn files_changes(
     state: &AppState,
     grant: &Grant,
@@ -165,19 +165,11 @@ async fn files_changes(
     .await
     .map_err(|error| ("BAD_REQUEST", error.to_string()))?;
     let (tx, mut rx) = broadcast::channel(16);
-    let runtime = tokio::runtime::Handle::current();
-    let feature_id = grant.feature_id;
-    let watcher = tokio::task::spawn_blocking(move || {
-        let _runtime = runtime.enter();
-        let mut watcher = FileWatcher::new();
-        watcher
-            .start(&root.to_string_lossy(), Some(feature_id), tx)
-            .map(|()| WatcherGuard(watcher))
-    })
-    .await
-    .map_err(|error| ("WATCHER_ERROR", error.to_string()))?
-    .map_err(|error| ("WATCHER_ERROR", error))?;
+    let watcher = start_off_runtime(&root, Some(grant.feature_id), tx)
+        .await
+        .map_err(|error| ("WATCHER_ERROR", error))?;
     let run = async move {
+        // Dropping the watcher (task end or abort) stops it.
         let _watcher = watcher;
         loop {
             let open = match rx.recv().await {
@@ -195,15 +187,6 @@ async fn files_changes(
         }
     };
     Ok(detached(run))
-}
-
-/// Stops the dedicated watcher when its subscription task ends or is aborted.
-struct WatcherGuard(FileWatcher);
-
-impl Drop for WatcherGuard {
-    fn drop(&mut self) {
-        self.0.stop();
-    }
 }
 
 async fn forge_status(

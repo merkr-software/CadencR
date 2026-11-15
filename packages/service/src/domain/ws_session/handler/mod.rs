@@ -18,6 +18,7 @@
 pub(crate) use super::runtime::access;
 mod active_turns;
 mod app;
+mod app_file_watcher;
 mod app_forge;
 mod app_notifications;
 pub(in crate::domain::ws_session) mod commands;
