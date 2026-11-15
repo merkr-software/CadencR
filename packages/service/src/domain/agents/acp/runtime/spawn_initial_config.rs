@@ -191,16 +191,15 @@ mod tests {
         hooks: Arc<dyn AcpProviderHooks>,
     ) -> AcpRuntimeSession {
         let (tx, rx) = mpsc::channel(8);
-        AcpRuntimeSession::assemble(
-            client,
-            neg,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            hooks,
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        )
+        AcpRuntimeSession::assemble()
+            .client(client)
+            .negotiated(neg)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(hooks)
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call()
     }
 
     fn neg(sid: &str) -> NegotiatedSession {

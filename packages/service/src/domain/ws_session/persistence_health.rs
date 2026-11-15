@@ -23,6 +23,7 @@ pub struct SessionPersistenceHealth {
     sessions: Mutex<HashMap<i64, SessionHealth>>,
 }
 
+#[bon::bon]
 impl SessionPersistenceHealth {
     pub(crate) fn reader_id(&self) -> u64 {
         self.next_reader.fetch_add(1, Ordering::Relaxed)
@@ -37,7 +38,7 @@ impl SessionPersistenceHealth {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[builder]
     pub(crate) async fn publish(
         &self,
         session_id: i64,
@@ -253,15 +254,15 @@ mod tests {
         senders.register(2, viewer).await;
         for id in [1, 9] {
             registry
-                .publish(
-                    id,
-                    2,
-                    3,
-                    payload(PersistenceStatusState::Degraded),
-                    &pool,
-                    &senders,
-                    &owner,
-                )
+                .publish()
+                .session_id(id)
+                .feature_id(2)
+                .reader_id(3)
+                .payload(payload(PersistenceStatusState::Degraded))
+                .read_pool(&pool)
+                .senders(&senders)
+                .sender(&owner)
+                .call()
                 .await;
         }
         assert!(matches!(owner_rx.try_recv(), Ok(Message::Text(_))));

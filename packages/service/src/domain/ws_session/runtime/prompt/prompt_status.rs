@@ -76,6 +76,7 @@ impl PromptPersistenceOutcome {
     }
 }
 
+#[bon::builder]
 pub(in crate::domain::ws_session) async fn persist_and_publish_prompt(
     pool: &sqlx::SqlitePool,
     feature_senders: &WsFeatureSenderRegistry,
@@ -537,16 +538,30 @@ mod tests {
             message_uuid: Some(message_uuid.clone()),
         };
 
-        let first = persist_and_publish_prompt(
-            &pool, &registry, &sender, 7, session_id, &payload, "hello", false,
-        )
-        .await
-        .unwrap();
-        let in_progress = persist_and_publish_prompt(
-            &pool, &registry, &sender, 7, session_id, &payload, "hello", false,
-        )
-        .await
-        .unwrap_err();
+        let first = persist_and_publish_prompt()
+            .pool(&pool)
+            .feature_senders(&registry)
+            .sender(&sender)
+            .feature_id(7)
+            .session_id(session_id)
+            .payload(&payload)
+            .content("hello")
+            .internal_replay(false)
+            .call()
+            .await
+            .unwrap();
+        let in_progress = persist_and_publish_prompt()
+            .pool(&pool)
+            .feature_senders(&registry)
+            .sender(&sender)
+            .feature_id(7)
+            .session_id(session_id)
+            .payload(&payload)
+            .content("hello")
+            .internal_replay(false)
+            .call()
+            .await
+            .unwrap_err();
 
         assert!(first.should_dispatch());
         assert!(in_progress.contains("already being dispatched"));
@@ -554,11 +569,18 @@ mod tests {
         crate::domain::sessions::message_dispatch::mark_succeeded(&pool, message_id, claim_token)
             .await
             .unwrap();
-        let retry = persist_and_publish_prompt(
-            &pool, &registry, &sender, 7, session_id, &payload, "hello", false,
-        )
-        .await
-        .unwrap();
+        let retry = persist_and_publish_prompt()
+            .pool(&pool)
+            .feature_senders(&registry)
+            .sender(&sender)
+            .feature_id(7)
+            .session_id(session_id)
+            .payload(&payload)
+            .content("hello")
+            .internal_replay(false)
+            .call()
+            .await
+            .unwrap();
         assert!(!retry.should_dispatch());
         assert_eq!(first.message_id(), retry.message_id());
         let count: i64 = sqlx::query_scalar(
@@ -623,18 +645,18 @@ mod tests {
             message_uuid: None,
         };
 
-        let outcome = persist_and_publish_prompt(
-            &pool,
-            &registry,
-            &sender,
-            7,
-            session_id,
-            &payload,
-            "legacy hello",
-            false,
-        )
-        .await
-        .unwrap();
+        let outcome = persist_and_publish_prompt()
+            .pool(&pool)
+            .feature_senders(&registry)
+            .sender(&sender)
+            .feature_id(7)
+            .session_id(session_id)
+            .payload(&payload)
+            .content("legacy hello")
+            .internal_replay(false)
+            .call()
+            .await
+            .unwrap();
 
         assert!(outcome.should_dispatch());
         let Message::Text(raw) = receiver.try_recv().unwrap() else {

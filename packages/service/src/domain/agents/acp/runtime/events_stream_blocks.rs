@@ -350,8 +350,10 @@ mod tests {
 
     #[test]
     fn drain_open_blocks_returns_empty_when_no_blocks_open() {
-        let mut idx = EventIndexer::default();
-        idx.message_started = true;
+        let mut idx = EventIndexer {
+            message_started: true,
+            ..Default::default()
+        };
         let events = idx.drain_open_blocks(None);
         assert!(events.is_empty());
         // No-op drain must not clobber message_started.

@@ -99,19 +99,20 @@ pub(crate) async fn handle_rewind(
     };
     let (code_restored, code_restore_error) = code_outcome.to_wire();
 
-    finish_rewind(
-        app_state,
-        sender,
-        &envelope.id,
-        db_session_id,
-        &inputs,
-        new_runtime_session_id.is_some(),
-        code_restored,
-        code_restore_error,
-    )
-    .await;
+    finish_rewind()
+        .app_state(app_state)
+        .sender(sender)
+        .envelope_id(&envelope.id)
+        .db_session_id(db_session_id)
+        .inputs(&inputs)
+        .truncated(new_runtime_session_id.is_some())
+        .code_restored(code_restored)
+        .maybe_code_restore_error(code_restore_error)
+        .call()
+        .await;
 }
 
+#[bon::builder]
 async fn finish_rewind(
     app_state: &AppState,
     sender: &WsSender,

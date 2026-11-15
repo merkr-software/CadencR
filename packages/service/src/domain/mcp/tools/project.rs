@@ -259,17 +259,17 @@ async fn read_session(
     .await
     .map_err(|e| format!("Failed to read session metadata: {e}"))?;
 
-    let messages = query_session_messages(
-        ctx,
-        session_id,
-        after_message_id,
-        before_message_id,
-        limit,
-        query.as_deref(),
-        &roles,
-        &message_types,
-    )
-    .await?;
+    let messages = query_session_messages()
+        .ctx(ctx)
+        .session_id(session_id)
+        .after_message_id(after_message_id)
+        .maybe_before_message_id(before_message_id)
+        .limit(limit)
+        .maybe_query(query.as_deref())
+        .roles(&roles)
+        .message_types(&message_types)
+        .call()
+        .await?;
     let (messages, message_chars_returned, content_truncated) =
         cap_message_content(messages, DEFAULT_MAX_RETURNED_MESSAGE_CHARS);
 
@@ -291,6 +291,7 @@ async fn read_session(
     }))
 }
 
+#[bon::builder]
 async fn query_session_messages(
     ctx: &McpContext,
     session_id: i64,

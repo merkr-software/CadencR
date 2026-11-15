@@ -23,6 +23,10 @@ pub(crate) const FORCE_CADENCE: Duration = Duration::from_secs(5);
 /// Any poll waits this long after a failed one.
 pub(crate) const RETRY_BACKOFF: Duration = Duration::from_secs(60);
 
+/// Verifies a fetched envelope (`allow_stale`, `now`) into a blocklist.
+type PrepareBlocklist<E> =
+    fn(&Value, bool, DateTime<Utc>) -> Result<PreparedBlocklist<E>, RegistryError>;
+
 /// One signed revocation feed, entries `E`.
 pub(crate) struct Feed<E: 'static> {
     /// Names the policy in errors: `"tab revocation policy"`.
@@ -31,7 +35,7 @@ pub(crate) struct Feed<E: 'static> {
     pub max_bytes: usize,
     /// The high-water cache, inside the storage root.
     pub cache_file: &'static str,
-    pub prepare: fn(&Value, bool, DateTime<Utc>) -> Result<PreparedBlocklist<E>, RegistryError>,
+    pub prepare: PrepareBlocklist<E>,
     /// Authenticates a cached envelope as a baseline (retired key before its
     /// cutoff, or this feed's exact recovery checkpoint).
     pub baseline: fn(&ManagedTrustStore, &Value, DateTime<Utc>) -> Result<(), ManagedTrustError>,

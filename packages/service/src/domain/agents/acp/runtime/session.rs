@@ -78,16 +78,15 @@ mod tests {
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
-        super::AcpRuntimeSession::assemble(
-            client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        )
+        super::AcpRuntimeSession::assemble()
+            .client(client)
+            .negotiated(&negotiated)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call()
     }
 
     fn model_options(current: &str) -> Vec<SessionConfigOption> {
@@ -322,20 +321,19 @@ mod tests {
             let tx = tx.clone();
             let hooks = Arc::new(PlainHooks);
             async move {
-                drive_initial_prompt(
-                    &client,
-                    &session_id,
-                    &model,
-                    &effort,
-                    json!("hello"),
-                    &tx,
-                    &indexer,
-                    None,
-                    hooks.as_ref(),
-                    &lock,
-                    &cancel,
-                )
-                .await
+                drive_initial_prompt()
+                    .client(&client)
+                    .session_id_lock(&session_id)
+                    .current_model_lock(&model)
+                    .current_effort_lock(&effort)
+                    .content(json!("hello"))
+                    .tx(&tx)
+                    .indexer(&indexer)
+                    .hooks(hooks.as_ref())
+                    .prompt_turn_lock(&lock)
+                    .prompt_cancel(&cancel)
+                    .call()
+                    .await
             }
         });
 
@@ -366,16 +364,15 @@ mod tests {
         };
         let (tx, rx) = mpsc::channel(8);
         let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
-        let session = super::AcpRuntimeSession::assemble(
-            &client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            indexer,
-        );
+        let session = super::AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(indexer)
+            .call();
         let current_mode = Arc::clone(&session.current_mode);
 
         let first = tokio::spawn(async move {
@@ -416,16 +413,17 @@ mod tests {
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
-        let session = Arc::new(super::AcpRuntimeSession::assemble(
-            &client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        ));
+        let session = Arc::new(
+            super::AcpRuntimeSession::assemble()
+                .client(&client)
+                .negotiated(&negotiated)
+                .cwd(std::env::temp_dir())
+                .rx(rx)
+                .local_tx(tx)
+                .hooks(Arc::new(PlainHooks))
+                .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+                .call(),
+        );
 
         let generic_write = tokio::spawn({
             let session = Arc::clone(&session);
@@ -490,16 +488,15 @@ mod tests {
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
-        let mut session = super::AcpRuntimeSession::assemble(
-            &client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        );
+        let mut session = super::AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call();
         // The agent never answers the cancel: only the (shortened) grace
         // and the visible escalation may end the turn.
         session.prompt_cancel = PromptCancel::new().with_cancel_grace(Duration::from_millis(100));

@@ -176,17 +176,17 @@ async fn persist_followup_user_message(
         .journal()
         .flush(&context.write_pool, &context.ws_feature_senders)
         .await;
-    let outcome = persist_and_publish_prompt(
-        &context.write_pool,
-        &context.ws_feature_senders,
-        &context.sender,
-        context.feature_id,
-        context.db_session_id,
-        payload,
-        &persist_content,
-        context.internal_replay,
-    )
-    .await?;
+    let outcome = persist_and_publish_prompt()
+        .pool(&context.write_pool)
+        .feature_senders(&context.ws_feature_senders)
+        .sender(&context.sender)
+        .feature_id(context.feature_id)
+        .session_id(context.db_session_id)
+        .payload(payload)
+        .content(&persist_content)
+        .internal_replay(context.internal_replay)
+        .call()
+        .await?;
     // The user message changed this feature's most-recent-user-message sort
     // key. Broadcast so every client's sidebar re-sorts conversations and
     // floats this one to the top of its project.
@@ -218,17 +218,17 @@ async fn stream_followup_prompt(
         Err(message) => {
             let _ = shell_context.release(&context.write_pool).await;
             mark_followup_dispatch_failed(&context, dispatch_claim.as_ref(), &message).await;
-            persist_pause_and_send_session_error(
-                &context.write_pool,
-                &context.session_status_tx,
-                &context.sender,
-                &context.envelope_id,
-                context.feature_id,
-                context.db_session_id,
-                "USER_SHELL_CONTEXT_ERROR",
-                &message,
-            )
-            .await;
+            persist_pause_and_send_session_error()
+                .pool(&context.write_pool)
+                .session_status_tx(&context.session_status_tx)
+                .sender(&context.sender)
+                .ref_id(&context.envelope_id)
+                .feature_id(context.feature_id)
+                .session_id(context.db_session_id)
+                .code("USER_SHELL_CONTEXT_ERROR")
+                .message(&message)
+                .call()
+                .await;
             return Err(message);
         }
     };
@@ -332,17 +332,17 @@ async fn claim_followup_shell_context(
         Ok(shell_context) => Ok(shell_context),
         Err(message) => {
             mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
-            persist_pause_and_send_session_error(
-                &context.write_pool,
-                &context.session_status_tx,
-                &context.sender,
-                &context.envelope_id,
-                context.feature_id,
-                context.db_session_id,
-                "USER_SHELL_CONTEXT_ERROR",
-                &message,
-            )
-            .await;
+            persist_pause_and_send_session_error()
+                .pool(&context.write_pool)
+                .session_status_tx(&context.session_status_tx)
+                .sender(&context.sender)
+                .ref_id(&context.envelope_id)
+                .feature_id(context.feature_id)
+                .session_id(context.db_session_id)
+                .code("USER_SHELL_CONTEXT_ERROR")
+                .message(&message)
+                .call()
+                .await;
             Err(message)
         }
     }
@@ -379,16 +379,16 @@ async fn fail_followup_stream(
     if preserve_running_turn {
         return Err(message);
     }
-    persist_pause_and_send_session_error(
-        &context.write_pool,
-        &context.session_status_tx,
-        &context.sender,
-        &context.envelope_id,
-        context.feature_id,
-        context.db_session_id,
-        "SDK_ERROR",
-        &message,
-    )
-    .await;
+    persist_pause_and_send_session_error()
+        .pool(&context.write_pool)
+        .session_status_tx(&context.session_status_tx)
+        .sender(&context.sender)
+        .ref_id(&context.envelope_id)
+        .feature_id(context.feature_id)
+        .session_id(context.db_session_id)
+        .code("SDK_ERROR")
+        .message(&message)
+        .call()
+        .await;
     Err(message)
 }

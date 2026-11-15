@@ -167,8 +167,12 @@ async fn send_transcript_block(
 /// with it. It gets its closing line, ended at the conversation's last
 /// activity. A turn still waiting on its user keeps its clock — the book
 /// resumes it.
+/// `(id, feature_id, turn_started_at_ms, turn_waiting_ms, turn_waiting_since_ms,
+/// turn_models, last_message_at_ms)` of a session with an open turn.
+type OpenTurnRow = (i64, i64, i64, i64, Option<i64>, Option<String>, Option<i64>);
+
 pub async fn close_stale_turns(pool: &SqlitePool) -> Result<usize, sqlx::Error> {
-    let rows: Vec<(i64, i64, i64, i64, Option<i64>, Option<String>, Option<i64>)> = sqlx::query_as(
+    let rows: Vec<OpenTurnRow> = sqlx::query_as(
         "SELECT s.id, s.feature_id, s.turn_started_at_ms, s.turn_waiting_ms, \
                     s.turn_waiting_since_ms, s.turn_models, \
                     (SELECT CAST(strftime('%s', m.created_at) AS INTEGER) * 1000 \

@@ -13,13 +13,16 @@ pub async fn get_draft(pool: &SqlitePool, session_id: i64) -> Result<Option<Stri
     Ok(row.and_then(|(v,)| v))
 }
 
+/// `(session_id, content, message_type, tool_use_id, tool_name)` of a message.
+type MessageContentRow = (i64, String, String, Option<String>, Option<String>);
+
 /// Fetch the full, untruncated `content` for a single `agent_messages` row.
 /// Used by explicit expansion of any oversized payload preview in agent state.
 pub async fn get_message_content(
     pool: &SqlitePool,
     message_id: i64,
 ) -> Result<Option<String>, AppError> {
-    let row: Option<(i64, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+    let row: Option<MessageContentRow> = sqlx::query_as(
         "SELECT session_id, content, message_type, tool_use_id, tool_name FROM agent_messages WHERE id = ?",
     )
         .bind(message_id)

@@ -97,24 +97,28 @@ pub async fn update_action_handler(
     service::validate_scope(next_scope, next_project_id)?;
     service::validate_icon(body.icon_data.as_deref())?;
 
-    repository::update(
-        &state.write_pool,
-        id,
-        body.name.as_deref(),
-        body.command.as_deref(),
-        body.icon_data
-            .as_ref()
-            .map(|s| if s.is_empty() { None } else { Some(s.as_str()) }),
-        body.scope,
-        match (body.scope, body.project_id) {
+    repository::update()
+        .pool(&state.write_pool)
+        .id(id)
+        .maybe_name(body.name.as_deref())
+        .maybe_command(body.command.as_deref())
+        .maybe_icon_data(body.icon_data.as_ref().map(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.as_str())
+            }
+        }))
+        .maybe_scope(body.scope)
+        .maybe_project_id(match (body.scope, body.project_id) {
             (Some(Scope::Global), _) => Some(None),
             (_, Some(pid)) => Some(Some(pid)),
             _ => None,
-        },
-        body.position,
-        body.run_in_terminal,
-    )
-    .await?;
+        })
+        .maybe_position(body.position)
+        .maybe_run_in_terminal(body.run_in_terminal)
+        .call()
+        .await?;
 
     let row = repository::get(&state.read_pool, id)
         .await?

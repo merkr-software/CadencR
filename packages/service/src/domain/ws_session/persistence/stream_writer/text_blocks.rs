@@ -6,7 +6,9 @@ use super::PendingMergeableBlock;
 use super::TranscriptWriter;
 use crate::domain::agents::adapter::RuntimeStreamScope;
 
+#[bon::bon]
 impl TranscriptWriter {
+    #[builder]
     pub(super) async fn insert_mergeable_block(
         &mut self,
         session_id: i64,
@@ -80,15 +82,15 @@ impl TranscriptWriter {
         }
 
         let current_model = self.current_models.get(stream_scope).cloned();
-        self.insert_mergeable_block(
-            session_id,
-            stream_scope,
-            index,
-            message_type,
-            delta,
-            ptuid,
-            current_model.as_deref(),
-        )
-        .await
+        self.insert_mergeable_block()
+            .session_id(session_id)
+            .stream_scope(stream_scope)
+            .index(index)
+            .message_type(message_type)
+            .content(delta)
+            .maybe_ptuid(ptuid)
+            .maybe_model(current_model.as_deref())
+            .call()
+            .await
     }
 }

@@ -561,18 +561,18 @@ async fn reconnect_replays_current_transcript_warning_and_proven_recovery() {
     ] {
         state
             .persistence_health
-            .publish(
-                db_session_id,
-                1,
-                42,
-                SessionPersistenceStatusPayload {
-                    status,
-                    message: "Transcript durability changed".into(),
-                },
-                &state.read_pool,
-                &state.ws_feature_senders,
-                &owner,
-            )
+            .publish()
+            .session_id(db_session_id)
+            .feature_id(1)
+            .reader_id(42)
+            .payload(SessionPersistenceStatusPayload {
+                status,
+                message: "Transcript durability changed".into(),
+            })
+            .read_pool(&state.read_pool)
+            .senders(&state.ws_feature_senders)
+            .sender(&owner)
+            .call()
             .await;
         assert_next_persistence_status(&mut owner_rx, status).await;
 

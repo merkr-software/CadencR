@@ -429,8 +429,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, ArtifactErrorCode::ArchiveTooLarge);
 
-        let mut budget = ExtractionBudget::default();
-        budget.entry_count = MAX_ARCHIVE_ENTRIES;
+        let mut budget = ExtractionBudget {
+            entry_count: MAX_ARCHIVE_ENTRIES,
+            ..Default::default()
+        };
         let error = budget.register(Path::new("extra"), 0, false).unwrap_err();
         assert_eq!(error.code, ArtifactErrorCode::TooManyEntries);
     }

@@ -46,17 +46,17 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
     let mut options = match &handle.state {
         QueryState::Pending(opts) => opts.clone(),
         QueryState::Active { query, .. } => {
-            let context = build_followup_context(
-                query.clone(),
-                handle.identity.begin_delivery(),
-                feature_id,
-                db_session_id,
-                provider_id,
-                sender,
-                sdk_sessions,
-                app_state,
-                envelope.id.clone(),
-            );
+            let context = build_followup_context()
+                .query(query.clone())
+                .delivery_lease(handle.identity.begin_delivery())
+                .feature_id(feature_id)
+                .db_session_id(db_session_id)
+                .provider_id(provider_id)
+                .sender(sender)
+                .sdk_sessions(sdk_sessions)
+                .app_state(app_state)
+                .envelope_id(envelope.id.clone())
+                .call();
             drop(sessions);
             drop(spawn_claim);
             let result = handle_followup_prompt(context, payload).await;

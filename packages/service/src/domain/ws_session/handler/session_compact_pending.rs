@@ -138,22 +138,21 @@ pub(super) async fn spawn_pending_runtime_for_compact(
         return None;
     }
 
-    spawn_stream_reader(
-        db_session_id,
-        spawn.feature_id,
-        message_rx,
-        Some(std::sync::Arc::downgrade(&query)),
-        sender.clone().into(),
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
-        sdk_sessions.clone(),
-        spawn.provider_id.clone(),
-        spawn.spawned_model.as_deref(),
-        provider_context_window,
-        app_state.clone(),
-        false,
-    );
+    spawn_stream_reader()
+        .db_session_id(db_session_id)
+        .feature_id(spawn.feature_id)
+        .message_rx(message_rx)
+        .runtime_session_handle(std::sync::Arc::downgrade(&query))
+        .sender(sender.clone().into())
+        .feature_senders(app_state.ws_feature_senders.clone())
+        .write_pool(app_state.write_pool.clone())
+        .session_status_tx(app_state.session_status_tx.clone())
+        .sdk_sessions(sdk_sessions.clone())
+        .runtime_provider(spawn.provider_id.clone())
+        .maybe_provider_context_window(provider_context_window)
+        .app_state(app_state.clone())
+        .cleanup_session_on_end(false)
+        .call();
     Some(query)
 }
 
@@ -170,6 +169,11 @@ struct PendingCompactSpawn {
     options: RuntimeSpawnConfig,
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "returned once per compaction and destructured immediately; Ready is \
+              the expected case, so boxing it would only add an allocation"
+)]
 enum PendingCompactSpawnResult {
     Ready(PendingCompactSpawn),
     Missing,

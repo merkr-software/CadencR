@@ -38,17 +38,17 @@ pub(in crate::domain::ws_session) async fn spawn_runtime(
                 &error,
             )
             .await;
-            persist_pause_and_send_session_error(
-                &context.app_state.write_pool,
-                &context.app_state.session_status_tx,
-                &context.sender,
-                &context.envelope_id,
-                context.feature_id,
-                context.db_session_id,
-                "USER_SHELL_CONTEXT_ERROR",
-                &error,
-            )
-            .await;
+            persist_pause_and_send_session_error()
+                .pool(&context.app_state.write_pool)
+                .session_status_tx(&context.app_state.session_status_tx)
+                .sender(&context.sender)
+                .ref_id(&context.envelope_id)
+                .feature_id(context.feature_id)
+                .session_id(context.db_session_id)
+                .code("USER_SHELL_CONTEXT_ERROR")
+                .message(&error)
+                .call()
+                .await;
             return reported_failure(context.wait_for_delivery, &error);
         }
     };
@@ -111,17 +111,17 @@ pub(in crate::domain::ws_session) async fn spawn_runtime(
 
 async fn report_spawn_error(context: PendingPromptContext, message: String) {
     error!(context.db_session_id, error = %message, "runtime query spawn failed");
-    persist_pause_and_send_session_error(
-        &context.app_state.write_pool,
-        &context.app_state.session_status_tx,
-        &context.sender,
-        &context.envelope_id,
-        context.feature_id,
-        context.db_session_id,
-        "SDK_SPAWN_ERROR",
-        &message,
-    )
-    .await;
+    persist_pause_and_send_session_error()
+        .pool(&context.app_state.write_pool)
+        .session_status_tx(&context.app_state.session_status_tx)
+        .sender(&context.sender)
+        .ref_id(&context.envelope_id)
+        .feature_id(context.feature_id)
+        .session_id(context.db_session_id)
+        .code("SDK_SPAWN_ERROR")
+        .message(&message)
+        .call()
+        .await;
 }
 
 fn log_spawn(context: &PendingPromptContext) {
