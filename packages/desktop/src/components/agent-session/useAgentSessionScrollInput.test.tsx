@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAgentSessionScrollInput } from "./useAgentSessionScrollInput";
 import { popResize, pushResize } from "@/lib/resize-coordinator";
 import type { ScrollRef } from "./agent-session-scroll-utils";
+import { StreamScrollWriter } from "./stream-scroll-writer";
 
 // `observeListGrowth` opts out on iOS entirely; drive that branch explicitly.
 const isIosMock = vi.fn(() => false);
@@ -19,9 +20,11 @@ const noop = (): void => {};
 
 // Stable ref params (identity must not change across re-renders, or the
 // callback ref would detach/reattach the observer).
+const stickRef = { current: true };
 const params = {
   scrollerElRef: { current: null as HTMLElement | null },
-  stickRef: { current: true },
+  stickRef,
+  writer: new StreamScrollWriter({ isFollowing: () => stickRef.current, prepareJump: noop }),
   // The guard is unit-tested on its own (stream-scroll-anchor.test.ts).
   anchorGuard: { attach: vi.fn(), detach: vi.fn() },
   historyLoadArmedRef: { current: false },
@@ -273,7 +276,7 @@ describe("useAgentSessionScrollInput — streaming bottom-pin", () => {
     const { scroller } = buildScroller();
 
     act(() => scrollRef(scroller));
-    expect(attach).toHaveBeenCalledExactlyOnceWith(scroller);
+    expect(attach).toHaveBeenCalledExactlyOnceWith(scroller, params.writer);
 
     detach.mockClear();
     act(() => scrollRef(null));

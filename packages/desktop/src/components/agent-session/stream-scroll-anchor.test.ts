@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScrollAnchorGuard } from "./stream-scroll-anchor";
+import { StreamScrollWriter } from "./stream-scroll-writer";
 
 const isIosMock = vi.fn(() => false);
 vi.mock("@/lib/is-ios", () => ({ isIos: () => isIosMock() }));
@@ -126,9 +127,15 @@ function row(index: number, local: number, height: number, block = `b${index}`):
 function guarded(stream: ReturnType<typeof createStream>) {
   const engaged = { current: false };
   const guard = new ScrollAnchorGuard(() => engaged.current);
-  guard.attach(stream.scroller);
+  // Virtuoso's `scrollBy` reaches the guard through the stream's writer.
+  const writer = new StreamScrollWriter({
+    isFollowing: () => engaged.current,
+    prepareJump: () => {},
+  });
+  writer.attach(stream.scroller);
+  guard.attach(stream.scroller, writer);
   stream.scroll();
-  return { ...stream, guard, engaged };
+  return { ...stream, guard, engaged, writer };
 }
 
 /** Rows 1000–1003 with 1001 at the top of the viewport. */
@@ -389,21 +396,28 @@ describe("ScrollAnchorGuard", () => {
 
   it("restores the native scrollBy and drops the bridge on detach", async () => {
     const stream = readingMidList();
+    const native = vi.spyOn(Element.prototype, "scrollBy").mockImplementation(() => {});
     mountTallRowAbove(stream);
     await flush();
-    expect(Object.hasOwn(stream.scroller, "scrollBy")).toBe(true);
+    stream.scroller.scrollBy({ top: 460 });
+    expect(native).not.toHaveBeenCalled();
 
     stream.guard.detach();
 
-    expect(Object.hasOwn(stream.scroller, "scrollBy")).toBe(false);
+    stream.scroller.scrollBy({ top: 460 });
+    expect(native).toHaveBeenCalledOnce();
     expect(stream.list.style.transform).toBe("");
     expect(frames.size).toBe(0);
+    stream.writer.detach();
+    expect(Object.hasOwn(stream.scroller, "scrollBy")).toBe(false);
   });
 
   it("leaves iOS to Virtuoso's deviation-based correction", () => {
     isIosMock.mockReturnValue(true);
     const stream = createStream([row(1000, 10, 100)]);
-    new ScrollAnchorGuard(() => false).attach(stream.scroller);
+    const writer = new StreamScrollWriter();
+    writer.attach(stream.scroller);
+    new ScrollAnchorGuard(() => false).attach(stream.scroller, writer);
 
     expect(Object.hasOwn(stream.scroller, "scrollBy")).toBe(false);
     expect(FakeResizeObserver.instances).toHaveLength(0);

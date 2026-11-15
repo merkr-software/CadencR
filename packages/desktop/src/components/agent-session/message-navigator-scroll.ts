@@ -1,6 +1,6 @@
 import type { VirtuosoHandle } from "react-virtuoso";
-import { isIos } from "@/lib/is-ios";
 import { findStreamItemList, USER_SCROLL_EVENTS } from "./agent-session-scroll-utils";
+import { streamScrollWriterFor, type StreamScrollWriter } from "./stream-scroll-writer";
 
 /** Breathing room left above a prompt the navigator scrolls to. */
 const JUMP_TOP_OFFSET_PX = 12;
@@ -62,8 +62,8 @@ interface JumpArgs {
   flashSelectors?: readonly string[];
 }
 
-function scrollToRowIndex({ virtuoso, rowIndex }: JumpArgs): void {
-  virtuoso?.scrollToIndex({
+function scrollToRowIndex(writer: StreamScrollWriter, { virtuoso, rowIndex }: JumpArgs): void {
+  writer.scrollToIndex(virtuoso, "jump", {
     index: rowIndex,
     align: "start",
     offset: -JUMP_TOP_OFFSET_PX,
@@ -72,17 +72,22 @@ function scrollToRowIndex({ virtuoso, rowIndex }: JumpArgs): void {
 }
 
 /** Starts the scroll: a glide to a nearby row, an index jump otherwise. Returns whether it glides. */
-function startJump(args: JumpArgs): boolean {
+function startJump(writer: StreamScrollWriter, args: JumpArgs): boolean {
   const { scroller, blockId } = args;
   const row = findRow(scroller, blockId);
   const offset = row ? rowOffset(scroller, row) : null;
   const nearby =
     offset !== null && Math.abs(offset) < scroller.clientHeight * SMOOTH_RANGE_VIEWPORTS;
-  if (offset !== null && nearby && animationsEnabled() && !isIos()) {
-    scroller.scrollTo({ top: scroller.scrollTop + offset, behavior: "smooth" });
+  // The writer refuses a raw glide on iOS: the index scroll handles it there.
+  if (
+    offset !== null &&
+    nearby &&
+    animationsEnabled() &&
+    writer.glideTo(scroller.scrollTop + offset)
+  ) {
     return true;
   }
-  scrollToRowIndex(args);
+  scrollToRowIndex(writer, args);
   return false;
 }
 
@@ -111,8 +116,7 @@ class JumpHold {
 
   constructor(
     private readonly args: JumpArgs,
-    /** iOS corrects through Virtuoso's deviation offset; raw writes fight it. */
-    private readonly canWrite: boolean,
+    private readonly writer: StreamScrollWriter,
   ) {
     this.lastTop = args.scroller.scrollTop;
     this.lastHeight = args.scroller.scrollHeight;
@@ -137,8 +141,9 @@ class JumpHold {
     }
     this.alignedChecks = 0;
     if (residual !== null && Math.abs(residual) < scroller.clientHeight) {
-      if (!this.canWrite) return { done: true, landed: true };
-      scroller.scrollTop = top + residual;
+      // iOS corrects through Virtuoso's deviation offset; the writer refuses
+      // the raw nudge there, and the index scroll's landing stands.
+      if (!this.writer.scrollBy("jump", residual)) return { done: true, landed: true };
       // A clamped write — a prompt near the end can't reach the top — has landed.
       if (Math.abs(scroller.scrollTop - top) < 1) return { done: true, landed: true };
       this.stillFrames = 0;
@@ -147,7 +152,7 @@ class JumpHold {
     if (this.reissues < MAX_REISSUES) {
       this.reissues += 1;
       this.stillFrames = 0;
-      scrollToRowIndex(this.args);
+      scrollToRowIndex(this.writer, this.args);
       return { done: false, landed: false };
     }
     return { done: true, landed: row !== null };
@@ -172,8 +177,9 @@ export function jumpToRow(args: JumpArgs): () => void {
   // A far jump lands through a few estimate corrections; the list stays
   // hidden until it settles, then fades in (see `data-nav-jumping` in
   // index.css) — a cut instead of a visible shuffle.
-  if (!startJump(args)) scroller.dataset.navJumping = "";
-  const hold = new JumpHold(args, !isIos());
+  const writer = streamScrollWriterFor(scroller);
+  if (!startJump(writer, args)) scroller.dataset.navJumping = "";
+  const hold = new JumpHold(args, writer);
   const deadline = performance.now() + MAX_JUMP_MS;
   let raf = 0;
   let done = false;
