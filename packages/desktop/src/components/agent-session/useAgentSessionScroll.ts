@@ -9,11 +9,11 @@ import { subscribeResize } from "@/lib/resize-coordinator";
 import {
   canScrollStream,
   MAX_VIEWPORT_FILL_PAGES,
-  pinToBottom,
   type StartJump,
   type UseAgentSessionScrollResult,
 } from "./agent-session-scroll-utils";
 import { ScrollAnchorGuard } from "./stream-scroll-anchor";
+import { StreamScrollWriter } from "./stream-scroll-writer";
 import { useAgentSessionScrollInput } from "./useAgentSessionScrollInput";
 
 interface UseAgentSessionScrollOptions {
@@ -69,7 +69,7 @@ function useScrollState(options: UseAgentSessionScrollOptions) {
 
 type ScrollState = ReturnType<typeof useScrollState>;
 
-function useScrollPinning(state: ScrollState) {
+function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
   const setAutoScrollEnabled = useCallback(
     (enabled: boolean): void => {
       if (state.stickRef.current === enabled) return;
@@ -79,23 +79,19 @@ function useScrollPinning(state: ScrollState) {
     },
     [state.setAutoScrollEnabledState, state.stickRef],
   );
+  // The writer skips the raw pin on iOS, where Virtuoso owns bottom pinning
+  // through its deviation-aware `followOutput` path, and once stick lets go.
   const pinScrollerToEnd = useCallback((): void => {
-    // On iOS, Virtuoso owns bottom pinning through its deviation-aware
-    // `followOutput` path. A raw scrollTop write can fight that correction and
-    // feed a synchronous scroll/measurement loop back into React.
-    if (isIos()) return;
-    const element = state.scrollerElRef.current;
-    if (!element || !state.stickRef.current) return;
-    pinToBottom(element);
-  }, [state.scrollerElRef, state.stickRef]);
+    writer.pinToBottom();
+  }, [writer]);
   const pinToEnd = useCallback((): void => {
-    state.virtuosoRef.current?.scrollToIndex({
+    writer.scrollToIndex(state.virtuosoRef.current, "follow-bottom", {
       index: "LAST",
       align: "end",
       behavior: "auto",
     });
     requestAnimationFrame(pinScrollerToEnd);
-  }, [pinScrollerToEnd, state.virtuosoRef]);
+  }, [pinScrollerToEnd, state.virtuosoRef, writer]);
   const suppressProgrammaticScrollIntent = useCallback((): void => {
     state.suppressScrollIntentRef.current = true;
     requestAnimationFrame(() => {
@@ -280,7 +276,17 @@ export function useAgentSessionScroll(
   options: UseAgentSessionScrollOptions,
 ): UseAgentSessionScrollResult {
   const state = useScrollState(options);
-  const pinning = useScrollPinning(state);
+  // Every scroll write names its intent through this writer; a jump or reveal
+  // it performs releases bottom-stick through `prepareJump` (set below).
+  const prepareJumpRef = useRef<() => void>(() => {});
+  const [writer] = useState(
+    () =>
+      new StreamScrollWriter({
+        isFollowing: () => state.stickRef.current,
+        prepareJump: () => prepareJumpRef.current(),
+      }),
+  );
+  const pinning = useScrollPinning(state, writer);
   const [anchorGuard] = useState(() => new ScrollAnchorGuard(() => state.stickRef.current));
   const history = useHistoryLoader(state);
   const callbacks = useScrollCallbacks(state, pinning, history);
@@ -293,11 +299,13 @@ export function useAgentSessionScroll(
     resetIntent();
     setAutoScrollEnabled(false);
   }, [anchorGuard, resetIntent, setAutoScrollEnabled]);
+  prepareJumpRef.current = prepareJump;
   const startJump = useJumpOwner(prepareJump);
   useScrollLifecycle(state, pinning, history, options.conversationKey, options.blocks.length);
   const scrollContainerRef = useAgentSessionScrollInput({
     scrollerElRef: state.scrollerElRef,
     stickRef: state.stickRef,
+    writer,
     anchorGuard,
     historyLoadArmedRef: state.historyLoadArmedRef,
     lastScrollTopRef: state.lastScrollTopRef,

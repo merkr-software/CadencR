@@ -10,8 +10,9 @@ import type { ConversationMatch } from "@/lib/conversation-search/matches";
 import {
   clearConversationHighlights,
   paintConversationHighlights,
-  scrollActiveMatchIntoView,
+  activeMatchScrollDelta,
 } from "@/lib/conversation-search/highlight";
+import { streamScrollWriterFor } from "@/components/agent-session/stream-scroll-writer";
 import { useDebouncedValue } from "./useDebouncedValue";
 import { useConversationSearchNavigation } from "./useConversationSearchNavigation";
 
@@ -101,9 +102,16 @@ function usePaintConversationMatches({
   useEffect(() => {
     if (!isOpen || targetRow < 0) return;
     const scroller = scrollerRef.current;
-    const rowMounted = scroller?.querySelector(`[data-block-id="${CSS.escape(targetBlock)}"]`);
+    if (!scroller) return;
+    // A reveal moving the view lets go of bottom-stick, so the next streamed
+    // chunk does not pin the match back out of sight.
+    const rowMounted = scroller.querySelector(`[data-block-id="${CSS.escape(targetBlock)}"]`);
     if (!rowMounted) {
-      virtuosoRef.current?.scrollToIndex({ index: targetRow, align: "center", behavior: "auto" });
+      streamScrollWriterFor(scroller).scrollToIndex(virtuosoRef.current, "reveal", {
+        index: targetRow,
+        align: "center",
+        behavior: "auto",
+      });
     }
     // A mounted row only needs a frame to center the occurrence; mounting an
     // off-screen row takes several frames for Virtuoso to settle row heights.
@@ -112,7 +120,11 @@ function usePaintConversationMatches({
     let raf = requestAnimationFrame(function tick() {
       const el = scrollerRef.current;
       if (el) {
-        scrollActiveMatchIntoView(el, stateRef.current.query, stateRef.current.activeMatch);
+        const { query, activeMatch } = stateRef.current;
+        streamScrollWriterFor(el).scrollBy(
+          "reveal",
+          activeMatchScrollDelta(el, query, activeMatch),
+        );
         repaint();
       }
       frames += 1;

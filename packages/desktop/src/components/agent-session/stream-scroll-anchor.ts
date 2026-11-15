@@ -1,6 +1,7 @@
 import type { SizeFunction } from "react-virtuoso";
 import { isIos } from "@/lib/is-ios";
 import { findStreamItemList, USER_SCROLL_EVENTS } from "./agent-session-scroll-utils";
+import type { StreamScrollWriter } from "./stream-scroll-writer";
 
 /** Absolute row index (`firstItemIndex`-based), aligned across prepends. */
 const ITEM_INDEX_ATTRIBUTE = "data-item-index";
@@ -13,6 +14,7 @@ const DRIFT_EPSILON_PX = 0.5;
 /** Everything the guard holds while attached to a stream scroller. */
 interface Attachment {
   scroller: HTMLElement;
+  writer: StreamScrollWriter;
   list: HTMLElement;
   resizeObserver: ResizeObserver;
   mutationObserver: MutationObserver;
@@ -26,15 +28,6 @@ interface Anchor {
   listHead: boolean;
   /** Row top in layout content coordinates: independent of scroll and of the bridge. */
   top: number;
-}
-
-/** The vertical component of a `scrollBy` call, in either of its signatures. */
-function scrollByTop(args: unknown[]): number {
-  const [first, second] = args;
-  if (typeof first === "number") return typeof second === "number" ? second : 0;
-  if (typeof first !== "object" || first === null) return 0;
-  const { top } = first as ScrollToOptions;
-  return typeof top === "number" ? top : 0;
 }
 
 /** The part of `requested` that moves in the direction of `pending`, capped at it. */
@@ -105,9 +98,11 @@ function findAnchorRow(list: HTMLElement, anchor: Anchor): Element | null {
  *    offset land together, so it never renders one without the other. A
  *    two-frame fallback settles drift that no measurement pass follows.
  * 4. **Arbitrate.** Virtuoso's own compensation still arrives through
- *    `scrollBy`; it is honoured only up to the drift measured and still
- *    pending — anything beyond that is growth it attributed to the wrong side
- *    of the viewport.
+ *    `scrollBy`, which the {@link StreamScrollWriter} hands to the guard; it
+ *    is honoured only up to the drift measured and still pending — anything
+ *    beyond that is growth it attributed to the wrong side of the viewport.
+ *
+ * Every offset it moves goes through the writer as `keep-anchor`.
  *
  * Idle while bottom-stick is engaged (the bottom pin owns the viewport then)
  * and between a programmatic jump and the next user scroll input. Not used on
@@ -126,7 +121,7 @@ export class ScrollAnchorGuard {
   /** `isEngaged` reports bottom-stick: the guard stands down while it holds. */
   constructor(private readonly isEngaged: () => boolean) {}
 
-  attach(scroller: HTMLElement): void {
+  attach(scroller: HTMLElement, writer: StreamScrollWriter): void {
     this.detach();
     if (isIos()) return;
     // Degrades to Virtuoso's own compensation if its DOM contract changes.
@@ -140,18 +135,12 @@ export class ScrollAnchorGuard {
       attributes: true,
       attributeFilter: ["style"],
     });
-    this.attached = { scroller, list, resizeObserver, mutationObserver };
+    this.attached = { scroller, writer, list, resizeObserver, mutationObserver };
     scroller.addEventListener("scroll", this.onScroll, { passive: true });
     for (const type of USER_SCROLL_EVENTS) {
       scroller.addEventListener(type, this.resume, { passive: true });
     }
-    // Virtuoso reaches the scroller only through `scrollBy` to compensate
-    // resizes and prepends; an own property shadows the prototype method.
-    Object.defineProperty(scroller, "scrollBy", {
-      configurable: true,
-      writable: true,
-      value: (...args: unknown[]): void => this.arbitrateScrollBy(scroller, args),
-    });
+    writer.setCompensationArbiter(this.arbitrateScrollBy);
   }
 
   detach(): void {
@@ -164,7 +153,7 @@ export class ScrollAnchorGuard {
     for (const type of USER_SCROLL_EVENTS) {
       attached.scroller.removeEventListener(type, this.resume);
     }
-    Reflect.deleteProperty(attached.scroller, "scrollBy");
+    attached.writer.setCompensationArbiter(null);
     this.attached = null;
   }
 
@@ -241,15 +230,15 @@ export class ScrollAnchorGuard {
     this.anchor = this.pickAnchor(attached);
   };
 
-  private arbitrateScrollBy(scroller: HTMLElement, args: unknown[]): void {
+  /** Virtuoso's `scrollBy`; false lets it run natively. */
+  private readonly arbitrateScrollBy = (requestedTop: number): boolean => {
     // Without a measured anchor there is no ground truth to arbitrate with.
-    if (!this.anchor || !this.activeAttachment()) {
-      Reflect.apply(Element.prototype.scrollBy, scroller, args);
-      return;
-    }
-    const applied = clampToward(scrollByTop(args), this.pending);
-    if (applied !== 0) this.absorb(scroller, applied);
-  }
+    const attached = this.anchor ? this.activeAttachment() : null;
+    if (!attached) return false;
+    const applied = clampToward(requestedTop, this.pending);
+    if (applied !== 0) this.absorb(attached, applied);
+    return true;
+  };
 
   /** Converts the whole bridge into scroll offset. */
   private settle(): void {
@@ -257,14 +246,14 @@ export class ScrollAnchorGuard {
     const attached = this.activeAttachment();
     if (!attached) return;
     this.cancelFallback();
-    this.absorb(attached.scroller, this.pending);
+    this.absorb(attached, this.pending);
   }
 
   /** Moves `amount` of bridged drift into the scroll offset; the view does not move. */
-  private absorb(scroller: HTMLElement, amount: number): void {
+  private absorb(attached: Attachment, amount: number): void {
     this.pending -= amount;
     this.applyBridge();
-    scroller.scrollTop += amount;
+    attached.writer.scrollBy("keep-anchor", amount);
   }
 
   private scheduleFallbackSettle(): void {

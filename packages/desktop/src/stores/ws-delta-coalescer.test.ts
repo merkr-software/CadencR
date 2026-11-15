@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createStore } from "zustand/vanilla";
 import { createWsSessionStore, useWsSessionStore } from "./ws-session-store";
 import { setDeltaFlushScheduler } from "./ws-delta-scheduler";
+import { MAX_PENDING_STREAM_DELTAS } from "./ws-delta-coalescer";
 
 // --- Minimal mock WebSocket (mirrors ws-session-store.test.ts) ---
 
@@ -135,6 +136,25 @@ describe("stream-delta coalescing", () => {
       "chunk-0 chunk-1 chunk-2 chunk-3 chunk-4 chunk-5 ",
     );
     unsub();
+  });
+
+  it("bounds the pending buffer when no flush is coming (hidden window)", async () => {
+    const ws = await connected();
+    // `manualFlush` is never fired: no frame, no timer — the worst case.
+    const total = MAX_PENDING_STREAM_DELTAS * 3 + 7;
+    for (let i = 0; i < total; i++) ws.simulateMessage(textDelta(`c${i} `));
+
+    const applied = useWsSessionStore.getState().sessions["s1"].blocks;
+    // Everything up to the last full buffer is applied, in order; at most one
+    // buffer's worth is still waiting for the scheduled flush.
+    expect(applied.length).toBeGreaterThanOrEqual(total - MAX_PENDING_STREAM_DELTAS);
+    expect(applied.length).toBeLessThan(total);
+    expect(applied.map((b) => b.content).join("")).toBe(
+      Array.from({ length: applied.length }, (_, i) => `c${i} `).join(""),
+    );
+
+    manualFlush?.();
+    expect(useWsSessionStore.getState().sessions["s1"].blocks).toHaveLength(total);
   });
 
   it("flushes pending deltas before a non-delta envelope, preserving order", async () => {

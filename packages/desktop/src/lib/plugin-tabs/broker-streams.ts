@@ -1,20 +1,18 @@
 import type { StreamEnvelope, WireError } from "@cadencr/tab-sdk/protocol";
 
+import type { WebSocketLike, WsConnection } from "@/lib/ws-connection";
 import { createEnvelope, parseEnvelope, type WsEnvelope } from "@/lib/ws-envelope";
 import {
-  clearReconnect,
-  resetReconnectState,
-  scheduleReconnect as scheduleSocketReconnect,
-} from "@/lib/ws-reconnect";
+  openLifecycleSocket,
+  WS_CLOSE_NORMAL,
+  WS_CLOSE_POLICY_VIOLATION,
+  type SocketDrop,
+} from "@/lib/ws-lifecycle";
+import { clearReconnect, scheduleReconnect } from "@/lib/ws-reconnect";
 import { getPluginTabWsUrl } from "@/lib/ws-url";
 
 import { BrokerError, toBrokerError } from "./broker-errors";
 import type { GrantHolder } from "./broker-grant";
-
-/** Close code the service uses when a grant is revoked or expires. */
-const POLICY_VIOLATION = 1008;
-const NORMAL_CLOSURE = 1000;
-const OPEN = 1;
 
 export interface StreamSink {
   event(subscriptionId: string, seq: number, data: StreamEnvelope): void;
@@ -22,16 +20,7 @@ export interface StreamSink {
   error(subscriptionId: string, error: WireError): void;
 }
 
-export interface SocketLike {
-  readonly readyState: number;
-  send(data: string): void;
-  close(code?: number): void;
-  onopen: ((event: Event) => void) | null;
-  onclose: ((event: CloseEvent) => void) | null;
-  onmessage: ((event: MessageEvent) => void) | null;
-}
-
-export type SocketFactory = (url: string, protocol: string) => SocketLike;
+export type SocketFactory = (url: string, protocol: string) => WebSocketLike;
 
 export interface PluginStreamSocketOptions {
   /** Owning instance; keys the socket's shared reconnect backoff. */
@@ -74,15 +63,24 @@ function asRecord(value: unknown): Record<string, unknown> {
  * closed when the last one goes. Subscription ids handed to the guest are
  * local and stable: after a reconnect every live subscription is re-made on
  * the new socket and the guest gets `stream.resync` (events were lost
- * meanwhile), and its `seq` carries on from where it was. Reconnects share the app's backoff (`lib/ws-reconnect`).
+ * meanwhile), and its `seq` carries on from where it was. Connection, drop
+ * and retry follow the shared socket lifecycle (`lib/ws-lifecycle`); a custom
+ * tab's stream does not speak for backend reachability, so it is not reported
+ * in the connection status.
  */
 export class PluginStreamSocket {
-  private socket: SocketLike | null = null;
+  private socket: WsConnection | null = null;
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly byServerId = new Map<string, string>();
   private readonly pending = new Map<string, PendingReply>();
   private nextLocalId = 1;
-  private opening: Promise<SocketLike> | null = null;
+  private opening: Promise<WsConnection> | null = null;
+  /**
+   * Fails the socket still opening. Its own close is intentional, so the
+   * lifecycle reports nothing for it: without this, `opening` would never
+   * settle and no later subscribe could open a socket again.
+   */
+  private abortOpening: ((error: BrokerError) => void) | null = null;
   private disposed = false;
   private readonly reconnectKey: string;
   private readonly grant: GrantHolder;
@@ -126,7 +124,7 @@ export class PluginStreamSocket {
     this.subscriptions.delete(localId);
     if (subscription.serverId !== null) {
       this.byServerId.delete(subscription.serverId);
-      if (this.socket?.readyState === OPEN) {
+      if (this.socket?.isOpen()) {
         this.send(this.socket, "unsubscribe", { subscription_id: subscription.serverId });
       }
     }
@@ -154,41 +152,53 @@ export class PluginStreamSocket {
 
   private closeSocket(): void {
     const socket = this.socket;
+    const abort = this.abortOpening;
     this.socket = null;
-    socket?.close(NORMAL_CLOSURE);
+    this.abortOpening = null;
+    abort?.(new BrokerError("DISCONNECTED", "The plugin socket was closed"));
+    socket?.close(WS_CLOSE_NORMAL);
   }
 
-  private open(): Promise<SocketLike> {
-    if (this.socket?.readyState === OPEN) return Promise.resolve(this.socket);
+  private open(): Promise<WsConnection> {
+    if (this.socket?.isOpen()) return Promise.resolve(this.socket);
     this.opening ??= this.connect().finally(() => {
       this.opening = null;
     });
     return this.opening;
   }
 
-  private async connect(): Promise<SocketLike> {
+  private async connect(): Promise<WsConnection> {
     const token = await this.grant.token();
     if (this.disposed) throw new BrokerError("DISCONNECTED", "The custom tab was closed");
-    const socket = this.createSocket(this.url(), `cadencr-plugin.${token}`);
-    this.socket = socket;
-    let opened = false;
-    return new Promise<SocketLike>((resolve, reject) => {
-      socket.onopen = () => {
-        opened = true;
-        resetReconnectState(this.reconnectKey);
-        resolve(socket);
-        // Subscriptions a drop left unbound come back with this socket.
-        void this.resubscribeAll();
-      };
-      socket.onmessage = (event) => this.handleMessage(event.data);
-      socket.onclose = (event) => {
-        reject(new BrokerError("DISCONNECTED", "The plugin socket closed"));
-        this.handleClose(socket, { code: event.code, token, opened });
-      };
+    return new Promise<WsConnection>((resolve, reject) => {
+      this.abortOpening = reject;
+      const socket = openLifecycleSocket({
+        key: this.reconnectKey,
+        url: this.url(),
+        protocols: [`cadencr-plugin.${token}`],
+        createSocket: (url, protocols) => this.createSocket(url, protocols?.[0] ?? ""),
+        isCurrent: (connection) => this.socket === connection,
+        onConnected: (connection) => {
+          this.abortOpening = null;
+          resolve(connection);
+        },
+        // Subscriptions a drop left unbound come back with this socket; each
+        // rebind tells the guest to resync (`rebind`).
+        replay: () => void this.resubscribeAll(),
+        onMessage: (data) => this.handleMessage(data),
+        onDrop: (drop) => {
+          this.abortOpening = null;
+          reject(new BrokerError("DISCONNECTED", "The plugin socket closed"));
+          this.handleDrop(drop, token);
+        },
+        shouldRetry: () => this.canRetry(),
+        reconnect: this.retry,
+      });
+      this.socket = socket;
     });
   }
 
-  private async bind(localId: string, subscription: Subscription, socket: SocketLike) {
+  private async bind(localId: string, subscription: Subscription, socket: WsConnection) {
     subscription.binding = true;
     try {
       const reply = await this.request(socket, "subscribe", {
@@ -213,7 +223,7 @@ export class PluginStreamSocket {
   }
 
   private request(
-    socket: SocketLike,
+    socket: WsConnection,
     action: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
@@ -221,14 +231,13 @@ export class PluginStreamSocket {
     return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
   }
 
-  private send(socket: SocketLike, action: string, payload: Record<string, unknown>): string {
+  private send(socket: WsConnection, action: string, payload: Record<string, unknown>): string {
     const envelope = createEnvelope("plugin", action, payload);
-    socket.send(JSON.stringify(envelope));
+    socket.sendJson(envelope);
     return envelope.id;
   }
 
-  private handleMessage(raw: unknown): void {
-    if (typeof raw !== "string") return;
+  private handleMessage(raw: string): void {
     let message: WsEnvelope;
     try {
       message = parseEnvelope(raw);
@@ -273,25 +282,27 @@ export class PluginStreamSocket {
     });
   }
 
-  private handleClose(
-    socket: SocketLike,
-    close: { code: number; token: string; opened: boolean },
-  ): void {
-    if (this.socket !== socket) return;
+  private handleDrop(drop: SocketDrop, token: string): void {
     this.socket = null;
     this.rejectPending("The plugin socket closed");
     this.byServerId.clear();
     for (const subscription of this.subscriptions.values()) subscription.serverId = null;
     // A revoked or expired grant: the service closes an open socket with
-    // 1008, and refuses the upgrade (a close before open, 1006) to a dead
-    // token. Either way reconnect with a fresh grant.
-    if (close.code === POLICY_VIOLATION || !close.opened) this.grant.invalidate(close.token);
-    this.scheduleReconnect();
+    // 1008, and refuses the upgrade (a drop before open) to a dead token.
+    // Either way the retry reconnects with a fresh grant.
+    if (drop.code === WS_CLOSE_POLICY_VIOLATION || !drop.opened) this.grant.invalidate(token);
   }
 
-  private scheduleReconnect(): void {
-    if (this.disposed || this.subscriptions.size === 0) return;
-    scheduleSocketReconnect(this.reconnectKey, () => void this.resubscribeAll());
+  /** Only live subscriptions are worth a socket. */
+  private canRetry(): boolean {
+    return !this.disposed && this.subscriptions.size > 0;
+  }
+
+  private readonly retry = (): void => void this.resubscribeAll();
+
+  /** Same backoff as a drop; a no-op while a retry is already pending. */
+  private retryLater(): void {
+    if (this.canRetry()) scheduleReconnect(this.reconnectKey, this.retry);
   }
 
   /** Subscriptions with no server id and no `subscribe` in flight. */
@@ -308,13 +319,13 @@ export class PluginStreamSocket {
    */
   private async resubscribeAll(): Promise<void> {
     if (this.disposed || this.unbound().length === 0) return;
-    let socket: SocketLike;
+    let socket: WsConnection;
     try {
       socket = await this.open();
     } catch {
-      // The grant could not be minted or the socket dropped before opening
-      // (that path already scheduled one): try again later.
-      this.scheduleReconnect();
+      // The grant could not be minted, or the socket dropped before opening
+      // (the lifecycle already scheduled that retry): try again later.
+      this.retryLater();
       return;
     }
     await Promise.allSettled(
@@ -322,7 +333,7 @@ export class PluginStreamSocket {
     );
   }
 
-  private async rebind(localId: string, subscription: Subscription, socket: SocketLike) {
+  private async rebind(localId: string, subscription: Subscription, socket: WsConnection) {
     try {
       await this.bind(localId, subscription, socket);
       if (this.subscriptions.get(localId) === subscription) this.sink.resync(localId);

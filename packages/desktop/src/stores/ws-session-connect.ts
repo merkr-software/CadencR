@@ -1,17 +1,11 @@
-import { createWsConnection, type WsConnection } from "@/lib/ws-connection";
+import type { WsConnection } from "@/lib/ws-connection";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
 import {
-  isRateLimited,
-  notifyRateLimited,
-  registerReconnector,
-  resetReconnectState,
-  scheduleReconnect,
-  WS_RATE_LIMIT_RETRY_MS,
-} from "@/lib/ws-reconnect";
-import {
-  reportManualReconnectRequired,
-  useConnectionStatusStore,
-} from "@/stores/connection-status-store";
+  openLifecycleSocket,
+  registerSocketRetry,
+  WS_CLOSE_NORMAL,
+  type SocketDrop,
+} from "@/lib/ws-lifecycle";
 import { flushStreamDeltas } from "./ws-delta-coalescer";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
@@ -39,29 +33,12 @@ interface SessionConnectionContext {
   deps: ConnectSessionDeps;
   sessionId: string;
   reconnectKey: string;
-  connection: WsConnection | null;
 }
 
-function isCurrentConnection(context: SessionConnectionContext): boolean {
-  return (
-    context.connection !== null &&
-    context.deps.ctx.transport.get(context.sessionId)?.conn === context.connection
-  );
-}
-
-function handleConnectionOpen(context: SessionConnectionContext): void {
-  if (!isCurrentConnection(context)) return;
-  const { ctx, reinitOnReconnect, flushOutboundQueue } = context.deps;
-  const { get, set } = ctx;
-  resetReconnectState(context.reconnectKey);
+/** Open and current: replayed init and queued commands follow (see `createSessionConnection`). */
+function markConnected(context: SessionConnectionContext): void {
+  const { get, set } = context.deps.ctx;
   set(updateSession(get(), context.sessionId, { isConnected: true, isConnecting: false }));
-  useConnectionStatusStore.getState().reportSource(context.reconnectKey, "connected");
-  // Rebind this viewer to the service-owned session before delivering prompts
-  // and responses queued while the socket was down.
-  reinitOnReconnect(context.sessionId);
-  flushOutboundQueue(context.sessionId);
-  // Catch up on agent output streamed while the client was disconnected.
-  void resyncMessagesOnReconnect(ctx, context.sessionId);
 }
 
 /**
@@ -77,12 +54,13 @@ export function initRequestIdAfterDrop(
   return id !== null && outboundQueue.some((envelope) => envelope.id === id) ? id : null;
 }
 
-function handleConnectionClose(
-  context: SessionConnectionContext,
-  intentional: boolean,
-  event: CloseEvent,
-): void {
-  if (!isCurrentConnection(context) || intentional) return;
+/**
+ * The socket dropped (the lifecycle reports the first error or close only,
+ * and schedules the retry after this). A browser reports a service that went
+ * away as an error then a 1006 close: either way this is a lost connection,
+ * never a turn error — the turn goes on server-side and the reconnect resyncs it.
+ */
+function handleConnectionDrop(context: SessionConnectionContext, drop: SocketDrop): void {
   const { ctx } = context.deps;
   const { get, set } = ctx;
   // Apply buffered tokens before the connection error so transcript order is stable.
@@ -100,83 +78,50 @@ function handleConnectionClose(
           idPrefix: "ws-err-close",
         })
       : { blocks: session?.blocks ?? [] };
-  const retryAfterMs = event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : null;
-  if (retryAfterMs != null && !isRateLimited()) notifyRateLimited(retryAfterMs);
   set(
     updateSession(get(), context.sessionId, {
       isConnected: false,
       isConnecting: false,
       initRequestId: initRequestIdAfterDrop(session, transport.outboundQueue),
-      // Session IDs are stable across transport hiccups; onOpen replays init.
+      // Session IDs are stable across transport hiccups; the reopen replays init.
       lifecycle: transitionTurn(session?.lifecycle ?? createSessionEntry().lifecycle, {
         type: "connection_lost",
       }),
       ...closedDerived,
     }),
   );
-  useConnectionStatusStore
-    .getState()
-    .reportSource(
-      context.reconnectKey,
-      "reconnecting",
-      retryAfterMs == null
-        ? `Session WebSocket closed (${event.code})`
-        : `Session WebSocket rate limited; retrying in ${Math.ceil(retryAfterMs / 1000)}s`,
-    );
-  if (event.code && event.code !== 1000) {
-    console.warn("Session WebSocket closed unexpectedly", {
-      code: event.code,
-      reason: event.reason || "no reason",
+  if (drop.code !== WS_CLOSE_NORMAL) {
+    console.warn("Session WebSocket dropped unexpectedly", {
+      cause: drop.cause,
+      code: drop.code,
       sessionId: context.sessionId,
     });
   }
-  scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId), {
-    minimumDelayMs: event.code === 1006 ? WS_RATE_LIMIT_RETRY_MS : (retryAfterMs ?? undefined),
-  });
-}
-
-function handleConnectionError(context: SessionConnectionContext, intentional: boolean): void {
-  if (!isCurrentConnection(context) || intentional) return;
-  const { ctx } = context.deps;
-  const { get, set } = ctx;
-  flushStreamDeltas(ctx, context.sessionId);
-  const session = get().sessions[context.sessionId];
-  abandonInFlight(ctx, context.sessionId);
-  const transport = ctx.transport.ensure(context.sessionId);
-  transport.conn = null;
-  set(
-    updateSession(get(), context.sessionId, {
-      isConnected: false,
-      isConnecting: false,
-      initRequestId: initRequestIdAfterDrop(session, transport.outboundQueue),
-      // Session IDs are stable across transport hiccups; onOpen replays init.
-      lifecycle: transitionTurn(session?.lifecycle ?? createSessionEntry().lifecycle, {
-        type: "turn_errored",
-      }),
-    }),
-  );
-  useConnectionStatusStore
-    .getState()
-    .reportSource(context.reconnectKey, "reconnecting", "Session WebSocket error");
-  // A blocked transport can prevent the backend's 1013 frame from reaching
-  // the browser, which then reports only an error/1006. Preserve the same
-  // bounded retry floor instead of immediately feeding another connection.
-  scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId), {
-    minimumDelayMs: WS_RATE_LIMIT_RETRY_MS,
-  });
 }
 
 function createSessionConnection(context: SessionConnectionContext): WsConnection {
-  return createWsConnection({
+  const { ctx, socketDeps, reinitOnReconnect, flushOutboundQueue } = context.deps;
+  const { sessionId } = context;
+  return openLifecycleSocket({
+    key: context.reconnectKey,
     url: getWsUrl(),
     protocols: getWsProtocols(),
-    onOpen: () => handleConnectionOpen(context),
-    onClose: (intentional, event) => handleConnectionClose(context, intentional, event),
-    onError: (intentional) => handleConnectionError(context, intentional),
-    onMessage: (data) => {
-      if (!isCurrentConnection(context)) return;
-      handleSocketMessage(context.deps.socketDeps, context.sessionId, data);
+    statusLabel: "Session WebSocket",
+    // A replaced mobile socket can remain registered while its close is in
+    // flight, so every callback verifies it still owns the shared store entry.
+    isCurrent: (connection) => ctx.transport.get(sessionId)?.conn === connection,
+    onConnected: () => markConnected(context),
+    // Rebind this viewer to the service-owned session before delivering
+    // prompts and responses queued while the socket was down.
+    replay: () => {
+      reinitOnReconnect(sessionId);
+      flushOutboundQueue(sessionId);
     },
+    // Catch up on agent output streamed while the client was disconnected.
+    resync: () => void resyncMessagesOnReconnect(ctx, sessionId),
+    onMessage: (data) => handleSocketMessage(socketDeps, sessionId, data),
+    onDrop: (drop) => handleConnectionDrop(context, drop),
+    reconnect: () => ctx.get().connect(sessionId),
   });
 }
 
@@ -191,20 +136,9 @@ export function connectSession(deps: ConnectSessionDeps, sessionId: string): voi
 
   const entry = existing ?? createSessionEntry();
   const reconnectKey = sourceKey(sessionId);
-  registerReconnector(reconnectKey, () => forceReconnectSession(sessionId), {
-    onManualRequired: reportManualReconnectRequired,
-  });
-  // A replaced mobile socket can remain registered while its close is in
-  // flight, so every callback verifies it still owns the shared store entry.
-  const context: SessionConnectionContext = {
-    deps,
-    sessionId,
-    reconnectKey,
-    connection: null,
-  };
-  const conn = createSessionConnection(context);
-  context.connection = conn;
-  transport.conn = conn;
+  registerSocketRetry(reconnectKey, () => forceReconnectSession(sessionId));
+  const context: SessionConnectionContext = { deps, sessionId, reconnectKey };
+  transport.conn = createSessionConnection(context);
 
   set({
     sessions: {

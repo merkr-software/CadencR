@@ -6,16 +6,18 @@ import {
   canScrollStream,
   findStreamItemList,
   isVerticalScrollbarPointer,
-  pinToBottom,
   HISTORY_SCROLL_TOP_PX,
   type ScrollRef,
 } from "./agent-session-scroll-utils";
 import type { ScrollAnchorGuard } from "./stream-scroll-anchor";
+import type { StreamScrollWriter } from "./stream-scroll-writer";
 
 interface ScrollInputParams {
   scrollerElRef: React.MutableRefObject<HTMLElement | null>;
   /** Bottom-stick engaged? Read live so the height-pin observer respects it. */
   stickRef: React.MutableRefObject<boolean>;
+  /** The stream's single scroll write point, attached before the guard. */
+  writer: StreamScrollWriter;
   /** Attached to the scroller alongside the height-pin observer. */
   anchorGuard: Pick<ScrollAnchorGuard, "attach" | "detach">;
   historyLoadArmedRef: React.MutableRefObject<boolean>;
@@ -30,6 +32,7 @@ interface ScrollInputParams {
 interface ScrollContainerRefParams {
   scrollerElRef: ScrollInputParams["scrollerElRef"];
   stickRef: ScrollInputParams["stickRef"];
+  writer: ScrollInputParams["writer"];
   anchorGuard: ScrollInputParams["anchorGuard"];
   lastScrollTopRef: ScrollInputParams["lastScrollTopRef"];
   growthObserverRef: React.MutableRefObject<MutationObserver | null>;
@@ -50,6 +53,7 @@ interface ScrollContainerRefParams {
 function useScrollContainerRef({
   scrollerElRef,
   stickRef,
+  writer,
   anchorGuard,
   lastScrollTopRef,
   growthObserverRef,
@@ -75,6 +79,7 @@ function useScrollContainerRef({
       growthObserverRef.current?.disconnect();
       growthObserverRef.current = null;
       anchorGuard.detach();
+      writer.detach();
       scrollerElRef.current = element;
       if (element) {
         lastScrollTopRef.current = element.scrollTop;
@@ -84,8 +89,9 @@ function useScrollContainerRef({
         element.addEventListener("scroll", onScroll, { passive: true });
         element.addEventListener("touchstart", onTouchStart, { passive: true });
         element.addEventListener("touchmove", onTouchMove, { passive: true });
-        observeListGrowth(element, stickRef, growthObserverRef);
-        anchorGuard.attach(element);
+        writer.attach(element);
+        observeListGrowth(element, stickRef, writer, growthObserverRef);
+        anchorGuard.attach(element, writer);
       }
     },
     [
@@ -100,6 +106,7 @@ function useScrollContainerRef({
       onWheel,
       scrollerElRef,
       stickRef,
+      writer,
     ],
   );
 }
@@ -116,6 +123,7 @@ function useScrollContainerRef({
 export function useAgentSessionScrollInput({
   scrollerElRef,
   stickRef,
+  writer,
   anchorGuard,
   historyLoadArmedRef,
   lastScrollTopRef,
@@ -198,6 +206,7 @@ export function useAgentSessionScrollInput({
   return useScrollContainerRef({
     scrollerElRef,
     stickRef,
+    writer,
     anchorGuard,
     lastScrollTopRef,
     growthObserverRef,
@@ -246,6 +255,7 @@ export function useAgentSessionScrollInput({
 function observeListGrowth(
   scroller: HTMLElement,
   stickRef: React.MutableRefObject<boolean>,
+  writer: Pick<StreamScrollWriter, "pinToBottom">,
   observerRef: React.MutableRefObject<MutationObserver | null>,
 ): void {
   if (isIos()) return;
@@ -267,7 +277,7 @@ function observeListGrowth(
     const grew = scrollHeight > lastScrollHeight;
     lastScrollHeight = scrollHeight;
     if (!grew) return;
-    pinToBottom(scroller);
+    writer.pinToBottom();
   });
   observer.observe(list, { childList: true, subtree: true, characterData: true });
   observerRef.current = observer;

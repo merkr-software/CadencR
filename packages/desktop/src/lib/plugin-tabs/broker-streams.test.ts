@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { clearRateLimit, isRateLimited, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
+
 import { GrantHolder } from "./broker-grant";
 import { PluginStreamSocket, type StreamSink } from "./broker-streams";
 import { FakePluginSocket as FakeSocket } from "./plugin-socket-fixtures";
@@ -172,6 +174,52 @@ describe("PluginStreamSocket", () => {
     streams.dispose();
   });
 
+  it("waits out an overload close like every other socket, then resubscribes", async () => {
+    vi.useFakeTimers();
+    const { sockets, sink, streams } = setup();
+    const subscribing = streams.subscribe("git.status");
+    await settle();
+    sockets[0]!.open();
+    await settle();
+    sockets[0]!.acceptSubscribe("git.status", "srv-1");
+    const localId = await subscribing;
+
+    sockets[0]!.drop(1013);
+    expect(isRateLimited()).toBe(true);
+    await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS - 100);
+    expect(sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(sockets).toHaveLength(2);
+
+    sockets[1]!.open();
+    await settle();
+    sockets[1]!.acceptSubscribe("git.status", "srv-2");
+    await settle();
+    expect(sink.resync).toHaveBeenCalledWith(localId);
+    clearRateLimit();
+    streams.dispose();
+  });
+
+  it("opens a fresh socket for the next page when a reset lands while one is opening", async () => {
+    vi.useFakeTimers();
+    const { sockets, streams } = setup();
+    const first = streams.subscribe("git.status");
+    await settle();
+    expect(sockets).toHaveLength(1);
+    // The guest reloads before the socket opened.
+    streams.reset();
+    await expect(first).rejects.toMatchObject({ code: "DISCONNECTED" });
+
+    const second = streams.subscribe("git.status");
+    await settle();
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    await settle();
+    sockets[1]!.acceptSubscribe("git.status", "srv-1");
+    await expect(second).resolves.toEqual(expect.any(String));
+    streams.dispose();
+  });
+
   it("drops the old page's subscriptions on reset (guest reload)", async () => {
     const { sockets, sink, streams } = setup();
     const subscribing = streams.subscribe("git.status");
@@ -252,10 +300,12 @@ describe("PluginStreamSocket", () => {
     expect(sockets[0]!.protocol).toBe("cadencr-plugin.tok0");
     sockets[0]!.drop(1006);
     await expect(refused).rejects.toMatchObject({ code: "DISCONNECTED" });
-    void streams.subscribe("git.status");
+    const retried = streams.subscribe("git.status");
     await settle();
     expect(sockets[1]!.protocol).toBe("cadencr-plugin.tok1");
+    // Closing the tab fails the subscribe still waiting for its socket.
     streams.dispose();
+    await expect(retried).rejects.toMatchObject({ code: "DISCONNECTED" });
   });
 
   it("closes the socket once the last subscription goes", async () => {
