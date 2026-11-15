@@ -19,6 +19,39 @@ describe("CompactToolLine", () => {
     expect(screen.queryByText(/more/)).not.toBeInTheDocument();
   });
 
+  it("follows the newest line of a thinking block while it streams", () => {
+    const block: AgentBlockData = {
+      id: "th1",
+      type: "thinking",
+      content: "I need to plan.\n\n**Comparing** options\n\nNow weighing cost",
+    };
+    const { rerender } = render(<CompactToolLine block={block} streaming />);
+    expect(screen.getByText("Now weighing cost")).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toHaveClass("thinking-glow");
+
+    rerender(<CompactToolLine block={{ ...block, content: `${block.content}\n\n` }} streaming />);
+    expect(screen.getByText("Now weighing cost")).toBeInTheDocument();
+
+    // Once the block settles, the line goes back to the reasoning's opening.
+    rerender(<CompactToolLine block={block} />);
+    expect(screen.getByText("I need to plan.")).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).not.toHaveClass("thinking-glow");
+  });
+
+  it("keeps a streaming thinking line to the head of a long line", () => {
+    const head = "Weighing every option ".repeat(10);
+    const block: AgentBlockData = {
+      id: "th1",
+      type: "thinking",
+      content: `Opening\n${head}${"x".repeat(40_000)}`,
+    };
+    render(<CompactToolLine block={block} streaming />);
+    const detail = screen.getByText((text) => text.startsWith("Weighing every option"));
+    // Only the head can show in a truncated line: a stable prefix lets React
+    // skip the text node while the line keeps growing.
+    expect(detail.textContent?.length).toBeLessThanOrEqual(300);
+  });
+
   it("shows the Bash command on one line, relative to the worktree", () => {
     render(
       <CompactToolLine

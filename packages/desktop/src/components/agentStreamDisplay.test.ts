@@ -5,6 +5,7 @@ import {
   countRenderableDisplayRows,
   deriveAgentStreamDisplayBlocks,
   filterRenderableBlocks,
+  flowStreamingBlockId,
 } from "@/lib/agent-stream-display";
 
 function block(id: string, content: string, extra: Partial<AgentBlockData> = {}): AgentBlockData {
@@ -347,5 +348,21 @@ describe("agentStreamDisplay", () => {
     expect(buildDisplayItems([patch, bash], { compact: true })).toEqual([
       { kind: "flow", key: "flow:partial-patch", blocks: [patch, bash] },
     ]);
+  });
+});
+
+describe("flowStreamingBlockId", () => {
+  const run = [
+    block("read", "", { type: "tool_call", toolName: "Read" }),
+    block("think", "…", { type: "thinking" }),
+  ];
+
+  it("hands the live block's id only to the run that ends on it", () => {
+    expect(flowStreamingBlockId(run, "think")).toBe("think");
+    // An earlier step of the run, another row's block, or no stream at all:
+    // the row keeps `undefined` so its memo holds while the stream moves on.
+    expect(flowStreamingBlockId(run, "read")).toBeUndefined();
+    expect(flowStreamingBlockId(run, "elsewhere")).toBeUndefined();
+    expect(flowStreamingBlockId(run, null)).toBeUndefined();
   });
 });

@@ -9,15 +9,18 @@ vi.mock("./CompactToolLine", async () => {
     CompactToolLine: memo(function MockLine({
       block,
       result,
+      streaming,
     }: {
       block: AgentBlockData;
       result?: AgentBlockData;
+      streaming?: boolean;
     }) {
       lineRenders.set(block.id, (lineRenders.get(block.id) ?? 0) + 1);
       return (
         <span>
           {block.id}
           {result?.isError ? " failed" : ""}
+          {streaming ? " streaming" : ""}
         </span>
       );
     }),
@@ -74,6 +77,16 @@ describe("CompactFlowRow", () => {
       element.getAttribute("data-block-id"),
     );
     expect(anchors).toEqual(["tool-2", "tool-1", "tool-0"]);
+  });
+
+  it("tells the head line its step is the one still streaming", () => {
+    const thinking: AgentBlockData = { id: "tool-think", type: "thinking", content: "a" };
+    const blocks = [...tools(2), thinking];
+    const { rerender } = render(<CompactFlowRow blocks={blocks} streamingBlockId="tool-think" />);
+    expect(lineIds()).toEqual(["tool-think streaming"]);
+
+    rerender(<CompactFlowRow blocks={blocks} />);
+    expect(lineIds()).toEqual(["tool-think"]);
   });
 
   it("has nothing to unfold for a single step", () => {

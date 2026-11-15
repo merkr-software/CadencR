@@ -22,6 +22,7 @@ import type { AgentBlockData } from "@/types/agent-block";
 import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { STREAM_AT_BOTTOM_THRESHOLD_PX, STREAM_BOTTOM_GAP_PX } from "./agent-session/stream-fade";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
+import { flowStreamingBlockId } from "@/lib/agent-stream-display";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
 import type { DisplayItem } from "@/types/agent-stream";
@@ -273,6 +274,7 @@ function useAgentStreamItemRenderer(
             basePath={basePath}
             revealBlockId={reveal ? target : undefined}
             toolResultMap={toolResultMap}
+            streamingBlockId={flowStreamingBlockId(item.blocks, context.streamingBlockId)}
           />
         );
       }

@@ -19,6 +19,26 @@ export function thinkingPreview(content: string): string {
     .replace(/\*\*(.+?)\*\*/g, "$1");
 }
 
+/** Longest head of a live line worth keeping: a one-line summary truncates it. */
+const LIVE_LINE_HEAD = 300;
+
+/** The reasoning's newest non-empty line, cleaned like `thinkingPreview`: what
+ * a one-line summary shows while the block still streams, so a single long
+ * block (Haiku reasons in one) advances instead of repeating its opening. Scans
+ * back from the end and keeps the line's head only, so neither the cost nor
+ * the rendered text grows with the reasoning, and a line still being written
+ * past its visible head yields the same string frame after frame. */
+export function thinkingLiveLine(content: string): string {
+  let end = content.length;
+  while (end > 0) {
+    const start = content.lastIndexOf("\n", end - 1) + 1;
+    const line = content.slice(start, Math.min(end, start + LIVE_LINE_HEAD));
+    if (line.trim()) return thinkingPreview(line);
+    end = start - 1;
+  }
+  return "";
+}
+
 interface ThinkingBlockProps {
   content: string;
   cacheKey?: string;

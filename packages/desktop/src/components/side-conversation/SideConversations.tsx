@@ -3,6 +3,7 @@ import { ArrowUpRight, CircleAlert, Loader2, MessagesSquare, X } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { AgentStreamItem } from "@/components/agent-session/AgentStreamItem";
 import { CompactFlowRow } from "@/components/agent-session/CompactFlowRow";
+import { flowStreamingBlockId } from "@/lib/agent-stream-display";
 import { useAgentDisplayItems } from "@/components/useAgentStreamData";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
@@ -153,6 +154,7 @@ function SideAnswer({
               blocks={item.blocks}
               basePath={cwd}
               toolResultMap={ws.toolResultMap}
+              streamingBlockId={flowStreamingBlockId(item.blocks, streamingBlockId)}
             />
           ) : (
             <AgentStreamItem

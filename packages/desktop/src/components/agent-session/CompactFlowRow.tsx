@@ -19,12 +19,15 @@ interface CompactFlowRowProps {
   revealBlockId?: string;
   /** Results of the stream's calls: a failed one marks its step. */
   toolResultMap?: ToolResults;
+  /** The block still receiving tokens, when it belongs to this run. */
+  streamingBlockId?: string;
 }
 
 function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowProps): boolean {
   if (
     previous.basePath !== next.basePath ||
     previous.revealBlockId !== next.revealBlockId ||
+    previous.streamingBlockId !== next.streamingBlockId ||
     previous.blocks.length !== next.blocks.length
   ) {
     return false;
@@ -49,6 +52,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   basePath,
   revealBlockId,
   toolResultMap,
+  streamingBlockId,
 }: CompactFlowRowProps) {
   const newestFirst = useMemo(() => blocks.filter(hasCompactLine).reverse(), [blocks]);
   const [newest, ...older] = newestFirst;
@@ -71,6 +75,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
       onHandedOver={endHandOver}
       basePath={basePath}
       toolResultMap={toolResultMap}
+      streaming={streamingBlockId === newest.id}
     />
   );
   // `-mx-1` cancels the line's own padding: icons sit on the prose's left
@@ -245,6 +250,7 @@ interface CompactFlowHeadProps {
   onHandedOver: () => void;
   basePath?: string;
   toolResultMap?: ToolResults;
+  streaming?: boolean;
 }
 
 /** The run's newest step; a new one scrolls in from below as the previous scrolls out the top. */
@@ -255,6 +261,7 @@ function CompactFlowHead({
   onHandedOver,
   basePath,
   toolResultMap,
+  streaming = false,
 }: CompactFlowHeadProps) {
   return (
     // Clip vertically only: the outgoing line may be wider than the new one.
@@ -269,6 +276,7 @@ function CompactFlowHead({
           block={newest}
           basePath={basePath}
           result={toolResultOf(toolResultMap, newest)}
+          streaming={streaming}
         />
       </span>
       {leaving && (

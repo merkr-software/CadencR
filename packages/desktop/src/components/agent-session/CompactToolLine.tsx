@@ -13,7 +13,7 @@ import { shouldGateFullContent } from "@/lib/agent-block-content";
 import type { AgentBlockData } from "@/types/agent-block";
 import { hasCompactLine } from "@/lib/agent-stream-display";
 import { NumStat } from "@/components/NumStat";
-import { thinkingPreview } from "@/components/ThinkingBlock";
+import { thinkingLiveLine, thinkingPreview } from "@/components/ThinkingBlock";
 import {
   extractBashCommand,
   isFileChangeTool,
@@ -33,6 +33,8 @@ interface CompactToolLineProps {
   basePath?: string;
   /** The call's `tool_result`, when it has one: a failed one marks the line. */
   result?: AgentBlockData;
+  /** The block still receives tokens: a thinking line follows its newest line. */
+  streaming?: boolean;
 }
 
 /**
@@ -47,18 +49,26 @@ export const CompactToolLine = memo(function CompactToolLine({
   block,
   basePath,
   result,
+  streaming = false,
 }: CompactToolLineProps) {
   const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
   if (!hasCompactLine(block)) return null;
   const gated = shouldGateFullContent(block);
   if (block.type === "thinking") {
+    // A wire preview shows its name only: its cut content could mislead.
+    const detail = gated
+      ? ""
+      : streaming
+        ? thinkingLiveLine(block.content)
+        : thinkingPreview(block.content);
     return (
       <BaseLine
         icon={BrainIcon}
         accent="thinking"
         label="Thinking"
-        detail={gated ? undefined : thinkingPreview(block.content) || undefined}
+        detail={detail || undefined}
         prose
+        live={streaming}
       />
     );
   }
@@ -196,9 +206,20 @@ interface BaseLineProps {
   prose?: boolean;
   /** The call failed: a red icon and the failure's first line, never its output. */
   failure?: ToolCallFailure | null;
+  /** Tokens are still arriving: the label glows like the full thinking block's. */
+  live?: boolean;
 }
 
-function BaseLine({ icon: Icon, accent, label, detail, trailing, prose, failure }: BaseLineProps) {
+function BaseLine({
+  icon: Icon,
+  accent,
+  label,
+  detail,
+  trailing,
+  prose,
+  failure,
+  live,
+}: BaseLineProps) {
   return (
     <span className="flex min-w-0 items-center gap-1.5" title={failure?.reason}>
       <Icon
@@ -209,7 +230,9 @@ function BaseLine({ icon: Icon, accent, label, detail, trailing, prose, failure 
       />
       {/* Baseline, not center: the mono detail's taller x-height would ride high. */}
       <span className="flex min-w-0 items-baseline gap-1.5 leading-4">
-        <span className="shrink-0 font-medium text-muted-foreground">{label}</span>
+        <span className={cn("shrink-0 font-medium text-muted-foreground", live && "thinking-glow")}>
+          {label}
+        </span>
         {detail && (
           <span
             className={cn(

@@ -32,6 +32,20 @@ export function hasCompactLine(block: AgentBlockData): boolean {
   return block.type === "thinking" || isCountableTool(block);
 }
 
+/**
+ * The streaming block's id for a compact run whose newest block it is, else
+ * `undefined`. Every other row keeps the same prop while the stream moves on,
+ * so their memo holds; the live row learns its head still receives tokens.
+ */
+export function flowStreamingBlockId(
+  blocks: AgentBlockData[],
+  streamingBlockId: string | null,
+): string | undefined {
+  return streamingBlockId !== null && blocks.at(-1)?.id === streamingBlockId
+    ? streamingBlockId
+    : undefined;
+}
+
 export function buildDisplayItems(
   blocks: AgentBlockData[],
   options: { compact: boolean },
