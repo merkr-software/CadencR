@@ -21,6 +21,14 @@ pub(super) enum Source {
     Authoritative,
     /// Resolves this request only; a newer gate must keep its pending status.
     GateResponse { request_id: String },
+    /// Closes a gate the agent never waited on. Applies only while the session
+    /// still shows that gate: a turn start or end, or a newer gate, published
+    /// meanwhile already tells the truth.
+    GateDismissed { request_id: String },
+    /// A turn ended with a gate still pending. Shows it only over that turn's
+    /// working status (a reply sent while the gate waited); a gate resolved or
+    /// replaced meanwhile already moved the book on.
+    GateLeftPending,
     /// Runtime stream activity. It proves the turn is alive but cannot answer a
     /// pending gate, so it never turns a `Question` back into `Agent`; and only
     /// an event that `starts_turn` revives a session another path marked idle
@@ -78,6 +86,12 @@ pub(super) struct LiveStatusBook {
 impl LiveStatusBook {
     pub(super) fn is_busy(&self, session_id: i64) -> bool {
         self.sessions.contains_key(&session_id)
+    }
+
+    pub(super) fn is_waiting_on_gate(&self, session_id: i64) -> bool {
+        self.sessions
+            .get(&session_id)
+            .is_some_and(|entry| entry.status == AgentStatus::Question)
     }
 
     pub(super) fn seq(&self) -> u64 {
@@ -249,6 +263,11 @@ fn transition_cannot_apply(
                     .as_ref()
                     .is_some_and(|pending| pending != request_id)
         }),
+        Source::GateDismissed { request_id } => !current.is_some_and(|entry| {
+            entry.status == AgentStatus::Question
+                && entry.request_id.as_deref() == Some(request_id.as_str())
+        }),
+        Source::GateLeftPending => !current.is_some_and(|entry| entry.status == AgentStatus::Agent),
         Source::Stream { starts_turn } if transition.status == AgentStatus::Agent => {
             match current {
                 Some(entry) => entry.status == AgentStatus::Question,

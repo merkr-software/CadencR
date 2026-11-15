@@ -16,8 +16,20 @@ use crate::domain::ws_session::protocol::{
 };
 use crate::domain::ws_session::runtime::output::OutputTarget;
 
+mod dismissed;
+
 struct GateRuntimeGuard {
     _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
+}
+
+/// What closing a gate did to the live runtime holding it.
+enum RuntimeGateClose {
+    /// No live runtime holds the request.
+    NoRuntime,
+    /// The agent was blocked on it: denied, and its turn stopped.
+    Stopped { _guard: GateRuntimeGuard },
+    /// The agent never waited on it: dropped, and the turn goes on.
+    Dismissed,
 }
 
 struct ActiveGateRuntime {
@@ -57,74 +69,98 @@ pub(super) async fn handle_gate_close(
             }
         };
 
-    // Do not advertise Idle or release the gate until the old turn is stopped.
-    // Otherwise a queued reply can start before this cancellation interrupts it.
-    let runtime_guard =
-        match deny_runtime_gate(sdk_sessions, db_session_id, &request_id, app_state).await {
-            Ok(guard) => guard,
-            Err(error) => {
-                app_state
-                    .pending_gates
-                    .release(db_session_id, &request_id)
-                    .await;
-                send_error(sender, &envelope.id, "SDK_ERROR", &error.to_string());
-                return;
-            }
-        };
-
-    let clear_result = clear_persisted_gate_and_notify(
-        sender,
-        app_state,
-        db_session_id,
-        Some(&request_id),
-        payload.reason,
-        Some(&envelope.id),
-    )
-    .await;
-    match clear_result {
-        Ok(true) => {
-            app_state
-                .pending_gates
-                .complete(db_session_id, &request_id)
-                .await;
-            let had_runtime = runtime_guard.is_some();
-            drop(runtime_guard);
-            if had_runtime {
-                if let Err(error) = drain_after_gate_close(app_state, db_session_id).await {
-                    send_error(
-                        sender,
-                        &envelope.id,
-                        "QUEUE_DELIVERY_FAILED",
-                        &error.to_string(),
-                    );
-                }
-            }
-        }
-        Ok(false) => {
-            app_state
-                .pending_gates
-                .release(db_session_id, &request_id)
-                .await;
-            send_error(
-                sender,
-                &envelope.id,
-                "SESSION_NOT_FOUND",
-                "Session not found",
-            );
-        }
+    // A turn blocked on the gate is stopped before Idle is advertised or the
+    // gate released. Otherwise a queued reply can start before this
+    // cancellation interrupts it.
+    let closed = match deny_runtime_gate(sdk_sessions, db_session_id, &request_id, app_state).await
+    {
+        Ok(closed) => closed,
         Err(error) => {
             app_state
                 .pending_gates
                 .release(db_session_id, &request_id)
                 .await;
-            send_error(
-                sender,
-                &envelope.id,
-                "DB_ERROR",
-                &format!("Failed to close gate: {error}"),
-            );
+            send_error(sender, &envelope.id, "SDK_ERROR", &error.to_string());
+            return;
         }
-    }
+    };
+
+    let cleared = match &closed {
+        RuntimeGateClose::Dismissed => {
+            dismissed::clear_dismissed_gate(
+                sender,
+                app_state,
+                db_session_id,
+                &request_id,
+                payload.reason,
+                &envelope.id,
+            )
+            .await
+        }
+        RuntimeGateClose::NoRuntime | RuntimeGateClose::Stopped { .. } => {
+            clear_persisted_gate_and_notify(
+                sender,
+                app_state,
+                db_session_id,
+                Some(&request_id),
+                payload.reason,
+                Some(&envelope.id),
+            )
+            .await
+            .map(|found| found.then_some(matches!(closed, RuntimeGateClose::Stopped { .. })))
+        }
+    };
+    settle_gate_close(
+        sender,
+        app_state,
+        db_session_id,
+        &request_id,
+        &envelope.id,
+        cleared,
+        closed,
+    )
+    .await;
+}
+
+/// Settle the claim once the persisted gate is cleared. `cleared` is `None`
+/// for a missing session, else whether queued prompts may run now.
+async fn settle_gate_close(
+    sender: &WsSender,
+    app_state: &AppState,
+    db_session_id: i64,
+    request_id: &str,
+    envelope_id: &str,
+    cleared: Result<Option<bool>, sqlx::Error>,
+    closed: RuntimeGateClose,
+) {
+    let (code, message) = match cleared {
+        Ok(Some(drain)) => {
+            app_state
+                .pending_gates
+                .complete(db_session_id, request_id)
+                .await;
+            // Prompt writers waited behind the cancellation until gate.closed.
+            drop(closed);
+            if drain {
+                if let Err(error) = drain_after_gate_close(app_state, db_session_id).await {
+                    send_error(
+                        sender,
+                        envelope_id,
+                        "QUEUE_DELIVERY_FAILED",
+                        &error.to_string(),
+                    );
+                }
+            }
+            return;
+        }
+        Ok(None) => ("SESSION_NOT_FOUND", "Session not found".to_string()),
+        Err(error) => ("DB_ERROR", format!("Failed to close gate: {error}")),
+    };
+    app_state
+        .pending_gates
+        .release(db_session_id, request_id)
+        .await;
+    send_error(sender, envelope_id, code, &message);
 }
 
 async fn claim_gate_close(
@@ -206,7 +242,7 @@ async fn deny_runtime_gate(
     db_session_id: i64,
     request_id: &str,
     app_state: &AppState,
-) -> Result<Option<GateRuntimeGuard>, RuntimeError> {
+) -> Result<RuntimeGateClose, RuntimeError> {
     let owner = super::session_control::resolve_owner_sessions(
         sdk_sessions,
         &app_state.active_turns,
@@ -214,10 +250,16 @@ async fn deny_runtime_gate(
     )
     .await;
     let Some(target) = active_runtime(&owner, db_session_id).await else {
-        return Ok(None);
+        return Ok(RuntimeGateClose::NoRuntime);
     };
     let q = target.query.read().await;
     let barrier = q.turn_control_guard().await;
+    // Stopping the turn would end work the agent goes on with while the
+    // question waits, or, between turns, leave a stop mark that the next
+    // turn's result consumes.
+    if q.dismiss_nonblocking_request(request_id).await? {
+        return Ok(RuntimeGateClose::Dismissed);
+    }
     // Register before denying: Claude can finish the cancelled turn before the
     // interrupt acknowledgement arrives. Reuse Stop's benign completion path,
     // including its transcript marker and preservation of inter-agent waits.
@@ -244,7 +286,9 @@ async fn deny_runtime_gate(
     )
     .await?;
     // Keep prompt writers behind the cancellation until gate.closed is sent.
-    Ok(Some(GateRuntimeGuard { _barrier: barrier }))
+    Ok(RuntimeGateClose::Stopped {
+        _guard: GateRuntimeGuard { _barrier: barrier },
+    })
 }
 
 /// Resolve the open request through the adapter's declared route. The turn

@@ -7,7 +7,7 @@ use super::CodexSession;
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeError, RuntimePermissionResponse,
 };
-use crate::domain::agents::codex::async_questions::answer_prompt;
+use crate::domain::agents::codex::async_questions::{answer_prompt, restored_question_input};
 use crate::domain::agents::codex::turn_steer_recovery::{
     steer_failure_recovery, SteerFailureRecovery,
 };
@@ -17,11 +17,21 @@ impl CodexSession {
         &self,
         response: RuntimePermissionResponse,
     ) -> Result<(), RuntimeError> {
-        let pending = self
-            .async_questions
-            .lock()
-            .await
-            .current(&response.request_id)?;
+        let pending = {
+            let questions = self.async_questions.lock().await;
+            if questions.contains(&response.request_id) {
+                Some(questions.current(&response.request_id)?)
+            } else {
+                None
+            }
+        };
+        let Some(pending) = pending else {
+            // Asked before this runtime existed (a restart, a respawn): only
+            // the persisted form remembers it. Codex never waited on it, so
+            // the answer is ordinary input to the conversation.
+            let prompt = answer_prompt(&restored_question_input(&response)?, &response)?;
+            return self.stream_input(Value::String(prompt)).await;
+        };
         let prompt = answer_prompt(&pending.raw_json()["tool_input"], &response)?;
         let thread_id = pending
             .session_id()
@@ -32,17 +42,32 @@ impl CodexSession {
             self.send_child_question_answer(thread_id, prompt).await?;
         }
         // Consume only after Codex accepts the input so failures remain retryable.
-        if let Some(next) = self
+        let next = self
             .async_questions
             .lock()
             .await
-            .complete(&response.request_id)?
-        {
-            self.local_tx
-                .send(Ok(next))
-                .map_err(|_| RuntimeError::new("Codex question event stream closed"))?;
-        }
-        Ok(())
+            .complete(&response.request_id)?;
+        self.surface_next_question(next)
+    }
+
+    /// Drop a question the user closed. Codex never waited on it, so nothing
+    /// is sent and the turn goes on.
+    pub(super) async fn dismiss_async_question(
+        &self,
+        request_id: &str,
+    ) -> Result<(), RuntimeError> {
+        let next = self.async_questions.lock().await.discard(request_id);
+        self.surface_next_question(next)
+    }
+
+    fn surface_next_question(
+        &self,
+        next: Option<crate::domain::agents::adapter::RuntimeEvent>,
+    ) -> Result<(), RuntimeError> {
+        let Some(next) = next else { return Ok(()) };
+        self.local_tx
+            .send(Ok(next))
+            .map_err(|_| RuntimeError::new("Codex question event stream closed"))
     }
 
     async fn send_child_question_answer(

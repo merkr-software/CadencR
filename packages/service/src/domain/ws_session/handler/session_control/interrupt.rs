@@ -39,6 +39,15 @@ pub(crate) async fn stop_session(
     if !app_state.session_status_tx.is_busy(db_session_id) {
         return Err(nothing_to_stop());
     }
+    // A question the agent asked without blocking keeps the session "busy"
+    // after its turn ended; only a running turn has anything to stop.
+    if app_state
+        .session_status_tx
+        .is_waiting_on_gate(db_session_id)
+        && !turn_running(app_state, db_session_id).await?
+    {
+        return Err(nothing_to_stop());
+    }
     let (query, feature_id) = {
         let sessions = sessions.lock().await;
         let Some(handle) = sessions.get(&db_session_id) else {
@@ -191,6 +200,19 @@ pub(in super::super) async fn interrupt_as_intended(
         interrupted_generation,
     )
     .await
+}
+
+/// Every turn start marks the session `running` (before its first gate), and
+/// its end writes another status, pending gate or not.
+async fn turn_running(app_state: &AppState, db_session_id: i64) -> Result<bool, CommandError> {
+    sqlx::query_scalar::<_, String>("SELECT status FROM agent_sessions WHERE id = ?")
+        .bind(db_session_id)
+        .fetch_optional(&app_state.read_pool)
+        .await
+        .map(|status| status.as_deref() == Some("running"))
+        .map_err(|error| {
+            CommandError::new("DB_ERROR", format!("Failed to read the session: {error}"))
+        })
 }
 
 fn nothing_to_stop() -> CommandError {

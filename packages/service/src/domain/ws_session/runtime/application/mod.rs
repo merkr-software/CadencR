@@ -9,6 +9,7 @@ pub(crate) use control_dispatch::{
 mod permission;
 mod permission_context;
 mod permission_pending;
+pub(crate) use permission_pending::clear_answered_gate;
 mod permission_user_message;
 pub(crate) use permission::respond_permission;
 pub(crate) use permission_context::PermissionContext;

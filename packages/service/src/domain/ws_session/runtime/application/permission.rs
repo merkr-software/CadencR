@@ -487,7 +487,7 @@ mod tests {
         use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, pending_permission TEXT, pending_questions TEXT); INSERT INTO agent_sessions VALUES (7, '{\"request_id\":\"gate-1\"}', NULL);")
+        sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'running', pending_permission TEXT, pending_questions TEXT); INSERT INTO agent_sessions (id, pending_permission, pending_questions) VALUES (7, '{\"request_id\":\"gate-1\"}', NULL);")
             .execute(&pool).await.unwrap();
         let gates = GateRegistry::new();
         gates

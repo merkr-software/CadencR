@@ -19,6 +19,7 @@ mod gate;
 mod gate_cancellation;
 mod init;
 mod model_effort;
+mod nonblocking_gate;
 mod permission;
 mod permission_mode;
 mod profile;
