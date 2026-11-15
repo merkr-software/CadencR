@@ -147,7 +147,7 @@ impl SubagentTracker {
         else {
             return;
         };
-        if !self.carriers.get(id).is_some_and(|state| !state.terminal) {
+        if self.carriers.get(id).is_none_or(|state| state.terminal) {
             return;
         }
         let status = if *is_error {

@@ -166,7 +166,7 @@ fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::R
     #[cfg(unix)]
     {
         crate::shared::process_group::lead_new_process_group(command);
-        return Ok(());
+        Ok(())
     }
     #[cfg(windows)]
     {

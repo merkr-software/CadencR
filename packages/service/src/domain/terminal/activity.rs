@@ -56,7 +56,7 @@ fn foreground_process_group(handle: &PtyHandle) -> Option<i32> {
         let master = handle.master.lock().unwrap_or_else(|e| e.into_inner());
         let fd = master.as_raw_fd()?;
         let pgrp = unsafe { libc::tcgetpgrp(fd) };
-        return (pgrp > 0).then_some(pgrp);
+        (pgrp > 0).then_some(pgrp)
     }
     #[cfg(not(unix))]
     {

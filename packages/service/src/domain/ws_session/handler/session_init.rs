@@ -33,9 +33,7 @@ pub(super) async fn handle_init(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
 ) -> Option<i64> {
-    let Some((payload, feature_id, cwd)) = session_init_input::parse(&envelope, sender) else {
-        return None;
-    };
+    let (payload, feature_id, cwd) = session_init_input::parse(&envelope, sender)?;
 
     // Register the WS sender so HTTP handlers (e.g. auto-rename) can push
     // envelopes to this connection later.
@@ -44,16 +42,13 @@ pub(super) async fn handle_init(
         .register(feature_id, sender.clone())
         .await;
 
-    let Some(project_id) = session_init_feature::require_feature_project_id(
+    let project_id = session_init_feature::require_feature_project_id(
         app_state,
         sender,
         &envelope.id,
         feature_id,
     )
-    .await
-    else {
-        return None;
-    };
+    .await?;
 
     let (initial_provider, configured_initial_access_mode) =
         session_init_provider::resolve(app_state, feature_id, payload.provider.as_deref()).await;

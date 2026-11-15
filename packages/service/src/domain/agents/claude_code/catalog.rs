@@ -48,7 +48,7 @@ impl ProbeState {
         }
         let failed_at = self.failed_at?;
         (failed_at.elapsed() < FAILED_PROBE_TTL)
-            .then(|| self.failure_message.as_deref())
+            .then_some(self.failure_message.as_deref())
             .flatten()
     }
 

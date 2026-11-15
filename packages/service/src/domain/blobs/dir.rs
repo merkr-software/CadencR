@@ -20,7 +20,7 @@ pub fn init(dir: PathBuf) {
 pub fn blob_dir() -> PathBuf {
     #[cfg(test)]
     {
-        return test_dir();
+        test_dir()
     }
     #[cfg(not(test))]
     {

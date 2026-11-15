@@ -53,7 +53,7 @@ fn approval_response(params: &Value, response: &RuntimePermissionResponse) -> Va
 }
 
 fn deny_decision(params: &Value) -> &'static str {
-    if !params.get("availableDecisions").is_some() {
+    if params.get("availableDecisions").is_none() {
         return "decline";
     }
     let mut has_cancel = false;

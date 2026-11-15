@@ -210,7 +210,11 @@ mod tests {
         );
         let index_path = gitdir.join("index");
         assert!(
-            is_relevant(&canonical_linked, &[gitdir.clone()], &index_path),
+            is_relevant(
+                &canonical_linked,
+                std::slice::from_ref(&gitdir),
+                &index_path
+            ),
             "filter must accept linked-worktree index path: {}",
             index_path.display()
         );
