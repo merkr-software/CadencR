@@ -22,7 +22,8 @@ import { sendToWindow } from "./safe-send";
 interface BrowserTabCreationHost {
   getWindow(): BrowserWindow | null;
   /** Set (or clear, with `null`) the error owned by a live tab in its own scope. */
-  setTabError(tab: ManagedTab, message: string | null): void;
+  /** True when the tab's stored error changed. */
+  setTabError(tab: ManagedTab, message: string | null): boolean;
   /** Record a live tab's failure and publish its scope. */
   reportTabError(tab: ManagedTab, error: unknown): void;
   /** Record a scope-wide error and publish that scope's state. */

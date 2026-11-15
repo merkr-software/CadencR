@@ -93,7 +93,7 @@ describe("document authorization events", () => {
     const noop = (): void => undefined;
     const host = {
       emitState: noop,
-      setTabError: noop,
+      setTabError: () => false,
       isTabAlive: () => true,
       tabDestroyed: noop,
       recordHistoryNavigation: noop,

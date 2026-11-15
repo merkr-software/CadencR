@@ -1805,6 +1805,25 @@ describe("BrowserManager", () => {
       expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
     });
 
+    it("publishes a tab failure once, and nothing for a repeat or a closed tab", async () => {
+      const win = mainWindow();
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+      const stateSends = () =>
+        win.webContents.send.mock.calls.filter(([channel]) => channel === "browser:state").length;
+
+      const before = stateSends();
+      failLoad(contents, "http://127.0.0.1:9/");
+      failLoad(contents, "http://127.0.0.1:9/");
+      expect(stateSends() - before).toBe(1);
+
+      await manager.closeTab(tab.id);
+      const afterClose = stateSends();
+      failLoad(contents, "http://127.0.0.1:9/");
+      expect(stateSends()).toBe(afterClose);
+    });
+
     it("keeps a feature-wide error visible on every tab of the feature", async () => {
       const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
       failNetworkRegistration = true;

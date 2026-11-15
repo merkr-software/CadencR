@@ -30,7 +30,9 @@ function setup() {
   const host = {
     emitState,
     setTabError: vi.fn((message: string | null) => {
+      const changed = error !== message;
       error = message;
+      return changed;
     }),
     invalidateFind: vi.fn(),
     isTabAlive: () => true,

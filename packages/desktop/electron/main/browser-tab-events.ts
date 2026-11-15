@@ -54,7 +54,8 @@ export interface ManagedTab {
 // event wiring lives here without the manager exposing its internals.
 export interface TabEventHost {
   emitState(): void;
-  setTabError(message: string | null): void;
+  /** Set (or clear, with `null`) this tab's error; true when the stored error changed. */
+  setTabError(message: string | null): boolean;
   isTabAlive(): boolean;
   tabDestroyed(): void;
   recordHistoryNavigation(url: string, title: string): void;
@@ -110,15 +111,17 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
       host.invalidateFind();
     } catch (error) {
       event.preventDefault();
-      host.setTabError(error instanceof Error ? error.message : String(error));
-      host.emitState();
+      if (host.setTabError(error instanceof Error ? error.message : String(error))) {
+        host.emitState();
+      }
     }
   });
   wc.on("will-redirect", (event) => {
     if (tab.automationAccess !== "user" && isCadencrBrowserUrl(event.url)) {
       event.preventDefault();
-      host.setTabError("Browser navigation to Cadencr's own origins is blocked.");
-      host.emitState();
+      if (host.setTabError("Browser navigation to Cadencr's own origins is blocked.")) {
+        host.emitState();
+      }
     }
   });
   wc.on("did-start-navigation", (details) => {
@@ -157,8 +160,8 @@ function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
     host.updateHistoryTitle(wc.getURL(), pageTitle(wc));
   });
   wc.on("did-fail-load", (_event, _code, description, url) => {
-    host.setTabError(`${url}: ${description}`);
-    host.emitState();
+    // A repeated failure, or one from a closed tab, changes nothing to publish.
+    if (host.setTabError(`${url}: ${description}`)) host.emitState();
   });
 }
 
