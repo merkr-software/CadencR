@@ -54,7 +54,7 @@ export interface ManagedTab {
 // event wiring lives here without the manager exposing its internals.
 export interface TabEventHost {
   emitState(): void;
-  setLastError(message: string | null): void;
+  setTabError(message: string | null): void;
   isTabAlive(): boolean;
   tabDestroyed(): void;
   recordHistoryNavigation(url: string, title: string): void;
@@ -110,14 +110,14 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
       host.invalidateFind();
     } catch (error) {
       event.preventDefault();
-      host.setLastError(error instanceof Error ? error.message : String(error));
+      host.setTabError(error instanceof Error ? error.message : String(error));
       host.emitState();
     }
   });
   wc.on("will-redirect", (event) => {
     if (tab.automationAccess !== "user" && isCadencrBrowserUrl(event.url)) {
       event.preventDefault();
-      host.setLastError("Browser navigation to Cadencr's own origins is blocked.");
+      host.setTabError("Browser navigation to Cadencr's own origins is blocked.");
       host.emitState();
     }
   });
@@ -134,7 +134,7 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
 function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
   const wc = tab.webContents;
   wc.on("did-navigate", () => {
-    host.setLastError(null);
+    host.setTabError(null);
     refreshTabMetadata(tab, host);
     host.persistTab();
     host.recordHistoryNavigation(wc.getURL(), pageTitle(wc));
@@ -143,7 +143,7 @@ function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
   wc.on("did-navigate-in-page", (_event, _url, isMainFrame) => {
     if (!isMainFrame) return;
     host.invalidateFind();
-    host.setLastError(null);
+    host.setTabError(null);
     refreshTabMetadata(tab, host);
     host.persistTab();
     host.recordHistoryNavigation(wc.getURL(), pageTitle(wc));
@@ -157,7 +157,7 @@ function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
     host.updateHistoryTitle(wc.getURL(), pageTitle(wc));
   });
   wc.on("did-fail-load", (_event, _code, description, url) => {
-    host.setLastError(`${url}: ${description}`);
+    host.setTabError(`${url}: ${description}`);
     host.emitState();
   });
 }

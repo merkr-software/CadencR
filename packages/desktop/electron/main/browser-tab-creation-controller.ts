@@ -21,7 +21,12 @@ import { sendToWindow } from "./safe-send";
 
 interface BrowserTabCreationHost {
   getWindow(): BrowserWindow | null;
-  setLastError(message: string | null): void;
+  /** Set (or clear, with `null`) the error owned by a live tab in its own scope. */
+  setTabError(tab: ManagedTab, message: string | null): void;
+  /** Record a live tab's failure and publish its scope. */
+  reportTabError(tab: ManagedTab, error: unknown): void;
+  /** Record a scope-wide error and publish that scope's state. */
+  reportError(error: unknown, scopeId: number | null): void;
   emitState(scopeId: number | null): void;
   emitCounts(): void;
   emitShortcut(shortcut: BrowserShortcut): void;
@@ -138,10 +143,7 @@ export class BrowserTabCreationController {
     if (background && !nativeChildWebContents(nativeOptions)) {
       void tab.webContents
         .loadURL(details.url, nativeLoadOptions(details))
-        .catch((error: unknown) => {
-          this.options.host.setLastError(error instanceof Error ? error.message : String(error));
-          this.options.host.emitState(tab.metadata.scopeId);
-        });
+        .catch((error: unknown) => this.options.host.reportTabError(tab, error));
     }
     return tab.webContents;
   }
@@ -215,14 +217,11 @@ export class BrowserTabCreationController {
         );
       },
       inspectElement: (x, y) => host.inspectElement(id, x, y),
-      reportError: (error) => {
-        host.setLastError(error instanceof Error ? error.message : String(error));
-        host.emitState(tab.metadata.scopeId);
-      },
+      reportError: (error) => host.reportTabError(tab, error),
     });
     installTabEvents(tab, {
       emitState: () => host.emitState(tab.metadata.scopeId),
-      setLastError: (message) => host.setLastError(message),
+      setTabError: (message) => host.setTabError(tab, message),
       isTabAlive: () => tabs.has(id),
       tabDestroyed: () => this.handleNativeDestroyed(tab),
       recordHistoryNavigation: (url, title) => {
@@ -263,8 +262,7 @@ export class BrowserTabCreationController {
       : null;
     if (fallbackId) {
       void host.activateFallback(fallbackId).catch((error: unknown) => {
-        host.setLastError(error instanceof Error ? error.message : String(error));
-        host.emitState(tab.metadata.scopeId);
+        host.reportError(error, tab.metadata.scopeId);
       });
     }
     closer.handleNativeDestroyed(tab);

@@ -29,7 +29,7 @@ function setup() {
   const emitState = vi.fn(() => ({ error, loading: tab.metadata.loading }));
   const host = {
     emitState,
-    setLastError: vi.fn((message: string | null) => {
+    setTabError: vi.fn((message: string | null) => {
       error = message;
     }),
     invalidateFind: vi.fn(),
