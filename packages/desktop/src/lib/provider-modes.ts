@@ -62,6 +62,12 @@ export interface ProviderMode {
    * Codex's "Allow Full Access").
    */
   optIn?: boolean;
+  /**
+   * Never offered in the menu or the Shift+Tab cycle, but recognized when a
+   * session already runs in it (set over the API, or a runtime fallback), so
+   * the chip names the real mode instead of the provider's first one.
+   */
+  heldOnly?: boolean;
 }
 
 // Mode colors route through theme tokens (defined per theme in index.css) so
@@ -108,6 +114,19 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
     chipClass: "bg-[var(--acc-red)]/15 text-[var(--acc-red)] hover:bg-[var(--acc-red)]/25",
     description: "Dangerous: skip Claude Code permission prompts and checks.",
     optIn: true,
+  },
+  {
+    // The CLI's manual mode. Cadencr never starts a session in it, but the
+    // backend accepts it and the CLI runs it, so the chip must be able to say so.
+    id: "default",
+    label: "Default",
+    icon: Hammer,
+    risk: "ask",
+    tone: "var(--muted-foreground)",
+    chipClass:
+      "bg-[var(--chip-blue-bg)]/15 text-[var(--chip-blue-fg)] hover:bg-[var(--chip-blue-bg)]/25",
+    description: "Ask before each edit or command, as Claude Code's default mode.",
+    heldOnly: true,
   },
 ];
 
@@ -199,7 +218,8 @@ function opencodeCatalogMode(mode: RuntimeProviderModeOption): ProviderMode {
 /**
  * Filter the provider's catalog down to the modes the user is allowed to
  * cycle through right now. Opt-in modes are gated by the matching
- * provider-level setting (Claude bypass, Codex full-access).
+ * provider-level setting (Claude bypass, Codex full-access); held-only modes
+ * are never offered.
  */
 export function getVisibleModes(
   providerId: string | null | undefined,
@@ -207,7 +227,7 @@ export function getVisibleModes(
   catalogModes?: readonly RuntimeProviderModeOption[],
 ): ProviderMode[] {
   return getProviderModes(providerId, catalogModes).filter(
-    (mode) => !mode.optIn || enabledOptInIds.includes(mode.id),
+    (mode) => !mode.heldOnly && (!mode.optIn || enabledOptInIds.includes(mode.id)),
   );
 }
 

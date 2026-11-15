@@ -267,6 +267,23 @@ describe("handleEnvelope mode.changed", () => {
     expect(ctx.getSession("s1").permissionMode).toBe("auto");
   });
 
+  it("follows a Claude session into the CLI's manual `default` mode", () => {
+    // Set over the API, or the mode a runtime fell back to: the backend runs
+    // and persists `default`, so the chip must stop showing the old mode.
+    const session = createSessionEntry();
+    session.currentSelection = { providerId: "claude_code", modelId: "haiku" };
+    session.permissionMode = "auto";
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "mode.changed",
+      payload: { mode: "default" },
+    });
+
+    expect(ctx.getSession("s1").permissionMode).toBe("default");
+  });
+
   it("drops a mode the active provider doesn't support (stale FE catalog guard)", () => {
     const session = createSessionEntry();
     // OpenCode has no `auto` mode — the backend would reject it via

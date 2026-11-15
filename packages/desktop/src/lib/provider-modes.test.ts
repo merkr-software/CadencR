@@ -21,6 +21,7 @@ describe("provider-modes catalog", () => {
       "acceptEdits",
       "plan",
       "bypassPermissions",
+      "default",
     ]);
     expect(PROVIDER_MODES[PROVIDER_IDS.OPENCODE].map((m) => m.id)).toEqual(["acceptEdits", "plan"]);
     expect(PROVIDER_MODES[PROVIDER_IDS.CODEX_CLI].map((m) => m.id)).toEqual(["default", "plan"]);
@@ -31,6 +32,18 @@ describe("provider-modes catalog", () => {
     expect(findProviderMode(PROVIDER_IDS.CLAUDE_CODE, "auto")?.optIn).toBeFalsy();
     expect(findProviderMode(PROVIDER_IDS.CODEX_CLI, "bypassPermissions")).toBeNull();
     expect(findProviderMode(PROVIDER_IDS.CODEX_CLI, "default")?.optIn).toBeFalsy();
+  });
+
+  it("knows Claude's manual default mode without ever offering it", () => {
+    const held = findProviderMode(PROVIDER_IDS.CLAUDE_CODE, "default");
+    expect(held).toMatchObject({ id: "default", label: "Default", risk: "ask", heldOnly: true });
+    expect(providerAcceptsMode(PROVIDER_IDS.CLAUDE_CODE, "default")).toBe(true);
+    expect(
+      getVisibleModes(PROVIDER_IDS.CLAUDE_CODE, ["bypassPermissions"]).map((m) => m.id),
+    ).not.toContain("default");
+    // Shift+Tab leaves it for the head of the usual cycle; new sessions never start in it.
+    expect(nextProviderMode(PROVIDER_IDS.CLAUDE_CODE, "default", [])).toBe("auto");
+    expect(defaultEditModeFor(PROVIDER_IDS.CLAUDE_CODE)).toBe("auto");
   });
 
   it("returns an empty list for unknown provider ids so the chip hides", () => {

@@ -16,6 +16,22 @@ describe("ModeControl", () => {
     expect(trigger).toHaveAttribute("data-risk", "read");
   });
 
+  it("shows Claude's manual default mode instead of passing it off as Auto", async () => {
+    const { user } = render(
+      <ModeControl
+        providerId={PROVIDER_IDS.CLAUDE_CODE}
+        permissionMode="default"
+        onSelect={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: /Mode: Default\. Asks before acting/ });
+    expect(trigger).toHaveAttribute("data-risk", "ask");
+    // Held only: the menu still offers the usual modes, not a new choice.
+    await user.click(trigger);
+    expect(screen.queryByRole("menuitem", { name: /^Default/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Auto Acts on its own/ })).toBeInTheDocument();
+  });
+
   it("keeps each provider's own mode color", () => {
     const { rerender } = render(
       <ModeControl
