@@ -25,6 +25,7 @@ import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
 import type { RendererErrorReportPayload } from "../../src/shared/renderer-error";
 import type { AppCloseChoice, AppCloseRequest } from "../../src/shared/app-close";
 import type { ServiceStatus } from "../../src/shared/service-status";
+import { UPDATE_STATE_CHANNEL, type UpdateSnapshot } from "../../src/shared/update-state";
 import { cliHostBridge } from "./cli-host-bridge";
 import { notchHostBridge } from "./notch-host-bridge";
 import { installPluginTabPortRelay, pluginTabsHostBridge } from "./plugin-tabs-host-bridge";
@@ -69,44 +70,6 @@ interface FileDropPayload {
   files: FileDropItem[];
   targetPromptId?: string;
   message?: string;
-}
-
-type UpdateEvent =
-  | { kind: "checking" }
-  | { kind: "available"; version: string }
-  | { kind: "changelog"; version: string; markdown: string | null }
-  | { kind: "not-available"; version: string }
-  | { kind: "error"; message: string }
-  | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string }
-  | { kind: "unsupported"; reason: "unsupported-install"; message: string };
-
-function onUpdateEvent(cb: (event: UpdateEvent) => void): () => void {
-  const unsubs = [
-    onIpc<void>("update:checking", () => cb({ kind: "checking" })),
-    onIpc<{ version: string }>("update:available", (p) =>
-      cb({ kind: "available", version: p.version }),
-    ),
-    onIpc<{ version: string; markdown: string | null }>("update:changelog", (p) =>
-      cb({ kind: "changelog", version: p.version, markdown: p.markdown }),
-    ),
-    onIpc<{ version: string }>("update:not-available", (p) =>
-      cb({ kind: "not-available", version: p.version }),
-    ),
-    onIpc<{ message: string }>("update:error", (p) => cb({ kind: "error", message: p.message })),
-    onIpc<{ percent: number; bytesPerSecond: number }>("update:download-progress", (p) =>
-      cb({ kind: "download-progress", percent: p.percent, bytesPerSecond: p.bytesPerSecond }),
-    ),
-    onIpc<{ version: string }>("update:downloaded", (p) =>
-      cb({ kind: "downloaded", version: p.version }),
-    ),
-    onIpc<{ reason: "unsupported-install"; message: string }>("update:unsupported", (p) =>
-      cb({ kind: "unsupported", reason: p.reason, message: p.message }),
-    ),
-  ];
-  return () => {
-    for (const off of unsubs) off();
-  };
 }
 
 function onIpc<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -391,13 +354,15 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("browser:downloads-changed", cb),
   onBrowserDownloadCounts: (cb: (counts: Record<number, number>) => void): (() => void) =>
     onIpc("browser:download-counts", cb),
-  checkForUpdates: (): Promise<void> => ipcRenderer.invoke("app:check-for-updates"),
+  getUpdateState: (): Promise<UpdateSnapshot> => ipcRenderer.invoke("app:update-state"),
+  onUpdateState: (cb: (snapshot: UpdateSnapshot) => void): (() => void) =>
+    onIpc(UPDATE_STATE_CHANNEL, cb),
+  checkForUpdates: (): Promise<UpdateSnapshot> => ipcRenderer.invoke("app:check-for-updates"),
   installUpdate: (): Promise<void> => ipcRenderer.invoke("app:install-update"),
   fetchChangelog: (version: string): Promise<string | null> =>
     ipcRenderer.invoke("app:fetch-changelog", version),
   fetchChangelogImage: (src: string): Promise<ChangelogImageBytes> =>
     ipcRenderer.invoke("app:fetch-changelog-image", src),
-  onUpdateEvent,
   ...notchHostBridge(onIpc),
   ...cliHostBridge(onIpc),
   ...pluginTabsHostBridge(onIpc),

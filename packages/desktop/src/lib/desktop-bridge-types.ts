@@ -9,6 +9,7 @@ import type {
 import type { CliInstallOptions, CliInstallStatus, CliRendererItem } from "@/shared/cli-bridge";
 import type { ChangelogImageBytes } from "@/shared/changelog-image";
 import type { RendererErrorReportPayload } from "@/shared/renderer-error";
+import type { UpdateSnapshot } from "@/shared/update-state";
 import type { LinkHoverContext, LinkMenuOpenPayload } from "@/lib/link-routing";
 import type {
   BrowserBounds,
@@ -81,30 +82,6 @@ export interface FileDropPayload {
   message?: string;
 }
 
-export type UpdateEvent =
-  | { kind: "checking" }
-  | { kind: "available"; version: string }
-  | {
-      /** Markdown body for `version`, fetched from GitHub. `null` on miss/failure. */
-      kind: "changelog";
-      version: string;
-      markdown: string | null;
-    }
-  | { kind: "not-available"; version: string }
-  | { kind: "error"; message: string }
-  | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string }
-  | {
-      /**
-       * In-app updates are unavailable because this Linux build is not an
-       * official AppImage, DEB, or RPM package. The renderer should render
-       * `message` instead of offering a non-working update action.
-       */
-      kind: "unsupported";
-      reason: "unsupported-install";
-      message: string;
-    };
-
 export type { RendererErrorReportPayload } from "@/shared/renderer-error";
 import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
 import type { ServiceStatus } from "@/shared/service-status";
@@ -164,12 +141,15 @@ export interface CadencrDesktopBridge {
    */
   isWindowFocused?: () => Promise<boolean>;
   onWindowFocusChange?: (cb: (focused: boolean) => void) => () => void;
-  checkForUpdates: () => Promise<void>;
+  /** The main process's update state: read it on mount, then follow `onUpdateState`. */
+  getUpdateState: () => Promise<UpdateSnapshot>;
+  onUpdateState: (cb: (snapshot: UpdateSnapshot) => void) => () => void;
+  /** Starts a check; resolves with the state the main process moved to. */
+  checkForUpdates: () => Promise<UpdateSnapshot>;
   installUpdate: () => Promise<void>;
   fetchChangelog: (version: string) => Promise<string | null>;
   /** Bytes of an image committed to Cadencr's repo and referenced by release notes. */
   fetchChangelogImage: (src: string) => Promise<ChangelogImageBytes>;
-  onUpdateEvent: (cb: (event: UpdateEvent) => void) => () => void;
 }
 
 export interface CadencrBrowserBridge extends CadencrDesktopBridge {

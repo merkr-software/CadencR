@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@/stores/update-store";
+import type { UpdateStatus } from "@/shared/update-state";
 
 /** One line on where an update check stands (Settings → About, `cadencr update`). */
 export function updateStatusMessage(

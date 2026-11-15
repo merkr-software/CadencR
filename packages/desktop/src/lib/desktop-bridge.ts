@@ -2,6 +2,7 @@ import { browserTelemetryRelayStatus } from "./telemetry-relay";
 import { persistBrowserDiagnostic, exportBrowserDiagnostics } from "./renderer-diagnostics-browser";
 import { isSafeExternalUrl, isUserOpenableUrl } from "@/lib/safe-url";
 import type { PluginTabsBridge } from "@/shared/plugin-tab-host";
+import { INITIAL_UPDATE_SNAPSHOT } from "@/shared/update-state";
 import type { CadencrBrowserBridge, DesktopTheme } from "./desktop-bridge-types";
 
 export type {
@@ -50,7 +51,6 @@ export type {
   RendererErrorReportPayload,
   RouteType,
   RuntimeConfig,
-  UpdateEvent,
 } from "./desktop-bridge-types";
 
 let bridgeOverride: Partial<CadencrBrowserBridge> | null = null;
@@ -230,11 +230,12 @@ const browserBridge: CadencrBrowserBridge = {
   onBrowserPopupRequestsChanged: () => () => undefined,
   onBrowserDownloadsChanged: () => () => undefined,
   onBrowserDownloadCounts: () => () => undefined,
+  getUpdateState: () => Promise.resolve(INITIAL_UPDATE_SNAPSHOT),
   checkForUpdates: () => unavailable("checkForUpdates"),
   installUpdate: () => unavailable("installUpdate"),
   fetchChangelog: () => Promise.resolve(null),
   fetchChangelogImage: () => unavailable("fetchChangelogImage"),
-  onUpdateEvent: () => () => undefined,
+  onUpdateState: () => () => undefined,
   pluginTabs: noopPluginTabs,
 };
 

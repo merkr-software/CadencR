@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
     success: vi.fn(),
     loading: vi.fn(() => "toast-id"),
   },
-  checkForUpdates: vi.fn(() => Promise.resolve()),
+  checkForUpdates: vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));

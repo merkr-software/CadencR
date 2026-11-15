@@ -187,7 +187,8 @@ function bridge(): CadencrBrowserBridge {
     installUpdate: vi.fn(),
     fetchChangelog: vi.fn(),
     fetchChangelogImage: vi.fn(),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
     pluginTabs: noopPluginTabs,
   };
 }
