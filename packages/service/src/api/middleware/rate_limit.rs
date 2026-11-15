@@ -1,4 +1,4 @@
-//! Per-IP fixed-window rate limiting for loopback and remote listeners.
+//! Fixed-window rate limiting for loopback and remote listeners.
 //!
 //! The pairing endpoint is pre-auth and brute-forceable (a short pairing code
 //! is the only secret), so it gets a tight bucket; everything else gets a loose
@@ -7,17 +7,18 @@
 //! the authenticated renderer, and each custom tab (plugin token) gets its own
 //! smaller bucket, so one chatty tab can starve neither the renderer nor
 //! another tab. State is in-memory and lives for the life of one
-//! listener (each router receives its own limiter), keyed by source IP from
-//! `ConnectInfo<SocketAddr>`.
+//! listener (each router receives its own limiter), keyed by the TCP peer
+//! address from `ConnectInfo<SocketAddr>` — on the remote listener, verified
+//! devices are keyed by device instead (see [`remote`]).
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use axum::extract::{ConnectInfo, Request};
-use axum::http::{Method, StatusCode};
+use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::{extract::State, Extension};
@@ -29,12 +30,21 @@ use crate::app_state::AppState;
 use crate::domain::plugin_tabs::principal::PLUGIN_TOKEN_HEADER;
 use crate::shared::security::constant_time_str_eq;
 
+mod fingerprints;
+mod remote;
+
+pub use remote::rate_limit_middleware;
+
 const WINDOW: Duration = Duration::from_secs(60);
 /// Pairing-code attempts per IP per window. A code is single-use and expires in
 /// ~120s, so a legitimate device needs only one or two attempts.
 const PAIR_LIMIT: u32 = 5;
 /// Failed credentials per source IP; independent from authenticated traffic.
 const AUTH_FAILURE_LIMIT: u32 = 20;
+/// Verifications of never-seen tokens per source IP while its failure budget
+/// is exhausted: enough for a device reconnecting behind the same tunnel, too
+/// few to turn the lockout back into a DB load.
+const FIRST_CONTACT_LIMIT: u32 = 10;
 /// All other requests per IP per window, counted *before* listener-specific
 /// auth, so SPA assets and rejected tokens count too. A client opening the app
 /// bursts well past a "reasonable" steady rate — hashed chunks and fonts,
@@ -52,9 +62,26 @@ enum Bucket {
     Pair,
     General,
     AuthFailure,
+    /// Never-seen remote tokens while the peer is locked out.
+    FirstContact,
     LoopbackAuthenticated,
     /// One custom tab, keyed by a hash of its plugin id.
     Plugin(u64),
+}
+
+/// Who a budget belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Client {
+    /// The TCP peer address (never a forwarded header).
+    Peer(IpAddr),
+    /// A remote device whose token has been verified.
+    Device(i64),
+}
+
+impl From<IpAddr> for Client {
+    fn from(ip: IpAddr) -> Self {
+        Self::Peer(ip)
+    }
 }
 
 struct Window {
@@ -62,10 +89,11 @@ struct Window {
     count: u32,
 }
 
-/// In-memory per-(IP, bucket) fixed-window counter.
+/// In-memory per-(client, bucket) fixed-window counter.
 #[derive(Default)]
 pub struct RateLimiter {
-    windows: Mutex<HashMap<(IpAddr, Bucket), Window>>,
+    windows: Mutex<HashMap<(Client, Bucket), Window>>,
+    fingerprints: Mutex<fingerprints::Fingerprints>,
 }
 
 impl RateLimiter {
@@ -73,7 +101,7 @@ impl RateLimiter {
     /// requests before authentication (including expensive remote token lookup).
     fn auth_retry_after(&self, ip: IpAddr, now: Instant) -> Option<u64> {
         let windows = self.windows.lock().expect("rate-limit mutex poisoned");
-        let window = windows.get(&(ip, Bucket::AuthFailure))?;
+        let window = windows.get(&(Client::Peer(ip), Bucket::AuthFailure))?;
         let elapsed = now.duration_since(window.start);
         (window.count >= AUTH_FAILURE_LIMIT && elapsed < WINDOW)
             .then(|| WINDOW.saturating_sub(elapsed).as_secs().max(1))
@@ -81,10 +109,11 @@ impl RateLimiter {
 
     /// Record a hit and report whether it is within the bucket's limit. Returns
     /// `Err(retry_after_secs)` when the limit is exceeded.
-    fn check(&self, ip: IpAddr, bucket: Bucket, now: Instant) -> Result<(), u64> {
+    fn check(&self, client: impl Into<Client>, bucket: Bucket, now: Instant) -> Result<(), u64> {
         let limit = match bucket {
             Bucket::Pair => PAIR_LIMIT,
             Bucket::AuthFailure => AUTH_FAILURE_LIMIT,
+            Bucket::FirstContact => FIRST_CONTACT_LIMIT,
             Bucket::General | Bucket::LoopbackAuthenticated => GENERAL_LIMIT,
             Bucket::Plugin(_) => PLUGIN_LIMIT,
         };
@@ -92,7 +121,7 @@ impl RateLimiter {
         // Bound map growth: drop windows that have fully elapsed.
         windows.retain(|_, w| now.duration_since(w.start) < WINDOW);
 
-        let window = windows.entry((ip, bucket)).or_insert(Window {
+        let window = windows.entry((client.into(), bucket)).or_insert(Window {
             start: now,
             count: 0,
         });
@@ -110,21 +139,12 @@ impl RateLimiter {
         }
         Ok(())
     }
-}
 
-/// Middleware: rate-limit by source IP, with a tight bucket for `POST
-/// /api/remote/pair`. Runs outside the auth/host checks so abuse is shed early.
-pub async fn rate_limit_middleware(
-    Extension(limiter): Extension<std::sync::Arc<RateLimiter>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let bucket = if request.method() == Method::POST && request.uri().path() == "/api/remote/pair" {
-        Bucket::Pair
-    } else {
-        Bucket::General
-    };
-    apply_limit(&limiter, bucket, request, next).await
+    fn fingerprints(&self) -> MutexGuard<'_, fingerprints::Fingerprints> {
+        self.fingerprints
+            .lock()
+            .expect("token-fingerprint mutex poisoned")
+    }
 }
 
 /// Loopback middleware with credential-isolated buckets. The rate limit still
@@ -170,8 +190,8 @@ async fn apply_limit(
         return too_many_requests(retry_after);
     }
     // Known loopback and plugin credentials retain their isolated allowance.
-    // Remote callers share an IP admission budget: an exhausted IP must wait
-    // for the window to elapse before authentication is attempted again.
+    // Anonymous callers share the peer's admission budget: once its failures
+    // are exhausted, it waits out the window before authentication is retried.
     if bucket == Bucket::General {
         if let Some(retry_after) = limiter.auth_retry_after(ip, Instant::now()) {
             return too_many_requests(retry_after);
