@@ -1786,14 +1786,48 @@ describe("BrowserManager", () => {
       expect(manager.state(1).error).toBeNull();
     });
 
-    it("keeps another tab's error when a sibling in the same feature navigates", () => {
+    it("shows the active tab's error and brings it back when that tab is reactivated", async () => {
       const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
-      manager.createTab(undefined, "fresh", 1);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      const validTab = manager.createTab(undefined, "fresh", 1);
+      const [failing, valid] = [...webContentsById.values()];
+
+      await manager.activateTab(failingTab.id);
+      failLoad(failing, "http://127.0.0.1:9/");
+      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+
+      valid.emit("did-navigate");
+      await manager.activateTab(validTab.id);
+      expect(manager.state(1).activeTabId).toBe(validTab.id);
+      expect(manager.state(1).error).toBeNull();
+
+      await manager.activateTab(failingTab.id);
+      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+    });
+
+    it("keeps a feature-wide error visible on every tab of the feature", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+      const first = manager.createTab(undefined, "fresh", 1);
+      const second = manager.createTab(undefined, "fresh", 1);
+
+      await manager.activateTab(first.id);
+      expect(manager.state(1).error).toBe("network registration failed");
+      await manager.activateTab(second.id);
+      expect(manager.state(1).error).toBe("network registration failed");
+    });
+
+    it("keeps another tab's error when a sibling in the same feature navigates", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
       manager.createTab(undefined, "fresh", 1);
       const [failing, sibling] = [...webContentsById.values()];
 
       failLoad(failing, "https://bad.invalid/");
       sibling.emit("did-navigate");
+      await manager.activateTab(failingTab.id);
       expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
     });
 
@@ -1834,6 +1868,7 @@ describe("BrowserManager", () => {
       manager.createTab(undefined, "fresh", 1);
       const [failing] = [...webContentsById.values()];
 
+      await manager.activateTab(failingTab.id);
       failLoad(failing, "https://bad.invalid/");
       expect(manager.state(1).error).not.toBeNull();
 

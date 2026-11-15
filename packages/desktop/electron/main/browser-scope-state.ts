@@ -94,11 +94,12 @@ export class BrowserScopeState {
     const visible = scoped
       ? [...tabs.values()].filter((tab) => tab.metadata.scopeId === scopeId)
       : [...tabs.values()];
+    const activeTabId = this.activeTabId(scopeId);
     return {
       scopeId: scoped ? scopeId : null,
       tabs: orderedMetadata ?? visible.map((tab) => tab.metadata),
-      activeTabId: this.activeTabId(scopeId),
-      error: this.errors.get(scopeId),
+      activeTabId,
+      error: this.errors.get(scopeId, activeTabId),
     };
   }
 
