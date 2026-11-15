@@ -11,9 +11,10 @@
 //! header such as `X-Forwarded-For`, which anyone can forge.
 //!
 //! Once a peer exhausts its failure budget, anonymous requests and tokens
-//! already answered with 401 are shed before any DB work. A token never seen
-//! still gets a few verifications per window, so a device reconnecting after
-//! a restart is not locked out by another device retrying a revoked token.
+//! already answered with 401 are shed before any DB work; rejected tokens
+//! never spend the peer's general budget either. A token never seen still
+//! gets a few verifications per window, so a device reconnecting after a
+//! restart is not locked out by another device retrying a revoked token.
 //!
 //! The fingerprint only picks a budget: `remote_auth_middleware` (or
 //! `authenticate_ws`) still verifies the token on every request.
@@ -67,24 +68,37 @@ pub async fn rate_limit_middleware(
 }
 
 /// Charge the request to its budget. `None` is an anonymous request.
+///
+/// A token already answered with 401 never spends the peer's general budget:
+/// a stale device looping on it would otherwise exhaust the budget that
+/// anonymous traffic and first contacts share. It is re-verified only until
+/// its failures lock the peer out (the failure budget bounds that DB work),
+/// then shed without verification.
 fn admit(
     limiter: &RateLimiter,
     ip: IpAddr,
     credential: Option<Credential>,
     now: Instant,
 ) -> Result<(), u64> {
-    if let Some(Credential::Device(device)) = credential {
-        return limiter.check(Client::Device(device), Bucket::General, now);
-    }
-    limiter.check(Client::Peer(ip), Bucket::General, now)?;
-    let Some(retry_after) = limiter.auth_retry_after(ip, now) else {
-        return Ok(());
-    };
+    let locked = |limiter: &RateLimiter| limiter.auth_retry_after(ip, now);
     match credential {
-        Some(Credential::Unknown) => limiter
-            .check(Client::Peer(ip), Bucket::FirstContact, now)
-            .map_err(|_| retry_after),
-        _ => Err(retry_after),
+        Some(Credential::Device(device)) => {
+            limiter.check(Client::Device(device), Bucket::General, now)
+        }
+        Some(Credential::Rejected) => locked(limiter).map_or(Ok(()), Err),
+        Some(Credential::Unknown) => {
+            limiter.check(Client::Peer(ip), Bucket::General, now)?;
+            match locked(limiter) {
+                Some(retry_after) => limiter
+                    .check(Client::Peer(ip), Bucket::FirstContact, now)
+                    .map_err(|_| retry_after),
+                None => Ok(()),
+            }
+        }
+        None => {
+            limiter.check(Client::Peer(ip), Bucket::General, now)?;
+            locked(limiter).map_or(Ok(()), Err)
+        }
     }
 }
 

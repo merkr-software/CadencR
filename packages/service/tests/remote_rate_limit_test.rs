@@ -200,3 +200,27 @@ async fn never_seen_tokens_during_a_lockout_share_a_small_budget() {
         "first contact waits for the window once guesses spent the budget"
     );
 }
+
+/// A stale device looping on one revoked token for longer than the peer's
+/// general budget: once rejected, that token is shed without spending the
+/// budget the peer's other traffic shares, so a paired device's first request
+/// still reaches verification.
+#[tokio::test]
+async fn a_rejected_token_looping_past_the_general_budget_leaves_first_contact_open() {
+    let fixture = fixture(&["device-b-token"]).await;
+    let mut statuses = std::collections::BTreeMap::new();
+    for _ in 0..6_100 {
+        let status = send(&fixture.router, Some("revoked-device-token"), None).await;
+        *statuses.entry(status.as_u16()).or_insert(0) += 1;
+    }
+    assert_eq!(
+        statuses,
+        std::collections::BTreeMap::from([(401, 20), (429, 6_080)])
+    );
+
+    assert_eq!(
+        send(&fixture.router, Some("device-b-token"), None).await,
+        StatusCode::NOT_FOUND,
+        "the paired device's first request is verified"
+    );
+}
