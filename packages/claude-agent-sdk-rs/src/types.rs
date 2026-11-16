@@ -100,6 +100,11 @@ pub struct ModelInfo {
     /// Model identifier to pass via `--model` (e.g. `"opus"`, `"sonnet[1m]"`,
     /// `"default"`).
     pub value: String,
+    /// The concrete model id the CLI resolves `value` to under the current
+    /// environment (e.g. `"claude-haiku-5-5"` for `"haiku"`). Absent from
+    /// older CLIs.
+    #[serde(default)]
+    pub resolved_model: Option<String>,
     /// Human-readable display name (e.g. `"Opus"`, `"Sonnet (1M context)"`).
     pub display_name: String,
     /// Description of the model's capabilities.

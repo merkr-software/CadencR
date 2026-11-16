@@ -149,12 +149,30 @@ impl ClaudeCodeAdapter {
         &self,
         env: Option<HashMap<String, String>>,
     ) -> Vec<ModelCatalogEntry> {
-        self.load_models_with(env, |env| async move {
+        self.load_sdk_models_with(env, |env| async move {
             let cwd = std::env::temp_dir().to_string_lossy().into_owned();
             claude_agent_sdk_rs::supported_models_with_env(&cwd, None, env)
                 .await
-                .map(|models| models.into_iter().map(sdk_model_to_catalog_entry).collect())
                 .map_err(RuntimeError::from)
+        })
+        .await
+    }
+
+    /// [`Self::load_models_with`] fed by the CLI's own model list.
+    pub(super) async fn load_sdk_models_with<F, Fut>(
+        &self,
+        env: Option<HashMap<String, String>>,
+        probe: F,
+    ) -> Vec<ModelCatalogEntry>
+    where
+        F: FnOnce(Option<HashMap<String, String>>) -> Fut,
+        Fut: Future<Output = Result<Vec<claude_agent_sdk_rs::ModelInfo>, RuntimeError>>,
+    {
+        let cache_key = model_probe_cache_key(env.as_ref());
+        self.load_models_with(env, |env| async move {
+            let models = probe(env).await?;
+            self.record_resolved_models(cache_key, &models);
+            Ok(models.into_iter().map(sdk_model_to_catalog_entry).collect())
         })
         .await
     }
@@ -350,6 +368,7 @@ mod tests {
     fn sdk_model_to_catalog_entry_maps_all_fields() {
         let sdk = claude_agent_sdk_rs::ModelInfo {
             value: "default".to_string(),
+            resolved_model: Some("claude-opus-4-7[1m]".to_string()),
             display_name: "Default (recommended)".to_string(),
             description: Some("Opus 4.7 with 1M context".to_string()),
             supports_effort: Some(true),
