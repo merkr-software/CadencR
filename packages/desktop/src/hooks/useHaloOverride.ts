@@ -1,13 +1,13 @@
-import { useCallback, useMemo } from "react";
-import { useSettingDraft } from "@/hooks/useSettingDraft";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSetting } from "@/hooks/useSetting";
+import { haloOverrideDraft } from "./halo-override-draft";
 import {
   DEFAULT_HALO_OVERRIDE,
   overrideFor,
   parseHaloOverrides,
   THEME_HALO_OVERRIDES_SETTING_KEY,
-  withOverride,
   type HaloOverride,
-  type HaloOverrideMap,
   type ThemeId,
 } from "@/lib/themes";
 
@@ -32,31 +32,33 @@ export interface UseHaloOverrideResult {
  * per theme would leave the settings table accumulating rows for themes the
  * user has since deleted.
  *
- * The sliders are a continuous edit, so this reads through `useSettingDraft`:
- * the draft is what the panel shows while a drag is in flight, and the
- * confirmed value is what the backend holds. Reading the draft first is what
- * keeps a drag live — the halos follow the pointer, and the write goes out once
- * the drag pauses.
+ * The panel and ambient renderer share a per-theme preview, kept apart from
+ * confirmed settings. Writes are debounced and merge only the edited theme
+ * into the latest confirmed map when the serialized writer sends the request.
  */
 export function useHaloOverride(themeId: ThemeId): UseHaloOverrideResult {
-  const setting = useSettingDraft(THEME_HALO_OVERRIDES_SETTING_KEY, 150);
-  const raw = setting.draft ?? setting.value;
+  const setting = useSetting(THEME_HALO_OVERRIDES_SETTING_KEY);
+  const queryClient = useQueryClient();
+  const store = useMemo(() => haloOverrideDraft(queryClient), [queryClient]);
+  const getDraft = useCallback(() => store.getDraft(themeId), [store, themeId]);
+  const draft = useSyncExternalStore(store.subscribe, getDraft, getDraft);
 
   // Parsed off the raw string, not off a settings map: the map is rebuilt on
   // every unrelated settings write, and a fresh override object each time would
   // re-render every halo layer behind the app.
+  const raw = setting.value;
   const parsed = useMemo(() => parseHaloOverrides(raw), [raw]);
-  const overrides = useMemo<HaloOverrideMap>(() => parsed.value ?? {}, [parsed]);
-  const override = useMemo(() => overrideFor(overrides, themeId), [overrides, themeId]);
+  const override = useMemo(
+    () => draft ?? overrideFor(parsed.value ?? {}, themeId),
+    [draft, parsed, themeId],
+  );
 
-  const { setDraft } = setting;
+  // Closing the drawer or switching themes still saves the last gesture.
+  useEffect(() => () => store.flush(themeId), [store, themeId]);
+
   const setOverride = useCallback(
-    (next: HaloOverride): void => {
-      // Built from the draft, so a drag that has not been persisted yet is the
-      // base of the next step instead of being reverted by it.
-      setDraft(JSON.stringify(withOverride(overrides, themeId, next)));
-    },
-    [overrides, setDraft, themeId],
+    (next: HaloOverride): void => store.setDraft(themeId, next),
+    [store, themeId],
   );
 
   const reset = useCallback((): void => {
@@ -70,8 +72,8 @@ export function useHaloOverride(themeId: ThemeId): UseHaloOverrideResult {
       reset,
       error: parsed.error,
       isLoading: setting.isLoading,
-      isSaving: setting.isSaving,
+      isSaving: setting.isSaving || draft !== null,
     }),
-    [override, setOverride, reset, parsed.error, setting.isLoading, setting.isSaving],
+    [override, setOverride, reset, parsed.error, setting.isLoading, setting.isSaving, draft],
   );
 }
