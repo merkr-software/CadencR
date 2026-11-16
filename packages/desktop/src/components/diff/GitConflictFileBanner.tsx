@@ -7,6 +7,7 @@ import {
   type ConflictKind as ConflictKindValue,
 } from "@/api/generated";
 import { Button } from "@/components/ui/button";
+import { displayGitPath } from "@/lib/git-display-path";
 import { conflictKindLabel, resolvedStageState } from "./useGitDiffFileTreeModel";
 import { openGitFileInEditor } from "./gitFileEditorHandoff";
 import type { GitFileIndexActions } from "./useGitFileIndexActions";
@@ -32,7 +33,7 @@ export const GitConflictFileBanner = memo(function GitConflictFileBanner({
 
   return (
     <section
-      aria-label={`Conflict in ${file.file}`}
+      aria-label={`Conflict in ${displayGitPath(file.file)}`}
       className="border-t border-border border-l-2 border-l-[var(--acc-orange)] bg-[color-mix(in_srgb,var(--acc-orange)_6%,var(--background))] px-4 py-2"
     >
       <div className="flex flex-wrap items-center gap-2">
