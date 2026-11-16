@@ -1,5 +1,6 @@
 use opencode_sdk_rs::{
-    list_mcp_servers_from_config_files, parse_mcp_list_output, OpenCodeMcpServerStatus,
+    list_mcp_servers_from_binary, list_mcp_servers_from_config_files, parse_mcp_list_output,
+    OpenCodeMcpServerStatus,
 };
 
 #[test]
@@ -149,4 +150,34 @@ fn reads_global_opencode_config_mcp_names_when_cli_discovery_is_unusable() {
             status: "connected".to_string(),
         }]
     );
+}
+
+#[tokio::test]
+async fn reads_a_resolved_config_larger_than_a_pipe_buffer() {
+    let dir = tempfile::tempdir().unwrap();
+    // Real configs exceed 64 KiB once plugins and agents are resolved.
+    let padding = "x".repeat(100_000);
+    let config = format!(r#"{{"padding":"{padding}","mcp":{{"big":{{"type":"local"}}}}}}"#);
+    std::fs::write(dir.path().join("config.json"), &config).unwrap();
+    let binary = dir.path().join("opencode");
+    std::fs::write(
+        &binary,
+        format!(
+            "#!/bin/sh\ncat '{}'\n",
+            dir.path().join("config.json").display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let servers = list_mcp_servers_from_binary(&binary, Some(dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].name, "big");
 }

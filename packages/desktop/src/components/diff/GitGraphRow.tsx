@@ -1,12 +1,18 @@
 import { memo, useMemo, type ReactElement } from "react";
-import { FileDiffIcon, ExternalLinkIcon } from "lucide-react";
+import { ExternalLinkIcon, FileDiffIcon } from "lucide-react";
+import type { CommitRef } from "@/api/generated";
 import { NumStat } from "@/components/NumStat";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
 import type { GraphRow } from "@/lib/git-graph-layout";
-import { SlidingText } from "@/components/SlidingText";
 import { cn } from "@/lib/utils";
-import { CommitItemHoverCard, formatRelativeDate, type CommitEntry } from "./DiffFileTreeHelpers";
+import {
+  CommitItemHoverCard,
+  formatRelativeDate,
+  NotPushedLabel,
+  type CommitEntry,
+} from "./DiffFileTreeHelpers";
+import { CommitRefChips } from "./GitGraphRefs";
 
 export const ROW_HEIGHT = 46;
 const COL_WIDTH = 14;
@@ -107,7 +113,7 @@ const GraphCell = memo(function GraphCell({
 
 export interface GitGraphRowData extends CommitEntry {
   parents: string[];
-  refs: string[];
+  decorations: CommitRef[];
   filesChanged: number;
   additions: number;
   deletions: number;
@@ -124,6 +130,12 @@ interface GitGraphRowProps {
   active?: boolean;
 }
 
+/**
+ * One commit. The message leads — it is what a reader scans for — and the sha
+ * steps down into the meta line beside author and age. A merge is bookkeeping,
+ * so its message steps back too. Whether the commit has been pushed is spelled
+ * out at the row's end rather than left to the node's fill alone.
+ */
 export const GitGraphRow = memo(function GitGraphRow({
   commit,
   row,
@@ -132,6 +144,7 @@ export const GitGraphRow = memo(function GitGraphRow({
   onOpenOnline,
   active = false,
 }: GitGraphRowProps): ReactElement {
+  const isMerge = commit.parents.length > 1;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -146,42 +159,34 @@ export const GitGraphRow = memo(function GitGraphRow({
               aria-current={active ? "true" : undefined}
               style={{ height: ROW_HEIGHT }}
               className={cn(
-                "flex w-full items-center gap-2 px-2 text-left transition-colors hover:bg-accent/60",
-                active && "bg-accent/70 ring-1 ring-inset ring-primary",
+                "relative flex w-full items-center gap-2 pr-3 pl-2 text-left transition-colors duration-100",
+                "hover:bg-accent/50 focus-visible:bg-accent/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+                // The sidebar's active-row grammar: a wash plus a primary rail.
+                active &&
+                  "bg-accent/70 hover:bg-accent/70 before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
               )}
             >
               <GraphCell row={row} columns={columns} isPushed={commit.isPushed} />
-              <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-1">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 font-mono text-xs text-primary">{commit.shortSha}</span>
-                  {commit.refs.map((r) => (
-                    <span
-                      key={r}
-                      className="shrink-0 truncate rounded border border-border bg-secondary px-1 py-px font-mono text-[10px] text-secondary-foreground"
-                    >
-                      {r}
-                    </span>
-                  ))}
-                  <SlidingText
-                    text={commit.message}
-                    className="min-w-0 flex-1 text-xs text-foreground"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <span className="truncate">{commit.author}</span>
-                  <span aria-hidden>·</span>
-                  <span className="shrink-0">{formatRelativeDate(commit.date)}</span>
-                  <span aria-hidden>·</span>
-                  <span className="shrink-0">
-                    {commit.filesChanged} {commit.filesChanged === 1 ? "file" : "files"}
+              <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "min-w-0 truncate text-[12.5px] leading-[1.35]",
+                      isMerge ? "text-muted-foreground" : "text-foreground",
+                    )}
+                  >
+                    {commit.message}
                   </span>
-                  <NumStat
-                    additions={commit.additions}
-                    deletions={commit.deletions}
-                    className="shrink-0 text-[10px]"
-                  />
+                  <CommitRefChips refs={commit.decorations} />
                 </div>
+                <CommitMeta commit={commit} />
               </div>
+              {!commit.isPushed && (
+                // Collapses to its arrow in a narrow pane, still read aloud.
+                <NotPushedLabel>
+                  <span className="@max-[30rem]:sr-only">Not pushed</span>
+                </NotPushedLabel>
+              )}
             </button>
           </CommitItemHoverCard>
         </div>
@@ -197,3 +202,38 @@ export const GitGraphRow = memo(function GitGraphRow({
     </ContextMenu>
   );
 });
+
+function CommitMeta({ commit }: { commit: GitGraphRowData }): ReactElement {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-[11px] leading-[1.35] text-muted-foreground">
+      <span className="shrink-0 font-mono">{commit.shortSha}</span>
+      <MetaDot />
+      {/* The author is the first thing a narrow pane can spare: in a
+          feature's own history it is nearly always the same person. */}
+      <span className="min-w-0 truncate @max-[26rem]:hidden">{commit.author}</span>
+      <MetaDot className="@max-[26rem]:hidden" />
+      <span className="shrink-0 tabular-nums">{formatRelativeDate(commit.date)}</span>
+      {commit.filesChanged > 0 && (
+        <>
+          <MetaDot />
+          <span className="shrink-0 tabular-nums">
+            {commit.filesChanged} {commit.filesChanged === 1 ? "file" : "files"}
+          </span>
+          <NumStat
+            additions={commit.additions}
+            deletions={commit.deletions}
+            className="shrink-0 text-[11px]"
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function MetaDot({ className }: { className?: string }): ReactElement {
+  return (
+    <span aria-hidden className={cn("shrink-0 opacity-60", className)}>
+      ·
+    </span>
+  );
+}

@@ -1,9 +1,12 @@
+mod close;
 mod compact;
 mod compact_turn;
 mod implementation;
+mod modes;
 mod prompt;
 
 pub use implementation::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
+pub(super) use modes::select_value;
 
 #[cfg(test)]
 mod tests {
@@ -75,16 +78,15 @@ mod tests {
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
-        super::AcpRuntimeSession::assemble(
-            client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        )
+        super::AcpRuntimeSession::assemble()
+            .client(client)
+            .negotiated(&negotiated)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call()
     }
 
     fn model_options(current: &str) -> Vec<SessionConfigOption> {
@@ -287,7 +289,7 @@ mod tests {
         let cancel = PromptCancel::new();
         let (tx, mut rx) = mpsc::channel(64);
 
-        let event_rx = client.subscribe();
+        let event_rx = client.subscribe_reliable();
         let hooks = Arc::new(PlainHooks);
         let cfg = EventLoopConfig {
             session_id: Arc::clone(&session_id),
@@ -303,6 +305,7 @@ mod tests {
             hooks,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
+            browser_trust: Default::default(),
             indexer: Arc::clone(&indexer),
         };
         let _loop_task = spawn_event_loop(client.clone(), event_rx, tx.clone(), cfg);
@@ -318,20 +321,19 @@ mod tests {
             let tx = tx.clone();
             let hooks = Arc::new(PlainHooks);
             async move {
-                drive_initial_prompt(
-                    &client,
-                    &session_id,
-                    &model,
-                    &effort,
-                    json!("hello"),
-                    &tx,
-                    &indexer,
-                    None,
-                    hooks.as_ref(),
-                    &lock,
-                    &cancel,
-                )
-                .await
+                drive_initial_prompt()
+                    .client(&client)
+                    .session_id_lock(&session_id)
+                    .current_model_lock(&model)
+                    .current_effort_lock(&effort)
+                    .content(json!("hello"))
+                    .tx(&tx)
+                    .indexer(&indexer)
+                    .hooks(hooks.as_ref())
+                    .prompt_turn_lock(&lock)
+                    .prompt_cancel(&cancel)
+                    .call()
+                    .await
             }
         });
 
@@ -362,16 +364,15 @@ mod tests {
         };
         let (tx, rx) = mpsc::channel(8);
         let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
-        let session = super::AcpRuntimeSession::assemble(
-            &client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            indexer,
-        );
+        let session = super::AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(indexer)
+            .call();
         let current_mode = Arc::clone(&session.current_mode);
 
         let first = tokio::spawn(async move {
@@ -412,16 +413,17 @@ mod tests {
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
-        let session = Arc::new(super::AcpRuntimeSession::assemble(
-            &client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        ));
+        let session = Arc::new(
+            super::AcpRuntimeSession::assemble()
+                .client(&client)
+                .negotiated(&negotiated)
+                .cwd(std::env::temp_dir())
+                .rx(rx)
+                .local_tx(tx)
+                .hooks(Arc::new(PlainHooks))
+                .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+                .call(),
+        );
 
         let generic_write = tokio::spawn({
             let session = Arc::clone(&session);
@@ -472,7 +474,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn interrupt_unblocks_prompt_turn_when_agent_never_replies() {
+    async fn interrupt_escalates_visibly_when_agent_never_replies() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         spawn_event_barrier_acker(&client);
         let negotiated = super::super::lifecycle::NegotiatedSession {
@@ -486,16 +488,18 @@ mod tests {
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
-        let mut session = super::AcpRuntimeSession::assemble(
-            &client,
-            &negotiated,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        );
+        let mut session = super::AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call();
+        // The agent never answers the cancel: only the (shortened) grace
+        // and the visible escalation may end the turn.
+        session.prompt_cancel = PromptCancel::new().with_cancel_grace(Duration::from_millis(100));
         let mut runtime_rx = session.take_message_rx();
         let session = Arc::new(session);
 
@@ -510,12 +514,63 @@ mod tests {
         let cancel = read_one_request(&mut agent_stdin).await;
         assert_eq!(cancel["method"], "session/cancel");
 
-        tokio::time::timeout(Duration::from_millis(500), prompt)
+        tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
-            .expect("local cancel should unblock the prompt turn")
+            .expect("escalation should unblock the prompt turn")
             .unwrap()
             .unwrap();
-        let result = runtime_rx.recv().await.unwrap().unwrap();
+        let escalation = runtime_rx
+            .recv()
+            .await
+            .unwrap()
+            .expect_err("visible escalation");
+        assert!(escalation.is_stop_escalation(), "{escalation:?}");
+        assert!(
+            escalation.to_string().contains("did not stop"),
+            "{escalation}"
+        );
+        // The killed agent's turn is not finalized: the escalation is its end,
+        // and the stream reader stops on it.
+        let after = tokio::time::timeout(Duration::from_millis(200), runtime_rx.recv()).await;
+        assert!(
+            !matches!(after, Ok(Some(Ok(ref event))) if event.is_result()),
+            "no Result after a terminated agent: {after:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupt_ends_the_turn_through_the_agents_cancelled_response() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
+        let mut session = assembled_session(&client, "s-cancel-protocol", false);
+        let mut runtime_rx = session.take_message_rx();
+        let session = Arc::new(session);
+        let prompt = tokio::spawn({
+            let session = Arc::clone(&session);
+            async move { session.stream_input(json!("hello")).await }
+        });
+        let prompt_req = read_one_request(&mut agent_stdin).await;
+        session.interrupt().await.unwrap();
+        let cancel = read_one_request(&mut agent_stdin).await;
+        assert_eq!(cancel["method"], "session/cancel");
+        // Well past the old 150 ms kill: the agent is still unwinding.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(!prompt.is_finished());
+        let frame = json!({"jsonrpc": "2.0", "id": prompt_req["id"], "result": {"stopReason": "cancelled"}});
+        agent_stdout
+            .write_all(format!("{frame}\n").as_bytes())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), prompt)
+            .await
+            .expect("cancelled response ends the turn")
+            .unwrap()
+            .unwrap();
+        let result = runtime_rx
+            .recv()
+            .await
+            .unwrap()
+            .expect("no escalation error");
         assert!(result.is_result());
         assert_eq!(result.raw_json()["stop_reason"], "cancelled");
     }
@@ -524,7 +579,7 @@ mod tests {
     async fn close_uses_session_close_when_advertised() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let mut session = assembled_session(&client, "s-close", true);
-        let close = tokio::spawn(async move { session.close().await });
+        let close = tokio::spawn(async move { session.close().await.unwrap() });
 
         let request = read_one_request(&mut agent_stdin).await;
         assert_eq!(request["method"], "session/close");
@@ -556,7 +611,7 @@ mod tests {
             .await;
         });
 
-        session.close().await;
+        session.close().await.unwrap();
         responder.await.unwrap();
 
         assert!(
@@ -584,7 +639,8 @@ mod tests {
 
         tokio::time::timeout(Duration::from_secs(2), session.close())
             .await
-            .expect("local teardown must beat the stream-reader deadline");
+            .expect("local teardown must beat the stream-reader deadline")
+            .unwrap();
         agent.await.unwrap();
 
         assert!(
@@ -595,11 +651,100 @@ mod tests {
         );
     }
 
+    /// What the agent receives next, if anything, within `wait`.
+    async fn next_frame_within(
+        reader: &mut BufReader<DuplexStream>,
+        wait: Duration,
+    ) -> Option<Value> {
+        let mut line = String::new();
+        match tokio::time::timeout(wait, reader.read_line(&mut line)).await {
+            Ok(Ok(read)) if read > 0 => Some(serde_json::from_str(line.trim()).unwrap()),
+            _ => None,
+        }
+    }
+
+    /// Callers may close a runtime twice (the shutdown, then its idle
+    /// reader): the second close neither tells the agent again nor fails, and
+    /// the stream stays ended.
+    #[tokio::test]
+    async fn a_second_close_does_not_reach_the_stopped_agent() {
+        for advertised in [true, false] {
+            let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+            let mut session = assembled_session(&client, "s-close-twice", advertised);
+            let mut runtime_rx = session.take_message_rx();
+            let agent = tokio::spawn(async move {
+                let request = read_one_request(&mut agent_stdin).await;
+                if advertised {
+                    assert_eq!(request["method"], "session/close");
+                    write_frame(
+                        &mut agent_stdout,
+                        json!({ "jsonrpc": "2.0", "id": request["id"], "result": {} }),
+                    )
+                    .await;
+                } else {
+                    assert_eq!(request["method"], "session/cancel");
+                }
+                (agent_stdout, agent_stdin)
+            });
+            session.close().await.unwrap();
+            let (_agent_stdout, mut agent_stdin) = agent.await.unwrap();
+
+            tokio::time::timeout(Duration::from_millis(500), session.close())
+                .await
+                .expect("a second close does not wait on the stopped agent")
+                .unwrap();
+
+            assert_eq!(
+                next_frame_within(&mut agent_stdin, Duration::from_millis(200)).await,
+                None,
+                "advertised session/close: {advertised}"
+            );
+            assert!(runtime_rx.recv().await.is_none());
+        }
+    }
+
+    /// The shutdown's deadline can drop a close still waiting on
+    /// `session/close`: the next close finishes the teardown (the stream
+    /// ends) without asking the agent a second time.
+    #[tokio::test]
+    async fn a_close_after_a_cancelled_one_does_not_ask_the_agent_again() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-close-cut", true);
+        let mut runtime_rx = session.take_message_rx();
+
+        let cut = tokio::time::timeout(Duration::from_millis(100), session.close()).await;
+        assert!(
+            cut.is_err(),
+            "the unanswered session/close holds the first close"
+        );
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/close");
+
+        tokio::time::timeout(Duration::from_millis(500), session.close())
+            .await
+            .expect("the retried close does not wait on the agent")
+            .unwrap();
+
+        // The dropped first request is withdrawn (`$/cancel_request`); the
+        // session itself is not closed or cancelled a second time.
+        while let Some(frame) =
+            next_frame_within(&mut agent_stdin, Duration::from_millis(200)).await
+        {
+            assert_eq!(frame["method"], "$/cancel_request", "asked again: {frame}");
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), runtime_rx.recv())
+                .await
+                .expect("the retried close ends the stream")
+                .is_none()
+        );
+    }
+
     #[tokio::test]
     async fn close_uses_cancel_when_session_close_is_not_advertised() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let mut session = assembled_session(&client, "s-cancel-close", false);
-        let close = tokio::spawn(async move { session.close().await });
+        let close = tokio::spawn(async move { session.close().await.unwrap() });
 
         let request = read_one_request(&mut agent_stdin).await;
         assert_eq!(request["method"], "session/cancel");
@@ -612,11 +757,55 @@ mod tests {
             .unwrap();
     }
 
+    /// The runtime's terminals lead their own process groups, so closing the
+    /// session must stop what they left running.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn close_stops_what_the_session_terminals_left_running() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-close-terminals", false);
+        let cwd = std::env::temp_dir();
+        let created = session
+            .terminals
+            .create(
+                &json!({ "command": "/bin/sh", "args": ["-c", "sleep 30 & echo $!; exit 0"] }),
+                &cwd,
+            )
+            .await
+            .expect("terminal created");
+        let id = created["terminalId"].as_str().unwrap().to_string();
+        session.terminals.wait_for_exit(&id).await.unwrap();
+        let output = session.terminals.output(&id).await.unwrap();
+        let descendant: libc::pid_t = output["output"]
+            .as_str()
+            .unwrap()
+            .trim()
+            .parse()
+            .expect("descendant pid");
+        let alive = || unsafe { libc::kill(descendant, 0) == 0 };
+        assert!(alive(), "a natural exit leaves the descendant running");
+
+        let close = tokio::spawn(async move { session.close().await.unwrap() });
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/cancel");
+        tokio::time::timeout(Duration::from_secs(5), close)
+            .await
+            .expect("close stops the terminals within their grace")
+            .unwrap();
+        for _ in 0..100 {
+            if !alive() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("the descendant outlived the session close");
+    }
+
     #[tokio::test]
     async fn close_error_falls_back_to_cancel() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let mut session = assembled_session(&client, "s-close-fallback", true);
-        let close = tokio::spawn(async move { session.close().await });
+        let close = tokio::spawn(async move { session.close().await.unwrap() });
 
         let request = read_one_request(&mut agent_stdin).await;
         assert_eq!(request["method"], "session/close");

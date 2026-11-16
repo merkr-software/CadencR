@@ -97,13 +97,17 @@ mod tests {
     #[tokio::test]
     async fn available_mcp_servers_queries_live_mcp_status() {
         let dir = TempDir::new().unwrap();
+        // No user config file is given and the temp dir is the cwd, so no
+        // project .mcp.json leaks in. With no explicit mcp_servers,
+        // configured_mcp_servers is empty and available_mcp_servers falls
+        // through to the live mcp_status control request.
         let captured_path = dir.path().join("mcp_status_request.json");
         let script = live_mcp_status_script(&captured_path);
         let script_path = write_mock_cli(dir.path(), &script);
 
         let options = Options {
+            cwd: dir.path().to_path_buf(),
             path_to_cli: Some(script_path),
-            mcp_servers: Some(mock_mcp_servers()),
             ..Options::default()
         };
 
@@ -167,12 +171,12 @@ CAPTURED='{}'
 read -r INIT_REQ
 INIT_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{}}}}}}\n' "$INIT_ID"
+read -r USER_PROMPT
+echo '{{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_mcp_live","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}}'
 read -r MCP_REQ
 printf '%s' "$MCP_REQ" > "$CAPTURED"
 MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{"mcpServers":[{{"name":"chrome-devtools","status":"connected","tools":[{{"name":"new_page"}}]}},{{"name":"ios-simulator","status":"pending"}}]}}}}}}\n' "$MCP_ID"
-read -r USER_PROMPT
-echo '{{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_mcp_live","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}}'
 read -r DUMMY
 "#,
             path.display()

@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import { blockMessageDbId } from "./ws-message-identity";
 
 function toolKey(block: AgentBlockData): string | undefined {

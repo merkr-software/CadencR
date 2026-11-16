@@ -1,24 +1,27 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use futures::{stream, StreamExt};
 use tracing::{info, warn};
 
+mod assemble;
+mod matching;
 mod targets;
 mod unresolved_threads;
 
+use self::assemble::{feature_snapshot, persist_prs, PolledPrs};
+use self::matching::{matched_prs, restore_known_prs};
 use self::targets::target_without_repo_snapshot;
 use self::unresolved_threads::unresolved_thread_counts;
 use super::auth::{host_configs, resolve_credentials};
 use super::provider::{
-    CiRollup, ForgeContext, ForgeError, ForgeHostConfig, ForgeProvider, PrState, PrStatusSnapshot,
-    PrSummary,
+    CiRollup, ForgeContext, ForgeError, ForgeHostConfig, PrState, PrStatusSnapshot,
 };
-use super::repository::active_feature_targets;
+use super::repository::{active_feature_targets, TrackedBranch};
 use super::{api_base_url, effective_kind, provider_for};
 use crate::app_state::AppState;
 use crate::domain::git::host::{GitHost, RemoteInfo};
-use crate::domain::git::refs::normalize_branch_identity;
 use crate::error::AppError;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
@@ -41,7 +44,14 @@ struct RepoGroup {
     remote: RemoteInfo,
     kind: GitHost,
     config: Option<ForgeHostConfig>,
-    features: Vec<(i64, String)>,
+    features: Vec<GroupFeature>,
+}
+
+/// One conversation of a repo group and the branches to look proposals up
+/// for — the current branch first.
+struct GroupFeature {
+    feature_id: i64,
+    tracked: Vec<TrackedBranch>,
 }
 
 pub fn spawn(state: AppState) {
@@ -64,16 +74,62 @@ pub async fn refresh_all(state: &AppState) -> Result<(), AppError> {
     refresh(state, true, &mut last_polled).await
 }
 
+/// Re-poll every repo now, ahead of the next tick. Requests coalesce: those
+/// made while a requested poll runs share one follow-up poll, which resolves
+/// the branches after them.
+pub fn request_refresh(state: &AppState) {
+    if !state.forge_status.forced.request() {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        let worker = ForcedWorker(&state);
+        while state.forge_status.forced.take() {
+            if let Err(error) = refresh_all(&state).await {
+                warn!(%error, "requested forge PR status refresh failed");
+            }
+        }
+        // Drained normally: `take` already let the next request start a new
+        // worker, which the guard must not mark stopped.
+        std::mem::forget(worker);
+    });
+}
+
+/// Releases the forced-refresh queue if its worker unwinds.
+struct ForcedWorker<'a>(&'a AppState);
+
+impl Drop for ForcedWorker<'_> {
+    fn drop(&mut self) {
+        if self.0.forge_status.forced.abandon() {
+            request_refresh(self.0);
+        }
+    }
+}
+
 async fn refresh(
     state: &AppState,
     force: bool,
     last_polled: &mut HashMap<RepoKey, Instant>,
 ) -> Result<(), AppError> {
-    let _refresh_guard = state.forge_status.refresh_lock.lock().await;
     if !force && !state.forge_activity.has_visible_clients().await {
         return Ok(());
     }
+    // Branches and remotes come from Git, run before taking the poll lock: a
+    // repository whose Git hangs must not hold up the polls queued behind it.
+    let ticket = state
+        .forge_status
+        .resolve_tickets
+        .fetch_add(1, Ordering::Relaxed)
+        + 1;
     let targets = active_feature_targets(state).await?;
+    let mut newest_published = state.forge_status.refresh_lock.lock().await;
+    // A forced poll covers every repo; a periodic one only those due, so only
+    // a periodic poll whose branches are older than the last published view
+    // is dropped (the next tick polls again).
+    if !force && ticket < *newest_published {
+        return Ok(());
+    }
+    *newest_published = (*newest_published).max(ticket);
     let active_ids = targets
         .iter()
         .map(|target| target.feature_id)
@@ -87,7 +143,6 @@ async fn refresh(
             continue;
         }
         let remote = target.remote.expect("target checked above");
-        let branch = target.branch.expect("target checked above");
         let config = configs.get(&remote.hostname).cloned();
         let kind = effective_kind(remote.host, config.as_ref());
         let api = api_base_url(&remote.hostname, kind, config.as_ref())
@@ -111,7 +166,10 @@ async fn refresh(
                 features: Vec::new(),
             })
             .features
-            .push((target.feature_id, branch));
+            .push(GroupFeature {
+                feature_id: target.feature_id,
+                tracked: target.tracked,
+            });
     }
 
     let mut due = Vec::new();
@@ -148,13 +206,17 @@ async fn poll_interval(state: &AppState, group: &RepoGroup) -> Duration {
     if group.kind == GitHost::Bitbucket {
         return BITBUCKET_POLL_INTERVAL;
     }
-    for (feature_id, _) in &group.features {
-        if state
-            .forge_status
-            .get(*feature_id)
-            .await
-            .and_then(|snapshot| snapshot.ci)
-            .is_some_and(|ci| ci.state == super::provider::CiState::Running)
+    let running =
+        |ci: Option<&CiRollup>| ci.is_some_and(|ci| ci.state == super::provider::CiState::Running);
+    for feature in &group.features {
+        let Some(snapshot) = state.forge_status.get(feature.feature_id).await else {
+            continue;
+        };
+        if running(snapshot.ci.as_ref())
+            || snapshot
+                .other_prs
+                .iter()
+                .any(|other| running(other.ci.as_ref()))
         {
             return RUNNING_CI_POLL_INTERVAL;
         }
@@ -254,126 +316,22 @@ async fn refresh_group(state: &AppState, group: RepoGroup) {
         .await;
     let unresolved_by_pr =
         unresolved_thread_counts(provider, &context, &unique_prs, &ci_by_pr).await;
-    let fetched_at = chrono::Utc::now().timestamp_millis();
-    for (feature_id, _) in &group.features {
-        let pr = matches.get(feature_id).cloned().flatten();
-        let (ci, ci_error) = match pr.as_ref().and_then(|pr| ci_by_pr.get(&pr.number)) {
-            Some(Ok(ci)) => (Some(ci.clone()), None),
-            Some(Err(error)) => (None, Some(error.to_string())),
-            None => (None, None),
-        };
-        // The thread count is an enrichment, not part of the PR's health, so a
-        // failed lookup stays out of `error`: that field is the top branch of
-        // the frontend's tone picker, and a rate-limited count would paint a
-        // green PR red. `None` already means "unknown" and falls back to the
-        // check-driven tone. The user still sees the real failure the moment
-        // they open the PR pane, which fetches threads itself.
-        let unresolved_threads = match pr.as_ref().and_then(|pr| unresolved_by_pr.get(&pr.number)) {
-            Some(Ok(count)) => Some(*count),
-            Some(Err(error)) => {
-                warn!("unresolved thread count failed for feature {feature_id}: {error}");
-                None
-            }
-            None => None,
-        };
-        publish(
-            state,
-            PrStatusSnapshot {
-                feature_id: *feature_id,
-                pr,
-                ci,
-                fetched_at,
-                error: detail_errors.get(feature_id).cloned().or(ci_error),
-                setup_required: false,
-                unresolved_threads,
-            },
-        )
-        .await;
-    }
-}
-
-struct KnownPr {
-    previous: PrSummary,
-    feature_ids: Vec<i64>,
-}
-
-async fn restore_known_prs(
-    state: &AppState,
-    group: &RepoGroup,
-    provider: &dyn ForgeProvider,
-    context: &ForgeContext,
-    matches: &mut HashMap<i64, Option<PrSummary>>,
-) -> HashMap<i64, String> {
-    let mut candidates = HashMap::<u64, KnownPr>::new();
-    for (feature_id, branch) in &group.features {
-        if matches.get(feature_id).is_some_and(Option::is_some) {
-            continue;
-        }
-        let Some(previous) = state
+    persist_prs(state, &group, &matches).await;
+    let polled = PolledPrs {
+        matches: &matches,
+        ci_by_pr: &ci_by_pr,
+        unresolved_by_pr: &unresolved_by_pr,
+        fetched_at: chrono::Utc::now().timestamp_millis(),
+    };
+    for feature in &group.features {
+        let error = detail_errors.get(&feature.feature_id).cloned();
+        let current = feature.tracked.first().map(|branch| branch.name.as_str());
+        state
             .forge_status
-            .get(*feature_id)
-            .await
-            .and_then(|status| status.pr)
-            .filter(|pr| {
-                normalize_branch_identity(&pr.source_branch) == normalize_branch_identity(branch)
-            })
-        else {
-            continue;
-        };
-        if matches!(previous.state, PrState::Merged | PrState::Closed) {
-            matches.insert(*feature_id, Some(previous));
-            continue;
-        }
-        candidates
-            .entry(previous.number)
-            .and_modify(|candidate| candidate.feature_ids.push(*feature_id))
-            .or_insert_with(|| KnownPr {
-                previous,
-                feature_ids: vec![*feature_id],
-            });
+            .set_current_branch(feature.feature_id, current)
+            .await;
+        publish(state, feature_snapshot(feature, &polled, error)).await;
     }
-
-    let results = stream::iter(candidates.into_values())
-        .map(|candidate| async move {
-            let result = provider.get_pr(context, candidate.previous.number).await;
-            (candidate, result)
-        })
-        .buffer_unordered(4)
-        .collect::<Vec<_>>()
-        .await;
-    let mut errors = HashMap::new();
-    for (candidate, result) in results {
-        match result {
-            Ok(pr) => {
-                for feature_id in candidate.feature_ids {
-                    matches.insert(feature_id, Some(pr.clone()));
-                }
-            }
-            Err(error) => {
-                for feature_id in candidate.feature_ids {
-                    matches.insert(feature_id, Some(candidate.previous.clone()));
-                    errors.insert(feature_id, error.to_string());
-                }
-            }
-        }
-    }
-    errors
-}
-
-fn matched_prs(group: &RepoGroup, prs: &[PrSummary]) -> HashMap<i64, Option<PrSummary>> {
-    group
-        .features
-        .iter()
-        .map(|(feature_id, branch)| {
-            let branch = normalize_branch_identity(branch);
-            let matched = prs
-                .iter()
-                .filter(|pr| normalize_branch_identity(&pr.source_branch) == branch)
-                .max_by(|left, right| left.updated_at.cmp(&right.updated_at))
-                .cloned();
-            (*feature_id, matched)
-        })
-        .collect()
 }
 
 /// Report one group-wide failure against every feature in the group.
@@ -384,10 +342,10 @@ fn matched_prs(group: &RepoGroup, prs: &[PrSummary]) -> HashMap<i64, Option<PrSu
 async fn publish_group_error(state: &AppState, group: &RepoGroup, error: &ForgeError) {
     let setup_required = error.is_setup_failure();
     let detail = error.to_string();
-    for (feature_id, _) in &group.features {
+    for feature in &group.features {
         publish(
             state,
-            PrStatusSnapshot::unpolled(*feature_id, Some(detail.clone()), setup_required),
+            PrStatusSnapshot::unpolled(feature.feature_id, Some(detail.clone()), setup_required),
         )
         .await;
     }

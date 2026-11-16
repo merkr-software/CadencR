@@ -5,6 +5,24 @@ import { describe, expect, it } from "vitest";
 import { appendRendererErrorLog } from "./renderer-error-log";
 
 describe("appendRendererErrorLog", () => {
+  it.each(["react-boundary", "react-uncaught", "react-recoverable"])(
+    "preserves %s component stacks on macOS and Linux",
+    (source) => {
+      for (const platform of ["darwin", "linux"]) {
+        const dir = mkdtempSync(path.join(tmpdir(), "cadencr-react-log-test-"));
+        const logPath = path.join(dir, "renderer-errors.log");
+        appendRendererErrorLog(
+          { source, message: "React failed", componentStack: "\n    at StreamingPanel" },
+          { appVersion: "0.15.0", logPath, now: () => new Date(0), platform },
+        );
+        const log = readFileSync(logPath, "utf8");
+        expect(log).toContain(`source: ${source}`);
+        expect(log).toContain(`platform: ${platform}`);
+        expect(log).toContain("componentStack:\n\n    at StreamingPanel");
+      }
+    },
+  );
+
   it("persists sanitized renderer error diagnostics", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "cadencr-renderer-error-test-"));
     const logPath = path.join(dir, "renderer-errors.log");
@@ -60,6 +78,6 @@ describe("appendRendererErrorLog", () => {
           platform: "darwin",
         },
       ),
-    ).toThrow(/position/);
+    ).toThrow(/line/);
   });
 });

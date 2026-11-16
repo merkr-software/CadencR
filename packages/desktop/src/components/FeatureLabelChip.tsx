@@ -16,6 +16,7 @@ export const FeatureLabelChip = memo(function FeatureLabelChip({
   return (
     <Badge
       variant="secondary"
+      data-feature-label
       title={label}
       className={cn(
         "inline-flex min-w-0 max-w-36 shrink-0 items-center rounded-md border border-primary/30 bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary",

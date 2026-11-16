@@ -5,7 +5,9 @@ import { CleanupOption } from "@/components/CleanupOption";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-errors";
 
-export type ArchiveRelativeSelection = Required<ArchiveRequest>;
+export type ArchiveRelativeSelection = Required<
+  Pick<ArchiveRequest, "include_parent" | "include_descendants">
+>;
 
 interface ArchiveRelativeOptionsProps {
   open: boolean;

@@ -2,10 +2,10 @@
 //! state before a chosen user message, in place. The chosen message's text is
 //! returned as a draft (NOT sent) so the user can edit and re-send.
 
+use crate::domain::ws_session::protocol::{BranchNeedsConfirmPayload, WsSessionEvent};
 use tracing::{info, warn};
 
-use super::super::super::persistence::WsSessionPersistence;
-use super::super::super::protocol::{BranchRewoundPayload, WsEnvelope, WsSessionAction};
+use super::super::super::protocol::{BranchRewoundPayload, WsEnvelope};
 use super::super::helpers::send_error;
 use super::super::types::{SdkSessions, WsSender};
 use super::rewind_state::{apply_rewind_state, RewindStateError};
@@ -45,23 +45,24 @@ pub(crate) async fn handle_rewind(
     // since the snapshot. If the worktree is dirty and the user hasn't confirmed,
     // ask first — never discard silently.
     if checkpoint.is_some() && !payload.confirm_discard && worktree_dirty(&inputs).await {
-        let reply = WsEnvelope::reply(
+        let reply = WsEnvelope::session_reply(
             &envelope.id,
-            "session",
-            "branch.needs_confirm",
-            serde_json::json!({
-                "sessionId": db_session_id.to_string(),
-                "messageId": inputs.message_id,
-                "kind": "rewind",
-                "reason": "Rewinding will discard uncommitted changes since this message.",
+            &WsSessionEvent::BranchNeedsConfirm(BranchNeedsConfirmPayload {
+                session_id: db_session_id.to_string(),
+                message_id: inputs.message_id,
+                kind: "rewind".into(),
+                reason: "Rewinding will discard uncommitted changes since this message.".into(),
             }),
-        );
+        )
+        .expect("session event payload should serialize");
         let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
         return;
     }
 
     // Stop any live turn before mutating (interrupt + close, reset to Pending).
-    stop_live_turn(sdk_sessions, app_state, db_session_id).await;
+    // Held until the rewind is written: a prompt sent meanwhile spawns only
+    // on the rewound transcript and resume id.
+    let _branching = stop_live_turn(sdk_sessions, app_state, db_session_id).await;
     let source_runtime_session_id =
         current_runtime_session_id(&app_state.read_pool, db_session_id).await;
 
@@ -98,19 +99,20 @@ pub(crate) async fn handle_rewind(
     };
     let (code_restored, code_restore_error) = code_outcome.to_wire();
 
-    finish_rewind(
-        app_state,
-        sender,
-        &envelope.id,
-        db_session_id,
-        &inputs,
-        new_runtime_session_id.is_some(),
-        code_restored,
-        code_restore_error,
-    )
-    .await;
+    finish_rewind()
+        .app_state(app_state)
+        .sender(sender)
+        .envelope_id(&envelope.id)
+        .db_session_id(db_session_id)
+        .inputs(&inputs)
+        .truncated(new_runtime_session_id.is_some())
+        .code_restored(code_restored)
+        .maybe_code_restore_error(code_restore_error)
+        .call()
+        .await;
 }
 
+#[bon::builder]
 async fn finish_rewind(
     app_state: &AppState,
     sender: &WsSender,
@@ -123,8 +125,7 @@ async fn finish_rewind(
 ) {
     persist_rewind_draft(app_state, db_session_id, inputs).await;
 
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
+    app_state.session_status_tx.broadcast(
         db_session_id,
         inputs.feature_id,
         AgentStatus::Idle,
@@ -144,14 +145,13 @@ async fn finish_rewind(
         sender,
         envelope_id,
         inputs.feature_id,
-        WsSessionAction::BranchRewound,
-        BranchRewoundPayload {
+        &WsSessionEvent::BranchRewound(BranchRewoundPayload {
             session_id: db_session_id.to_string(),
             message_id: inputs.message_id,
             draft_text: inputs.message_text.clone(),
             code_restored,
             code_restore_error,
-        },
+        }),
     )
     .await;
 }

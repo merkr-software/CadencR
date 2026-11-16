@@ -10,16 +10,13 @@ import {
 import {
   useAgentCatalog,
   useSetFeatureProviderSetting,
-  useSetProjectProviderSetting,
   useSetWorkspaceProviderSetting,
 } from "@/api/agentRuntime";
 import {
   getGetAgentSelectionQueryKey,
   getGetFeatureModelSettingsQueryKey,
-  getGetProjectModelSettingsQueryKey,
   getGetWorkspaceModelSettingsQueryKey,
   useSetFeatureModelSetting,
-  useSetProjectModelSetting,
   useSetWorkspaceModelSetting,
   type ResolvedSelection,
   type SelectionOrigin,
@@ -27,6 +24,7 @@ import {
 import { useResolvedSelection } from "@/api/agentSelection";
 import { toastError } from "@/lib/api-errors";
 import type { ModelSelectorRowProvider } from "@/components/ModelSelectorRow";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
 import {
   getModelDescription,
   getModelLabel,
@@ -69,11 +67,7 @@ function defaultModelForProviderId(agentCatalog: AgentCatalogQuery, providerId: 
   return agentCatalog.data?.providers.find((p) => p.id === providerId)?.default_model ?? "";
 }
 
-function useSelectorMutations(
-  queryClient: QueryClient,
-  projectId: number | undefined,
-  featureId: number | undefined,
-) {
+function useSelectorMutations(queryClient: QueryClient, featureId: number | undefined) {
   const invalidateSelection = (): void => {
     void queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() });
   };
@@ -85,17 +79,7 @@ function useSelectorMutations(
         invalidateSelection();
         toast.success("Settings saved");
       },
-    },
-  });
-  const projectMutation = useSetProjectModelSetting({
-    mutation: {
-      onSuccess: () => {
-        void queryClient.invalidateQueries({
-          queryKey: getGetProjectModelSettingsQueryKey(projectId ?? 0),
-        });
-        invalidateSelection();
-        toast.success("Settings saved");
-      },
+      onError: (error) => toastError(error, "Failed to save the model setting"),
     },
   });
   const featureMutation = useSetFeatureModelSetting({
@@ -107,16 +91,10 @@ function useSelectorMutations(
         invalidateSelection();
         toast.success("Settings saved");
       },
+      onError: (error) => toastError(error, "Failed to save the model setting"),
     },
   });
   const globalProviderMutation = useSetWorkspaceProviderSetting({
-    onSuccess: () => {
-      invalidateSelection();
-      toast.success("Settings saved");
-    },
-    onError: () => toast.error("Failed to save provider setting"),
-  });
-  const projectProviderMutation = useSetProjectProviderSetting({
     onSuccess: () => {
       invalidateSelection();
       toast.success("Settings saved");
@@ -133,10 +111,8 @@ function useSelectorMutations(
 
   return {
     globalMutation,
-    projectMutation,
     featureMutation,
     globalProviderMutation,
-    projectProviderMutation,
     featureProviderMutation,
   };
 }
@@ -145,7 +121,6 @@ type SelectorMutations = ReturnType<typeof useSelectorMutations>;
 
 function createSelectionActions(
   level: ModelSelectorLevel,
-  projectId: number | undefined,
   featureId: number | undefined,
   agentCatalog: AgentCatalogQuery,
   selectionFor: (agentType: AgentTypeSetting) => ResolvedSelection | undefined,
@@ -168,13 +143,6 @@ function createSelectionActions(
       });
       return;
     }
-    if (level === "project" && projectId != null) {
-      mutations.projectMutation.mutate({
-        id: projectId,
-        data: { model_type: agentType, model: modelId },
-      });
-      return;
-    }
     if (level === "feature" && featureId != null) {
       mutations.featureMutation.mutate({
         id: featureId,
@@ -194,14 +162,6 @@ function createSelectionActions(
 
     if (level === "global") {
       mutations.globalProviderMutation.mutate({ agentType, providerId: resolvedProviderId });
-      return;
-    }
-    if (level === "project" && projectId != null) {
-      mutations.projectProviderMutation.mutate({
-        projectId,
-        providerType: agentType,
-        provider: providerId,
-      });
       return;
     }
     if (level === "feature" && featureId != null) {
@@ -290,13 +250,12 @@ function buildRow(
 export function useModelSelectorState(
   params: UseModelSelectorStateParams,
 ): UseModelSelectorStateResult {
-  const { level, projectId, featureId } = params;
+  const { level, featureId, agentTypes = AGENT_TYPES } = params;
   const queryClient = useQueryClient();
   const agentCatalog = useAgentCatalog();
-  const selectionQuery = useResolvedSelection({
-    ...(level !== "global" && projectId != null ? { projectId } : {}),
-    ...(level === "feature" && featureId != null ? { featureId } : {}),
-  });
+  const selectionQuery = useResolvedSelection(
+    level === "feature" && featureId != null ? { featureId } : {},
+  );
 
   useEffect(() => {
     if (selectionQuery.error) {
@@ -304,16 +263,13 @@ export function useModelSelectorState(
     }
   }, [selectionQuery.error]);
 
-  const mutations = useSelectorMutations(queryClient, projectId, featureId);
+  const mutations = useSelectorMutations(queryClient, featureId);
 
   const providers = availableCatalogProviders(agentCatalog.data?.providers).map(
     (provider): ModelSelectorRowProvider => ({
-      id: provider.id,
-      label: provider.label,
-      disabled: false,
+      ...pickerProviderFromCatalog(provider),
       status: provider.status,
       statusMessage: provider.status_message,
-      models: provider.models,
     }),
   );
 
@@ -322,14 +278,13 @@ export function useModelSelectorState(
 
   const { applySelection } = createSelectionActions(
     level,
-    projectId,
     featureId,
     agentCatalog,
     selectionFor,
     mutations,
   );
 
-  const visibleAgentTypes = AGENT_TYPES.filter(
+  const visibleAgentTypes = agentTypes.filter(
     (agentType) => level === "global" || !WORKSPACE_ONLY_AGENT_TYPES.includes(agentType),
   );
 

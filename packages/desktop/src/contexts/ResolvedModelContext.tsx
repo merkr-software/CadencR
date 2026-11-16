@@ -7,21 +7,19 @@ const ResolvedModelContext = createContext<ResolvedModelValue | null>(null);
 
 interface ResolvedModelProviderProps {
   featureId: number;
-  projectId: number;
   children: ReactNode;
 }
 
 /**
- * Hosts a single `useResolvedModel(featureId, projectId)` call at the route
+ * Hosts a single `useResolvedModel(featureId)` call at the route
  * level so tab bodies can share the same settings/provider fetches on cold
  * open.
  */
 export function ResolvedModelProvider({
   featureId,
-  projectId,
   children,
 }: ResolvedModelProviderProps): ReactNode {
-  const value = useResolvedModel(featureId, projectId);
+  const value = useResolvedModel(featureId);
   return <ResolvedModelContext.Provider value={value}>{children}</ResolvedModelContext.Provider>;
 }
 

@@ -122,3 +122,9 @@ test("new registry entries extend id and grouped-import enforcement automaticall
     "new SDK manifests must not depend on the service",
   );
 });
+
+test("the custom-tab backend SDK is not treated as a provider SDK", () => {
+  const crates = providerBoundaryManifest().sdk.map(({ crate }) => crate);
+  assert.ok(!crates.includes("cadencr_tab_backend"), crates.join(", "));
+  assert.ok(crates.length > 0, "provider SDK crates must still be collected");
+});

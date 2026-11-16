@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { animationsDisabled } from "@/lib/animations/animations-disabled";
 
 const DURATION_MS = 200;
 
@@ -6,18 +7,6 @@ interface CollapsibleSectionProps {
   /** When true, the body is visible. When false, it collapses to 0 height. */
   open: boolean;
   children: ReactNode;
-}
-
-/**
- * Read the resolved animations preference straight from
- * `<html data-animations>` (written by `AnimationsProvider`). Avoids
- * subscribing every collapsible to the underlying setting — this component
- * is mounted many times in the agent stream, and the hot-path rule forbids
- * unnecessary store subscriptions.
- */
-function animationsDisabled(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.documentElement.dataset.animations === "off";
 }
 
 /**

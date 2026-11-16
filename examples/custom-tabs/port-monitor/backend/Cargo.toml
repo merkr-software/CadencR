@@ -1,0 +1,28 @@
+[package]
+name = "port-monitor"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Native backend of the Port monitor custom tab: listening TCP ports and their processes"
+
+# Its own workspace: the example builds on its own, in or out of the Cadencr
+# checkout, and is not a member of the repository's workspace.
+[workspace]
+
+[dependencies]
+# The path is used inside the checkout. Cargo never falls back to the version
+# when the path is missing: in a copy outside the checkout, delete
+# `path = "…", ` from both entries to build against crates.io.
+cadencr-tab-backend = { path = "../../../../packages/tab-backend-sdk-rs", version = "0.1", features = ["api"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+cadencr-tab-backend = { path = "../../../../packages/tab-backend-sdk-rs", version = "0.1", features = ["api", "conformance"] }
+
+[lints.rust]
+dead_code = "deny"
+unused_imports = "deny"
+unused_variables = "deny"

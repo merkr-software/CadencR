@@ -1,19 +1,14 @@
 # Cadencr code-backed provider package contract
 
+> Pi is maintained outside this repository as
+> [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi);
+> Pi details below describe the retired first-party implementation.
+
 > - **Status:** Local v1 code-and-icon plus managed package/install/conformance backend implemented; release trust pins and marketplace UI deferred
 > - **Plan reviewed:** 2026-09-05; see [remaining work and release gates](./BOUNDARIES.md#implementation-audit--2026-09-05)
 > - **Contract version:** `acp-config-options-v1` + `acp-v1`
 > - **Reference SDK:** `packages/provider-plugin-sdk-rs/`
 > - **External reference provider:** `cadencr-plugin-provider-pi` — native `pi --mode rpc`, no `pi-acp`
-
-## Local release scope — 2026-09-12
-
-v0.12.0 ships **local themes and providers**, without marketplace UI. Both create
-projects in the developer's Cadencr instance; a durable theme/provider authoring
-marker is required for later GitHub publication and initial/new-version registry
-submission. The marker is implemented for new project rows only; existing projects remain unchanged. See the authoritative
-[local release checklist](../LOCAL_PLUGINS_V0_12.md); public trust provisioning and
-marketplace UI are not local-release blockers.
 
 Session-scoped resume eligibility and signed catalog acquisition now have
 working-tree implementations under review. The historical audit/checklists below
@@ -69,11 +64,15 @@ required.
 Cadencr invokes the installed executable directly, never through a shell.
 Descriptor arguments are appended after the reserved command arguments.
 
-| Command                                                                          | Purpose                                 | Required result                       |
-| -------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------- |
-| `models --format acp-config-options-v1 --cwd <absolute-path> [provider-args...]` | Discover models before session creation | One JSON array on `stdout`; exit `0`  |
-| `run --protocol acp-v1 [provider-args...]`                                       | Start the live agent                    | ACP v1 JSON-RPC over `stdin`/`stdout` |
-| `version`                                                                        | Report package implementation version   | One version string on `stdout`        |
+| Command                                                                                | Purpose                                 | Required result                       |
+| -------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------- |
+| `models --format acp-config-options-v1 --cwd <absolute-path> [provider-args...]`       | Discover models before session creation | One JSON array on `stdout`; exit `0`  |
+| `run --protocol acp-v1 [provider-args...]`                                             | Start the live agent                    | ACP v1 JSON-RPC over `stdin`/`stdout` |
+| `version`                                                                              | Report package implementation version   | One version string on `stdout`        |
+| `updates --format cadencr-updates-v1` _(optional)_                                     | Report installed and available versions | One JSON object on `stdout`; exit `0` |
+| `update [--version <version>]` _(optional)_                                            | Upgrade the provider                    | Exit `0` on success                   |
+| `host-integration --format cadencr-host-integration-v1` _(optional)_                   | Declare host conventions                | One JSON object on `stdout`; exit `0` |
+| `slash-commands --format cadencr-slash-commands-v1 --cwd <absolute-path>` _(optional)_ | List the `/` commands for a directory   | One JSON array on `stdout`; exit `0`  |
 
 Diagnostics belong on `stderr`. The `models` command must not write logs,
 progress, or banners to `stdout`.
@@ -86,6 +85,53 @@ progress, or banners to `stdout`.
 | `stdout`            | Rejected above 1 MiB                                        |
 | `stderr`            | Drained and bounded; contents are never returned by the API |
 | Shell interpolation | Forbidden                                                   |
+
+## Optional update commands
+
+A connector usually wraps a native CLI it does not ship. The connector knows
+how that CLI was installed and where its releases are published, so it — not
+Cadencr — reports versions and performs upgrades. Cadencr renders the report in
+Settings → Providers → **Versions & updates**, toasts each newly detected
+version once, and runs `update` on request. Built-in providers implement the
+same host interface natively (`domain/agents/updates/`).
+
+`updates --format cadencr-updates-v1` prints one JSON object:
+
+```json
+{
+  "supported": true,
+  "current_version": "1.4.0",
+  "latest_version": "1.5.0",
+  "available_versions": ["1.5.0", "1.4.1"],
+  "supports_target_version": true
+}
+```
+
+| Field                     | Rule                                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `supported`               | `false` means updates are not managed by this connector; every other field is then ignored.          |
+| `current_version`         | Installed version, or `null` when the native CLI is missing ("Not installed").                       |
+| `latest_version`          | Newest installable version. An update is offered whenever it differs from `current_version`.         |
+| `available_versions`      | Newest first, at most 100. `latest_version` is prepended when missing.                               |
+| `supports_target_version` | Whether `update --version <v>` accepts every listed entry. Requests are validated against this list. |
+
+Version strings are opaque: trimmed, at most 64 characters, no control
+characters. The command runs with the same direct-exec, process-policy, and
+1 MiB output bounds as `models`, with a 20-second timeout. An invalid report,
+or a non-zero exit that prints `{"message": "..."}`, is shown as a failed check
+with that message. A non-zero exit without that message is read as a connector
+that predates these optional commands: "Updates not managed".
+
+`update [--version <version>]` installs the requested version (or the latest).
+`stdin` is closed, so it must never prompt; it is bounded to 10 minutes. It
+may print `{"message": "..."}` — a short summary on success, or the actionable
+reason on a non-zero exit. `stderr` is never surfaced because it may contain
+credentials. After `update` exits, Cadencr re-runs `updates` and reports the
+version transition.
+
+The reference SDK exposes both through optional `CadencrProvider::updates` /
+`CadencrProvider::update` methods; their defaults report "not supported".
+Updating the native CLI never touches the immutable managed package payload.
 
 ## `models` output
 
@@ -135,9 +181,157 @@ contain a non-empty `select` option whose `category` is `model`.
 - `_meta.cadencr` is optional host presentation metadata. Unknown or invalid
   values are rejected rather than guessed.
 
+### Mode and access-mode selectors
+
+Besides the mandatory model selector, the array may carry two optional ACP
+`select` options that Cadencr maps onto its own composer controls. Both are
+plain ACP options; the mapping lives in `_meta.cadencr` on each select value.
+
+- **Mode selector** — the first option with `"category": "mode"`. A value may
+  carry `_meta.cadencr.permissionMode`, one of the host wire ids `default`,
+  `acceptEdits`, `plan`, `ask`, `auto`, `bypassPermissions`, `dontAsk`.
+- **Access-mode selector** — the first option whose option-level
+  `_meta.cadencr.role` is `"access_mode"` (its ACP `category` is free). A value
+  may carry `_meta.cadencr.accessMode`, one of `default`, `fullAccess`,
+  `autoReview`.
+
+```json
+{
+  "id": "mode",
+  "name": "Mode",
+  "category": "mode",
+  "type": "select",
+  "currentValue": "agent",
+  "options": [
+    {
+      "value": "agent",
+      "name": "Agent",
+      "_meta": { "cadencr": { "permissionMode": "default" } }
+    },
+    {
+      "value": "plan",
+      "name": "Plan",
+      "description": "Read-only planning",
+      "_meta": { "cadencr": { "permissionMode": "plan" } }
+    },
+    { "value": "debug", "name": "Debug" }
+  ]
+}
+```
+
+Rules:
+
+- Values without a mapping (`debug` above) are not shown by the host, and a
+  mapping onto an id this host does not know is ignored, so a newer connector
+  can map future host ids without breaking older hosts. When two values map
+  onto the same host id, the first wins.
+- Value order is the composer's cycle order (Shift+Tab). The first mapped mode
+  value is the provider's **primary edit mode**: the mode a session starts in
+  after a provider switch and the target after an approved `ExitPlanMode` plan.
+- A selector that carries mappings must be a `select` option; anything else
+  rejects the `models` output.
+- Unlike model metadata, unknown keys inside these `_meta.cadencr` objects are
+  ignored rather than rejected.
+- The host's catalog lists the mapped values as `modes` /
+  `access_modes` (`{id: <host id>, label: <value name>, description}`), and its
+  permission-mode gate accepts exactly the listed modes for the provider. How a
+  mapped value is applied to a live session is specified in
+  [`INSTALLED_ACP_PROVIDERS.md`](./INSTALLED_ACP_PROVIDERS.md#host-conventions-for-modes-and-access-modes).
+
 `ModelCatalogEntry` is a Cadencr view of this ACP data, not a second package
 schema. This keeps the pre-session contract close to ACP and makes an ACP-native
 provider mapping small.
+
+## Host integration command
+
+`host-integration --format cadencr-host-integration-v1` is optional. It
+declares host conventions that ACP v1 has no message for. It prints one JSON
+object on `stdout`; every field is optional and unknown fields are ignored:
+
+```json
+{
+  "compactCommand": "compress",
+  "worktreeConfigPaths": [".cursor/rules", ".cursor/commands", ".cursor/mcp.json"],
+  "resumeCommand": { "program": "agent", "args": ["--resume", "{session_id}"] }
+}
+```
+
+| Field                 | Rule                                                                                                                                                                                | Host use                                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compactCommand`      | Slash-command name without `/`: 1-64 characters of `[A-Za-z0-9._:-]`.                                                                                                               | `/compact` becomes a host action: the live session receives `session/prompt` with text `/<compactCommand>`, marked as a manual compaction.  |
+| `worktreeConfigPaths` | At most 32 entries; each 1-256 bytes, relative, already normalized (`a/b`; never `./a`, `a//b`, `a/`, `..`, a root or a drive prefix), `/` separators, no control characters.       | Copied from the project into every new worktree when present and not already there.                                                         |
+| `resumeCommand`       | `program`: bare executable name, 1-64 characters of `[A-Za-z0-9._-]` (no path separators). `args`: at most 16 entries of at most 256 bytes; `{session_id}` is the only placeholder. | "Resume in terminal": the desktop quotes each element itself and substitutes the session id. Never interpreted by a shell on the host side. |
+
+The command runs with the same direct-exec, process-policy, 1 MiB output
+bounds as `models`, with a 10-second timeout, from the user's home directory.
+The host runs it once per installation for the life of the process (and again
+after a successful connector `update`), at startup in the background and
+before the first catalog read or spawn that needs it.
+
+- **Invalid output** (not an object, or any field breaking its rule) rejects
+  the whole declaration: the provider runs without host integration and the
+  reason is recorded as `host_integration_issue` on
+  `GET /api/agents/installed-providers`.
+- **A non-zero exit** is read as a package built before this command existed
+  ("no host integration"). It is recorded as a diagnostic on the same field and
+  is not an error for the catalog: the provider stays available.
+
+Built-in providers expose the same facts natively in the catalog
+(`compact_action`, `resume_command`).
+
+## Slash-commands command
+
+`slash-commands --format cadencr-slash-commands-v1 --cwd <absolute-path>` is
+optional. It lists the commands and skills the native agent accepts as `/name`
+in a prompt for one working directory, so the composer's `/` menu is filled
+before an ACP session exists. Once a session runs, the agent's own
+`available_commands_update` is the live catalog; the command should print the
+same list for the same directory. It prints one JSON array on `stdout`:
+
+```json
+[
+  { "name": "review", "description": "Review the current changes" },
+  { "name": "deploy", "description": "Deploy (project skill)", "kind": "skill" }
+]
+```
+
+| Field         | Rule                                                                                                             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `name`        | Required. 1-128 characters, no leading `/`, no whitespace or control characters; unique within the list.         |
+| `description` | Optional. At most 4096 characters; newlines and tabs are the only control characters allowed.                    |
+| `kind`        | Optional. `"command"` (default) or `"skill"`; the menu groups entries by kind. Any other value rejects the list. |
+
+At most 1000 entries; an empty array means "no commands here". Unknown entry
+keys are ignored. The command runs like `models`: direct exec, the same
+process policy and 1 MiB output bound, a 10-second timeout, and the
+conversation's directory both as `--cwd` and as the process working
+directory (the explicit argument mirrors `models`, so a package never has to
+trust its inherited cwd). It must not prompt (stdin is closed) and should not
+start a live agent session.
+
+- **A valid list** is cached per directory for 30 seconds (at most 16
+  directories per installation). The cache entry is dropped when a live
+  session for that directory sends `available_commands_update`, and every
+  entry is dropped after a successful connector `update`.
+- **A failure the package reports** — a non-zero exit with
+  `{"message": "..."}` on `stdout`, the same convention as `updates` — and
+  **output that breaks a rule** (which rejects the whole list) are errors: the
+  `/` menu shows them, next to the host's own commands. A failure is cached
+  for 5 seconds, so a reopened menu does not re-run a failing package at once.
+- **A crash** — killed by a signal, or a Rust panic (exit code 101) — is an
+  error too, never read as "unsupported".
+- **Any other non-zero exit** is read as a package built before this command
+  existed and cached like an empty list; it is not an error.
+
+Whatever the package prints, the host also keeps, per directory, the last
+`available_commands_update` a live session sent there (in memory, at most 64
+directories). Its entries that the package did not list — commands only the
+agent's backend knows, or everything for a package without the command — are
+appended after the package's list, so community packages without
+`slash-commands` still get a pre-session menu after their first session. In
+a live session, `available_commands_update` replaces the menu as before. An
+`availableCommands` entry may carry `_meta.cadencr.kind: "skill"` (SDK:
+`meta::slash_command_kind_meta`) so live entries group like listed ones.
 
 ## Session-time reconciliation
 
@@ -176,6 +370,15 @@ drains and terminates the connector process. Resume and close support never
 appears in the descriptor. `session/resume` is preferred because it restores
 provider context without transcript replay; Cadencr already owns the visible
 transcript.
+
+## Question and plan gates
+
+Connectors that need the user's answer (questions, plan approval) raise a
+standard `session/request_permission` whose `toolCall.name` is
+`AskUserQuestion` or `ExitPlanMode`, and read the answer from the response's
+`_meta.updatedInput` (input) and `_meta.feedback` (free text). The normative
+rules are in
+[`INSTALLED_ACP_PROVIDERS.md`](./INSTALLED_ACP_PROVIDERS.md#host-conventions-for-input-collecting-gates).
 
 ## Rust SDK
 
@@ -216,6 +419,10 @@ fn main() -> ExitCode {
     run_cli(&MyProvider)
 }
 ```
+
+Optional commands are trait methods with defaults: `updates` / `update`,
+`host_integration()` and `slash_commands(cwd)` (default `None`: exits
+non-zero, read as "not supported"; an `Err` is printed as `{"message"}`).
 
 Rust is the supported reference implementation, not a protocol requirement.
 A package written in another language is compatible only if it implements the
@@ -390,7 +597,7 @@ Conformance is compatibility evidence, not a trust or authentication decision:
 | `version`            | Exits successfully within bounds and returns one connector version.                                                                                         |
 | `models`             | Returns a verified non-empty model selector/default within the existing 10-second and 1-MiB limits.                                                         |
 | `initialize`         | Negotiates ACP v1 and reports parseable capabilities.                                                                                                       |
-| Disposable session   | `session/new` returns an ID and a live selector compatible with pre-session discovery.                                                                      |
+| Disposable session   | `session/new` returns an ID and the same selector ID and ordered model choices as discovery. Its initial model may differ, but must be a valid choice.      |
 | Model reconciliation | The selected model can be set and is authoritatively confirmed before prompting.                                                                            |
 | Cleanup              | The disposable session is closed when advertised and the complete process tree is drained within a bound without sending a billable prompt.                 |
 | Resume compatibility | If advertised, `session/resume` is probed; legacy `session/load` is tested only as fallback. Unsupported explicit resume must fail rather than start fresh. |
@@ -402,6 +609,15 @@ selector ID, advertised resume/load/close probe outcomes, explicit unprobed
 prompt state, and whether an OS sandbox was applied. It never invokes or tests
 provider-account authentication; a preconfigured native CLI is a user
 prerequisite, and missing configuration is an actionable availability error.
+
+Some agents retain a conversation only after its first user turn. If the fresh
+restore returns JSON-RPC `-32602` with `data.message` exactly identifying this
+probe's disposable session as `Session "<id>" not found`, its advertised restore
+and unverified close outcomes remain `Unprobed`, never `Passed`. Conformance does
+not send a prompt to make the session persistent or create replacement context.
+Other restore failures and mismatched restored configuration still reject the
+package. This exception applies only to the empty installation probe; runtime
+resume/load keeps rejecting absent conversation IDs without starting anew.
 
 ### Registry, blocklist, and process policy
 

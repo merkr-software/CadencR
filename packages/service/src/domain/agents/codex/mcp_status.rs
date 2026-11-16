@@ -171,10 +171,7 @@ struct McpServerHealth {
 
 impl McpServerHealth {
     fn from(status: &CodexMcpServerStatus) -> Self {
-        let auth_ok = status
-            .auth_status
-            .as_deref()
-            .map_or(true, |status| status != "notLoggedIn");
+        let auth_ok = status.auth_status.as_deref() != Some("notLoggedIn");
         Self {
             name: status.name.clone(),
             auth_ok,

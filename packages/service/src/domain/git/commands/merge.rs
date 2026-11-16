@@ -91,7 +91,7 @@ pub async fn get_original_branch(
         }
     }
 
-    Err(AppError::GitCommandError(format!(
+    Err(AppError::git_command(format!(
         "Cannot determine original branch for worktree branch: {worktree_branch}"
     )))
 }

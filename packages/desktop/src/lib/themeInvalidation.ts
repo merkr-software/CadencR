@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { getListProjectsQueryKey, getListThemesQueryKey } from "@/api/generated";
 import { createLeadingSettleCoalescer } from "./coalesceInvalidation";
+import { managedThemesKey } from "./theme-marketplace";
 
 /**
  * Refetch the user's themes.
@@ -35,6 +36,10 @@ const themeCoalescer = createLeadingSettleCoalescer<QueryClient>(
   THEME_INVALIDATION_SETTLE_MS,
 );
 
-export function scheduleThemeInvalidation(client: QueryClient): void {
+export function scheduleThemeInvalidation(client: QueryClient, id?: string): void {
+  if (id?.startsWith("managed:")) {
+    void client.invalidateQueries({ queryKey: managedThemesKey });
+    return;
+  }
   themeCoalescer.trigger(client);
 }

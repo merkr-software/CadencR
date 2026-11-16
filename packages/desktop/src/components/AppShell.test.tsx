@@ -43,6 +43,13 @@ vi.mock("@/components/Sidebar", () => ({
   Sidebar: () => <div data-testid="sidebar-content" />,
 }));
 
+vi.mock("@/components/SidebarRail", () => ({
+  SidebarRail: () => <nav data-testid="sidebar-rail" />,
+}));
+vi.mock("@/components/SidebarAttentionProvider", () => ({
+  SidebarAttentionProvider: ({ children }: { children: ReactNode }) => children,
+}));
+
 vi.mock("@/components/MobileDrawer", () => ({
   MobileDrawer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));

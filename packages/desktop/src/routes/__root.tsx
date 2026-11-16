@@ -1,6 +1,13 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { ManagedThemeRegistry } from "@/hooks/useManagedThemes";
+import { NavigationHistoryTracker } from "@/hooks/useNavigationHistory";
 import { AppShell } from "@/components/AppShell";
+import { AppWindowControls } from "@/components/AppWindowControls";
+import { CliRequestBridge } from "@/components/cli/CliRequestBridge";
+import { CustomActionEditorHost } from "@/components/custom-actions/CustomActionEditorDialog";
+import { RunVariablesDialogHost } from "@/components/custom-actions/RunVariablesDialog";
 import { GlobalOperationToasts } from "@/components/GlobalOperationToasts";
+import { NotchChannelBridge } from "@/components/notch/NotchChannelBridge";
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { RootOverlays } from "@/components/RootOverlays";
 import { SidebarContext } from "@/components/SidebarContext";
@@ -30,6 +37,7 @@ function RootLayout() {
     >
       <UniversalContextMenu>
         <div className="flex h-[var(--app-vh)]">
+          <AppWindowControls />
           <AppShell
             isMobile={controller.isMobile}
             collapsed={sidebar.collapsed}
@@ -51,6 +59,12 @@ function RootLayout() {
           </AppShell>
           <SuspendedBanner />
           <GlobalOperationToasts />
+          <ManagedThemeRegistry />
+          <NavigationHistoryTracker />
+          <NotchChannelBridge />
+          <CliRequestBridge />
+          <CustomActionEditorHost />
+          <RunVariablesDialogHost />
           <RootOverlays
             commandPaletteOpen={controller.commandPaletteOpen}
             setCommandPaletteOpen={controller.setCommandPaletteOpen}

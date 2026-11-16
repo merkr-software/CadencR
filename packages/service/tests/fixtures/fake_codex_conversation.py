@@ -136,6 +136,9 @@ for line in sys.stdin:
     elif method in ("thread/start", "thread/resume"):
         root = params.get("threadId", root)
         result = {"thread": {"id": root, "turns": []}}
+        if method == "thread/resume" and not params.get("excludeTurns", False):
+            result["thread"]["turns"] = [{"id": "old-turn", "items": [
+                {"type": "agentMessage", "id": "old-item", "text": "x" * (32 * 1024 * 1024)}]}]
         servers = list(params.get("config", {}).get("mcp_servers", {}))
         for name in servers:
             notify("mcpServer/startupStatus/updated", name=name, status="ready")
@@ -163,4 +166,9 @@ for line in sys.stdin:
             continue
     elif method == "turn/interrupt":
         boundary(params["threadId"], "completed")
+    elif method == "thread/unsubscribe" and mode == "close-error":
+        emit({"id": msg["id"], "error": {"code": -32000, "message": "UNSUBSCRIBE_FAILED"}})
+        continue
+    elif method == "thread/unsubscribe" and mode == "close-timeout":
+        continue
     emit({"id": msg["id"], "result": result})

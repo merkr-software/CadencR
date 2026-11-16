@@ -43,14 +43,19 @@ export type BuiltInThemeId = (typeof THEME_IDS)[number];
  * bare built-in ids) never accidentally match one.
  */
 export type UserThemeId = `user:${string}`;
+export type ManagedThemeId = `managed:${string}`;
 
 /** Any theme the app can apply: built-in or user-authored. */
-export type ThemeId = BuiltInThemeId | UserThemeId;
+export type ThemeId = BuiltInThemeId | UserThemeId | ManagedThemeId;
 
 export const USER_THEME_ID_PREFIX = "user:";
 
 export function isUserThemeId(id: string): id is UserThemeId {
   return id.startsWith(USER_THEME_ID_PREFIX);
+}
+
+export function isManagedThemeId(id: string): id is ManagedThemeId {
+  return id.startsWith("managed:");
 }
 
 export type ThemeAppearance = "light" | "dark";

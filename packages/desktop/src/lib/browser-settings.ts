@@ -1,6 +1,6 @@
 import { EyeOff, Globe, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 
 /** Workspace setting holding the browser tab's default cookie mode. */
 export const BROWSER_DEFAULT_MODE_SETTING_KEY = "browser_default_mode";
@@ -87,15 +87,13 @@ export interface UseBrowserSearchEngineResult {
 
 /** Read-only view of the user's default browser mode (Settings → Browser). */
 export function useBrowserDefaultMode(): UseBrowserDefaultModeResult {
-  const setting = useDebouncedSetting(BROWSER_DEFAULT_MODE_SETTING_KEY, 0);
+  const setting = useSetting(BROWSER_DEFAULT_MODE_SETTING_KEY);
   return { mode: parseCookieMode(setting.value), isLoading: setting.isLoading };
 }
 
 /** Read-only view of the selected address-bar search engine. */
 export function useBrowserSearchEngine(): UseBrowserSearchEngineResult {
-  const setting = useDebouncedSetting(BROWSER_SEARCH_ENGINE_SETTING_KEY, 0, {
-    immediateCache: false,
-  });
+  const setting = useSetting(BROWSER_SEARCH_ENGINE_SETTING_KEY);
   const engine = parseBrowserSearchEngine(setting.value);
   const isLoading = setting.isLoading;
   return useMemo(() => ({ engine, isLoading }), [engine, isLoading]);

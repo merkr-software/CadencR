@@ -1,26 +1,62 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
+import type { ReactNode } from "react";
 import { render, screen } from "@/test-utils";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 
 const generatedMocks = vi.hoisted(() => ({
   getProjectSettings: vi.fn(),
+  getPublicationReadiness: vi.fn(),
+  preparePublicationPackage: vi.fn(),
   setProjectSetting: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  Link: ({
+    children,
+    to,
+    search,
+  }: {
+    children: ReactNode;
+    to: string;
+    search?: Record<string, string>;
+  }) => <a href={search ? `${to}?${new URLSearchParams(search)}` : to}>{children}</a>,
 }));
 
 vi.mock("../api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/generated")>()),
   useGetProjectSettings: generatedMocks.getProjectSettings,
+  useGetProjectPublicationReadiness: generatedMocks.getPublicationReadiness,
+  usePreparePublicationPackage: vi.fn(() => ({
+    error: null,
+    isError: false,
+    isPending: false,
+    mutate: generatedMocks.preparePublicationPackage,
+    reset: vi.fn(),
+  })),
   useSetProjectSetting: vi.fn(() => ({ mutate: generatedMocks.setProjectSetting })),
   useListProjectWorktrees: vi.fn(() => ({ data: [] })),
 }));
 
+// The custom actions list is covered by its own tests.
+vi.mock("./custom-actions/CustomActionsManager", () => ({
+  CustomActionsManager: () => null,
+}));
 vi.mock("./ModelSelector", () => ({
   ModelSelector: () => <div data-testid="model-selector" />,
 }));
 
 describe("ProjectSettingsDialog", () => {
   beforeEach(() => {
+    generatedMocks.getPublicationReadiness.mockClear();
     generatedMocks.getProjectSettings.mockReturnValue({ data: [] });
+    generatedMocks.getPublicationReadiness.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isRefetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
     generatedMocks.setProjectSetting.mockClear();
   });
 
@@ -47,6 +83,10 @@ describe("ProjectSettingsDialog", () => {
     );
     expect(screen.getByText("My Project")).toBeInTheDocument();
     expect(screen.getByText(/Project settings/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse language servers" })).toHaveAttribute(
+      "href",
+      "/marketplace?kind=lsp",
+    );
   });
 
   it("renders branch prefix input", () => {
@@ -78,6 +118,30 @@ describe("ProjectSettingsDialog", () => {
     expect(screen.queryByRole("radiogroup", { name: /agent autonomy/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Parallel agent execution/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/QA testing procedure/i)).not.toBeInTheDocument();
+  });
+
+  it("shows publication preparation only for an explicit provider authoring project", () => {
+    const props = {
+      projectId: 1,
+      projectName: "Provider",
+      authoringTarget: "provider" as const,
+      open: true,
+      onOpenChange: vi.fn(),
+    };
+    const { rerender } = render(<ProjectSettingsDialog {...props} />);
+
+    expect(screen.getByText("Provider publication preparation")).toBeInTheDocument();
+    expect(screen.getByText("Prepare a local provider bundle")).toBeInTheDocument();
+
+    rerender(<ProjectSettingsDialog {...props} authoringTarget={undefined} />);
+
+    expect(screen.queryByText("Provider publication preparation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prepare a local provider bundle")).not.toBeInTheDocument();
+
+    rerender(<ProjectSettingsDialog {...props} authoringTarget="theme" />);
+
+    expect(screen.queryByText("Provider publication preparation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prepare a local provider bundle")).not.toBeInTheDocument();
   });
 
   it("closes dialog when escape is pressed", async () => {

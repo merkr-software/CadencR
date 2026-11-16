@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { useAnimationsEnabled } from "@/lib/animations/animations-setting";
 
@@ -9,7 +8,7 @@ import { useAnimationsEnabled } from "@/lib/animations/animations-setting";
  * explicit override into the `animations_enabled` workspace setting.
  */
 export function AnimationsToggle({ divided }: { divided?: boolean }): React.JSX.Element {
-  const { enabled, systemReducedMotion, setEnabled, isLoading } = useAnimationsEnabled();
+  const { enabled, systemReducedMotion, setEnabled, isLoading, isSaving } = useAnimationsEnabled();
 
   const description = systemReducedMotion
     ? "Smooth fades and slides across menus, dialogs, and panels. Your system requests reduced motion, so animations are off by default."
@@ -17,13 +16,12 @@ export function AnimationsToggle({ divided }: { divided?: boolean }): React.JSX.
 
   return (
     <SettingsSwitchRow
-      icon={<Sparkles className="size-4" />}
-      iconTint="purple"
       label="Fluid animations"
       description={description}
       checked={enabled}
       onCheckedChange={setEnabled}
       disabled={isLoading}
+      saving={isSaving}
       divided={divided}
     />
   );

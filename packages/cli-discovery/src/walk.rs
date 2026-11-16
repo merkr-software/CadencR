@@ -88,6 +88,7 @@ fn push_if_executable(
         path: path.to_path_buf(),
         canonical,
         version: None,
+        version_text: None,
         source,
     });
 }

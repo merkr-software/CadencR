@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "id": "docker-langserver",
+  "status": "available-upstream-notices-preserved; metadata-only-cases-explicit",
+  "packages": [
+    {
+      "name": "dockerfile-ast",
+      "version": "0.7.1",
+      "destination": "node_modules/dockerfile-ast",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/dockerfile-ast/-/dockerfile-ast-0.7.1.tgz",
+      "npm_sha256": "86d5054eaeacc5917c0e693a6e18480041a09ee2176a9cc2257c119fbc178b29",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "dockerfile-language-server-nodejs",
+      "version": "0.15.0",
+      "destination": "node_modules/dockerfile-language-server-nodejs",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "OriginalLicense.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/dockerfile-language-server-nodejs/-/dockerfile-language-server-nodejs-0.15.0.tgz",
+      "npm_sha256": "32ee93b98f43d8d60273019b7ed12a263593ba3a2308442ca7449d49676f480d",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "dockerfile-language-service",
+      "version": "0.16.1",
+      "destination": "node_modules/dockerfile-language-service",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/dockerfile-language-service/-/dockerfile-language-service-0.16.1.tgz",
+      "npm_sha256": "64ad381981cb216d5fc9e1d37f3862541c2ff6a92daf6396e3f0e839a89d890f",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.8",
+      "destination": "node_modules/dockerfile-language-service/node_modules/vscode-languageserver-textdocument",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.8.tgz",
+      "npm_sha256": "07131cbc649a953b85d9b654b4301a2b1a9c450a23805666df8676c8a166a0d0",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "dockerfile-utils",
+      "version": "0.16.3",
+      "destination": "node_modules/dockerfile-utils",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/dockerfile-utils/-/dockerfile-utils-0.16.3.tgz",
+      "npm_sha256": "bde68b44c874c61b1adcdb5a29d7ab38153c58647e5a1a106ca5c6f839974593",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "8.0.2",
+      "destination": "node_modules/vscode-jsonrpc",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-jsonrpc/-/vscode-jsonrpc-8.0.2.tgz",
+      "npm_sha256": "3a4dde1933438cf35131741ae1d246d3965606c5b121ee1c1c1df7f6f8e07203",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "8.0.2",
+      "destination": "node_modules/vscode-languageserver",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver/-/vscode-languageserver-8.0.2.tgz",
+      "npm_sha256": "1fc73dd591cd7cb09b775935c70493f98b94218bcd55d58e9318ed7dbc5326a1",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.17.2",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-protocol/-/vscode-languageserver-protocol-3.17.2.tgz",
+      "npm_sha256": "bc7f157db8c1ac0de18ac38e0b67a588550e315f7541759fd28f9a9c468f32d3",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.2",
+      "destination": "node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.2.tgz",
+      "npm_sha256": "35b36dd9d84396a7e6e6dd2ea6058ba355e20f285b5aaf1c6a0ae1822cdbcfeb",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.16.tgz",
+      "npm_sha256": "3d00e3f62041ffb10b220a14b057116a9812ee41e04cc7eef12a78ca46302599",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.3",
+      "destination": "node_modules/vscode-languageserver-types",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.3.tgz",
+      "npm_sha256": "e16078d54a14ff9f2793a5ab9915e0b442a6142321f0f2c78951f91618c529a5",
+      "notice_status": "original-notices-preserved"
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Compartment, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { useGetBlame, useGetFeatureWorkingDir, useReadFile } from "@/api/generated";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useEditorLanguage } from "@/hooks/useEditorLanguage";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { setGitGutterBaseline } from "@/lib/editor/git-gutter/git-gutter-extension";
@@ -38,9 +38,9 @@ const AUTO_SAVE_DELAY_MS = 1500;
 
 function useEditorFileData(props: CodeMirrorEditorProps) {
   const language = useEditorLanguage(props.projectId, props.filePath);
-  const { value: vimModeLevelSetting } = useDebouncedSetting("editor_vim_mode_level");
-  const { value: autoSaveSetting } = useDebouncedSetting("editor_auto_save");
-  const { value: gitBlameSetting } = useDebouncedSetting("editor_git_blame");
+  const { value: vimModeLevelSetting } = useSetting("editor_vim_mode_level");
+  const { value: autoSaveSetting } = useSetting("editor_auto_save");
+  const { value: gitBlameSetting } = useSetting("editor_git_blame");
   const fileQuery = useReadFile(
     {
       project_id: props.projectId,
@@ -73,7 +73,11 @@ function useEditorFileData(props: CodeMirrorEditorProps) {
     featureId: props.featureId,
     paneId: props.paneId,
     editorLanguageId: language.languageId,
-    enabled: !largeFile.largeMode,
+    explicitPlainText:
+      language.languageId === "plaintext" &&
+      (language.preference !== "auto" ||
+        language.inheritedLanguageId !== language.detectedLanguageId),
+    enabled: !largeFile.largeMode && !language.isLoading && !language.loadError,
   });
   const isBlameEnabled = (gitBlameSetting ?? "false") === "true";
   const blame = useGetBlame(
@@ -287,7 +291,10 @@ function useEditorPreview(
 ) {
   const [content, setContent] = useState<string | null>(null);
   const kind = getPreviewKind(props.filePath);
-  const supported = kind !== null && !data.largeFile.largeMode;
+  // The table is virtualized and its parse is capped (100k rows × 200
+  // columns) behind a loading state, so a CSV keeps its preview in large-file
+  // mode — where a big export needs it most.
+  const supported = kind !== null && (kind === "csv" || !data.largeFile.largeMode);
   const toggle = useCallback((): void => {
     if (!supported) return;
     setContent((previous) =>

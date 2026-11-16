@@ -3,6 +3,8 @@ import { CodeIcon, CopyIcon, CheckIcon, TerminalIcon } from "lucide-react";
 
 interface CodeBlockHeaderProps {
   language: string;
+  /** Replaces the code glyph in front of the label. */
+  icon?: ReactNode;
   code: string;
   showTerminalButton?: boolean;
   onSendToTerminal?: (command: string) => void;
@@ -12,6 +14,7 @@ interface CodeBlockHeaderProps {
 
 export function CodeBlockHeader({
   language,
+  icon,
   code,
   showTerminalButton,
   onSendToTerminal,
@@ -32,7 +35,7 @@ export function CodeBlockHeader({
 
   return (
     <div className="flex items-center gap-1.5 border-b border-border bg-muted px-3 py-1 text-xs text-muted-foreground">
-      <CodeIcon className="size-3" />
+      {icon ?? <CodeIcon className="size-3" />}
       <span className="flex-1">{language}</span>
       <div className="flex items-center gap-0.5">
         {leadingActions}

@@ -2,16 +2,29 @@
 layout: "@/layouts/DocLayout.astro"
 title: "Shortcuts"
 description: "A practical keyboard shortcuts guide for moving around CadencR with less mouse travel and less hunting around."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/shortcuts.png";
 
 import DocCallout from "@/components/docs/DocCallout.astro";
 import ShortcutTable from "@/components/docs/ShortcutTable.astro";
 import Kbd from "@/components/ui/Kbd.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
 
 If CadencR is where you keep work moving, shortcuts help you spend less time reaching for the mouse.
 
 You do **not** need to memorize every key combo on day one. Learn the few that save you the most time, then add more as you go.
+
+<DocScreenshot
+  src={pageImage}
+  alt="The current searchable keyboard-shortcuts helper. The tables below use the same desktop registry."
+  caption="The current searchable keyboard-shortcuts helper. The tables below use the same desktop registry."
+  bordered={false}
+  rounded
+  elevated
+/>
 
 ## How shortcut scopes work
 
@@ -39,6 +52,8 @@ The scopes you will meet most often:
 
 <ShortcutTable scope="agent" />
 
+<ShortcutTable scope="model-picker" />
+
 <DocCallout title="Why ⌘ Enter does two things" variant="note">
   Inside a focused prompt with text, <Kbd>⌘</Kbd> <Kbd>↵</Kbd> sends. Outside the prompt it
   maximizes the session. Same combo, different scope — pick whichever feels natural for the moment.
@@ -61,19 +76,35 @@ The scopes you will meet most often:
 <ShortcutTable scope="browser" />
 
 <DocCallout title="Heads up: editor vs terminal" variant="note">
-  Both surfaces use <Kbd>⌘</Kbd> <Kbd>D</Kbd> / <Kbd>⌘</Kbd>{" "}
-  <Kbd>
-    <ShiftIcon />
-  </Kbd>{" "}
-  <Kbd>D</Kbd> for splits, but the directions are intentionally **opposite** — most people want
-  different defaults in each.
+  Both surfaces use <Kbd>⌘</Kbd> <Kbd>D</Kbd> / <Kbd>⌘</Kbd> <Kbd>⇧</Kbd> <Kbd>D</Kbd> for splits,
+  but the directions are intentionally **opposite** — most people want different defaults in each.
+</DocCallout>
+
+<DocCallout title="On Linux" variant="note">
+  <Kbd>Ctrl</Kbd> replaces <Kbd>⌘</Kbd>. Inside the terminal, a plain <Kbd>Ctrl</Kbd> + letter
+  always goes to the shell (<Kbd>Ctrl</Kbd> <Kbd>D</Kbd>, <Kbd>Ctrl</Kbd> <Kbd>W</Kbd>,{" "}
+  <Kbd>Ctrl</Kbd> <Kbd>R</Kbd>…), so terminal actions add a modifier: copy and paste with{" "}
+  <Kbd>Ctrl</Kbd> <Kbd>Shift</Kbd> <Kbd>C</Kbd> / <Kbd>V</Kbd>, split with <Kbd>Ctrl</Kbd>{" "}
+  <Kbd>Shift</Kbd> <Kbd>D</Kbd> / <Kbd>Ctrl</Kbd> <Kbd>Alt</Kbd> <Kbd>D</Kbd>, close a pane with{" "}
+  <Kbd>Ctrl</Kbd> <Kbd>Shift</Kbd> <Kbd>W</Kbd>, clear with <Kbd>Ctrl</Kbd> <Kbd>Alt</Kbd>{" "}
+  <Kbd>K</Kbd>, and delete the line with <Kbd>Ctrl</Kbd> <Kbd>Shift</Kbd> <Kbd>Backspace</Kbd>.
 </DocCallout>
 
 <ShortcutTable scope="unified-agents" heading="Unified agent list" />
 
+## Newer workflows to know
+
+- Use `Alt+Up` / `Alt+Down` for the conversation's user-message navigator.
+- The worktree-behavior cycle skips choices that do not apply to the selected branch.
+- The model-picker scope includes starring a model; the same save binding has other meanings outside that picker.
+- Git navigation includes its current views, diff presentation, staging, and review context. Follow the scope's table rather than assuming every Git action uses a global shortcut.
+- Image viewers provide their own navigation and close controls while open.
+
+Bindings are customizable in the app. These tables list registry defaults and alternate combinations; your saved overrides can differ. `Cmd` on macOS corresponds to the platform's `Ctrl` modifier where applicable.
+
 ## Three habits worth forming
 
-1. **Anchor on three keys**: <Kbd>⌘</Kbd> <Kbd>K</Kbd> for the command palette, <Kbd>⌘</Kbd> <Kbd>/</Kbd> for help, and <Kbd>⌘</Kbd> <Kbd><ShiftIcon /></Kbd> <Kbd>A</Kbd>/<Kbd>E</Kbd>/<Kbd>T</Kbd>/<Kbd>G</Kbd> for the four panes.
+1. **Anchor on three keys**: <Kbd>⌘</Kbd> <Kbd>K</Kbd> for the command palette, <Kbd>⌘</Kbd> <Kbd>/</Kbd> for help, and <Kbd>⌘</Kbd> <Kbd>⇧</Kbd> <Kbd>A</Kbd>/<Kbd>E</Kbd>/<Kbd>T</Kbd>/<Kbd>G</Kbd> for the four panes.
 2. **Move with the keyboard**, not just type with it. <Kbd>⌘</Kbd> <Kbd>⌥</Kbd> + arrows works almost everywhere there is something to move between. In the Browser, <Kbd>⌘</Kbd> <Kbd>L</Kbd> jumps straight to the address bar.
 3. **Use approval keys** when the agent pauses. <Kbd>⌘</Kbd> <Kbd>Y</Kbd> / <Kbd>⌘</Kbd> <Kbd>N</Kbd> / <Kbd>Esc</Kbd> is a much smoother review loop than reaching for the mouse on every prompt.
 

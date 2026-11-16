@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "theme",
+  "source_license": {
+    "declared_spdx": "Apache-2.0",
+    "file": "LICENSE",
+    "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5",
+    "review": "declared-license-file-present-not-legal-attestation"
+  },
+  "source_import": {
+    "recorded_commit": "d2067f1",
+    "recorded_source_baseline": "ba55310",
+    "authority": "historical-local-source-record-not-verified-upstream"
+  },
+  "artwork": {
+    "source_declaration": "original-palettes",
+    "observed_assets": "none-theme-documents-only",
+    "third_party_visual_assets": "none-in-retained-source"
+  },
+  "archive_contract": ["theme.json"],
+  "themes": [
+    {
+      "id": "graphite",
+      "version": "0.1.0",
+      "source": "graphite/theme.json",
+      "sha256": "ec1af0e82fdaacbda8fd7648eafa638fa2e515fb0ca10c449d27c0eb9b2347c5",
+      "archive_sha256": "feb4ba028cbb4abf9014284322d7920ad647e7c26318db586c8a50d9326ceb17",
+      "package_template": "package-templates/graphite.json"
+    },
+    {
+      "id": "ember",
+      "version": "0.1.0",
+      "source": "ember/theme.json",
+      "sha256": "a021721902aba17a5fa8b9156941482cd98b40a3b5c33763f2f3ec9c07aa4079",
+      "archive_sha256": "1cdc169f0c6b037d6117496c9a7c14423b7a3a12147430c124f7ac09f174c05e",
+      "package_template": "package-templates/ember.json"
+    },
+    {
+      "id": "fjord",
+      "version": "0.1.0",
+      "source": "fjord/theme.json",
+      "sha256": "05cd4fb4b1819bdae1a3316c5cb0d398fcefd9813dd30c220468828e7eebe14e",
+      "archive_sha256": "7b9b7cff609f794dc73234e91ddc683ef97b2448718fa413bf4b8b3c9e8f727a",
+      "package_template": "package-templates/fjord.json"
+    }
+  ],
+  "visual_evidence": {
+    "report": "plugins/themes/README.md",
+    "scope": "historical-local-ui-and-persistence-review-not-packaged-electron-or-accessibility-certification"
+  }
+}

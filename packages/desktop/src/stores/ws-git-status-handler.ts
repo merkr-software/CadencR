@@ -9,6 +9,7 @@
  * and never silently no-ops.
  */
 import { toast } from "sonner";
+import { scopedToastDescription } from "@/components/ToastScope";
 import {
   CiState,
   PrState,
@@ -44,10 +45,33 @@ const GIT_CONTENT_INVALIDATION_PREFIXES = [
   "/api/git/has-uncommitted-changes",
 ] as const;
 
+/** History queries: what a commit, push, fetch or reset changes. The graph
+ *  paints each commit's pushed state and the remote-tracking refs, so a push —
+ *  which moves `origin/<branch>` and `ahead_of_remote` but not one file — must
+ *  refetch it too. It re-runs `git log --shortstat` over every loaded page, so
+ *  it is refetched only when a history-bearing field moves, never for the
+ *  working-tree churn of an agent writing files. */
+const GIT_HISTORY_INVALIDATION_PREFIXES = ["/api/git/commit-log", "/api/git/commit-graph"] as const;
+
 const GIT_STATUS_INVALIDATION_PREFIXES = [
   ...GIT_CONTENT_INVALIDATION_PREFIXES,
-  "/api/git/commit-log",
+  ...GIT_HISTORY_INVALIDATION_PREFIXES,
 ] as const;
+
+/** Fields a commit, amend, reset, push, pull or checkout moves. `staged_count`
+ *  is here because a commit consumes the index: an amend that leaves every
+ *  ahead/behind count equal still empties it. */
+function historyMoved(a: GitStatusSnapshot, b: GitStatusSnapshot): boolean {
+  return (
+    a.current_branch !== b.current_branch ||
+    a.staged_count !== b.staged_count ||
+    a.ahead_of_remote !== b.ahead_of_remote ||
+    a.behind_remote !== b.behind_remote ||
+    a.ahead_of_target !== b.ahead_of_target ||
+    a.behind_target !== b.behind_target ||
+    a.operation !== b.operation
+  );
+}
 
 export function handleGitEnvelope(action: string, payload: Record<string, unknown>): void {
   if (action === "pr_status") {
@@ -73,7 +97,12 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
     const error = typeof payload.error === "string" ? payload.error : null;
     if (featureId == null || !error) return;
     useGitStatusStore.getState().setStatusError({ feature_id: featureId, error });
-    toast.error(`Git status error: ${error}`);
+    // Pushed for any watched worktree, not just the one on screen, and again
+    // on every watcher tick while it fails: one toast per feature.
+    toast.error("Git status error", {
+      id: `git-status-error-${featureId}`,
+      description: scopedToastDescription({ featureId }, error),
+    });
     return;
   }
   // Streaming commit lifecycle: drives the commit dialog's terminal pane
@@ -133,6 +162,15 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
     const success = typeof payload.success === "boolean" ? payload.success : null;
     if (featureId == null || success == null) return;
     usePushOutputStore.getState().complete(featureId, success);
+    // The backend broadcasts the post-push status first, so a push that moved
+    // `ahead_of_remote` is already refetching history; join that fetch rather
+    // than restarting it. This call matters when the counts stay put — a first
+    // `-u` push, a force-push — and only the remote-tracking ref moved.
+    if (success) {
+      void invalidateGitQueriesForFeature(featureId, GIT_HISTORY_INVALIDATION_PREFIXES, {
+        cancelRefetch: false,
+      });
+    }
   }
 }
 
@@ -164,7 +202,11 @@ function getGitInvalidationPrefixes(
 ): readonly string[] {
   if (!existing) return [];
   if (existing.computed_at > snapshot.computed_at) return [];
-  if (!gitStatusSnapshotsEqual(existing, snapshot)) return GIT_STATUS_INVALIDATION_PREFIXES;
+  if (!gitStatusSnapshotsEqual(existing, snapshot)) {
+    return historyMoved(existing, snapshot)
+      ? GIT_STATUS_INVALIDATION_PREFIXES
+      : GIT_CONTENT_INVALIDATION_PREFIXES;
+  }
   if (snapshot.computed_at > existing.computed_at) return GIT_CONTENT_INVALIDATION_PREFIXES;
   return [];
 }
@@ -248,15 +290,19 @@ export function resetGitInvalidationSchedulingForTest(): void {
 function invalidateGitQueriesForFeature(
   featureId: number,
   prefixes: readonly string[],
+  options?: { cancelRefetch: boolean },
 ): Promise<void> {
-  return queryClient.invalidateQueries({
-    predicate: (query) => {
-      const head = query.queryKey[0];
-      if (typeof head !== "string") return false;
-      if (!prefixes.some((prefix) => head.startsWith(prefix))) return false;
-      return queryParamsMatchFeature(query.queryKey[1], featureId);
+  return queryClient.invalidateQueries(
+    {
+      predicate: (query) => {
+        const head = query.queryKey[0];
+        if (typeof head !== "string") return false;
+        if (!prefixes.some((prefix) => head.startsWith(prefix))) return false;
+        return queryParamsMatchFeature(query.queryKey[1], featureId);
+      },
     },
-  });
+    options,
+  );
 }
 
 function queryParamsMatchFeature(params: unknown, featureId: number): boolean {

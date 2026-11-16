@@ -9,7 +9,7 @@ import FeatureBrowser from "@/components/FeatureBrowser.astro";
 import FeatureBento from "@/components/FeatureBento.astro";
 import FAQ from "@/components/FAQ.astro";
 import CloserCTA from "@/components/CloserCTA.astro";
-import { DISPLAY_VERSION } from "@/lib/downloads";
+import { DISPLAY_VERSION, LINUX_AVAILABLE } from "@/lib/downloads";
 import { SITE_URL, ORG_REF } from "@/lib/seo";
 import { FAQ_ITEMS } from "@/lib/faq";
 
@@ -24,7 +24,7 @@ const softwareApplication = {
   alternateName: ["Cadencr", "Cadencr IDE"],
   applicationCategory: "DeveloperApplication",
   applicationSubCategory: "IDE",
-  operatingSystem: "macOS",
+  operatingSystem: LINUX_AVAILABLE ? ["macOS", "Linux"] : ["macOS"],
   softwareVersion: DISPLAY_VERSION,
   description,
   url: `${SITE_URL}/`,

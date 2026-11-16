@@ -1,6 +1,6 @@
-import { useRef, useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { FileIcon, FolderIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ComposerPopover, ComposerPopoverOption } from "./composer/ComposerPopover";
 
 interface FileMentionItem {
   path: string;
@@ -8,65 +8,62 @@ interface FileMentionItem {
 }
 
 interface FileMentionPopoverProps {
-  open: boolean;
+  listId: string;
   items: FileMentionItem[];
   selectedIndex: number;
   onSelect: (path: string) => void;
-  onClose: () => void;
-  children: React.ReactNode;
+  maxHeight?: number;
+}
+
+/** `dir/sub/` + `name`, so the name leads and the location stays legible. */
+function splitPath(path: string): { dir: string; name: string } {
+  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  const slash = trimmed.lastIndexOf("/");
+  return slash === -1
+    ? { dir: "", name: trimmed }
+    : { dir: trimmed.slice(0, slash + 1), name: trimmed.slice(slash + 1) };
 }
 
 export function FileMentionPopover({
-  open,
+  listId,
   items,
   selectedIndex,
   onSelect,
-  onClose: _onClose,
-  children,
+  maxHeight,
 }: FileMentionPopoverProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll selected item into view
   useEffect(() => {
-    if (!open || !listRef.current) return;
-    const selected = listRef.current.querySelector("[data-selected='true']");
+    const selected = listRef.current?.querySelector("[data-selected='true']");
     selected?.scrollIntoView({ block: "nearest" });
-  }, [open, selectedIndex]);
+  }, [selectedIndex]);
 
   return (
-    <div className="relative flex min-w-0 flex-1 items-center">
-      {children}
-      {open && items.length > 0 && (
-        <div
-          ref={listRef}
-          className="glass-surface absolute bottom-full left-0 z-50 mb-1 max-h-[300px] w-[400px] overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-lg"
-        >
-          {items.map((item, i) => (
-            <button
-              key={item.path}
-              type="button"
-              data-selected={i === selectedIndex}
-              className={cn(
-                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-                i === selectedIndex
-                  ? "bg-accent text-accent-foreground"
-                  : "text-popover-foreground hover:bg-muted",
-              )}
-              onMouseDown={(e) => {
-                e.preventDefault(); // prevent textarea blur
-                onSelect(item.path);
-              }}
-            >
-              {item.isDir ? (
-                <FolderIcon className="size-3.5 shrink-0 text-blue-400" />
-              ) : (
-                <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span className="truncate">{item.path}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <ComposerPopover ref={listRef} listId={listId} label="Files" maxHeight={maxHeight}>
+      {items.map((item, index) => {
+        const { dir, name } = splitPath(item.path);
+        const Icon = item.isDir ? FolderIcon : FileIcon;
+        return (
+          <ComposerPopoverOption
+            key={item.path}
+            listId={listId}
+            index={index}
+            selected={index === selectedIndex}
+            title={item.path}
+            onSelect={() => onSelect(item.path)}
+          >
+            <Icon className="size-3.5 shrink-0 text-[var(--acc-cyan)]" />
+            <span className="shrink-0 font-medium">
+              {name}
+              {item.isDir ? "/" : ""}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" dir="rtl">
+              {/* rtl truncation keeps the deepest folders visible */}
+              <bdi>{dir}</bdi>
+            </span>
+          </ComposerPopoverOption>
+        );
+      })}
+    </ComposerPopover>
   );
 }

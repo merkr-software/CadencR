@@ -1,4 +1,5 @@
 import type { BrowserWindow, WebContents } from "electron";
+import { reclaimRendererFocus } from "./browser-manager-utils";
 
 // How long after an agent browser action we keep reclaiming renderer focus.
 // sendInputEvent-driven focus (click/type/keypress) lands a tick *after* the
@@ -51,7 +52,6 @@ export class BrowserFocusGuard {
   }
 
   private reclaim(): void {
-    const win = this.getMainWindow();
-    if (win && !win.isDestroyed() && !win.webContents.isFocused()) win.webContents.focus();
+    reclaimRendererFocus(this.getMainWindow());
   }
 }

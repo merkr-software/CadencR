@@ -4,23 +4,34 @@
 //! helpers, and the glob re-exports the tests reach for) lives in
 //! [`support`]. The remaining files group the tests by responsibility.
 
-pub(in crate::domain::ws_session::handler) mod support;
+pub(in crate::domain::ws_session) mod support;
 
+pub(in crate::domain::ws_session) mod cell_lock_probe;
 mod reader_spawn;
+mod runtime_ownership;
 
 mod app;
 mod bidirectional_controls;
 mod codex_provider;
 mod dispatch;
+mod file_watcher;
+mod followup_stop;
 mod gate;
+mod gate_cancellation;
 mod init;
 mod model_effort;
+mod nonblocking_gate;
 mod permission;
 mod permission_mode;
 mod profile;
 mod prompt;
+mod prompt_launch;
 mod provider;
+mod restored_plan;
+mod stale_model;
 mod stream_reader;
 mod stream_reader_background_agents;
+mod stream_reader_background_tasks;
 mod stream_reader_interruption;
 mod stream_reader_mcp;
+mod stream_reader_subagents;

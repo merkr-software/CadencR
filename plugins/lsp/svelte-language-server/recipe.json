@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "svelte-language-server",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "Svelte language server",
+  "description": "Svelte language server using pinned complete upstream npm distributions.",
+  "license": "Apache-2.0 AND MIT",
+  "upstream": {
+    "name": "svelte-language-server",
+    "version": "0.18.6",
+    "url": "https://registry.npmjs.org/svelte-language-server/-/svelte-language-server-0.18.6.tgz"
+  },
+  "runtime": "node",
+  "entry": "adapter/adapter.mjs",
+  "args": [],
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "svelte",
+      "extensions": [
+        "svelte"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "svelte.config.js",
+    "svelte.config.ts",
+    "tsconfig.json",
+    "jsconfig.json",
+    "package.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "20.0.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0"
+  },
+  "setup_requirements": [
+    "Includes TypeScript 6.0.3 and complete declared dependencies. Project Svelte/configuration can override bundled defaults."
+  ],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 2787,
+  "source_expanded_bytes": 56073336,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "upstream_entry": "node_modules/svelte-language-server/bin/server.js",
+  "upstream_args": [
+    "--stdio"
+  ],
+  "local_overlay": {
+    "path": "plugins/lsp/svelte-language-server/adapter",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "files": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.txt",
+      "adapter.mjs",
+      "config.json",
+      "framing.mjs",
+      "license-audit.json"
+    ],
+    "kind": "adapter-and-third-party-notices"
+  },
+  "license_audit": {
+    "path": "plugins/lsp/svelte-language-server/adapter/license-audit.json",
+    "metadata_only_packages": [
+      "is-reference@3.0.3",
+      "locate-character@3.0.0"
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+name: Watch marketplace metadata expiry
+
+# Read-only and secret-free. Downloads the public catalog and revocation
+# policies, and FAILS when any is expired, unreadable, unverifiable or has 72
+# hours or less of validity left, so GitHub's failed-run notification alerts the
+# owner. It is inert until the repository variables in OPERATIONS.md are set.
+on:
+  schedule:
+    # Daily, UTC.
+    - cron: "43 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check watch configuration
+        id: gate
+        env:
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+        run: sh scripts/ci/registry-feeds.sh gate watch
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.gate.outputs.configured == 'true'
+        with:
+          node-version: 22.19.0
+      - name: Select verified released CLI
+        id: runtime
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          CLI_ROOT: ${{ runner.temp }}/marketplace-released-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+      - name: Download public catalog and policies
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+        run: sh scripts/ci/registry-feeds.sh fetch "$RUNNER_TEMP/marketplace-expiry-snapshot" all
+      - name: Check expiry and signatures
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+          KEY_DIR: ${{ runner.temp }}/marketplace-expiry-key
+          VERIFIED_CLI: ${{ steps.runtime.outputs.cli_file }}
+        run: sh scripts/ci/registry-feeds.sh check-expiry "$RUNNER_TEMP/marketplace-expiry-snapshot"

@@ -1,20 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
+import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { SidebarProviderBadge } from "./SidebarProviderBadge";
 
 vi.mock("@/components/ShortcutTooltip", () => ({
   ShortcutTooltip: ({ children }: { children: unknown }) => children,
 }));
-const preferences = vi.hoisted(() => ({ visible: true }));
-vi.mock("@/components/SidebarPreferences", () => ({
-  useSidebarProviderLogos: () => preferences.visible,
-}));
 
 describe("SidebarProviderBadge", () => {
   beforeEach(() => {
     setProviderCatalogMetadata([]);
-    preferences.visible = true;
+    useSidebarConfigStore.setState({ config: DEFAULT_SIDEBAR_CONFIG });
   });
 
   it("uses connector-owned artwork without status tint or animation", () => {
@@ -55,7 +53,6 @@ describe("SidebarProviderBadge", () => {
   it.each([
     ["claude_code", 56],
     ["codex_cli", 43],
-    ["cursor", 56],
     ["opencode", 46],
   ])("normalizes %s to the same longest ink edge", (provider, inkEdge) => {
     render(<SidebarProviderBadge providerId={String(provider)} />);
@@ -64,7 +61,9 @@ describe("SidebarProviderBadge", () => {
   });
 
   it("hides branding when disabled", () => {
-    preferences.visible = false;
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, provider: "hidden" },
+    });
     render(<SidebarProviderBadge providerId="codex_cli" />);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });

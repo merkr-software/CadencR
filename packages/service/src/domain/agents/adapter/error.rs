@@ -26,6 +26,13 @@ pub enum RuntimeError {
     /// been accepted by Cadencr. The host can clear compact-specific UI state
     /// without treating unrelated steering failures as compact failures.
     CompactFailed(String),
+    /// The runtime ignored a Stop and was terminated to end the turn. Shown
+    /// even though the user asked for the stop: the process (and the state
+    /// it held) was lost, which a normal stop never does.
+    StopEscalated(String),
+    /// A follow-up waited for the running turn and a Stop ended that turn
+    /// first: the runtime dropped it rather than start a turn of its own.
+    InputWithdrawn(String),
 }
 
 impl Display for RuntimeError {
@@ -42,7 +49,9 @@ impl Display for RuntimeError {
             Self::ControlRequestRejected { subtype, message } => {
                 write!(f, "CLI rejected control request `{subtype}`: {message}")
             }
-            Self::CompactFailed(message) => f.write_str(message),
+            Self::CompactFailed(message)
+            | Self::StopEscalated(message)
+            | Self::InputWithdrawn(message) => f.write_str(message),
         }
     }
 }
@@ -56,6 +65,22 @@ impl RuntimeError {
 
     pub fn compact_failed(message: impl Into<String>) -> Self {
         Self::CompactFailed(message.into())
+    }
+
+    pub fn stop_escalated(message: impl Into<String>) -> Self {
+        Self::StopEscalated(message.into())
+    }
+
+    pub fn is_stop_escalation(&self) -> bool {
+        matches!(self, Self::StopEscalated(_))
+    }
+
+    pub fn input_withdrawn(message: impl Into<String>) -> Self {
+        Self::InputWithdrawn(message.into())
+    }
+
+    pub fn is_input_withdrawn(&self) -> bool {
+        matches!(self, Self::InputWithdrawn(_))
     }
 
     /// Build a structured "CLI not found" error so the host can surface an

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
-import { Circle } from "lucide-react";
+import { ArrowUp, Check } from "lucide-react";
 import { HoverCard } from "radix-ui";
-import { cn } from "@/lib/utils";
 
 export interface CommitEntry {
   sha: string;
@@ -49,32 +48,45 @@ function formatAbsoluteDate(dateStr: string): string {
 function CommitHoverContent({ commit }: { commit: CommitEntry }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-start gap-1.5">
-        <Circle
-          className={cn(
-            "mt-0.5 h-2.5 w-2.5 shrink-0",
-            commit.isPushed
-              ? "fill-[var(--numstat-add-fg)] text-[var(--numstat-add-fg)]"
-              : "fill-[var(--acc-orange)] text-[var(--acc-orange)]",
-          )}
-        />
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
-          <span className="shrink-0 font-mono text-xs text-primary">{commit.shortSha}</span>
-          <span className="text-xs font-medium text-foreground">{commit.message}</span>
-        </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-foreground">{commit.message}</span>
+        <span className="font-mono text-[11px] text-muted-foreground">{commit.shortSha}</span>
       </div>
-      <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
+      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span>{commit.author}</span>
         <span>
           {formatRelativeDate(commit.date)} · {formatAbsoluteDate(commit.date)}
         </span>
       </div>
+      <PushState isPushed={commit.isPushed} />
       {commit.body && (
-        <p className="whitespace-pre-wrap border-t border-border pt-2 text-[10px] text-muted-foreground">
+        <p className="whitespace-pre-wrap border-t border-border pt-2 text-[11px] text-muted-foreground">
           {commit.body}
         </p>
       )}
     </div>
+  );
+}
+
+/** Local-only work, in the orange "local" tone shared by graph rows and their
+ *  hover card. */
+export function NotPushedLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--acc-orange)]">
+      <ArrowUp className="size-3" aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+function PushState({ isPushed }: { isPushed: boolean }) {
+  return isPushed ? (
+    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+      <Check className="size-3" aria-hidden />
+      Pushed
+    </span>
+  ) : (
+    <NotPushedLabel>Not pushed — only on your machine</NotPushedLabel>
   );
 }
 

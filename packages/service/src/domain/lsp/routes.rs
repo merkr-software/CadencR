@@ -23,7 +23,8 @@ use crate::error::AppError;
 use crate::remote::RemoteContext;
 
 use super::lifecycle::CrashKey;
-use super::probe::{probe_servers, ServerProbe};
+use super::managed;
+use super::probe::ServerProbe;
 use super::proxy::run_proxy;
 use super::registry::SessionSpec;
 use super::root::lsp_root_handler;
@@ -38,6 +39,23 @@ pub fn lsp_router() -> Router<AppState> {
         )
         .route("/api/lsp/servers", get(list_servers_handler))
         .route("/api/lsp/root", get(lsp_root_handler))
+        .route(
+            "/api/lsp/catalog",
+            get(super::marketplace_routes::catalog_handler),
+        )
+        .route(
+            "/api/lsp/install",
+            post(super::marketplace_routes::install_handler),
+        )
+        .route(
+            "/api/lsp/update",
+            post(super::marketplace_routes::update_handler),
+        )
+        .route(
+            "/api/lsp/remove",
+            post(super::marketplace_routes::remove_handler),
+        )
+        .route("/api/lsp/resolve", get(super::selection::resolve_handler))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -54,10 +72,10 @@ pub struct ListServersResponse {
         (status = 200, body = ListServersResponse),
     )
 )]
-pub async fn list_servers_handler() -> Json<ListServersResponse> {
-    Json(ListServersResponse {
-        servers: probe_servers().await.as_ref().clone(),
-    })
+pub async fn list_servers_handler() -> Result<Json<ListServersResponse>, AppError> {
+    Ok(Json(ListServersResponse {
+        servers: managed::inventory().await?,
+    }))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -81,6 +99,7 @@ pub struct OpenLspSessionResponse {
     /// Opaque single-use id. Connect within 30 s by upgrading
     /// `GET /api/lsp/sessions/{session_id}/connect` to WebSocket.
     pub session_id: String,
+    pub initialization_options: serde_json::Value,
 }
 
 #[utoipa::path(
@@ -130,13 +149,12 @@ pub async fn open_session_handler(
         return Ok(retry_after_response(secs, &req.language_id));
     }
 
-    // Do the full binary discovery (and, if necessary, the on-demand
-    // download) at reservation time. The WS upgrade later can't surface
+    // Resolve and verify the installed revision at reservation time. The WS upgrade later can't surface
     // an informative error to the browser — a non-101 status appears as a
     // bare `error` event with no body — so we have to fail visibly here
     // while we can still return JSON. Renderer reads `.error` and toasts.
-    let server = match &req.lsp_id {
-        Some(lsp_id) => resolve_server_by_id(lsp_id).await?,
+    let (server, metadata) = match &req.lsp_id {
+        Some(lsp_id) => resolve_server_by_id(lsp_id, &req.language_id).await?,
         None => resolve_server(&req.language_id).await?,
     };
     let session_id = state
@@ -149,7 +167,11 @@ pub async fn open_session_handler(
             server,
         })
         .await;
-    Ok(Json(OpenLspSessionResponse { session_id }).into_response())
+    Ok(Json(OpenLspSessionResponse {
+        session_id,
+        initialization_options: metadata.initialization_options,
+    })
+    .into_response())
 }
 
 /// Build a 503 carrying both a JSON error (for the toast) and a `Retry-After`
@@ -204,9 +226,10 @@ pub async fn connect_handler(
         .into_response();
     }
 
-    // Binary was already resolved (and downloaded if needed) at POST time;
-    // here we just spawn it. If the binary went missing between POST and
-    // WS upgrade (unlikely — < 30s window) the spawn returns Internal.
+    // Recheck the reserved revision and cached policy immediately before launch.
+    if let Err(error) = super::spawn::revalidate(&spec.server).await {
+        return error.into_response();
+    }
     let child = match spawn_server(&spec.server, &spec.workspace_root) {
         Ok(c) => c,
         Err(err) => {
@@ -215,11 +238,28 @@ pub async fn connect_handler(
         }
     };
 
-    let ws = ws.protocols([selected_proto]);
+    let runtime_root = match spec.server.managed_revision.as_ref() {
+        Some(proof) => {
+            match super::managed::storage::revision(&proof.root, &proof.id, &proof.pointer) {
+                Ok(root) => Some(root),
+                Err(error) => return error.into_response(),
+            }
+        }
+        None => None,
+    };
+    let ws = ws.protocols(selected_proto);
     let display_name = spec.server.display_name.clone();
     let crash_tracker = state.lsp_crashes.clone();
     let live = state.remote.live();
     ws.on_upgrade(move |socket| async move {
+        let proxy = run_proxy()
+            .ws(socket)
+            .child(child)
+            .display_name(&display_name)
+            .crash_tracker(crash_tracker)
+            .crash_key(crash_key)
+            .maybe_runtime_root(runtime_root)
+            .call();
         match device_id {
             // Remote session: race the proxy against the device's cancel token so
             // revoking the device force-closes the LSP socket immediately, like
@@ -229,13 +269,13 @@ pub async fn connect_handler(
                 // event is the main WS's job, so ignore the first-socket flag.
                 let (guard, _) = live.register(id);
                 tokio::select! {
-                    _ = run_proxy(socket, child, &display_name, crash_tracker, crash_key) => {}
+                    _ = proxy => {}
                     _ = guard.token.cancelled() => {
                         tracing::debug!(device_id = id, "remote LSP force-closed (device revoked)");
                     }
                 }
             }
-            None => run_proxy(socket, child, &display_name, crash_tracker, crash_key).await,
+            None => proxy.await,
         }
     })
     .into_response()
@@ -278,7 +318,7 @@ mod tests {
     async fn open_rejects_unknown_language() {
         let body = r#"{"workspace_root":"/tmp","language_id":"brainfuck"}"#;
         let resp = app().await.oneshot(post_open(body)).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -304,7 +344,7 @@ mod tests {
         } else {
             let msg = parsed["error"].as_str().expect("error string");
             assert!(
-                msg.contains("gopls"),
+                msg.contains("go"),
                 "404 body should name the missing binary, got {msg}"
             );
         }

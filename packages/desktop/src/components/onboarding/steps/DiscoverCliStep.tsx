@@ -77,7 +77,6 @@ export function DiscoverCliStep({
 
       <OnboardingFooter
         primaryLabel="Continue"
-        onPrimary={onAdvance}
         primaryDisabled={isPersisting}
         onBack={onBack}
         onSkipStep={onSkipStep}

@@ -47,9 +47,7 @@ async fn run_auto_rename(
     )
     .await;
     if title.is_none() {
-        return Err(AppError::Internal(
-            "failed to auto-rename feature".to_string(),
-        ));
+        return Err(AppError::internal("failed to auto-rename feature"));
     }
 
     Ok(Json(SuccessResponse { success: true }))

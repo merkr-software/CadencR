@@ -26,7 +26,7 @@ export function PrCommentsFilterToggle({
     <div
       role="group"
       aria-label="Filter review threads"
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-card/70 p-0.5"
     >
       <FilterButton
         active={value === "unresolved"}
@@ -64,7 +64,12 @@ function FilterButton({
       onClick={onClick}
       className={cn(
         "px-2 text-[11px] font-medium",
-        active ? "bg-accent text-foreground" : "text-muted-foreground",
+        // The Git view toggle's grammar: a raised thumb in a recessed track.
+        // An `--accent` fill was one step off the track in the dark theme and
+        // invisible in the light one, so the active filter went unread.
+        active
+          ? "bg-background text-foreground shadow-xs ring-1 ring-border/70 hover:bg-background"
+          : "text-muted-foreground",
       )}
     >
       {label} <span className="tabular-nums opacity-70">{count}</span>

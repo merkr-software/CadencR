@@ -1,0 +1,185 @@
+name: Release a package to npm
+
+# Manual release of the independently versioned custom-tab packages. They
+# have their own semver, unrelated to the Cadencr app version, and are never
+# bumped by an app release. Bump the package's `version` in its package.json by
+# hand in a normal PR first (for tab-sdk, `SDK_VERSION` in src/version.ts too),
+# then run this from main once it has landed; it refuses a version that is
+# already on npm.
+#
+# Publishing uses the `NPM_TOKEN` secret of the `npm` environment, whose
+# required reviewers gate every real publish. After a package's first
+# publish, npm trusted publishing (OIDC) can replace the long-lived token.
+#
+# The check job builds, tests and packs the tarball; the publish job uploads
+# that exact tarball with provenance, without installing or building anything
+# while the token is set. Both jobs use the run's `github.sha`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to release
+        required: true
+        type: choice
+        options:
+          - tab-sdk
+          - tab-kit
+      dry_run:
+        description: Build, test and pack only, without uploading or tagging
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ inputs.package }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_DIR: packages/${{ inputs.package }}
+  PACKAGE_NAME: "@cadencr/${{ inputs.package }}"
+  TARBALL: cadencr-${{ inputs.package }}.tgz
+
+jobs:
+  check:
+    name: Test and pack @cadencr/${{ inputs.package }}
+    if: github.repository == 'merkr-software/CadencR'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      pnpm_config_verify_deps_before_run: "false"
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      - name: Read the package version
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version "$PACKAGE_DIR/package.json")
+          echo "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' \
+            || { echo "::error::cannot read a semver version for $PACKAGE_NAME (got '$version')"; exit 1; }
+          if [ "${{ inputs.package }}" = "tab-sdk" ]; then
+            grep -Fq "SDK_VERSION = \"$version\"" packages/tab-sdk/src/version.ts \
+              || { echo "::error::SDK_VERSION in packages/tab-sdk/src/version.ts is not $version"; exit 1; }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "$PACKAGE_NAME $version"
+
+      - name: Refuse a version already on npm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            "https://registry.npmjs.org/@cadencr%2F${{ inputs.package }}/$VERSION")
+          case "$status" in
+            404) echo "$PACKAGE_NAME $VERSION is not published yet" ;;
+            200) echo "::error::$PACKAGE_NAME $VERSION is already on npm; bump the version first"; exit 1 ;;
+            # Anything else is not a definitive answer: fail closed.
+            *) echo "::error::the npm registry answered HTTP $status"; exit 1 ;;
+          esac
+
+      - name: Install the tab packages' dependencies
+        run: pnpm install --frozen-lockfile --filter @cadencr/tab-sdk --filter @cadencr/tab-kit
+
+      # Build first, as turbo does in CI: tab-kit's example and tests import
+      # the built package (`exports` → dist/), never its sources.
+      - name: Check
+        run: |
+          set -euo pipefail
+          for script in build ts-check lint format:check test; do
+            pnpm --filter "$PACKAGE_NAME" run "$script"
+          done
+
+      # Builds and packs both packages, and checks each tarball installs
+      # standalone (no workspace: specifiers, exports present in dist/).
+      - name: Build, pack and verify the tarball
+        run: node scripts/vendor-tab-packages.mjs
+
+      # actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: npm-${{ inputs.package }}
+          path: packages/service/resources/plugin-tabs/vendor/${{ env.TARBALL }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish @cadencr/${{ inputs.package }} ${{ needs.check.outputs.version }}
+    needs: check
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      # To create the release tag.
+      contents: write
+      # For the npm provenance attestation.
+      id-token: write
+    steps:
+      # actions/checkout@v7.0.1 — `.nvmrc` alone, for setup-node: nothing
+      # from the source runs here, only the checked tarball is uploaded.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      # actions/download-artifact@v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: npm-${{ inputs.package }}
+
+      - name: Refuse an existing release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.package }}-v${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          # An API error other than a definitive 404 must fail closed.
+          if status=$(gh api --include "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2>&1); then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+          printf '%s\n' "$status" | grep -q 'HTTP 404' || { printf '%s\n' "$status"; exit 1; }
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "./$TARBALL" --provenance --access public
+
+      - name: Tag the published source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.package }}-v${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$GITHUB_SHA"
+          echo "Published $PACKAGE_NAME and tagged $TAG at $GITHUB_SHA"

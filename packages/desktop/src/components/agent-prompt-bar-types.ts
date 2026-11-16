@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import type { SlashCommand } from "@/lib/slash-command";
+import type { SessionInfoPanelProps } from "./agent-session/SessionInfoChip";
 import type { PromptCommandPolicy } from "@/lib/prompt-command-policy";
 import type { WorktreeMode } from "@/lib/worktree-mode";
-import type { LiveAgentStatus } from "@/types/agent";
+import type { ContextUsageState, LiveAgentStatus } from "@/types/agent";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
 import type { PermissionMode } from "@/types/permission-mode";
-import type { AgentQuestion, AgentQuestionAnswers } from "./AgentQuestionDrawer";
-import type { PendingPermission, PermissionDecisionValue } from "./ToolPermissionPrompt";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
+import type { PendingPermission, PermissionDecisionValue } from "@/types/agent-permission";
 
 export interface ReferencedWorktreeSelection {
   mode: WorktreeMode;
@@ -44,6 +45,7 @@ export interface AgentPromptBarProps {
   splitSendActions?: SplitSendAction[];
   disabled?: boolean;
   pendingQuestions?: AgentQuestion[];
+  pendingQuestionRequestId?: string;
   onQuestionResponse?: (response: AgentQuestionAnswers) => void;
   disableShortcuts?: boolean;
   onCollapse?: () => void;
@@ -66,9 +68,40 @@ export interface AgentPromptBarProps {
   providerId?: string;
   onToggleMaximize?: () => void;
   noTopPadding?: boolean;
+  /** No turn has been sent yet in this conversation. */
+  isFirstPrompt?: boolean;
+  /**
+   * The provider delivers a mid-turn prompt into the running turn. When false,
+   * Enter while the agent works queues instead of steering. Default true.
+   */
+  steeringAcknowledged?: boolean;
+  /** Session details (provider, MCP servers, ids, resume) for the composer's menu. */
+  sessionInfo?: SessionInfoPanelProps;
+  /**
+   * Session utilities (the todo list) rendered just before the composer's
+   * own menus in the instrument row.
+   */
+  instrumentTrailing?: ReactNode;
+  /** Opens the instrument row (auto-scroll), set off by a hairline. */
+  instrumentStart?: ReactNode;
+  /** Context-window usage for the instrument row's meter. */
+  contextUsage?: ContextUsageState | null;
+  /** First-prompt launch line (where the agent will work), shown atop the card. */
+  launchManifest?: ReactNode;
+  /** Side questions asked from this conversation, a section of the card's stack. */
+  sideConversations?: ReactNode;
+  /** This conversation's armed schedules, a section of the card's stack. */
+  schedules?: ReactNode;
+  /**
+   * Session controls (mode, model/effort…) rendered at the start of the
+   * composer card's instrument row, supplied by the session embedder.
+   */
+  instrumentLeading?: ReactNode;
   slashCommandsOverride?: SlashCommand[];
   promptCommandPolicy?: PromptCommandPolicy;
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   pendingPermission?: PendingPermission | null;
   /**
    * Pre-first-prompt selection state used to offer the live worktree of a

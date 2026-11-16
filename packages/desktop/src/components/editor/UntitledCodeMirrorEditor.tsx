@@ -33,11 +33,13 @@ export default function UntitledCodeMirrorEditor({
   const viewRef = useRef<EditorView | null>(null);
 
   const setCursorPosition = useEditorStore((s) => s.setCursorPosition);
+  // The tab can disappear before this subscriber unmounts. Keep the snapshot
+  // stable then: allocating a fallback inside the selector loops in React (#185).
   const cursorPosition = useEditorStore(
     (s) =>
       s.features[featureId]?.panes[paneId]?.tabs.find((t) => t.filePath === filePath)
-        ?.cursorPosition ?? { line: 1, col: 1 },
-  );
+        ?.cursorPosition,
+  ) ?? { line: 1, col: 1 };
   const suggestedName = useEditorStore(
     (s) =>
       s.features[featureId]?.panes[paneId]?.tabs.find((t) => t.filePath === filePath)?.fileName ??

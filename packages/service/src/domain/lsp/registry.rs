@@ -107,6 +107,7 @@ mod tests {
                 command: PathBuf::from("/usr/bin/true"),
                 args: vec![],
                 display_name: "stub".into(),
+                managed_revision: None,
             },
         }
     }

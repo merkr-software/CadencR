@@ -13,16 +13,21 @@ import {
   type RuntimeProviderAccessModeOption,
   type RuntimeProviderModeOption,
 } from "@/api/agentRuntime";
-import { useGetProjectSettings, useSetProjectSetting } from "@/api/generated";
+import {
+  getGetProjectSettingsQueryKey,
+  useGetProjectSettings,
+  useSetProjectSetting,
+} from "@/api/generated";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { useResolvedModelContext } from "@/contexts/ResolvedModelContext";
-import type { useResolvedModel } from "@/hooks/useResolvedModel";
 import { useWebSocketSession } from "@/hooks/useWebSocketSession";
 import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
 import {
   DEFAULT_WORKTREE_MODE_KEY,
   defaultWorktreeModeFromSettings,
+  defaultWorktreeModeMutationKey,
 } from "@/lib/default-worktree-mode";
 import {
   defaultWorktreeMode,
@@ -35,6 +40,7 @@ import type { AccessMode } from "@/types/access-mode";
 import { useAccessModeSetting } from "@/hooks/useAccessModeSetting";
 import {
   EMPTY_PROVIDER_MODES,
+  usePermissionModeSet,
   usePermissionModeToggle,
 } from "@/components/WebSocketSessionPermissionMode";
 import type { ClaudeProfileSelection } from "@/components/agent-session/useClaudeProfileSelection";
@@ -52,16 +58,21 @@ interface RuntimeSelectionControls {
   agentCatalog: ReturnType<typeof useAgentCatalog>;
   resolvedProviderId: string;
   resolvedModelId: string;
-  resolvedThinkingEffort: string | undefined;
   activeProviderId: string;
   supportedThinkingEfforts: ReturnType<typeof supportedThinkingEffortLevels>;
   enabledOptInModes: PermissionMode[];
   providerModes: readonly RuntimeProviderModeOption[];
   providerAccessModes: readonly RuntimeProviderAccessModeOption[];
-  resolveModelThinkingEffort: ReturnType<typeof useResolvedModel>["resolveModelThinkingEffort"];
+  /** Whether the session's model can hold an `auto`-risk mode (unknown: undefined). */
+  modelSupportsAutoMode: boolean | undefined;
+  /** Mid-turn prompts reach the running turn and are acknowledged. */
+  steeringAcknowledged: boolean;
+  /** `/compact` is a session action Cadencr performs (catalog `compact_action`). */
+  compactAction: boolean;
 }
 
 interface AccessControls {
+  ws: WsSession;
   accessMode: AccessMode;
   accessModeDefault: AccessMode;
   isAccessModePending: boolean;
@@ -70,11 +81,11 @@ interface AccessControls {
 
 export interface SessionControls
   extends WorktreePreferenceControls, RuntimeSelectionControls, AccessControls {
-  ws: WsSession;
   selectedBranch: string | null;
   setSelectedBranch: Dispatch<SetStateAction<string | null>>;
   initializedRef: RefObject<string | null>;
   handlePermissionModeToggle: () => void;
+  handlePermissionModeSet: (mode: PermissionMode) => void;
   claudeProfile: ClaudeProfileSelection;
   supportsProfiles: boolean;
   supportsConfigInheritance: boolean;
@@ -82,11 +93,16 @@ export interface SessionControls
 }
 
 function useWorktreePreference(projectId: number): WorktreePreferenceControls {
-  const [worktreeMode, setWorktreeModeState] = useState<WorktreeMode>("on_branch");
+  // Isolation is the default: until the project's saved preference loads (or
+  // when it has none), a new conversation works in its own worktree.
+  const [worktreeMode, setWorktreeModeState] = useState<WorktreeMode>("from_branch_worktree");
   const seededProjectRef = useRef<number | null>(null);
   const { data: projectSettingsData } = useGetProjectSettings(projectId);
-  const setProjectSetting = useSetProjectSetting();
-  const projectDefault = defaultWorktreeModeFromSettings(projectSettingsData, "skip");
+  const queryClient = useQueryClient();
+  const setProjectSetting = useSetProjectSetting({
+    mutation: { mutationKey: defaultWorktreeModeMutationKey(projectId) },
+  });
+  const projectDefault = defaultWorktreeModeFromSettings(projectSettingsData, "new");
   // Seed the picker from the project's saved default once settings load — once
   // per project so a later settle doesn't clobber an explicit choice.
   useEffect(() => {
@@ -98,20 +114,33 @@ function useWorktreePreference(projectId: number): WorktreePreferenceControls {
   }, [projectDefault, projectId, projectSettingsData]);
   const setWorktreeMode = useCallback(
     (next: WorktreeMode): void => {
-      setWorktreeModeState(next);
-      // Persist the project default only for the two modes that map cleanly to
-      // it; branch-specific modes (reuse / from_branch) leave it untouched. A
-      // failed save still keeps the local pick for this session.
+      // Only the two modes that map to the project default are a setting;
+      // branch-specific ones (reuse / from_branch) are this conversation's own
+      // pick, as is a mode whose default the backend already holds.
       const nextDefault = worktreeModeToProjectDefault(next);
-      if (nextDefault == null || nextDefault === projectDefault) return;
+      if (nextDefault == null || nextDefault === projectDefault) {
+        setWorktreeModeState(next);
+        return;
+      }
+      // The picker shows its saving state meanwhile (`useIsMutating` on the key).
+      if (setProjectSetting.isPending) return;
       setProjectSetting.mutate(
         { id: projectId, data: { key: DEFAULT_WORKTREE_MODE_KEY, value: nextDefault } },
         {
-          onError: (err) => toast.error(apiErrorMessage(err, "Failed to save worktree preference")),
+          onSuccess: () => {
+            setWorktreeModeState(next);
+            void queryClient.invalidateQueries({
+              queryKey: getGetProjectSettingsQueryKey(projectId),
+            });
+          },
+          onError: (err) =>
+            toast.error(
+              `Could not save the project's worktree default: ${apiErrorMessage(err, "Unknown error")}`,
+            ),
         },
       );
     },
-    [projectDefault, projectId, setProjectSetting],
+    [projectDefault, projectId, queryClient, setProjectSetting],
   );
   return useMemo(() => ({ worktreeMode, setWorktreeMode }), [setWorktreeMode, worktreeMode]);
 }
@@ -123,7 +152,7 @@ function useRuntimeSelection(
   catalogClaudeProfile: string | undefined,
   resolvedProviderId: string,
 ): RuntimeSelectionControls {
-  const { resolveModel, resolveModelThinkingEffort } = useResolvedModelContext();
+  const { resolveModel } = useResolvedModelContext();
   const activeProviderId = ws.currentSelection?.providerId ?? resolvedProviderId;
   const agentCatalog = useAgentCatalog({
     cwd: effectiveCwd,
@@ -133,7 +162,6 @@ function useRuntimeSelection(
     staleTime: 30_000,
   });
   const resolvedModelId = resolveModel("session");
-  const resolvedThinkingEffort = resolveModelThinkingEffort(resolvedProviderId, resolvedModelId);
   // `currentSelection` is the backend-confirmed pair; before it arrives, fall
   // back to the client-resolved provider so pre-connection UI (Claude profile
   // selector, catalog probe) isn't blocked on a round trip.
@@ -149,29 +177,35 @@ function useRuntimeSelection(
   const enabledOptInModes = useEnabledOptInModes(activeProviderId);
   const providerModes = activeProvider?.modes ?? EMPTY_PROVIDER_MODES;
   const providerAccessModes = activeProvider?.access_modes ?? EMPTY_PROVIDER_ACCESS_MODES;
+  const modelSupportsAutoMode = activeSessionModel?.supports_auto_mode ?? undefined;
+  // Unknown (catalog still loading) keeps today's behavior: Enter steers.
+  const steeringAcknowledged = !ws.isCompacting && (activeProvider?.steering_acknowledged ?? true);
+  const compactAction = activeProvider?.compact_action ?? false;
   return useMemo(
     () => ({
+      modelSupportsAutoMode,
+      steeringAcknowledged,
+      compactAction,
       agentCatalog,
       resolvedProviderId,
       resolvedModelId,
-      resolvedThinkingEffort,
       activeProviderId,
       supportedThinkingEfforts,
       enabledOptInModes,
       providerModes,
       providerAccessModes,
-      resolveModelThinkingEffort,
     }),
     [
       activeProviderId,
       agentCatalog,
+      compactAction,
       enabledOptInModes,
+      modelSupportsAutoMode,
+      steeringAcknowledged,
       providerModes,
       providerAccessModes,
-      resolveModelThinkingEffort,
       resolvedModelId,
       resolvedProviderId,
-      resolvedThinkingEffort,
       supportedThinkingEfforts,
     ],
   );
@@ -180,26 +214,52 @@ function useRuntimeSelection(
 function useAccessControls(ws: WsSession, providerId: string): AccessControls {
   const {
     globalAccessMode,
-    isPending: isAccessModePending,
+    isPending,
+    isLoading,
+    isError,
+    providerLabel,
     handleAccessModeChange: handleGlobalAccessModeChange,
   } = useAccessModeSetting(providerId);
   const hasStartedConversation = ws.blocks.length > 0 || ws.runtimeSessionId !== "";
-  const accessMode = hasStartedConversation ? ws.accessMode : globalAccessMode;
+  const followsDefault = !!providerLabel && !hasStartedConversation;
+  const defaultReady = followsDefault && !isError && !isLoading && !isPending;
+  const { accessMode: sessionAccessMode, setAccessMode } = ws;
+  const accessMode = defaultReady ? globalAccessMode : sessionAccessMode;
+  const isAccessModePending = isPending || (followsDefault && isLoading);
+  const promptWs = useFirstPromptAccessMode(ws, defaultReady ? accessMode : null);
   const handleAccessModeChange = useCallback(
     (mode: AccessMode): void => {
-      if (mode !== accessMode) ws.setAccessMode(mode);
+      if (mode !== sessionAccessMode) setAccessMode(mode);
       if (mode !== globalAccessMode) handleGlobalAccessModeChange(mode);
     },
-    [accessMode, globalAccessMode, handleGlobalAccessModeChange, ws],
+    [globalAccessMode, handleGlobalAccessModeChange, sessionAccessMode, setAccessMode],
   );
   return useMemo(
     () => ({
+      ws: promptWs,
       accessMode,
       accessModeDefault: globalAccessMode,
       isAccessModePending,
       handleAccessModeChange,
     }),
-    [accessMode, globalAccessMode, handleAccessModeChange, isAccessModePending],
+    [accessMode, globalAccessMode, handleAccessModeChange, isAccessModePending, promptWs],
+  );
+}
+
+function useFirstPromptAccessMode(ws: WsSession, accessMode: AccessMode | null): WsSession {
+  const { sendPrompt: dispatchPrompt, setAccessMode } = ws;
+  const sendPrompt = useCallback<WsSession["sendPrompt"]>(
+    (...args) => {
+      // Empty sessions may have initialized before the workspace default changed.
+      // Record the displayed choice even when it matches the pre-init seed.
+      if (accessMode !== null) setAccessMode(accessMode);
+      dispatchPrompt(...args);
+    },
+    [accessMode, dispatchPrompt, setAccessMode],
+  );
+  return useMemo(
+    () => (accessMode === null ? ws : { ...ws, sendPrompt }),
+    [accessMode, sendPrompt, ws],
   );
 }
 
@@ -263,32 +323,34 @@ export function useSessionControls(
     ws.sessionConfigLoading,
     ws.sessionConfigSupported,
   ]);
-  const codex = useAccessControls(ws, runtime.activeProviderId);
+  const access = useAccessControls(ws, runtime.activeProviderId);
   const handlePermissionModeToggle = usePermissionModeToggle(
     sessionId,
     runtime.activeProviderId,
     runtime.enabledOptInModes,
     runtime.providerModes,
   );
+  const handlePermissionModeSet = usePermissionModeSet(sessionId);
   return useMemo<SessionControls>(
     () => ({
-      ws,
       ...worktree,
       selectedBranch,
       setSelectedBranch,
       initializedRef,
       ...runtime,
       handlePermissionModeToggle,
+      handlePermissionModeSet,
       claudeProfile,
       supportsProfiles,
       supportsConfigInheritance,
-      ...codex,
+      ...access,
       initialCwd: effectiveCwd,
     }),
     [
       claudeProfile,
-      codex,
+      access,
       effectiveCwd,
+      handlePermissionModeSet,
       handlePermissionModeToggle,
       initializedRef,
       runtime,
@@ -296,7 +358,6 @@ export function useSessionControls(
       supportsProfiles,
       supportsConfigInheritance,
       worktree,
-      ws,
     ],
   );
 }

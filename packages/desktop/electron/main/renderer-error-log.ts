@@ -1,18 +1,7 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import path from "node:path";
-import { optionalNumber, requiredRecord, requiredString } from "./browser-arg-validation";
-
-type RendererErrorSource = "error" | "unhandledrejection" | "react-boundary";
-
-interface RendererErrorPayload {
-  source: RendererErrorSource;
-  message: string;
-  stack?: string | null;
-  componentStack?: string | null;
-  url?: string | null;
-  line?: number | null;
-  column?: number | null;
-}
+import { rendererErrorSchema } from "../../src/shared/renderer-diagnostics";
+import type { RendererErrorReportPayload } from "../../src/shared/renderer-error";
 
 interface RendererErrorLogOptions {
   appVersion: string;
@@ -25,50 +14,16 @@ export function appendRendererErrorLog(
   rawPayload: unknown,
   options: RendererErrorLogOptions,
 ): void {
-  const payload = parseRendererErrorPayload(rawPayload);
+  const payload = rendererErrorSchema.parse(rawPayload);
   mkdirSync(path.dirname(options.logPath), { recursive: true });
+  if (existsSync(options.logPath) && statSync(options.logPath).size > 2 * 1024 * 1024) {
+    renameSync(options.logPath, `${options.logPath}.1`);
+  }
   appendFileSync(options.logPath, buildRendererErrorLog(payload, options), "utf8");
 }
 
-function parseRendererErrorPayload(rawPayload: unknown): RendererErrorPayload {
-  const payload = requiredRecord(rawPayload, "renderer error payload");
-  const source = parseSource(payload.source);
-  return {
-    source,
-    message: clamp(requiredString(payload.message, "renderer error message"), 4000),
-    stack: optionalString(payload.stack, 12000),
-    componentStack: optionalString(payload.componentStack, 12000),
-    url: optionalString(payload.url, 4000),
-    line: optionalFiniteNumber(payload.line),
-    column: optionalFiniteNumber(payload.column),
-  };
-}
-
-function parseSource(rawSource: unknown): RendererErrorSource {
-  if (rawSource === "error" || rawSource === "unhandledrejection" || rawSource === "react-boundary")
-    return rawSource;
-  throw new Error("Expected renderer error source.");
-}
-
-function optionalString(value: unknown, maxLength: number): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string") throw new Error("Expected renderer error field to be a string.");
-  return clamp(value, maxLength);
-}
-
-function optionalFiniteNumber(value: unknown): number | null {
-  if (value === undefined || value === null) return null;
-  const parsed = optionalNumber(value);
-  if (parsed === undefined) throw new Error("Expected renderer error position to be numeric.");
-  return parsed;
-}
-
-function clamp(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-}
-
 function buildRendererErrorLog(
-  payload: RendererErrorPayload,
+  payload: RendererErrorReportPayload,
   options: RendererErrorLogOptions,
 ): string {
   return [
@@ -85,6 +40,8 @@ function buildRendererErrorLog(
     payload.stack ?? "unavailable",
     "componentStack:",
     payload.componentStack ?? "unavailable",
+    "diagnostics:",
+    payload.diagnostics ? JSON.stringify(payload.diagnostics) : "unavailable",
     "",
   ].join("\n");
 }

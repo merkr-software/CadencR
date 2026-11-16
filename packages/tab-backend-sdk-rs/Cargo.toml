@@ -1,0 +1,53 @@
+[package]
+name = "cadencr-tab-backend"
+# Own semver, independent of the Cadencr app version. Released by hand with
+# .github/workflows/crates-release.yml.
+version = "0.1.1"
+edition = "2021"
+license.workspace = true
+description = "Helper for writing native backends of Cadencr custom tabs (stdio protocol v1)"
+repository = "https://github.com/merkr-software/CadencR"
+homepage = "https://cadencr.com/docs/tab-backend/"
+documentation = "https://docs.rs/cadencr-tab-backend"
+readme = "README.md"
+keywords = ["cadencr", "plugin", "stdio", "backend", "ipc"]
+categories = ["development-tools", "api-bindings"]
+
+[features]
+default = []
+# A blocking client for the Cadencr API, using the token from `hello`.
+api = ["dep:reqwest"]
+# `conformance::run`: checks a backend binary against the protocol.
+conformance = []
+
+[dependencies]
+bon.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Plain `http://127.0.0.1` only: no TLS stack is needed.
+reqwest = { version = "0.12", default-features = false, features = ["blocking"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[[example]]
+name = "echo"
+
+# Runs the echo example through `conformance::run`: the test binary re-executes
+# itself as the backend, so no separately built executable has to be located.
+[[test]]
+name = "conformance"
+harness = false
+required-features = ["conformance"]
+
+# `serve`'s stdin/stdout reservation, checked on a real process (the test
+# binary re-executes itself as the backend).
+[[test]]
+name = "stdio"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints]
+workspace = true

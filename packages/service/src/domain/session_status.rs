@@ -3,13 +3,17 @@
 //! See `.claude/plans/nous-avons-encore-des-idempotent-sundae.md` for the
 //! design rationale. The short version:
 //!
-//! - Every status mutation goes through [`SessionStatusBroadcaster::broadcast`].
+//! - Every status mutation goes through [`SessionStatusBroadcaster`], which
+//!   applies it to the in-memory live book (`live`) and broadcasts it under one
+//!   lock. Snapshots read that same book, so a (re)connecting device always
+//!   sees exactly what connected devices were sent.
 //! - The wire format is per-session: every event carries `session_id` so a
 //!   feature with session and sub-agent activity doesn't collapse into a
 //!   single ambiguous turn.
 //! - [`derive_status_from_db`] is the canonical mapping from the persisted
 //!   DB columns (`status`, `pending_*`) to the 3-value [`AgentStatus`]. It
-//!   is what the snapshot path uses to hydrate clients on (re)connect.
+//!   seeds the live book at boot, when gates persisted by the previous process
+//!   must still show.
 //!
 //! No call site outside this module decides what an "agent is working" or
 //! "agent is asking" event looks like — they emit a [`ProviderSignal`] and
@@ -21,15 +25,19 @@
 //!
 //! Conforms to `.claude/rules/inline-rust-tests.md` (tests live below).
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-
 use serde::Serialize;
-use tokio::sync::broadcast;
 
+mod broadcaster;
+mod journal;
+mod live;
 mod provider;
+mod turn_clock;
 
+pub use broadcaster::{restore_at_boot, SessionStatusBroadcaster, SessionStatusSnapshot};
+use journal::close_stale_turns;
+pub use journal::{transcript_block_message, TurnJournal};
 pub use provider::{event_starts_fresh_turn, provider_signal_for_event, ProviderSignal};
+pub use turn_clock::{CompletedTurn, TurnClock};
 
 /// The canonical 3-value agent status, identical wire format on Rust and TS.
 ///
@@ -88,6 +96,16 @@ pub enum PendingKind {
     Question,
 }
 
+/// How a turn that just went idle ended, when that matters to the user. Only
+/// failures are reported: a turn that completed normally carries no outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TurnOutcome {
+    /// The turn stopped on an error (provider error, stream failure, dispatch
+    /// failure) instead of completing.
+    Failed,
+}
+
 /// Live status update broadcast to subscribed WS clients.
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionStatusEvent {
@@ -101,131 +119,26 @@ pub struct SessionStatusEvent {
     /// the same kind on the same session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
-    /// Server wall-clock (epoch ms) when the current turn started. Carried on
-    /// `Agent` events (and in the snapshot for a running session) so every
-    /// connected client anchors its elapsed timer to one source of truth
-    /// instead of each device's local clock-at-first-render.
+    /// The running turn's clock — start, time spent waiting on the user, the
+    /// model the CLI reports — carried on every non-idle event and snapshot
+    /// entry, so every client derives the same timer from one source of truth
+    /// instead of each device's local clock-at-first-render. Empty on idle.
+    #[serde(flatten)]
+    pub clock: TurnClock,
+    /// The provider is compacting the conversation's context. Lives here, not
+    /// on the session socket, so a device that missed its end still reads the
+    /// truth from the next event or snapshot.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub compacting: bool,
+    /// Set on the `Idle` event that ends a failed turn, so clients can flag the
+    /// conversation until someone opens it. Never part of a snapshot: like
+    /// "unread", a failure is relative to who has seen it.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_started_at_ms: Option<i64>,
+    pub outcome: Option<TurnOutcome>,
     pub seq: u64,
-}
-
-/// The single writer for live agent status. Wraps a tokio broadcast channel
-/// + a monotonic seq counter so the frontend can reject out-of-order events.
-///
-/// Cloning is cheap (`broadcast::Sender` and `Arc<AtomicU64>` both share
-/// state). Stored on `AppState`; every status mutation goes through
-/// [`Self::broadcast`].
-#[derive(Clone, Debug)]
-pub struct SessionStatusBroadcaster {
-    tx: broadcast::Sender<SessionStatusEvent>,
-    seq: Arc<AtomicU64>,
-}
-
-impl SessionStatusBroadcaster {
-    pub fn new(tx: broadcast::Sender<SessionStatusEvent>, seq: Arc<AtomicU64>) -> Self {
-        Self { tx, seq }
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<SessionStatusEvent> {
-        self.tx.subscribe()
-    }
-
-    /// Read the counter without advancing it. Used to stamp snapshot
-    /// payloads so a snapshot built at instant T tells the frontend
-    /// "every event with seq > T is yours, every event with seq <= T was
-    /// folded into this snapshot".
-    pub fn current_seq(&self) -> u64 {
-        self.seq.load(Ordering::Relaxed)
-    }
-
-    /// Stamp a fresh seq, send the event. Returns the new seq.
-    ///
-    /// Send errors are intentionally swallowed — `broadcast::Sender::send`
-    /// only fails when there are no receivers, which is the normal state
-    /// when no client is connected.
-    pub fn broadcast(
-        &self,
-        session_id: i64,
-        feature_id: i64,
-        status: AgentStatus,
-        kind: Option<PendingKind>,
-    ) -> u64 {
-        let derived = derive_broadcast_status(status, kind);
-        self.broadcast_inner(
-            session_id,
-            feature_id,
-            derived.status,
-            derived.kind,
-            None,
-            None,
-        )
-    }
-
-    /// Broadcast a pending user-input gate with its stable request identity.
-    pub fn broadcast_gate(
-        &self,
-        session_id: i64,
-        feature_id: i64,
-        kind: PendingKind,
-        request_id: String,
-    ) -> u64 {
-        self.broadcast_inner(
-            session_id,
-            feature_id,
-            AgentStatus::Question,
-            Some(kind),
-            Some(request_id),
-            None,
-        )
-    }
-
-    /// Broadcast that a turn has started, carrying the server-stamped start
-    /// time so all clients render a synchronized elapsed timer.
-    pub fn broadcast_running_with_start(
-        &self,
-        session_id: i64,
-        feature_id: i64,
-        turn_started_at_ms: i64,
-    ) -> u64 {
-        self.broadcast_inner(
-            session_id,
-            feature_id,
-            AgentStatus::Agent,
-            None,
-            None,
-            Some(turn_started_at_ms),
-        )
-    }
-
-    fn broadcast_inner(
-        &self,
-        session_id: i64,
-        feature_id: i64,
-        status: AgentStatus,
-        kind: Option<PendingKind>,
-        request_id: Option<String>,
-        turn_started_at_ms: Option<i64>,
-    ) -> u64 {
-        let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.tx.send(SessionStatusEvent {
-            session_id,
-            feature_id,
-            status,
-            kind,
-            request_id,
-            turn_started_at_ms,
-            seq,
-        });
-        seq
-    }
-
-    /// Convenience: emit a [`ProviderSignal`]. Stream-derived signals
-    /// never carry a [`PendingKind`] (those go through
-    /// `mark_awaiting_user_static`), so we hardcode `kind = None`.
-    pub fn signal(&self, session_id: i64, feature_id: i64, signal: ProviderSignal) -> u64 {
-        self.broadcast(session_id, feature_id, signal.status(), None)
-    }
+    /// Server wall-clock when the event was emitted, so a client can measure
+    /// its own clock's skew.
+    pub server_now_ms: i64,
 }
 
 /// The persisted-DB columns we need to derive a status. Mirrors the
@@ -241,13 +154,7 @@ pub struct DbStatusInputs<'a> {
     pub pending_question: bool,
 }
 
-/// Pure mapping from persisted state to the canonical 3-value status.
-///
-/// Pending columns win over `status_col` because a row that's persisted as
-/// `paused` while a permission is pending is semantically a Question, not
-/// an Idle. `running` without any pending column is Agent. Everything else
-/// is Idle. This is the rule encoded in `get_feature_turn_states` today,
-/// just normalized to 3 values.
+/// Normalize a broadcast so only `Question` ever carries a kind.
 fn derive_broadcast_status(status: AgentStatus, kind: Option<PendingKind>) -> DerivedSessionStatus {
     match status {
         AgentStatus::Idle => DerivedSessionStatus::idle(),
@@ -256,6 +163,13 @@ fn derive_broadcast_status(status: AgentStatus, kind: Option<PendingKind>) -> De
     }
 }
 
+/// Pure mapping from persisted state to the canonical 3-value status.
+///
+/// Pending columns win over `status_col` because a row that's persisted as
+/// `paused` while a permission is pending is semantically a Question, not
+/// an Idle. `running` without any pending column is Agent. Everything else
+/// is Idle. This is the rule encoded in `get_feature_turn_states` today,
+/// just normalized to 3 values.
 pub fn derive_status_from_db(inputs: DbStatusInputs<'_>) -> DerivedSessionStatus {
     // Question wins. Order of precedence matches today's SQL `MAX(CASE …)`:
     // question > permission.
@@ -369,19 +283,5 @@ mod tests {
             derive_broadcast_status(AgentStatus::Question, Some(PendingKind::Permission)),
             DerivedSessionStatus::question(PendingKind::Permission)
         );
-    }
-
-    #[tokio::test]
-    async fn gate_broadcast_carries_request_identity() {
-        let (tx, _) = tokio::sync::broadcast::channel(4);
-        let broadcaster = SessionStatusBroadcaster::new(tx, Arc::new(AtomicU64::new(0)));
-        let mut rx = broadcaster.subscribe();
-
-        broadcaster.broadcast_gate(7, 8, PendingKind::Permission, "req-42".into());
-
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.status, AgentStatus::Question);
-        assert_eq!(event.kind, Some(PendingKind::Permission));
-        assert_eq!(event.request_id.as_deref(), Some("req-42"));
     }
 }

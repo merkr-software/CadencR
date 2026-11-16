@@ -86,6 +86,9 @@ export function expandCharacterHotkey(hotkey: string): CharacterHotkeyVariant[] 
 
   if (!isSingleNonLetterCharacter(key)) return [{ hotkey }];
   if (hasExplicitShift) return [{ hotkey }];
+  // ⌘⇧[ / ⌘⇧] are chords of their own (Browser and Editor tab switching), so
+  // an unshifted bracket binding must not take them as an optional Shift.
+  if (key === "[" || key === "]") return [{ hotkey, exactKeys: [key] }];
 
   return withOptionalShift(modifiers, key, key);
 }

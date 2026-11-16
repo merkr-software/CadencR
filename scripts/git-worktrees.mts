@@ -23,8 +23,31 @@ function runGit(cwd: string, args: string[]): string {
   return result.stdout;
 }
 
+export interface GitCheckout {
+  gitDir: string;
+  commonDir: string;
+  /** A `git worktree add` checkout: its git dir lives under the common dir. */
+  linkedWorktree: boolean;
+}
+
+/** Locate `cwd`'s git dirs with one `git rev-parse` call. */
+export function gitCheckout(cwd: string): GitCheckout {
+  const output = runGit(cwd, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-dir",
+    "--git-common-dir",
+  ]);
+  const lines = output.trim().split(/\r?\n/);
+  if (lines.length !== 2 || lines.some((line) => !line)) {
+    throw new Error(`unexpected git rev-parse output: ${output}`);
+  }
+  const [gitDir, commonDir] = lines.map((line) => resolve(line));
+  return { gitDir, commonDir, linkedWorktree: gitDir !== commonDir };
+}
+
 export function gitCommonDir(cwd: string): string {
-  return resolve(runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim());
+  return gitCheckout(cwd).commonDir;
 }
 
 export function listGitWorktrees(cwd: string): string[] {

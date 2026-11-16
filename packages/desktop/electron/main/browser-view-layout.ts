@@ -12,13 +12,85 @@ import type { BrowserResponsiveGeometry } from "../../src/shared/browser-respons
  * keeps it swallowing mouse clicks meant for React overlays. Parking it
  * off-screen *while still visible* before hiding moves the hit region off too.
  */
-function placeView(view: WebContentsView, visible: boolean, bounds: BrowserBounds): void {
+export function placeView(view: WebContentsView, visible: boolean, bounds: BrowserBounds): void {
   if (visible) {
     view.setVisible(true);
     view.setBounds(bounds);
   } else {
     view.setBounds(offscreenBounds(bounds));
     view.setVisible(false);
+  }
+}
+
+/**
+ * Idempotent parenting of native views to the main window, plus the
+ * suppression flag: while a renderer overlay is open every view is fully
+ * detached, because a merely hidden WebContentsView still sits in the macOS
+ * hit-test chain and swallows clicks meant for the React overlay. Shared by the
+ * Browser tab (`BrowserViewLayout`) and custom-tab guests (`PluginTabManager`).
+ */
+export class NativeViewAttachment {
+  private suppressed = false;
+  // Views currently parented to the window, so attach/detach stays idempotent
+  // (the viewport ResizeObserver re-runs layout on every frame).
+  private readonly attachedViews = new Set<WebContentsView>();
+
+  constructor(private readonly getWindow: () => BrowserWindow | null) {}
+
+  get isSuppressed(): boolean {
+    return this.suppressed;
+  }
+
+  /** Record the new suppression state; returns true only when it changed. */
+  setSuppressed(value: boolean): boolean {
+    if (this.suppressed === value) return false;
+    this.suppressed = value;
+    return true;
+  }
+
+  isAttached(view: WebContentsView): boolean {
+    return this.attachedViews.has(view);
+  }
+
+  /** Attach + place `view`, or detach it when `attached` is false or while suppressed. */
+  layoutView(
+    view: WebContentsView,
+    attached: boolean,
+    visible: boolean,
+    bounds: BrowserBounds,
+  ): void {
+    if (!attached || this.suppressed) {
+      this.detach(view);
+      return;
+    }
+    if (!this.attach(view)) return;
+    placeView(view, visible, bounds);
+  }
+
+  /** Fully detach a single view (used on close). Idempotent. */
+  detach(view: WebContentsView): void {
+    if (!this.attachedViews.delete(view)) return;
+    this.liveWindow()?.contentView.removeChildView(view);
+  }
+
+  /** Detach every live view before its parent window is destroyed. */
+  detachAll(): void {
+    for (const view of [...this.attachedViews]) this.detach(view);
+    this.suppressed = false;
+  }
+
+  private attach(view: WebContentsView): boolean {
+    if (this.attachedViews.has(view)) return true;
+    const win = this.liveWindow();
+    if (!win) return false;
+    win.contentView.addChildView(view);
+    this.attachedViews.add(view);
+    return true;
+  }
+
+  private liveWindow(): BrowserWindow | null {
+    const win = this.getWindow();
+    return win && !win.isDestroyed() ? win : null;
   }
 }
 
@@ -30,22 +102,19 @@ function placeView(view: WebContentsView, visible: boolean, bounds: BrowserBound
  * macOS hit-test chain and swallows clicks meant for the React overlay.
  */
 export class BrowserViewLayout {
-  private suppressed = false;
-  // Views currently parented to the window, so attach/detach stays idempotent
-  // (the viewport ResizeObserver re-runs layout on every frame).
-  private readonly attachedViews = new Set<WebContentsView>();
+  private readonly views: NativeViewAttachment;
 
   constructor(
-    private readonly getWindow: () => BrowserWindow | null,
+    getWindow: () => BrowserWindow | null,
     private readonly syncResponsiveScale: (tab: ManagedTab, nativeScale: number) => void = () =>
       undefined,
-  ) {}
+  ) {
+    this.views = new NativeViewAttachment(getWindow);
+  }
 
   /** Record the new suppression state; returns true only when it changed. */
   setSuppressed(value: boolean): boolean {
-    if (this.suppressed === value) return false;
-    this.suppressed = value;
-    return true;
+    return this.views.setSuppressed(value);
   }
 
   /**
@@ -64,7 +133,7 @@ export class BrowserViewLayout {
     boundsByScope: Map<number | null, BrowserBounds>,
     rendererZoomByScope: Map<number | null, number> = new Map(),
   ): void {
-    const attached = !this.suppressed;
+    const attached = !this.views.isSuppressed;
     for (const [id, tab] of tabs) {
       const scope = tab.metadata.scopeId;
       const scopeBounds = boundsByScope.get(scope);
@@ -75,10 +144,10 @@ export class BrowserViewLayout {
       const base = scopeBounds ?? { x: 0, y: 0, width: 0, height: 0 };
       const responsive = this.responsiveGeometry(tab, base, rendererZoomByScope.get(scope) ?? 1);
       if (active) this.syncResponsiveScale(tab, responsive.nativeScale);
-      this.layoutView(tab.view, attachThis, active, responsive.bounds);
+      this.views.layoutView(tab.view, attachThis, active, responsive.bounds);
       if (tab.devtoolsView) {
         const dtVisible = active && devToolsOpen;
-        this.layoutView(tab.devtoolsView, attachThis, dtVisible, devtoolsBounds(base));
+        this.views.layoutView(tab.devtoolsView, attachThis, dtVisible, devtoolsBounds(base));
       }
     }
   }
@@ -97,34 +166,11 @@ export class BrowserViewLayout {
 
   /** Fully detach a single view (used on close). Idempotent. */
   detach(view: WebContentsView): void {
-    if (!this.attachedViews.has(view)) return;
-    this.getWindow()?.contentView.removeChildView(view);
-    this.attachedViews.delete(view);
+    this.views.detach(view);
   }
 
   /** Detach every live view before its parent window is destroyed. */
   detachAll(): void {
-    for (const view of [...this.attachedViews]) this.detach(view);
-    this.suppressed = false;
-  }
-
-  private layoutView(
-    view: WebContentsView,
-    attached: boolean,
-    visible: boolean,
-    bounds: BrowserBounds,
-  ): void {
-    if (!attached) {
-      this.detach(view);
-      return;
-    }
-    this.attach(view);
-    placeView(view, visible, bounds);
-  }
-
-  private attach(view: WebContentsView): void {
-    if (this.attachedViews.has(view)) return;
-    this.getWindow()?.contentView.addChildView(view);
-    this.attachedViews.add(view);
+    this.views.detachAll();
   }
 }

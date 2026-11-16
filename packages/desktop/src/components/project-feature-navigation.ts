@@ -26,6 +26,20 @@ export function archiveFeaturesInCachedLists(
   );
 }
 
+/** The service reported `featureId` archived (`app/archive_cleanup` updates the cached lists). */
+export function isArchivedInCachedLists(queryClient: QueryClient, featureId: number): boolean {
+  return queryClient
+    .getQueriesData<Feature[] | object>({ queryKey: getListFeaturesQueryKey() })
+    .some(
+      ([, data]) =>
+        Array.isArray(data) &&
+        data.some(
+          (feature: Feature) =>
+            feature.id === featureId && feature.status === FeatureStatus.archived,
+        ),
+    );
+}
+
 function removeFeatureFromList(
   old: Feature[] | undefined,
   featureId: number,

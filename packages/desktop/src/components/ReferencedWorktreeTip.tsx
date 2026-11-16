@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import { GitBranchIcon, Loader2Icon } from "lucide-react";
 import { useListFeatureWorktrees, type FeatureWorktreeInfo } from "@/api/generated";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { ReferencedWorktreeSelection } from "./agent-prompt-bar-types";
@@ -10,6 +10,7 @@ import {
   type ParsedConversationReference,
 } from "./prompt-editor/conversation-reference";
 import { ResolvedShortcutHint } from "./KbdShortcut";
+import { STACK_ROW_BUTTON_CLASS, StackSection } from "./composer/ComposerStack";
 
 interface ReferencedWorktreeTipProps {
   prompt: string;
@@ -93,20 +94,23 @@ export function ReferencedWorktreeTip({
   if (!enabled || alreadySelected) return null;
   if (worktreesQuery.isLoading) {
     return (
-      <div
-        className="mb-2 flex h-8 items-center gap-2 px-1 text-[11px] text-muted-foreground"
+      <StackSection
+        tone="worktree"
+        label="Referenced worktree"
         role="status"
-      >
-        <Loader2Icon className="size-3.5 animate-spin" />
-        Checking the referenced conversation for a worktree…
-      </div>
+        icon={<Loader2Icon className="animate-spin" />}
+        title="Worktree"
+        hint="Checking the referenced conversation for a worktree…"
+      />
     );
   }
   if (worktreesQuery.isError) {
     return (
-      <p className="mb-2 px-1 text-[11px] text-destructive" role="status">
-        {apiErrorMessage(worktreesQuery.error, "Could not check the referenced worktree.")}
-      </p>
+      <StackSection tone="worktree" label="Referenced worktree" role="status">
+        <p className="px-1.5 text-[11px] text-destructive">
+          {apiErrorMessage(worktreesQuery.error, "Could not check the referenced worktree.")}
+        </p>
+      </StackSection>
     );
   }
   if (!worktree) return null;
@@ -114,28 +118,30 @@ export function ReferencedWorktreeTip({
   const ariaLabel = `Reuse ${worktree.branch} worktree from ${worktree.label} when you send`;
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={useWorktree}
-      title={`Reuse ${worktree.path} when you send your first message`}
-      aria-label={ariaLabel}
-      // `--primary`, not the `--chip-worktree-*` trio: those tokens tone the
-      // *state* chips that report which worktree a session is on, while this row
-      // is a call to action attached to the send you are about to make. It reads
-      // as the theme's action color — same one the send button carries.
-      className="mb-2 w-full min-w-0 justify-start border-primary/30 bg-primary/10 px-2.5 text-left text-[11px] text-primary shadow-sm hover:bg-primary/15 hover:text-primary focus-visible:ring-primary/40"
+    <StackSection
+      tone="worktree"
+      label="Referenced worktree"
+      icon={<GitBranchIcon />}
+      title="Worktree"
+      hint="Referenced conversation"
+      summary={`Reuse ${worktree.branch} from ${worktree.label} when you send`}
     >
-      <GitBranchIcon className="size-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1 truncate">
-        Reuse <span className="font-mono">{worktree.branch}</span> from {worktree.label} when you
-        send
-      </span>
-      <span className="inline-flex shrink-0 items-center gap-1.5 text-[10px] opacity-90">
-        Reuse worktree
-        <ResolvedShortcutHint shortcutId="agent-use-referenced-worktree" />
-      </span>
-    </Button>
+      <button
+        type="button"
+        onClick={useWorktree}
+        title={`Reuse ${worktree.path} when you send your first message`}
+        aria-label={ariaLabel}
+        className={cn(STACK_ROW_BUTTON_CLASS, "text-xs")}
+      >
+        <span className="min-w-0 flex-1 truncate">
+          Reuse <span className="font-mono">{worktree.branch}</span> from {worktree.label} when you
+          send
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+          Reuse worktree
+          <ResolvedShortcutHint shortcutId="agent-use-referenced-worktree" />
+        </span>
+      </button>
+    </StackSection>
   );
 }

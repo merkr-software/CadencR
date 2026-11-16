@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactElement } from "react";
 import ContentSearchDialog from "@/components/editor/ContentSearchDialog";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
-import { activateFeatureTab } from "@/stores/feature-layout-store";
+import { activateBuiltinFeatureTab } from "@/lib/plugin-tabs/builtin-fallback";
 
 interface FeatureContentSearchShortcutProps {
   featureId: number;
@@ -19,7 +19,7 @@ export function FeatureContentSearchShortcut({
   const [open, setOpen] = useState(false);
 
   const activateEditorTab = useCallback((): void => {
-    activateFeatureTab(layoutFeatureId, "editor");
+    activateBuiltinFeatureTab(layoutFeatureId, "editor");
   }, [layoutFeatureId]);
 
   useGlobalShortcutById(

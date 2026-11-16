@@ -147,6 +147,17 @@ async fn create_schema(pool: &SqlitePool) {
         .unwrap();
     sqlx::query("CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT, PRIMARY KEY(feature_id, key))")
         .execute(pool).await.unwrap();
+    sqlx::query(
+        "CREATE TABLE feature_branches (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+         feature_id INTEGER NOT NULL, branch TEXT NOT NULL, origin TEXT NOT NULL, \
+         target_branch TEXT, \
+         first_seen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), \
+         last_seen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), \
+         unlinked_at TEXT, pr_number INTEGER, pr_state TEXT, UNIQUE (feature_id, branch))",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
     sqlx::query("CREATE TABLE project_settings (project_id INTEGER, key TEXT, value TEXT, PRIMARY KEY(project_id, key))")
         .execute(pool).await.unwrap();
 

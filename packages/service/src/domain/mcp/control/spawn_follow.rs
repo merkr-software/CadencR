@@ -8,6 +8,16 @@ pub(super) struct SpawnFollowOptions {
     completion: Option<bool>,
 }
 
+impl SpawnFollowOptions {
+    /// Neither the child's gates nor its completion reach the parent agent.
+    pub(super) fn detached() -> Self {
+        Self {
+            gates: Some(false),
+            completion: Some(false),
+        }
+    }
+}
+
 impl SpawnSessionRequest {
     pub(super) fn follows_gates(&self) -> bool {
         self.follow

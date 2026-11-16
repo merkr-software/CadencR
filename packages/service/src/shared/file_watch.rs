@@ -1,4 +1,5 @@
-//! Debounced directory watching, shared by the settings and theme stores.
+//! Debounced directory watching, shared by the settings and theme stores and
+//! the custom tabs folder.
 //!
 //! Both exist for the same reason: the app owns a directory of JSON documents
 //! the user is invited to edit in their own editor, and an external save has to
@@ -34,6 +35,45 @@ pub fn watch_dir<T, F>(
     T: Clone + Send + 'static,
     F: Fn(&Path) -> Option<T> + Send + 'static,
 {
+    start(dir, mode, debounce, tx, move |paths| {
+        paths.filter_map(&to_event).collect()
+    });
+}
+
+/// [`watch_dir`], broadcasting each distinct event once per debounced batch:
+/// one save that touches many files (a rebuild) is one event, however far
+/// apart the batches arrive.
+pub fn watch_dir_coalesced<T, F>(
+    dir: &Path,
+    mode: RecursiveMode,
+    debounce: Duration,
+    tx: broadcast::Sender<T>,
+    to_event: F,
+) where
+    T: Clone + PartialEq + Send + 'static,
+    F: Fn(&Path) -> Option<T> + Send + 'static,
+{
+    start(dir, mode, debounce, tx, move |paths| {
+        let mut events: Vec<T> = Vec::new();
+        for event in paths.filter_map(&to_event) {
+            if !events.contains(&event) {
+                events.push(event);
+            }
+        }
+        events
+    });
+}
+
+fn start<T, B>(
+    dir: &Path,
+    mode: RecursiveMode,
+    debounce: Duration,
+    tx: broadcast::Sender<T>,
+    to_events: B,
+) where
+    T: Clone + Send + 'static,
+    B: Fn(&mut dyn Iterator<Item = &Path>) -> Vec<T> + Send + 'static,
+{
     let label = dir.display().to_string();
     let mut debouncer = match new_debouncer(debounce, {
         let label = label.clone();
@@ -45,10 +85,9 @@ pub fn watch_dir<T, F>(
                     return;
                 }
             };
-            for event in events {
-                if let Some(payload) = to_event(&event.path) {
-                    let _ = tx.send(payload);
-                }
+            let mut paths = events.iter().map(|event| event.path.as_path());
+            for payload in to_events(&mut paths) {
+                let _ = tx.send(payload);
             }
         }
     }) {

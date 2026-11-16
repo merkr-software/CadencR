@@ -15,6 +15,7 @@ function Harness(props: {
   onSelect?: (providerId: string, modelId: string) => void;
   onAfterSelectClose?: () => void;
   models?: Array<{ id: string; label: string; description?: string }>;
+  refreshError?: string;
   selectedModelId?: string;
   resolveSelectedModelId?: RuntimeModelSelectionResolver;
 }) {
@@ -24,6 +25,7 @@ function Harness(props: {
     onAfterSelectClose = vi.fn(),
     selectedModelId = "opus",
     resolveSelectedModelId,
+    refreshError,
   } = props;
   const [open, setOpen] = useState(false);
 
@@ -36,6 +38,7 @@ function Harness(props: {
           id: "claude_code",
           label: "Claude",
           disabled: false,
+          refreshError,
           models,
         },
       ]}
@@ -532,5 +535,28 @@ describe("RuntimeModelPicker", () => {
     await user.click(screen.getByRole("button", { name: "Open picker" }));
 
     expect(screen.getByRole("option", { name: /^Opus$/i }).className).toContain("scroll-mt-9");
+  });
+
+  it("says when a provider's models are the last known catalog, and why", async () => {
+    const user = userEvent.setup();
+    render(<Harness refreshError="model/list timed out" />);
+
+    await user.click(screen.getByRole("button", { name: "Open picker" }));
+
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("Claude: showing the last known models.");
+    expect(notice).toHaveTextContent("Refresh failed: model/list timed out");
+    // The last known models stay selectable.
+    expect(screen.getByRole("option", { name: /^Opus$/i })).toBeInTheDocument();
+  });
+
+  it("shows no catalog notice for a fresh catalog", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "Open picker" }));
+
+    expect(screen.getByRole("option", { name: /^Opus$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/showing the last known models/i)).not.toBeInTheDocument();
   });
 });

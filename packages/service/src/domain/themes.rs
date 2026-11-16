@@ -18,6 +18,7 @@ pub mod assets;
 pub mod check;
 pub mod chrome;
 pub mod color;
+pub mod managed;
 pub mod models;
 pub mod paths;
 pub mod routes;

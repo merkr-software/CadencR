@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CheckIcon, LayoutTemplateIcon, StarIcon } from "lucide-react";
+import { CheckIcon, LayoutTemplateIcon, StarIcon, Undo2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useSavedLayouts } from "@/hooks/useSavedLayouts";
+import { noteUserLayoutChange, undoAutoLayout } from "@/lib/auto-layout/auto-layout-controller";
+import { useAutoLayoutStore } from "@/stores/auto-layout-store";
 import { selectFeatureLayout, useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import type { FeatureLayout } from "@/api/generated";
 
@@ -95,6 +97,7 @@ function DefaultLayoutSubmenu({
  *  - Update "{applied}" (only when a saved layout is currently applied)
  *  - Set default ▸ (submenu listing layouts)
  *  - Delete "{applied}" (when applied layout exists)
+ *  - Undo auto layout (when auto layout just rearranged the panes)
  *  - Reset layout (back to flat default)
  */
 export function LayoutMenu({ featureId }: LayoutMenuProps): ReactNode {
@@ -112,6 +115,7 @@ export function LayoutMenu({ featureId }: LayoutMenuProps): ReactNode {
     (s) => selectFeatureLayout(featureId)(s).appliedLayoutId,
   );
   const resetToFlat = useFeatureLayoutStore((s) => s.resetToFlat);
+  const canUndoAuto = useAutoLayoutStore((s) => featureId in s.undo);
 
   const appliedLayout = layouts.find((l) => l.id === appliedLayoutId) ?? null;
   const [saveOpen, setSaveOpen] = useState(false);
@@ -161,7 +165,20 @@ export function LayoutMenu({ featureId }: LayoutMenuProps): ReactNode {
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => resetToFlat(featureId)}>Reset layout</DropdownMenuItem>
+          {canUndoAuto && (
+            <DropdownMenuItem onSelect={() => undoAutoLayout(featureId)}>
+              <Undo2Icon className="size-4" />
+              Undo auto layout
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onSelect={() => {
+              noteUserLayoutChange(featureId, { structural: true });
+              resetToFlat(featureId);
+            }}
+          >
+            Reset layout
+          </DropdownMenuItem>
           {defaultLayout && (
             <DropdownMenuLabel className="text-xs italic text-muted-foreground">
               Default: {defaultLayout.name}

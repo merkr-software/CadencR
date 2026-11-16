@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { BrowserWindow, WebContents } from "electron";
 import type { ManagedTab, TabEventHost } from "./browser-tab-events";
 import { browserAutomationAccess } from "./browser-policy";
+import { isCadencrBrowserUrl } from "./browser-self-origin-policy";
 import {
   browserPartitionForProfile,
   createBrowserProfile,
@@ -15,6 +16,7 @@ import type {
   BrowserTabMetadata,
 } from "./browser-types";
 import { DEFAULT_BROWSER_RESPONSIVE_STATE } from "../../src/shared/browser-responsive";
+import { sendToWindow } from "./safe-send";
 
 const DEFAULT_URL = "about:blank";
 
@@ -43,7 +45,12 @@ export function originOf(url: string): string | null {
  * a tab that later navigates elsewhere (link click, redirect) re-locks itself.
  */
 export function externalAutomationMatches(liveUrl: string, unlockedOrigin: string | null): boolean {
-  return unlockedOrigin !== null && originOf(liveUrl) === unlockedOrigin;
+  return (
+    unlockedOrigin !== null &&
+    /^https?:/.test(liveUrl) &&
+    !isCadencrBrowserUrl(liveUrl) &&
+    originOf(liveUrl) === unlockedOrigin
+  );
 }
 
 // One ⌘+/⌘- step multiplies the guest page's own zoom factor (independent of
@@ -68,13 +75,34 @@ const RENDERER_FOCUS_SHORTCUTS = new Set<BrowserShortcut>([
   "pane-terminal",
   "pane-git",
   "pane-editor",
+  "navigate-back",
+  "navigate-forward",
 ]);
+
+/**
+ * Make the renderer the OS first responder again. A click inside a guest view
+ * leaves keyboard focus there, and a DOM `.focus()` in the renderer cannot take
+ * it back — only the main process can.
+ */
+export function reclaimRendererFocus(win: BrowserWindow | null): void {
+  if (win && !win.isDestroyed() && !win.webContents.isFocused()) win.webContents.focus();
+}
 
 export function reclaimFocusForShortcut(
   win: BrowserWindow | null,
   shortcut: BrowserShortcut,
 ): void {
-  if (win && RENDERER_FOCUS_SHORTCUTS.has(shortcut)) win.webContents.focus();
+  if (RENDERER_FOCUS_SHORTCUTS.has(shortcut)) reclaimRendererFocus(win);
+}
+
+/**
+ * Hand the renderer a chord a focused guest view swallowed (the renderer
+ * listens on `browser:shortcut`), reclaiming focus only for chords that land
+ * on renderer chrome.
+ */
+export function relayGuestShortcut(win: BrowserWindow | null, shortcut: BrowserShortcut): void {
+  reclaimFocusForShortcut(win, shortcut);
+  sendToWindow(win, "browser:shortcut", shortcut);
 }
 
 export function tabDiagnostics(

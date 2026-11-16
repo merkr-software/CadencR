@@ -14,20 +14,38 @@ afterPack: build/after-pack.cjs
 afterSign: build/notarize-app.cjs
 files:
   - out/**/*
+  - "!**/*.map"
   # The built SPA ships once, as extraResources `renderer/` below. Excluding it
   # from the asar avoids a ~44 MB duplicate; the packaged window loads it from
   # `process.resourcesPath/renderer` (see `rendererLoadUrl`).
   - "!out/renderer/**"
   - package.json
 extraResources:
-  - from: resources/bin/cadencr-service
+  # Per-arch sidecar from `@cadencr/service build:macos-sidecars`; arch-checked
+  # in `build/after-pack.cjs`.
+  - from: resources/bin/${arch}/cadencr-service
     to: cadencr-service
+  # The `cadencr` command line (`@cadencr/service build:sidecars`); Settings links
+  # it onto PATH, and DEB/RPM link /usr/bin/cadencr to it (build/linux/*.tpl).
+  - from: resources/bin/${arch}/cadencr
+    to: bin/cadencr
   # The built SPA on the real filesystem — loaded directly by the packaged
   # window (the asar can't hold it, see above) and served over the remote
   # listener via `--renderer-dir` (the Rust sidecar can't read an asar).
   - from: out/renderer
     to: renderer
+    filter: ["**/*", "!**/*.map"]
+  # Universal AppKit addon from `electron/mac-native-addon.ts` (see `mac-window.ts`).
+  - from: resources/native
+    to: native
+    filter: ["*.node"]
+  # Linux window icon: BrowserWindow needs a real file path (see `app-icon.ts`).
+  - from: icons/512x512.png
+    to: icons/512x512.png
 mac:
+  # Spell out the arch: electron-builder's default drops it for x64. The zip
+  # uses this name; the dmg has its own below.
+  artifactName: ${productName}-${version}-${arch}-mac.${ext}
   category: public.app-category.developer-tools
   hardenedRuntime: true
   # We notarize with notarytool; electron-builder's legacy Gatekeeper precheck is intentionally disabled.
@@ -36,6 +54,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   signIgnore:
     - Contents/Resources/cadencr-service$
+    - Contents/Resources/bin/cadencr$
   target:
     - target: dmg
       arch:
@@ -46,5 +65,71 @@ mac:
         - arm64
         - x64
 
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Development
+  icon: icons/
+  synopsis: Desktop shell for driving local AI coding agents
+  executableName: cadencr
+
+# `${arch}` expands per target: x86_64 (AppImage, rpm), amd64 (deb).
+appImage:
+  artifactName: Cadencr-${version}-${arch}.${ext}
+
+# Distro packages. electron-updater uses the package identity emitted by
+# electron-builder to download and install the matching DEB or RPM release.
+# Dependency lists are pinned explicitly (rather than relying on
+# electron-builder defaults) so a future Electron bump cannot silently drop
+# required libraries.
+deb:
+  # Link /usr/bin/cadencr to the CLI rather than the Electron binary.
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
+  packageName: cadencr
+  artifactName: Cadencr-${version}-${arch}.${ext}
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libdrm2
+    - libgbm1
+    - libxkbcommon0
+    # Ubuntu 24.04 renamed it for the 64-bit time_t transition.
+    - libasound2t64 | libasound2
+    # Runtime tools the service shells out to: worktrees/diffs and the ports scan.
+    - git
+    - lsof
+  priority: optional
+rpm:
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
+  packageName: cadencr
+  artifactName: Cadencr-${version}-${arch}.${ext}
+  # Library sonames, not package names: RPM generates these provides on every
+  # RPM distro, while package names differ (Fedora `nss` is openSUSE
+  # `mozilla-nss`, `at-spi2-atk` does not exist there…).
+  depends:
+    - libgtk-3.so.0()(64bit)
+    - libnotify.so.4()(64bit)
+    - libnss3.so()(64bit)
+    - libXss.so.1()(64bit)
+    - libXtst.so.6()(64bit)
+    - libatk-bridge-2.0.so.0()(64bit)
+    - libdrm.so.2()(64bit)
+    - libgbm.so.1()(64bit)
+    - libxkbcommon.so.0()(64bit)
+    - libasound.so.2()(64bit)
+    - xdg-utils
+    - git
+    - lsof
+
 dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
   sign: true

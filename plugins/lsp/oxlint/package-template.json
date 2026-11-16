@@ -1,0 +1,98 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--lsp"
+      ],
+      "description": "JavaScript and TypeScript linting using the native Oxlint 1.91.0 language server.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-oxlint-v0.1.0/lsp-oxlint-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "oxlint",
+            "entry_sha256": "9b03cce4aea014c8d145ee2196edf661ec7b6580f09b8952ef699bc3b0497332",
+            "entry_size": 12459088,
+            "macos_min_version": "11.0.0",
+            "runtime": "native",
+            "sha256": "75c7abeea4f5c1216328468fbe6ccc1d88e337f7b4524e2e6a89d52fc71fe3b8",
+            "size": 5657673
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-oxlint-v0.1.0/lsp-oxlint-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "oxlint",
+            "entry_sha256": "ea9e46115953ebbf088b8d71f000c0f6de7ec430fb0aa734ed68b841a444ec49",
+            "entry_size": 14047288,
+            "macos_min_version": "10.12.0",
+            "runtime": "native",
+            "sha256": "29acad80888b437895ec3391f7be15bf52cd3bbd0f8830b6851beb1ce9efcaaa",
+            "size": 6296599
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-oxlint-v0.1.0/lsp-oxlint-0.1.0-linux-x86_64.tar.gz",
+            "entry": "oxlint",
+            "entry_sha256": "24eed518bb1f5aaa1d0df3d4dcd837c87ebb86a8f01cd98d3ec7d544819d810c",
+            "entry_size": 15637752,
+            "runtime": "native",
+            "sha256": "5b96395d24d03f3b0cc4ede8536d3d012a3d6c684a671ae98064894543d063b6",
+            "size": 6568797
+          }
+        }
+      },
+      "id": "oxlint",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "js",
+            "mjs",
+            "cjs"
+          ],
+          "filenames": [],
+          "id": "javascript"
+        },
+        {
+          "extensions": [
+            "jsx"
+          ],
+          "filenames": [],
+          "id": "javascriptreact"
+        },
+        {
+          "extensions": [
+            "ts",
+            "mts",
+            "cts"
+          ],
+          "filenames": [],
+          "id": "typescript"
+        },
+        {
+          "extensions": [
+            "tsx"
+          ],
+          "filenames": [],
+          "id": "typescriptreact"
+        }
+      ],
+      "license": "MIT",
+      "name": "Oxlint",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "linter",
+      "root_markers": [
+        ".oxlintrc.json",
+        "oxlint.config.ts",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

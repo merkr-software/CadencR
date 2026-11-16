@@ -7,8 +7,10 @@ vi.mock("@/api/generated", () => ({
 }));
 
 const mockInvalidateQueries = vi.fn();
+const mockInvalidateByUrlPrefix = vi.fn();
 vi.mock("@/lib/queryClient", () => ({
   queryClient: { invalidateQueries: (...args: unknown[]) => mockInvalidateQueries(...args) },
+  invalidateByUrlPrefix: (...args: unknown[]) => mockInvalidateByUrlPrefix(...args),
 }));
 
 import { invalidateFeatureQueries } from "./featureUpdated";
@@ -16,6 +18,19 @@ import { invalidateFeatureQueries } from "./featureUpdated";
 describe("invalidateFeatureQueries", () => {
   beforeEach(() => {
     mockInvalidateQueries.mockClear();
+    mockInvalidateByUrlPrefix.mockClear();
+  });
+
+  it("refreshes the Pinned and Recent blocks when a title or label changes", () => {
+    invalidateFeatureQueries(42, ["label"]);
+    expect(mockInvalidateByUrlPrefix).toHaveBeenCalledWith(expect.anything(), [
+      "/api/features/pinned",
+      "/api/features/recent",
+      "/api/features/active",
+    ]);
+    mockInvalidateByUrlPrefix.mockClear();
+    invalidateFeatureQueries(42, ["settings"]);
+    expect(mockInvalidateByUrlPrefix).not.toHaveBeenCalled();
   });
 
   it("invalidates the feature detail and list query when title changes", () => {

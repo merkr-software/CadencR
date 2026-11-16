@@ -1,8 +1,19 @@
 import { lazy, Suspense, useCallback, useMemo, useRef, type ReactElement } from "react";
-import { CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
+import {
+  CodeIcon,
+  FileTextIcon,
+  GitCompareArrowsIcon,
+  GlobeIcon,
+  TerminalIcon,
+} from "lucide-react";
 import { FeatureGitTab } from "@/components/FeatureGitTab";
 import { FeatureTerminalTab } from "@/components/FeatureTerminalTab";
+import { AgentBrowserActivityDot } from "@/components/feature-layout/AgentBrowserActivityDot";
 import { GitBadge } from "@/components/feature-layout/GitBadge";
+import {
+  OpenDiffInEditorProvider,
+  type OpenDiffInEditor,
+} from "@/components/diff/OpenDiffInEditorContext";
 import type { FeatureTabDef, FeatureTabs } from "@/components/feature-layout/types";
 import {
   claudeProfileForPrompt,
@@ -11,8 +22,14 @@ import {
   type useSessionRefs,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
 import type { NonAgentTabReadiness } from "@/components/useAgentFirstNonAgentWork";
+import { usePluginTabDefs, type PluginTabDefs } from "@/components/plugin-tabs/usePluginTabDefs";
 import { useAgentTab } from "./WebSocketSessionAgentTab";
 const FeatureEditorTab = lazy(() => import("@/components/editor/FeatureEditorTab"));
+const FeaturePreviewTab = lazy(() =>
+  import("@/components/document-preview/FeaturePreviewTab").then((module) => ({
+    default: module.FeaturePreviewTab,
+  })),
+);
 const BrowserWorkspaceTab = lazy(() =>
   import("@/components/BrowserWorkspaceTab").then((module) => ({
     default: module.BrowserWorkspaceTab,
@@ -35,23 +52,71 @@ export interface UseSessionTabsArgs {
   tabReady: NonAgentTabReadiness;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
+  /** Opener for file references clicked inside the agent conversation. */
+  openAgentFileInEditor: OpenDiffInEditor;
+  /**
+   * Offer the project's custom tabs (`plugin:<id>`). Only the feature route:
+   * an embedded unified-grid card shows built-ins only.
+   */
+  pluginTabsEnabled: boolean;
 }
 
 export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
-  const agentTab = useAgentTab(args);
+  const agentTab = useAgentFileLinksTab(useAgentTab(args), args.openAgentFileInEditor);
   const terminalTab = useTerminalTab(args);
   const gitTab = useGitTab(args);
   const editorTab = useEditorTab(args);
   const browserTab = useBrowserTab(args);
+  const previewTab = usePreviewTab(args);
+  const { plugin, replacements } = useSessionPluginTabs(args);
   return useMemo(
     () => ({
       agent: agentTab,
-      terminal: terminalTab,
-      git: gitTab,
-      editor: editorTab,
+      terminal: replaced(terminalTab, replacements.terminal),
+      git: replaced(gitTab, replacements.git),
+      editor: replaced(editorTab, replacements.editor),
       browser: browserTab,
+      preview: replaced(previewTab, replacements.preview),
+      ...plugin,
     }),
-    [agentTab, browserTab, editorTab, gitTab, terminalTab],
+    [agentTab, browserTab, editorTab, gitTab, plugin, previewTab, replacements, terminalTab],
+  );
+}
+
+/**
+ * A custom tab shown in a built-in's place keeps the built-in's shortcut, so
+ * ⌘⇧G still reaches "Git" (docs/CUSTOM_TABS.md §10).
+ */
+function replaced(builtin: FeatureTabDef, replacement: FeatureTabDef | undefined): FeatureTabDef {
+  return replacement ? { ...replacement, shortcutId: builtin.shortcutId } : builtin;
+}
+
+function useSessionPluginTabs(args: UseSessionTabsArgs): PluginTabDefs {
+  const { featureId, projectId, data, pluginTabsEnabled } = args;
+  return usePluginTabDefs({
+    featureId,
+    projectId,
+    contextData: data,
+    enabled: pluginTabsEnabled,
+  });
+}
+
+/**
+ * Scope the agent conversation's file links (edit blocks, path links) to their
+ * own opener, so auto layout can split the Editor in beside the agent while
+ * the Git tab's opener keeps switching tabs in place.
+ */
+function useAgentFileLinksTab(tab: FeatureTabDef, openFile: OpenDiffInEditor): FeatureTabDef {
+  return useMemo(
+    () => ({
+      ...tab,
+      content: (
+        <OpenDiffInEditorProvider onOpenFileInEditor={openFile}>
+          {tab.content}
+        </OpenDiffInEditorProvider>
+      ),
+    }),
+    [openFile, tab],
   );
 }
 
@@ -62,7 +127,7 @@ function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
     () => ({
       label: "Terminal",
       Icon: TerminalIcon,
-      shortcut: ["cmd", "shift", "T"],
+      shortcutId: "pane-terminal",
       content: terminalReady ? (
         <FeatureTerminalTab ref={refs.terminal} featureId={featureId} projectId={projectId} />
       ) : (
@@ -89,7 +154,7 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
     () => ({
       label: "Git",
       Icon: GitCompareArrowsIcon,
-      shortcut: ["cmd", "shift", "G"],
+      shortcutId: "pane-git",
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
       content: gitReady ? (
         <FeatureGitTab
@@ -129,7 +194,8 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
     () => ({
       label: "Browser",
       Icon: GlobeIcon,
-      shortcut: ["cmd", "shift", "B"],
+      shortcutId: "pane-browser",
+      badge: <AgentBrowserActivityDot featureId={featureId} />,
       content: browserReady ? (
         <Suspense fallback={null}>
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />
@@ -142,6 +208,25 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
   );
 }
 
+function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {
+  const { featureId, projectId } = args;
+  const previewReady = args.tabReady.preview;
+  return useMemo(
+    () => ({
+      label: "Preview",
+      Icon: FileTextIcon,
+      content: previewReady ? (
+        <Suspense fallback={null}>
+          <FeaturePreviewTab featureId={featureId} projectId={projectId} />
+        </Suspense>
+      ) : (
+        <DeferredTabContent label="Preview" />
+      ),
+    }),
+    [featureId, previewReady, projectId],
+  );
+}
+
 function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
   const { featureId, projectId, data, refs } = args;
   const editorReady = args.tabReady.editor;
@@ -150,7 +235,7 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
     () => ({
       label: "Editor",
       Icon: CodeIcon,
-      shortcut: ["cmd", "shift", "E"],
+      shortcutId: "pane-editor",
       content: !editorReady ? (
         <DeferredTabContent label="Editor" />
       ) : projectPathOrCwd ? (

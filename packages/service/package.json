@@ -1,23 +1,26 @@
 {
   "name": "@cadencr/service",
+  "version": "0.16.2",
   "private": true,
-  "version": "0.11.5",
-  "description": "Cadencr Rust backend service \u2014 HTTP/WebSocket API powering the desktop app.",
+  "description": "Cadencr Rust backend service — HTTP/WebSocket API powering the desktop app.",
   "license": "Apache-2.0",
-  "dependencies": {
-    "@cadencr/claude-agent-sdk-rs": "workspace:*"
-  },
   "scripts": {
-    "build": "node ../../scripts/cargo-env.mjs cargo build --release && node ../../scripts/cargo-env.mjs pnpm copy:release && pnpm check:macos-runtime-deps",
+    "build": "node ../../scripts/cargo-env.mjs cargo build --locked --release --bin cadencr-service && node ../../scripts/cargo-env.mjs pnpm copy:release && pnpm check:macos-runtime-deps && node ./scripts/build-bundled-cli.mjs release",
+    "build:local": "node ../../scripts/cargo-env.mjs cargo build --locked --profile local --bin cadencr-service && node ../../scripts/cargo-env.mjs node ./scripts/copy-service-binary.mjs local && pnpm check:macos-runtime-deps && node ./scripts/build-bundled-cli.mjs local",
+    "build:macos-sidecars": "node ./scripts/build-macos-sidecars.mjs",
+    "build:sidecars": "node ./scripts/build-sidecars.mjs",
     "build:debug": "node ../../scripts/cargo-env.mjs cargo build && node ../../scripts/cargo-env.mjs pnpm copy:debug",
-    "dev": "node ../../scripts/cargo-env.mjs cargo watch -w src -w .env -x 'run --bin cadencr-service'",
-    "test": "node ../../scripts/cargo-env.mjs cargo test",
-    "lint": "node ../../scripts/cargo-env.mjs cargo check",
-    "format": "cargo fmt",
-    "format:check": "cargo fmt -- --check",
+    "dev": "node ../../scripts/cargo-env.mjs node ../../scripts/service-dev-watch.mjs",
+    "test": "node ../../scripts/cargo-env.mjs cargo test --workspace",
+    "lint": "node ../../scripts/cargo-env.mjs cargo clippy --workspace --all-targets -- -D warnings",
+    "format": "node ../../scripts/cargo-env.mjs cargo fmt --all",
+    "format:check": "node ../../scripts/cargo-env.mjs cargo fmt --all -- --check",
     "copy:release": "node ./scripts/copy-service-binary.mjs release",
     "copy:debug": "node ./scripts/copy-service-binary.mjs debug",
     "check:macos-runtime-deps": "node ./scripts/check-macos-runtime-deps.mjs",
     "smoke:packaged-sidecar": "node ./scripts/smoke-test-packaged-sidecar.mjs"
+  },
+  "dependencies": {
+    "@cadencr/claude-agent-sdk-rs": "workspace:*"
   }
 }

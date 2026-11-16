@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import type { SplitOrientation } from "@/hooks/useTerminalState";
 
 const ICON_BTN =
@@ -18,22 +19,26 @@ export const TerminalPaneToolbar = memo(function TerminalPaneToolbar({
   onClose,
   canClose,
 }: TerminalPaneToolbarProps) {
+  // Labels follow the registry and the pane context menu: `"horizontal"` is
+  // `terminal-split-h` ("Split horizontal"), `"vertical"` is `-v`.
+  const splitHorizontalKeys = useShortcutKeys("terminal-split-h");
+  const splitVerticalKeys = useShortcutKeys("terminal-split-v");
   return (
     <div className="absolute right-2 top-1 z-10 flex items-center gap-0.5">
-      <ShortcutTooltip label="Split vertical" keys={["cmd", "D"]}>
+      <ShortcutTooltip label="Split horizontal" keys={splitHorizontalKeys}>
         <button
           type="button"
-          aria-label="Split terminal vertically"
+          aria-label="Split terminal horizontally"
           onClick={() => onSplit("horizontal")}
           className={ICON_BTN}
         >
           <SplitSquareHorizontal className="size-3.5" />
         </button>
       </ShortcutTooltip>
-      <ShortcutTooltip label="Split horizontal" keys={["cmd", "shift", "D"]} alignRight>
+      <ShortcutTooltip label="Split vertical" keys={splitVerticalKeys} alignRight>
         <button
           type="button"
-          aria-label="Split terminal horizontally"
+          aria-label="Split terminal vertically"
           onClick={() => onSplit("vertical")}
           className={ICON_BTN}
         >

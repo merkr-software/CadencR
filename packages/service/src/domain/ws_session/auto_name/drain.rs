@@ -1,13 +1,12 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::time::{Duration, Instant};
 
 use tracing::{debug, info, warn};
 
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeContentBlock, RuntimeContentDelta, RuntimeStreamEvent,
+    AgentRuntimeSession, RuntimeContentBlock, RuntimeContentDelta, RuntimeError, RuntimeStreamEvent,
 };
 use crate::domain::agents::providers::runtime_session_finished_text;
-
-use super::truncate_for_log;
 
 /// Safety cap: auto-naming should complete in seconds. If the provider hasn't
 /// emitted a terminal event by then, bail out rather than hang the skeleton.
@@ -57,7 +56,7 @@ pub(super) async fn drain_text(
     feature_id: i64,
     provider_id: &str,
     mut session: Box<dyn AgentRuntimeSession>,
-) -> String {
+) -> Result<String, RuntimeError> {
     let runtime_session_id = session.session_id().await;
     debug!(
         feature_id,
@@ -159,8 +158,36 @@ pub(super) async fn drain_text(
 
     // Close cooperatively — some adapters (OpenCode) leave server-side
     // session state behind otherwise.
-    session.close().await;
-    accumulated_text
+    session.close().await?;
+    Ok(accumulated_text)
+}
+
+/// Clamp a string to `max` bytes at a char boundary for log output. Prevents
+/// an OpenCode message with a long payload from flooding the log line.
+pub(super) fn truncate_for_log(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &text[..end])
+}
+
+pub(super) fn report_close_error(
+    senders: &[tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>],
+    error: RuntimeError,
+) {
+    use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope};
+
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+        code: "RUNTIME_CLOSE_FAILED".into(),
+        message: error.to_string(),
+        ..Default::default()
+    }))
+    .expect("runtime close error should serialize");
+    super::send_to_all(senders, String::from(envelope));
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { history, undo } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";

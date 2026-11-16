@@ -148,7 +148,9 @@ fn write_temp_base64_file(
     extension: &str,
     label: &str,
 ) -> Result<TempPath, RuntimeError> {
-    let dir = std::env::temp_dir().join(dir_name);
+    let parent = crate::shared::private_temp::private_temp_dir()
+        .map_err(|e| RuntimeError::new(format!("failed to resolve Codex {label} temp dir: {e}")))?;
+    let dir = parent.join(dir_name);
     std::fs::create_dir_all(&dir).map_err(|e| {
         RuntimeError::new(format!(
             "failed to create Codex {label} temp directory {}: {e}",

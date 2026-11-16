@@ -33,7 +33,16 @@ impl From<RuntimeSlashCommandKind> for SlashCommandKind {
     }
 }
 
-pub async fn resolve_commands(cwd: &str, provider: &str) -> Vec<SlashCommand> {
+/// The resolved `/` catalog, plus why the provider's own commands are missing
+/// from it when its discovery failed. The menu shows that error; built-in and
+/// Cadencr entries stay usable either way.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResolvedCommands {
+    pub commands: Vec<SlashCommand>,
+    pub error: Option<String>,
+}
+
+pub async fn resolve_commands(cwd: &str, provider: &str) -> ResolvedCommands {
     resolve_commands_for_profile(cwd, provider, None).await
 }
 
@@ -41,14 +50,17 @@ pub async fn resolve_commands_for_profile(
     cwd: &str,
     provider: &str,
     profile: Option<&str>,
-) -> Vec<SlashCommand> {
+) -> ResolvedCommands {
     let mut commands = Vec::new();
     let mut seen = HashSet::new();
 
     merge_commands(&mut commands, &mut seen, builtin_commands(provider));
 
     let Some(adapter) = runtime_adapter(provider) else {
-        return commands;
+        return ResolvedCommands {
+            commands,
+            error: None,
+        };
     };
 
     // Cadencr's virtual orchestration skills are provider-neutral and only
@@ -57,33 +69,34 @@ pub async fn resolve_commands_for_profile(
     merge_commands(&mut commands, &mut seen, orchestration_skill_commands());
 
     const COMMANDS_TIMEOUT: Duration = Duration::from_secs(15);
-    match tokio::time::timeout(
+    let error = match tokio::time::timeout(
         COMMANDS_TIMEOUT,
         adapter.runtime_slash_commands_for_profile(cwd, profile),
     )
     .await
     {
-        Ok(inner) => match inner {
-            Ok(native_commands) => {
-                merge_commands(&mut commands, &mut seen, to_slash_commands(native_commands));
-            }
-            Err(error) => {
-                warn!(
-                    cwd,
-                    error = %error,
-                    "failed to load commands from runtime provider"
-                );
-            }
-        },
+        Ok(Ok(native_commands)) => {
+            merge_commands(&mut commands, &mut seen, to_slash_commands(native_commands));
+            None
+        }
+        Ok(Err(error)) => {
+            warn!(cwd, provider, error = %error, "failed to load commands from runtime provider");
+            Some(format!("Provider commands could not be loaded: {error}"))
+        }
         Err(_) => {
             warn!(
                 cwd,
+                provider,
                 timeout_secs = COMMANDS_TIMEOUT.as_secs(),
                 "slash-command probe timed out"
             );
+            Some(format!(
+                "Provider commands could not be loaded: discovery timed out after {} seconds",
+                COMMANDS_TIMEOUT.as_secs()
+            ))
         }
-    }
-    commands
+    };
+    ResolvedCommands { commands, error }
 }
 
 /// Provider-specific built-in slash commands that aren't discovered through
@@ -235,9 +248,10 @@ mod tests {
         )
         .unwrap();
 
-        let commands = super::resolve_commands(temp.path().to_str().unwrap(), "unknown").await;
+        let resolved = super::resolve_commands(temp.path().to_str().unwrap(), "unknown").await;
 
-        assert!(commands.is_empty());
+        assert!(resolved.commands.is_empty());
+        assert!(resolved.error.is_none());
     }
 
     #[tokio::test]
@@ -252,7 +266,8 @@ mod tests {
             temp.path().to_str().unwrap(),
             crate::domain::agents::codex::PROVIDER_ID,
         )
-        .await;
+        .await
+        .commands;
 
         assert!(commands.iter().any(|command| command.name == "compact"));
         assert!(!commands.iter().any(|command| command.name == "item-add"));
@@ -282,7 +297,8 @@ mod tests {
             temp.path().to_str().unwrap(),
             crate::domain::agents::codex::PROVIDER_ID,
         )
-        .await;
+        .await
+        .commands;
         assert!(commands
             .iter()
             .any(|c| c.name == "cadencr:status" && matches!(c.kind, SlashCommandKind::Cadencr)));

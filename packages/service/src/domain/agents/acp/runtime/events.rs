@@ -278,7 +278,8 @@ mod tests {
                     "sessionUpdate": "available_commands_update",
                     "availableCommands": [
                         { "name": "compact", "description": "summarize" },
-                        { "name": "init", "description": "init" }
+                        { "name": "init", "description": "init" },
+                        { "name": "deploy", "_meta": { "cadencr": { "kind": "skill" } } }
                     ]
                 }
             }),
@@ -291,10 +292,18 @@ mod tests {
         let commands = result.events[0]
             .slash_commands_updated()
             .expect("expected SlashCommandsUpdated event");
-        assert_eq!(commands.len(), 2);
+        assert_eq!(commands.len(), 3);
         assert_eq!(commands[0].name, "compact");
         assert_eq!(commands[0].description.as_deref(), Some("summarize"));
         assert_eq!(commands[1].name, "init");
+        assert_eq!(
+            commands[1].kind,
+            crate::domain::agents::adapter::RuntimeSlashCommandKind::Command
+        );
+        assert_eq!(
+            commands[2].kind,
+            crate::domain::agents::adapter::RuntimeSlashCommandKind::Skill
+        );
     }
     #[test]
     fn available_commands_update_emits_empty_list_when_array_empty() {

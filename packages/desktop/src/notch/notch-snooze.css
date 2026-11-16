@@ -1,0 +1,107 @@
+/* Snooze row of the notch island: in the panel's footer and a held peek. */
+
+.snooze {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--n-muted);
+  cursor: default;
+}
+.snooze-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  white-space: nowrap;
+}
+.snooze-label svg {
+  width: 12px;
+  height: 12px;
+}
+.snooze-chip {
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--n-wash);
+  color: var(--n-soft);
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--n-out),
+    color 120ms var(--n-out);
+}
+.snooze-chip:hover {
+  background: var(--n-wash-strong);
+  color: var(--n-ink);
+}
+/* Inset like the rows' content and the hairlines between their bands. */
+.panel-foot {
+  margin: 0 20px;
+  padding: 9px 0 12px;
+  border-top: 1px solid var(--n-hair);
+}
+
+/* A held peek grows its controls in: close beside the title, snooze under the body,
+   both above the peek's stretched open button. */
+.peek[data-paused="true"] {
+  grid-template-columns: auto 1fr auto;
+}
+.peek-close,
+.peek .snooze,
+.peek-error {
+  position: relative;
+  z-index: 2;
+}
+.peek-close {
+  align-self: start;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: -2px -6px 0 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--n-muted);
+  cursor: pointer;
+  animation: peek-controls-in 220ms var(--n-out) both;
+}
+.peek-close:hover {
+  background: var(--n-wash-strong);
+  color: var(--n-ink);
+}
+.peek-close:focus-visible,
+.snooze-chip:focus-visible {
+  outline: 1.5px solid color-mix(in oklab, var(--n-ink) 55%, transparent);
+  outline-offset: 1px;
+}
+.peek-close svg {
+  width: 14px;
+  height: 14px;
+}
+.peek .snooze {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+  animation: peek-controls-in 260ms var(--n-out) 40ms both;
+}
+.peek-error {
+  grid-column: 1 / -1;
+  margin: 10px 0 0;
+}
+@keyframes peek-controls-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peek-close,
+  .peek .snooze {
+    animation: none;
+  }
+}

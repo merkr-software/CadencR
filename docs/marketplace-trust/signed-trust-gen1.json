@@ -1,0 +1,20 @@
+{
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "cadencr-root-1",
+    "value": "qDzFO8eV8lWN4DIa0UxnIzfRCSMlTd5IcoDL4dC0f6O+U9Q8DZ+ohNPVPNbumWrANG4ofk6i/CVZzqVTM54+Aw=="
+  },
+  "signed": {
+    "generation": 1,
+    "keys": [
+      {
+        "key_id": "cadencr-registry-1",
+        "public_key_base64": "Ox20iUMpTdJ0sUYaZ9ydino9SAXS4hf2NKddLZy1FeQ="
+      }
+    ],
+    "kind": "registry-trust",
+    "recovery_catalog_sha256": [],
+    "revoked_key_ids": [],
+    "schema_version": 1
+  }
+}

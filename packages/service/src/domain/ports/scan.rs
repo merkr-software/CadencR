@@ -28,6 +28,23 @@ const CWD_BATCH: usize = 256;
 /// instead and let the next scan try again.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// A required system tool is not installed (spawn failed with `NotFound`).
+/// Kept distinct so the API can tell the user what to install instead of
+/// reporting an opaque internal error — `lsof` is absent from minimal Linux
+/// installs (Arch, Fedora minimal, containers).
+#[derive(Debug)]
+pub struct MissingTool {
+    pub program: String,
+}
+
+impl std::fmt::Display for MissingTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`{}` is not installed", self.program)
+    }
+}
+
+impl std::error::Error for MissingTool {}
+
 pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
     let out = capture("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]).await?;
     Ok(parse_listen_sockets(&out))
@@ -35,8 +52,35 @@ pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
 
 /// Map of pid -> parent pid for every process on the machine.
 pub async fn parent_map() -> anyhow::Result<HashMap<i32, i32>> {
-    let out = capture("ps", &["-axo", "pid=,ppid="]).await?;
-    Ok(parse_parent_map(&out))
+    Ok(process_links()
+        .await?
+        .into_iter()
+        .map(|(pid, links)| (pid, links.ppid))
+        .collect())
+}
+
+/// Where a process sits in the process tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessLinks {
+    pub ppid: i32,
+    pub pgid: i32,
+}
+
+/// Map of pid -> parent pid and process group for every process on the
+/// machine.
+pub async fn process_links() -> anyhow::Result<HashMap<i32, ProcessLinks>> {
+    let out = capture("ps", process_links_args(cfg!(target_os = "macos"))).await?;
+    Ok(parse_process_links(&out))
+}
+
+/// BSD `ps -ax` on macOS (unchanged); POSIX `-A` elsewhere, which procps-ng on
+/// Linux documents for "every process" without relying on BSD flag parsing.
+fn process_links_args(is_macos: bool) -> &'static [&'static str] {
+    if is_macos {
+        &["-axo", "pid=,ppid=,pgid="]
+    } else {
+        &["-Ao", "pid=,ppid=,pgid="]
+    }
 }
 
 /// Working directory of each requested pid. Pids that have exited between the
@@ -61,7 +105,7 @@ pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
 ///
 /// `kill_on_drop` matters as much as the timeout: without it, a child outlives
 /// the dropped future both on timeout and when a client disconnects mid-request.
-async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
+pub(crate) async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
     let run = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -70,7 +114,7 @@ async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
     let output = tokio::time::timeout(COMMAND_TIMEOUT, run)
         .await
         .map_err(|_| anyhow::anyhow!("`{program}` timed out after {COMMAND_TIMEOUT:?}"))?
-        .map_err(|error| anyhow::anyhow!("could not run `{program}`: {error}"))?;
+        .map_err(|error| spawn_error(program, error))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if !output.status.success() && stdout.trim().is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -80,6 +124,16 @@ async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
         }
     }
     Ok(stdout)
+}
+
+fn spawn_error(program: &str, error: std::io::Error) -> anyhow::Error {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return MissingTool {
+            program: program.to_owned(),
+        }
+        .into();
+    }
+    anyhow::anyhow!("could not run `{program}`: {error}")
 }
 
 /// Parse `lsof -F pcn` output. Fields arrive as one-character-tagged lines,
@@ -136,19 +190,20 @@ fn parse_cwd_map(output: &str) -> HashMap<i32, String> {
     cwds
 }
 
-/// Parse `ps -axo pid=,ppid=` output into pid -> parent pid.
-fn parse_parent_map(output: &str) -> HashMap<i32, i32> {
-    let mut parents = HashMap::new();
-    for line in output.lines() {
-        let mut fields = line.split_whitespace();
-        let (Some(pid), Some(ppid)) = (fields.next(), fields.next()) else {
-            continue;
-        };
-        if let (Ok(pid), Ok(ppid)) = (pid.parse::<i32>(), ppid.parse::<i32>()) {
-            parents.insert(pid, ppid);
-        }
-    }
-    parents
+/// Parse `ps -axo pid=,ppid=,pgid=` output into pid -> parent and group.
+fn parse_process_links(output: &str) -> HashMap<i32, ProcessLinks> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace().map(str::parse::<i32>);
+            match (fields.next(), fields.next(), fields.next()) {
+                (Some(Ok(pid)), Some(Ok(ppid)), Some(Ok(pgid))) => {
+                    Some((pid, ProcessLinks { ppid, pgid }))
+                }
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn split_field(line: &str) -> Option<(char, &str)> {
@@ -227,13 +282,38 @@ mod tests {
     }
 
     #[test]
-    fn parses_ps_parent_columns() {
-        let out = "  501     1\n  733   501\nbroken line\n";
+    fn missing_program_is_reported_as_a_missing_tool() {
+        let error = spawn_error("lsof", std::io::Error::from(std::io::ErrorKind::NotFound));
+        let missing = error
+            .downcast_ref::<MissingTool>()
+            .expect("typed missing tool");
+        assert_eq!(missing.program, "lsof");
+        let other = spawn_error(
+            "lsof",
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        assert!(other.downcast_ref::<MissingTool>().is_none());
+    }
 
-        let parents = parse_parent_map(out);
+    #[test]
+    fn process_links_arguments_per_platform() {
+        assert_eq!(process_links_args(true), ["-axo", "pid=,ppid=,pgid="]);
+        assert_eq!(process_links_args(false), ["-Ao", "pid=,ppid=,pgid="]);
+    }
 
-        assert_eq!(parents.get(&501), Some(&1));
-        assert_eq!(parents.get(&733), Some(&501));
-        assert_eq!(parents.len(), 2);
+    #[test]
+    fn parses_ps_parent_and_group_columns() {
+        let links =
+            parse_process_links("  501     1   501\n  733   501   733\n  734 733\nbroken\n");
+
+        assert_eq!(links.get(&501), Some(&ProcessLinks { ppid: 1, pgid: 501 }));
+        assert_eq!(
+            links.get(&733),
+            Some(&ProcessLinks {
+                ppid: 501,
+                pgid: 733
+            })
+        );
+        assert_eq!(links.len(), 2, "short and broken lines are skipped");
     }
 }

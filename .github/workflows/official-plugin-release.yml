@@ -1,0 +1,38 @@
+name: Prepare independent official plugin release
+
+on:
+  push:
+    tags:
+      # Discovery only: the exact source-bound policy allowlist is authoritative.
+      - "plugins/provider-*/v*"
+      - "plugins/theme-*/v*"
+      - "plugins/tab-*/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    # Cursor is compiled/qualified by its isolated native build workflow and
+    # published by cursor-provider-author.yml, never by blob-only preparation.
+    if: ${{ !startsWith(github.ref, 'refs/tags/plugins/provider-cursor/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Read-only, no environment, credentials, signing, or source build.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Prepare source-bound canonical artifacts (production pins required)
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: sh scripts/official-plugin-release.sh "$GITHUB_WORKSPACE" "$SOURCE_COMMIT" "$RELEASE_TAG" "$RUNNER_TEMP/official-plugin-release"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: official-plugin-${{ github.sha }}
+          path: ${{ runner.temp }}/official-plugin-release/
+          if-no-files-found: error
+          retention-days: 7

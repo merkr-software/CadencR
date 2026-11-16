@@ -40,8 +40,9 @@ pub(super) fn parse_porcelain_v2(output: &str) -> ParsedPorcelain {
     visit_porcelain_v2_records(output, |record, nul_old_path| {
         if let Some(rest) = record.strip_prefix("# branch.head ") {
             p.current_branch = rest.trim().to_string();
-            // A detached HEAD shows up as `(detached)` — keep it verbatim so
-            // the UI can display something sensible without inventing a name.
+            // A detached HEAD shows up as `(detached)` (`DETACHED_HEAD`) — keep
+            // it verbatim so the UI can display something sensible without
+            // inventing a name.
         } else if let Some(rest) = record.strip_prefix("# branch.upstream ") {
             p.upstream = Some(rest.trim().to_string());
         } else if let Some(rest) = record.strip_prefix("# branch.ab ") {

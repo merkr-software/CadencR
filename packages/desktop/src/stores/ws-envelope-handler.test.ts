@@ -1,7 +1,8 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
@@ -14,7 +15,7 @@ import {
 } from "@/lib/ws-reconnect";
 
 vi.mock("sonner", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
 function createTestContext(session: SessionEntry): StoreAccessors {
@@ -25,6 +26,7 @@ function createTestContext(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>): void => {
       state = { ...state, ...partial };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string): SessionEntry => state.sessions[sessionId],
   };
 }
@@ -461,6 +463,53 @@ describe("handleEnvelope commands.list", () => {
       userShell: true,
     });
   });
+
+  it("keeps the provider's discovery error for the menu", () => {
+    const session = createSessionEntry();
+    session.slashCommandsRequestRef = "commands-2";
+    session.slashCommandsLoading = true;
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "list",
+      ref: "commands-2",
+      payload: {
+        commands: [{ name: "cadencr:status", kind: "cadencr" }],
+        error: "Provider commands could not be loaded: output was rejected",
+      },
+    });
+
+    expect(ctx.getSession("s1").slashCommandsError).toBe(
+      "Provider commands could not be loaded: output was rejected",
+    );
+    expect(ctx.getSession("s1").slashCommands).toHaveLength(1);
+  });
+
+  it("lets a live update win over a pre-session list that lands after it", () => {
+    const session = createSessionEntry();
+    session.slashCommandsRequestRef = "commands-3";
+    session.slashCommandsLoading = true;
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "updated",
+      payload: { commands: [{ name: "live-only", kind: "command" }] },
+    });
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "list",
+      ref: "commands-3",
+      payload: { commands: [{ name: "stale", kind: "command" }], error: "late" },
+    });
+
+    expect(ctx.getSession("s1").slashCommands).toEqual([
+      { name: "live-only", description: "", kind: "command" },
+    ]);
+    expect(ctx.getSession("s1").slashCommandsError).toBeNull();
+    expect(ctx.getSession("s1").slashCommandsLoading).toBe(false);
+  });
 });
 
 describe("handleEnvelope workflow worktree events", () => {
@@ -568,6 +617,28 @@ describe("handleEnvelope error handling", () => {
     ).toEqual(["received_agent", "delivery_failed"]);
   });
 
+  it("routes RUNTIME_CHANGE_DEFERRED to an info toast without failing the turn", () => {
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.error).mockClear();
+    const session = createSessionEntry();
+    session.lifecycle = { phase: "active" } as SessionEntry["lifecycle"];
+    const ctx = createTestContext(session);
+    const message =
+      "The agent is waiting on background work, so your new reasoning effort will apply to your first message after it finishes.";
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: { code: "RUNTIME_CHANGE_DEFERRED", message },
+    });
+
+    expect(toast.info).toHaveBeenCalledWith(message, { id: "RUNTIME_CHANGE_DEFERRED" });
+    expect(toast.error).not.toHaveBeenCalled();
+    const updated = ctx.getSession("s1");
+    expect(updated.lifecycle).toEqual({ phase: "active" });
+    expect(updated.blocks).toHaveLength(0);
+  });
+
   it("routes MODE_NOT_SUPPORTED to a toast and leaves the agent stream untouched", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
@@ -592,6 +663,44 @@ describe("handleEnvelope error handling", () => {
     expect(updated.blocks).toHaveLength(0);
   });
 
+  it("routes SESSION_STATE_NOT_SAVED to a toast without failing the running turn", () => {
+    vi.mocked(toast.error).mockClear();
+    const session = createSessionEntry();
+    session.lifecycle = { phase: "active" } as SessionEntry["lifecycle"];
+    const ctx = createTestContext(session);
+    const message = "Cadencr could not save that the agent is working for this conversation.";
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: { code: "SESSION_STATE_NOT_SAVED", message },
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(message);
+    const updated = ctx.getSession("s1");
+    expect(updated.lifecycle).toEqual({ phase: "active" });
+    expect(updated.blocks).toHaveLength(0);
+  });
+
+  it("keeps an uncorrelated AGENT_STOP_ESCALATED on the inline turn-error path", () => {
+    vi.mocked(toast.error).mockClear();
+    const session = createSessionEntry();
+    session.lifecycle = { phase: "active" } as SessionEntry["lifecycle"];
+    const ctx = createTestContext(session);
+    const message = "The agent did not stop; Cadencr ended its process.";
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: { code: "AGENT_STOP_ESCALATED", message },
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+    const updated = ctx.getSession("s1");
+    expect(updated.lifecycle).toEqual({ phase: "error", message });
+    expect(updated.blocks.at(-1)?.content).toBe(message);
+  });
+
   it("MODE_REJECTED_BY_CLI silently auto-advances past rejected auto mode", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
@@ -608,6 +717,7 @@ describe("handleEnvelope error handling", () => {
       set: (partial: Partial<WsSessionStore>): void => {
         state = { ...state, ...partial };
       },
+      transport: new SessionTransportRegistry(),
       getSession: (id: string): SessionEntry => state.sessions[id],
     };
 
@@ -644,6 +754,7 @@ describe("handleEnvelope error handling", () => {
       set: (partial: Partial<WsSessionStore>): void => {
         state = { ...state, ...partial };
       },
+      transport: new SessionTransportRegistry(),
       getSession: (id: string): SessionEntry => state.sessions[id],
     };
 
@@ -734,6 +845,34 @@ describe("handleEnvelope stream_status", () => {
       domain: "session",
       action: "stream_status",
       payload: { state: "recovered" },
+    });
+
+    expect(ctx.getSession("s1").streamHealth.state).toBe("ok");
+  });
+
+  it("clears a retry the provider never reported recovering from when the turn ends", () => {
+    const session = createSessionEntry();
+    session.streamHealth = { state: "degraded", reason: "Codex is retrying", since: 1 };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "ended",
+      payload: { reason: "turn_complete" },
+    });
+
+    expect(ctx.getSession("s1").streamHealth.state).toBe("ok");
+  });
+
+  it("clears a stale retry when the session is initialized again", () => {
+    const session = createSessionEntry();
+    session.streamHealth = { state: "degraded", reason: "Codex is retrying", since: 1 };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", model: "gpt-6-luna" },
     });
 
     expect(ctx.getSession("s1").streamHealth.state).toBe("ok");

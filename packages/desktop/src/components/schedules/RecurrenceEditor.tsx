@@ -45,6 +45,11 @@ export interface RecurrenceEditorProps {
   onChange: (next: RecurrenceDraft) => void;
   /** Captured when the dialog opened, so validation doesn't drift as it sits open. */
   now: Date;
+  /** The schedule runs a command at these times rather than sending outright,
+   *  so the preview names them checks. */
+  evaluatesCommand?: boolean;
+  /** The schedule runs a custom action: a one-shot "runs", not "sends". */
+  runsAction?: boolean;
 }
 
 /**
@@ -59,6 +64,8 @@ export const RecurrenceEditor = memo(function RecurrenceEditor({
   value,
   onChange,
   now,
+  evaluatesCommand = false,
+  runsAction = false,
 }: RecurrenceEditorProps): ReactElement {
   const error = draftError(value, now);
   const preview = useMemo(() => nextOccurrences(value, 3, now), [value, now]);
@@ -115,7 +122,11 @@ export const RecurrenceEditor = memo(function RecurrenceEditor({
         />
       )}
 
-      <NextRuns preview={preview} error={error} repeating={value.kind !== "once"} />
+      <NextRuns
+        preview={preview}
+        error={error}
+        label={previewLabel(value.kind, evaluatesCommand, runsAction)}
+      />
     </div>
   );
 });
@@ -248,20 +259,29 @@ function TimeOfDayPicker({
   );
 }
 
+function previewLabel(
+  kind: RecurrenceKind,
+  evaluatesCommand: boolean,
+  runsAction: boolean,
+): string {
+  if (kind === "once") return evaluatesCommand ? "Checks" : runsAction ? "Runs" : "Sends";
+  return evaluatesCommand ? "Next checks" : "Next runs";
+}
+
 function NextRuns({
   preview,
   error,
-  repeating,
+  label,
 }: {
   preview: Date[];
   error: string | null;
-  repeating: boolean;
+  label: string;
 }): ReactElement {
   if (error) return <p className="text-xs text-destructive">{error}</p>;
   if (!preview.length) return <p className="text-xs text-muted-foreground">No upcoming runs.</p>;
   return (
     <p className="text-xs text-muted-foreground">
-      <span className="text-foreground/80">{repeating ? "Next runs" : "Sends"}:</span>{" "}
+      <span className="text-foreground/80">{label}:</span>{" "}
       {preview.map((date) => formatAbsolute(date)).join(" · ")}
       <span className="opacity-70"> ({localTimeZone()})</span>
     </p>

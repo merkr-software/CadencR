@@ -3,6 +3,7 @@ import { CodeBlockHeader } from "@/components/CodeBlockHeader";
 
 interface CodeBlockShellProps {
   language: string;
+  icon?: ReactNode;
   code: string;
   showTerminalButton?: boolean;
   onSendToTerminal?: (command: string) => void;

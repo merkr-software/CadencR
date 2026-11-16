@@ -1,3 +1,5 @@
+mod app_server_failure;
+mod async_questions;
 mod branching;
 mod command_decisions;
 mod commands;
@@ -22,6 +24,7 @@ mod event_reasoning_state;
 mod event_state;
 mod event_subagent_activity;
 mod event_subagent_recovery;
+mod event_subagent_reports;
 mod event_subagent_routes;
 mod event_subagents;
 mod event_system;
@@ -29,10 +32,12 @@ mod event_turn_state;
 mod event_usage;
 mod event_web;
 mod events;
+pub mod extensions;
 mod input;
 mod instructions;
 mod launch;
 mod legacy_permissions;
+mod live_catalog;
 mod mcp;
 mod mcp_status;
 mod model;
@@ -44,11 +49,14 @@ mod permission_options_tests;
 mod permissions;
 mod profile_runtime;
 pub mod profiles;
+mod prompt_attachments;
 mod prompt_receipts;
 mod raw_tool_names;
 mod responses;
+mod revision_cache;
 pub mod routes;
 mod runtime_error;
+mod server_request_method;
 mod session;
 mod session_permissions;
 mod thread_params;
@@ -56,18 +64,17 @@ mod timeouts;
 mod trusted_mcp;
 mod turn_start;
 mod turn_steer_recovery;
+pub mod updates;
 mod worktree_config;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use codex_app_server_sdk_rs::{CodexAppServerClient, CodexModel};
 use serde_json::Value;
-use tokio::sync::{Mutex, RwLock};
 
+use self::live_catalog::live_catalog;
 use self::mcp::mcp_server_names;
 use self::mcp_status::mcp_server_statuses;
 pub(crate) use self::model::{canonical_access_mode_wire, configured_access_mode};
@@ -85,31 +92,15 @@ use super::runtime::{ModelCatalogEntry, ProviderCatalogEntry, ProviderStatus};
 pub struct CodexAdapter;
 pub const PROVIDER_ID: &str = "codex_cli";
 const PROVIDER_LABEL: &str = "Codex CLI";
-const CATALOG_TTL: Duration = Duration::from_secs(30);
 const DEFAULT_MODE_REQUEST_USER_INPUT_FEATURE: &str = "default_mode_request_user_input";
 pub(super) const FAST_SERVICE_TIER: &str = "priority";
 
 pub(super) fn fast_service_tier_value(enabled: bool) -> Value {
-    enabled
-        .then(|| Value::String(FAST_SERVICE_TIER.to_string()))
-        .unwrap_or(Value::Null)
-}
-
-#[derive(Clone)]
-struct CatalogCacheEntry {
-    fetched_at: Instant,
-    catalog: ProviderCatalogEntry,
-}
-
-static CATALOG_CACHE: OnceLock<RwLock<Option<CatalogCacheEntry>>> = OnceLock::new();
-static CATALOG_REFRESH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn catalog_cache() -> &'static RwLock<Option<CatalogCacheEntry>> {
-    CATALOG_CACHE.get_or_init(|| RwLock::new(None))
-}
-
-fn catalog_refresh_lock() -> &'static Mutex<()> {
-    CATALOG_REFRESH_LOCK.get_or_init(|| Mutex::new(()))
+    if enabled {
+        Value::String(FAST_SERVICE_TIER.to_string())
+    } else {
+        Value::Null
+    }
 }
 
 fn catalog_from_models(models: Vec<CodexModel>) -> ProviderCatalogEntry {
@@ -124,6 +115,7 @@ fn catalog_from_models(models: Vec<CodexModel>) -> ProviderCatalogEntry {
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models: models.into_iter().map(model_entry).collect(),
         modes: Vec::new(),
         access_modes: access_mode_catalog(),
@@ -193,32 +185,6 @@ fn model_entry(model: CodexModel) -> ModelCatalogEntry {
         supports_fast_mode: Some(supports_fast_mode),
         supports_auto_mode: None,
     }
-}
-
-async fn live_catalog() -> ProviderCatalogEntry {
-    if let Some(entry) = catalog_cache().read().await.clone() {
-        if entry.fetched_at.elapsed() < CATALOG_TTL {
-            return entry.catalog;
-        }
-    }
-
-    let _refresh = catalog_refresh_lock().lock().await;
-    if let Some(entry) = catalog_cache().read().await.clone() {
-        if entry.fetched_at.elapsed() < CATALOG_TTL {
-            return entry.catalog;
-        }
-    }
-
-    let catalog = match profile_runtime::probe_models().await {
-        Ok(models) if !models.is_empty() => catalog_from_models(models),
-        Ok(_) => unavailable_catalog("codex app-server returned no models"),
-        Err(error) => unavailable_catalog(format!("codex app-server unavailable: {error}")),
-    };
-    *catalog_cache().write().await = Some(CatalogCacheEntry {
-        fetched_at: Instant::now(),
-        catalog: catalog.clone(),
-    });
-    catalog
 }
 
 include!("adapter_impl.rs");
@@ -377,5 +343,13 @@ mod tests {
     fn advertises_session_branching_capability() {
         let adapter = CodexAdapter;
         assert!(adapter.session_branching().is_some());
+    }
+    #[test]
+    fn adapter_owns_legacy_access_mode_mirroring() {
+        assert_eq!(
+            CodexAdapter.legacy_access_mode_wire(Some("fullAccess")),
+            Some("fullAccess".into())
+        );
+        assert_eq!(CodexAdapter.legacy_access_mode_wire(None), None);
     }
 }

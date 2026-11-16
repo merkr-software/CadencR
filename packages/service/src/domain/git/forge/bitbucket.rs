@@ -1,12 +1,14 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use super::merging::{MergeCommand, PrMergeResponse, PrMergeStatus};
 use super::provider::{
     proposal_noun, CiCheck, CiRollup, CiState, CommentThread, ForgeAuthContext, ForgeContext,
     ForgeError, ForgeProvider, ForgeUser, PrState, PrSummary, ReviewState,
 };
 
 mod comments;
+mod merge;
 
 pub struct BitbucketProvider;
 
@@ -84,11 +86,43 @@ impl ForgeProvider for BitbucketProvider {
         let user: BitbucketUser = ctx.http.request_json(request).await?;
         Ok(map_user(user))
     }
+
+    async fn merge_status(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+    ) -> Result<PrMergeStatus, ForgeError> {
+        merge::merge_status(ctx, pr).await
+    }
+
+    async fn merge(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+        command: &MergeCommand,
+        _status: &PrMergeStatus,
+    ) -> Result<PrMergeResponse, ForgeError> {
+        merge::merge(ctx, pr, command).await
+    }
+
+    async fn cancel_merge(&self, _ctx: &ForgeContext, _pr: &PrSummary) -> Result<(), ForgeError> {
+        Err(ForgeError::Refused(
+            "Bitbucket has no auto-merge or merge queue to cancel".into(),
+        ))
+    }
 }
 
 pub(super) fn bitbucket_get(
     ctx: &ForgeContext,
     url: &str,
+) -> Result<reqwest::RequestBuilder, ForgeError> {
+    authorize(ctx, ctx.http.get(url))
+}
+
+/// Bitbucket API tokens authenticate as HTTP basic with the account email.
+fn authorize(
+    ctx: &ForgeContext,
+    builder: reqwest::RequestBuilder,
 ) -> Result<reqwest::RequestBuilder, ForgeError> {
     let username = ctx
         .credentials
@@ -100,10 +134,7 @@ pub(super) fn bitbucket_get(
                 "Bitbucket API tokens require the Atlassian account email as username".into(),
             )
         })?;
-    Ok(ctx
-        .http
-        .get(url)
-        .basic_auth(username, Some(&ctx.credentials.token)))
+    Ok(builder.basic_auth(username, Some(&ctx.credentials.token)))
 }
 
 fn map_pull(pull: BitbucketPull, host: crate::domain::git::host::GitHost) -> PrSummary {

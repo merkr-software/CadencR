@@ -52,6 +52,23 @@ export function contentOffset(win: BrowserWindow | null): BrowserWindowOffset {
 }
 
 /**
+ * Renderer placeholder rect (zoomed CSS px from `getBoundingClientRect`) →
+ * window DIP for `WebContentsView.setBounds`. `zoomFactor` is the renderer's
+ * page zoom as measured with the rect; it falls back to the window's own.
+ */
+export function rendererBoundsToWindow(
+  win: BrowserWindow | null,
+  bounds: BrowserBounds,
+  zoomFactor?: number,
+): { bounds: BrowserBounds; factor: number } {
+  const factor = zoomFactor ?? win?.webContents.getZoomFactor() ?? 1;
+  return {
+    bounds: windowRelativeBounds(scaleBounds(bounds, factor), contentOffset(win)),
+    factor,
+  };
+}
+
+/**
  * Off-screen position for a view that should be hidden, preserving its size so
  * the page doesn't reflow to a 1px box on every toggle. Sizing matters because
  * we move a view off-screen *while it is still visible* (a hidden

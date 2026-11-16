@@ -6,13 +6,17 @@ import { cn } from "@/lib/utils";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrottle";
 
-/** First non-empty line of the reasoning, stripped of leading markdown markers,
- * used as a one-line preview next to the "Thinking" label when collapsed.
- * Matches only up to the first newline so the cost stays constant regardless of
- * how long the accumulated reasoning grows. */
+/** First non-empty line of the reasoning, stripped of leading markdown markers
+ * and bold marks (reasoning often opens on a `**Heading**`), used as a one-line
+ * preview next to the "Thinking" label when collapsed. Matches only up to the
+ * first newline so the cost stays constant regardless of how long the
+ * accumulated reasoning grows. */
 export function thinkingPreview(content: string): string {
   const firstLine = /^[^\n]*\S[^\n]*/m.exec(content)?.[0] ?? "";
-  return firstLine.trim().replace(/^(?:#+|[-*>]|\d+\.)\s+/, "");
+  return firstLine
+    .trim()
+    .replace(/^(?:#+|[-*>]|\d+\.)\s+/, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1");
 }
 
 interface ThinkingBlockProps {

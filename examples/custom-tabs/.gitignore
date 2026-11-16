@@ -1,0 +1,11 @@
+node_modules
+dist
+# Copied in by `npm run vendor` (vendor.mjs) from the SDK/kit tarballs and the
+# scaffold templates; the repository keeps the originals.
+vendor
+INSTRUCTION.md
+AGENTS.md
+CLAUDE.md
+# The SDK and kit come from those tarballs, which are rebuilt with the
+# packages; a committed lockfile would pin stale integrity hashes for them.
+package-lock.json

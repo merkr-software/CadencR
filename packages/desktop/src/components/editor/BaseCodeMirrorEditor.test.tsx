@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// CodeMirror needs queued selectionchange events; happy-dom dispatches them synchronously.
 import { createRef } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

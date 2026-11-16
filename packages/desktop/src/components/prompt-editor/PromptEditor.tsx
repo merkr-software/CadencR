@@ -1,4 +1,13 @@
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -9,8 +18,11 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import {
   $createParagraphNode,
   $getRoot,
+  $getSelection,
   $isElementNode,
+  $isRangeSelection,
   $isTextNode,
+  $setSelection,
   type EditorState,
   type LexicalEditor,
 } from "lexical";
@@ -22,6 +34,7 @@ import { SlashCommandNode } from "./nodes/SlashCommandNode";
 import { SlashCommandPlugin } from "./plugins/SlashCommandPlugin";
 import { KeyboardShortcutsPlugin } from "./plugins/KeyboardShortcutsPlugin";
 import { ImagePastePlugin } from "./plugins/ImagePastePlugin";
+import { LongPastePlugin } from "./plugins/LongPastePlugin";
 import { ConversationReferencePlugin } from "./plugins/ConversationReferencePlugin";
 import { ConversationReferenceNode } from "./nodes/ConversationReferenceNode";
 import { $isShellCommandPrefixNode, ShellCommandPrefixNode } from "./nodes/ShellCommandPrefixNode";
@@ -36,10 +49,13 @@ import {
 
 export interface PromptEditorHandle {
   focus: () => void;
+  blur: () => void;
   clear: () => void;
   /** Set text. `moveSelection: false` populates without focusing the editor. */
   setText: (text: string, moveSelection?: boolean) => void;
   getText: () => string;
+  /** Insert text at the caret (or at the end when the editor has no selection). */
+  insertText: (text: string) => void;
   /** Exit shell mode while preserving the command text. */
   clearShellCommandMode: () => void;
 }
@@ -53,18 +69,26 @@ interface PromptEditorProps {
   mentionFeatureId?: number;
   slashCommands?: SlashCommand[];
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   promptCommandPolicy?: PromptCommandPolicy;
   /** Called when Enter pressed (no shift, no popover). Return true to consume. */
   onEnterSend?: () => boolean;
+  /** Called on ⌘/Ctrl+Enter (queue while the agent works). Return true to consume. */
+  onModEnterSend?: () => boolean;
   /** Called on ArrowUp at the document start for prompt history. */
   onArrowUp?: () => string | null;
   /** Called on ArrowDown at the document end for prompt history. */
   onArrowDown?: () => string | null;
+  /** True while an untouched history entry is shown (see KeyboardShortcutsPlugin). */
+  isBrowsingHistory?: () => boolean;
   disabled?: boolean;
   /** Initial text to populate the editor with (e.g. restored draft) */
   initialText?: string;
   /** Called when image files are pasted from the clipboard. */
   onPasteImages?: (files: File[]) => void;
+  /** Called instead of inserting a very long text paste (see `LongPastePlugin`). */
+  onPasteLongText?: (text: string) => void;
 }
 
 function EditorRefPlugin({
@@ -74,6 +98,19 @@ function EditorRefPlugin({
 }) {
   const [editor] = useLexicalComposerContext();
   editorRef.current = editor;
+  return null;
+}
+
+/**
+ * A disabled editor must also refuse typing: `pointer-events-none` does not
+ * stop a focused editor, and text typed during an awaited send is never saved
+ * as a draft. Layout effect, so a refocus scheduled for the next frame lands
+ * on an editable root again. Handles changes only; the mount value is in
+ * `initialConfig`.
+ */
+function EditablePlugin({ editable }: { editable: boolean }) {
+  const [editor] = useLexicalComposerContext();
+  useLayoutEffect(() => editor.setEditable(editable), [editor, editable]);
   return null;
 }
 
@@ -100,6 +137,11 @@ function usePromptEditorHandle(
     focus() {
       editorRef.current?.focus();
     },
+    blur() {
+      // Clear Lexical's selection so a pending update cannot refocus the editor.
+      editorRef.current?.update(() => $setSelection(null));
+      editorRef.current?.blur();
+    },
     clear() {
       editorRef.current?.update(() => {
         const root = $getRoot();
@@ -118,6 +160,18 @@ function usePromptEditorHandle(
         text = getEditorText();
       });
       return text;
+    },
+    insertText(text: string) {
+      editorRef.current?.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(text);
+          return;
+        }
+        const root = $getRoot();
+        root.selectEnd();
+        $getSelection()?.insertText(text);
+      });
     },
     clearShellCommandMode() {
       editorRef.current?.update(removeShellCommandPrefix);
@@ -179,12 +233,16 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
       mentionFeatureId,
       slashCommands,
       slashCommandsLoading,
+      slashCommandsError,
       promptCommandPolicy = DEFAULT_PROMPT_COMMAND_POLICY,
       onEnterSend,
+      onModEnterSend,
       onArrowUp,
       onArrowDown,
+      isBrowsingHistory,
       disabled,
       onPasteImages,
+      onPasteLongText,
     },
     ref,
   ) {
@@ -208,6 +266,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
     return (
       <>
         <EditorRefPlugin editorRef={editorRef} />
+        <EditablePlugin editable={!disabled} />
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
@@ -215,6 +274,8 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
               // Shell commands are not prose — suppress the red spellcheck squiggle.
               spellCheck={!shellCommandState.active}
               aria-disabled={disabled}
+              aria-label="Message to the agent"
+              aria-multiline
             />
           }
           placeholder={
@@ -242,6 +303,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
                 key={`${trigger.triggerChar}:${trigger.commandKindsAtPromptStart.join(",")}:${trigger.commandKindsMidPrompt.join(",")}`}
                 commands={slashCommands}
                 isLoading={slashCommandsLoading}
+                error={slashCommandsError}
                 commandKindsAtPromptStart={trigger.commandKindsAtPromptStart}
                 commandKindsMidPrompt={trigger.commandKindsMidPrompt}
                 triggerChar={trigger.triggerChar}
@@ -251,17 +313,20 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
         )}
         <KeyboardShortcutsPlugin
           onEnterSend={onEnterSend}
+          onModEnterSend={onModEnterSend}
           onArrowUp={onArrowUp}
           onArrowDown={onArrowDown}
+          isBrowsingHistory={isBrowsingHistory}
           shellCommandsEnabled={promptCommandPolicy.userShell}
         />
         {!shellCommandState.active && <ImagePastePlugin onPasteImages={onPasteImages} />}
+        {!shellCommandState.active && <LongPastePlugin onPasteLongText={onPasteLongText} />}
       </>
     );
   },
 );
 
-export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
+const PromptEditorImpl = forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditor(props, ref) {
     // `LexicalComposer` only reads `initialConfig` once on mount, but a fresh
     // object reference here would still re-create the closure (and the
@@ -274,9 +339,13 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
     const initialShellCommandsEnabledRef = useRef(
       props.promptCommandPolicy?.userShell ?? DEFAULT_PROMPT_COMMAND_POLICY.userShell,
     );
+    // `LexicalComposer` sets editability on mount after its children's
+    // effects, so the mount value has to come from the config.
+    const initialEditableRef = useRef(!props.disabled);
     const initialConfig = useMemo(
       () => ({
         namespace: "PromptEditor",
+        editable: initialEditableRef.current,
         theme: { paragraph: "m-0 leading-[22px]" },
         nodes: [MentionNode, SlashCommandNode, ConversationReferenceNode, ShellCommandPrefixNode],
         onError(error: Error) {
@@ -312,3 +381,6 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
     );
   },
 );
+
+/** Memoized: it sits beside the agent stream, whose every delta re-renders its parents. */
+export const PromptEditor = memo(PromptEditorImpl);

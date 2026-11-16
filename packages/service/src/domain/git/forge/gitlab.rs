@@ -2,10 +2,13 @@ use async_trait::async_trait;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::Deserialize;
 
+use super::merging::{MergeCommand, PrMergeResponse, PrMergeStatus};
 use super::provider::{
     proposal_noun, CiCheck, CiRollup, CiState, CommentThread, ForgeAuthContext, ForgeContext,
     ForgeError, ForgeProvider, ForgeUser, PrComment, PrState, PrSummary, ReviewState, ThreadSide,
 };
+
+mod merge;
 
 pub struct GitLabProvider;
 
@@ -105,12 +108,36 @@ impl ForgeProvider for GitLabProvider {
         let user: GitLabUser = ctx.http.request_json(request).await?;
         Ok(map_user(user))
     }
+
+    async fn merge_status(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+    ) -> Result<PrMergeStatus, ForgeError> {
+        merge::merge_status(ctx, pr).await
+    }
+
+    async fn merge(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+        command: &MergeCommand,
+        status: &PrMergeStatus,
+    ) -> Result<PrMergeResponse, ForgeError> {
+        merge::merge(ctx, pr, command, status).await
+    }
+
+    async fn cancel_merge(&self, ctx: &ForgeContext, pr: &PrSummary) -> Result<(), ForgeError> {
+        merge::cancel(ctx, pr).await
+    }
 }
 
 fn gitlab_get(ctx: &ForgeContext, url: &str) -> reqwest::RequestBuilder {
-    ctx.http
-        .get(url)
-        .header("PRIVATE-TOKEN", &ctx.credentials.token)
+    gitlab_auth(ctx, ctx.http.get(url))
+}
+
+fn gitlab_auth(ctx: &ForgeContext, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    builder.header("PRIVATE-TOKEN", &ctx.credentials.token)
 }
 
 fn encoded_project(ctx: &ForgeContext) -> String {
@@ -257,7 +284,7 @@ fn default_opened_state() -> String {
     "opened".into()
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct GitLabUser {
     username: String,
     name: Option<String>,

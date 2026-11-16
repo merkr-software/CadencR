@@ -15,25 +15,27 @@ use crate::domain::agents::opencode::permissions::permission_options;
 use crate::domain::agents::opencode::tool_names::{
     canonical_acp_tool_name, canonical_cadencr_tool_name,
 };
-use crate::domain::mcp::trusted::is_trusted_cadencr_browser_tool_name;
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 use crate::domain::permission_bridge::extract_permission_preview;
 
 pub(super) fn should_auto_allow_trusted_cadencr_browser_permission(
     entry: &PendingPermission,
+    trust: CadencrBrowserTrust,
 ) -> bool {
     entry
         .tool
         .as_deref()
         .map(|raw| canonical_cadencr_tool_name(&canonical_acp_tool_name(raw)))
-        .is_some_and(|name| is_trusted_cadencr_browser_tool_name(&name))
+        .is_some_and(|name| trust.allows_tool_name(&name))
 }
 
 pub(super) async fn try_auto_allow_trusted_cadencr_browser_permission(
     client: &OpenCodeClient,
     directory: &str,
     entry: &PendingPermission,
+    trust: CadencrBrowserTrust,
 ) -> bool {
-    if !should_auto_allow_trusted_cadencr_browser_permission(entry) {
+    if !should_auto_allow_trusted_cadencr_browser_permission(entry, trust) {
         return false;
     }
     if let Err(error) = client
@@ -86,6 +88,8 @@ fn merge_tool_input(metadata: &Value, patterns: &[String]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::{build_request, should_auto_allow_trusted_cadencr_browser_permission};
+    use crate::domain::mcp::trusted::test_support::injected_browser_servers;
+    use crate::domain::mcp::trusted::CadencrBrowserTrust;
     use opencode_sdk_rs::PendingPermission;
     use serde_json::json;
 
@@ -126,7 +130,16 @@ mod tests {
             ..sample()
         };
 
-        assert!(should_auto_allow_trusted_cadencr_browser_permission(&entry));
+        let trust = CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()));
+        assert!(should_auto_allow_trusted_cadencr_browser_permission(
+            &entry, trust
+        ));
+        // The same tool name from a session where Cadencr did not attach its
+        // browser server comes from someone else's `cadencr-browser`.
+        assert!(!should_auto_allow_trusted_cadencr_browser_permission(
+            &entry,
+            CadencrBrowserTrust::default()
+        ));
     }
 
     #[test]

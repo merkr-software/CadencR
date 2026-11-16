@@ -1,0 +1,74 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [],
+      "description": "Vue language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-vue-language-server-v0.1.0/lsp-vue-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "bridge/server.mjs",
+            "entry_sha256": "41e7fce3bb35f2dd3ce8229dd0c57607485ec8dfd292aff3f091611b683d0e9d",
+            "entry_size": 7021,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
+            "size": 8655838
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-vue-language-server-v0.1.0/lsp-vue-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "bridge/server.mjs",
+            "entry_sha256": "41e7fce3bb35f2dd3ce8229dd0c57607485ec8dfd292aff3f091611b683d0e9d",
+            "entry_size": 7021,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
+            "size": 8655838
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-vue-language-server-v0.1.0/lsp-vue-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "bridge/server.mjs",
+            "entry_sha256": "41e7fce3bb35f2dd3ce8229dd0c57607485ec8dfd292aff3f091611b683d0e9d",
+            "entry_size": 7021,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
+            "size": 8655838
+          }
+        }
+      },
+      "id": "vue-language-server",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "vue"
+          ],
+          "filenames": [],
+          "id": "vue"
+        }
+      ],
+      "license": "Apache-2.0 AND MIT",
+      "name": "Vue language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "vue.config.js",
+        "vite.config.ts",
+        "tsconfig.json",
+        "jsconfig.json",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

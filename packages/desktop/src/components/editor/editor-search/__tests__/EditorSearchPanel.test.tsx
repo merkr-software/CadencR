@@ -4,6 +4,7 @@ import type { EditorView } from "@codemirror/view";
 import EditorSearchPanel from "../EditorSearchPanel";
 import type { PaneSearchState } from "../search-cache";
 import type { BufferSearchState } from "../search-extension";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
 
 const mocks = vi.hoisted(() => ({
   setBufferSearchQuery: vi.fn(),
@@ -224,7 +225,9 @@ describe("EditorSearchPanel", () => {
   it("next / prev buttons are disabled when there are no matches", () => {
     renderPanel();
     expect(screen.getByTitle("Next match (Enter)")).toBeDisabled();
-    expect(screen.getByTitle("Previous match (Shift+Enter)")).toBeDisabled();
+    expect(
+      screen.getByTitle(`Previous match (${formatCompactCombo(["shift", "enter"])})`),
+    ).toBeDisabled();
   });
 
   it("toggling the case-sensitive button flips aria-pressed", () => {

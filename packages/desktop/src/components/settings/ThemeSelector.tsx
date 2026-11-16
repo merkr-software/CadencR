@@ -6,13 +6,12 @@ import { getTheme } from "@/lib/themes";
 import { useLastScreenStore } from "@/stores/last-screen-store";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
 import { SettingsRow } from "./SettingsRow";
-import { IconTile } from "./IconTile";
 
 /**
  * Settings entry-point for the theme picker.
  *
  * The picker UI itself lives in the global `ThemeDrawer` (rendered from
- * `RootOverlays`) so the user can preview themes against the live UI of the
+ * `RootOverlays`) so the user sees each pick on the live UI of the
  * screen they were just on (unified agent / feature / session). Drawer open
  * state is encoded as `?theme-selector=true` in the URL — keeping it in URL
  * state means no extra store, and the drawer can be opened from anywhere.
@@ -37,21 +36,16 @@ export function ThemeSelector(): React.JSX.Element {
 
   return (
     <SettingsRow
-      icon={
-        <IconTile tint="purple">
-          <Paintbrush className="size-4" />
-        </IconTile>
-      }
       label="Theme"
       description={
         isLoading
           ? "Loading current theme…"
-          : `Currently ${activeTheme.label} (${activeTheme.appearance}). Opens a live preview on your last screen.`
+          : `Currently ${activeTheme.label} (${activeTheme.appearance}). Opens the picker over your last screen.`
       }
       control={
         <Button
           variant="outline"
-          size="xs"
+          size="sm"
           className="shrink-0 gap-1"
           onClick={handleClick}
           disabled={isLoading}

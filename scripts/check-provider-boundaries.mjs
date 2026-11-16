@@ -16,20 +16,9 @@ const STATIC_ALLOWED_PREFIXES = [
   "packages/desktop/src/components/settings/ProvidersSection.tsx",
 ];
 
-const ALLOWED_EXACT = new Map([
-  // These are domain terms that happen to equal the Cursor provider id.
-  ["packages/service/src/domain/themes/schema.rs:cursor", "CSS cursor property"],
-  ["packages/service/src/domain/git/forge/github/review_threads.rs:cursor", "GraphQL cursor"],
-  ["packages/service/src/domain/mcp/tools/workspace.rs:cursor", "pagination cursor"],
-  ["packages/service/src/domain/mcp/tools/project_list.rs:cursor", "pagination cursor"],
-  ["packages/service/src/domain/mcp/servers/project_schema.rs:cursor", "pagination cursor"],
-  [
-    "packages/service/src/domain/mcp/servers/project_schema_descriptions.rs:cursor",
-    "pagination cursor",
-  ],
-  ["packages/service/src/domain/mcp/servers/workspace.rs:cursor", "pagination cursor"],
-  ["packages/desktop/src/lib/mcp-tool-parser.ts:cursor", "MCP server name"],
-]);
+// `path:providerId` pairs where a built-in id is an unrelated domain term
+// (for example a CSS or pagination "cursor" while Cursor was a built-in).
+const ALLOWED_EXACT = new Map([]);
 
 // Existing named-provider imports that still own behavior tracked by Phase 5.
 // New files cannot join this list accidentally; every entry is a review point.
@@ -47,12 +36,6 @@ const LEGACY_NAMED_DEPENDENCY_FILES = new Set([
   "packages/service/src/domain/ws_session/handler/session_control/mode.rs",
   "packages/service/src/domain/ws_session/handler/session_control/provider.rs",
   "packages/service/src/domain/ws_session/handler/session_init.rs",
-  "packages/service/src/domain/ws_session/handler/session_profile.rs",
-  "packages/service/src/domain/ws_session/handler/session_runtime_config.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/content.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/bridge.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/control_dispatch_config.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/prompt_runtime_config.rs",
 ]);
 
 function walk(directory) {
@@ -198,9 +181,19 @@ function packageName(source, manifest) {
   return name;
 }
 
+/// `*-sdk-rs` folders that are not a provider's transport: the custom-tab
+/// backend SDK carries the tab backend protocol, which the service speaks
+/// for every tab regardless of provider.
+const NON_PROVIDER_SDK_DIRS = new Set(["tab-backend-sdk-rs"]);
+
 function providerSdkMetadata(root) {
   return readdirSync(join(root, "packages"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.endsWith("-sdk-rs"))
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        entry.name.endsWith("-sdk-rs") &&
+        !NON_PROVIDER_SDK_DIRS.has(entry.name),
+    )
     .map((entry) => {
       const manifest = `packages/${entry.name}/Cargo.toml`;
       const source = readFileSync(join(root, manifest), "utf8");

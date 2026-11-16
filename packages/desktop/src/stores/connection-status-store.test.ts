@@ -31,6 +31,7 @@ beforeEach(() => {
     reason: null,
     lastConnectedAt: null,
     sources: {},
+    recoveredSinceOutage: false,
   });
   vi.clearAllMocks();
 });
@@ -248,5 +249,51 @@ describe("connection-status-store / manual reconnect toast", () => {
     reportSource("ws-a", "connected");
 
     expect(toast.dismiss).toHaveBeenCalledWith("backend-manual-reconnect-required");
+  });
+});
+
+describe("connection-status-store / reconnected toast", () => {
+  it("toasts when a source that lost the backend reaches it again", () => {
+    const { reportSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "dropped");
+    reportSource("ws-a", "connected");
+
+    expect(toast.success).toHaveBeenCalledWith("Reconnected to backend", expect.anything());
+  });
+
+  it("counts a source reopened after a forced reconnect, toasting once all recover", () => {
+    const { reportSource, clearSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "dropped");
+    reportSource("ws-b", "reconnecting", "dropped");
+    clearSource("ws-a");
+    reportSource("ws-a", "connected");
+    expect(toast.success).not.toHaveBeenCalled();
+
+    reportSource("ws-b", "connected");
+
+    expect(toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not toast when the only failing source is simply removed", () => {
+    const { reportSource, clearSource } = useConnectionStatusStore.getState();
+    reportSource("terminal:a", "connected");
+    reportSource("terminal:a", "reconnecting", "Terminal WebSocket dropped");
+
+    clearSource("terminal:a");
+
+    expect(useConnectionStatusStore.getState().status).toBe("connected");
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("does not carry a recovery from a past outage into the next one", () => {
+    const { reportSource, clearSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "dropped");
+    reportSource("ws-a", "connected");
+    vi.mocked(toast.success).mockClear();
+
+    reportSource("terminal:a", "reconnecting", "Terminal WebSocket dropped");
+    clearSource("terminal:a");
+
+    expect(toast.success).not.toHaveBeenCalled();
   });
 });

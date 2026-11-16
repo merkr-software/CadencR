@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setBrowserRemoteOrigins } from "./runtime-config";
 import { BrowserAutomationAuthority } from "./browser-automation-authority";
 import type { ManagedTab } from "./browser-tab-events";
 import type { BrowserAgentAccess, BrowserTabMetadata } from "./browser-types";
@@ -30,10 +31,20 @@ function managed(id: string, scopeId: number | null, access: BrowserAgentAccess)
     },
     scopeId,
   };
-  return { metadata, automationAccess: access } as unknown as ManagedTab;
+  return {
+    metadata,
+    automationAccess: access,
+    externalAutomationOrigin: null,
+    webContents: {
+      mainFrame: { detached: false, framesInSubtree: [] },
+      getURL: () => metadata.url,
+      isDestroyed: () => false,
+    },
+  } as unknown as ManagedTab;
 }
 
 describe("BrowserAutomationAuthority", () => {
+  beforeEach(() => setBrowserRemoteOrigins([]));
   it("normalizes an undefined MCP scope to scopeless and sanitizes private state", () => {
     const user = managed("user", 1, "user");
     const featureAgent = managed("feature-agent", 1, "agent");
@@ -47,7 +58,6 @@ describe("BrowserAutomationAuthority", () => {
       activeTabId: scopeId === null ? "scopeless-agent" : "feature-agent",
       consoleEntries: [],
       networkEntries: [],
-      knownOrigins: ["https://private.test"],
       error: "private failure",
     }));
     const authority = new BrowserAutomationAuthority(tabs, snapshot);
@@ -56,7 +66,6 @@ describe("BrowserAutomationAuthority", () => {
       expect.objectContaining({
         tabs: [scopelessAgent.metadata],
         activeTabId: "scopeless-agent",
-        knownOrigins: [],
         error: null,
       }),
     );
@@ -70,7 +79,6 @@ describe("BrowserAutomationAuthority", () => {
       activeTabId: null,
       consoleEntries: [],
       networkEntries: [],
-      knownOrigins: [],
       error: null,
     }));
     expect(() => authority.assert("shared")).toThrow("scope");

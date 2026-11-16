@@ -1,6 +1,10 @@
 import { useShallow } from "zustand/react/shallow";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
-import { useSessionStatusStore, type SessionStatusEntry } from "@/stores/session-status-store";
+import {
+  useSessionStatusStore,
+  type SessionStatusEntry,
+  type SessionStatusState,
+} from "@/stores/session-status-store";
 
 export function aggregateFeatureStatus(entries: readonly SessionStatusEntry[]): {
   status: LiveAgentStatus;
@@ -18,6 +22,48 @@ export function aggregateFeatureStatus(entries: readonly SessionStatusEntry[]): 
     }
   }
   return best;
+}
+
+/** Whether any session of `featureId` is waiting on the user. */
+export function isFeatureWaiting(
+  bySession: Record<number, SessionStatusEntry>,
+  featureId: number,
+): boolean {
+  return Object.values(bySession).some(
+    (entry) => entry.featureId === featureId && entry.status === "question",
+  );
+}
+
+/**
+ * Each feature's aggregated status (as `aggregateFeatureStatus` ranks it), in
+ * `featureIds` order, from one pass over the sessions.
+ */
+export function aggregateFeatureStatuses(
+  bySession: Record<number, SessionStatusEntry>,
+  featureIds: readonly number[],
+): LiveAgentStatus[] {
+  const index = new Map(featureIds.map((id, position) => [id, position]));
+  const statuses: LiveAgentStatus[] = featureIds.map(() => "idle");
+  for (const entry of Object.values(bySession)) {
+    const position = index.get(entry.featureId);
+    if (position == null || statuses[position] === "question") continue;
+    if (entry.status === "question" || entry.status === "agent") statuses[position] = entry.status;
+  }
+  return statuses;
+}
+
+/**
+ * Whether the backend reports the session idle. The status book only holds
+ * sessions that were busy or changed status during this run (snapshots omit
+ * idle sessions), so an absent entry is idle, but only once a connected
+ * socket has delivered a snapshot: before that, absence means "unknown".
+ */
+export function isSessionIdle(
+  state: Pick<SessionStatusState, "bySession" | "hasSnapshot" | "isConnected">,
+  sessionDbId: number,
+): boolean {
+  if (!state.isConnected || !state.hasSnapshot) return false;
+  return (state.bySession[sessionDbId]?.status ?? "idle") === "idle";
 }
 
 const EMPTY_FEATURE_STATUS: {
@@ -63,14 +109,17 @@ export function useLiveWorkingCount(sessionIds: readonly number[]): number {
   });
 }
 
+/** How many sessions have an agent mid-turn (gates waiting on the user excluded). */
+export function countWorkingSessions(bySession: Record<number, SessionStatusEntry>): number {
+  let count = 0;
+  for (const entry of Object.values(bySession)) {
+    if (entry.status === "agent") count++;
+  }
+  return count;
+}
+
 export function useLiveTotalWorkingCount(): number {
-  return useSessionStatusStore((s) => {
-    let count = 0;
-    for (const entry of Object.values(s.bySession)) {
-      if (entry.status === "agent") count++;
-    }
-    return count;
-  });
+  return useSessionStatusStore((s) => countWorkingSessions(s.bySession));
 }
 
 export function useLiveActiveSessionIds(): readonly number[] {
@@ -82,6 +131,19 @@ export function useLiveActiveSessionIds(): readonly number[] {
       }
       ids.sort((a, b) => a - b);
       return ids;
+    }),
+  );
+}
+
+/** Sorted ids of `featureIds` whose agent is mid-turn; stable while unchanged. */
+export function useBusyFeatureIds(featureIds: ReadonlySet<number>): readonly number[] {
+  return useSessionStatusStore(
+    useShallow((s) => {
+      const busy = new Set<number>();
+      for (const entry of Object.values(s.bySession)) {
+        if (entry.status === "agent" && featureIds.has(entry.featureId)) busy.add(entry.featureId);
+      }
+      return [...busy].sort((a, b) => a - b);
     }),
   );
 }

@@ -1,0 +1,419 @@
+{
+  "schema_version": 1,
+  "id": "eslint",
+  "status": "available-upstream-notices-preserved; metadata-only-cases-explicit",
+  "packages": [
+    {
+      "name": "@vscode/l10n",
+      "version": "0.0.18",
+      "destination": "node_modules/@vscode/l10n",
+      "license_declaration": "MIT",
+      "original_notice_paths": [],
+      "npm_tarball_url": "https://registry.npmjs.org/@vscode/l10n/-/l10n-0.0.18.tgz",
+      "npm_sha256": "f1c2dc897488595f6bb42121869f525c6c6a5f7c8dca550754199c3251ed7c5c",
+      "supplemental_source_commit": "fc7e3d79ddb91a2cc24a9730aad912026a43dbf2",
+      "supplemental_source_url": "https://raw.githubusercontent.com/microsoft/vscode-l10n/fc7e3d79ddb91a2cc24a9730aad912026a43dbf2/LICENSE",
+      "notice_status": "verbatim-supplement",
+      "supplemental_sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+    },
+    {
+      "name": "boolbase",
+      "version": "1.0.0",
+      "destination": "node_modules/boolbase",
+      "license_declaration": "ISC",
+      "original_notice_paths": [],
+      "npm_tarball_url": "https://registry.npmjs.org/boolbase/-/boolbase-1.0.0.tgz",
+      "npm_sha256": "69628ff8092c5ff940ea4a0f29da98d520615bae138755c9e059033606c6caa8",
+      "supplemental_source_commit": null,
+      "supplemental_source_url": null,
+      "notice_status": "metadata-only-original-no-copyright-notice",
+      "author_as_published": {
+        "name": "Felix Boehm",
+        "email": "me@feedic.com"
+      },
+      "standard_terms_source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/json/details/ISC.json",
+      "standard_terms_sha256": "521c6f0ed8e64736684f89843d16a4df6b4b7449acbcfc6ca6630a3037ca8c53"
+    },
+    {
+      "name": "core-js",
+      "version": "3.51.0",
+      "destination": "node_modules/core-js",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/core-js/-/core-js-3.51.0.tgz",
+      "npm_sha256": "2a7abc3121a44b75acdf02b9bdd7408e22633f70f422fc0bd5b9e00abb17bb31",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "css-select",
+      "version": "5.2.2",
+      "destination": "node_modules/css-select",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/css-select/-/css-select-5.2.2.tgz",
+      "npm_sha256": "ab3c2a9c47abc354e4bb539f66746da87c80ed9e9623f4b0940147d0a1b2ae75",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "css-what",
+      "version": "6.2.2",
+      "destination": "node_modules/css-what",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/css-what/-/css-what-6.2.2.tgz",
+      "npm_sha256": "275ef51d6c04b5f6e2441d73fa3503c5ac525cd82ef4ca55f022eeacaf227ab0",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "dom-serializer",
+      "version": "2.0.0",
+      "destination": "node_modules/dom-serializer",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/dom-serializer/-/dom-serializer-2.0.0.tgz",
+      "npm_sha256": "e34511f144fc6b34ce536bd60fb1ed27dd965f07a7c317407e79dd6be9e8f399",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "domelementtype",
+      "version": "2.3.0",
+      "destination": "node_modules/domelementtype",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/domelementtype/-/domelementtype-2.3.0.tgz",
+      "npm_sha256": "c67164b4a994eaeaecbd968c2e5e5415407ae6fb4486bbb470594154e25feb45",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "domhandler",
+      "version": "5.0.3",
+      "destination": "node_modules/domhandler",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/domhandler/-/domhandler-5.0.3.tgz",
+      "npm_sha256": "f3952abb7e2635d8e942822d68cfb1fdaba61148d17a1a5692bdd163d6ca4784",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "domutils",
+      "version": "3.2.2",
+      "destination": "node_modules/domutils",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/domutils/-/domutils-3.2.2.tgz",
+      "npm_sha256": "272918a13e7e093ddc983666954164e098fb2443f06f476f34bf47005e12c140",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "entities",
+      "version": "4.5.0",
+      "destination": "node_modules/entities",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/entities/-/entities-4.5.0.tgz",
+      "npm_sha256": "6b0c60f7351a0b65bb1fc8dbb9299f09e7ecf6d89103d0651bf369e6f463a632",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "he",
+      "version": "1.2.0",
+      "destination": "node_modules/he",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE-MIT.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/he/-/he-1.2.0.tgz",
+      "npm_sha256": "777a7c030c1b6c0bbe8638136dcc5cedbb36b1082f821b06648de5d7d11c1b68",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "jsonc-parser",
+      "version": "3.3.1",
+      "destination": "node_modules/jsonc-parser",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.md"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/jsonc-parser/-/jsonc-parser-3.3.1.tgz",
+      "npm_sha256": "4a0315b8671e7463bae7af7c142cdf19e9aa7ba39eb36dc2df383b8648e3cbc9",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "node-html-parser",
+      "version": "6.1.13",
+      "destination": "node_modules/node-html-parser",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/node-html-parser/-/node-html-parser-6.1.13.tgz",
+      "npm_sha256": "333e55a8f4ebdaf60126f796295dca085cd088899282180782dd38a4ea9295b7",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "nth-check",
+      "version": "2.1.1",
+      "destination": "node_modules/nth-check",
+      "license_declaration": "BSD-2-Clause",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/nth-check/-/nth-check-2.1.1.tgz",
+      "npm_sha256": "45dc0a2bc34205656c0fbe8374c725c04b71b40e739b74c9fc763480c8063642",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "picomatch",
+      "version": "2.3.2",
+      "destination": "node_modules/picomatch",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/picomatch/-/picomatch-2.3.2.tgz",
+      "npm_sha256": "4c843ba015bec815ac52116162559ab7b4b4efbd3b86f7fcf38f3d770decace6",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "regenerator-runtime",
+      "version": "0.13.11",
+      "destination": "node_modules/regenerator-runtime",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/regenerator-runtime/-/regenerator-runtime-0.13.11.tgz",
+      "npm_sha256": "96a0a849ceb83d2cd717d775dc60ddb7c2384564f76a75d0d1e6849af04c2b8c",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "request-light",
+      "version": "0.7.0",
+      "destination": "node_modules/request-light",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.md"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/request-light/-/request-light-0.7.0.tgz",
+      "npm_sha256": "15d60d0da12c1e9eff0bc8f0f00417e760b672165fe9a77b64639de29285ace5",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "semver",
+      "version": "7.8.6",
+      "destination": "node_modules/semver",
+      "license_declaration": "ISC",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/semver/-/semver-7.8.6.tgz",
+      "npm_sha256": "c6584c324e8b1e5d0403c6c16ee2b25dd61567c13f0449a58820350c21cd71bf",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "typescript",
+      "version": "4.9.5",
+      "destination": "node_modules/typescript",
+      "license_declaration": "Apache-2.0",
+      "original_notice_paths": [
+        "LICENSE.txt",
+        "ThirdPartyNoticeText.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/typescript/-/typescript-4.9.5.tgz",
+      "npm_sha256": "6e2faae079c9047aa921e8a307f0cec0da4dc4853e20bb31d18acc678f5bf505",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-css-languageservice",
+      "version": "6.3.10",
+      "destination": "node_modules/vscode-css-languageservice",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.md"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-css-languageservice/-/vscode-css-languageservice-6.3.10.tgz",
+      "npm_sha256": "75dfff4a7b2a9b8df08c17d5444a8224a3701e29fc30c2539db12a7a9ffc9448",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-css-languageservice/node_modules/vscode-languageserver-types",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.5.tgz",
+      "npm_sha256": "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-html-languageservice",
+      "version": "5.6.2",
+      "destination": "node_modules/vscode-html-languageservice",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.md",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-html-languageservice/-/vscode-html-languageservice-5.6.2.tgz",
+      "npm_sha256": "a519e4029da8cf4d7d4cf6d882307038635f203c505862a4ef68f18fa194322a",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-json-languageservice",
+      "version": "5.7.2",
+      "destination": "node_modules/vscode-json-languageservice",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.md"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-json-languageservice/-/vscode-json-languageservice-5.7.2.tgz",
+      "npm_sha256": "18dc41edc48bdcab2da866a5b5f53956ee722b66fffe9d89740d04ba7f505459",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "9.0.3",
+      "destination": "node_modules/vscode-jsonrpc",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-jsonrpc/-/vscode-jsonrpc-9.0.3.tgz",
+      "npm_sha256": "282d3d574a565ab9bea0af6518eadac91221dfd0cd55cfd308662b816a7920a7",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-langservers-extracted",
+      "version": "4.10.0",
+      "destination": "node_modules/vscode-langservers-extracted",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-langservers-extracted/-/vscode-langservers-extracted-4.10.0.tgz",
+      "npm_sha256": "d6e2d090d09c4b91daa74e9e7462a3d3f244efb96aa5111004cfffa49d6dc9ef",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "10.1.2",
+      "destination": "node_modules/vscode-languageserver",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver/-/vscode-languageserver-10.1.2.tgz",
+      "npm_sha256": "991c66235ffb604630599a611bbd888768468f4707a6fb8691a977cf72bb286b",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.18.4",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-protocol/-/vscode-languageserver-protocol-3.18.4.tgz",
+      "npm_sha256": "76ff8f83f7f1bac53e351cd30740ff75610277b65b4043141d359660d88f0dcd",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.18.4",
+      "destination": "node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.18.4.tgz",
+      "npm_sha256": "83c119b73d1895194087e9376d0916161b5550c210e9e892b65a3e04a43ea68e",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.16.tgz",
+      "npm_sha256": "3d00e3f62041ffb10b220a14b057116a9812ee41e04cc7eef12a78ca46302599",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.18.5",
+      "destination": "node_modules/vscode-languageserver-types",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt",
+        "thirdpartynotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.18.5.tgz",
+      "npm_sha256": "4ee75756cdbe71ac014e9763714b4a3ef4b8de3cf7f96cf69c9cf3babe727a56",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-markdown-languageservice",
+      "version": "0.5.0",
+      "destination": "node_modules/vscode-markdown-languageservice",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-markdown-languageservice/-/vscode-markdown-languageservice-0.5.0.tgz",
+      "npm_sha256": "68301a155c1fffe17ec4ae97a62d6e600aa6e536d4acfbf059547af06a24a55c",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-nls",
+      "version": "5.2.0",
+      "destination": "node_modules/vscode-nls",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "License.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-nls/-/vscode-nls-5.2.0.tgz",
+      "npm_sha256": "441f95396ae52a4eff2f69770219a522ed13dc0ba69deb982ac9456eda9ca779",
+      "notice_status": "original-notices-preserved"
+    },
+    {
+      "name": "vscode-uri",
+      "version": "3.2.0",
+      "destination": "node_modules/vscode-uri",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.md"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/vscode-uri/-/vscode-uri-3.2.0.tgz",
+      "npm_sha256": "12fa4a47728ca404c3a679e351eda6c54030c8ed3dd9bc6762ab0be1bf04014b",
+      "notice_status": "original-notices-preserved"
+    }
+  ]
+}

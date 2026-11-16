@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::types::{truncate_title, ImportedConversation, ImportedMessage};
 use crate::domain::agents::codex::function_tool_name as codex_function_tool_name;
+use crate::domain::ws_session::auto_name::AUTO_NAME_USER_PROMPT_PREFIX;
 
 pub(crate) fn codex_sessions_dir() -> Option<PathBuf> {
     resolve_codex_sessions_dir(std::env::var_os("CODEX_HOME"), dirs::home_dir())
@@ -113,9 +114,6 @@ pub fn parse_codex_rollout_file(
         }
         if line_type == "session_meta" || item_type(payload) == Some("session_meta") {
             let meta = payload.get("meta").unwrap_or(payload);
-            if is_cadencr_feature_naming_session(meta) {
-                return Ok(None);
-            }
             source_session_id = string_field(meta, &["id", "session_id"]).or(source_session_id);
             cwd = string_field(meta, &["cwd"]).or(cwd);
             continue;
@@ -130,6 +128,14 @@ pub fn parse_codex_rollout_file(
     }
 
     if cwd.as_deref() != Some(project_path) || messages.is_empty() {
+        return Ok(None);
+    }
+    // Cadencr's own auto-naming spawns open with a fixed request; the system
+    // prompt is user-editable, so it cannot identify them.
+    if first_user_text
+        .as_deref()
+        .is_some_and(|text| text.trim_start().starts_with(AUTO_NAME_USER_PROMPT_PREFIX))
+    {
         return Ok(None);
     }
     let source_session_id = source_session_id.unwrap_or_else(|| fallback_id_from_path(path));
@@ -240,18 +246,10 @@ fn parse_message_item(
     }
 }
 
-fn is_cadencr_feature_naming_session(meta: &Value) -> bool {
-    meta.get("base_instructions")
-        .and_then(|base| base.get("text"))
-        .and_then(Value::as_str)
-        .is_some_and(|text| text.contains("You are a feature naming assistant"))
-}
-
 fn is_codex_internal_user_text(text: &str) -> bool {
     let trimmed = text.trim_start();
     trimmed.starts_with("# AGENTS.md instructions for ")
         || trimmed.starts_with("<environment_context>")
-        || trimmed.starts_with("Now name this session. User's first message:")
 }
 
 fn parse_reasoning_item(
@@ -407,6 +405,18 @@ mod tests {
         assert_eq!(conv.title, "Fix permission prompts");
         assert_eq!(conv.messages.len(), 1);
         assert_eq!(conv.messages[0].content, "Fix permission prompts");
+    }
+
+    #[test]
+    fn parse_codex_rollout_skips_naming_sessions_with_a_custom_system_prompt() {
+        let file = write_rollout(&[
+            r#"{"timestamp":"2026-05-27T12:00:00.000Z","type":"session_meta","payload":{"id":"codex-5","cwd":"/repo","base_instructions":{"text":"Name sessions in French."}}}"#,
+            r#"{"timestamp":"2026-05-27T12:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Now name this session. User's first message: \"Fix permission prompts\"."}]}}"#,
+            r#"{"timestamp":"2026-05-27T12:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"__FEATURE_NAME_START__Corriger les permissions__FEATURE_NAME_END__"}]}}"#,
+        ]);
+        assert!(parse_codex_rollout_file(file.path(), "/repo")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

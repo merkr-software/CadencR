@@ -47,12 +47,16 @@ function metaEqual(a: LiveFeatureMetaMap, b: LiveFeatureMetaMap): boolean {
   return true;
 }
 
-export function useLiveFeatureMeta(): LiveFeatureMetaMap {
+const NO_LIVE_META: LiveFeatureMetaMap = {};
+
+/** `enabled: false` skips the store subscription and reads as no live meta. */
+export function useLiveFeatureMeta(enabled = true): LiveFeatureMetaMap {
   const [snapshot, setSnapshot] = useState<LiveFeatureMetaMap>(() =>
-    deriveLiveMeta(useWsSessionStore.getState().sessions),
+    enabled ? deriveLiveMeta(useWsSessionStore.getState().sessions) : NO_LIVE_META,
   );
 
   useEffect(() => {
+    if (!enabled) return;
     const update = (sessions: Record<string, SessionEntry>): void => {
       setSnapshot((prev) => {
         const next = deriveLiveMeta(sessions);
@@ -63,7 +67,7 @@ export function useLiveFeatureMeta(): LiveFeatureMetaMap {
     // the effect firing.
     update(useWsSessionStore.getState().sessions);
     return useWsSessionStore.subscribe((state) => update(state.sessions));
-  }, []);
+  }, [enabled]);
 
-  return snapshot;
+  return enabled ? snapshot : NO_LIVE_META;
 }

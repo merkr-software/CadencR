@@ -9,6 +9,10 @@ const matchesWorkspaceSettingsUrl = urlPrefixPredicate([
   "/api/workspace/settings",
   "/api/workspace/model-settings",
   "/api/workspace/provider-settings",
+  // Resolved from settings, including the last-used pair a prompt records.
+  "/api/agent-runtime/selection",
+  "/api/lsp/resolve",
+  "/api/lsp/servers",
 ]);
 
 /**
@@ -25,7 +29,7 @@ const matchesWorkspaceSettingsUrl = urlPrefixPredicate([
  *  - orval URL-string keys (`/api/.../settings`, `/api/.../model-settings`,
  *    `/api/.../provider-settings`), matched on the URL head; and
  *  - the hand-written custom keys in `api/agentRuntime.ts`
- *    (`["workspace"|"projects"|"features", "provider-settings", …]`,
+ *    (`["workspace"|"features", "provider-settings", …]`,
  *    `["agent-catalog", …]`), matched structurally.
  *
  * Settings changes are rare and user-driven, so a slightly broad refetch here
@@ -66,20 +70,16 @@ export function invalidateSettingsDerivedQueries(client: QueryClient): Promise<v
 
       // Hand-written custom keys whose data depends on settings.
       if (head === "agent-catalog") return true;
-      if (
-        sub === "provider-settings" &&
-        (head === "workspace" || head === "projects" || head === "features")
-      ) {
+      // The bulk list theme and favorite models read from (`api/settings.ts`).
+      if (head === "workspace" && sub === "settings") return true;
+      if (sub === "provider-settings" && (head === "workspace" || head === "features")) {
         return true;
       }
 
       // Project/feature settings endpoints carry a dynamic id in the URL head,
       // so a plain prefix can't match — key off the id-agnostic path segment.
       return (
-        (head.startsWith("/api/projects/") &&
-          (head.includes("/settings") ||
-            head.includes("/model-settings") ||
-            head.includes("/provider-settings"))) ||
+        (head.startsWith("/api/projects/") && head.includes("/settings")) ||
         (head.startsWith("/api/features/") &&
           (head.includes("/model-settings") || head.includes("/provider-settings")))
       );

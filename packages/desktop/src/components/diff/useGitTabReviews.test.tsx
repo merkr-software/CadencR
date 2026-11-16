@@ -7,6 +7,7 @@ import { useGitTabReviews } from "./useGitTabReviews";
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
+  sendDisabled: false,
   unresolved: [] as CommentThread[],
 }));
 
@@ -35,7 +36,7 @@ function reviewThreads(): PrReviewThreads {
 vi.mock("@/hooks/useSendUnresolvedPrComments", () => ({
   useSendUnresolvedPrComments: () => ({
     send: mocks.send,
-    disabled: false,
+    disabled: mocks.sendDisabled,
     shouldRender: true,
   }),
 }));
@@ -74,15 +75,18 @@ const PR: PrSummary = {
   pr_label: "Pull request",
 };
 
+const asIs = (path: string): string => path;
+
 describe("useGitTabReviews selection", () => {
   beforeEach(() => {
     mocks.send.mockClear();
+    mocks.sendDisabled = false;
     mocks.unresolved = [thread("one"), thread("two")];
   });
 
   it("shares selection across PR and diff surfaces, then clears it after sending", () => {
     const { result, rerender } = renderHook(
-      ({ viewMode }) => useGitTabReviews(viewMode, PR, vi.fn(), reviewThreads()),
+      ({ viewMode }) => useGitTabReviews(viewMode, PR, vi.fn(), reviewThreads(), asIs),
       { initialProps: { viewMode: "pr" as GitViewMode } },
     );
 
@@ -102,7 +106,7 @@ describe("useGitTabReviews selection", () => {
 
   it("drops selections that are no longer unresolved", async () => {
     const { result, rerender } = renderHook(() =>
-      useGitTabReviews("pr", PR, vi.fn(), reviewThreads()),
+      useGitTabReviews("pr", PR, vi.fn(), reviewThreads(), asIs),
     );
 
     act(() => result.current.setThreadSelected("two", true));
@@ -113,7 +117,7 @@ describe("useGitTabReviews selection", () => {
   });
 
   it("takes and drops every unresolved thread at once", () => {
-    const { result } = renderHook(() => useGitTabReviews("pr", PR, vi.fn(), reviewThreads()));
+    const { result } = renderHook(() => useGitTabReviews("pr", PR, vi.fn(), reviewThreads(), asIs));
 
     expect(result.current.unresolved).toHaveLength(2);
 
@@ -126,7 +130,7 @@ describe("useGitTabReviews selection", () => {
   });
 
   it("preserves selection identity for no-op select-all calls", () => {
-    const { result } = renderHook(() => useGitTabReviews("pr", PR, vi.fn(), reviewThreads()));
+    const { result } = renderHook(() => useGitTabReviews("pr", PR, vi.fn(), reviewThreads(), asIs));
 
     const emptySelection = result.current.selectedThreadIds;
     act(() => result.current.setAllThreadsSelected(false));
@@ -139,7 +143,7 @@ describe("useGitTabReviews selection", () => {
   });
 
   it("preserves selection identity for no-op updates", () => {
-    const { result } = renderHook(() => useGitTabReviews("pr", PR, vi.fn(), reviewThreads()));
+    const { result } = renderHook(() => useGitTabReviews("pr", PR, vi.fn(), reviewThreads(), asIs));
 
     const emptySelection = result.current.selectedThreadIds;
     act(() => result.current.setThreadSelected("missing", true));
@@ -149,5 +153,20 @@ describe("useGitTabReviews selection", () => {
     const selected = result.current.selectedThreadIds;
     act(() => result.current.setThreadSelected("one", true));
     expect(result.current.selectedThreadIds).toBe(selected);
+  });
+
+  it("offers a card's send only once the threads can be sent", () => {
+    // e.g. the paths cannot be named for the agent yet: the card's button would
+    // send nothing and drop the thread's pick.
+    mocks.sendDisabled = true;
+    const { result, rerender } = renderHook(() =>
+      useGitTabReviews("pr", PR, vi.fn(), reviewThreads(), undefined),
+    );
+    expect(result.current.sendThread).toBeUndefined();
+    expect(result.current.sendDisabled).toBe(true);
+
+    mocks.sendDisabled = false;
+    rerender();
+    expect(result.current.sendThread).toBeDefined();
   });
 });

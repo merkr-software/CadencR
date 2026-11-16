@@ -67,7 +67,7 @@ describe("WorktreeSetupSection", () => {
       }),
     });
     render(<WorktreeSetupSection featureId={1} projectId={1} />);
-    expect(screen.getByText("Worktree Setup")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /worktree setup/i })).toBeInTheDocument();
   });
 
   it("shows ready badge when step is done", () => {
@@ -115,7 +115,7 @@ describe("WorktreeSetupSection", () => {
       screen.queryByText(/Cadencr is using the project folder instead/i),
     ).not.toBeInTheDocument();
 
-    await act(async () => screen.getByText("Worktree Setup").click());
+    await act(async () => screen.getByRole("button", { name: /worktree setup/i }).click());
 
     expect(screen.getByText(/Cadencr is using the project folder instead/i)).toBeInTheDocument();
   });
@@ -146,7 +146,7 @@ describe("WorktreeSetupSection", () => {
     expect(screen.getByText("Folder and branch removed")).toBeInTheDocument();
     expect(screen.queryByText(/was also removed/i)).not.toBeInTheDocument();
 
-    await act(async () => screen.getByText("Worktree Setup").click());
+    await act(async () => screen.getByRole("button", { name: /worktree setup/i }).click());
 
     expect(screen.getByText(/was also removed/i)).toBeInTheDocument();
   });
@@ -177,6 +177,49 @@ describe("WorktreeSetupSection", () => {
     expect(screen.getByText("error")).toBeInTheDocument();
     expect(screen.queryByText("Run setup commands")).not.toBeInTheDocument();
     expect(screen.queryByText("fnm: command not found")).not.toBeInTheDocument();
+  });
+
+  it("exposes the full branch and the setup error as tooltips while collapsed", () => {
+    mockGetSettings.mockReturnValue({
+      data: settingsArray({
+        worktree_setup_step: "setup_error",
+        worktree_setup_log: "",
+        worktree_setup_error: "Command `pnpm i` exited with status 1",
+        worktree_branch: "feature/a-very-long-branch-name",
+      }),
+    });
+    render(<WorktreeSetupSection featureId={1} projectId={1} />);
+    expect(screen.getByRole("button", { name: /worktree setup/i })).toHaveAttribute(
+      "title",
+      "feature/a-very-long-branch-name",
+    );
+    expect(screen.getByTitle("Command `pnpm i` exited with status 1")).toHaveTextContent("error");
+  });
+
+  it("does not surface a stale setup error once the worktree is ready", () => {
+    mockGetSettings.mockReturnValue({
+      data: settingsArray({
+        worktree_setup_step: "ready",
+        worktree_setup_log: "",
+        worktree_setup_error: "Old failure",
+        worktree_branch: "feature/my-branch",
+      }),
+    });
+    render(<WorktreeSetupSection featureId={1} projectId={1} />);
+    expect(screen.getByText("ready")).toBeInTheDocument();
+    expect(screen.queryByTitle("Old failure")).not.toBeInTheDocument();
+  });
+
+  it("reflects the disclosure state on the toggle button", async () => {
+    mockGetSettings.mockReturnValue({
+      data: settingsArray({ worktree_setup_step: "ready", worktree_branch: "feature/my-branch" }),
+    });
+    const { user } = render(<WorktreeSetupSection featureId={1} projectId={1} />);
+    const toggle = screen.getByRole("button", { name: /worktree setup/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Define name")).toBeInTheDocument();
   });
 
   it("keeps a persisted setup error collapsed after settings load", () => {
@@ -356,7 +399,7 @@ describe("WorktreeSetupSection", () => {
         wsWorktreeSetupOutput={["installing deps", "all done"]}
       />,
     );
-    await user.click(screen.getByText("Worktree Setup"));
+    await user.click(screen.getByRole("button", { name: /worktree setup/i }));
     const logEl = screen.getByText(
       (_, el) => el?.tagName === "PRE" && el.textContent === "installing deps\nall done",
     );
@@ -382,7 +425,7 @@ describe("WorktreeSetupSection", () => {
         wsWorktreeSetupOutput={[]}
       />,
     );
-    await user.click(screen.getByText("Worktree Setup"));
+    await user.click(screen.getByRole("button", { name: /worktree setup/i }));
     expect(
       screen.getByText(
         (_, el) => el?.tagName === "PRE" && el.textContent === "pnpm install\ncompleted",
@@ -439,7 +482,7 @@ describe("WorktreeSetupSection", () => {
       }),
     });
     const { user } = render(<WorktreeSetupSection featureId={1} projectId={1} />);
-    await user.click(screen.getByText("Worktree Setup"));
+    await user.click(screen.getByRole("button", { name: /worktree setup/i }));
     // Error should show on step 3, not step 2
     const steps = screen.getAllByText(/Define name|Create worktree|Run setup commands/);
     expect(steps).toHaveLength(3);
@@ -457,7 +500,7 @@ describe("WorktreeSetupSection", () => {
       }),
     });
     const { user } = render(<WorktreeSetupSection featureId={1} projectId={1} />);
-    await user.click(screen.getByText("Worktree Setup"));
+    await user.click(screen.getByRole("button", { name: /worktree setup/i }));
     expect(screen.getByText("Define name")).toBeInTheDocument();
   });
 
@@ -484,7 +527,9 @@ describe("WorktreeSetupSection", () => {
     const { user } = render(<WorktreeSetupSection featureId={1} projectId={1} />);
     // Section is collapsed by default when done — steps should not be visible
     expect(screen.queryByText("Define name")).not.toBeInTheDocument();
-    expect(screen.getByText("feature/add-one-dark-theme")).toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("button", { name: /worktree setup/i })).toHaveClass(
+      "text-muted-foreground",
+    );
 
     await user.click(screen.getByRole("button", { name: "Copy branch name" }));
 

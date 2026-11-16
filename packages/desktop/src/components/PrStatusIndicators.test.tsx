@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@/test-utils";
 import type { PrStatusSnapshot } from "@/api/generated";
+import { threadPrs } from "@/lib/thread-prs";
 import { FeaturePrIndicator, prIndicatorTone, prStatusLabel } from "./PrStatusIndicators";
 
 function snapshot(
@@ -92,9 +93,11 @@ describe("prIndicatorTone", () => {
   });
 
   it("names the outstanding threads in the chip tooltip", () => {
-    expect(prStatusLabel(snapshot({ unresolved_threads: 2 }))).toContain("2 unresolved threads");
-    expect(prStatusLabel(snapshot({ unresolved_threads: 1 }))).toContain("1 unresolved thread");
-    expect(prStatusLabel(snapshot())).not.toContain("unresolved");
+    const label = (overrides?: Partial<PrStatusSnapshot>): string =>
+      prStatusLabel(threadPrs(snapshot(overrides))[0]!);
+    expect(label({ unresolved_threads: 2 })).toContain("2 unresolved threads");
+    expect(label({ unresolved_threads: 1 })).toContain("1 unresolved thread");
+    expect(label()).not.toContain("unresolved");
   });
 });
 
@@ -147,5 +150,102 @@ describe("FeaturePrIndicator", () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("counts the conversation's other open proposals and names them in the tooltip", () => {
+    const base = snapshot();
+    const other = (number: number, state: "open" | "merged", ci: "failing" | "passing") => ({
+      branch: `fix/${number}`,
+      pr: { ...base.pr!, number, state, source_branch: `fix/${number}` },
+      ci: { state: ci, checks: [] },
+    });
+    render(
+      <FeaturePrIndicator
+        snapshot={{
+          ...base,
+          other_prs: [other(21, "open", "failing"), other(19, "merged", "passing")],
+        }}
+      />,
+    );
+
+    const chip = screen.getByLabelText(/^Pull request #20/);
+    // Only the open one counts; the merged one is history.
+    expect(chip.querySelector("[data-feature-pr-others]")).toHaveTextContent("+1");
+    expect(chip.querySelector("[data-feature-pr-others]")!.className).toContain("--acc-red");
+    expect(chip).toHaveAccessibleName(
+      "Pull request #20 · approved · checks passing; fix/21: Pull request #21 · approved · checks failing",
+    );
+  });
+
+  it("shows another branch's proposal when the current branch has none", () => {
+    const base = snapshot();
+    render(
+      <FeaturePrIndicator
+        snapshot={{
+          ...base,
+          pr: null,
+          ci: null,
+          other_prs: [{ branch: "fix/21", pr: { ...base.pr!, number: 21 }, ci: null }],
+        }}
+      />,
+    );
+    expect(screen.getByLabelText(/^fix\/21: Pull request #21/)).toBeInTheDocument();
+  });
+
+  function twoProposals(): PrStatusSnapshot {
+    const base = snapshot();
+    return {
+      ...base,
+      other_prs: [
+        {
+          branch: "fix/flaky-retry",
+          pr: { ...base.pr!, number: 21 },
+          ci: { state: "failing", checks: [] },
+        },
+      ],
+    };
+  }
+
+  it("gives every proposal its own tooltip line", async () => {
+    render(<FeaturePrIndicator snapshot={twoProposals()} />);
+
+    fireEvent.mouseEnter(document.querySelector("[data-feature-pr]")!.parentElement!);
+
+    const lines = await screen.findAllByRole("listitem");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toHaveTextContent("#21");
+    // The tail is what tells two branches of one conversation apart.
+    expect(lines[1]).toHaveTextContent("flaky-retry");
+    expect(lines[1]).not.toHaveTextContent("fix/");
+    expect(lines[1]).toHaveTextContent("checks failing");
+  });
+
+  it("opens the proposal it shows, without the row navigating first", () => {
+    const onOpen = vi.fn();
+    const rowPointerDown = vi.fn();
+    const base = snapshot();
+    render(
+      <div onPointerDown={rowPointerDown}>
+        <FeaturePrIndicator
+          snapshot={{ ...base, pr: null, ci: null, other_prs: twoProposals().other_prs }}
+          onOpen={onOpen}
+        />
+      </div>,
+    );
+    const button = screen.getByRole("button", { name: /^Open Pull request #21 in the Git tab/ });
+
+    fireEvent.pointerDown(button);
+    fireEvent.click(button);
+
+    expect(rowPointerDown).not.toHaveBeenCalled();
+    // Another branch's proposal is named by number; the current one is `null`.
+    expect(onOpen).toHaveBeenCalledWith(21);
+  });
+
+  it("opens the current branch's proposal as the current one", () => {
+    const onOpen = vi.fn();
+    render(<FeaturePrIndicator snapshot={twoProposals()} onOpen={onOpen} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Open Pull request #\d+ in the Git tab/ }));
+    expect(onOpen).toHaveBeenCalledWith(null);
   });
 });

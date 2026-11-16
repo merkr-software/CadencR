@@ -8,12 +8,13 @@ import {
 } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { queryClient } from "@/lib/queryClient";
+import { useSidebarSample, type SidebarSampleData } from "@/lib/sidebar-sample-context";
 import { useFeaturePendingRequestId } from "@/stores/pending-gate-popover-selectors";
 import { toast } from "sonner";
 
 interface UseFeaturePendingGateOptions {
   featureId: number;
-  /** Fetch only while the popover is open — closed rows stay silent. */
+  /** Fetch only when shown: the open popover or the row's request line. */
   enabled: boolean;
 }
 
@@ -33,13 +34,16 @@ export function useFeaturePendingGate({
   // Include the live request id so a question→question transition (stacked /
   // sequential gates) cannot keep serving the previous gate's cached payload.
   const liveRequestId = useFeaturePendingRequestId(featureId);
+  const sample = useSidebarSample();
 
   const query = useQuery({
     queryKey: ["/api/features", featureId, "pending-gate", liveRequestId ?? ""],
     queryFn: ({ signal }) => getPendingGate(featureId, signal),
-    enabled,
+    enabled: enabled && sample === null,
     retry: false,
-    staleTime: 0,
+    // A request id names one immutable request: rows remounting (scroll,
+    // expand) reuse its payload. Without an id, always ask again.
+    staleTime: liveRequestId ? Infinity : 0,
     // Pending gates are driven by WS status; window focus refetch is wasteful.
     refetchOnWindowFocus: false,
     // Drop unused payloads quickly — request ids rotate often.
@@ -60,7 +64,12 @@ export function useFeaturePendingGate({
     onError: (error: unknown) => {
       toast.error(apiErrorMessage(error, "Could not answer pending request"));
     },
-    onSuccess: async () => {
+    onSuccess: async (response) => {
+      for (const [index, warning] of (response.warnings ?? []).entries()) {
+        toast.warning(warning, {
+          id: `pending-gate-warning:${featureId}:${response.request_id}:${index}`,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: ["/api/features", featureId, "pending-gate"],
       });
@@ -73,7 +82,7 @@ export function useFeaturePendingGate({
     query.data != null && (liveRequestId == null || query.data.request_id === liveRequestId);
   const gate = gateMatchesLive ? query.data : undefined;
 
-  return useMemo(
+  const live = useMemo(
     () => ({
       gate,
       isLoading: query.isLoading,
@@ -87,4 +96,18 @@ export function useFeaturePendingGate({
     }),
     [gate, isSubmitting, query.error, query.isError, query.isLoading, respond],
   );
+  const sampled = useMemo(() => sample && sampleGate(sample, featureId), [sample, featureId]);
+  return sampled ?? live;
+}
+
+/** A display options preview sample: its request is local, answering it sends nothing. */
+function sampleGate(sample: SidebarSampleData, featureId: number): UseFeaturePendingGateResult {
+  return {
+    gate: sample.gates.get(featureId),
+    isLoading: false,
+    isError: false,
+    errorMessage: null,
+    isSubmitting: false,
+    respond: () => sample.respond(featureId),
+  };
 }

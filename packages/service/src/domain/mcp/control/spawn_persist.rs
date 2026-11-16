@@ -16,13 +16,16 @@ pub(super) async fn insert_spawned_session(
     codex_permission_mode: Option<&str>,
 ) -> Result<i64, AppError> {
     let now = chrono::Utc::now().to_rfc3339();
+    // Persist the resolved model and level, not the raw request: providers
+    // that inherit profile config restore from this document, so an omitted
+    // level must carry the last-used/default level instead of inheriting.
     let overrides = crate::domain::agents::adapter::RuntimeConfigOverrides {
-        model: trimmed_optional(body.model.as_deref()),
-        thinking_effort: trimmed_optional(body.thinking_level.as_deref()),
+        model: runtime.model.clone(),
+        thinking_effort: runtime.thinking_level.clone(),
         fast_mode: None,
     };
     let overrides = serde_json::to_string(&overrides)
-        .map_err(|error| AppError::Internal(format!("serialize runtime overrides: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize runtime overrides: {error}")))?;
     Ok(sqlx::query_scalar(
         "INSERT INTO agent_sessions
          (feature_id, agent_type, status, runtime_provider, model, profile, thinking_effort, permission_mode, codex_permission_mode, runtime_overrides, started_at)
@@ -155,6 +158,7 @@ mod tests {
             await_result: Some(true),
             target_project_id: Some(7),
             target_project_path: None,
+            start_archived: false,
         };
 
         let message_id = insert_initial_message(&state, &source, 888, &body)
@@ -207,6 +211,7 @@ mod tests {
             await_result: None,
             target_project_id: Some(7),
             target_project_path: None,
+            start_archived: false,
         };
         let runtime = SpawnRuntimeSelection {
             model: body.model.clone(),

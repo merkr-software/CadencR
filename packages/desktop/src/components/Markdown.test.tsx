@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@/test-utils";
 import { LinkRoutingContext, type LinkRouting } from "./links/LinkRoutingContext";
 import { Markdown } from "./Markdown";
+import { MarkdownImageProvider } from "./markdown-image";
 import { useOpenDiffInEditor } from "./diff/OpenDiffInEditorContext";
 import { LARGE_CODE_LINE_THRESHOLD } from "./markdown/LargeCodeBlock";
 
@@ -144,6 +145,42 @@ describe("Markdown", () => {
     expect(screen.getByText("Hidden")).toBeInTheDocument();
   });
 
+  it.each(["Before", "<b>Before</b>"])(
+    "keeps incomplete images pending until their URL is complete after %s",
+    (prefix) => {
+      const Renderer = vi.fn(({ src }: { src?: string }) => <img src={src} alt="Loaded diagram" />);
+      const renderImage = (suffix: string) => (
+        <MarkdownImageProvider value={Renderer}>
+          <Markdown content={`${prefix} ![diagram](${suffix}`} isStreaming />
+        </MarkdownImageProvider>
+      );
+      const { container, rerender } = render(renderImage("https://exampl"));
+      expect(screen.getByLabelText("Loading image")).toBeInTheDocument();
+      expect(container.querySelector("img")).toBeNull();
+      expect(Renderer).not.toHaveBeenCalled();
+
+      rerender(renderImage("https://example.com/diagram.png)"));
+      expect(screen.queryByLabelText("Loading image")).not.toBeInTheDocument();
+      expect(screen.getByAltText("Loaded diagram")).toHaveAttribute(
+        "src",
+        "https://example.com/diagram.png",
+      );
+    },
+  );
+
+  it.each(["Before", "<b>Before</b>"])("does not activate incomplete links after %s", (prefix) => {
+    render(<Markdown content={`${prefix} [pending](https://exampl`} isStreaming />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it.each(["streamdown:other", "STREAMDOWN:other", "javascript:alert(1)"])(
+    "does not allow %s through the image sentinel exception",
+    (src) => {
+      const { container } = render(<Markdown content={`<img src="${src}" alt="blocked">`} />);
+      expect(container.querySelector("img")).not.toHaveAttribute("src", src);
+    },
+  );
+
   it("strips dangerous HTML (script tags and event handlers)", () => {
     render(
       <Markdown
@@ -158,6 +195,40 @@ describe("Markdown", () => {
   it("strips javascript: URLs from raw HTML links", () => {
     render(<Markdown content={'<a href="javascript:alert(1)">click me</a>'} />);
     expect(screen.getByText("click me")).not.toHaveAttribute("href", "javascript:alert(1)");
+  });
+
+  it("unwraps <picture> so only the <img> loads, and drops the link's external mark", () => {
+    const { container } = render(
+      <Markdown
+        content={
+          '<h2><a href="https://example.com/retrigger"><picture>' +
+          '<source media="(prefers-color-scheme: dark)" srcset="https://example.com/dark.svg">' +
+          '<img alt="Retrigger" src="https://example.com/light.svg" align="right">' +
+          "</picture></a>Confidence Score: 5/5</h2>"
+        }
+      />,
+    );
+    const link = screen.getByRole("link", { name: "Retrigger" });
+    expect(container.querySelector("picture, source")).toBeNull();
+    expect(link.querySelector("img")).toHaveAttribute("src", "https://example.com/light.svg");
+    expect(link.querySelector("svg")).toBeNull();
+    expect(link).toHaveAttribute("data-image-link", "true");
+  });
+
+  it("keeps the external mark on a plain web link", () => {
+    render(<Markdown content="[docs](https://example.com/docs)" />);
+    const link = screen.getByRole("link", { name: "docs" });
+    expect(link.querySelector("svg")).not.toBeNull();
+    expect(link).not.toHaveAttribute("data-image-link");
+  });
+
+  it("keeps the external mark on an icon-and-text link", () => {
+    render(
+      <Markdown content='<a href="https://example.com/fix"><img alt="" src="https://example.com/i.svg"> Fix in Cursor</a>' />,
+    );
+    const link = screen.getByRole("link", { name: /Fix in Cursor/ });
+    expect(link.querySelector("svg")).not.toBeNull();
+    expect(link).not.toHaveAttribute("data-image-link");
   });
 
   it("applies custom className", () => {
@@ -203,13 +274,8 @@ describe("Markdown", () => {
       expect(container.querySelectorAll("[data-sd-animate]")).toHaveLength(0);
     });
 
-    // Streamdown's stock `stagger` (40ms) delays word N of a re-parse by
-    // `N * 40ms` with `animation-fill-mode: both` — the word is invisible until
-    // then. Measured against the unconfigured component: a 40-word block hides
-    // its tail for 1560ms, an 80-word block for 3160ms, and it keeps scaling
-    // with the message. That is the "text disappears then reappears" and
-    // "animation is too slow" report. See `STREAM_ANIMATION` for why the
-    // bookkeeping that is supposed to exempt already-shown words does not.
+    // Even with upstream's StrictMode fix, queued animation delays would hide
+    // the tail of a large burst. Every newly received word must be visible now.
     it("never holds a word behind an animation delay", () => {
       const { container } = render(<Markdown content={words(60)} isStreaming />);
       const spans = animatedSpans(container);
@@ -231,10 +297,7 @@ describe("Markdown", () => {
       expect(grown.filter((span) => span.style.getPropertyValue("--sd-delay") !== "")).toEqual([]);
     });
 
-    // The app mounts in `StrictMode`, whose double-invoke consumes the
-    // render-phase bookkeeping Streamdown uses to tell new words from old, so
-    // every word reads as new on every re-parse. With no stagger that is
-    // invisible; with one it is the worst case above.
+    // StrictMode must retain the same immediate reveal behavior.
     it("stays delay-free under StrictMode's double render", () => {
       const { container } = render(
         <StrictMode>
@@ -259,6 +322,32 @@ describe("Markdown", () => {
       render(<Markdown content="see src/main.rs:42 for details" />);
       fireEvent.click(screen.getByText("src/main.rs:42"));
       expect(openInEditor).toHaveBeenCalledWith("src/main.rs", 42, undefined);
+    });
+
+    // A `<` anywhere in the message routes it through rehype-sanitize, whose
+    // protocol allowlist reads `foo.ts:` or `file:` as an unknown scheme.
+    it.each([
+      ["a bare file:line link", "[main.rs](main.rs:42)", "main.rs", 42],
+      ["a file:// link", "[main.rs](file:///repo/src/main.rs)", "/repo/src/main.rs", undefined],
+      ["a Windows drive link", "[main.rs](C:/repo/main.rs:7)", "C:/repo/main.rs", 7],
+    ])("keeps %s clickable in a message that contains raw HTML", (_, link, path, line) => {
+      const openInEditor = vi.fn();
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(openInEditor);
+      render(<Markdown content={`Returns Vec<T>, see ${link}`} />);
+      fireEvent.click(screen.getByText("main.rs"));
+      expect(openInEditor).toHaveBeenCalledWith(path, line, undefined);
+    });
+
+    it("drops a hand-written envelope that doesn't carry a file link", () => {
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(vi.fn());
+      render(<Markdown content={'<a href="cadencr-agent-file:javascript%3Aalert(1)">x</a>'} />);
+      expect(screen.getByText("x").closest("a")).not.toHaveAttribute("href");
+    });
+
+    it("still strips an unknown scheme that merely contains a slash", () => {
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(vi.fn());
+      render(<Markdown content={"Vec<T> [x](vbscript:run/x.rs)"} />);
+      expect(screen.getByText("x").closest("a")).not.toHaveAttribute("href", "vbscript:run/x.rs");
     });
 
     it("does nothing when rendered outside an editor context", () => {

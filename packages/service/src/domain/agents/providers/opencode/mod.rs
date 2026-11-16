@@ -16,7 +16,6 @@ use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry, Pr
 const PROVIDER_ID: &str = "opencode";
 const PROVIDER_LABEL: &str = "OpenCode";
 const FALLBACK_MODEL_ID: &str = "default/default";
-const OPENCODE_FALLBACK_CONTEXT_WINDOW: u64 = 200_000;
 const OPENAI_REASONING_EFFORT_LEVELS: [&str; 4] = ["low", "medium", "high", "xhigh"];
 
 /// Static catalog used before the live probe has run (and as the
@@ -28,6 +27,7 @@ pub(crate) fn catalog_entry() -> ProviderCatalogEntry {
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models: vec![ModelCatalogEntry {
             id: FALLBACK_MODEL_ID.to_string(),
             label: "Default".to_string(),
@@ -49,15 +49,12 @@ pub(crate) async fn catalog_entry_live() -> ProviderCatalogEntry {
     (*cache::live_catalog().await).clone()
 }
 
+/// The window OpenCode's catalog declares for `model_id`. A model it does not
+/// describe has an unknown window — never a guessed one, which would misscale
+/// the usage bar with false confidence.
 pub(crate) async fn context_window_for_model(model_id: &str) -> Option<u64> {
-    let entry = cache::live_catalog_entry().await;
-    Some(
-        entry
-            .context_windows
-            .get(model_id)
-            .copied()
-            .unwrap_or(OPENCODE_FALLBACK_CONTEXT_WINDOW),
-    )
+    let entry = cache::cached_catalog_entry().await;
+    entry.extra.get(model_id).copied()
 }
 
 pub(crate) async fn default_model_id() -> Option<String> {
@@ -119,6 +116,7 @@ fn catalog_from_response(
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models,
         modes: Vec::new(),
         access_modes: Vec::new(),
@@ -167,7 +165,6 @@ pub(crate) fn supports_effort_level_for_model_ref(model_ref: &str, effort: &str)
 mod tests {
     use super::{
         catalog_entry, catalog_from_response, context_window_for_model, FALLBACK_MODEL_ID,
-        OPENCODE_FALLBACK_CONTEXT_WINDOW,
     };
     use crate::domain::agents::runtime::ProviderStatus;
     use opencode_sdk_rs::ConfigProvidersResponse;
@@ -378,7 +375,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn context_window_falls_back_for_unknown_model() {
+    async fn context_window_is_unknown_for_a_model_the_catalog_does_not_describe() {
         let _guard = TEST_LOCK.lock().await;
         super::cache::reset_for_test().await;
         let probe = || async {
@@ -395,7 +392,7 @@ mod tests {
         };
         let _ = super::cache::live_catalog_entry_with(probe).await;
         let window = context_window_for_model("unknown/model").await;
-        assert_eq!(window, Some(OPENCODE_FALLBACK_CONTEXT_WINDOW));
+        assert_eq!(window, None);
         super::cache::reset_for_test().await;
     }
 }

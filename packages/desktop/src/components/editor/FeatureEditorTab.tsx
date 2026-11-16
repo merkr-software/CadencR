@@ -1,6 +1,5 @@
 import {
   memo,
-  useEffect,
   useRef,
   useState,
   useCallback,
@@ -9,6 +8,7 @@ import {
   useImperativeHandle,
 } from "react";
 import type { EditorView } from "@codemirror/view";
+import { useAddSelectionToPrompt } from "./useAddSelectionToPrompt";
 import { useScopedGlobalShortcutById, useScopedShortcut } from "@/hooks/useShortcut";
 import { isInCodeMirrorEditor } from "@/lib/shortcuts/dom-targets";
 import { useEditorState } from "@/hooks/useEditorState";
@@ -21,9 +21,10 @@ import {
 } from "@/stores/feature-layout-store";
 import { GitBranch, PanelLeft, Search } from "lucide-react";
 import { useFeatureWorktreePath } from "@/hooks/useFeatureWorktreePath";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { KbdShortcut } from "@/components/KbdShortcut";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import { EditorSidebarLayout } from "./EditorSidebarLayout";
 import EditorSplitTree from "./EditorSplitTree";
 import FileTree from "./FileTree";
@@ -37,6 +38,7 @@ import {
   useConfirmedConflictPaths,
 } from "./useAutoConflictResolution";
 import { EditorLeaveDialog } from "./EditorLeaveDialog";
+import { useFeatureEditorEffects } from "./useFeatureEditorEffects";
 import { focusNeovimEditor } from "./neovim/focusNeovimEditor";
 
 interface FeatureEditorTabProps {
@@ -79,9 +81,19 @@ function useEditorFocusState(featureId: number, activePaneId: string, isEditorFo
     },
     [activePaneId, isEditorFocused, shouldRestoreEditorFocus],
   );
+  const getActiveView = useCallback(
+    () => editorViewsRef.current.get(activePaneId) ?? null,
+    [activePaneId],
+  );
   return useMemo(
-    () => ({ focusActiveEditor, handleEditorViewChange, rootRef, shouldRestoreEditorFocus }),
-    [focusActiveEditor, handleEditorViewChange, shouldRestoreEditorFocus],
+    () => ({
+      focusActiveEditor,
+      getActiveView,
+      handleEditorViewChange,
+      rootRef,
+      shouldRestoreEditorFocus,
+    }),
+    [focusActiveEditor, getActiveView, handleEditorViewChange, shouldRestoreEditorFocus],
   );
 }
 
@@ -200,35 +212,6 @@ function useEditorNavigationShortcuts({
   usePaneShortcut("editor-nav-pane-down", "down");
 }
 
-function useFeatureEditorEffects({
-  focus,
-  initFeature,
-  isEditorFocused,
-  persistedCollapsed,
-  sidebarVisible,
-  toggleSidebar,
-}: {
-  focus: EditorFocusState;
-  initFeature: () => void;
-  isEditorFocused: boolean;
-  persistedCollapsed: string | null;
-  sidebarVisible: boolean;
-  toggleSidebar: () => void;
-}): void {
-  const initializedRef = useRef(false);
-  useEffect(() => initFeature(), [initFeature]);
-  useEffect(() => {
-    if (!isEditorFocused || !focus.shouldRestoreEditorFocus()) return undefined;
-    const frame = requestAnimationFrame(focus.focusActiveEditor);
-    return () => cancelAnimationFrame(frame);
-  }, [focus, isEditorFocused]);
-  useEffect(() => {
-    if (initializedRef.current || persistedCollapsed === null) return;
-    initializedRef.current = true;
-    if ((persistedCollapsed !== "true") !== sidebarVisible) toggleSidebar();
-  }, [persistedCollapsed, sidebarVisible, toggleSidebar]);
-}
-
 const FeatureEditorTab = memo(
   forwardRef<FeatureEditorTabHandle, FeatureEditorTabProps>(function FeatureEditorTab(props, ref) {
     const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? props.featureId;
@@ -239,17 +222,18 @@ const FeatureEditorTab = memo(
     );
     const isEditorFocused = props.focusedOverride ?? layoutEditorFocused;
     const [fileSearchOpen, setFileSearchOpen] = useState(false);
-    const { value: persistedCollapsed, setValue: persistCollapsed } = useDebouncedSetting(
+    const { value: persistedCollapsed, setValue: persistCollapsed } = useSetting(
       EDITOR_SIDEBAR_COLLAPSED_SETTING,
-      0,
     );
     useFileWatcher(props.projectId, props.featureId);
     const confirmedConflicts = useConfirmedConflictPaths(props.featureId);
     const focus = useEditorFocusState(props.featureId, editor.activePaneId, isEditorFocused);
     const leave = useEditorLeaveGuard(ref, editor.panes, focus);
     const handleToggleSidebar = useCallback(() => {
+      // The file tree's visibility is this view's own state; the setting only
+      // remembers it for the next editor that opens, so the toggle doesn't wait.
       editor.toggleSidebar();
-      persistCollapsed(String(editor.sidebarVisible));
+      void persistCollapsed(String(editor.sidebarVisible));
     }, [editor.sidebarVisible, editor.toggleSidebar, persistCollapsed]);
     useEditorNavigationShortcuts({
       featureId: props.featureId,
@@ -257,12 +241,22 @@ const FeatureEditorTab = memo(
       isEditorFocused,
       navigatePane,
     });
+    const activeFilePath = editor.panes[editor.activePaneId]?.activeFilePath ?? null;
+    useAddSelectionToPrompt({
+      featureId: props.featureId,
+      enabled: isEditorFocused && !!activeFilePath,
+      getActive: () => {
+        const view = focus.getActiveView();
+        return view && activeFilePath ? { view, filePath: activeFilePath } : null;
+      },
+    });
     useFeatureEditorEffects({
       focus,
       initFeature: editor.initFeature,
       isEditorFocused,
       persistedCollapsed,
       sidebarVisible: editor.sidebarVisible,
+      sidebarAutoHidden: editor.sidebarAutoHidden === true,
       toggleSidebar: editor.toggleSidebar,
     });
     const isWorktree = Boolean(useFeatureWorktreePath(props.featureId, props.projectId));
@@ -365,6 +359,8 @@ function SidebarHeader({
   onToggle: () => void;
   onOpenFileSearch: () => void;
 }) {
+  const fuzzyKeys = useShortcutKeys("editor-fuzzy");
+  const toggleSidebarKeys = useShortcutKeys("editor-toggle-sidebar");
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border shrink-0">
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -383,10 +379,10 @@ function SidebarHeader({
         >
           <Search className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate">Search files…</span>
-          <KbdShortcut keys={["cmd", "P"]} size="sm" />
+          <KbdShortcut keys={fuzzyKeys} size="sm" />
         </button>
       </div>
-      <ShortcutTooltip label="Collapse sidebar" keys={["cmd", "E"]} alignRight>
+      <ShortcutTooltip label="Collapse sidebar" keys={toggleSidebarKeys} alignRight>
         <button
           type="button"
           aria-label="Collapse file tree sidebar"

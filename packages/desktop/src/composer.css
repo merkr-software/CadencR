@@ -1,0 +1,301 @@
+/* -------------------------------------------------------------------------
+ * The composer — the instrument the user plays all day.
+ *
+ * Theme-neutral layer: every color resolves through the active theme's
+ * tokens, so all themes get the same anatomy (card · launch manifest ·
+ * context tray · editor · instrument row) and the CadencR pair adds its
+ * material on top in `theme-cadencr-material.css`.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* Focused composer: the same whisper of emerald a focused pane gets — never
+   * a glow (the CadencR pair's material forbids an emerald ring here). */
+  --composer-focus-border: color-mix(in oklab, var(--primary) 34%, var(--border));
+  --composer-radius: calc(var(--radius) + 2px);
+  /* Every instrument — text or icon, read-out or Send — shares one height,
+   * and every icon-only one is that size square. */
+  --composer-instrument-size: 1.75rem;
+}
+@media (pointer: coarse) {
+  :root {
+    --composer-instrument-size: 2.25rem;
+  }
+}
+
+/* ── Card ───────────────────────────────────────────────────────────────── */
+
+[data-composer-card] {
+  position: relative;
+  border-radius: var(--composer-radius);
+  border-color: var(--border);
+}
+[data-composer-card]:focus-within {
+  border-color: var(--composer-focus-border);
+}
+
+/* While the agent works, a thin reflection crosses the card's top edge, left
+ * to right, then rests: the composer says "this agent is busy — what you type
+ * steers it" to a glance, without pulling the eye off the transcript. The
+ * track stops short of the rounded corners and fades at both ends, so the
+ * reflection emerges from and melts back into the border.
+ *
+ * The track clips: the mask only hides the reflection's paint, while its
+ * translated box still overflowed the card's right edge by over a quarter of
+ * its width.
+ * That made the composer's scroller wide enough to swipe the whole prompt
+ * sideways, and leave it off-centre, for as long as the agent ran. */
+.composer-sweep {
+  position: absolute;
+  top: -1px;
+  left: var(--composer-radius);
+  right: var(--composer-radius);
+  height: 1px;
+  overflow: clip;
+  pointer-events: none;
+  mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.composer-sweep::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  box-shadow: 0 0 6px 0 color-mix(in oklab, var(--primary) 60%, transparent);
+  opacity: 0.75;
+  animation: composer-sweep 4.5s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+/* The crossing takes 55% of the cycle; the rest is a pause. */
+@keyframes composer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(360%);
+  }
+}
+
+/* ── Instrument row ─────────────────────────────────────────────────────── */
+
+/* Layered, so a call site's utilities (`h-6`, `gap-1`) refine the base. */
+@layer components {
+  .composer-instrument {
+    display: inline-flex;
+    height: var(--composer-instrument-size);
+    flex-shrink: 0;
+    align-items: center;
+    border-radius: var(--radius-sm, 6px);
+    padding-inline: 0.5rem;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+  @media (pointer: coarse) {
+    .composer-instrument {
+      padding-inline: 0.625rem;
+    }
+  }
+  .composer-instrument-icon {
+    width: var(--composer-instrument-size);
+    justify-content: center;
+    padding-inline: 0;
+  }
+}
+/* A control's padding never squeezes its glyph. */
+.composer-instrument > :is(svg, img),
+[data-composer-action] > svg {
+  flex-shrink: 0;
+}
+.composer-instrument:hover,
+.composer-instrument[data-state="open"] {
+  background-color: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+.composer-instrument:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring, var(--primary)) 70%, transparent);
+  outline-offset: 1px;
+}
+.composer-instrument:disabled {
+  opacity: 0.4;
+}
+
+/* Each instrument sits in its own slot, which moves between the card's two
+ * rows (`useInstrumentRows`) at its natural width. A slot with nothing to
+ * show (no child, or only an empty group) takes no room — not even a gap. */
+[data-composer-slot] {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+[data-composer-slot]:not(:has(> :not(:empty))) {
+  display: none;
+}
+
+/* Hairline between adjacent session groups (auto-scroll │ mode │ model │
+ * access on one row, mode │ model in the header):
+ * drawn outside each group's hover box so it never sits inside a highlight.
+ * Its space is a variable so the balancing hook measures what is drawn. */
+[data-composer-zone] {
+  --composer-hairline-space: 9px;
+}
+[data-composer-group]:has(> :not(:empty)) ~ [data-composer-group]:has(> :not(:empty)) {
+  position: relative;
+  margin-left: var(--composer-hairline-space);
+}
+[data-composer-group]:has(> :not(:empty)) ~ [data-composer-group]:has(> :not(:empty))::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.3125rem;
+  width: 1px;
+  height: 0.875rem;
+  translate: 0 -50%;
+  background-color: var(--border);
+  pointer-events: none;
+}
+/* The skill wizard's instrument strip wraps on narrow trays, where a hairline
+ * would dangle at a line's end. */
+@container (max-width: 30rem) {
+  [data-virtual-skill-wizard] [data-composer-group]::before {
+    display: none;
+  }
+}
+/* Fast mode on: the bolt is lit, not the control. */
+.composer-fast-lit {
+  filter: drop-shadow(0 0 4px color-mix(in oklab, var(--acc-yellow) 55%, transparent));
+}
+
+/* A mode change — click, menu or Shift+Tab — lands visibly. */
+.composer-mode-flash {
+  animation: composer-mode-flash 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes composer-mode-flash {
+  from {
+    background-color: color-mix(in oklab, currentColor 26%, transparent);
+  }
+}
+
+.composer-stop-arm {
+  animation: composer-rise 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes composer-rise {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* ── Narrow composers (phones, side columns, /agents cards) ─────────────── */
+
+/* Named, so these rules always answer to a whole row's width, even when an
+ * instrument nests a container of its own. useInstrumentRows mirrors the
+ * 30rem step (COMPACT_ROW_REM). */
+[data-composer-instruments] {
+  container-name: composer-instruments;
+}
+@container composer-instruments (max-width: 30rem) {
+  /* The autonomy control keeps its icon; the name moves to its
+   * menu. Secondary instruments step aside so Send never gets pushed out. */
+  [data-composer-mode] > span.truncate,
+  [data-composer-instruments] [data-context-meter-bar],
+  [data-composer-instruments] .composer-instrument > .lucide-chevron-down {
+    display: none;
+  }
+  /* Down to its icon, the mode is square like every icon-only instrument. */
+  [data-composer-instruments] [data-composer-mode] {
+    min-width: var(--composer-instrument-size);
+    justify-content: center;
+    padding-inline: 0;
+  }
+  /* Hairlines give their room back to the labels. */
+  [data-composer-zone] {
+    --composer-hairline-space: 0px;
+  }
+  [data-composer-group]:has(> :not(:empty)) ~ [data-composer-group]:has(> :not(:empty))::before {
+    display: none;
+  }
+}
+/* With the session controls lifted into the header, the bottom row keeps
+ * history down to the narrowest cards (/agents grid columns). */
+@container composer-instruments (max-width: 20rem) {
+  [data-composer-slot]:has([data-composer-secondary]) {
+    display: none;
+  }
+}
+
+/* ── Touch ──────────────────────────────────────────────────────────────── */
+
+/* The send-options chevron widens to stay tappable. */
+@media (pointer: coarse) {
+  [data-composer-instruments] [data-composer-action-compact] {
+    min-width: 1.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No motion: the reflection rests, faint, at the top edge's middle. */
+  .composer-sweep::before {
+    animation: none;
+    left: 36%;
+    opacity: 0.4;
+  }
+  .composer-mode-flash,
+  .composer-stop-arm {
+    animation: none;
+  }
+}
+
+/* ── Stack on the card's top edge ───────────────────────────────────────── */
+
+/* One tray for everything stacked above the card (`ComposerStack`). Each
+ * section keeps one accent — icon and title ink, plus a wash faint enough that
+ * the tray still reads as one surface — so running agents, side questions,
+ * schedules, the queue and pending requests are told apart at a glance. */
+[data-stack-tone] {
+  --stack-tone: var(--muted-foreground);
+}
+/* Neutral sections (help, skill wizard) keep the tray's own wash. */
+[data-stack-tone]:not([data-stack-tone="neutral"]) {
+  background-color: color-mix(in oklab, var(--stack-tone) 5%, transparent);
+}
+/* The blue of a working agent everywhere (sidebar ring, sub-agent card). */
+[data-stack-tone="agents"] {
+  --stack-tone: var(--color-blue-500);
+}
+[data-stack-tone="side"] {
+  --stack-tone: var(--acc-purple);
+}
+[data-stack-tone="schedule"] {
+  --stack-tone: var(--acc-cyan);
+}
+[data-stack-tone="queue"] {
+  --stack-tone: var(--acc-orange);
+}
+[data-stack-tone="attention"] {
+  --stack-tone: var(--acc-yellow);
+}
+[data-stack-tone="question"] {
+  --stack-tone: var(--primary);
+}
+/* A call to action on the coming send, so the send button's color — not the
+ * `--chip-worktree-*` trio, which tones the chips reporting a session's state. */
+[data-stack-tone="worktree"] {
+  --stack-tone: var(--primary);
+}
+[data-stack-tone] [data-stack-ink] {
+  color: color-mix(in oklab, var(--stack-tone) 78%, var(--foreground));
+}
+[data-stack-tone="neutral"] [data-stack-ink] {
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
+}
+/* The skill wizard holding the keys takes the focused-card border for the
+ * whole tray: one of tray and card owns them at a time. */
+[data-composer-stack]:has([data-keys-active]) {
+  border-color: var(--composer-focus-border);
+}

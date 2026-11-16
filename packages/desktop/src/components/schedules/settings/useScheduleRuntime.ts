@@ -6,7 +6,7 @@
  * rather than each re-deriving the provider from the target.
  *
  * Inheritance differs by target kind. A schedule that creates the conversation
- * inherits the project's defaults (the same cascade "New session" walks); one
+ * inherits the new-session selection (the same cascade "New session" walks); one
  * that posts into an existing conversation inherits that conversation's own
  * settings, which the features list already carries.
  */
@@ -18,7 +18,8 @@ import {
   type RuntimeProviderOption,
 } from "@/api/agentRuntime";
 import type { Provider } from "@/components/agent-session/ModelMetaChip";
-import { useProjectRuntimeSelection } from "@/hooks/useProjectRuntimeSelection";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
+import { useNewSessionSelection } from "@/hooks/useNewSessionSelection";
 import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
 import { defaultEditModeFor } from "@/lib/provider-modes";
 import { availableCatalogProviders } from "@/shared/models";
@@ -54,16 +55,14 @@ export function useScheduleRuntime(target: ScheduleTarget): ScheduleRuntime {
     () => availableCatalogProviders(catalog?.providers),
     [catalog?.providers],
   );
-  // Only a target that creates the conversation inherits the project's
-  // defaults. Passing the id for a `conversation` target would fire both
-  // project-settings requests for a cascade `inheritedRuntime` then discards.
-  const projectDefault = useProjectRuntimeSelection(
-    target.kind === "conversation" ? undefined : (target.project_id ?? undefined),
-  );
+  // Only a target that creates the conversation inherits the new-session
+  // selection; a `conversation` target would fetch a pair `inheritedRuntime`
+  // then discards.
+  const newSession = useNewSessionSelection(target.kind !== "conversation");
   const conversation = useTargetedConversation(target);
 
   return useMemo(() => {
-    const inherited = inheritedRuntime(target.kind, conversation.feature, projectDefault);
+    const inherited = inheritedRuntime(target.kind, conversation.feature, newSession);
     const providerId = target.provider ?? inherited.providerId;
     const provider = catalogProviders.find((entry) => entry.id === providerId);
     const modelId = target.model ?? inherited.modelId;
@@ -76,18 +75,18 @@ export function useScheduleRuntime(target: ScheduleTarget): ScheduleRuntime {
       permissionMode:
         (target.permission_mode as PermissionMode | undefined) ??
         (inherited.permissionMode as PermissionMode | undefined) ??
-        defaultEditModeFor(providerId),
+        defaultEditModeFor(providerId, provider?.modes),
       thinkingLevel: parseThinkingEffort(target.thinking_level ?? inherited.thinkingLevel),
       accessMode: parseAccessMode(target.access_mode ?? inherited.accessMode ?? undefined),
       profile: target.profile ?? inherited.profile,
       isResolving:
         catalog === undefined ||
         conversation.isLoading ||
-        // A new conversation starts on the project's defaults, so those queries
+        // A new conversation starts on the new-session selection, so those queries
         // gate it; an existing one doesn't consult them at all.
-        (target.kind !== "conversation" && projectDefault.isLoading),
+        (target.kind !== "conversation" && newSession.isLoading),
     };
-  }, [catalog, catalogProviders, conversation, projectDefault, target]);
+  }, [catalog, catalogProviders, conversation, newSession, target]);
 }
 
 interface InheritedRuntime {
@@ -102,14 +101,14 @@ interface InheritedRuntime {
 function inheritedRuntime(
   kind: TargetKind,
   conversation: Feature | undefined,
-  projectDefault: { providerId: string | undefined; modelId: string | undefined },
+  newSession: { providerId: string | undefined; modelId: string | undefined },
 ): InheritedRuntime {
   if (kind !== "conversation") {
     // A conversation that doesn't exist yet has no settings of its own; it will
-    // start on the project's, so that is what the chips show.
+    // start on the new-session selection, so that is what the chips show.
     return {
-      providerId: projectDefault.providerId,
-      modelId: projectDefault.modelId,
+      providerId: newSession.providerId,
+      modelId: newSession.modelId,
       thinkingLevel: undefined,
       permissionMode: undefined,
       accessMode: undefined,
@@ -149,12 +148,7 @@ function pickerProviders(
 ): Provider[] {
   return catalogProviders
     .filter((provider) => kind !== "conversation" || provider.id === providerId)
-    .map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-      disabled: false,
-      models: provider.models,
-    }));
+    .map(pickerProviderFromCatalog);
 }
 
 /**

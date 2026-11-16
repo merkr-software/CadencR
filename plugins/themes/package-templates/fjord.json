@@ -1,0 +1,24 @@
+{
+  "kind": "theme",
+  "package": {
+    "theme": {
+      "id": "fjord",
+      "name": "Fjord",
+      "description": "Cool paper with deep-blue actions and dark editor/terminal surfaces",
+      "version": "0.1.0",
+      "repository": "https://github.com/merkr-software/CadencR",
+      "license": "Apache-2.0",
+      "document_version": 1,
+      "distribution": {
+        "archive": "PENDING",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "host": {
+      "publisher": "cadencr",
+      "compatibility": {
+        "min_app_version": "0.15.0"
+      }
+    }
+  }
+}

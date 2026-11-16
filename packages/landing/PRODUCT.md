@@ -10,7 +10,7 @@ web
 
 ## Users
 
-Developers already running AI coding agents — Claude Code, OpenCode, or Codex — who are deciding whether to download CadencR. The same audience the desktop app targets: senior individual contributors and tech leads who run multiple parallel agent sessions, read code, know what a worktree is, and prefer keyboard-driven IDEs over chat-style UIs. They arrive from GitHub, search, or a release link, are skeptical of AI-tool hype, and close tabs that smell like marketing. A deliberate secondary audience is search engines and LLM crawlers: the site teaches them that "CadencR" is a developer tool, not a misspelling of "cadence" (`src/lib/seo.ts`, `src/lib/faq.ts`, `/llms.txt`).
+Developers already running AI coding agents — Claude Code, Codex, Cursor, or OpenCode — who are deciding whether to download CadencR. The same audience the desktop app targets: senior individual contributors and tech leads who run multiple parallel agent sessions, read code, know what a worktree is, and prefer keyboard-driven IDEs over chat-style UIs. They arrive from GitHub, search, or a release link, are skeptical of AI-tool hype, and close tabs that smell like marketing. A deliberate secondary audience is search engines and LLM crawlers: the site teaches them that "CadencR" is a developer tool, not a misspelling of "cadence" (`src/lib/seo.ts`, `src/lib/faq.ts`, `/llms.txt`).
 
 ## Product Purpose
 
@@ -24,8 +24,8 @@ The IDE for the era of agents: CadencR unifies Agent, Git, Browser, Editor, and 
 
 - Primary CTA: Download for Mac, with the copyable `brew install --cask` command as its terminal-native twin. Secondary: Source on GitHub — for visitors not ready to install, the open code is the fallback.
 - The line a visitor remembers after 10 seconds: "Stop switching — one window."
-- Belief ladder, mirrored by the homepage section order: (1) my agent workflow is fragmented across windows; (2) CadencR puts agent, git, browser, editor, and terminal in one place; (3) it works with the agents I already use — Claude Code, OpenCode, Codex — provider-neutral by design; (4) each surface is genuinely good (readable agent stream, per-task worktrees with reviewable commits, embedded browser QA); (5) it is free, open source, local, and sends no telemetry — nothing to lose. Then the closing download CTA.
-- Proof on hand: the Apache-2.0 source on GitHub, real product screenshots and the hero screen recording captured from the app (`src/assets/`, `public/hero.*.mp4`), versioned release notes under `/news`, and the free / local / no-telemetry answers in the FAQ. No testimonials or press yet.
+- Belief ladder, mirrored by the homepage section order: (1) my agent workflow is fragmented across windows; (2) CadencR puts agent, git, browser, editor, and terminal in one place; (3) it works with the agents I already use — Claude Code, Codex, Cursor, OpenCode — provider-neutral by design; (4) each surface is genuinely good (readable agent stream, per-task worktrees with reviewable commits, embedded browser QA); (5) it is free, open source, local, with opt-in diagnostics and detailed analytics and a separately disableable monthly installation counter. Then the closing download CTA.
+- Proof on hand: the Apache-2.0 source on GitHub, real product screenshots and the hero screen recording captured from the app (`src/assets/`, `public/hero.*.mp4`), versioned release notes under `/news`, and the free / local / optional-telemetry answers in the FAQ. No testimonials or press yet.
 
 ## Brand Personality
 
@@ -46,3 +46,19 @@ Not a generic AI-startup landing page: no hype superlatives, no fabricated dashb
 ## Accessibility & Inclusion
 
 No formal WCAG target has been declared. Shipped commitments observed in the code: every animation has a `prefers-reduced-motion` fallback; decorative elements are `aria-hidden` and interactive controls carry `aria-label`s; scroll reveals degrade to fully-visible content without JavaScript; `color-scheme: dark` is declared so form controls match the theme.
+
+## Documentation maintenance
+
+The 24 user guides were reviewed against v0.13.0 on 2026-10-13. Each page records
+its reviewed version/date, includes at least one current UI screenshot, and links
+to related workflows. The navigation registry also drives the documentation index.
+
+![Current workspace with example conversation data](./src/assets/docs/v0.13.0/concept.png)
+
+- Capture the running product; label synthetic conversations, schedules, and usage.
+- Keep full-size captures available from the responsive image links.
+- Cover providers, sidebar, schedules, branching, usage, themes, and remote access
+  as durable guides rather than requiring readers to reconstruct release notes.
+- Describe local code-backed ACP creation/import accurately. Public marketplace
+  browsing, installation, and publication remain inactive in v0.13.0.
+- Review screenshots and links on both desktop and mobile after release updates.

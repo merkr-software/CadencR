@@ -1,4 +1,6 @@
 import { PROVIDER_IDS } from "./providers";
+import { getCatalogProviderMetadata } from "./provider-catalog-registry";
+import type { ProviderPromptCapabilities } from "@/api/generated";
 
 export type PromptAttachmentKind = "image" | "document" | "text" | "audio" | "resource";
 
@@ -73,29 +75,58 @@ export function normalizeAttachmentMime(fileName: string, mimeType: string): str
   return EXTENSION_TO_MIME[extension] ?? "application/octet-stream";
 }
 
+interface CatalogAttachmentPolicy {
+  images: boolean;
+  pdfs: boolean;
+}
+
+/**
+ * What a provider without a built-in attachment policy accepts, from the ACP
+ * prompt capabilities the host last observed for it. Text-like files are
+ * always inlined as text; images need `image`, PDFs `embedded_context`.
+ * Unknown capabilities keep the conservative default: images and text.
+ */
+function catalogAttachmentPolicy(
+  capabilities: ProviderPromptCapabilities | null | undefined,
+): CatalogAttachmentPolicy {
+  if (!capabilities) return { images: true, pdfs: false };
+  return { images: capabilities.image, pdfs: capabilities.embedded_context };
+}
+
+function capabilitiesFor(providerId: string | undefined): ProviderPromptCapabilities | null {
+  return getCatalogProviderMetadata(providerId)?.promptCapabilities ?? null;
+}
+
 export function getAttachmentKindForProvider(
   providerId: string | undefined,
   fileName: string,
   mimeType: string,
+  promptCapabilities: ProviderPromptCapabilities | null = capabilitiesFor(providerId),
 ): PromptAttachmentKind | null {
   const provider = providerId ?? PROVIDER_IDS.CODEX_CLI;
   const normalized = normalizeAttachmentMime(fileName, mimeType);
-  if (isImageMime(normalized)) return "image";
   if (provider === PROVIDER_IDS.CODEX_CLI) {
+    if (isImageMime(normalized)) return "image";
     return isPdfMime(normalized) || isSpreadsheetMime(normalized) ? "document" : null;
   }
-  if (provider === PROVIDER_IDS.CURSOR) return null;
-  if (provider === PROVIDER_IDS.OPENCODE) return opencodeKind(normalized);
-  return claudeKind(normalized);
+  if (provider === PROVIDER_IDS.OPENCODE) {
+    return isImageMime(normalized) ? "image" : opencodeKind(normalized);
+  }
+  if (provider === PROVIDER_IDS.CLAUDE_CODE) {
+    return isImageMime(normalized) ? "image" : claudeKind(normalized);
+  }
+  return catalogProviderKind(normalized, catalogAttachmentPolicy(promptCapabilities));
 }
 
-export function attachmentAcceptForProvider(providerId: string | undefined): string {
+export function attachmentAcceptForProvider(
+  providerId: string | undefined,
+  promptCapabilities: ProviderPromptCapabilities | null = capabilitiesFor(providerId),
+): string {
   const provider = providerId ?? PROVIDER_IDS.CODEX_CLI;
   const base = [...IMAGE_MIME_TYPES];
   if (provider === PROVIDER_IDS.CODEX_CLI) {
     return [...base, ...PDF_MIME_TYPES, ...SPREADSHEET_MIME_TYPES].join(",");
   }
-  if (provider === PROVIDER_IDS.CURSOR) return base.join(",");
   if (provider === PROVIDER_IDS.OPENCODE) {
     return [
       ...base,
@@ -105,26 +136,57 @@ export function attachmentAcceptForProvider(providerId: string | undefined): str
       ...OFFICE_MIME_TYPES,
     ].join(",");
   }
-  return [...base, ...PDF_MIME_TYPES, ...TEXT_MIME_TYPES].join(",");
+  if (provider === PROVIDER_IDS.CLAUDE_CODE) {
+    return [...base, ...PDF_MIME_TYPES, ...TEXT_MIME_TYPES].join(",");
+  }
+  const policy = catalogAttachmentPolicy(promptCapabilities);
+  return [
+    ...(policy.images ? IMAGE_MIME_TYPES : []),
+    ...(policy.pdfs ? PDF_MIME_TYPES : []),
+    ...TEXT_MIME_TYPES,
+  ].join(",");
 }
 
-export function unsupportedAttachmentDescription(providerId: string | undefined): string {
+export function unsupportedAttachmentDescription(
+  providerId: string | undefined,
+  promptCapabilities: ProviderPromptCapabilities | null = capabilitiesFor(providerId),
+): string {
   if (providerId === PROVIDER_IDS.OPENCODE) {
     return "OpenCode accepts images, audio, PDFs, text files, and common document resources.";
   }
   if (providerId === PROVIDER_IDS.CLAUDE_CODE) {
     return "Claude accepts images, PDFs, and text-like files such as TXT, CSV, Markdown, and JSON.";
   }
-  if (providerId === PROVIDER_IDS.CURSOR) {
-    return "Cursor ACP accepts image attachments.";
+  if (providerId === undefined || providerId === PROVIDER_IDS.CODEX_CLI) {
+    return "Codex accepts images, PDFs, and Excel spreadsheets.";
   }
-  return "Codex accepts images, PDFs, and Excel spreadsheets.";
+  const policy = catalogAttachmentPolicy(promptCapabilities);
+  const kinds = [policy.images ? "images" : null, policy.pdfs ? "PDFs" : null].filter(
+    (kind): kind is string => kind !== null,
+  );
+  const textFiles = "text-like files such as TXT, CSV, Markdown, and JSON";
+  return kinds.length > 0
+    ? `This provider accepts ${kinds.join(", ")} and ${textFiles}.`
+    : `This provider accepts ${textFiles}.`;
 }
 
 function opencodeKind(mimeType: string): PromptAttachmentKind | null {
   if (isAudioMime(mimeType)) return "audio";
   if (isTextMime(mimeType) || isPdfMime(mimeType) || isOfficeMime(mimeType)) return "resource";
   return null;
+}
+
+/**
+ * Images go out as ACP image blocks, PDFs as `document` attachments the host
+ * turns into embedded ACP resources, text-like files inline as text.
+ */
+function catalogProviderKind(
+  mimeType: string,
+  policy: CatalogAttachmentPolicy,
+): PromptAttachmentKind | null {
+  if (isImageMime(mimeType)) return policy.images ? "image" : null;
+  if (isPdfMime(mimeType)) return policy.pdfs ? "document" : null;
+  return isTextMime(mimeType) ? "text" : null;
 }
 
 function claudeKind(mimeType: string): PromptAttachmentKind | null {

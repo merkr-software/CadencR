@@ -1,5 +1,10 @@
 # Provider status — Codex
 
+> Reviewed against v0.13.0 source and release changes on 2026-10-13. This is a
+> source review, not a new end-to-end parity certification of every local CLI.
+
+![Current provider settings](../../packages/landing/src/assets/docs/v0.13.0/provider-codex.png)
+
 The Phase 0 catalog contract is pinned by
 [`codex_catalog.json`](../../packages/service/tests/fixtures/provider_parity/v1/codex_catalog.json)
 and asserted by an inline adapter test. It covers identity, model capability
@@ -327,3 +332,28 @@ Sub-agent routing is the other half of "send-target detection": every
 notification carrying a known sub-agent `threadId` is rewritten with
 its parent's `parent_tool_use_id` (see §6) so it lands under the
 right block in the UI.
+
+## Profiles, Fast mode, and durable usage
+
+- Named Codex profiles can select a native `config.toml` plus environment overrides.
+  Settings manages the default; Session Info can override it for a conversation.
+  Catalog discovery and runtime spawning use the same resolved profile.
+- Fast mode requests the priority service tier when supported. Its persisted
+  selection applies to new, resumed, compacted, and active conversations.
+- Reasoning summaries are enabled for supported models on the default OpenAI
+  provider, including resume. Explicit profile choices and other inference
+  providers' defaults remain authoritative.
+- Provider-native cumulative usage is recorded once per completed response and
+  isolated by provider session. Resume/replayed events must not inflate totals.
+- New conversations inherit the last accepted manual provider/model across
+  projects. Model/effort changes reconcile supported choices and report failed
+  persistence rather than showing an unconfirmed selection.
+
+## Conversation branching
+
+`codex/branching.rs` resolves the selected profile, reads the source thread, forks
+it, then rolls the new thread back to the turn before the cut.
+
+The cut must be the first user message in its native turn. A cut inside a turn
+with several user messages is refused instead of moving the cut silently. See
+[Rewind & Fork](../REWIND_AND_FORK.md) for shared checkpoint and draft behavior.

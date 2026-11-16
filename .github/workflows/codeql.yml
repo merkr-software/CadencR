@@ -1,10 +1,18 @@
 name: CodeQL
 
+# Contributors target version integration branches (vX.Y.Z, see CONTRIBUTING
+# "Branching"), so PRs into those are analyzed too. CodeQL is not a required
+# check, so docs-only changes skip it; the weekly schedule and pushes to main
+# still analyze the whole tree.
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, "v*"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
   schedule:
     # Weekly, matching the previous default-setup cadence.
     - cron: "23 5 * * 1"
@@ -39,8 +47,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Initialize CodeQL
-        # github/codeql-action/init@v4.37.6
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
+        # github/codeql-action/init@v4.39.1
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -49,6 +57,7 @@ jobs:
           # queries: security-extended
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
+        # github/codeql-action/analyze@v4.39.1
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
         with:
           category: "/language:${{ matrix.language }}"

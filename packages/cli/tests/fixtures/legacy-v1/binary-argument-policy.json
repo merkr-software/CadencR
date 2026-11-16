@@ -1,0 +1,78 @@
+[
+  {
+    "argument": "version",
+    "accepted": false
+  },
+  {
+    "argument": "models",
+    "accepted": false
+  },
+  {
+    "argument": "run",
+    "accepted": false
+  },
+  {
+    "argument": "acp-v1",
+    "accepted": false
+  },
+  {
+    "argument": "--",
+    "accepted": false
+  },
+  {
+    "argument": "--protocol",
+    "accepted": false
+  },
+  {
+    "argument": "--protocol=acp-v2",
+    "accepted": false
+  },
+  {
+    "argument": "--cwd",
+    "accepted": false
+  },
+  {
+    "argument": "--cwd=/tmp",
+    "accepted": false
+  },
+  {
+    "argument": "--format",
+    "accepted": false
+  },
+  {
+    "argument": "--format=json",
+    "accepted": false
+  },
+  {
+    "argument": "--session-id",
+    "accepted": true
+  },
+  {
+    "argument": "--prompt",
+    "accepted": true
+  },
+  {
+    "argument": "--resume",
+    "accepted": true
+  },
+  {
+    "argument": "--continue",
+    "accepted": true
+  },
+  {
+    "argument": "--protocolish",
+    "accepted": true
+  },
+  {
+    "argument": "--cwdx=/tmp",
+    "accepted": true
+  },
+  {
+    "argument": "--formatter=json",
+    "accepted": true
+  },
+  {
+    "argument": "provider-option",
+    "accepted": true
+  }
+]

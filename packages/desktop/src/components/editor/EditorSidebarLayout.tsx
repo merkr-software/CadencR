@@ -3,6 +3,7 @@ import { PanelLeft } from "lucide-react";
 import { ResizableSidebarLayout } from "@/components/ResizableSidebarLayout";
 import { MobileDrawer } from "@/components/MobileDrawer";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 
 interface EditorSidebarLayoutProps {
   sidebarVisible: boolean;
@@ -25,6 +26,7 @@ function EditorSidebarLayoutImpl({
   activeFilePath = null,
 }: EditorSidebarLayoutProps): ReactElement {
   const isMobile = useIsMobile();
+  const toggleSidebarKeys = useShortcutKeys("editor-toggle-sidebar");
   const collapsed = !sidebarVisible;
   const handleCollapsedChange = useCallback(
     (nextCollapsed: boolean): void => {
@@ -60,7 +62,7 @@ function EditorSidebarLayoutImpl({
       maxWidth={MAX_WIDTH}
       expandButtonLabel="Show file tree sidebar"
       expandButtonTitle="Show sidebar"
-      expandShortcutKeys={["cmd", "E"]}
+      expandShortcutKeys={toggleSidebarKeys}
       separatorLabel="Resize file tree sidebar"
     />
   );

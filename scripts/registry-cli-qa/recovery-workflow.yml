@@ -1,0 +1,58 @@
+name: Public registry original-intent recovery QA
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: Exact reviewed workflow commit on main
+        required: true
+        type: string
+      plan_sha256:
+        description: Exact SHA-256 of requests/renewal-recovery-plan.json
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: registry-qa-lifecycle
+  cancel-in-progress: false
+jobs:
+  recovery:
+    if: github.repository == 'merkr-software/cadencr-registry-qa' && github.repository_id == '1420296872' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    env:
+      QA_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      QA_PLAN: requests/renewal-recovery-plan.json
+      PLAN_SHA256: ${{ inputs.plan_sha256 }}
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate exact QA-only dispatch before accessing secrets
+        run: node scripts/registry-cli-qa/recovery.mjs --guard-only
+      - name: Fetch only pinned distributed ELF
+        run: sh scripts/fetch-released-cli.sh cli-pin.env "$RUNNER_TEMP/qa-cli"
+      - name: Authenticate existing candidate then recover original intent twice
+        env:
+          QA_SIGNING_KEY_PEM: ${{ secrets.QA_SIGNING_KEY_PEM }}
+          CADENCR_REGISTRY_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/registry-cli-qa/recovery.mjs
+      - name: Upload strict allowlist of key-free proofs and signed catalogs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-original-renewal-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/qa-recovery-public/candidate-index.json
+            ${{ runner.temp }}/qa-recovery-public/fresh-recovery-index.json
+            ${{ runner.temp }}/qa-recovery-public/same-state-replay-index.json
+            ${{ runner.temp }}/qa-recovery-public/fresh-recovery.json
+            ${{ runner.temp }}/qa-recovery-public/same-state-replay.json
+            ${{ runner.temp }}/qa-recovery-public/failure.json
+          include-hidden-files: false
+          retention-days: 14
+          if-no-files-found: warn

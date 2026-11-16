@@ -15,6 +15,12 @@ describe("expandCharacterHotkey", () => {
     expect(expandCharacterHotkey("Mod+-")).toEqual([{ hotkey: "Mod+-", exactKeys: ["-"] }]);
   });
 
+  it("leaves the shifted bracket chords to their own bindings", () => {
+    expect(expandCharacterHotkey("Mod+[")).toEqual([{ hotkey: "Mod+[", exactKeys: ["["] }]);
+    expect(expandCharacterHotkey("Mod+]")).toEqual([{ hotkey: "Mod+]", exactKeys: ["]"] }]);
+    expect(expandCharacterHotkey("Mod+Shift+[")).toEqual([{ hotkey: "Mod+Shift+[" }]);
+  });
+
   it("expands the help chord (Mod+Shift+?) into layout-robust variants", () => {
     // All three event.key chars the `?` key can report: `?` (Shift optional),
     // plus the QWERTY (`/`) and AZERTY (`,`) base chars macOS reports under Cmd.

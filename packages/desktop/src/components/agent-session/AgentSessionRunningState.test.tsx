@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import { AgentSession } from "./AgentSession";
-import type { AgentBlockData } from "../AgentBlock";
-import type { TurnTimingState } from "@/stores/ws-turn-timing";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { TurnClock } from "@/lib/turn-clock";
 import type { ContextUsageState } from "@/types/agent";
 
 vi.mock("@tanstack/react-hotkeys", () => ({
@@ -92,14 +92,8 @@ vi.mock("@/hooks/useImageAttachments", () => ({
   })),
 }));
 
-function turnTiming(startedAt: number): TurnTimingState {
-  return {
-    startedAt,
-    segmentStartedAt: startedAt,
-    activeMs: 0,
-    userPendingMs: 0,
-    completed: null,
-  };
+function turnClock(startedAtMs: number, model: string | null = null): TurnClock {
+  return { startedAtMs, waitingMs: 0, waitingSinceMs: null, model };
 }
 
 function makeUsage(): ContextUsageState {
@@ -137,7 +131,7 @@ describe("AgentSession canonical running state", () => {
         blocks={[]}
         status="idle"
         lifecycle={{ phase: "active" }}
-        turnTiming={turnTiming(5_000)}
+        turnClock={turnClock(5_000)}
         contextUsage={makeUsage()}
         onSend={onSend}
         onStop={onStop}
@@ -157,7 +151,7 @@ describe("AgentSession canonical running state", () => {
         blocks={[makeBlock("1", "Need input")]}
         status="question"
         lifecycle={{ phase: "paused", reason: "question" }}
-        turnTiming={turnTiming(5_000)}
+        turnClock={turnClock(5_000)}
         contextUsage={makeUsage()}
         onSend={onSend}
         onStop={onStop}
@@ -177,7 +171,7 @@ describe("AgentSession canonical running state", () => {
         blocks={[makeBlock("1", "Streaming output")]}
         status="agent"
         lifecycle={{ phase: "active" }}
-        turnTiming={turnTiming(5_000)}
+        turnClock={turnClock(5_000)}
         contextUsage={makeUsage()}
         onSend={onSend}
         onStop={onStop}
@@ -189,6 +183,24 @@ describe("AgentSession canonical running state", () => {
     expect(container.querySelector(".context-usage-glow")).toBeInTheDocument();
   });
 
+  it("names the model the CLI reports on the working line", () => {
+    render(
+      <AgentSession
+        agentType="session"
+        blocks={[makeBlock("1", "Streaming output")]}
+        status="agent"
+        lifecycle={{ phase: "active" }}
+        turnClock={turnClock(5_000, "claude-opus-5-5")}
+        contextUsage={makeUsage()}
+        onSend={onSend}
+        onStop={onStop}
+        collapsible
+      />,
+    );
+
+    expect(screen.getAllByText("Working - claude-opus-5-5 - 5s").length).toBeGreaterThan(0);
+  });
+
   it("shows a distinct Compacting badge while a manual compact is in progress", () => {
     render(
       <AgentSession
@@ -197,7 +209,7 @@ describe("AgentSession canonical running state", () => {
         status="agent"
         isCompacting
         lifecycle={{ phase: "active" }}
-        turnTiming={turnTiming(5_000)}
+        turnClock={turnClock(5_000)}
         contextUsage={makeUsage()}
         onSend={onSend}
         onStop={onStop}
@@ -220,7 +232,7 @@ describe("AgentSession canonical running state", () => {
         status="agent"
         isCompacting
         lifecycle={{ phase: "active" }}
-        turnTiming={turnTiming(5_000)}
+        turnClock={turnClock(5_000)}
         contextUsage={makeUsage()}
         onSend={onSend}
         onStop={onStop}
@@ -240,7 +252,7 @@ describe("AgentSession canonical running state", () => {
         status="agent"
         isCompacting={false}
         lifecycle={{ phase: "active" }}
-        turnTiming={turnTiming(5_000)}
+        turnClock={turnClock(5_000)}
         contextUsage={makeUsage()}
         onSend={onSend}
         onStop={onStop}

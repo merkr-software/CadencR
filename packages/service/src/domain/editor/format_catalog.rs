@@ -36,9 +36,15 @@ const NPM_WELL_KNOWN_RELATIVE_TO_HOME: &[&str] = &[
     ".npm-global/bin",
     ".volta/bin",
     "Library/pnpm",
+    ".local/share/pnpm",
     ".cadencr-tools/node_modules/.bin",
 ];
-const WELL_KNOWN_ABSOLUTE: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
+const WELL_KNOWN_ABSOLUTE: &[&str] = &[
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/snap/bin",
+];
 
 /// The static formatter catalog. `off` is intentionally absent — the frontend
 /// never POSTs a format request when formatting is disabled.

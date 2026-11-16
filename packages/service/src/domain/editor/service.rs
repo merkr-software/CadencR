@@ -252,7 +252,7 @@ pub fn content_search(
     }
     let built_overrides = overrides
         .build()
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+        .map_err(|e| AppError::internal(e.to_string()))?;
     walker.overrides(built_overrides);
 
     let limit = params.limit;

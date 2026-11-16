@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { X } from "lucide-react";
+import { LoaderCircle, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/useTheme";
@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils";
  * `/settings` does that after navigating back to the user's last screen).
  *
  * Non-modal by design: no backdrop, no outside-click dismissal. The whole
- * point is to preview themes against the live UI of whichever screen the
- * user was on, so the rest of the app stays fully interactive.
+ * point is to see each saved pick on the live UI of whichever screen the user
+ * was on, so the rest of the app stays fully interactive.
  *
  * Dismissed via the X button or Escape — both strip the search param.
  */
@@ -83,6 +83,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
     setSystemLightTheme,
     setSystemDarkTheme,
     isLoading,
+    isSaving,
   } = useTheme();
   // Built-ins plus the user's registered themes — the picker makes no
   // distinction, which is the point of the theme library: a theme you wrote sits
@@ -96,9 +97,15 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
     <div className="flex max-h-[min(70vh,40rem)] flex-col">
       <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
         <div className="min-w-0 space-y-0.5">
-          <h2 className="text-sm font-semibold">Change theme</h2>
+          {/* The theme applies once the backend confirms it; the spinner covers the wait. */}
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold" aria-busy={isSaving}>
+            Change theme
+            {isSaving && (
+              <LoaderCircle aria-label="Saving theme" className="size-3.5 animate-spin" />
+            )}
+          </h2>
           <p className="text-xs text-muted-foreground">
-            Preview applies live to the screen behind this panel.
+            Your pick is saved, then shown on the screen behind this panel.
           </p>
         </div>
         <Button
@@ -125,7 +132,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
           <Switch
             id={followSystemId}
             checked={followSystemTheme}
-            disabled={isLoading}
+            disabled={isLoading || isSaving}
             onCheckedChange={setFollowSystemTheme}
           />
         </div>

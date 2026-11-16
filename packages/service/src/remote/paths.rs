@@ -1,16 +1,18 @@
 use std::path::PathBuf;
 
 /// Directory holding the remote-access cert, key, and device-token pepper.
-/// Lives next to the database under `~/.cadencr/remote/`. Fail closed when the
-/// home directory cannot be resolved rather than placing persistent credentials
-/// in a working directory or predictable shared temporary path.
+/// Lives next to the database under the per-user data dir (`~/.cadencr/remote`
+/// on macOS, `$XDG_DATA_HOME/cadencr/remote` on Linux). Fail closed when that
+/// dir cannot be resolved rather than placing persistent credentials in a
+/// working directory or predictable shared temporary path.
 pub fn remote_data_dir() -> anyhow::Result<PathBuf> {
-    remote_data_dir_from_home(dirs::home_dir())
+    remote_data_dir_from(crate::shared::app_paths::data_dir())
 }
 
-fn remote_data_dir_from_home(home: Option<PathBuf>) -> anyhow::Result<PathBuf> {
-    home.ok_or_else(|| anyhow::anyhow!("cannot resolve home directory for remote credentials"))
-        .map(|home| home.join(".cadencr").join("remote"))
+fn remote_data_dir_from(data_dir: Result<PathBuf, String>) -> anyhow::Result<PathBuf> {
+    data_dir.map(|dir| dir.join("remote")).map_err(|error| {
+        anyhow::anyhow!("cannot resolve data directory for remote credentials: {error}")
+    })
 }
 
 #[cfg(test)]
@@ -18,7 +20,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_home_fails_closed() {
-        assert!(remote_data_dir_from_home(None).is_err());
+    fn missing_data_dir_fails_closed() {
+        assert!(remote_data_dir_from(Err("no home".into())).is_err());
+    }
+
+    #[test]
+    fn credentials_live_under_the_data_dir() {
+        let dir = remote_data_dir_from(Ok(PathBuf::from("/data/cadencr"))).unwrap();
+        assert_eq!(dir, PathBuf::from("/data/cadencr/remote"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_keeps_the_legacy_location() {
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(
+            remote_data_dir().unwrap(),
+            home.join(".cadencr").join("remote")
+        );
     }
 }

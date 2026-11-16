@@ -56,6 +56,11 @@ pub(super) async fn setup_test_db() -> SqlitePool {
             permission_mode TEXT,
                 codex_permission_mode TEXT DEFAULT 'default',
             pending_permission TEXT,
+            turn_started_at_ms INTEGER,
+            turn_waiting_ms INTEGER NOT NULL DEFAULT 0,
+            turn_waiting_since_ms INTEGER,
+            turn_models TEXT,
+            reported_model TEXT,
             input_tokens INTEGER,
             output_tokens INTEGER,
             context_window INTEGER,
@@ -72,6 +77,7 @@ pub(super) async fn setup_test_db() -> SqlitePool {
         r#"CREATE TABLE IF NOT EXISTS agent_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL,
+            role TEXT NOT NULL DEFAULT 'assistant',
             message_uuid TEXT,
             delivery_state TEXT,
             content TEXT NOT NULL DEFAULT '',
@@ -206,6 +212,7 @@ pub(super) fn make_root_block(id_num: i64) -> AgentBlock {
         created_at: None,
         model: None,
         truncated_content: None,
+        full_content_bytes: None,
         origin: None,
     }
 }

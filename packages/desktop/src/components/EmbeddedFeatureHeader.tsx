@@ -1,12 +1,22 @@
-import { memo, useCallback, type MouseEvent, type ReactElement } from "react";
+import { memo, useCallback, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangleIcon, EyeOffIcon, GitBranchIcon, Loader2Icon, PinIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowUpRightIcon,
+  EyeOffIcon,
+  GitBranchIcon,
+  Loader2Icon,
+  PinIcon,
+} from "lucide-react";
+import { AgentCardStatusGlyph, AgentCardStatusText } from "@/components/UnifiedAgentCardStatus";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
-import { SlidingText } from "@/components/SlidingText";
 import { Button } from "@/components/ui/button";
-import { FeatureLabelChip } from "@/components/FeatureLabelChip";
+import { useFeatureAttention } from "@/hooks/useFeatureAttention";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
+import type { ShortcutId } from "@/lib/shortcuts/registry";
 import { cn } from "@/lib/utils";
+import { useFeatureStatus } from "@/stores/session-status-selectors";
 import type { WorktreeStatus } from "@/types/workflow";
 
 interface EmbeddedFeatureHeaderProps {
@@ -25,6 +35,16 @@ interface EmbeddedFeatureHeaderProps {
   worktreeBranch?: string | null;
 }
 
+/**
+ * A unified-grid card's header, in two lines so nothing competes with the
+ * title for width:
+ *
+ *   ● Title, truncated only by the card edge          [pin] [hide] [open]
+ *     Project · label · ⎇                              Working | 5m ago
+ *
+ * The leading mark and the trailing word carry the agent's state, read from
+ * the same attention model as the sidebar.
+ */
 export const EmbeddedFeatureHeader = memo(function EmbeddedFeatureHeader({
   featureId,
   projectId,
@@ -40,61 +60,75 @@ export const EmbeddedFeatureHeader = memo(function EmbeddedFeatureHeader({
   worktreeStatus,
   worktreeBranch,
 }: EmbeddedFeatureHeaderProps): ReactElement {
+  const { state } = useFeatureAttention(featureId);
+  const { kind } = useFeatureStatus(featureId);
   return (
     <div
       className={cn(
-        "flex h-9 shrink-0 items-center gap-2 border-b bg-background px-2.5",
-        "text-xs text-foreground",
+        "grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 border-b bg-background py-2 pr-1.5 pl-3",
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1">
-        <ProjectBadge projectId={projectId} size="xs" />
-        {projectName && (
-          <>
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-              {projectName}
-            </span>
-            <span className="shrink-0 text-muted-foreground">/</span>
-          </>
-        )}
-        <SlidingText text={title} className="min-w-0 flex-1 font-semibold leading-none" />
-        <FeatureLabelChip label={label} className="max-w-24 leading-3" />
-        <WorktreeIndicator status={worktreeStatus} branch={worktreeBranch} />
-      </div>
+      <AgentCardStatusGlyph state={state} kind={kind} />
+      <h3
+        title={title}
+        className="min-w-0 truncate text-[13px] leading-5 font-semibold text-foreground"
+      >
+        {title}
+      </h3>
       <EmbeddedFeatureHeaderActions
         featureId={featureId}
         projectId={projectId}
-        lastActivityAt={lastActivityAt}
         isPinned={isPinned}
         isPinPending={isPinPending}
         onTogglePin={onTogglePin}
         onExclude={onExclude}
       />
+      <div className="col-start-2 col-end-4 flex min-w-0 items-center gap-1.5 pr-1.5 text-[11px] leading-none text-muted-foreground">
+        <ProjectBadge projectId={projectId} size="xs" />
+        {projectName && <span className="min-w-0 truncate">{projectName}</span>}
+        {label && <AgentCardLabel label={label} />}
+        <WorktreeIndicator status={worktreeStatus} branch={worktreeBranch} />
+        <span className="ml-auto flex shrink-0 items-center pl-2">
+          <AgentCardStatusText state={state} kind={kind} lastActivityAt={lastActivityAt} />
+        </span>
+      </div>
     </div>
   );
 });
 
+/** A neutral tag: the label informs, it must not read as a state or a brand. */
+function AgentCardLabel({ label }: { label: string }): ReactElement {
+  return (
+    <span
+      title={label}
+      className="max-w-28 shrink truncate rounded-sm border border-border/80 px-1 py-0.5 text-[10.5px] leading-none font-medium text-foreground/80"
+    >
+      {label}
+    </span>
+  );
+}
+
 interface EmbeddedFeatureHeaderActionsProps {
   featureId: number;
   projectId: number;
-  lastActivityAt?: string | null;
   isPinned: boolean;
   isPinPending: boolean;
   onTogglePin?: () => void;
   onExclude?: () => void;
 }
 
+const ACTION_BUTTON_CLASS =
+  "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent/70 hover:text-foreground";
+
 const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions({
   featureId,
   projectId,
-  lastActivityAt,
   isPinned,
   isPinPending,
   onTogglePin,
   onExclude,
 }: EmbeddedFeatureHeaderActionsProps): ReactElement {
-  const activityLabel = formatActivity(lastActivityAt);
   const handlePinClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>): void => {
       event.stopPropagation();
@@ -110,43 +144,14 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
     [onExclude],
   );
   return (
-    <>
-      {activityLabel && (
-        <span
-          title={lastActivityAt ? `Last activity: ${lastActivityAt}` : undefined}
-          className="shrink-0 pl-1 font-mono text-[10px] text-muted-foreground"
-        >
-          {activityLabel}
-        </span>
-      )}
-      {onExclude ? (
-        <ShortcutTooltip label="Hide from this view" keys={["cmd", "shift", "H"]} alignRight>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent/70 hover:text-foreground"
-            aria-label="Hide agent from this view"
-            onClick={handleExcludeClick}
-          >
-            <EyeOffIcon className="size-3.5" />
-          </Button>
-        </ShortcutTooltip>
-      ) : null}
+    <div className="flex items-center">
       {onTogglePin ? (
-        <ShortcutTooltip
-          label={isPinned ? "Unpin agent" : "Pin agent"}
-          keys={["cmd", "shift", "P"]}
-          alignRight
-        >
+        <ActionTooltip label={isPinned ? "Unpin agent" : "Pin agent"} shortcutId="agents-pin">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className={cn(
-              "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-              isPinned && "text-primary hover:text-primary",
-            )}
+            className={cn(ACTION_BUTTON_CLASS, isPinned && "text-primary hover:text-primary")}
             disabled={isPinPending}
             aria-pressed={isPinned}
             aria-label={isPinned ? "Unpin agent" : "Pin agent"}
@@ -158,27 +163,60 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
               <PinIcon className={cn("size-3.5", isPinned && "fill-current")} />
             )}
           </Button>
-        </ShortcutTooltip>
+        </ActionTooltip>
       ) : null}
-      <ShortcutTooltip label="Open feature page" keys={["cmd", "o"]} alignRight>
+      {onExclude ? (
+        <ActionTooltip label="Hide from this view" shortcutId="agents-hide">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={ACTION_BUTTON_CLASS}
+            aria-label="Hide agent from this view"
+            onClick={handleExcludeClick}
+          >
+            <EyeOffIcon className="size-3.5" />
+          </Button>
+        </ActionTooltip>
+      ) : null}
+      <ActionTooltip label="Open feature page" shortcutId="agents-open-feature">
         <Button
           asChild
           variant="ghost"
-          size="sm"
-          className="h-6 shrink-0 rounded-md px-2 font-mono text-[10.5px] text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+          size="icon"
+          className={ACTION_BUTTON_CLASS}
           onClick={(event) => event.stopPropagation()}
         >
           <Link
             to="/projects/$projectId/features/$featureId"
             params={{ projectId: String(projectId), featureId: String(featureId) }}
+            aria-label="Open feature page"
           >
-            Open
+            <ArrowUpRightIcon className="size-3.5" />
           </Link>
         </Button>
-      </ShortcutTooltip>
-    </>
+      </ActionTooltip>
+    </div>
   );
 });
+
+/** Tooltip showing the action's live binding, so a rebind never lies. */
+function ActionTooltip({
+  label,
+  shortcutId,
+  children,
+}: {
+  label: string;
+  shortcutId: ShortcutId;
+  children: ReactNode;
+}): ReactElement {
+  const keys = useShortcutKeys(shortcutId);
+  return (
+    <ShortcutTooltip label={label} keys={keys} alignRight>
+      {children}
+    </ShortcutTooltip>
+  );
+}
 
 function WorktreeIndicator({
   status,
@@ -188,63 +226,34 @@ function WorktreeIndicator({
   branch?: string | null;
 }): ReactElement | null {
   if (!status || status === "idle") return null;
+  const busy = status === "creating" || status === "setup_running";
+  const Icon = status === "setup_error" ? AlertTriangleIcon : busy ? Loader2Icon : GitBranchIcon;
   const label = worktreeLabel(status, branch);
-  const tooltipLabel = worktreeTooltipLabel(status, branch);
-  const Icon = status === "setup_error" ? AlertTriangleIcon : GitBranchIcon;
   return (
-    <ShortcutTooltip label={tooltipLabel} className="shrink-0">
+    <ShortcutTooltip label={label} className="shrink-0">
       <span
+        role="img"
         aria-label={label}
-        className={cn(
-          "inline-flex size-5 items-center justify-center rounded-full border",
-          worktreeIndicatorClass(status),
-        )}
+        className={cn("inline-flex items-center", worktreeIndicatorClass(status))}
       >
-        {status === "creating" || status === "setup_running" ? (
-          <Loader2Icon className="size-3 animate-spin" />
-        ) : (
-          <Icon className="size-3" />
-        )}
+        <Icon className={cn("size-3", busy && "animate-spin")} />
       </span>
     </ShortcutTooltip>
   );
 }
 
 function worktreeIndicatorClass(status: WorktreeStatus): string {
-  if (status === "ready" || status === "created") {
-    return "border-green-400/35 bg-green-400/15 text-green-300";
-  }
-  if (status === "setup_error") return "border-red-400/40 bg-red-400/15 text-red-300";
-  return "border-yellow-300/40 bg-yellow-300/15 text-yellow-200";
+  if (status === "ready" || status === "created") return "text-(--acc-green)";
+  if (status === "setup_error") return "text-(--acc-red)";
+  return "text-(--acc-yellow)";
 }
 
+/** One wording for the tooltip and the screen reader alike. */
 function worktreeLabel(status: WorktreeStatus, branch?: string | null): string {
-  const suffix = branch ? ` · ${branch}` : "";
-  if (status === "ready") return `Worktree ready${suffix}`;
-  if (status === "created") return `Worktree created${suffix}`;
-  if (status === "creating") return `Creating worktree${suffix}`;
-  if (status === "setup_running") return `Running worktree setup${suffix}`;
-  if (status === "setup_error") return `Worktree setup failed${suffix}`;
-  return `Worktree${suffix}`;
-}
-
-function worktreeTooltipLabel(status: WorktreeStatus, branch?: string | null): string {
   const suffix = branch ? ` · ${branch}` : "";
   if (status === "setup_error") return `Git worktree setup failed${suffix}`;
   if (status === "creating" || status === "setup_running") {
     return `Preparing isolated Git worktree${suffix}`;
   }
   return `Agent uses an isolated Git worktree${suffix}`;
-}
-
-function formatActivity(value?: string | null): string | null {
-  if (!value) return null;
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return null;
-  const minutes = Math.max(0, Math.floor((Date.now() - time) / 60_000));
-  if (minutes === 0) return "now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }

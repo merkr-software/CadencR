@@ -7,8 +7,10 @@
 //!   when non-empty. The clean working tree short-circuits before the diff
 //!   even runs.
 //! - **checkout**: authoritative `git checkout`. `run_git_capture` returns
-//!   git's verbatim stderr (home-dir scrubbed) in `AppError::GitCommandError`
-//!   on failure — the toast surfaces it as-is.
+//!   git's verbatim stderr (home-dir scrubbed) in `AppError::GitRejected`
+//!   on failure — returned as a 4xx `{error, code}` the toast surfaces as-is
+//!   (dirty-tree overlap → 409 `GIT_LOCAL_CHANGES_CONFLICT`, unknown branch →
+//!   422 `GIT_REF_NOT_FOUND`).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -17,9 +19,11 @@ use axum::extract::{Json, State};
 
 use crate::app_state::AppState;
 use crate::domain::git::models::{CheckoutBody, CheckoutValidateBody, SuccessResponse};
+use crate::domain::git::porcelain::parse_porcelain_v2_entries;
 use crate::domain::git::repository;
 use crate::error::AppError;
 use crate::shared::git_cli::{run_git_capture, run_git_safe_refs};
+use crate::shared::git_z;
 
 use super::{local_branch_exists, remote_branch_exists};
 
@@ -67,42 +71,43 @@ async fn validate_checkout(
     // here (single user-initiated call, not a polling loop), so we accept
     // it for now rather than duplicate `run_git_safe_refs` into a
     // `_background` variant. Revisit if a real-world race ever surfaces.
-    let status = run_git_safe_refs(&["status"], &["--porcelain", "-uno"], &[], repo).await?;
+    let status =
+        run_git_safe_refs(&["status"], &["--porcelain=v2", "-z", "-uno"], &[], repo).await?;
     let dirty_files = parse_porcelain_dirty_files(&status);
     if dirty_files.is_empty() {
-        return Ok(success());
+        return Ok(SuccessResponse::ok());
     }
 
     let diff = run_git_safe_refs(
         &["diff"],
-        &["--name-only", "--no-renames", "HEAD"],
+        &["--name-only", "--no-renames", "-z", "HEAD"],
         &[&resolved],
         repo,
     )
     .await?;
-    let diff_files: HashSet<&str> = diff
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
+    let diff_files: HashSet<String> = git_z::paths(&diff).into_iter().collect();
     let overlap: Vec<String> = dirty_files
         .into_iter()
-        .filter(|p| diff_files.contains(p.as_str()))
+        .filter(|p| diff_files.contains(p))
         .collect();
     if overlap.is_empty() {
-        return Ok(success());
+        return Ok(SuccessResponse::ok());
     }
     let mut overlap = overlap;
     overlap.sort();
     overlap.dedup();
-    Err(AppError::GitCommandError(format_overwrite_error(&overlap)))
+    Err(AppError::git_rejected(format_overwrite_error(&overlap)))
 }
 
 async fn checkout(state: &AppState, body: CheckoutBody) -> Result<SuccessResponse, AppError> {
     let (project_path, resolved) = prepare(state, body.project_id, &body.branch).await?;
     let repo = Path::new(&project_path);
+    let _permit = state
+        .git_mutations
+        .try_acquire(repo)
+        .map_err(|error| super::mutation_guard_error(error))?;
     run_git_capture(&["checkout"], &[], &[&resolved], repo).await?;
-    Ok(success())
+    Ok(SuccessResponse::ok())
 }
 
 /// Validate inputs, look up the project path, and resolve the user-supplied
@@ -130,35 +135,18 @@ pub(crate) async fn resolve_ref(repo: &Path, branch: &str) -> Result<String, App
             return Ok(suffix.to_string());
         }
     }
-    Err(AppError::GitCommandError(format!(
+    Err(AppError::git_rejected(format!(
         "error: pathspec '{branch}' did not match any file(s) known to git"
     )))
 }
 
-fn success() -> SuccessResponse {
-    SuccessResponse {
-        success: true,
-        error: None,
-        blocked_reason: None,
-    }
-}
-
-/// Parse `git status --porcelain -uno` (tracked-only). Porcelain v1 lines
-/// are `XY <path>`; rename lines are `XY old -> new` and both sides are
-/// emitted so renames are caught regardless of which side the diff names.
+/// Paths of a `git status --porcelain=v2 -z -uno` (tracked-only) listing.
+/// Both sides of a rename are kept so the diff intersection catches the move
+/// whichever side the target branch touches.
 fn parse_porcelain_dirty_files(porcelain: &str) -> Vec<String> {
-    porcelain
-        .lines()
-        .filter(|l| l.len() >= 4)
-        .flat_map(|line| {
-            let rest = &line[3..];
-            if let Some((old, new)) = rest.split_once(" -> ") {
-                vec![old.trim().to_string(), new.trim().to_string()]
-            } else {
-                vec![rest.trim().to_string()]
-            }
-        })
-        .filter(|p| !p.is_empty())
+    parse_porcelain_v2_entries(porcelain)
+        .into_iter()
+        .flat_map(|entry| entry.old_path.into_iter().chain([entry.path]))
         .collect()
 }
 
@@ -180,31 +168,45 @@ mod tests {
     use super::*;
     use crate::shared::git_cli::run_git;
 
-    #[test]
-    fn parses_modified_and_renamed_lines() {
-        let status = " M src/a.rs\nM  src/b.rs\nR  old/c.rs -> new/c.rs\n";
-        let dirty = parse_porcelain_dirty_files(status);
+    /// Real `status -z` output: before `-z`, the accented rename came back
+    /// C-quoted and never matched the target branch's diff.
+    #[tokio::test]
+    async fn parses_modified_and_renamed_entries_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        for name in ["src/a.rs", "src/b c.rs", "old/résumé.rs"] {
+            std::fs::create_dir_all(repo.join(name).parent().unwrap()).unwrap();
+            std::fs::write(repo.join(name), name).unwrap();
+        }
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["add", "-A"],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-qm",
+                "seed",
+            ],
+            &["mv", "old/résumé.rs", "new résumé.rs"],
+        ] {
+            run_git(args, repo).await.unwrap();
+        }
+        std::fs::write(repo.join("src/a.rs"), "edited").unwrap();
+        std::fs::write(repo.join("src/b c.rs"), "edited").unwrap();
+        let status = run_git(&["status", "--porcelain=v2", "-z", "-uno"], repo)
+            .await
+            .unwrap();
+        let mut dirty = parse_porcelain_dirty_files(&status);
+        dirty.sort();
         assert_eq!(
             dirty,
-            vec![
-                "src/a.rs".to_string(),
-                "src/b.rs".to_string(),
-                "old/c.rs".to_string(),
-                "new/c.rs".to_string(),
-            ],
-            "rename lines must emit both sides so the diff intersection catches the move",
+            vec!["new résumé.rs", "old/résumé.rs", "src/a.rs", "src/b c.rs"],
+            "rename entries must emit both sides so the diff intersection catches the move",
         );
-    }
-
-    #[test]
-    fn intersects_dirty_with_diff() {
-        let diff: HashSet<&str> = ["src/a.rs", "src/b.rs"].into_iter().collect();
-        let dirty = parse_porcelain_dirty_files(" M src/a.rs\n M README.md\n");
-        let overlap: Vec<String> = dirty
-            .into_iter()
-            .filter(|p| diff.contains(p.as_str()))
-            .collect();
-        assert_eq!(overlap, vec!["src/a.rs".to_string()]);
     }
 
     #[test]
@@ -223,16 +225,141 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn checkout_is_refused_while_the_project_worktree_is_busy() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ][..],
+            &["branch", "other"][..],
+        ] {
+            run_git(args, repo).await.unwrap();
+        }
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'repo', ?)")
+            .bind(repo.to_string_lossy().as_ref())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+        let _busy = state.git_mutations.try_acquire(repo).unwrap();
+
+        let error = checkout(
+            &state,
+            CheckoutBody {
+                project_id: 1,
+                branch: "other".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, AppError::Conflict(_)), "{error:?}");
+        assert_eq!(
+            run_git(&["symbolic-ref", "--short", "HEAD"], repo)
+                .await
+                .unwrap()
+                .trim(),
+            "main"
+        );
+    }
+
+    #[tokio::test]
     async fn resolve_ref_returns_pathspec_error_for_missing_branch() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path();
         run_git(&["init", "-q"], repo).await.unwrap();
         let err = resolve_ref(repo, "no-such-branch").await.unwrap_err();
         match err {
-            AppError::GitCommandError(msg) => {
-                assert!(msg.contains("pathspec 'no-such-branch'"), "{msg}")
+            AppError::GitRejected(rejection) => {
+                assert_eq!(rejection.kind, crate::error::GitFailureKind::RefNotFound);
+                assert!(
+                    rejection.message.contains("pathspec 'no-such-branch'"),
+                    "{}",
+                    rejection.message
+                )
             }
-            other => panic!("expected GitCommandError, got {other:?}"),
+            other => panic!("expected GitRejected, got {other:?}"),
         }
+    }
+
+    async fn response_body(error: AppError) -> (axum::http::StatusCode, serde_json::Value) {
+        use axum::response::IntoResponse;
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    #[tokio::test]
+    async fn conflicting_checkout_is_a_409_with_git_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "test@example.com"],
+            &["config", "user.name", "Test"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            run_git(args, repo).await.unwrap();
+        }
+        std::fs::write(repo.join("a.txt"), "main\n").unwrap();
+        run_git(&["add", "a.txt"], repo).await.unwrap();
+        run_git(&["commit", "-qm", "main"], repo).await.unwrap();
+        run_git(&["checkout", "-qb", "other"], repo).await.unwrap();
+        std::fs::write(repo.join("a.txt"), "other\n").unwrap();
+        run_git(&["commit", "-qam", "other"], repo).await.unwrap();
+        run_git(&["checkout", "-q", "main"], repo).await.unwrap();
+        std::fs::write(repo.join("a.txt"), "dirty\n").unwrap();
+
+        let error = run_git_capture(&["checkout"], &[], &["other"], repo)
+            .await
+            .unwrap_err();
+        let (status, body) = response_body(error).await;
+        assert_eq!(status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(body["code"], "GIT_LOCAL_CHANGES_CONFLICT");
+        let message = body["error"].as_str().unwrap();
+        assert!(
+            message.contains("would be overwritten by checkout"),
+            "{message}"
+        );
+        assert!(message.contains("a.txt"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn missing_branch_is_a_422_with_git_message() {
+        let dir = tempfile::tempdir().unwrap();
+        run_git(&["init", "-q"], dir.path()).await.unwrap();
+        let error = resolve_ref(dir.path(), "no-such-branch").await.unwrap_err();
+        let (status, body) = response_body(error).await;
+        assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "error": "error: pathspec 'no-such-branch' did not match any file(s) known to git",
+                "code": "GIT_REF_NOT_FOUND"
+            })
+        );
     }
 }

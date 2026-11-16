@@ -8,6 +8,7 @@
  * treated as done.
  */
 import type { CommentThread, PrSummary, ThreadSide } from "@/api/generated";
+import { keepGitPath, type AgentPathMapper } from "@/lib/git-paths";
 
 /** Review threads anchored to one line of one file, keyed by diff side. */
 export interface PrThreadLine {
@@ -190,15 +191,21 @@ function asBullet(label: string, body: string): string {
  * proposal itself rather than a hunk.
  *
  * Shared so the PR pane, the diff annotation, and the agent briefing all name
- * the same thread the same way — they drifted into three spellings once.
+ * the same thread the same way — they drifted into three spellings once. The
+ * forge's path is repository-relative; the briefing passes `toAgentPath` to
+ * name the file from the agent's working directory instead.
  */
-export function threadLocation(thread: CommentThread): string | null {
+export function threadLocation(
+  thread: CommentThread,
+  toAgentPath: AgentPathMapper = keepGitPath,
+): string | null {
   if (!thread.file) return null;
-  return thread.line != null ? `${thread.file}:${thread.line}` : thread.file;
+  const file = toAgentPath(thread.file);
+  return thread.line != null ? `${file}:${thread.line}` : file;
 }
 
-function threadHeading(thread: CommentThread): string {
-  const location = threadLocation(thread);
+function threadHeading(thread: CommentThread, toAgentPath: AgentPathMapper): string {
+  const location = threadLocation(thread, toAgentPath);
   if (!location) return "### General discussion";
   const sideNote = thread.side === "old" ? " (on the removed side)" : "";
   const outdatedNote = thread.outdated ? " — outdated, the diff moved since" : "";
@@ -210,10 +217,14 @@ function threadHeading(thread: CommentThread): string {
  * part of the payload on purpose: "the reviewer asked for X" reads differently
  * to an agent than "someone asked for X", and it lets the developer trace a
  * requested change back to whoever wanted it.
+ *
+ * The forge names files relative to the repository root; `toAgentPath` names
+ * them the way the agent resolves them from its working directory.
  */
 export function formatPrThreadsForAgent(
   threads: readonly CommentThread[],
   pr: PrSummary | null | undefined,
+  toAgentPath: AgentPathMapper,
 ): string {
   const open = unresolvedThreads(threads);
   if (open.length === 0) return "";
@@ -223,7 +234,7 @@ export function formatPrThreadsForAgent(
   ];
   for (const thread of open) {
     parts.push("");
-    parts.push(threadHeading(thread));
+    parts.push(threadHeading(thread, toAgentPath));
     const link = thread.comments[0]?.url;
     if (link) parts.push(`<${link}>`);
     for (const comment of thread.comments) {

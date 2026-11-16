@@ -1,0 +1,71 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Sidebar"
+description: "Shape conversation navigation around focus, supervision, and the work that needs you."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/sidebar.png";
+
+The sidebar brings projects, conversations, requests, and recent activity together. Its display can be quiet for focused work or detailed for supervising several agents.
+
+<DocScreenshot
+  src={pageImage}
+  alt="The current sidebar configurator and live sample preview. Preview conversations are fictional examples built into the app."
+  caption="The current sidebar configurator and live sample preview. Preview conversations are fictional examples built into the app."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Start with a preset
+
+Open **Display options** beside Projects, or **Settings → Sidebar**. Preview the display using the built-in sample conversations before applying it.
+
+| Preset    | What it brings forward                                                       |
+| --------- | ---------------------------------------------------------------------------- |
+| Classic   | Balanced conversation rows, status, and worktree context                     |
+| Focus     | Titles and quiet status marks, with relevant detail when attention is needed |
+| Supervise | Models, latest replies, todo progress, and work in progress                  |
+| Detailed  | Branches, diffs, PRs, ports, and compact rows                                |
+
+Use a preset as a starting point, then change individual options. Applying a preset over custom options offers undo. The preview includes working, waiting, unread, and error states so you can inspect each one.
+
+## Choose row details
+
+Show the information you use to decide what to open: provider, model, thinking effort, branch/worktree, Git changes, PR health, ports, latest reply, or todo progress. Choose compact or more uniform rows depending on how much context you need.
+
+Provider identity is distinct from status. A blue activity ring marks working agents; a green check marks completed responses with unread messages. Permission and question indicators remain actionable.
+
+## Find the next task across projects
+
+| Block       | What you find there                                        |
+| ----------- | ---------------------------------------------------------- |
+| For me      | Requests, failures, and unread replies that need attention |
+| In progress | Agents currently working                                   |
+| Recent      | Conversations you have used recently                       |
+| Pinned      | Conversations you deliberately keep nearby                 |
+
+Grouping can use project, status, worktree, provider, label, or date. Choose a sort order and sticky headers for longer lists. Parent/child relationships keep delegated tasks traceable.
+
+## Filter and save a view
+
+Type while a sidebar row has focus to start filtering conversations, or use the search controls. Save a filtered view with its display choices and manage it in **Settings → Saved views**.
+
+A saved view is useful for a recurring perspective, such as all review work or tasks across a group of projects. Pins are useful for individual conversations you need now.
+
+## Collapse without losing access
+
+The collapsed rail can keep projects or conversations reachable. Sidebar width and expansion state are remembered. Display preferences sync to connected devices, while device-local layout state follows the interface's remembered behavior.
+
+## Use the keyboard
+
+The sidebar scope offers navigation, jumping to the next request, pinning, renaming, labels, and archiving. See [Shortcuts](../shortcuts/) for the current bindings and alternate combinations.
+
+## Related guides
+
+- [Unified agent list](../unified-agent-list/) — read multiple conversations at once.
+- [Approvals & permissions](../approvals/) — answer pending requests.
+- [Settings](../settings/) — notification and display preferences.

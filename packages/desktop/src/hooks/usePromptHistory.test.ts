@@ -1,9 +1,10 @@
+// @vitest-environment happy-dom
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { usePromptHistory } from "./usePromptHistory";
 
-const mockSendRequest = vi.fn(
-  (): Promise<{ entries: string[] }> => Promise.resolve({ entries: [] }),
+const mockSendRequest = vi.fn((): Promise<{ entries: string[] }> =>
+  Promise.resolve({ entries: [] }),
 );
 const mockIsConnected = vi.fn(() => true);
 

@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "css-language-server",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "CSS language server",
+  "description": "CSS language server using pinned complete upstream npm distributions.",
+  "license": "MIT",
+  "upstream": {
+    "name": "vscode-langservers-extracted",
+    "version": "4.10.0",
+    "url": "https://registry.npmjs.org/vscode-langservers-extracted/-/vscode-langservers-extracted-4.10.0.tgz"
+  },
+  "runtime": "node",
+  "entry": "node_modules/vscode-langservers-extracted/lib/css-language-server/node/cssServerMain.js",
+  "args": [
+    "--stdio"
+  ],
+  "role": "general",
+  "languages": [
+    {
+      "id": "css",
+      "extensions": [
+        "css"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "scss",
+      "extensions": [
+        "scss"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "less",
+      "extensions": [
+        "less"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "22.0.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0",
+    "declared_dependency_engine_note": "Full upstream distribution includes vscode-markdown-languageservice>=22 even when the selected entry does not use Markdown."
+  },
+  "setup_requirements": [],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 4970,
+  "source_expanded_bytes": 80903246,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "local_overlay": {
+    "path": "plugins/lsp/css-language-server/notices",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "kind": "third-party-notices",
+    "files": [
+      "THIRD_PARTY_NOTICES.txt",
+      "license-audit.json"
+    ]
+  },
+  "license_audit": {
+    "path": "plugins/lsp/css-language-server/notices/license-audit.json",
+    "metadata_only_packages": [
+      "boolbase@1.0.0"
+    ]
+  }
+}

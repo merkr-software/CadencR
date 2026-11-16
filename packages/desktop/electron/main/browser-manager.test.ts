@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setBrowserRemoteOrigins } from "./runtime-config";
 
 const buildContextMenu = vi.hoisted(() =>
   vi.fn((_items: Electron.MenuItemConstructorOptions[]) => ({ popup: vi.fn() })),
@@ -102,9 +103,11 @@ vi.mock("electron", () => {
       let findRequestId = 0;
       const contents = Object.assign(new EventEmitter(), {
         id: nextWebContentsId,
+        mainFrame: { detached: false, framesInSubtree: [] },
         session: {
           on: vi.fn(),
           webRequest: {
+            onBeforeRequest: vi.fn(),
             onBeforeSendHeaders: vi.fn(() => {
               if (failNetworkRegistration) throw new Error("network registration failed");
             }),
@@ -193,7 +196,6 @@ vi.mock("electron", () => {
 });
 
 const { BrowserManager } = await import("./browser-manager");
-const { BrowserOriginStore } = await import("./browser-origin-store");
 const { BrowserLibraryController } = await import("./browser-library-controller");
 const { WebContentsView } = await import("electron");
 type BrowserTabSessionStore = import("./browser-tab-session-store").BrowserTabSessionStore;
@@ -207,6 +209,7 @@ interface MockMainWindow {
   webContents: {
     getZoomFactor: () => number;
     isDestroyed: () => boolean;
+    isFocused: () => boolean;
     send: ReturnType<typeof vi.fn>;
     focus: ReturnType<typeof vi.fn>;
   };
@@ -221,6 +224,7 @@ function mainWindow(): MockMainWindow {
     webContents: {
       getZoomFactor: () => 1,
       isDestroyed: () => false,
+      isFocused: () => false,
       send: vi.fn(),
       focus: vi.fn(),
     },
@@ -303,6 +307,7 @@ describe("BrowserManager", () => {
   });
 
   beforeEach(() => {
+    setBrowserRemoteOrigins([]);
     webContentsById.clear();
     createdViews.length = 0;
     sessionsByPartition.clear();
@@ -446,6 +451,8 @@ describe("BrowserManager", () => {
       responsive: { keys: ["mod", "shift", "y"] },
       devtools: { keys: ["f12"] },
       zoomReset: { keys: ["mod", "9"] },
+      navigateBack: { keys: [] },
+      navigateForward: { keys: [] },
     });
 
     for (const [key, shortcut] of [
@@ -546,6 +553,8 @@ describe("BrowserManager", () => {
       responsive: { keys: [] },
       devtools: { keys: [] },
       zoomReset: { keys: [] },
+      navigateBack: { keys: [] },
+      navigateForward: { keys: [] },
     });
     const event = { preventDefault: vi.fn() };
 
@@ -582,7 +591,7 @@ describe("BrowserManager", () => {
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("https://example.com/phished");
 
-    await expect(manager.click(tab.id, 10, 20)).rejects.toThrow("localhost");
+    await expect(manager.inspection.click(tab.id, 10, 20)).rejects.toThrow("localhost");
     expect(contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
@@ -592,7 +601,7 @@ describe("BrowserManager", () => {
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("http://localhost:5173/signup");
 
-    await manager.click(tab.id, 10, 20);
+    await manager.inspection.click(tab.id, 10, 20);
 
     expect(contents.sendInputEvent).toHaveBeenCalledWith({
       type: "mouseDown",
@@ -1038,16 +1047,17 @@ describe("BrowserManager", () => {
 
   it("does not treat synthetic input or stale input debt as a native popup gesture", async () => {
     const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
-    const tab = manager.createTab("http://localhost:1420/", "default", 1);
+    // Exercise a guest app, outside Cadencr's protected renderer origin.
+    const tab = manager.createTab("http://localhost:3000/", "default", 1);
     const parent = [...webContentsById.values()][0];
-    parent.getURL.mockReturnValue("http://localhost:1420/");
+    parent.getURL.mockReturnValue("http://localhost:3000/");
     const handler = parent.setWindowOpenHandler.mock.calls[0][0] as (
       value: Electron.HandlerDetails,
     ) => Electron.WindowOpenHandlerResponse;
 
-    await manager.click(tab.id, 1, 1);
+    await manager.inspection.click(tab.id, 1, 1);
     parent.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 1, y: 1 });
-    expect(handler(popupDetails({ url: "http://localhost:1420/synthetic" })).action).toBe("deny");
+    expect(handler(popupDetails({ url: "http://localhost:3000/synthetic" })).action).toBe("deny");
 
     await manager.inspection.keypress(tab.id, "Space");
     parent.emit(
@@ -1061,7 +1071,7 @@ describe("BrowserManager", () => {
         alt: false,
       },
     );
-    expect(handler(popupDetails({ url: "http://localhost:1420/synthetic-space" })).action).toBe(
+    expect(handler(popupDetails({ url: "http://localhost:3000/synthetic-space" })).action).toBe(
       "deny",
     );
 
@@ -1078,7 +1088,7 @@ describe("BrowserManager", () => {
       },
     );
     parent.emit("before-mouse-event", {}, { type: "mouseDown", button: "left", x: 1, y: 1 });
-    expect(handler(popupDetails({ url: "http://localhost:1420/human" })).action).toBe("allow");
+    expect(handler(popupDetails({ url: "http://localhost:3000/human" })).action).toBe("allow");
   });
 
   it("clears a shared private partition only when its last tab closes", async () => {
@@ -1124,21 +1134,44 @@ describe("BrowserManager", () => {
     expect(sessionsByPartition.has("persist:browser:default")).toBe(false);
   });
 
-  it("does not record private navigations in persisted origin suggestions", () => {
-    const record = vi.spyOn(BrowserOriginStore.prototype, "record").mockImplementation(() => {});
-    const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
-    manager.createTab(undefined, "fresh", 1);
-    const privateContents = [...webContentsById.values()][0];
-    privateContents.getURL.mockReturnValue("https://private.example/path");
+  it("keeps console lines and requests off the renderer's state broadcast", () => {
+    const win = mainWindow();
+    const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+    const tab = manager.createTab(undefined, "fresh", 1);
+    const contents = [...webContentsById.values()][0];
+    const onCompleted = contents.session.webRequest.onCompleted as ReturnType<typeof vi.fn>;
+    const completed = onCompleted.mock.calls[0][0] as (details: unknown) => void;
+    win.webContents.send.mockClear();
 
-    privateContents.emit("did-navigate");
-    expect(record).not.toHaveBeenCalled();
+    for (let line = 0; line < 50; line += 1) {
+      contents.emit("console-message", {
+        level: "info",
+        message: `line ${line}`,
+        lineNumber: line,
+        sourceId: "https://a.test/app.js",
+      });
+    }
+    completed({
+      id: 1,
+      webContentsId: contents.id,
+      method: "GET",
+      url: "https://a.test/api",
+      statusCode: 200,
+      responseHeaders: {},
+      resourceType: "xhr",
+    });
 
-    manager.createTab(undefined, "default", 1);
-    const normalContents = [...webContentsById.values()][1];
-    normalContents.getURL.mockReturnValue("https://normal.example/path");
-    normalContents.emit("did-navigate");
-    expect(record).toHaveBeenCalledWith("https://normal.example/path");
+    const stateEmits = win.webContents.send.mock.calls.filter(
+      ([channel]) => channel === "browser:state",
+    );
+    expect(stateEmits).toEqual([]);
+    expect(Object.keys(manager.state(1)).sort()).toEqual(
+      ["activeTabId", "error", "scopeId", "tabs"].sort(),
+    );
+    const automation = manager.automationState(1);
+    expect(automation.activeTabId).toBe(tab.id);
+    expect(automation.consoleEntries).toHaveLength(50);
+    expect(automation.networkEntries.map((entry) => entry.url)).toEqual(["https://a.test/api"]);
   });
 
   it("materializes favicons through the guest session instead of exposing a remote URL", async () => {
@@ -1722,6 +1755,154 @@ describe("BrowserManager", () => {
     await manager.flushTabSessions();
     expect(replaceScope.mock.lastCall?.[1]).toMatchObject({
       tabs: [{ url: "https://updated.example/" }],
+    });
+  });
+
+  describe("per-feature errors", () => {
+    function failLoad(contents: MockWebContents, url: string): void {
+      contents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", url, true);
+    }
+
+    it("keeps a page-load error inside the feature whose tab failed", () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      manager.createTab(undefined, "fresh", 1);
+      const second = manager.createTab(undefined, "fresh", 2);
+      const [failing, healthy] = [...webContentsById.values()];
+
+      failLoad(failing, "https://bad.invalid/");
+
+      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(2).error).toBeNull();
+
+      // A successful navigation in another feature must not erase this one's error.
+      manager.navigate(second.id, "https://example.com/");
+      healthy.emit("did-start-loading");
+      healthy.emit("did-navigate");
+      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(2).error).toBeNull();
+
+      // The failing tab's own recovery clears it.
+      failing.emit("did-navigate");
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("shows the active tab's error and brings it back when that tab is reactivated", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      const validTab = manager.createTab(undefined, "fresh", 1);
+      const [failing, valid] = [...webContentsById.values()];
+
+      await manager.activateTab(failingTab.id);
+      failLoad(failing, "http://127.0.0.1:9/");
+      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+
+      valid.emit("did-navigate");
+      await manager.activateTab(validTab.id);
+      expect(manager.state(1).activeTabId).toBe(validTab.id);
+      expect(manager.state(1).error).toBeNull();
+
+      await manager.activateTab(failingTab.id);
+      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+    });
+
+    it("publishes a tab failure once, and nothing for a repeat or a closed tab", async () => {
+      const win = mainWindow();
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+      const stateSends = () =>
+        win.webContents.send.mock.calls.filter(([channel]) => channel === "browser:state").length;
+
+      const before = stateSends();
+      failLoad(contents, "http://127.0.0.1:9/");
+      failLoad(contents, "http://127.0.0.1:9/");
+      expect(stateSends() - before).toBe(1);
+
+      await manager.closeTab(tab.id);
+      const afterClose = stateSends();
+      failLoad(contents, "http://127.0.0.1:9/");
+      expect(stateSends()).toBe(afterClose);
+    });
+
+    it("keeps a feature-wide error visible on every tab of the feature", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+      const first = manager.createTab(undefined, "fresh", 1);
+      const second = manager.createTab(undefined, "fresh", 1);
+
+      await manager.activateTab(first.id);
+      expect(manager.state(1).error).toBe("network registration failed");
+      await manager.activateTab(second.id);
+      expect(manager.state(1).error).toBe("network registration failed");
+    });
+
+    it("keeps another tab's error when a sibling in the same feature navigates", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      manager.createTab(undefined, "fresh", 1);
+      const [failing, sibling] = [...webContentsById.values()];
+
+      failLoad(failing, "https://bad.invalid/");
+      sibling.emit("did-navigate");
+      await manager.activateTab(failingTab.id);
+      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+    });
+
+    it("clears a feature-wide error on that feature's next navigation only", () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+      const inOne = manager.createTab(undefined, "fresh", 1);
+      const inTwo = manager.createTab(undefined, "fresh", 2);
+
+      manager.navigate(inTwo.id, "https://example.com/");
+      expect(manager.state(1).error).toBe("network registration failed");
+
+      // A tab loading on its own (background refresh, SPA route) is no user navigation.
+      const ownLoad = [...webContentsById.values()].at(-2);
+      ownLoad?.emit("did-start-loading");
+      ownLoad?.emit("did-navigate");
+      expect(manager.state(1).error).toBe("network registration failed");
+
+      manager.navigate(inOne.id, "https://example.com/");
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("releases every error of a feature whose tabs are all closed", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      failNetworkRegistration = true;
+      expect(() => manager.createTab(undefined, "fresh", 1)).toThrow("network registration failed");
+      failNetworkRegistration = false;
+
+      await manager.closeTabsForScope(1);
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("releases a tab's error when that tab closes", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const failingTab = manager.createTab(undefined, "fresh", 1);
+      manager.createTab(undefined, "fresh", 1);
+      const [failing] = [...webContentsById.values()];
+
+      await manager.activateTab(failingTab.id);
+      failLoad(failing, "https://bad.invalid/");
+      expect(manager.state(1).error).not.toBeNull();
+
+      await manager.closeTab(failingTab.id);
+      expect(manager.state(1).error).toBeNull();
+    });
+
+    it("ignores a late load failure from a tab that is already closed", async () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+      await manager.closeTab(tab.id);
+
+      failLoad(contents, "https://bad.invalid/");
+      expect(manager.state(1).error).toBeNull();
     });
   });
 });

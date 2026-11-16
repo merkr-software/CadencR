@@ -179,7 +179,8 @@ fn extract_zip(
         let mut entry = archive
             .by_index(index)
             .map_err(ArtifactError::unsafe_archive)?;
-        let relative = normalize_package_path(Path::new(entry.name()), "archive entry")?;
+        let name = entry.name().map_err(ArtifactError::unsafe_archive)?;
+        let relative = normalize_package_path(Path::new(name.as_ref()), "archive entry")?;
         if relative.as_os_str().is_empty() {
             continue;
         }
@@ -428,8 +429,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, ArtifactErrorCode::ArchiveTooLarge);
 
-        let mut budget = ExtractionBudget::default();
-        budget.entry_count = MAX_ARCHIVE_ENTRIES;
+        let mut budget = ExtractionBudget {
+            entry_count: MAX_ARCHIVE_ENTRIES,
+            ..Default::default()
+        };
         let error = budget.register(Path::new("extra"), 0, false).unwrap_err();
         assert_eq!(error.code, ArtifactErrorCode::TooManyEntries);
     }

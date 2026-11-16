@@ -1,0 +1,135 @@
+---
+title: "CadencR v0.13.0 keeps your agents in sight"
+date: 2026-10-13
+summary: "Shape your sidebar around the way you work, follow your agents from the macOS notch, and move more easily between conversations, code, and the next prompt."
+author: "Raphaël - RLE - Le Minor"
+tags: ["release", "sidebar", "notch", "agents", "workspace"]
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import sidebarScreenshot from "@/assets/news/v0.13.0/sidebar.png";
+import superviseScreenshot from "@/assets/news/v0.13.0/sidebar-supervise.png";
+import notchAgentsScreenshot from "@/assets/news/v0.13.0/notch-agents.png";
+import notchPreviewScreenshot from "@/assets/news/v0.13.0/notch-preview.png";
+import messageNavigationScreenshot from "@/assets/news/v0.13.0/message-navigation.png";
+import usageScreenshot from "@/assets/news/v0.13.0/usage-before-first-message.png";
+import autoNamingScreenshot from "@/assets/news/v0.13.0/auto-naming.png";
+
+**CadencR v0.13.0 gives you more control over how you see and follow your agents.**
+
+The sidebar now adapts to your way of working, from a quiet list of conversations to a detailed view across projects. On macOS, the notch keeps running agents, requests, and new replies within reach. Smaller additions make the rest of the workflow easier: open code beside the agent, return to an earlier prompt, see your recent usage before starting a conversation, and choose how that conversation gets its name.
+
+## A sidebar that works the way you do
+
+Start with one of four presets, then adjust the details you want to see. A live preview uses sample conversations to show working agents, pending requests, unread replies, and errors before you settle on a layout.
+
+| Preset        | What it brings forward                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| **Classic**   | Balanced defaults, with status and useful worktree details.                                     |
+| **Focus**     | Titles and quiet status marks; waiting conversations reveal the details they need.              |
+| **Supervise** | Models, the latest reply, todo progress, and an In progress block for following several agents. |
+| **Detailed**  | Branches, diffs, pull requests, ports, and compact rows with room for longer titles.            |
+
+<DocScreenshot
+  src={sidebarScreenshot}
+  alt="CadencR Dark sidebar settings with the Classic, Focus, Supervise, and Detailed preset cards beside a live preview of fictional conversations"
+  caption="Pick a starting point, preview the result, and adjust the information you want in each row."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+The sidebar also helps you find the next conversation to open. **For me** gathers requests, failures, and unread replies across projects. **In progress** brings working agents together, while **Recent** keeps your latest conversations close by.
+
+<DocScreenshot
+  src={superviseScreenshot}
+  alt="Supervise sidebar preview in CadencR Dark showing fictional conversations in the For me and In progress blocks, with pending requests and latest-reply previews"
+  caption="See which agents need you and which are still working, across projects."
+  bordered={false}
+  rounded
+  elevated
+  maxWidthClass="mx-auto max-w-xs"
+/>
+
+You can group conversations by project, status, worktree, provider, label, or date; choose their sort order; and save a filtered view to return to later. Typing while a sidebar row has focus starts a conversation filter, and keyboard actions let you move to the next request, pin, rename, label, or archive a conversation.
+
+When you collapse the sidebar, a narrow rail can keep projects or conversations accessible. Display choices follow you to connected devices, and the sidebar remembers its width and expansion state. Applying a preset over your custom display options can be undone.
+
+## Your agents, in the macOS notch
+
+On macOS, a compact island keeps your agents present at the top of the screen. It shows activity while they work, briefly opens when a turn finishes or needs your input, and expands on hover into a list of conversations.
+
+<DocScreenshot
+  src={notchAgentsScreenshot}
+  alt="CadencR notch panel in the dark interface showing fictional permission and question requests first, followed by an unread reply and a working agent"
+  caption="Hover the notch to see requests, unread replies, and work in progress. Click a row to open its conversation."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Requests come first, followed by unread replies and agents at work. A glance tells you what needs attention; clicking a row takes you to the conversation. A notification can also peek out with the latest reply or the request that is waiting on you.
+
+<DocScreenshot
+  src={notchPreviewScreenshot}
+  alt="A fictional Codex permission request peeking out of the CadencR notch, asking to run webhook tests"
+  caption="A brief preview shows why an agent needs you, even while you are working elsewhere."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+**Always on** controls how present the island stays between notifications. **Always animate** controls whether its compact logo keeps moving; with it off, the closed island keeps a still logo. Manage both in **Settings → Notifications**.
+
+The notch is now the default notification destination on macOS, while notifications you have explicitly turned off stay off. Devices that cannot display it fall back to system notifications.
+
+## Smaller additions for the everyday workflow
+
+### Keep the conversation beside the code
+
+**Auto layout** opens browser pages and file references beside the agent, keeping the conversation visible as you inspect the result. It is enabled by default, remembers pane sizes, and respects your manual layout changes. You can turn it off for a conversation or the workspace, and undo an automatic rearrangement.
+
+### Return to what you asked
+
+The new **message navigator** marks each of your prompts along the conversation's right edge. Hover a mark to preview the message, then click to jump there, or use **Alt+Up / Alt+Down** to move between prompts. Older prompts can be reached without loading every intervening turn.
+
+<DocScreenshot
+  src={messageNavigationScreenshot}
+  alt="Close-up of the CadencR Dark message navigator, with six prompt markers and a hover card previewing a fictional prompt"
+  caption="Preview an earlier prompt and return to its place in the conversation."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+### See your usage before the first message
+
+A new conversation now shows your activity over the last **30 days** before you send its first prompt. Switch between **Messages** and **Tokens**, and inspect a day for the breakdown by provider and model. Usage Stats also gains message totals and daily averages, with the same daily cell grids and day cards.
+
+<DocScreenshot
+  src={usageScreenshot}
+  alt="An empty CadencR Dark conversation showing a daily grid of fictional message counts over the last 30 days, with Messages and Tokens controls above the unused composer"
+  caption="Your recent usage is visible before the first turn. This example uses synthetic counts."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+### Give conversations names that suit you
+
+The **auto-naming prompt** is now editable in Settings. It starts with the built-in instructions, so you can adjust the style or language of conversation titles and reset it whenever you want.
+
+<DocScreenshot
+  src={autoNamingScreenshot}
+  alt="Auto-naming settings in CadencR Dark with a naming-model selector and the editable built-in system prompt"
+  caption="Choose the instructions used to name your new conversations."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+New conversations also start with the provider and model from your last accepted manual prompt across projects. Conversation overrides still take priority.
+
+The release improves scrolling through long conversations, restores thinking choices consistently when models or providers change, makes provider startup more reliable, and brings worktree setup status into a cleaner conversation header. Checkpoints also capture local edits that a copied Git index could previously miss.
+
+**CadencR v0.13.0 is available now.** [Download the release or read the complete changelog](https://github.com/merkr-software/CadencR/releases/tag/v0.13.0).

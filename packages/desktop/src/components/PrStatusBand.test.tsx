@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@/test-utils";
 import type { CiCheck, CiState, PrStatusSnapshot, ReviewState } from "@/api/generated";
-import { PrStatusBand, reviewStateLabel } from "./PrStatusBand";
+import { PrStatusBand } from "./PrStatusBand";
+import { reviewStateLabel } from "./PrStatusBandChecks";
 
 describe("reviewStateLabel", () => {
   it("hides the provider's absence-of-review sentinel", () => {
@@ -151,6 +152,58 @@ describe("PrStatusBand", () => {
     render(band({ status: snapshot({ state: "passing", checks: [] }, "changes_requested") }));
 
     expect(screen.getByText("changes requested")).toBeVisible();
+  });
+
+  it("marks the unresolved fact pressed while its filter is in force", () => {
+    const { rerender } = render(band({ unresolvedCount: 2 }));
+
+    expect(screen.getByRole("button", { name: /2 unresolved/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    rerender(band({ unresolvedCount: 2, unresolvedFiltered: true }));
+
+    expect(screen.getByRole("button", { name: /2 unresolved/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("names the branch pair on its own line, with the full pair as its title", () => {
+    render(band());
+
+    const branches = screen.getByTitle("feature/x → main");
+    expect(branches).toHaveTextContent("feature/x");
+    expect(branches).toHaveTextContent("main");
+  });
+
+  it("separates the identity facts by spacing, never by a glyph that can strand", () => {
+    render(band());
+
+    // A wrapped "· feature/…" read as a stray mark; the line has no dots left.
+    const number = screen.getByText("#128");
+    expect(number.parentElement).toHaveTextContent("Rae Viewer");
+    expect(number.parentElement?.textContent).not.toContain("·");
+  });
+
+  it("orders the check list broken first, whatever order the forge sent", () => {
+    render(
+      band({
+        status: snapshot({
+          state: "failing",
+          checks: [
+            { name: "lint", state: "passing" },
+            { name: "deploy", state: "running" },
+            { name: "e2e", state: "failing" },
+          ],
+        }),
+      }),
+    );
+
+    const names = ["e2e", "deploy", "lint"].map((name) => screen.getByTitle(name));
+    expect(names[0].compareDocumentPosition(names[1])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(names[1].compareDocumentPosition(names[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("refreshes from the forge on demand", () => {

@@ -1,0 +1,79 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "serve"
+      ],
+      "description": "Terraform configuration intelligence using terraform-ls 0.39.1; requires the Terraform CLI for provider schema discovery.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-terraform-ls-v0.1.0/lsp-terraform-ls-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "terraform-ls",
+            "entry_sha256": "3122949dbc179be87b10721d0aade806b2b23870ceeae3b6ef4510b0efc1cc31",
+            "entry_size": 46356736,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "8b54ee0156cbade49ef067966fe296afa04ace2552836091c2242e71daf49f60",
+            "size": 33895243
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-terraform-ls-v0.1.0/lsp-terraform-ls-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "terraform-ls",
+            "entry_sha256": "fbe8593aca2390b0e593c1e6d1e8f5a68ef06ed78ea0102110bac748b6443312",
+            "entry_size": 48012016,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "9f515220a182311bc3a8ae2f64e818acd66c356acc60a348d1cb72859ce2bc32",
+            "size": 34680908
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-terraform-ls-v0.1.0/lsp-terraform-ls-0.1.0-linux-x86_64.tar.gz",
+            "entry": "terraform-ls",
+            "entry_sha256": "a9395dcf0c3489d9bd92a826ab99ff152df77fb2c35b71b030e48b8395eb8bce",
+            "entry_size": 47243426,
+            "runtime": "native",
+            "sha256": "c2b6369a2767774122d767ef146ce57028c44a5672b2b407fb88387b8ba2faab",
+            "size": 34181662
+          }
+        }
+      },
+      "id": "terraform-ls",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "tf"
+          ],
+          "filenames": [],
+          "id": "terraform"
+        },
+        {
+          "extensions": [
+            "tfvars"
+          ],
+          "filenames": [],
+          "id": "terraform-vars"
+        }
+      ],
+      "license": "MPL-2.0",
+      "name": "Terraform language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        ".terraform",
+        "main.tf",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

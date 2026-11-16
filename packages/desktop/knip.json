@@ -1,29 +1,22 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "electron.vite.config.ts",
-    "electron/main/index.ts",
-    "electron/preload/index.ts",
     "src/App.tsx",
     "src/routes/**/*.tsx"
   ],
   "project": [
     "electron/**/*.{ts,tsx}",
-    "src/**/*.{ts,tsx}"
+    "src/**/*.{ts,tsx,css}"
   ],
   "ignoreBinaries": [
+    "clang",
     "oxfmt",
-    "security",
-    "spctl",
-    "xcrun"
+    "spctl"
   ],
   "ignoreDependencies": [
     "autoprefixer",
     "postcss",
-    "tailwindcss",
-    "@fontsource-variable/inter",
-    "streamdown",
-    "tw-animate-css"
+    "visual-lib"
   ],
   "tags": [
     "+@public"

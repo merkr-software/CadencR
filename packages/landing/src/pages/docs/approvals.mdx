@@ -1,88 +1,63 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Approvals & permissions"
-description: "How CadencR asks before agents run plans or tools — and how to tune the amount of friction."
+description: "Choose provider modes and answer plan, tool, and question requests."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
-import DocCallout from "@/components/docs/DocCallout.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/approvals.png";
 
-CadencR asks before agents do irreversible things. There are three flavours of prompt — plan approval, tool permission, and multi-choice questions — plus a permission-mode setting that decides how often you see them.
+CadencR displays the requests and controls provided by the selected agent runtime. A plan approval, a tool permission, and a structured question are different interactions.
+
+<DocScreenshot
+  src={pageImage}
+  alt="A tool-permission card in the current conversation UI. The request is example data."
+  caption="A tool-permission card in the current conversation UI. The request is example data."
+  bordered={false}
+  rounded
+  elevated
+/>
 
 ## Plan approval
 
-Some workflows (notably Claude's plan mode) finish with a plan the agent wants you to bless before it executes.
+A planning workflow can pause with a proposed plan. Review the plan, then approve it, request changes with feedback, or reject it. The plan-approval keyboard scope is active while that request is visible.
 
-| Key            | Action                                     |
-| -------------- | ------------------------------------------ |
-| <kbd>⌘ Y</kbd> | Approve, agent executes                    |
-| <kbd>⌘ N</kbd> | Request changes (leaves room for feedback) |
-| <kbd>Esc</kbd> | Reject                                     |
+## Tool permission
 
-Approval bars only steal the keyboard while they are showing, so you can keep typing in the prompt the rest of the time.
+A permission card shows the tool, command, or input requiring a decision. Available choices come from the provider: they can include allowing once, allowing future matching requests, allowing for the session, or denying.
 
-## Tool permission prompts
+Inspect the option's actual label before choosing it. A persistent allowance and a session-only allowance are not interchangeable. Multiple pending permissions remain separate requests.
 
-When an agent wants to run a tool that touches the filesystem, network, or shell, CadencR shows a permission card with the exact command. You decide how trusted that call is:
+You can also answer pending permissions and questions from their sidebar indicators without opening the whole conversation. **For me** gathers conversations that need attention across projects.
 
-| Key            | Action                                                            |
-| -------------- | ----------------------------------------------------------------- |
-| <kbd>⌘ Y</kbd> | Allow once — the agent runs this exact call                       |
-| <kbd>⌘ L</kbd> | Allow for the rest of this session — quieter for routine commands |
-| <kbd>⌘ N</kbd> | Deny — the agent has to find another path                         |
+## Structured questions
 
-## Multi-choice questions
+The question drawer displays the provider's questions and options, with free-text input when supported. Use number keys for options, Enter to submit, and the question-navigation controls for a batch. The [shortcut tables](../shortcuts/) list the live question-drawer bindings.
 
-Agents can ask you structured questions in a side drawer. The question drawer is keyboard-first:
+## Collaboration and access modes
 
-- <kbd>1</kbd>–<kbd>9</kbd> selects an option by number.
-- <kbd>⌘ O</kbd> toggles the **Other…** free-text field.
-- <kbd>Enter</kbd> submits and moves to the next question.
-- <kbd>←</kbd> / <kbd>→</kbd> navigate batched questions.
+These are separate concepts: collaboration mode describes how the agent should work, while access mode describes the runtime's permissions. The composer only offers modes the provider supports.
 
-## Permission modes
+| Provider            | Current behavior to understand                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code         | New conversations default to **Auto**; a model known not to support it falls back to **Accept Edits**. Plan and opt-in Bypass are available as supported by the runtime.                    |
+| Codex               | Planning/default collaboration controls pair with its configured approval and sandbox policy. Opt-in Full Access changes that access boundary. Native profiles can supply runtime defaults. |
+| Cursor plugin       | Collaboration and access choices, including Auto Review, are per-conversation settings from the plugin. Some upstream question and tool details remain limited.                             |
+| OpenCode            | Build/Plan and other advertised controls come from its ACP session. Do not apply Claude-only modes to it.                                                                                   |
+| Local ACP connector | Models, modes, permission choices, and resume behavior depend on the connector's live handshake.                                                                                            |
 
-Each provider exposes its own catalog of permission modes — CadencR surfaces the right set automatically based on the provider you picked for the session. Cycle through them with <kbd><ShiftIcon /> Tab</kbd> in the prompt, or pick one from the permission menu in the prompt bar.
+Manage provider access settings in **Settings → Providers**. Mode changes can apply to the next request or require a runtime restart depending on the provider.
 
-### Claude Code
+A worktree separates a task's checkout from another checkout. It does **not** enforce a filesystem or network sandbox. Bypass or unrestricted access still follows the provider's actual policy.
 
-| Mode                                | What it does                                                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Auto-Accept Edits**               | Auto-approves file edits inside the working directory. Shell, network, and out-of-cwd writes still ask.   |
-| **Plan**                            | The agent researches and proposes — it does not edit. Plans land in a plan-approval bar for you to bless. |
-| **Auto** _(Sonnet 4.6 / Opus 4.6+)_ | Classifier-backed: safe calls run automatically, risky calls are blocked, ambiguous calls ask.            |
-| **Bypass** _(opt-in)_               | Skips every safety check. Requires the **Claude → Bypass permissions** workspace toggle to be on.         |
+## Stop or continue
 
-### OpenCode
+Use Stop or the active conversation's stop binding to interrupt work. The workspace-wide stop command stops all running agents. A stopped conversation can be continued with a follow-up; stopping a delegated child is an interruption rather than a completed failure result.
 
-| Mode      | What it does                                                                                  |
-| --------- | --------------------------------------------------------------------------------------------- |
-| **Build** | Default. Full agent with every tool enabled — equivalent to "accept edits" elsewhere.         |
-| **Plan**  | Restricted analysis-only agent. The agent can investigate but cannot edit or run shell tools. |
+## Related guides
 
-OpenCode does not expose an "auto" or "bypass" mode — its provider adapter rejects them at the backend.
-
-### Codex
-
-| Mode                       | What it does                                                                                                                                                 |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Default**                | Workspace-write sandbox with on-request approvals. The agent edits inside the worktree and asks before reaching outside it or running network/shell calls.   |
-| **Plan**                   | Same sandbox and approval policy as Default, but the agent signals planning at the start of the turn so reviewers know what to expect.                       |
-| **Full Access** _(opt-in)_ | Maps to Codex's `approval_policy=never` + `sandbox=danger-full-access` — no approvals, no sandbox. Requires the **Codex → Full access** workspace toggle on. |
-
-<DocCallout title="The opt-in modes are intentionally a separate step" variant="note">
-  **Bypass** (Claude) and **Full Access** (Codex) are hidden behind a workspace toggle in **Settings
-  → Runtime & Models**. Flip them knowingly, and pair them with worktrees so a runaway agent cannot
-  touch your main checkout.
-</DocCallout>
-
-## Stopping a session entirely
-
-- <kbd>Esc</kbd> stops the current agent.
-- <kbd>⌘ Esc</kbd> stops every agent across the workspace.
-
-## Related docs
-
-- [Session view](../session-view/) — the surface that hosts these prompts
-- [Prompt](../prompting/) — where the permission-mode toggle lives
-- [Worktrees](../worktrees/) — pair bypass mode with isolation
+- [Providers](../providers/) — supported controls and profiles.
+- [Sidebar](../sidebar/) — pending requests and attention views.
+- [MCP & orchestration](../mcp/) — linked child gates.

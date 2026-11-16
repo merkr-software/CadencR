@@ -9,21 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as SchedulesRouteImport } from './routes/schedules'
-import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AgentsRouteImport } from './routes/agents'
+import { Route as MarketplaceRouteImport } from './routes/marketplace'
+import { Route as SchedulesRouteImport } from './routes/schedules'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as MarketplaceIndexRouteImport } from './routes/marketplace.index'
 import { Route as WsSessionSessionIdRouteImport } from './routes/ws-session.$sessionId'
+import { Route as MarketplaceKindIdRouteImport } from './routes/marketplace.$kind.$id'
 import { Route as ProjectsProjectIdFeaturesFeatureIdRouteImport } from './routes/projects/$projectId/features/$featureId'
 
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SchedulesRoute = SchedulesRouteImport.update({
-  id: '/schedules',
-  path: '/schedules',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsRoute = AgentsRouteImport.update({
@@ -31,15 +29,35 @@ const AgentsRoute = AgentsRouteImport.update({
   path: '/agents',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const MarketplaceRoute = MarketplaceRouteImport.update({
+  id: '/marketplace',
+  path: '/marketplace',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchedulesRoute = SchedulesRouteImport.update({
+  id: '/schedules',
+  path: '/schedules',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MarketplaceIndexRoute = MarketplaceIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => MarketplaceRoute,
 } as any)
 const WsSessionSessionIdRoute = WsSessionSessionIdRouteImport.update({
   id: '/ws-session/$sessionId',
   path: '/ws-session/$sessionId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const MarketplaceKindIdRoute = MarketplaceKindIdRouteImport.update({
+  id: '/$kind/$id',
+  path: '/$kind/$id',
+  getParentRoute: () => MarketplaceRoute,
 } as any)
 const ProjectsProjectIdFeaturesFeatureIdRoute =
   ProjectsProjectIdFeaturesFeatureIdRouteImport.update({
@@ -51,9 +69,12 @@ const ProjectsProjectIdFeaturesFeatureIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agents': typeof AgentsRoute
+  '/marketplace': typeof MarketplaceRouteWithChildren
   '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/ws-session/$sessionId': typeof WsSessionSessionIdRoute
+  '/marketplace/': typeof MarketplaceIndexRoute
+  '/marketplace/$kind/$id': typeof MarketplaceKindIdRoute
   '/projects/$projectId/features/$featureId': typeof ProjectsProjectIdFeaturesFeatureIdRoute
 }
 export interface FileRoutesByTo {
@@ -62,15 +83,20 @@ export interface FileRoutesByTo {
   '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/ws-session/$sessionId': typeof WsSessionSessionIdRoute
+  '/marketplace': typeof MarketplaceIndexRoute
+  '/marketplace/$kind/$id': typeof MarketplaceKindIdRoute
   '/projects/$projectId/features/$featureId': typeof ProjectsProjectIdFeaturesFeatureIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/agents': typeof AgentsRoute
+  '/marketplace': typeof MarketplaceRouteWithChildren
   '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/ws-session/$sessionId': typeof WsSessionSessionIdRoute
+  '/marketplace/': typeof MarketplaceIndexRoute
+  '/marketplace/$kind/$id': typeof MarketplaceKindIdRoute
   '/projects/$projectId/features/$featureId': typeof ProjectsProjectIdFeaturesFeatureIdRoute
 }
 export interface FileRouteTypes {
@@ -78,9 +104,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/agents'
+    | '/marketplace'
     | '/schedules'
     | '/settings'
     | '/ws-session/$sessionId'
+    | '/marketplace/'
+    | '/marketplace/$kind/$id'
     | '/projects/$projectId/features/$featureId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -89,20 +118,26 @@ export interface FileRouteTypes {
     | '/schedules'
     | '/settings'
     | '/ws-session/$sessionId'
+    | '/marketplace'
+    | '/marketplace/$kind/$id'
     | '/projects/$projectId/features/$featureId'
   id:
     | '__root__'
     | '/'
     | '/agents'
+    | '/marketplace'
     | '/schedules'
     | '/settings'
     | '/ws-session/$sessionId'
+    | '/marketplace/'
+    | '/marketplace/$kind/$id'
     | '/projects/$projectId/features/$featureId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentsRoute: typeof AgentsRoute
+  MarketplaceRoute: typeof MarketplaceRouteWithChildren
   SchedulesRoute: typeof SchedulesRoute
   SettingsRoute: typeof SettingsRoute
   WsSessionSessionIdRoute: typeof WsSessionSessionIdRoute
@@ -111,18 +146,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/schedules': {
-      id: '/schedules'
-      path: '/schedules'
-      fullPath: '/schedules'
-      preLoaderRoute: typeof SchedulesRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents': {
@@ -132,12 +160,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/marketplace': {
+      id: '/marketplace'
+      path: '/marketplace'
+      fullPath: '/marketplace'
+      preLoaderRoute: typeof MarketplaceRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/schedules': {
+      id: '/schedules'
+      path: '/schedules'
+      fullPath: '/schedules'
+      preLoaderRoute: typeof SchedulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/marketplace/': {
+      id: '/marketplace/'
+      path: '/'
+      fullPath: '/marketplace/'
+      preLoaderRoute: typeof MarketplaceIndexRouteImport
+      parentRoute: typeof MarketplaceRoute
     }
     '/ws-session/$sessionId': {
       id: '/ws-session/$sessionId'
@@ -145,6 +194,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/ws-session/$sessionId'
       preLoaderRoute: typeof WsSessionSessionIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/marketplace/$kind/$id': {
+      id: '/marketplace/$kind/$id'
+      path: '/$kind/$id'
+      fullPath: '/marketplace/$kind/$id'
+      preLoaderRoute: typeof MarketplaceKindIdRouteImport
+      parentRoute: typeof MarketplaceRoute
     }
     '/projects/$projectId/features/$featureId': {
       id: '/projects/$projectId/features/$featureId'
@@ -156,9 +212,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface MarketplaceRouteChildren {
+  MarketplaceIndexRoute: typeof MarketplaceIndexRoute
+  MarketplaceKindIdRoute: typeof MarketplaceKindIdRoute
+}
+
+const MarketplaceRouteChildren: MarketplaceRouteChildren = {
+  MarketplaceIndexRoute: MarketplaceIndexRoute,
+  MarketplaceKindIdRoute: MarketplaceKindIdRoute,
+}
+
+const MarketplaceRouteWithChildren = MarketplaceRoute._addFileChildren(
+  MarketplaceRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentsRoute: AgentsRoute,
+  MarketplaceRoute: MarketplaceRouteWithChildren,
   SchedulesRoute: SchedulesRoute,
   SettingsRoute: SettingsRoute,
   WsSessionSessionIdRoute: WsSessionSessionIdRoute,

@@ -1,9 +1,10 @@
 import { type Diagnostic } from "@codemirror/lint";
 import { LSPPlugin, type LSPClient, type LSPClientExtension } from "@codemirror/lsp-client";
-import { ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { ViewPlugin, type EditorView, type ViewUpdate } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import type * as lsp from "vscode-languageserver-protocol";
 import { setServerDiagnostics } from "./merged-diagnostics";
+import { PullDiagnostics } from "./pull-diagnostics";
 
 function toSeverity(severity: lsp.DiagnosticSeverity | undefined): Diagnostic["severity"] {
   switch (severity) {
@@ -54,22 +55,38 @@ export interface ClientRef {
  * the first plugin (the type checker), so with multiple clients a shared
  * autoSync would never push edits to the linters.
  */
-function buildAutoSync(ref: ClientRef): Extension {
+function buildAutoSync(lspId: string, ref: ClientRef): Extension {
   return ViewPlugin.fromClass(
     class {
       private pending: ReturnType<typeof setTimeout> | null = null;
 
+      private readonly diagnostics: PullDiagnostics | null;
+
+      constructor(view: EditorView) {
+        this.diagnostics = ref.current
+          ? new PullDiagnostics(ref.current, view, lspId, toDiagnostic, () => this.schedule(0))
+          : null;
+        this.schedule(0);
+      }
+
       update(update: ViewUpdate): void {
         if (!update.docChanged) return;
+        this.diagnostics?.invalidate();
+        this.schedule(AUTO_SYNC_DELAY_MS);
+      }
+
+      private schedule(delay: number): void {
         if (this.pending) clearTimeout(this.pending);
         this.pending = setTimeout(() => {
           this.pending = null;
           ref.current?.sync();
-        }, AUTO_SYNC_DELAY_MS);
+          void this.diagnostics?.pull();
+        }, delay);
       }
 
       destroy(): void {
         if (this.pending) clearTimeout(this.pending);
+        this.diagnostics?.destroy();
       }
     },
   );
@@ -90,7 +107,10 @@ function buildAutoSync(ref: ClientRef): Extension {
  */
 export function cadencrServerDiagnostics(lspId: string, ref: ClientRef): LSPClientExtension {
   return {
-    clientCapabilities: { textDocument: { publishDiagnostics: {} } },
+    clientCapabilities: {
+      textDocument: { publishDiagnostics: {}, diagnostic: { dynamicRegistration: false } },
+      workspace: { diagnostics: { refreshSupport: true } },
+    },
     notificationHandlers: {
       "textDocument/publishDiagnostics": (c, params: lsp.PublishDiagnosticsParams) => {
         const file = c.workspace.getFile(params.uri);
@@ -102,6 +122,6 @@ export function cadencrServerDiagnostics(lspId: string, ref: ClientRef): LSPClie
         return true;
       },
     },
-    editorExtension: buildAutoSync(ref),
+    editorExtension: buildAutoSync(lspId, ref),
   };
 }

@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { useProjectColor } from "@/hooks/useProjectColor";
 import { useProjectIconUrl } from "@/hooks/useProjectIcon";
 import { cn } from "@/lib/utils";
@@ -29,16 +29,19 @@ export type ProjectBadgeSize = keyof typeof BADGE_SIZES;
  * fetching per instance. A configured-but-unreadable icon (file deleted or
  * moved) falls back to the dot silently — reporting it from every mount would
  * spam identical toasts; Project Settings surfaces the broken path instead.
+ * `fallback` replaces the dot when there is no logo.
  */
 export const ProjectBadge = memo(function ProjectBadge({
   projectId,
   size = "sm",
   className,
+  fallback,
 }: {
   projectId: number;
   size?: ProjectBadgeSize;
   className?: string;
-}): React.JSX.Element {
+  fallback?: ReactNode;
+}): ReactNode {
   const color = useProjectColor(projectId);
   const iconUrl = useProjectIconUrl(projectId);
   // Track *which* URL failed rather than a boolean, so choosing a new icon
@@ -58,6 +61,7 @@ export const ProjectBadge = memo(function ProjectBadge({
       />
     );
   }
+  if (fallback !== undefined) return fallback;
 
   return (
     <span

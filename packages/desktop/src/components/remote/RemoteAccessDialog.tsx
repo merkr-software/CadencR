@@ -11,8 +11,9 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useRemoteStore, type RemotePhase } from "@/stores/remote-store";
 import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
-import { useRemotePreventSleep } from "@/lib/remote/sleep-prevention";
-import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
+import { desktopBridge } from "@/lib/desktop-bridge";
+import { isBrowserRemote } from "@/lib/remote/device-token";
+import { canPreventHostSleep, useRemotePreventSleep } from "@/lib/remote/sleep-prevention";
 import { RemoteDisclosure } from "./remote-ui";
 import { RemoteLanSection } from "./RemoteLanSection";
 import { RemotePairSection } from "./RemotePairSection";
@@ -71,7 +72,9 @@ export function RemoteAccessDialog({
               onDisable={() => void disable()}
             />
 
-            {PLATFORM_IS_MAC ? <SleepPreventionToggle /> : null}
+            {canPreventHostSleep(desktopBridge.isElectron, isBrowserRemote()) ? (
+              <SleepPreventionToggle />
+            ) : null}
 
             {error ? <p className="text-xs text-[var(--acc-red)]">{error}</p> : null}
 
@@ -121,8 +124,8 @@ function RemoteToggleRow({
 }
 
 /**
- * macOS-only: keep the Mac awake while hosting. Hidden elsewhere (the assertion
- * has no equivalent), so non-Mac users see no dead control. The preference
+ * Keep the host awake while hosting. Shown only on the desktop host (a paired
+ * browser has no blocker to hold), so remote users see no dead control. The preference
  * persists independently of the on/off state; the blocker is only held while
  * remote access is also active (see `useRemoteSleepGuard`).
  */
@@ -131,16 +134,16 @@ function SleepPreventionToggle(): ReactElement {
   return (
     <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
       <div className="min-w-0 space-y-0.5">
-        <div className="text-sm font-medium">Prevent Mac sleep while hosting</div>
+        <div className="text-sm font-medium">Prevent sleep while hosting</div>
         <div className="text-xs text-muted-foreground">
-          Keeps this Mac awake while remote access is active. The screen can still lock or turn off.
-          Manual sleep, lid close, or low battery may still interrupt hosting.
+          Keeps this computer awake while remote access is active. The screen can still lock or turn
+          off. Manual sleep, lid close, or low battery may still interrupt hosting.
         </div>
       </div>
       <Switch
         checked={preventSleep}
         onCheckedChange={setPreventSleep}
-        aria-label="Prevent Mac sleep while hosting"
+        aria-label="Prevent sleep while hosting"
       />
     </div>
   );
@@ -167,9 +170,9 @@ function RemoteEnabledSections({ status }: { status: RemoteStatus }): ReactEleme
   }, [focusDevicesNonce]);
 
   return (
-    <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+    <div className="max-h-[calc(var(--app-vh)*0.6)] space-y-3 overflow-y-auto pr-1">
       {/* Hero: the primary task is pairing a device, so the QR leads. */}
-      <RemotePairSection />
+      <RemotePairSection status={status} />
 
       {/* Everything else is reference or management — collapsed by default so
           the dialog stays a one-glance "it's on, scan this". */}

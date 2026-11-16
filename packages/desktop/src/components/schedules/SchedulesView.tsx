@@ -8,9 +8,12 @@ import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { fireAndForget, useSchedules } from "@/hooks/useSchedules";
 import { nextRunAcross } from "@/lib/schedules/status";
 import { formatRelative } from "@/lib/schedules/format";
+import type { ScheduleActionTarget } from "@/lib/schedules/action-link";
 import { cn } from "@/lib/utils";
 import { ScheduleEditorDialog } from "./ScheduleEditorDialog";
 import { ScheduleGroups } from "./ScheduleGroups";
+import { useActionPresetLink } from "./useActionPresetLink";
+import type { ScheduleActionPreset } from "./useScheduleDraft";
 import {
   filterByState,
   groupByProject,
@@ -35,8 +38,13 @@ const FILTERS: { state: ScheduleFilterState; label: string }[] = [
  * from the backend and stay in that order inside their project group, so the
  * top of the page is always the next thing Cadencr will do on its own.
  */
-export function SchedulesView(): ReactElement {
-  const { collapsed, setCollapsed } = useSidebarCollapsed();
+export function SchedulesView({
+  actionPreset = null,
+}: {
+  /** From a "Schedule this action" link: opens the editor on a new schedule
+   *  for that action. */
+  actionPreset?: ScheduleActionTarget | null;
+}): ReactElement {
   const projectsQuery = useListProjects();
   const { schedules, isLoading, isMutating, save, remove, setEnabled, runNow } = useSchedules();
 
@@ -44,6 +52,7 @@ export function SchedulesView(): ReactElement {
   const [state, setState] = useState<ScheduleFilterState>("all");
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [initialAction, setInitialAction] = useState<ScheduleActionPreset | undefined>(undefined);
 
   const searched = useMemo(() => searchSchedules(schedules, query), [schedules, query]);
   const counts = useMemo(() => stateCounts(searched), [searched]);
@@ -52,17 +61,23 @@ export function SchedulesView(): ReactElement {
 
   const openEditor = useCallback((schedule: Schedule | null): void => {
     setEditing(schedule);
+    setInitialAction(undefined);
     setEditorOpen(true);
   }, []);
+  const openActionEditor = useCallback((preset: ScheduleActionPreset): void => {
+    setEditing(null);
+    setInitialAction(preset);
+    setEditorOpen(true);
+  }, []);
+  useActionPresetLink(actionPreset, openActionEditor);
   const toggle = useCallback(
     (schedule: Schedule) => fireAndForget(setEnabled(schedule.id, !schedule.enabled)),
     [setEnabled],
   );
-  const run = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule.id)), [runNow]);
+  const run = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule)), [runNow]);
 
   return (
     <div data-feature-chrome="standard" className="flex h-full flex-col bg-background">
-      <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
       <SchedulesHeader
         total={schedules.length}
         nextRun={nextRun}
@@ -93,6 +108,7 @@ export function SchedulesView(): ReactElement {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         schedule={editing}
+        initialAction={initialAction}
         projects={projectsQuery.data ?? []}
         onSave={save}
         onDelete={remove}
@@ -124,9 +140,11 @@ function SchedulesHeader({
   counts,
   onCreate,
 }: SchedulesHeaderProps): ReactElement {
+  const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
-    <header className="flex shrink-0 flex-col gap-3 border-b border-border/60 px-5 py-4">
+    <header className="titlebar-drag flex shrink-0 flex-col gap-3 border-b border-border/60 px-5 py-4">
       <div className="flex items-center gap-3">
+        <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
         <CalendarClock className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
           <h1 className="text-base font-semibold leading-tight">Schedules</h1>

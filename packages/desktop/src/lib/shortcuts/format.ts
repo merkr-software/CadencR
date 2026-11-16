@@ -3,10 +3,9 @@
  * `ctrl` tokens; this module turns them into the glyphs (or words) that
  * make sense on the current OS.
  *
- * We deliberately avoid trying to look "native" on every platform — Cadencr
- * is an Electron desktop app, and most surfaces in the app already render
- * the macOS glyphs even on Linux/Windows. The split lives here so a single
- * future tweak can flip every shortcut display.
+ * We render platform-native modifiers: ⌘/⌥ glyphs on macOS and readable
+ * Ctrl/Alt labels on Linux/Windows. The split lives here so every shortcut
+ * display stays in sync with the binding resolver.
  */
 import type { ShortcutKey } from "./registry";
 
@@ -67,7 +66,7 @@ const GLYPHS = IS_MAC ? MAC_GLYPHS : { ...MAC_GLYPHS, ...NON_MAC_OVERRIDES };
 /** Renders a single key token (`"mod"`, `"a"`, `"1-9"`, …) for display. */
 export function formatKey(key: ShortcutKey): string {
   if (key in GLYPHS) return GLYPHS[key];
-  if (key.length === 1) return key.toUpperCase();
+  if (key.length === 1 || /^f\d{1,2}$/.test(key)) return key.toUpperCase();
   // Tokens like "1-9", "↑↓←→" pass through unchanged.
   return key;
 }
@@ -75,6 +74,11 @@ export function formatKey(key: ShortcutKey): string {
 /** Renders the full combo as an array of cells for the `KbdShortcut` chord. */
 export function formatCombo(keys: ShortcutKey[]): string[] {
   return keys.map(formatKey);
+}
+
+/** Renders a compact inline combo for titles and prose (`⌘K` or `Ctrl+K`). */
+export function formatCompactCombo(keys: ShortcutKey[]): string {
+  return formatCombo(keys).join(IS_MAC ? "" : "+");
 }
 
 /** Search-friendly flat string ("⌘ ⇧ N" or "Ctrl Shift N"). */

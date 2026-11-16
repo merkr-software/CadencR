@@ -196,6 +196,38 @@ describe("UpdateBranchDialog", () => {
     );
   });
 
+  it("scrolls a failed update into view, but not a standing disabled reason", async () => {
+    // Both render below the option cards; only the submit error is news.
+    const scrollIntoView = vi.mocked(window.HTMLElement.prototype.scrollIntoView);
+    scrollIntoView.mockClear();
+    const { user, rerender } = render(
+      <UpdateBranchDialog
+        featureId={42}
+        open
+        snapshot={snapshot()}
+        disabledReason="Commit or stash your changes first."
+        onOpenChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Commit or stash");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    mocks.mutateAsync.mockRejectedValueOnce(new Error("protected branch"));
+    rerender(
+      <UpdateBranchDialog
+        featureId={42}
+        open
+        snapshot={snapshot()}
+        disabledReason={null}
+        onOpenChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Update branch" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(scrollIntoView.mock.contexts).toEqual([alert]);
+  });
+
   it("shows pending state and disables strategy, submit, cancel, and close", () => {
     mocks.isPending = true;
     render(

@@ -1,0 +1,389 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/figtree";
+@import "./notch-activity.css";
+
+/*
+ * The notch island. One black body that pours out of the hardware notch and
+ * folds back into it. The window is transparent and larger than any state, so
+ * the body is drawn at its largest and *revealed* by a clip-path driven by
+ * three registered properties (--iw, --ih, --ir). The content inside never
+ * reflows while the shape springs; it only comes into focus once it lands.
+ *
+ * The island is always dark — it continues a piece of hardware — so it uses
+ * the CadencR Dark handoff values rather than the active app theme.
+ */
+
+@property --iw {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --ih {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --ir {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+:root {
+  --n-body: #000;
+  --n-ink: #eff0f2;
+  --n-soft: #a7a9ad;
+  --n-muted: #6e7176;
+  --n-hair: rgb(255 255 255 / 0.08);
+  --n-wash: rgb(255 255 255 / 0.06);
+  --n-wash-strong: rgb(255 255 255 / 0.1);
+  --n-primary: #2db47d;
+  /* Status — same meanings as the sidebar's leading indicator. */
+  --n-working: oklch(70.7% 0.165 254.624);
+  --n-permission: #e2b64d;
+  --n-question: #2db47d;
+  --n-done: #8bcf67;
+  --n-error: #ec707b;
+  --n-font: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --n-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* A spring with a single, small overshoot — the island's one signature. */
+  --n-spring: linear(
+    0,
+    0.009,
+    0.035 2.1%,
+    0.141 4.4%,
+    0.723 15.5%,
+    0.938 21.1%,
+    1.017 26.1%,
+    1.035 29.9%,
+    1.032 35.2%,
+    1.008 46.8%,
+    0.998 59.3%,
+    1
+  );
+  --n-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --n-in: cubic-bezier(0.55, 0, 0.75, 0.2);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--n-font);
+  color: var(--n-ink);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#notch-root {
+  position: fixed;
+  inset: 0;
+}
+
+/* ── The body ─────────────────────────────────────────────────────────── */
+
+.island {
+  --gap: calc((100% - var(--iw)) / 2);
+  position: absolute;
+  inset: 0;
+  transition:
+    --iw 560ms var(--n-spring),
+    --ih 560ms var(--n-spring),
+    --ir 560ms var(--n-out),
+    opacity 220ms var(--n-out);
+}
+.island[data-shrinking="true"] {
+  transition:
+    --iw 340ms var(--n-out),
+    --ih 300ms var(--n-out),
+    --ir 300ms var(--n-out),
+    opacity 220ms var(--n-out);
+}
+.island[data-hidden="true"] {
+  opacity: 0;
+}
+
+.island-body {
+  position: absolute;
+  inset: 0;
+  background: var(--n-body);
+  clip-path: inset(0 var(--gap) calc(100% - var(--ih)) var(--gap) round 0 0 var(--ir) var(--ir));
+}
+
+/* Concave shoulders: the body flows into the screen's top edge like the notch. */
+.island-shoulder {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: radial-gradient(circle at var(--sx) 100%, transparent 9.5px, var(--n-body) 10px);
+}
+.island-shoulder[data-side="left"] {
+  --sx: 0%;
+  transform: translateX(calc(var(--iw) / -2 - 10px));
+}
+.island-shoulder[data-side="right"] {
+  --sx: 100%;
+  transform: translateX(calc(var(--iw) / 2));
+}
+
+/* Light spilling under the island while it carries news. Offset + blur, so
+ * it reads as the body lifting off the screen, not a halo. */
+.island-glow {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: var(--iw);
+  height: var(--ih);
+  transform: translateX(-50%);
+  border-radius: 0 0 var(--ir) var(--ir);
+  box-shadow: 0 16px 36px -16px color-mix(in oklab, var(--tone, transparent) 55%, transparent);
+  opacity: 0;
+  transition: opacity 420ms var(--n-out);
+}
+.island[data-mode="peek"] .island-glow,
+.island[data-mode="expanded"] .island-glow {
+  opacity: 1;
+}
+.island[data-mode="expanded"] .island-glow {
+  --tone: rgb(0 0 0 / 0.9);
+}
+
+/* ── Layers: one per mode, cross-focused ──────────────────────────────── */
+
+.layer {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) scale(0.965);
+  transform-origin: 50% 0;
+  opacity: 0;
+  filter: blur(7px);
+  pointer-events: none;
+  transition:
+    opacity 140ms var(--n-in),
+    filter 140ms var(--n-in),
+    transform 160ms var(--n-in);
+}
+.layer[data-active="true"] {
+  transform: translateX(-50%) scale(1);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    opacity 260ms var(--n-out) 110ms,
+    filter 320ms var(--n-out) 90ms,
+    transform 420ms var(--n-out) 90ms;
+}
+/* A layer that has faded out keeps no loop running behind the cutout. The
+   status rules set `animation` shorthands (which reset the play state) with
+   higher specificity, hence the override. */
+.layer[data-active="false"] * {
+  animation-play-state: paused !important;
+}
+
+/* The band beside the cutout: content may only live in the two ears. */
+.ears {
+  --ear-pad: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--ear-pad);
+  box-sizing: border-box;
+}
+.ear {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* ── Compact live activity ────────────────────────────────────────────── */
+
+/* Fixed to the ear's room (minus a gutter to the cutout) and anchored to the
+   island's edge: whatever the count, the row can never reach under the
+   cutout — at worst it is clipped by its own box. */
+.compact-dots {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: flex-end;
+  width: calc(var(--ear-w) - var(--ear-pad) - 4px);
+  overflow: hidden;
+}
+.compact-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.compact-dot[data-status="running"] {
+  color: var(--n-working);
+  animation: dot-breathe 1.6s var(--n-out) infinite;
+  animation-delay: calc(var(--i) * 180ms);
+}
+.compact-dot[data-status="question"] {
+  color: var(--n-permission);
+}
+.compact-dot[data-status="done"] {
+  color: var(--n-done);
+}
+/* Reads as one more mark in the row, not a label: dot-scale, muted ink. */
+.compact-count {
+  margin-left: 1px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--n-soft);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+@keyframes dot-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── Index Dots orb ───────────────────────────────────────────────────── */
+
+.orb {
+  flex: none;
+  overflow: visible;
+}
+.orb-dot {
+  fill: currentColor;
+  opacity: 0.32;
+}
+.orb-core {
+  fill: var(--n-primary);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.orb-check {
+  fill: none;
+  stroke: var(--n-body);
+  stroke-width: 4.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+}
+.orb[data-state="idle"] {
+  color: var(--n-soft);
+}
+.orb[data-state="idle"] .orb-dot {
+  opacity: 0.55;
+}
+.orb[data-state="logo"] {
+  color: var(--n-ink);
+}
+.orb[data-state="logo"] .orb-dot {
+  opacity: 1;
+}
+.orb[data-state="running"] {
+  color: var(--n-working);
+}
+.orb[data-state="running"] .orb-dot {
+  animation: orb-comet 1.2s linear infinite;
+  animation-delay: calc(var(--i) * 100ms - 1.2s);
+}
+.orb[data-state="running"] .orb-core {
+  animation: orb-breathe 2.4s ease-in-out infinite;
+}
+.orb[data-state="question"] {
+  color: var(--n-permission);
+}
+.orb[data-state="question"] .orb-dot {
+  animation: orb-attention 1.4s ease-in-out infinite;
+}
+.orb[data-state="question"] .orb-core {
+  fill: var(--n-permission);
+}
+.orb[data-state="done"] {
+  color: var(--n-done);
+}
+.orb[data-state="done"] .orb-dot {
+  opacity: 1;
+  transition: opacity 300ms var(--n-out);
+  transition-delay: calc(var(--i) * 28ms);
+}
+.orb[data-state="done"] .orb-core {
+  fill: var(--n-done);
+  animation: orb-land 520ms var(--n-spring) both;
+}
+.orb[data-state="done"] .orb-check {
+  animation: orb-draw 420ms var(--n-out) 220ms forwards;
+}
+
+@keyframes orb-comet {
+  0% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0.18;
+  }
+}
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+@keyframes orb-attention {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes orb-land {
+  from {
+    transform: scale(0.4);
+  }
+  to {
+    transform: scale(1.65);
+  }
+}
+@keyframes orb-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .island,
+  .island[data-shrinking="true"] {
+    transition-timing-function: var(--n-out);
+    transition-duration: 200ms;
+  }
+  .orb .orb-dot,
+  .orb .orb-core,
+  .compact-dot,
+  .shimmer {
+    animation: none !important;
+  }
+}
+
+/* ── Still compact island ("Always animate" off) ───────────────────────── */
+/* `CompactEars` swaps the orb for the plain logo; the status dots hold still. */
+
+.compact-dots[data-still="true"] .compact-dot {
+  animation: none;
+}

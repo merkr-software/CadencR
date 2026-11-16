@@ -60,10 +60,12 @@ function useAcquireLspClients({
   languageId,
   lspIds,
   idsKey,
+  retryKey,
   setReady,
   setErrorMessage,
 }: UseLspClientsArgs & {
   idsKey: string;
+  retryKey: number;
   setReady: Dispatch<SetStateAction<ReadyLspClient[]>>;
   setErrorMessage: Dispatch<SetStateAction<string | null>>;
 }): void {
@@ -107,7 +109,7 @@ function useAcquireLspClients({
       for (const client of acquired) releaseLspClient(client.root, client.lspId);
       setReady([]);
     };
-  }, [absPath, idsKey, languageId, lspIds, setErrorMessage, setReady, workspaceRoot]);
+  }, [absPath, idsKey, languageId, lspIds, retryKey, setErrorMessage, setReady, workspaceRoot]);
 }
 
 /**
@@ -125,6 +127,7 @@ export function useLspClients({
 }: UseLspClientsArgs): UseLspClientsResult {
   const [ready, setReady] = useState<ReadyLspClient[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   // Bumped on every manager status transition so we re-read live clients
   // (identity changes after a reconnect) and re-derive status.
   const [, setStatusTick] = useState(0);
@@ -137,6 +140,7 @@ export function useLspClients({
     languageId,
     lspIds,
     idsKey,
+    retryKey,
     setReady,
     setErrorMessage,
   });
@@ -188,6 +192,9 @@ export function useLspClients({
   const onRetry = useMemo(
     () => () => {
       for (const c of ready) retryLspClient(c.root, c.lspId);
+      // Failed initial handshakes have no manager entry to reconnect yet.
+      // Reacquire them too, including when another server is already ready.
+      setRetryKey((key) => key + 1);
     },
     [ready],
   );

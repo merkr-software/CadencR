@@ -1,0 +1,260 @@
+/* -------------------------------------------------------------------------
+ * Sonner toasts
+ *
+ * Placement, icons and the close button are set by the <Toaster /> wrapper in
+ * components/ui/sonner.tsx; every visual rule lives here (the CadencR and
+ * Frost overlay shadows live with their themes). Adding a variant? Give it a
+ * `--toast-tone` below, never a per-call style.
+ *
+ * Sonner injects its stylesheet after ours, so every rule here leads with
+ * `[data-sonner-toaster]` to out-rank its `[data-sonner-toast][data-styled]`
+ * rules by one attribute. Its dark-theme rules would tie and win; they never
+ * apply because the wrapper passes no `theme`.
+ * ------------------------------------------------------------------------- */
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  --toast-tone: var(--muted-foreground);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 14px 32px -14px rgb(0 0 0 / 0.34);
+  transition-timing-function: var(--ease-fluid);
+}
+/* Sonner's own focus indicator is a box-shadow, which the line above replaces. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:focus-visible {
+  outline: 2px solid var(--control-focus-ring);
+  outline-offset: 2px;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] {
+  --toast-tone: var(--acc-green);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] {
+  --toast-tone: var(--acc-red);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] {
+  --toast-tone: var(--acc-yellow);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] {
+  --toast-tone: var(--acc-cyan);
+}
+/* Errors and warnings ask for action, so their rim takes the tone too. */
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]:is([data-type="error"], [data-type="warning"]) {
+  border-color: color-mix(in oklab, var(--toast-tone) 40%, var(--border));
+}
+
+/* Icon well: the variant's tone, tinted, on a square sized to the title row. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  color: var(--toast-tone);
+  background: color-mix(in oklab, var(--toast-tone) 14%, transparent);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] svg {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+/* A settled promise toast keeps its loader mounted, only faded out. */
+[data-sonner-toaster] .sonner-loader[data-visible="false"] svg {
+  animation: none;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-content] {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Centers the 18px title line on the 24px icon well. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] + [data-content] {
+  padding-top: 3px;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-title] {
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: -0.005em;
+}
+/* Sonner's own description color is a light-theme grey. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] {
+  font-size: 12.5px;
+  line-height: 17px;
+  color: var(--muted-foreground);
+}
+
+/* Scope line (`scopedToastDescription`): which project — and conversation — an
+ * operation ran in. It heads the description so the title still sits beside
+ * the icon well. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .toast-scope {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  font-size: 11.5px;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .toast-scope-project {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--popover-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .toast-scope-feature {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .toast-scope-separator {
+  opacity: 0.6;
+}
+
+/* Archive progress (`lib/archive-progress-toast.tsx`): one line per cleanup
+ * step, its glyph toned like the toast variants. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-steps {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-steps svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  .archive-progress-steps
+  li
+  > span:first-of-type {
+  color: var(--popover-foreground);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] .archive-progress-step-status {
+  margin-left: auto;
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  .archive-progress-steps
+  [data-status="done"]
+  svg {
+  color: var(--acc-green);
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  .archive-progress-steps
+  :is([data-status="failed"], [data-status="blocked"], [data-status="interrupted"])
+  svg {
+  color: var(--acc-yellow);
+}
+
+/* Buttons. The action mirrors the `raised` Button variant (a control sitting
+ * on a popover); cancel is its ghost sibling. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  margin: 0;
+  padding: 0 9px;
+  border-radius: var(--radius-md);
+  transition:
+    opacity 400ms,
+    background-color 150ms ease-out,
+    color 150ms ease-out;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-action] {
+  border: 1px solid var(--border);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-cancel] {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  :is([data-action], [data-cancel]):hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  :is([data-button], [data-close-button]):focus-visible {
+  outline: 2px solid var(--control-focus-ring);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+/* A toast with a description or a cancel button moves its buttons to a
+ * right-aligned footer row (primary last), so the message keeps the full
+ * width instead of wrapping beside them. */
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]:has([data-description], [data-cancel]) {
+  flex-wrap: wrap;
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]:has([data-description], [data-cancel])
+  [data-content] {
+  flex-basis: 100%;
+}
+[data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]:has([data-description], [data-cancel])
+  [data-icon]
+  + [data-content] {
+  flex-basis: calc(100% - 34px);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-content] + [data-button] {
+  margin-left: auto;
+}
+
+/* Close: Sonner's corner badge, shown when the pointer or focus is on the
+ * toast. Without hover (touch) it stays visible, at a finger-sized 24px. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  width: 18px;
+  height: 18px;
+  border-color: var(--border);
+  background: var(--popover);
+  color: var(--muted-foreground);
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.5;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover {
+  border-color: var(--border);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+@media (hover: hover) {
+  [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+    opacity: 0;
+  }
+  /* Not on a toast hidden behind a collapsed stack (focus doesn't expand it). */
+  [data-sonner-toaster]
+    [data-sonner-toast][data-styled="true"]:not([data-expanded="false"][data-front="false"]):is(
+      :hover,
+      :focus-within
+    )
+    [data-close-button] {
+    opacity: 1;
+  }
+}
+@media (hover: none) {
+  [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+    width: 24px;
+    height: 24px;
+  }
+}

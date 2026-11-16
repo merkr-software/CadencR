@@ -9,6 +9,7 @@ import {
 } from "@tanstack/hotkeys";
 import type { UseHotkeyOptions } from "@tanstack/react-hotkeys";
 import { expandCharacterHotkey } from "@/lib/shortcuts/character-hotkeys";
+import { shellOwnsKeyEvent } from "@/lib/shortcuts/shell-keys";
 
 export type ShortcutKeys = string | string[];
 
@@ -52,6 +53,10 @@ function toTanStackOptions(options: ShortcutHotkeyOptions | undefined): UseHotke
   return {
     ...HOTKEY_DEFAULTS,
     ...tanStackOptions,
+    // Applied in `toHotkeyCallback` once the event is known to be ours, so a
+    // key left to the terminal (or an exact-key mismatch) keeps its default.
+    preventDefault: false,
+    stopPropagation: false,
     ignoreInputs: resolveIgnoreInputs(options),
   };
 }
@@ -82,9 +87,18 @@ function expandShortcutInput(keys: ShortcutKeys): ExpandedHotkey[] {
   );
 }
 
-function toHotkeyCallback(definition: ExpandedHotkey, callback: HotkeyCallback): HotkeyCallback {
+function toHotkeyCallback(
+  definition: ExpandedHotkey,
+  callback: HotkeyCallback,
+  options: ShortcutHotkeyOptions | undefined,
+): HotkeyCallback {
   return (event: KeyboardEvent, context: HotkeyCallbackContext) => {
+    // Optional Shift is already expanded explicitly for layout-produced glyphs.
+    if (event.shiftKey !== context.parsedHotkey.shift) return;
     if (definition.exactKeys && !definition.exactKeys.includes(event.key)) return;
+    if (shellOwnsKeyEvent(event)) return;
+    if (options?.preventDefault) event.preventDefault();
+    if (options?.stopPropagation) event.stopPropagation();
     callback(event, context);
   };
 }
@@ -104,12 +118,16 @@ export function useAppHotkeys(
     () =>
       hotkeys.map((definition) => ({
         hotkey: definition.hotkey as RegisterableHotkey,
-        callback: toHotkeyCallback(definition, (event, context) => {
-          callbackRef.current(event, context);
-        }),
+        callback: toHotkeyCallback(
+          definition,
+          (event, context) => {
+            callbackRef.current(event, context);
+          },
+          options,
+        ),
         options: tanStackOptions,
       })),
-    [hotkeys, tanStackOptions],
+    [hotkeys, options, tanStackOptions],
   );
 
   useTanStackHotkeys(definitions);

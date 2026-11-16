@@ -5,7 +5,7 @@
 //! the code they cover (`.claude/rules/inline-rust-tests.md`); only the
 //! scaffolding is shared, following `acp/runtime/test_support.rs`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
@@ -32,23 +32,29 @@ pub fn descriptor(value: serde_json::Value) -> ProviderDescriptor {
 /// Write an executable file into `dir` and return its absolute path, so a
 /// descriptor pointing at it resolves without a quarantine.
 pub fn runnable_binary(dir: &Path) -> String {
-    let path = dir.join("agent-bin");
-    std::fs::write(
-        &path,
-        br###"#!/bin/sh
+    let path = write_script(
+        dir,
+        "agent-bin",
+        r###"#!/bin/sh
 if [ "$1" = "models" ]; then
   printf '%s\n' '[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"fixture/default","options":[{"value":"fixture/default","name":"Fixture Default"}]}]'
   exit 0
 fi
 exit 0
 "###,
-    )
-    .expect("write test binary");
+    );
+    path.to_string_lossy().into_owned()
+}
+
+/// Write an executable shell script named `name` into `dir`.
+pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, body).expect("write test script");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .expect("mark test binary executable");
+            .expect("mark test script executable");
     }
-    path.to_string_lossy().into_owned()
+    path
 }

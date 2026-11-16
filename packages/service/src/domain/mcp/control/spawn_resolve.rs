@@ -29,6 +29,17 @@ pub(super) struct SpawnBranch {
     reuse_branch: Option<String>,
 }
 
+impl SpawnBranch {
+    /// Work in the existing worktree of `branch`.
+    pub(super) fn reuse_worktree(branch: String) -> Self {
+        Self {
+            mode: Some("reuse_worktree".to_string()),
+            base: None,
+            reuse_branch: Some(branch),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct SpawnRuntimeSelection {
     pub(super) model: Option<String>,
@@ -101,7 +112,7 @@ pub(super) async fn resolve_target_project(
         (None, None) => fetch_project_by_id(pool, source_project_id)
             .await?
             .ok_or_else(|| {
-                AppError::Internal(format!(
+                AppError::internal(format!(
                     "source session's project {source_project_id} no longer exists"
                 ))
             })?,
@@ -121,7 +132,7 @@ pub(super) async fn resolve_target_project(
     Ok(target)
 }
 
-async fn fetch_project_by_id(
+pub(super) async fn fetch_project_by_id(
     pool: &sqlx::SqlitePool,
     id: i64,
 ) -> Result<Option<TargetProject>, AppError> {
@@ -253,15 +264,14 @@ async fn effective_spawn_provider(
     if let Some(provider) = trimmed_optional(body.provider.as_deref()) {
         return provider;
     }
-    // Scope the default-provider cascade to the target project. Only inherit the
-    // caller's feature-level override when spawning inside the same project.
+    // Only inherit the caller's feature-level override when spawning inside the
+    // same project; otherwise the workspace's last-used provider applies.
     let feature_scope = (target_project.id == source.project_id).then_some(source.feature_id);
     match crate::domain::agents::resolve_selection(
         &state.read_pool,
         Some(std::path::Path::new(&target_project.path)),
         "session",
         feature_scope,
-        Some(target_project.id),
         None,
     )
     .await

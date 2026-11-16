@@ -1,10 +1,15 @@
 mod adapter_impl;
+mod auto_mode;
 mod background_agents;
 mod branching;
+mod bypass_permissions;
 mod catalog;
+mod cli_processes;
+pub(crate) mod config_dir;
 mod context_windows;
 pub mod custom_models;
 mod events;
+pub mod extensions;
 mod jsonl_surgery;
 mod model_alias;
 mod post_plan_approval;
@@ -14,8 +19,13 @@ mod prompt_receipts;
 pub(crate) mod question_answers;
 pub mod routes;
 mod runtime_error;
+mod scheduled_wakeup;
 mod session;
 mod slash_catalog;
+mod spawn;
+mod stop_escalation;
+mod subagents;
+pub mod updates;
 mod worktree_config;
 
 // Only referenced from this crate's test support; re-exported so the
@@ -40,11 +50,15 @@ pub struct ClaudeCodeAdapter {
     /// something to show before the CLI probe completes; replaced with the
     /// live CLI-reported list on first successful probe.
     cached_models: std::sync::OnceLock<std::sync::RwLock<Vec<ModelCatalogEntry>>>,
-    /// Serialises concurrent probes and tracks whether the cached list is
-    /// already authoritative (live from the CLI). Unlike `OnceCell`, this
-    /// lets failures be TTL-throttled and retried later — the UI would
-    /// otherwise be stuck on fallback aliases until service restart.
+    /// Tracks whether the cached list is already authoritative (live from
+    /// the CLI). Unlike `OnceCell`, this lets failures be TTL-throttled and
+    /// retried later — the UI would otherwise be stuck on fallback aliases
+    /// until service restart. Never held while the CLI is probed.
     probe_state: tokio::sync::Mutex<ProbeState>,
+    /// One model probe per profile env at a time: concurrent readers of the
+    /// same profile wait for its answer instead of spawning their own CLI.
+    model_probe_flights:
+        std::sync::OnceLock<crate::shared::keyed_locks::KeyedLocks<catalog::ModelProbeCacheKey>>,
     /// Cache of CLI built-in slash commands. Cwd-invariant, so one cache
     /// serves every session; per-cwd filesystem entries are scanned fresh.
     /// Same process-lifetime semantics as `cached_models` / `probe_state`.
@@ -53,9 +67,9 @@ pub struct ClaudeCodeAdapter {
     /// Context windows learned from `result.modelUsage`, keyed by the CLI's
     /// model id. The CLI advertises no window in its catalog or `init`, so
     /// this is the only way a model's window is known before its first
-    /// `result`. Same process-lifetime semantics as `cached_models`.
-    cached_context_windows:
-        std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, u64>>>,
+    /// `result`. Loaded from disk on first use and written back whenever a
+    /// window is learned, so it outlives the process (see `context_windows`).
+    cached_context_windows: std::sync::OnceLock<std::sync::RwLock<context_windows::LearnedWindows>>,
 }
 
 #[derive(Default)]
@@ -76,6 +90,7 @@ pub static CLAUDE_CODE_ADAPTER: ClaudeCodeAdapter = ClaudeCodeAdapter {
         failed_at: None,
         failure_message: None,
     }),
+    model_probe_flights: std::sync::OnceLock::new(),
     cached_slash_commands: std::sync::OnceLock::new(),
     slash_commands_probe_state: tokio::sync::Mutex::const_new(ProbeState {
         live: false,
@@ -111,6 +126,7 @@ mod test_support {
         ClaudeCodeAdapter {
             cached_models: std::sync::OnceLock::new(),
             probe_state: tokio::sync::Mutex::new(ProbeState::default()),
+            model_probe_flights: std::sync::OnceLock::new(),
             cached_slash_commands: std::sync::OnceLock::new(),
             slash_commands_probe_state: tokio::sync::Mutex::new(ProbeState::default()),
             cached_context_windows: std::sync::OnceLock::new(),

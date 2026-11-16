@@ -23,12 +23,13 @@ export const UnifiedAgentsFilterHelpDialog = memo(function UnifiedAgentsFilterHe
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Agent filter language</DialogTitle>
           <DialogDescription>
-            Type plain text to filter agent names. Add advanced filters with
-            <code>/key:value</code>. Quote values that contain spaces.
+            An empty filter shows every agent, the ones that need you first. Type plain text to
+            filter by name, and add <code>/key:value</code> filters to narrow further. Quote values
+            that contain spaces.
           </DialogDescription>
         </DialogHeader>
 
@@ -38,8 +39,11 @@ export const UnifiedAgentsFilterHelpDialog = memo(function UnifiedAgentsFilterHe
               Available keys
             </h3>
             <div className="overflow-hidden rounded-lg border border-border/80">
-              <HelpRow code="/last:5" detail="Agents active in the last 5 minutes." />
-              <HelpRow code="/last:all" detail="All agents." />
+              <HelpRow
+                code="/last:5"
+                detail="Only agents active in the last 5 minutes (plus pinned and busy ones)."
+              />
+              <HelpRow code="/last:all" detail="Every agent. The default." />
               <HelpRow
                 code='/project:"My Project"'
                 detail="Filter by project. Use | for multiple projects."
@@ -49,6 +53,10 @@ export const UnifiedAgentsFilterHelpDialog = memo(function UnifiedAgentsFilterHe
                 detail="Hide agents whose name contains any of these. Use | for multiple."
               />
               <HelpRow code="/pin:true" detail="Show only pinned agents." />
+              <HelpRow
+                code="/sort:attention"
+                detail="Waiting on you, failed, working, unread, then the rest. The default."
+              />
               <HelpRow code="/sort:created" detail="Newest created agent first." />
               <HelpRow code="/sort:-created" detail="Oldest created agent first." />
               <HelpRow code="/sort:message" detail="Newest message first." />

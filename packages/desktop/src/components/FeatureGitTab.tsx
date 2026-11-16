@@ -1,11 +1,13 @@
 import { memo, useCallback, useMemo } from "react";
 import type { GitViewMode } from "./diff/GitTabToggle";
-import { useListDiffComments, type CommentThread, type PrSummary } from "@/api/generated";
+import { useListDiffComments, type CommentThread, type PrStatusSnapshot } from "@/api/generated";
 import {
   useSendPendingComments,
   type UseSendPendingCommentsResult,
 } from "@/hooks/useSendPendingComments";
 import { usePrReviewThreads, type PrReviewThreads } from "@/hooks/usePrReviewThreads";
+import { useAgentPathMapper } from "@/hooks/useGitPathPrefix";
+import type { AgentPathMapper } from "@/lib/git-paths";
 import { GitTabLayout } from "./diff/GitTabLayout";
 import type { GitSendCommentsBarProps } from "./diff/GitSendCommentsBar";
 import { useGitTabPanes } from "./diff/useGitTabPanes";
@@ -18,11 +20,13 @@ import {
   selectGitUncommittedCount,
   useGitStatusStore,
 } from "@/stores/useGitStatusStore";
-import { prIndicatorTone } from "@/components/PrStatusIndicators";
+import { mostUrgentTone, prIndicatorTone } from "@/components/PrStatusIndicators";
+import { otherOpenPrs, threadPrs, viewedThreadPr } from "@/lib/thread-prs";
 import { GitUpdateRecoveryRegion } from "./git-actions/GitUpdateRecoveryBanner";
 import { useGitKeyboardController } from "./diff/useGitKeyboardController";
 import { useGitViewShortcuts } from "./diff/useGitViewShortcuts";
 import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
+import { selectViewedPr, useViewedPrStore } from "@/stores/viewed-pr-store";
 import { usePrAttention } from "./diff/usePrAttention";
 
 interface FeatureGitTabProps {
@@ -64,16 +68,33 @@ function useSendBarProps(
   );
 }
 
+/**
+ * The PR view reads the proposal picked in its tabs; the branch diff always
+ * overlays the current branch's, the only one whose lines it draws.
+ */
 function useFeatureGitReviews(
   featureId: number,
   viewMode: GitViewMode,
-  pr: PrSummary | null | undefined,
+  prStatus: PrStatusSnapshot | undefined,
   onSendComments: ((message: string) => void) | undefined,
-): { reviewThreads: PrReviewThreads; reviews: GitTabReviews } {
+): {
+  reviewThreads: PrReviewThreads;
+  reviews: GitTabReviews;
+  toAgentPath: AgentPathMapper | undefined;
+} {
+  // Comments name repository-relative paths; the agent runs in the feature's directory.
+  const toAgentPath = useAgentPathMapper(featureId);
+  const picked = useViewedPrStore(selectViewedPr(featureId));
+  const viewed = viewMode === "pr" ? viewedThreadPr(prStatus, picked) : undefined;
+  const pr = viewMode === "pr" ? viewed?.pr : prStatus?.pr;
+  const otherPrNumber = viewed && !viewed.isCurrent ? viewed.pr.number : undefined;
   const visible = (viewMode === "pr" || viewMode === "vs-target") && pr != null;
-  const reviewThreads = usePrReviewThreads(featureId, visible);
-  const reviews = useGitTabReviews(viewMode, pr, onSendComments, reviewThreads);
-  return useMemo(() => ({ reviewThreads, reviews }), [reviewThreads, reviews]);
+  const reviewThreads = usePrReviewThreads(featureId, visible, otherPrNumber);
+  const reviews = useGitTabReviews(viewMode, pr, onSendComments, reviewThreads, toAgentPath);
+  return useMemo(
+    () => ({ reviewThreads, reviews, toAgentPath }),
+    [reviewThreads, reviews, toAgentPath],
+  );
 }
 
 function useFeatureGitShortcuts(
@@ -163,17 +184,24 @@ export const FeatureGitTab = memo(function FeatureGitTab({
   const prStatus = usePrStatusStore(selectPrStatus(featureId));
   const panes = useGitTabPanes(featureId, view.viewMode, targetBranch);
   const prAttention = usePrAttention(prStatus, panes.isPr);
-  const { reviewThreads, reviews } = useFeatureGitReviews(
+  const otherPrs = useMemo(() => {
+    const prs = threadPrs(prStatus);
+    return otherOpenPrs(
+      prs,
+      prs.find((entry) => entry.isCurrent),
+    );
+  }, [prStatus]);
+  const { reviewThreads, reviews, toAgentPath } = useFeatureGitReviews(
     featureId,
     view.viewMode,
-    prStatus?.pr,
+    prStatus,
     onSendComments,
   );
   const drafts = useSendPendingComments({
     featureId,
     pendingComments,
+    toAgentPath,
     onSend: onSendComments,
-    verb: "Send",
   });
   const handleViewReviewThread = useCallback(
     (thread: CommentThread): void => {
@@ -198,6 +226,8 @@ export const FeatureGitTab = memo(function FeatureGitTab({
         prNumber: prStatus?.pr?.number,
         prTone: prIndicatorTone(prStatus),
         prAttention,
+        prOtherCount: otherPrs.length,
+        prOtherTone: mostUrgentTone(otherPrs),
         uncommittedCount,
         conflictCount,
         pendingViewMode: view.pendingViewMode,

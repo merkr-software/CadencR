@@ -1,0 +1,73 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--logpath=$CADENCR_LSP_CACHE_ROOT/log",
+        "--metapath=$CADENCR_LSP_CACHE_ROOT/meta"
+      ],
+      "description": "Lua code intelligence using LuaLS 3.19.2 with its bundled runtime scripts and metadata.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-lua-language-server-v0.1.0/lsp-lua-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "bin/lua-language-server",
+            "entry_sha256": "b3e587b384de7fb79a3a5bafc9b00fe2433d7f8011b9f80a1be98b08d5a40cc1",
+            "entry_size": 1070560,
+            "macos_min_version": "11.0.0",
+            "runtime": "native",
+            "sha256": "570a204b5e8cda39649da5d3da3304f81bb2f85725c977f9c1523b9af9794b13",
+            "size": 3231005
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-lua-language-server-v0.1.0/lsp-lua-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "bin/lua-language-server",
+            "entry_sha256": "2c7b9a8fe2fe8555af5640bb45a2479f4f28573a27a4a86483e5bcfab7ab768a",
+            "entry_size": 1138088,
+            "macos_min_version": "10.12.0",
+            "runtime": "native",
+            "sha256": "20f68798d1160f2a581387b17b6c0dbc43ae8d88db5b92f17225edc7a0df2980",
+            "size": 2310756
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-lua-language-server-v0.1.0/lsp-lua-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "bin/lua-language-server",
+            "entry_sha256": "1ea9f1063daa2d136af6fcb95f4354e227fc1a55482a101a84fd02907ff1c96d",
+            "entry_size": 2022808,
+            "runtime": "native",
+            "sha256": "50cc58e359b6b52aa92b2763ca0ce7a9b5a967f189a494f1f319fdea573d879f",
+            "size": 3633120
+          }
+        }
+      },
+      "id": "lua-language-server",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "lua"
+          ],
+          "filenames": [],
+          "id": "lua"
+        }
+      ],
+      "license": "MIT",
+      "name": "Lua language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        ".luarc.json",
+        ".luarc.jsonc",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

@@ -1,20 +1,22 @@
 import { PaperclipIcon } from "lucide-react";
-import { useMemo, type ReactElement, type ReactNode } from "react";
+import { useMemo, useRef, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Markdown } from "@/components/Markdown";
 import { UserMessageImages } from "@/components/UserMessageImages";
-import { GeneratedBySessionBadge } from "@/components/GeneratedBySessionBadge";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { cn } from "@/lib/utils";
 import { parseUserMessageContent, type ParsedPromptAttachment } from "@/types/agent-types";
-import type { AgentMessageOrigin } from "@/api/generated";
 import type { PromptDeliveryState } from "@/types/agent";
 
 interface UserMessageBlockProps {
   content: string;
   deliveryState?: PromptDeliveryState;
-  origin?: AgentMessageOrigin | null;
-  /** On-hover action row (Copy / Fork / Rewind) rendered under the bubble. */
-  actions?: ReactNode;
+  /** Who sent the message when it is not the person: a tab on the bubble's top edge. */
+  senderTab?: ReactNode;
+  /**
+   * On-hover action row (Copy / Fork / Rewind) rendered under the bubble.
+   * Receives the bubble so actions can serialize the rendered message.
+   */
+  renderActions?: (bubbleRef: RefObject<HTMLDivElement | null>) => ReactNode;
 }
 
 const DELIVERY_BUBBLE_STYLES: Record<PromptDeliveryState, string> = {
@@ -27,9 +29,10 @@ const DELIVERY_BUBBLE_STYLES: Record<PromptDeliveryState, string> = {
 export function UserMessageBlock({
   content,
   deliveryState,
-  origin,
-  actions,
+  senderTab,
+  renderActions,
 }: UserMessageBlockProps): ReactElement {
+  const bubbleRef = useRef<HTMLDivElement>(null);
   const {
     text: textContent,
     images,
@@ -38,22 +41,43 @@ export function UserMessageBlock({
   const isPendingDelivery = deliveryState === "pending_agent";
   const isUnknownDelivery = deliveryState === "delivery_unknown";
   const isFailedDelivery = deliveryState === "delivery_failed";
-  const isGenerated = origin?.originKind === "session_generated";
+  const surface = deliveryState
+    ? DELIVERY_BUBBLE_STYLES[deliveryState]
+    : "border-primary/30 bg-primary/10";
 
   return (
-    <div className="group/usermsg my-1 flex flex-col items-end">
-      <div
-        data-testid="user-message-bubble"
-        data-prompt-delivery-state={deliveryState}
-        className={cn(
-          "max-w-[80%] rounded-md border px-3 py-1.5 text-sm transition-colors duration-500 ease-[var(--ease-fluid)]",
-          deliveryState ? DELIVERY_BUBBLE_STYLES[deliveryState] : "border-primary/30 bg-primary/10",
+    <div className="group/usermsg relative flex flex-col items-end">
+      {/*
+        A sender tab sits on the bubble's top-right edge in the bubble's own
+        border and tint, their right sides running on as one; the bubble
+        stretches to at least the tab's width.
+      */}
+      <div className="flex w-fit max-w-[80%] min-w-0 flex-col items-end">
+        {senderTab && (
+          <div
+            data-testid="user-message-sender-tab"
+            className={cn(
+              "min-w-0 max-w-full rounded-t-md border border-b-0 px-2 py-1 transition-colors duration-500 ease-[var(--ease-fluid)]",
+              surface,
+            )}
+          >
+            {senderTab}
+          </div>
         )}
-      >
-        <Markdown content={textContent} className="user-message-markdown" />
-        {images.length > 0 && <UserMessageImages images={images} />}
-        {attachments.length > 0 && <AttachmentFileList attachments={attachments} />}
-        {isGenerated && <GeneratedBySessionBadge origin={origin} />}
+        <div
+          ref={bubbleRef}
+          data-testid="user-message-bubble"
+          data-prompt-delivery-state={deliveryState}
+          className={cn(
+            "self-stretch rounded-md border px-3 py-1.5 text-sm transition-colors duration-500 ease-[var(--ease-fluid)]",
+            surface,
+            senderTab && "rounded-tr-none",
+          )}
+        >
+          <Markdown content={textContent} className="user-message-markdown" />
+          {images.length > 0 && <UserMessageImages images={images} />}
+          {attachments.length > 0 && <AttachmentFileList attachments={attachments} />}
+        </div>
       </div>
       {/*
         Collapse the pending-receipt row on exit so the surrounding stream
@@ -82,7 +106,7 @@ export function UserMessageBlock({
           <span>Message was not delivered to the agent</span>
         </div>
       )}
-      {actions}
+      {renderActions?.(bubbleRef)}
     </div>
   );
 }

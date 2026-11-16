@@ -3,7 +3,6 @@ import type { AgentSessionProps } from "./types";
 export function useAgentSessionMetaVisibility(
   props: AgentSessionProps,
   isClaudeProvider: boolean,
-  isNarrow: boolean,
   shouldShowPromptBar: boolean,
 ) {
   const {
@@ -29,21 +28,18 @@ export function useAgentSessionMetaVisibility(
     !!onModelChange ||
     !!props.sessionConfigControls ||
     showClaudeProfileSelector ||
-    !!showReadOnlyModel ||
-    (showWorktreeChip && !isNarrow);
-  const hasSecondaryMeta =
+    !!showReadOnlyModel;
+  const hasUtilityMeta =
     showWorktreeChip ||
     showAutoScrollChip ||
     !!(todos && todos.length > 0) ||
-    showClaudeProfileSelector ||
     !!(runtimeSessionId && onStop);
-  const hasMeta = hasInlineMeta || (hasSecondaryMeta && !isNarrow);
+  const hasMeta = hasInlineMeta || hasUtilityMeta;
 
   return {
     showWorktreeChip,
     showClaudeProfileSelector,
     showAutoScrollChip,
     hasMeta,
-    hasSecondaryMeta,
   };
 }

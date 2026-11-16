@@ -1,4 +1,4 @@
-import { Archive, CalendarClock, LoaderCircle, Play } from "lucide-react";
+import { LoaderCircle, Play } from "lucide-react";
 import {
   ArchivedCleanupRunStatus,
   useRunArchivedCleanup,
@@ -6,14 +6,13 @@ import {
 } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
+import { useSettingDraft, type SettingDraft } from "@/hooks/useSettingDraft";
 import { toastError } from "@/lib/api-errors";
 import { useStorageMaintenanceStore } from "@/stores/storage-maintenance-store";
-import { IconTile } from "./IconTile";
-import { SettingsCard } from "./SettingsCard";
+import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
-import { SettingsSection } from "./SettingsSection";
-import { SettingsSubsection } from "./SettingsSubsection";
+import { SettingsPageSection } from "./SettingsPageSection";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 
 /**
@@ -28,6 +27,8 @@ const DEFAULT_ENABLED = false;
 const DEFAULT_DAYS = 30;
 const MIN_DAYS = 1;
 const MAX_DAYS = 365;
+/** How long typing must pause before the retention window is saved. */
+const DAYS_SAVE_DEBOUNCE_MS = 500;
 
 /**
  * Settings → Storage. Controls the one maintenance pass that discards anything.
@@ -37,11 +38,10 @@ const MAX_DAYS = 365;
  * exposed as switches: there is no reason anyone would turn them off.
  */
 export function StorageSection(): React.JSX.Element {
-  // Storage policy changes take effect only after the backend confirms them.
-  // Unlike purely visual preferences, these controls must never present a
-  // retention policy that has not actually been persisted yet.
-  const enabledSetting = useDebouncedSetting(ENABLED_KEY, 0, { immediateCache: false });
-  const daysSetting = useDebouncedSetting(DAYS_KEY, 0, { immediateCache: false });
+  // Storage policy changes take effect only after the backend confirms them;
+  // the days field marks its unsaved draft with a spinner until then.
+  const enabledSetting = useSetting(ENABLED_KEY);
+  const daysSetting = useSettingDraft(DAYS_KEY, DAYS_SAVE_DEBOUNCE_MS);
 
   const enabled = enabledSetting.value === null ? DEFAULT_ENABLED : enabledSetting.value === "true";
   const settingsBusy =
@@ -51,62 +51,46 @@ export function StorageSection(): React.JSX.Element {
     daysSetting.isSaving;
 
   return (
-    <SettingsSection id="storage" title="Storage" subtitle="Retention · Archived features">
-      <SettingsCard>
-        <SettingsSubsection padded={false}>
-          <SettingsSwitchRow
-            icon={<Archive className="size-4" />}
-            iconTint="cyan"
-            label={
-              <span className="inline-flex items-center gap-1.5">
-                Compact archived features
-                {enabledSetting.isSaving && (
-                  <LoaderCircle
-                    aria-label="Saving storage policy"
-                    className="size-3.5 animate-spin"
-                  />
-                )}
-              </span>
-            }
-            description="Opt in to shortening long Bash output after a thread has been quiet for the configured period. The feature, its sessions, and the conversation are kept. No rows are deleted, and what you and the agent wrote is never touched."
-            checked={enabled}
-            onCheckedChange={(checked) => enabledSetting.setValue(checked ? "true" : "false")}
-            disabled={enabledSetting.isLoading || enabledSetting.isSaving}
-          />
-          <SettingsRow
-            divided
-            align="start"
-            icon={
-              <IconTile tint="orange">
-                <CalendarClock className="size-4" />
-              </IconTile>
-            }
-            label="Wait before compacting"
-            description="How long an archived feature must remain archived and have no new thread activity before compaction. New activity or restoring it resets the clock."
-            control={
-              <RetentionDaysControl
-                value={daysSetting.value}
-                onChange={daysSetting.setValue}
-                disabled={!enabled || daysSetting.isLoading || daysSetting.isSaving}
-                saving={daysSetting.isSaving}
-              />
-            }
-          />
-          <SettingsRow
-            divided
-            align="start"
-            icon={
-              <IconTile tint="green">
-                <Play className="size-4" />
-              </IconTile>
-            }
-            label="Run cleanup now"
-            description="Check eligible archived conversations immediately instead of waiting for the next automatic sweep. The saved retention window and all safety checks still apply."
-            control={<ManualCleanupControl enabled={enabled} settingsBusy={settingsBusy} />}
-          />
-        </SettingsSubsection>
-      </SettingsCard>
-    </SettingsSection>
+    <SettingsPageSection pageId="storage">
+      <SettingsGroup title="Archived features">
+        <SettingsSwitchRow
+          label={
+            <span className="inline-flex items-center gap-1.5">
+              Compact archived features
+              {enabledSetting.isSaving && (
+                <LoaderCircle
+                  aria-label="Saving storage policy"
+                  className="size-3.5 animate-spin"
+                />
+              )}
+            </span>
+          }
+          description="Shorten long Bash output once an archived thread has been quiet for the period below. The feature, its sessions and the conversation are kept: no rows are deleted, and what you and the agent wrote is never touched."
+          checked={enabled}
+          onCheckedChange={(checked) => enabledSetting.setValue(checked ? "true" : "false")}
+          disabled={enabledSetting.isLoading || enabledSetting.isSaving}
+        />
+        <SettingsRow
+          divided
+          align="start"
+          label="Wait before compacting"
+          description="How long an archived feature must remain archived and have no new thread activity before compaction. New activity or restoring it resets the clock."
+          control={
+            <RetentionDaysControl
+              setting={daysSetting}
+              disabled={!enabled || daysSetting.isLoading}
+            />
+          }
+        />
+        <SettingsRow
+          divided
+          align="start"
+          label="Run cleanup now"
+          description="Check eligible archived conversations immediately instead of waiting for the next automatic sweep. The saved retention window and all safety checks still apply."
+          control={<ManualCleanupControl enabled={enabled} settingsBusy={settingsBusy} />}
+        />
+      </SettingsGroup>
+    </SettingsPageSection>
   );
 }
 
@@ -164,18 +148,20 @@ function runResultMessage(response: ArchivedCleanupRunResponse): string {
   }
 }
 
+/**
+ * The field shows what the user types as a draft, apart from the saved window:
+ * it isn't the retention policy until the backend confirms it, and a failed
+ * save drops it for the saved value. The spinner stays while either is pending.
+ */
 function RetentionDaysControl({
-  value,
-  onChange,
+  setting,
   disabled,
-  saving,
 }: {
-  value: string | null;
-  onChange: (next: string) => void;
+  setting: SettingDraft;
   disabled: boolean;
-  saving: boolean;
 }): React.JSX.Element {
-  const days = clampDays(value === null ? DEFAULT_DAYS : Number.parseInt(value, 10));
+  const shown = setting.draft ?? setting.value;
+  const days = clampDays(shown === null ? DEFAULT_DAYS : Number.parseInt(shown, 10));
 
   return (
     <div className="flex items-center gap-2">
@@ -186,11 +172,13 @@ function RetentionDaysControl({
         disabled={disabled}
         value={days}
         aria-label="Days before an archived feature is compacted"
-        onChange={(event) => onChange(String(clampDays(Number.parseInt(event.target.value, 10))))}
+        onChange={(event) =>
+          setting.setDraft(String(clampDays(Number.parseInt(event.target.value, 10))))
+        }
         className="h-7 w-16 text-center disabled:opacity-50"
       />
       <span className="text-xs text-muted-foreground">days</span>
-      {saving && (
+      {setting.isSaving && (
         <LoaderCircle aria-label="Saving retention window" className="size-3.5 animate-spin" />
       )}
     </div>

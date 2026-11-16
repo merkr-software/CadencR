@@ -1,0 +1,113 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "lsp-proxy"
+      ],
+      "description": "JavaScript, TypeScript, JSON and CSS linting and formatting using Biome 2.6.5.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-biome-v0.1.0/lsp-biome-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "biome",
+            "entry_sha256": "fd40c9c679c7a75a8fcef8a4883ab50ef1b8663995c5b3069e26922473671899",
+            "entry_size": 84469728,
+            "macos_min_version": "11.0.0",
+            "runtime": "native",
+            "sha256": "53a7be45e9945e9442cdffc05e0ac4b7e30a2202e926846889ceba96a3bb2723",
+            "size": 30504094
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-biome-v0.1.0/lsp-biome-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "biome",
+            "entry_sha256": "29ecb9534d3c31a13a1fbd7ae391b00f215aa27a7289d610d7f1fde6465b09a6",
+            "entry_size": 88028248,
+            "macos_min_version": "10.12.0",
+            "runtime": "native",
+            "sha256": "346482d79df142b87c2248145e111d1860ca0a5ea2d6c3f3677bc405b073130a",
+            "size": 32392582
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-biome-v0.1.0/lsp-biome-0.1.0-linux-x86_64.tar.gz",
+            "entry": "biome",
+            "entry_sha256": "0653fd798e50565efac8b1958c9a2786fada55cc6c362b7da4f16efff8dd30d8",
+            "entry_size": 96252088,
+            "runtime": "native",
+            "sha256": "d323cd9d5955c383b62c821146fbe71919d8f7196c4f5f5e1e52d41ed8fbfc21",
+            "size": 33459526
+          }
+        }
+      },
+      "id": "biome",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "js",
+            "mjs",
+            "cjs"
+          ],
+          "filenames": [],
+          "id": "javascript"
+        },
+        {
+          "extensions": [
+            "jsx"
+          ],
+          "filenames": [],
+          "id": "javascriptreact"
+        },
+        {
+          "extensions": [
+            "ts",
+            "mts",
+            "cts"
+          ],
+          "filenames": [],
+          "id": "typescript"
+        },
+        {
+          "extensions": [
+            "tsx"
+          ],
+          "filenames": [],
+          "id": "typescriptreact"
+        },
+        {
+          "extensions": [
+            "json",
+            "jsonc"
+          ],
+          "filenames": [],
+          "id": "json"
+        },
+        {
+          "extensions": [
+            "css"
+          ],
+          "filenames": [],
+          "id": "css"
+        }
+      ],
+      "license": "MIT OR Apache-2.0",
+      "name": "Biome",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "linter",
+      "root_markers": [
+        "biome.json",
+        "biome.jsonc",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

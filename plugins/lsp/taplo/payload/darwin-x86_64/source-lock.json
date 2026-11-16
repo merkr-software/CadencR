@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "id": "taplo",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "taplo",
+  "target": "darwin-x86_64",
+  "sources": [
+    {
+      "name": "taplo",
+      "version": "0.10.0",
+      "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz",
+      "sha256": "898122cde3a0b1cd1cbc2d52d3624f23338218c91b5ddb71518236a4c2c10ef2",
+      "destination": ".",
+      "expanded_size": 11367780,
+      "files": [
+        {
+          "path": "taplo",
+          "sha256": "9fd7a2872ea154df61a2c7e9ca69fc19ac08e29f2e2dc2f866e299bdc789c1a1",
+          "size": 11367780,
+          "mode": "100755"
+        }
+      ]
+    },
+    {
+      "name": "tamasfe/taplo-LICENSE",
+      "version": "0.10.0",
+      "url": "https://raw.githubusercontent.com/tamasfe/taplo/0.10.0/LICENSE",
+      "sha256": "b23690ab205e06bf09725ef88e0b321175cbc2dd4d9f8ec7f7cd0577302c244d",
+      "destination": ".",
+      "expanded_size": 1070,
+      "files": [
+        {
+          "path": "licenses/LICENSE",
+          "sha256": "b23690ab205e06bf09725ef88e0b321175cbc2dd4d9f8ec7f7cd0577302c244d",
+          "size": 1070,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

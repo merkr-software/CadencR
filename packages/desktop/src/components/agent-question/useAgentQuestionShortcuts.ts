@@ -1,6 +1,6 @@
 import { useScopedHotkeys } from "@/hooks/useScopedHotkeys";
 import { useScopedShortcut } from "@/hooks/useShortcut";
-import { agentQuestionOptionValue, type AgentQuestion } from "./types";
+import { agentQuestionOptionValue, type AgentQuestion } from "@/types/agent-question";
 
 interface UseAgentQuestionShortcutsParams {
   open: boolean;

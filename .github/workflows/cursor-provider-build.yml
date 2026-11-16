@@ -1,0 +1,95 @@
+name: Build and qualify Cursor release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["release/cursor-*"]
+    tags: ["plugins/provider-cursor/v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native Cursor connector (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-aarch64
+            runner: macos-26
+          - target: darwin-x86_64
+            runner: macos-15-intel
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+    env:
+      pnpm_config_verify_deps_before_run: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Enable pnpm and install pinned Rust toolchain
+        run: |
+          corepack enable
+          rustup toolchain install
+      - name: Test native connector
+        run: pnpm rust -- test --locked -p cadencr-plugin-provider-cursor
+      - name: Build distribution payload
+        run: node plugins/providers/cursor/scripts/package.mjs --directory "$RUNNER_TEMP/cursor-payload"
+      - name: Exercise exact distribution executable with scripted Cursor CLI
+        env:
+          TARGET: ${{ matrix.target }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 plugins/providers/cursor/scripts/qualify.py \
+            --binary "$RUNNER_TEMP/cursor-payload/bin/provider" \
+            --target "$TARGET" --source-commit "$SOURCE_COMMIT" \
+            --output "$RUNNER_TEMP/cursor-payload/qualification.json"
+      # No credentials, environment, signing or publication in this workflow.
+      # The protected author workflow binds each artifact to this exact run/SHA.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cursor-native-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/cursor-payload/
+          if-no-files-found: error
+          retention-days: 30
+
+  prepare:
+    name: Prepare inert release candidate
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cursor-native-*-${{ github.sha }}
+          path: ${{ runner.temp }}/cursor-native
+      - name: Package and validate using the reviewed released CLI
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          sh tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
+            scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null
+          python3 scripts/cursor_release_prepare.py \
+            --input "$RUNNER_TEMP/cursor-native" --output "$RUNNER_TEMP/cursor-candidate" \
+            --source-repo "$GITHUB_WORKSPACE" --source-commit "$SOURCE_COMMIT" \
+            --cli "$RUNNER_TEMP/cursor-cli/cadencr"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cursor-release-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/cursor-candidate/
+          if-no-files-found: error
+          retention-days: 30

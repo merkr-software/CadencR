@@ -1,104 +1,62 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "The IDE for the era of agents"
-description: "What CadencR is, why it feels different from traditional IDEs and agent CLIs, and how to think about work inside it."
+description: "How projects, conversations, agents, and worktrees fit together."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import DocCallout from "@/components/docs/DocCallout.astro";
-import conceptImage from "@/assets/docs/concept.png";
+import pageImage from "@/assets/docs/v0.13.0/concept.png";
 
-CadencR exists for the gap between **"I can ask an agent to help"** and **"I can actually finish this piece of work without losing context."**
-
-A classic IDE is great at editing. An agent CLI like **Claude**, **Codex**, or **OpenCode** is great at doing focused work in the terminal. Real work usually needs both, plus a way to keep files, commands, Git, and multiple agent attempts organized in one place.
+CadencR brings local coding agents, files, Git, a terminal, and a browser into one workspace. Use Claude Code, Codex, OpenCode, Cursor (through its marketplace provider plugin), or a local ACP connector through the same conversation and review surfaces.
 
 <DocScreenshot
-  src={conceptImage}
-  alt="CadencR concept — a feature workspace with the brief, agent sessions, files, terminal, and Git in one place"
-  caption="A feature workspace brings your brief, agent sessions, files, terminal, and Git into one place."
+  src={pageImage}
+  alt="An example conversation, its project, and the surrounding workspace in CadencR v0.13.0."
+  caption="An example conversation, its project, and the surrounding workspace in CadencR v0.13.0."
   bordered={false}
+  rounded
+  elevated
 />
 
-## What CadencR is
+## The pieces of a workspace
 
-CadencR is a desktop IDE for agent-driven work.
+| Part                             | What it holds                                               | What you do there                                              |
+| -------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
+| Project                          | A registered folder, project preferences, and conversations | Choose the repository or folder you want to work on            |
+| Conversation / feature workspace | One task, its agent history, and its working context        | Ask for work, inspect the result, and continue the same thread |
+| Agent session                    | The provider runtime behind a conversation                  | Select a provider, model, profile, and supported controls      |
+| Worktree                         | A Git checkout used by the task                             | Keep independent edits on separate branches and folders        |
+| Panes                            | Agent, Editor, Terminal, Browser, and Git                   | Keep the conversation beside the evidence you are reviewing    |
 
-That means it is built around a simple idea: **a task should have a home**.
+The interface still uses **feature** in some controls. A feature can be a fix, review, investigation, documentation update, or another focused task.
 
-In CadencR, that home is usually a **feature workspace**. Instead of starting from a blank chat box and hoping you remember where everything went, you get a place where the work stays organized:
+## Start with one task
 
-- the goal you are working on
-- one or more agent **sessions** trying to help
-- the **editor** for checking files and diffs
-- the **terminal** for the moments where a human still needs to step in directly
-- **Git** context so changes are visible and reviewable
+1. Register a project folder.
+2. Create a conversation and describe the result you want.
+3. Check the selected provider, model, and branch/worktree behavior before sending.
+4. Inspect the files and Git diff, run checks, and answer any requests from the agent.
+5. Commit or continue once you have reviewed the result.
 
-The result feels less like "using a tool" and more like **running a project with very fast assistants**.
+New conversations start with the provider and model from your last accepted **manual** prompt across projects. An explicit conversation override still takes priority. Other controls depend on the provider and model you select.
 
-## Why not just use an IDE or an agent CLI?
+## Work in parallel deliberately
 
-Because shipping work is not just editing files, and it is not just running one smart terminal session either.
+Separate worktrees let independent agents edit different checkouts. You can also reuse a worktree when two conversations need to inspect the same uncommitted work. Reuse means they share files; it does not create another copy.
 
-| Tool                                | Great at                                          | Gets awkward when                                                                                                  |
-| ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Plain IDE                           | Editing code, browsing files, running commands    | You want several agent attempts, session context, and Git-aware workflows without stitching it together yourself   |
-| Agent CLI (Claude, Codex, OpenCode) | Fast agent-driven work in the terminal            | You want a clearer home for sessions, files, diffs, review, and parallel work across tasks                         |
-| CadencR                             | Keeping agent work attached to the actual project | You still need to make decisions, but at least the work is not scattered across panes, terminals, and memory alone |
+An agent can delegate through [MCP & orchestration](../mcp/). The sidebar shows related conversations, requests, and unread replies so you can follow the work across projects.
 
-What makes CadencR different is not that it "has an agent."
+## Local work and remote access
 
-It is that the agent work is attached to the work itself. Instead of living only inside an editor or only inside a terminal session, it becomes part of a workspace where you can inspect files, compare attempts, run commands, and see what changed without jumping across several tools.
+Agents and workspace state run on your host machine. Optional [remote access](../remote-access/) pairs another device with that host. The host must remain running for agent work, schedules, and remote control.
 
-<DocCallout title="Important" variant="tip">
-  CadencR is not trying to replace your judgment. It is trying to make your judgment easier by
-  keeping the useful evidence in one place.
-</DocCallout>
+A worktree organizes files. The provider's access mode controls permissions and sandboxing; a worktree itself does not restrict filesystem or network access.
 
-## How work is organized here
+## Next steps
 
-Here is the mental model that helps most new users:
-
-| Part                  | Think of it as                 | Why it matters                                                                     |
-| --------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
-| **Feature workspace** | The room for one piece of work | Keeps the task, context, and outcomes together                                     |
-| **Session**           | One attempt by one agent       | Lets you compare directions instead of betting everything on a single conversation |
-| **Editor**            | Your inspection window         | Open files, review diffs, and stay close to the real project                       |
-| **Terminal**          | The manual override            | Run commands, check output, or do the little human fix an agent missed             |
-| **Git**               | The confidence layer           | See what changed and keep experiments from becoming soup                           |
-| **Multiple agents**   | Parallel coworkers             | Try different approaches without losing track of who did what                      |
-
-A good default way to think about it is:
-
-1. Create a **feature workspace** for the thing you want done.
-2. Start a **session** with an agent.
-3. Use the **editor** to inspect what it touched.
-4. Use the **terminal** when the job needs a command, a check, or a small human nudge.
-5. Use **Git** to review the result and keep the work tidy.
-6. If one agent goes in the wrong direction, start another **session** instead of forcing the same thread to do everything.
-
-That last step is underrated.
-
-## What kind of user benefits most
-
-CadencR is especially helpful for:
-
-- people who like the speed of AI help but hate tab chaos
-- developers who want something more structured than a plain IDE plus terminal juggling
-- lower-confidence coders who want more structure while they learn
-- power users who want to run multiple agent attempts without mixing them together
-- people who like agent CLIs but want more visibility around sessions, diffs, and task organization
-- anyone who wants the app to feel more structured and predictable
-
-You do **not** need to be advanced with Git or the terminal to get value from it. If you can describe the work, inspect what changed, and make a yes-or-no call, you already have the right shape of skill.
-
-## Related docs
-
-If you want the tour after the big idea, go here next:
-
-- [Workspace pages](../workspace-pages/) for a guided tour of the main surfaces
-- [Feature workspace](../feature-workspace/) for the core home base concept
-- [Session view](../session-view/) for understanding one agent run at a time
-- [Editor](../editor/) for reviewing files and diffs
-- [Terminal](../terminal/) for the built-in command line
-- [Git in CadencR](../git/) for the confidence-building part
-- [Prompt](../prompting/) for asking agents clearly and giving them useful direction
+- [Workspace pages](../workspace-pages/) — find each surface.
+- [Prompt](../prompting/) — provide context and choose the runtime.
+- [Worktrees](../worktrees/) — choose isolation or reuse.
+- [Providers](../providers/) — configure installed CLIs and local connectors.

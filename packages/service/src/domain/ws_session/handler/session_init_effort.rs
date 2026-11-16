@@ -12,7 +12,7 @@ pub(super) async fn resolve(
     effective_model: Option<&str>,
     payload_thinking_effort: Option<String>,
     stored_thinking_effort: Option<String>,
-) -> (Option<String>, bool) {
+) -> Result<(Option<String>, bool), sqlx::Error> {
     // A persisted conversation-level effort is authoritative. The frontend
     // initializes with the workspace's current per-model default, which may
     // differ from an explicit effort already pinned by MCP spawn (or by a
@@ -42,9 +42,9 @@ pub(super) async fn resolve(
             db_session_id,
             effective_thinking_effort.as_deref(),
         )
-        .await;
+        .await?;
     }
-    (effective_thinking_effort, cleared)
+    Ok((effective_thinking_effort, cleared))
 }
 
 async fn workspace_default(
@@ -61,13 +61,14 @@ async fn anchor_conversation_effort(
     app_state: &AppState,
     db_session_id: i64,
     thinking_effort: Option<&str>,
-) {
+) -> Result<(), sqlx::Error> {
     if let Some(effort) = thinking_effort {
         WsSessionPersistence::update_thinking_effort_static(
             &app_state.write_pool,
             db_session_id,
             Some(effort),
         )
-        .await;
+        .await?;
     }
+    Ok(())
 }

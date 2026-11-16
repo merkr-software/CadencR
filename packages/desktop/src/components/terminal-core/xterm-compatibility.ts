@@ -6,14 +6,17 @@ import type {
   TerminalEvent,
   TerminalEventMap,
   TerminalOptions,
+  TerminalOutputOptions,
   TerminalTransport,
 } from "celeritty";
 import type { TerminalEngine } from "./terminal-engine";
+import { XtermOutput } from "./xterm-output";
 
 /** Keep unsupported GPUs/browsers usable without loading xterm on the WebGPU path. */
 export class XtermCompatibility implements TerminalEngine {
   readonly ready = Promise.resolve();
   private readonly term: Xterm;
+  private readonly output: XtermOutput;
   private readonly fit = new FitAddon();
   private readonly observer: ResizeObserver;
   private readonly listeners = new Map<TerminalEvent, Set<(payload: unknown) => void>>();
@@ -34,6 +37,7 @@ export class XtermCompatibility implements TerminalEngine {
       fontWeightBold: "600",
       cursorWidth: 2,
     });
+    this.output = new XtermOutput(this.term);
     this.term.loadAddon(this.fit);
     this.term.loadAddon(
       new WebLinksAddon(
@@ -56,7 +60,9 @@ export class XtermCompatibility implements TerminalEngine {
     );
     this.setOptions(options);
     this.term.open(host);
-    this.term.onData((data) => this.emit("data", this.encoder.encode(data)));
+    this.term.onData((data) => {
+      if (this.output.forwardData) this.emit("data", this.encoder.encode(data));
+    });
     this.term.onResize(({ cols, rows }) => this.emit("resize", { columns: cols, lines: rows }));
     this.term.onSelectionChange(() => this.emit("selection-change", this.getSelection()));
     this.observer = new ResizeObserver(() => {
@@ -104,7 +110,7 @@ export class XtermCompatibility implements TerminalEngine {
     // Install outbound parser replies first and clean up a closed attachment.
     subscribe(this.on("data", (bytes) => transport.write(bytes)));
     subscribe(this.on("resize", ({ columns, lines }) => transport.resize(columns, lines)));
-    subscribe(transport.onData((bytes) => this.feed(bytes)));
+    subscribe(transport.onData((bytes, options) => this.feed(bytes, options)));
     subscribe(
       transport.onClose((reason) => {
         if (this.subscriptions !== subscriptions) return;
@@ -147,11 +153,11 @@ export class XtermCompatibility implements TerminalEngine {
     if (this.term.element) this.fitToHost();
   }
 
-  feed(bytes: Uint8Array): void {
-    this.term.write(bytes);
+  feed(bytes: Uint8Array, options?: TerminalOutputOptions): void {
+    this.output.write(bytes, options?.replyToQueries ?? true);
   }
   write(text: string): void {
-    this.term.write(text);
+    this.output.write(text, false);
   }
   focus(): void {
     this.term.focus();
@@ -160,7 +166,7 @@ export class XtermCompatibility implements TerminalEngine {
     this.term.blur();
   }
   clearScreen(): void {
-    this.term.write("\x1b[2J\x1b[H");
+    this.write("\x1b[2J\x1b[H");
   }
   scrollLines(delta: number): void {
     this.term.scrollLines(delta);
@@ -181,6 +187,7 @@ export class XtermCompatibility implements TerminalEngine {
     this.detach();
     this.observer.disconnect();
     this.listeners.clear();
+    this.output.dispose();
     this.term.dispose();
   }
 }

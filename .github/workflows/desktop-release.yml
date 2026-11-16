@@ -5,15 +5,49 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to publish without moving it (for example, v0.14.0)
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 permissions:
   contents: write
 
+# Desktop app on macOS only. The Linux alpha packages are attached to the
+# published release by hand (desktop-linux-release.yml), so Linux can never
+# hold up a macOS release. The `cadencr` CLI and the SDKs have their own
+# versions and workflows (cli-release.yml, npm-release.yml,
+# crates-release.yml); app releases up to v0.14.0 also carried a Linux CLI asset.
 jobs:
   release:
-    runs-on: macos-14
-    timeout-minutes: 60
+    # arm64 runner (build:macos-sidecars cross-compiles x64). macos-14 is
+    # retired on 2026-11-02.
+    runs-on: macos-15
+    timeout-minutes: 90
     env:
+      CADENCR_SENTRY_UPLOAD_CONFIGURED: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
+      # Public host-owned trust only; empty repository variables keep acquisition
+      # disabled. The build wrapper removes empty values before Rust option_env!.
+      CADENCR_REGISTRY_TRUST_MANIFEST_JSON: ${{ vars.CADENCR_REGISTRY_TRUST_MANIFEST_JSON }}
+      CADENCR_REGISTRY_ROOT_KEY_ID: ${{ vars.CADENCR_REGISTRY_ROOT_KEY_ID }}
+      CADENCR_REGISTRY_ROOT_PUBLIC_KEY_BASE64: ${{ vars.CADENCR_REGISTRY_ROOT_PUBLIC_KEY_BASE64 }}
+      CADENCR_REGISTRY_TRUST_MIN_GENERATION: ${{ vars.CADENCR_REGISTRY_TRUST_MIN_GENERATION }}
+      CADENCR_MANAGED_PROVIDER_KEY_ID: ${{ vars.CADENCR_MANAGED_PROVIDER_KEY_ID }}
+      CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64: ${{ vars.CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64 }}
+      CADENCR_MANAGED_PROVIDER_INDEX_URL: ${{ vars.CADENCR_MANAGED_PROVIDER_INDEX_URL }}
+      CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL }}
+      CADENCR_MANAGED_THEME_INDEX_URL: ${{ vars.CADENCR_MANAGED_THEME_INDEX_URL }}
+      CADENCR_MANAGED_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_THEME_BLOCKLIST_URL }}
+      CADENCR_MANAGED_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_TAB_BLOCKLIST_URL }}
+      CADENCR_MANAGED_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_LSP_BLOCKLIST_URL }}
+      # Public ingest configuration only; user consent is still off by default.
+      CADENCR_SENTRY_DSN: ${{ vars.CADENCR_SENTRY_DSN }}
+      CADENCR_POSTHOG_KEY: ${{ vars.CADENCR_POSTHOG_KEY }}
+      CADENCR_POSTHOG_HOST: ${{ vars.CADENCR_POSTHOG_HOST }}
       # afterSign hook gates on this; opt in for tagged releases only.
       CADENCR_NOTARIZE_APP: "true"
       # Apple ID credentials consumed by build/notarize-app.cjs and
@@ -31,8 +65,17 @@ jobs:
       # unset, the cask-update step is skipped (see its `if` guard).
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected an existing version tag such as v0.14.0" >&2
+            exit 1
+          fi
+
       # actions/checkout@v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - name: Test Homebrew cask update script
         run: env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh
@@ -40,52 +83,131 @@ jobs:
       - name: Enable pnpm from packageManager
         run: corepack enable
 
-      # actions/setup-node@v7.0.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
 
-      - name: Install Rust stable toolchain
-        run: rustup toolchain install stable --profile minimal
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      # Seeded on main by release-rust-cache.yml: caches saved on a version tag
+      # cannot be restored by the next tag. Keep release artifacts out of it.
+      # Swatinem/rust-cache@v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: desktop-release-macos-15
+          save-if: "false"
 
       - name: Verify release tag matches desktop version
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
-          node -e "const pkg=require('./packages/desktop/package.json'); const expected='v'+pkg.version; const actual=process.env.GITHUB_REF_NAME; if (actual !== expected) { console.error('Release tag '+actual+' does not match desktop version '+expected); process.exit(1); }"
+          node -e "const pkg=require('./packages/desktop/package.json'); const expected='v'+pkg.version; const actual=process.env.RELEASE_TAG; if (actual !== expected) { console.error('Release tag '+actual+' does not match desktop version '+expected); process.exit(1); }"
+
+      - name: Route Apple CloudKit requests over HTTPS TCP
+        # https://github.com/actions/runner-images/issues/14924
+        # Block HTTP/3 on this disposable runner so stapler falls back to TCP.
+        # Add a dedicated anchor; never replace the existing firewall rules.
+        run: |
+          set -euo pipefail
+          filter_rules="$(sudo pfctl -sr)"
+          if ! grep -Eq '^[[:space:]]*anchor "com[.]apple/[*]"([[:space:]]+all)?[[:space:]]*$' <<< "$filter_rules"; then
+            echo "::error::The macOS wildcard filter anchor is unavailable; refusing to replace firewall rules"
+            exit 1
+          fi
+          printf '%s\n' 'block return out quick proto udp from any to any port 443' \
+            | sudo pfctl -a com.apple/000.cadencr-cloudkit -f -
+          sudo pfctl -E
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Rust service sidecar
-        run: pnpm --filter @cadencr/service build
+      - name: Validate marketplace build configuration
+        run: node scripts/validate-marketplace-build-env.mjs --require-catalog
 
-      - name: Verify service sidecar runtime dependencies
-        run: pnpm --filter @cadencr/service check:macos-runtime-deps
+      - name: Use bounded pnpm listing for packaging
+        run: |
+          packaging_pnpm="pnpm@11.13.0+sha512.88d94724d8f2e6c186744a5584c6e59ecac869ec7ba15e9cb4cd628e8dc7066820b2481d8ee3b51ea8da323a7378068aa58c556a3720d32b7c20a051d088363a"
+          COREPACK_ENABLE_PROJECT_SPEC=0 corepack "$packaging_pnpm" --pm-on-fail=ignore --version
+          original_pnpm="$(command -v pnpm)"
+          tool_dir="$RUNNER_TEMP/cadencr-packaging-tools"
+          mkdir -p "$tool_dir"
+          cat > "$tool_dir/pnpm" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "$#" -gt 0 ] && [ "$1" = list ]; then
+            exec env COREPACK_ENABLE_PROJECT_SPEC=0 corepack "$CADENCR_PACKAGING_PNPM" --pm-on-fail=ignore "$@"
+          fi
+          exec "$CADENCR_BUILD_PNPM" "$@"
+          SH
+          chmod +x "$tool_dir/pnpm"
+          printf 'CADENCR_PACKAGING_PNPM=%s\nCADENCR_BUILD_PNPM=%s\n' "$packaging_pnpm" "$original_pnpm" >> "$GITHUB_ENV"
+          printf '%s\n' "$tool_dir" >> "$GITHUB_PATH"
 
-      - name: Smoke test packaged service sidecar startup
-        run: pnpm --filter @cadencr/service smoke:packaged-sidecar
+      - name: Verify packaging dependency graph
+        working-directory: packages/desktop
+        run: |
+          ulimit -Sn 10240
+          dependency_tree="$RUNNER_TEMP/desktop-production-dependencies.json"
+          if ! pnpm list --prod --json --depth Infinity --silent --loglevel=error > "$dependency_tree"; then
+            cat "$dependency_tree" >&2
+            exit 1
+          fi
 
       - name: Build renderer + main bundles
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          CADENCR_RENDERER_SOURCEMAPS: "1"
         run: pnpm --filter @cadencr/desktop exec electron-vite build
 
+      - name: Archive exact renderer bundles and source maps
+        run: node packages/desktop/scripts/archive-renderer-diagnostics.mjs
+
+      - name: Load Sentry uploader from workflow commit
+        if: env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/upload-sentry-renderer-maps.mjs?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+          test -s "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+
+      - name: Upload optional Sentry renderer source maps
+        if: env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+        run: node "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+
+      - name: Build Rust service sidecars (arm64 + x64)
+        run: node scripts/validate-marketplace-build-env.mjs -- pnpm --filter @cadencr/service build:macos-sidecars
+
+      - name: Ensure Rosetta for the x64 sidecar smoke test
+        run: arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+
+      - name: Smoke test packaged service sidecar startup
+        run: |
+          for arch in arm64 x64; do
+            pnpm --filter @cadencr/service smoke:packaged-sidecar \
+              "$GITHUB_WORKSPACE/packages/desktop/resources/bin/$arch/cadencr-service"
+          done
+
       - name: Prepare GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
           releases_file="$RUNNER_TEMP/existing-releases.tsv"
           gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | [.id, .draft, (.assets | length)] | @tsv" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | [.id, .draft, (.assets | length)] | @tsv" \
             > "$releases_file"
 
-          while IFS=$'\t' read -r release_id is_draft asset_count; do
-            [ -n "$release_id" ] || continue
-            if [ "$is_draft" != "true" ] && [ "$asset_count" != "0" ]; then
-              echo "Release $GITHUB_REF_NAME already exists with assets. Refusing to overwrite it." >&2
-              exit 1
-            fi
-
-            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -X DELETE
-          done < "$releases_file"
+          if [ -s "$releases_file" ]; then
+            echo "Release $RELEASE_TAG already exists. Refusing to delete or overwrite it." >&2
+            exit 1
+          fi
 
       - name: Import Developer ID certificate
         run: |
@@ -109,27 +231,74 @@ jobs:
           echo "CSC_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
           echo "CADENCR_MAC_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
 
+      - name: Enable recovery of interrupted Apple notarization status polling
+        # Load orchestration from the immutable workflow commit, while the app
+        # checkout remains pinned to RELEASE_TAG (including manual dispatches).
+        run: |
+          set -euo pipefail
+          tool_dir="$RUNNER_TEMP/cadencr-notary-tools"
+          mkdir -p "$tool_dir"
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/release-xcrun.mjs?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$tool_dir/release-xcrun.mjs"
+          cat > "$tool_dir/xcrun" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec node "$CADENCR_XCRUN_WRAPPER" "$@"
+          SH
+          chmod +x "$tool_dir/xcrun"
+          printf 'CADENCR_XCRUN_WRAPPER=%s\n' "$tool_dir/release-xcrun.mjs" >> "$GITHUB_ENV"
+          printf '%s\n' "$tool_dir" >> "$GITHUB_PATH"
+
       - name: Build, sign, and notarize desktop app
         # GitHub release creation/upload is handled explicitly in later steps.
         # Letting electron-builder publish directly can race multi-target macOS
         # uploads into duplicate releases for the same tag.
+        # The mandatory afterSign hook owns notarization, ticket validation and
+        # Gatekeeper assessment. Disable only builder's duplicate submission.
         run: |
-          pnpm --filter @cadencr/desktop exec electron-builder \
-            --config electron-builder.yml \
-            --mac \
-            --arm64 --x64 \
-            --publish never
+          ulimit -Sn 10240
+          set -o pipefail
+          build_log="$RUNNER_TEMP/desktop-packaging.log"
+          for attempt in 1 2 3; do
+            set +e
+            pnpm --filter @cadencr/desktop exec electron-builder \
+              --config electron-builder.yml \
+              -c.mac.notarize=false \
+              --mac \
+              --arm64 --x64 \
+              --publish never 2>&1 | tee "$build_log"
+            build_status=("${PIPESTATUS[@]}")
+            set -e
+
+            if [ "${build_status[1]}" -ne 0 ]; then
+              exit "${build_status[1]}"
+            fi
+            if [ "${build_status[0]}" -eq 0 ]; then
+              exit 0
+            fi
+            # A lost CloudKit connection can interrupt stapling after Apple
+            # accepted the app. Retry packaging without rebuilding the sidecars;
+            # signing, rejection and every other failure still stop immediately.
+            if [ "$attempt" -eq 3 ] ||
+              ! grep -Fq 'Failed to staple your application with code: 68' "$build_log" ||
+              ! grep -Fq 'Code=-1005 "The network connection was lost."' "$build_log"; then
+              exit "${build_status[0]}"
+            fi
+            delay=$((attempt * 20))
+            echo "::warning::Apple stapling connection lost; retrying packaging in ${delay}s (attempt ${attempt}/3)"
+            sleep "$delay"
+          done
 
       - name: Verify local desktop release assets
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           dist_dir="packages/desktop/dist-electron"
           expected_assets=(
-            "Cadencr-${version}.dmg"
-            "Cadencr-${version}.dmg.blockmap"
-            "Cadencr-${version}-mac.zip"
-            "Cadencr-${version}-mac.zip.blockmap"
+            "Cadencr-${version}-x64.dmg"
+            "Cadencr-${version}-x64.dmg.blockmap"
+            "Cadencr-${version}-x64-mac.zip"
+            "Cadencr-${version}-x64-mac.zip.blockmap"
             "Cadencr-${version}-arm64.dmg"
             "Cadencr-${version}-arm64.dmg.blockmap"
             "Cadencr-${version}-arm64-mac.zip"
@@ -144,64 +313,67 @@ jobs:
             fi
           done
 
-          grep -F "Cadencr-${version}-mac.zip" "$dist_dir/latest-mac.yml" >/dev/null
+          grep -F "Cadencr-${version}-x64-mac.zip" "$dist_dir/latest-mac.yml" >/dev/null
           grep -F "Cadencr-${version}-arm64-mac.zip" "$dist_dir/latest-mac.yml" >/dev/null
-          grep -F "Cadencr-${version}.dmg" "$dist_dir/latest-mac.yml" >/dev/null
+          grep -F "Cadencr-${version}-x64.dmg" "$dist_dir/latest-mac.yml" >/dev/null
           grep -F "Cadencr-${version}-arm64.dmg" "$dist_dir/latest-mac.yml" >/dev/null
 
       - name: Extract GitHub release notes
-        if: startsWith(github.ref, 'refs/tags/')
-        run: scripts/release-notes.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/release-notes.md"
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+        run: scripts/release-notes.sh "$RELEASE_TAG" "$RUNNER_TEMP/release-notes.md"
 
       - name: Create draft GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
             --draft \
-            --title "${GITHUB_REF_NAME#v}" \
+            --title "${RELEASE_TAG#v}" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
 
       - name: Upload GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           dist_dir="packages/desktop/dist-electron"
-          gh release upload "$GITHUB_REF_NAME" \
+          gh release upload "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            "$dist_dir/Cadencr-${version}.dmg" \
-            "$dist_dir/Cadencr-${version}.dmg.blockmap" \
-            "$dist_dir/Cadencr-${version}-mac.zip" \
-            "$dist_dir/Cadencr-${version}-mac.zip.blockmap" \
+            "$dist_dir/Cadencr-${version}-x64.dmg" \
+            "$dist_dir/Cadencr-${version}-x64.dmg.blockmap" \
+            "$dist_dir/Cadencr-${version}-x64-mac.zip" \
+            "$dist_dir/Cadencr-${version}-x64-mac.zip.blockmap" \
             "$dist_dir/Cadencr-${version}-arm64.dmg" \
             "$dist_dir/Cadencr-${version}-arm64.dmg.blockmap" \
             "$dist_dir/Cadencr-${version}-arm64-mac.zip" \
             "$dist_dir/Cadencr-${version}-arm64-mac.zip.blockmap" \
-            "$dist_dir/latest-mac.yml"
+            "$dist_dir/latest-mac.yml" \
+            "packages/desktop/diagnostics/Cadencr-${version}-darwin-renderer-diagnostics.tar.gz"
 
       - name: Verify uploaded GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           expected_assets=(
-            "Cadencr-${version}.dmg"
-            "Cadencr-${version}.dmg.blockmap"
-            "Cadencr-${version}-mac.zip"
-            "Cadencr-${version}-mac.zip.blockmap"
+            "Cadencr-${version}-x64.dmg"
+            "Cadencr-${version}-x64.dmg.blockmap"
+            "Cadencr-${version}-x64-mac.zip"
+            "Cadencr-${version}-x64-mac.zip.blockmap"
             "Cadencr-${version}-arm64.dmg"
             "Cadencr-${version}-arm64.dmg.blockmap"
             "Cadencr-${version}-arm64-mac.zip"
             "Cadencr-${version}-arm64-mac.zip.blockmap"
             "latest-mac.yml"
+            "Cadencr-${version}-darwin-renderer-diagnostics.tar.gz"
           )
 
-          is_draft="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
           if [ "$is_draft" != "true" ]; then
-            echo "Release $GITHUB_REF_NAME must still be draft before final publication" >&2
+            echo "Release $RELEASE_TAG must still be draft before final publication" >&2
             exit 1
           fi
 
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
             > "$RUNNER_TEMP/uploaded-release-assets.txt"
 
           for asset in "${expected_assets[@]}"; do
@@ -212,9 +384,9 @@ jobs:
           done
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |
-          gh release edit "$GITHUB_REF_NAME" \
+          gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --draft=false \
@@ -224,5 +396,5 @@ jobs:
         # Pushes the refreshed cask to the merkr-software/homebrew-cadencr tap.
         # Skipped until the HOMEBREW_TAP_TOKEN secret (write access to that repo)
         # is configured.
-        if: startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_TOKEN != ''
-        run: scripts/update-homebrew-cask.sh "$GITHUB_REF_NAME"
+        if: (startsWith(github.ref, 'refs/tags/') || inputs.release_tag != '') && env.HOMEBREW_TAP_TOKEN != ''
+        run: scripts/update-homebrew-cask.sh "$RELEASE_TAG"

@@ -1,6 +1,6 @@
-import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
-import type { PermissionDecisionValue } from "@/components/ToolPermissionPrompt";
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { AgentQuestionAnswers } from "@/types/agent-question";
+import type { PermissionDecisionValue } from "@/types/agent-permission";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import type {
   GateCloseReason,
   PromptDispatchOptions,
@@ -59,11 +59,29 @@ export interface WsSessionStore {
   forkNavigation: ForkNavigation | null;
 
   connect: (sessionId: string) => void;
+  /** Close the session's socket and stop its agent runtime. */
   disconnect: (sessionId: string) => void;
+  /**
+   * Close the session's socket but leave its agent runtime to the backend,
+   * which stops it once it is idle with no background task still running
+   * (a stopped runtime kills the task and the agent never resumes).
+   */
+  release: (sessionId: string) => void;
 
   send: (sessionId: string, envelope: WsEnvelope) => void;
   initSession: (sessionId: string, config: SessionConfig) => void;
   sendPrompt: (sessionId: string, text: string, options?: PromptDispatchOptions) => void;
+  /**
+   * `sendPrompt` that settles once the prompt is on the wire: immediately when
+   * the socket takes it, otherwise after `session.initialized` or the
+   * reconnect flush. Rejects when initialization fails or the session is torn
+   * down first.
+   */
+  deliverPrompt: (
+    sessionId: string,
+    text: string,
+    options?: PromptDispatchOptions,
+  ) => Promise<void>;
   respondToPermission: (
     sessionId: string,
     requestId: string,
@@ -73,7 +91,10 @@ export interface WsSessionStore {
   ) => void;
   respondToQuestion: (sessionId: string, response: AgentQuestionAnswers) => void;
   interrupt: (sessionId: string) => void;
-  destroy: (sessionId: string) => void;
+  /** The status book reports the session stopped working: a pending Stop succeeded. */
+  settleInterrupt: (sessionId: string) => void;
+  /** Pause the session for an OS sleep (`session.suspend`). */
+  suspendForSleep: (sessionId: string) => void;
   clearSession: (sessionId: string) => void;
   /** Rewind conversation + code back to before `messageId`, in place. */
   rewindToMessage: (sessionId: string, messageId: number, confirmDiscard?: boolean) => void;
@@ -86,7 +107,6 @@ export interface WsSessionStore {
   /** Clear `forkNavigation` once the source session has navigated to the fork. */
   consumeForkNavigation: (sessionId: string) => void;
   compactSession: (sessionId: string) => void;
-  deleteSession: (sessionId: string) => void;
   setProvider: (sessionId: string, providerId: string, modelId?: string) => void;
   setModel: (sessionId: string, modelId: string, providerId: string) => void;
   setThinkingEffort: (sessionId: string, thinkingEffort?: string) => void;
@@ -126,6 +146,16 @@ export interface WsSessionStore {
    * `historyPrependDisplayOffset` by the rendered row count for Virtuoso.
    */
   loadOlderMessages: (sessionId: string, displayMode?: DisplayRowMode) => Promise<number>;
+  /**
+   * Loads one prompt sitting in unloaded history together with the start of
+   * its turn (message navigator). Resolves with whether the prompt is now in
+   * the transcript.
+   */
+  loadPromptTurn: (
+    sessionId: string,
+    messageDbId: number,
+    displayMode?: DisplayRowMode,
+  ) => Promise<boolean>;
   /**
    * Pull any messages persisted after the newest block we hold and merge them
    * in — the same catch-up path used on WS reconnect. Used after a manual

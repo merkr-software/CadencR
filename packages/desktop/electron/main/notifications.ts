@@ -33,11 +33,19 @@ export function sendNotification(mainWindow: BrowserWindow, opts: NotifyOptions)
     return;
   }
   showNotification(mainWindow, opts.title, opts.body, () => {
-    sendToWindow(mainWindow, "notification-clicked", {
-      feature_id: opts.featureId,
-      project_id: opts.projectId,
-      route_type: opts.routeType,
-    });
+    sendNotificationClick(mainWindow, opts);
+  });
+}
+
+/** Open a conversation in the app renderer, as a notification click does. */
+export function sendNotificationClick(
+  mainWindow: BrowserWindow,
+  ref: { featureId: number; projectId: number },
+): void {
+  sendToWindow(mainWindow, "notification-clicked", {
+    feature_id: ref.featureId,
+    project_id: ref.projectId,
+    route_type: "session",
   });
 }
 

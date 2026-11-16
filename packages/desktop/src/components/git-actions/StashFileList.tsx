@@ -34,14 +34,12 @@ function buildStashListItems(files: UncommittedFile[], includeUntracked: boolean
         count: group.files.length,
         excluded,
       },
-      ...group.files.map(
-        (file): StashListItem => ({
-          kind: "file",
-          key: `${group.key}-${file.path}`,
-          file,
-          excluded,
-        }),
-      ),
+      ...group.files.map((file): StashListItem => ({
+        kind: "file",
+        key: `${group.key}-${file.path}`,
+        file,
+        excluded,
+      })),
     ];
   });
 }

@@ -1,0 +1,921 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "9a5d3da557d98dc211b79e1a8f463e033fbbfaa24d52b6f8ba18408fcb732a71",
+  "source_lock_sha256": "986e03bace1643970a26e93b7aa739bf34fc6096de91c82512f1710c0f96f02f",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "@vscode/l10n",
+      "version": "0.0.18",
+      "destination": "node_modules/@vscode/l10n",
+      "integrity": "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ==",
+      "compressed_size": 4548,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-l10n.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf dist && rimraf lib",
+        "compile": "npm run clean && tsc --emitDeclarationOnly --outDir lib && node .esbuild.config.js",
+        "lint": "eslint src --ext ts",
+        "watch": "node .esbuild.config.js --watch",
+        "test": "jest --preset ts-jest",
+        "prepublishOnly": "npm run lint && npm run compile && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "boolbase",
+      "version": "1.0.0",
+      "destination": "node_modules/boolbase",
+      "integrity": "sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==",
+      "compressed_size": 851,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/fb55/boolbase"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "core-js",
+      "version": "3.51.0",
+      "destination": "node_modules/core-js",
+      "integrity": "sha512-7bDKx/5jm5MxzsXxc93g6Z2+4ZsuT/MddrfRmTDJNAkWsYWHU8EVNEsBiIEWnMAMCHMmRfUEjkuo3jeNBOIHRw==",
+      "compressed_size": 317056,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zloirock/core-js.git",
+        "directory": "packages/core-js"
+      },
+      "engines": {
+        "node": "*"
+      },
+      "scripts": {
+        "postinstall": "node -e \"try{require('./postinstall')}catch(e){}\""
+      },
+      "has_install_script": true,
+      "optional": false
+    },
+    {
+      "name": "css-select",
+      "version": "5.2.2",
+      "destination": "node_modules/css-select",
+      "integrity": "sha512-TizTzUddG/xYLA3NXodFM0fSbNizXjOKhqiQQwvhlspadZokn1KDy0NZFS0wuEubIYAV5/c1/lAr0TaaFXEXzw==",
+      "compressed_size": 39643,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/fb55/css-select.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint src",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier '**/*.{ts,md,json,yml}'",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc --sourceRoot https://raw.githubusercontent.com/fb55/css-select/$(git rev-parse HEAD)/src/",
+        "build:esm": "npm run build:cjs -- --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "css-what",
+      "version": "6.2.2",
+      "destination": "node_modules/css-what",
+      "integrity": "sha512-u/O3vwbptzhMs3L1fQE82ZSLHQQfto5gyZzwteVIEyeaY5Fc7R4dapF/BvRoSYFeqfBk4m0V1Vafq5Pjv25wvA==",
+      "compressed_size": 11158,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/fb55/css-what"
+      },
+      "engines": {
+        "node": ">= 6"
+      },
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint src",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier '**/*.{ts,md,json,yml}'",
+        "build": "tsc && tsc -p tsconfig.es.json",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "dom-serializer",
+      "version": "2.0.0",
+      "destination": "node_modules/dom-serializer",
+      "integrity": "sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==",
+      "compressed_size": 6820,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/cheeriojs/dom-serializer.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint --ignore-path .gitignore .",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier \"**/*.{ts,md,json,yml}\" --ignore-path .gitignore",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc",
+        "build:esm": "tsc --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "domelementtype",
+      "version": "2.3.0",
+      "destination": "node_modules/domelementtype",
+      "integrity": "sha512-OLETBj6w0OsagBwdXnPdN0cnMfF9opN69co+7ZrbfPGrdpPVNBUj02spi6B1N7wChLQiPn4CSH/zJvXw56gmHw==",
+      "compressed_size": 2909,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/fb55/domelementtype.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "npm run lint && prettier --check **/*.{ts,json,md}",
+        "lint": "eslint src",
+        "format": "prettier --write **/*.{ts,json,md}",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc",
+        "build:esm": "tsc --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "domhandler",
+      "version": "5.0.3",
+      "destination": "node_modules/domhandler",
+      "integrity": "sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==",
+      "compressed_size": 12587,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/fb55/domhandler.git"
+      },
+      "engines": {
+        "node": ">= 4"
+      },
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint --ignore-path .gitignore .",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier \"**/*.{ts,md,json,yml}\" --ignore-path .gitignore",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc",
+        "build:esm": "tsc --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "domutils",
+      "version": "3.2.2",
+      "destination": "node_modules/domutils",
+      "integrity": "sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==",
+      "compressed_size": 23891,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/fb55/domutils.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint --ignore-path .gitignore .",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier \"**/*.{ts,md,json,yml}\" --ignore-path .gitignore",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc --sourceRoot https://raw.githubusercontent.com/fb55/domutils/$(git rev-parse HEAD)/src/",
+        "build:esm": "npm run build:cjs -- --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "build:docs": "typedoc src",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "entities",
+      "version": "4.5.0",
+      "destination": "node_modules/entities",
+      "integrity": "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==",
+      "compressed_size": 77368,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/fb55/entities.git"
+      },
+      "engines": {
+        "node": ">=0.12"
+      },
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint .",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier '**/*.{ts,md,json,yml}'",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc --sourceRoot https://raw.githubusercontent.com/fb55/entities/$(git rev-parse HEAD)/src/",
+        "build:esm": "npm run build:cjs -- --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "build:docs": "typedoc --hideGenerator src/index.ts",
+        "build:trie": "ts-node scripts/write-decode-map.ts",
+        "build:encode-trie": "ts-node scripts/write-encode-map.ts",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "he",
+      "version": "1.2.0",
+      "destination": "node_modules/he",
+      "integrity": "sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==",
+      "compressed_size": 40278,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/he.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node tests/tests.js",
+        "build": "grunt build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "jsonc-parser",
+      "version": "3.3.1",
+      "destination": "node_modules/jsonc-parser",
+      "integrity": "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==",
+      "compressed_size": 27354,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/node-jsonc-parser"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "clean": "rimraf lib",
+        "watch": "tsc -w -p ./src",
+        "test": "npm run compile && mocha ./lib/umd/test",
+        "lint": "eslint src/**/*.ts"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "node-html-parser",
+      "version": "6.1.13",
+      "destination": "node_modules/node-html-parser",
+      "integrity": "sha512-qIsTMOY4C/dAa5Q5vsobRpOOvPfC4pB61UVW2uSwZNUp0QU/jCekTal1vMmbO0DgdHeLUJpv/ARmDqErVxA3Sg==",
+      "compressed_size": 34971,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/taoqf/node-fast-html-parser.git"
+      },
+      "engines": {},
+      "scripts": {
+        "compile": "tsc",
+        "build": "npm run lint && npm run clean && npm run compile:cjs && npm run compile:amd",
+        "compile:cjs": "tsc -m commonjs",
+        "watch": "npx tsc -m commonjs --watch --preserveWatchOutput",
+        "compile:amd": "tsc -t es5 -m amd -d false --outFile ./dist/main.js",
+        "lint": "eslint ./src/*.ts ./src/**/*.ts",
+        "---------------": "",
+        "test": "yarn run test:target",
+        "test:src": "cross-env TEST_TARGET=src yarn run test",
+        "test:dist": "cross-env TEST_TARGET=dist yarn run test",
+        "benchmark": "node ./test/benchmark/compare.mjs",
+        "---------------  ": "",
+        "clean": "npx rimraf ./dist/",
+        "clean:global": "yarn run clean && npx rimraf yarn.lock test/yarn.lock test/node_modules node_modules",
+        "reset": "yarn run clean:global && yarn install && yarn build",
+        "--------------- ": "",
+        "test:target": "mocha --recursive \"./test/tests\"",
+        "test:ci": "cd test && yarn install && cd .. && cross-env TEST_TARGET=dist yarn run test:target",
+        "posttest": "yarn run benchmark",
+        "prepare": "npm run build",
+        "release": "standard-version && git push --follow-tags origin main"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "nth-check",
+      "version": "2.1.1",
+      "destination": "node_modules/nth-check",
+      "integrity": "sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==",
+      "compressed_size": 8576,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/fb55/nth-check"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "npm run test:jest && npm run lint",
+        "test:jest": "jest",
+        "lint": "npm run lint:es && npm run lint:prettier",
+        "lint:es": "eslint .",
+        "lint:prettier": "npm run prettier -- --check",
+        "format": "npm run format:es && npm run format:prettier",
+        "format:es": "npm run lint:es -- --fix",
+        "format:prettier": "npm run prettier -- --write",
+        "prettier": "prettier '**/*.{ts,md,json,yml}'",
+        "build": "npm run build:cjs && npm run build:esm",
+        "build:cjs": "tsc --sourceRoot https://raw.githubusercontent.com/fb55/nth-check/$(git rev-parse HEAD)/src/",
+        "build:esm": "npm run build:cjs -- --module esnext --target es2019 --outDir lib/esm && echo '{\"type\":\"module\"}' > lib/esm/package.json",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "picomatch",
+      "version": "2.3.2",
+      "destination": "node_modules/picomatch",
+      "integrity": "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA==",
+      "compressed_size": 23492,
+      "license": "MIT",
+      "repository": "micromatch/picomatch",
+      "engines": {
+        "node": ">=8.6"
+      },
+      "scripts": {
+        "lint": "eslint --cache --cache-location node_modules/.cache/.eslintcache --report-unused-disable-directives --ignore-path .gitignore .",
+        "mocha": "mocha --reporter dot",
+        "test": "npm run lint && npm run mocha",
+        "test:ci": "npm run test:cover",
+        "test:cover": "nyc npm run mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "regenerator-runtime",
+      "version": "0.13.11",
+      "destination": "node_modules/regenerator-runtime",
+      "integrity": "sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==",
+      "compressed_size": 8520,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/facebook/regenerator/tree/main/packages/runtime"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "request-light",
+      "version": "0.7.0",
+      "destination": "node_modules/request-light",
+      "integrity": "sha512-lMbBMrDoxgsyO+yB3sDcrDuX85yYt7sS8BfQd11jtbW/z5ZWgLZRcEGLsLoYw7I0WSUGQBs8CC8ScIxkTX1+6Q==",
+      "compressed_size": 12422,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/node-request-light"
+      },
+      "engines": {},
+      "scripts": {
+        "compile": "webpack",
+        "watch": "webpack --watch",
+        "bundle": "webpack --mode production --devtool hidden-source-map",
+        "prepack": "npm run clean && npm run bundle && tsc -p ./src/test/ && ava ./lib/test/test.js",
+        "clean": "rimraf lib",
+        "test": "npm run compile && tsc -p ./src/test/ && ava ./lib/test/test.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "semver",
+      "version": "7.8.6",
+      "destination": "node_modules/semver",
+      "integrity": "sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==",
+      "compressed_size": 33566,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/npm/node-semver.git"
+      },
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "tap",
+        "snap": "tap",
+        "lint": "npm run eslint",
+        "postlint": "template-oss-check",
+        "lintfix": "npm run eslint -- --fix",
+        "posttest": "npm run lint",
+        "template-oss-apply": "template-oss-apply --force",
+        "eslint": "eslint \"**/*.{js,cjs,ts,mjs,jsx,tsx}\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "typescript",
+      "version": "4.9.5",
+      "destination": "node_modules/typescript",
+      "integrity": "sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==",
+      "compressed_size": 11620433,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/TypeScript.git"
+      },
+      "engines": {
+        "node": ">=4.2.0"
+      },
+      "scripts": {
+        "test": "gulp runtests-parallel --light=false",
+        "test:eslint-rules": "gulp run-eslint-rules-tests",
+        "build": "npm run build:compiler && npm run build:tests",
+        "build:compiler": "gulp local",
+        "build:tests": "gulp tests",
+        "start": "node lib/tsc",
+        "clean": "gulp clean",
+        "gulp": "gulp",
+        "lint": "gulp lint",
+        "setup-hooks": "node scripts/link-hooks.mjs"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-css-languageservice",
+      "version": "6.3.10",
+      "destination": "node_modules/vscode-css-languageservice",
+      "integrity": "sha512-eq5N9Er3fC4vA9zd9EFhyBG90wtCCuXgRSpAndaOgXMh1Wgep5lBgRIeDgjZBW9pa+332yC9+49cZMW8jcL3MA==",
+      "compressed_size": 451792,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-css-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run copy-jsbeautify && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "watch": "npm run copy-jsbeautify && tsc -w -p ./src",
+        "test": "npm run compile && npm run mocha",
+        "mocha": "mocha --require source-map-support/register",
+        "coverage": "npm run compile && npx nyc --reporter=html --reporter=text  mocha",
+        "lint": "eslint src/**/*.ts",
+        "update-data": "npm install @vscode/web-custom-data -D && node ./build/generateData.js",
+        "install-types-next": "npm install vscode-languageserver-types@next -f -S && npm install vscode-languageserver-textdocument@next -f -S",
+        "copy-jsbeautify": "node ./build/copy-jsbeautify.js",
+        "update-jsbeautify": "npm install js-beautify && node ./build/update-jsbeautify.js",
+        "update-jsbeautify-next": "npm install js-beautify@next && node ./build/update-jsbeautify.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-css-languageservice/node_modules/vscode-languageserver-types",
+      "integrity": "sha512-Ld1VelNuX9pdF39h2Hgaeb5hEZM2Z3jUrrMgWQAu82jMtZp7p3vJT3BzToKtZI7NgQssZje5o0zryOrhQvzQAg==",
+      "compressed_size": 71382,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "clean": "node ../node_modules/.bin/rimraf lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "node ../build/bin/tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-html-languageservice",
+      "version": "5.6.2",
+      "destination": "node_modules/vscode-html-languageservice",
+      "integrity": "sha512-ulCrSnFnfQ16YzvwnYUgEbUEl/ZG7u2eV27YhvLObSHKkb8fw1Z9cgsnUwjTEeDIdJDoTDTDpxuhQwoenoLNMg==",
+      "compressed_size": 279402,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-html-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run copy-jsbeautify",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "watch": "tsc -w -p ./src && npm run copy-jsbeautify",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "test": "npm run compile && mocha --timeout 5000 ./lib/umd/test/*.js && npm run lint",
+        "lint": "eslint src/**/*.ts",
+        "install-types-next": "npm i vscode-languageserver-types@next -f -S && npm i vscode-languageserver-textdocument@next -f -S",
+        "copy-jsbeautify": "node ./build/copy-jsbeautify.js",
+        "update-jsbeautify": "npm i js-beautify && node ./build/update-jsbeautify.js",
+        "update-jsbeautify-next": "npm i js-beautify@next && node ./build/update-jsbeautify.js",
+        "update-data": "npm i @vscode/web-custom-data -D && node ./build/generateData.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-json-languageservice",
+      "version": "5.7.2",
+      "destination": "node_modules/vscode-json-languageservice",
+      "integrity": "sha512-WtKRDtJfFEmLrgtu+ODexOHm/6/krRF0k6t+uvkKIKW1Jh9ZIyxZQwJJwB3qhrEgvAxa37zbUg+vn+UyUK/U2w==",
+      "compressed_size": 84771,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-json-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "watch": "tsc -w -p ./src",
+        "pretest": "npm run compile",
+        "test": "mocha",
+        "posttest": "npm run lint",
+        "coverage": "npx nyc -r lcov npm run test",
+        "lint": "eslint src/**/*.ts",
+        "install-types-next": "npm install vscode-languageserver-types@next -f -S && npm install vscode-languageserver-textdocument@next -f -S",
+        "sample": "npm run compile && node ./lib/umd/example/sample.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "9.0.3",
+      "destination": "node_modules/vscode-jsonrpc",
+      "integrity": "sha512-qETYf9PCl1lVfwR+oBmMfc4vP2nqLNA35ABxorw3j06+xlKRgDVxbLgKm4Y/xPL0YWdeDjLoI4ImICIT3nB0zQ==",
+      "compressed_size": 37477,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "jsonrpc"
+      },
+      "engines": {
+        "node": ">=14.0.0"
+      },
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "preversion": "npm test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "clean": "rimraf lib && rimraf dist",
+        "lint": "eslint src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/jsonrpc/src/browser/test/",
+        "webpack": "node ../build/bin/webpack  --mode none --config ./webpack.config.js",
+        "webpack:test": "node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:publish": "tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-langservers-extracted",
+      "version": "4.10.0",
+      "destination": "node_modules/vscode-langservers-extracted",
+      "integrity": "sha512-EFf9uQI4dAKbzMQFjDvVm1xJq1DXAQvBEuEfPGrK/xzfsL5xWTfIuRr90NgfmqwO+IEt6vLZm9EOj6R66xIifg==",
+      "compressed_size": 135843,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/hrsh7th/vscode-langservers-extracted.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf {lib,dist}/*",
+        "update": "yarn clean && ./script/build.sh && node ./script/depcheck.js",
+        "release": "np --no-yarn",
+        "test": "echo 1"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "10.1.2",
+      "destination": "node_modules/vscode-languageserver",
+      "integrity": "sha512-pXPWde3RytdeBVEs6PulOOT5OpeXC5GkWRpcT11f5rNn41jviQsAYPyAqJ/0oVGETQLKPJtYbHNiMPlfLb0NTQ==",
+      "compressed_size": 34520,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "server"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "clean": "rimraf lib",
+        "lint": "eslint src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm test",
+        "compile:publish": "tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.18.4",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "integrity": "sha512-CCXbyr99dafRJzJH/0Ryk7ly5T8XPmSR0//OuF2w4m+9JiOin7zcAT5iET8GRE7Z9taFBejb3GbM0a0mbjdbrg==",
+      "compressed_size": 64345,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "protocol"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "preversion": "npm test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "clean": "rimraf lib && rimraf dist",
+        "lint": "eslint src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/protocol/src/browser/test/",
+        "webpack:test": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "compile:metaModelTool": "cd ../tools && npm run compile && cd ../protocol",
+        "generate:metaModel": "node ../tools/lib/generator-main.js -p ./src/common/tsconfig.json > ./metaModel.json",
+        "generate:metaModelSchema": "ts-json-schema-generator --tsconfig ../tools/tsconfig.json --path ../tools/src/metaModel.ts > ./metaModel.schema.json",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema",
+        "compile:publish": "tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.18.4",
+      "destination": "node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types",
+      "integrity": "sha512-nQsacoiijvl0fRf2q28uFDrAVwRhdCa3QveiF7/CX0r18mLR5FU/1WskSsCKOjmEbtteKUnY8x8Yzxop+k0zwg==",
+      "compressed_size": 79419,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "integrity": "sha512-qeNEuOi9a3qkqRf7Gfez2WL2VwlBTLCNekHBGO9kxPVUp9XuY15yfTJ9jwvOwKI0I2MhUUfZq95NSp+LK1CLQg==",
+      "compressed_size": 8576,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "textDocument"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.18.5",
+      "destination": "node_modules/vscode-languageserver-types",
+      "integrity": "sha512-kPd6+JQNz3HMJvjKlqUxERSlZHAntl/aGpsk7ImwIh0ewDKDcjgAEyVSYciPiOJD3ftbK9IrfiqUeTZLSbCizw==",
+      "compressed_size": 79442,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-markdown-languageservice",
+      "version": "0.5.0",
+      "destination": "node_modules/vscode-markdown-languageservice",
+      "integrity": "sha512-+DDXukKWtIHvJtj6tXeLqj8iREnylDQw4yRjY3ldv2J66/oiKRJyLLUy4YhMhfBm9Edjci6VhOSpE84AU3ZFXA==",
+      "compressed_size": 58865,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/vscode-markdown-languageservice.git"
+      },
+      "engines": {
+        "node": ">=22"
+      },
+      "scripts": {
+        "api-extractor": "mkdirp etc && npx api-extractor run --local",
+        "compile": "tsc -b tsconfig.json",
+        "watch": "tsc -b tsconfig.json --watch",
+        "lint": "eslint",
+        "prepublishOnly": "npm run compile && npm run api-extractor",
+        "test": "mocha 'out/test/**/*.test.js' --ui=tdd --timeout=2000 --exit"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-nls",
+      "version": "5.2.0",
+      "destination": "node_modules/vscode-nls",
+      "integrity": "sha512-RAaHx7B14ZU04EU31pT+rKz2/zSl7xMsfIZuo8pd+KZO6PXtQmpevpq3vxvWNcrGbdmhM/rr5Uw5Mz+NBfhVng==",
+      "compressed_size": 20283,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-nls.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.json -w",
+        "clean": "rimraf lib",
+        "test": "mocha",
+        "lint": "eslint --config .eslintrc.json ./**/*.ts"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-uri",
+      "version": "3.2.0",
+      "destination": "node_modules/vscode-uri",
+      "integrity": "sha512-m2gXo3bn0G1kT9InzMf07fTbqMbGtyckj3bH5ktLO+1Ssv+yiATZ4dhwaQv9UZWxJh6E9IFGnQyjgWVDWVBDrg==",
+      "compressed_size": 59281,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/microsoft/vscode-uri.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf lib",
+        "pack-production": "webpack --mode=production",
+        "pack-dev": "webpack",
+        "compile": "tsc -p ./src",
+        "prepublish": "npm run pack-production",
+        "test": "tsc -p ./src && npm run pack-dev && mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

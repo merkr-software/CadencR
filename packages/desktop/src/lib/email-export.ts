@@ -7,6 +7,7 @@
  * are intentionally omitted: email compose surfaces provide their own.
  */
 
+import { cssColorToRgb, type RgbColor } from "@/lib/css-color";
 import { isUserOpenableUrl } from "@/lib/safe-url";
 
 const SAFE_TAGS = new Set([
@@ -87,12 +88,6 @@ const EMAIL_STYLE_PROPERTIES = [
 ] as const;
 
 const RGB_RE = /^rgba?\(\s*(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)\D+(\d+(?:\.\d+)?)/i;
-
-interface RgbColor {
-  red: number;
-  green: number;
-  blue: number;
-}
 
 /** Convert one DOM range to transparent-background, inline-styled email HTML. */
 export function rangeToEmailHtml(range: Range): string {
@@ -222,7 +217,7 @@ function inlineEmailStyle(computed: CSSStyleDeclaration): string {
 
 /** Keep the source hue while making light-theme-independent text legible on white. */
 function readableEmailColor(value: string): string {
-  const rgb = parseRgb(value) ?? canvasRgb(value);
+  const rgb = parseRgb(value) ?? cssColorToRgb(value);
   if (!rgb) return value;
   let { red, green, blue } = rgb;
   while (contrastAgainstWhite({ red, green, blue }) < 4.5) {
@@ -237,22 +232,6 @@ function parseRgb(value: string): RgbColor | null {
   const match = RGB_RE.exec(value);
   if (!match) return null;
   return { red: Number(match[1]), green: Number(match[2]), blue: Number(match[3]) };
-}
-
-function canvasRgb(value: string): RgbColor | null {
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const context = canvas.getContext("2d");
-    if (!context) return null;
-    context.fillStyle = value;
-    context.fillRect(0, 0, 1, 1);
-    const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
-    return { red, green, blue };
-  } catch {
-    return null;
-  }
 }
 
 function contrastAgainstWhite(color: RgbColor): number {

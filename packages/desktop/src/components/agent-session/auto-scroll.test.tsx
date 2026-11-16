@@ -3,7 +3,7 @@ import { forwardRef, useImperativeHandle, useRef, useState, type ForwardedRef } 
 import userEvent from "@testing-library/user-event";
 import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
 import { AgentSession } from "./AgentSession";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { toast } from "sonner";
 
 // PromptEditor renders a contenteditable surface backed by CodeMirror, which
@@ -192,57 +192,6 @@ function userWheelUp(el: HTMLElement, scrollTop: number): void {
   dispatchScroll(el, scrollTop);
 }
 
-const IPHONE_USER_AGENT =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
-
-/**
- * Drive the shared "user scrolls to the top from 80px, a page of older
- * history loads, then Virtuoso reports the taller remeasured height" flow used
- * by both prepend-anchoring tests. Returns the scroller so each test asserts
- * only the behaviour that differs (desktop compensates scrollTop; iOS leaves
- * it alone).
- */
-function loadOlderHistoryPage(): HTMLElement {
-  let resolveLoad: () => void = () => {};
-  const onLoadOlder = vi.fn(
-    () =>
-      new Promise<void>((resolve) => {
-        resolveLoad = resolve;
-      }),
-  );
-  const baseProps = {
-    agentType: "session" as const,
-    status: "agent" as const,
-    onSend: vi.fn(),
-    onStop: vi.fn(),
-    hasMore: true,
-    onLoadOlder,
-  };
-
-  const { rerender } = render(<AgentSession {...baseProps} blocks={[makeBlock("1", "Old")]} />);
-  const scroller = getScroller();
-  // Reading 80px from the top of a 600px-tall list. WheelUp also disengages
-  // stick so the layout effect doesn't pull us back to the bottom.
-  stubGeometry(scroller, 600, 200);
-  userWheelUp(scroller, 80);
-
-  fireStartReached();
-  expect(onLoadOlder).toHaveBeenCalledTimes(1);
-
-  // Older blocks land at the front; once resolved, Virtuoso reports the taller
-  // total height via `totalListHeightChanged`.
-  act(() => resolveLoad());
-  stubGeometry(scroller, 1000, 200);
-  rerender(
-    <AgentSession
-      {...baseProps}
-      blocks={[makeBlock("0a", ""), makeBlock("0b", ""), makeBlock("1", "Old")]}
-    />,
-  );
-  fireTotalHeightChange(1000);
-  return scroller;
-}
-
 describe("AgentSession auto-scroll", () => {
   beforeEach(() => {
     Element.prototype.hasPointerCapture ??= vi.fn(() => false);
@@ -264,6 +213,9 @@ describe("AgentSession auto-scroll", () => {
     );
 
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
+    // It opens the composer's instrument row, ahead of the mode control.
+    const row = getAutoScrollButton().closest("[data-composer-instruments]");
+    expect(row?.querySelector("button")).toBe(getAutoScrollButton());
 
     const scroller = getScroller();
     stubGeometry(scroller, 1000, 400);
@@ -527,14 +479,48 @@ describe("AgentSession auto-scroll", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Session info" }));
-    await user.click(screen.getByLabelText("Profile"));
+    // Session details live in the composer's "…" menu (no chip above the card).
+    await user.click(screen.getByRole("button", { name: "More composer actions" }));
+    await user.click(await screen.findByLabelText("Profile"));
     await user.click(screen.getByRole("option", { name: /bedrock/i }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Hi there" } });
     await user.click(screen.getByLabelText("Send message"));
 
     expect(onSend).toHaveBeenCalledWith("Hi there", undefined, "bedrock");
   });
+
+  // Embedded Unified Agents cards disable the catalog, so the provider comes
+  // from the session's hydrated selection rather than the Claude fallback.
+  it.each([
+    { providerId: "qa-fake-agent", modelId: "fake-small", profile: undefined },
+    { providerId: "claude_code", modelId: "opus", profile: "default" },
+  ])(
+    "sends profile $profile from a catalog-less $providerId session",
+    async ({ providerId, modelId, profile }) => {
+      const user = userEvent.setup();
+      const onSend = vi.fn(async () => {});
+      const coldCatalog = { data: undefined, isLoading: false } as unknown as NonNullable<
+        Parameters<typeof AgentSession>[0]["agentCatalog"]
+      >;
+      render(
+        <AgentSession
+          agentType="session"
+          blocks={[makeBlock("1", "Hello")]}
+          status="idle"
+          onSend={onSend}
+          onStop={vi.fn()}
+          agentCatalog={coldCatalog}
+          selection={{ providerId, modelId }}
+          runtimeProvider={providerId}
+        />,
+      );
+
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Hi there" } });
+      await user.click(screen.getByLabelText("Send message"));
+
+      expect(onSend).toHaveBeenCalledWith("Hi there", undefined, profile);
+    },
+  );
 
   // On cold-open, item heights start at `defaultItemHeight` (96px) and grow
   // as markdown / code highlighting / async sub-components remeasure. After
@@ -792,45 +778,51 @@ describe("AgentSession auto-scroll", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Failed to load older messages"));
   });
 
-  // Prepend anchoring starts with Virtuoso's `firstItemIndex`, but the first
-  // pass only knows estimated item heights. Once the prepended rows measure,
-  // the hook compensates by the actual scrollHeight delta so the previously
-  // visible content stays anchored instead of jumping upward into the newly
-  // loaded history.
-  it("compensates scrollTop by the measured height delta after older messages are prepended", async () => {
-    // Older blocks land at the front. The hook leaves scrollTop alone until
-    // Virtuoso reports the measured total height, then preserves the previous
-    // visual anchor by adding the measured scrollHeight delta (200 → 1000 over
-    // a viewport of 200, so 80 + 400).
-    const scroller = loadOlderHistoryPage();
-    await waitFor(() => expect(scroller.scrollTop).toBe(480));
-  });
+  // Regression ("jumps when scrolling up"): replaying the offset captured when
+  // a history load started snapped a reader who kept scrolling back down once
+  // the page landed. The hook must leave the offset alone.
+  it("does not snap back to where a history load started after the page lands", async () => {
+    let resolveLoad: () => void = () => {};
+    const onLoadOlder = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const baseProps = {
+      agentType: "session" as const,
+      status: "agent" as const,
+      onSend: vi.fn(),
+      onStop: vi.fn(),
+      hasMore: true,
+      onLoadOlder,
+    };
+    const { rerender } = render(<AgentSession {...baseProps} blocks={[makeBlock("1", "Old")]} />);
+    const scroller = getScroller();
+    // Reading 80px from the top of a 600px-tall list; the wheel disengages stick.
+    stubGeometry(scroller, 600, 200);
+    userWheelUp(scroller, 80);
+    fireStartReached();
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    // The reader keeps scrolling while the page loads.
+    userWheelUp(scroller, 20);
 
-  // iOS regression (remote SPA on Safari): momentum scrolling keeps moving
-  // the viewport after the history request captures its anchor, and Virtuoso
-  // itself defers upward-resize compensation into a CSS deviation until the
-  // scroll settles. Replaying the stale absolute anchor snapped the view back
-  // *down* while the user was scrolling up. On iOS the hook must leave
-  // scrollTop alone and let Virtuoso's `firstItemIndex` anchoring own the
-  // prepend.
-  it("does not rewrite scrollTop after older messages are prepended on iOS", async () => {
-    Object.defineProperty(navigator, "userAgent", {
-      configurable: true,
-      value: IPHONE_USER_AGENT,
+    act(() => resolveLoad());
+    stubGeometry(scroller, 1000, 200);
+    rerender(
+      <AgentSession
+        {...baseProps}
+        blocks={[makeBlock("0a", ""), makeBlock("0b", ""), makeBlock("1", "Old")]}
+      />,
+    );
+    fireTotalHeightChange(1000);
+    await act(async () => {
+      for (let i = 0; i < 4; i += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
     });
-    try {
-      const scroller = loadOlderHistoryPage();
-      // Flush the scheduled restore frames (the hook schedules 3 rAF passes
-      // plus a settle timeout) — none of them may touch scrollTop on iOS.
-      await act(async () => {
-        for (let i = 0; i < 4; i += 1) {
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        }
-      });
-      expect(scroller.scrollTop).toBe(80);
-    } finally {
-      Reflect.deleteProperty(navigator, "userAgent");
-    }
+
+    expect(scroller.scrollTop).toBe(20);
   });
 
   // Conversation switch: the same `AgentSession` instance is reused when the

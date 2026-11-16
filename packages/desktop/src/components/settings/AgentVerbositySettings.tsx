@@ -1,5 +1,5 @@
 import { createElement, useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   AGENT_VERBOSITY_OPTIONS,
   AGENT_VERBOSITY_SETTING_KEY,
@@ -9,7 +9,7 @@ import {
 import { RadioCardGroup, type RadioCardOption } from "@/components/settings/RadioCardGroup";
 
 export function AgentVerbositySettings(): React.JSX.Element {
-  const modeSetting = useDebouncedSetting(AGENT_VERBOSITY_SETTING_KEY, 0);
+  const modeSetting = useSetting(AGENT_VERBOSITY_SETTING_KEY);
   const currentMode = parseAgentVerbosityMode(modeSetting.value);
 
   const options = useMemo<RadioCardOption<AgentVerbosityMode>[]>(

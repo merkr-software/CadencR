@@ -1,0 +1,95 @@
+name: Artifact compatibility
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Exercise the release workflows' transfer contracts without publishing anything.
+jobs:
+  upload:
+    name: Upload release fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare npm, CLI and plugin fixtures
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, pathlib, tarfile
+          root = pathlib.Path('fixtures')
+          for directory in ['npm', 'cli', 'plugin/assets']:
+              (root / directory).mkdir(parents=True)
+          with tarfile.open(root / 'npm/package.tgz', 'w:gz') as archive:
+              payload = b'#!/bin/sh\necho artifact-fixture\n'
+              entry = tarfile.TarInfo('package/bin/fixture')
+              entry.size, entry.mode = len(payload), 0o755
+              archive.addfile(entry, io.BytesIO(payload))
+          binary = bytes(range(256)) * 8
+          (root / 'cli/cadencr').write_bytes(binary)
+          (root / 'cli/SHA256SUMS').write_text(hashlib.sha256(binary).hexdigest() + '  cadencr\n')
+          (root / 'cli/provenance.json').write_text('{"fixture":true}\n')
+          (root / 'plugin/manifest.json').write_text('{"name":"fixture"}\n')
+          (root / 'plugin/assets/data.bin').write_bytes(binary)
+          (root / 'plugin/.excluded').write_text('hidden files must stay excluded')
+          PY
+      # actions/upload-artifact@v7.0.2 — keep default ZIP wrapping and naming.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: compatibility-npm-${{ github.run_attempt }}
+          path: fixtures/npm/package.tgz
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: compatibility-cli-${{ github.run_attempt }}
+          path: fixtures/cli/*
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: compatibility-plugin-${{ github.run_attempt }}
+          path: fixtures/plugin/
+          if-no-files-found: error
+          retention-days: 1
+
+  download:
+    name: Verify release fixtures on a fresh runner
+    needs: upload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # actions/download-artifact@v8.0.2 — preserve the default digest error.
+      # npm-release downloads its named tarball into the workspace root.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: compatibility-npm-${{ github.run_attempt }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: compatibility-cli-${{ github.run_attempt }}
+          path: candidate
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: compatibility-plugin-${{ github.run_attempt }}
+          path: plugin
+      - name: Verify paths, bytes, checksums and packaged executable mode
+        run: |
+          python3 - <<'PY'
+          import hashlib, pathlib, tarfile
+          with tarfile.open('package.tgz', 'r:gz') as archive:
+              assert archive.getnames() == ['package/bin/fixture']
+              entry = archive.getmember('package/bin/fixture')
+              assert entry.mode == 0o755
+              assert archive.extractfile(entry).read() == b'#!/bin/sh\necho artifact-fixture\n'
+          binary = bytes(range(256)) * 8
+          candidate = pathlib.Path('candidate')
+          assert {p.name for p in candidate.iterdir()} == {'cadencr', 'SHA256SUMS', 'provenance.json'}
+          assert (candidate / 'cadencr').read_bytes() == binary
+          assert (candidate / 'SHA256SUMS').read_text() == hashlib.sha256(binary).hexdigest() + '  cadencr\n'
+          assert (candidate / 'provenance.json').read_text() == '{"fixture":true}\n'
+          plugin = pathlib.Path('plugin')
+          assert {p.relative_to(plugin).as_posix() for p in plugin.rglob('*') if p.is_file()} == {'manifest.json', 'assets/data.bin'}
+          assert (plugin / 'manifest.json').read_text() == '{"name":"fixture"}\n'
+          assert (plugin / 'assets/data.bin').read_bytes() == binary
+          print('All three release artifact contracts passed')
+          PY

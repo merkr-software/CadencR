@@ -2,6 +2,7 @@ import { memo, useMemo, type ReactElement } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   CalendarClock,
+  CirclePlay,
   MessageSquarePlus,
   MessagesSquare,
   Pause,
@@ -9,6 +10,7 @@ import {
   Play,
   Repeat,
   Send,
+  SquareTerminal,
 } from "lucide-react";
 import type { Schedule } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -19,9 +21,11 @@ import {
   describeTarget,
   formatAbsolute,
   formatRelative,
+  isActionSchedule,
   schedulePromptPreview,
   scheduleTitle,
 } from "@/lib/schedules/format";
+import { describeLastCheck } from "@/lib/schedules/condition";
 import { scheduleState, SCHEDULE_STATE_LABELS, type ScheduleState } from "@/lib/schedules/status";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +35,13 @@ const STATE_DOT: Record<ScheduleState, string> = {
   failed: "bg-destructive",
   paused: "bg-muted-foreground/50",
   completed: "bg-muted-foreground/30",
+};
+
+/** A custom action is a shell command, so it shares the condition's glyph. */
+const TARGET_ICONS: Record<Schedule["target"]["kind"], typeof MessagesSquare> = {
+  conversation: MessagesSquare,
+  new_conversation: MessageSquarePlus,
+  custom_action: SquareTerminal,
 };
 
 export interface ScheduleRowProps {
@@ -55,8 +66,7 @@ export const ScheduleRow = memo(function ScheduleRow({
   );
   useCountdownTick(state === "upcoming" ? nextRun : null);
 
-  const TargetIcon =
-    schedule.target.kind === "new_conversation" ? MessageSquarePlus : MessagesSquare;
+  const TargetIcon = TARGET_ICONS[schedule.target.kind];
   const RecurrenceIcon = schedule.recurrence.kind === "once" ? CalendarClock : Repeat;
 
   return (
@@ -85,10 +95,13 @@ export const ScheduleRow = memo(function ScheduleRow({
           )}
         </div>
 
-        {/* The prompt itself, when the name isn't already it — two schedules on
-            the same rule are told apart by what they send. */}
+        {/* The prompt (or action) itself, when the name isn't already it — two
+            schedules on the same rule are told apart by what they do. */}
         {schedule.name?.trim() && (
-          <p className="mt-0.5 truncate text-xs text-muted-foreground/90" title={schedule.prompt}>
+          <p
+            className="mt-0.5 truncate text-xs text-muted-foreground/90"
+            title={isActionSchedule(schedule) ? undefined : schedule.prompt}
+          >
             {schedulePromptPreview(schedule)}
           </p>
         )}
@@ -102,9 +115,29 @@ export const ScheduleRow = memo(function ScheduleRow({
             <TargetIcon className="size-3 shrink-0" />
             <span className="truncate">{describeTarget(schedule)}</span>
           </span>
+          {schedule.condition && (
+            <span
+              className="inline-flex min-w-0 items-center gap-1"
+              title={`Only sends when \`${schedule.condition.command}\` exits non-zero`}
+            >
+              <SquareTerminal className="size-3 shrink-0" />
+              <span className="shrink-0">If</span>
+              <code className="truncate font-mono text-[11px] text-foreground/80">
+                {schedule.condition.command}
+              </code>
+              <span className="shrink-0">fails</span>
+            </span>
+          )}
         </div>
 
         <NextRunLine schedule={schedule} state={state} nextRun={nextRun} />
+        {/* A check that couldn't run is also a failed run, which the line
+            above already explains. */}
+        {schedule.last_check && schedule.last_check.status !== "error" && state !== "completed" && (
+          <p className="mt-0.5 text-xs text-muted-foreground/80">
+            {describeLastCheck(schedule.last_check)}
+          </p>
+        )}
       </div>
 
       <RowActions
@@ -164,7 +197,8 @@ function NextRunLine({
 function lastRunLabel(schedule: Schedule): string {
   if (!schedule.last_run) return "Never ran";
   const at = formatAbsolute(new Date(schedule.last_run.at));
-  return schedule.last_run.status === "skipped" ? `Missed — ${at}` : `Sent ${at}`;
+  if (schedule.last_run.status === "skipped") return `Missed — ${at}`;
+  return isActionSchedule(schedule) ? `Ran ${at}` : `Sent ${at}`;
 }
 
 function RowActions({
@@ -209,7 +243,11 @@ function RowActions({
           onClick={() => onRunNow(schedule)}
           aria-label={`Run ${scheduleTitle(schedule)} now`}
         >
-          <Send className="size-3.5" />
+          {isActionSchedule(schedule) ? (
+            <CirclePlay className="size-3.5" />
+          ) : (
+            <Send className="size-3.5" />
+          )}
         </Button>
       </ShortcutTooltip>
       {state !== "completed" && (

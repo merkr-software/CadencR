@@ -1,4 +1,4 @@
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useSystemReducedMotion } from "./useSystemReducedMotion";
 
 /**
@@ -28,6 +28,8 @@ export interface UseAnimationsEnabledResult {
   systemReducedMotion: boolean;
   /** Persist the user's choice. */
   setEnabled: (next: boolean) => void;
+  /** The choice is on its way to the backend. */
+  isSaving: boolean;
   isLoading: boolean;
 }
 
@@ -41,7 +43,7 @@ export interface UseAnimationsEnabledResult {
  * CSS instead of subscribing individually (keeps hot paths render-free).
  */
 export function useAnimationsEnabled(): UseAnimationsEnabledResult {
-  const setting = useDebouncedSetting(ANIMATIONS_ENABLED_SETTING_KEY, 0);
+  const setting = useSetting(ANIMATIONS_ENABLED_SETTING_KEY);
   const systemReducedMotion = useSystemReducedMotion();
   const preference = parseAnimationsPreference(setting.value);
 
@@ -56,5 +58,6 @@ export function useAnimationsEnabled(): UseAnimationsEnabledResult {
     systemReducedMotion,
     setEnabled: (next: boolean) => setting.setValue(next ? "true" : "false"),
     isLoading: setting.isLoading,
+    isSaving: setting.isSaving,
   };
 }

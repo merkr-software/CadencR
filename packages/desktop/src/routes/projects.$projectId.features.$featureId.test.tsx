@@ -19,7 +19,14 @@ vi.mock("@tanstack/react-router", () => ({
   }),
   useNavigate: () => vi.fn(),
   Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,
-  useRouterState: () => ({ location: { pathname: "/" } }),
+  useRouterState: (options?: {
+    select?: (state: {
+      location: { pathname: string; search?: Record<string, unknown> };
+    }) => unknown;
+  }) => {
+    const state = { location: { pathname: "/" } };
+    return options?.select ? options.select(state) : state;
+  },
   Link: ({ children, to }: { children: unknown; to: string }) => {
     const React = require("react");
     return React.createElement("a", { href: to }, children);

@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::domain::git::commands::unmerged_paths;
 use crate::domain::git::models::GitOperationResponse;
 use crate::error::AppError;
 use crate::shared::git_cli::{run_git_background, run_git_capture, run_git_safe_refs};
@@ -21,7 +22,7 @@ pub async fn stash_common_dir(repo_path: &Path) -> Result<PathBuf, AppError> {
         repo_path.join(common_dir)
     };
     tokio::fs::canonicalize(&common_dir).await.map_err(|error| {
-        AppError::GitCommandError(format!(
+        AppError::git_command(format!(
             "failed to resolve the repository Git directory {}: {error}",
             common_dir.display()
         ))
@@ -122,19 +123,6 @@ async fn run_conflictable_stash_command(
     }
     command_result?;
     Ok(GitOperationResponse::Completed)
-}
-
-async fn unmerged_paths(repo_path: &Path) -> Result<Vec<String>, AppError> {
-    let output = run_git_background(
-        &["diff", "--name-only", "--diff-filter=U", "-z", "--"],
-        repo_path,
-    )
-    .await?;
-    Ok(output
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(ToOwned::to_owned)
-        .collect())
 }
 
 #[cfg(test)]

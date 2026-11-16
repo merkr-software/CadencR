@@ -1,11 +1,12 @@
 pub mod acp;
 pub mod adapter;
 pub mod canonical;
+pub(crate) mod catalog_cache;
 pub mod claude_code;
 pub mod codex;
 pub mod config_migration;
-pub mod cursor;
 pub mod discovery;
+pub mod extensions;
 mod mcp_tool_names;
 pub mod model_refs;
 pub mod opencode;
@@ -16,6 +17,7 @@ pub mod response_style;
 pub mod runtime;
 pub(crate) mod runtime_overrides;
 pub mod selection;
+pub mod updates;
 
 pub use discovery::apply_binary_overrides_from_settings;
 pub use providers::{

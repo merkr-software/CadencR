@@ -60,6 +60,27 @@ extract_release_notes() {
   mv "$tmp" "$output"
 }
 
+append_install_instructions() {
+  local output="$1"
+
+  # Linux is an alpha attached later by desktop-linux-release.yml, which adds its
+  # own install section once the packages exist.
+  cat >> "$output" <<'EOF'
+
+## Install
+
+### macOS
+
+Install with Homebrew:
+
+```bash
+brew install --cask merkr-software/cadencr/cadencr
+```
+
+Or download the DMG matching Apple Silicon or Intel from the assets below.
+EOF
+}
+
 main() {
   [ "$#" -eq 1 ] || [ "$#" -eq 2 ] || { usage; exit 2; }
   local tag="$1"
@@ -69,10 +90,12 @@ main() {
   if [ "$#" -eq 2 ]; then
     validate_output "$2"
     extract_release_notes "$tag" "$2"
+    append_install_instructions "$2"
   else
     local tmp
     tmp="$(mktemp)"
     extract_release_notes "$tag" "$tmp"
+    append_install_instructions "$tmp"
     cat "$tmp"
     rm -f "$tmp"
   fi

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
@@ -17,6 +18,8 @@ vi.mock("@/lib/ws-url", () => ({
 
 import { useTerminalWebSocket } from "./useTerminalWebSocket";
 import type { UseTerminalWebSocketOptions } from "./useTerminalWebSocket";
+import { useConnectionStatusStore } from "@/stores/connection-status-store";
+import { forceReconnectAll } from "@/lib/ws-reconnect";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +118,12 @@ function renderAndConnect(opts?: Partial<UseTerminalWebSocketOptions>, cols = 80
 }
 
 beforeEach(() => {
+  useConnectionStatusStore.setState({
+    status: "connected",
+    reason: null,
+    sources: {},
+    recoveredSinceOutage: false,
+  });
   MockWebSocket.instances = [];
   globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket;
   vi.clearAllMocks();
@@ -391,5 +400,60 @@ describe("terminal socket generations", () => {
     act(() => oldSocket.simulateMessage({ type: "data", data: "stale" }));
     expect(result.current.isConnected).toBe(true);
     expect(onData).not.toHaveBeenCalled();
+  });
+});
+
+describe("shell exit vs lost connection", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("treats the close that follows a shell exit as the end of the terminal", () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const { result, unmount } = renderAndConnect({ onError });
+    const socket = lastWs();
+    act(() => socket.simulateOpen());
+
+    // Ctrl+D: the backend sends `exit`, then closes the socket itself.
+    act(() => socket.simulateMessage({ type: "exit", code: 0 }));
+    act(() => socket.simulateClose(1005));
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(useConnectionStatusStore.getState().status).toBe("connected");
+    expect(result.current.write("typed after exit")).toBe(false);
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    unmount();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("does not reattach to the exited shell when every socket is forced to reconnect", () => {
+    const { unmount } = renderAndConnect();
+    act(() => lastWs().simulateOpen());
+    act(() => lastWs().simulateMessage({ type: "exit", code: 0 }));
+
+    // Wake/Retry can land between the `exit` message and the socket close.
+    act(() => forceReconnectAll());
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    unmount();
+  });
+
+  it("still reconnects a fresh connection after a previous shell exited", () => {
+    const onError = vi.fn();
+    const { result, unmount } = renderAndConnect({ onError });
+    act(() => lastWs().simulateOpen());
+    act(() => lastWs().simulateMessage({ type: "exit", code: 0 }));
+    act(() => result.current.connect(80, 24));
+    act(() => lastWs().simulateOpen());
+
+    act(() => lastWs().simulateClose(1006));
+
+    expect(onError).toHaveBeenCalledWith("Connection lost. Reconnecting…", "transport");
+    expect(useConnectionStatusStore.getState().status).toBe("reconnecting");
+    unmount();
   });
 });

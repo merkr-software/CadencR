@@ -1,3 +1,4 @@
+pub mod document_routes;
 pub mod file_search;
 pub mod file_size;
 pub mod format;
@@ -11,3 +12,4 @@ mod service_tests;
 pub mod tree_all;
 pub mod tree_count;
 pub mod watcher;
+pub mod workbook_recalc;

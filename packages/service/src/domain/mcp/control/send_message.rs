@@ -21,7 +21,7 @@ use crate::domain::mcp::send_message_tool::SendMessageTool;
 use crate::domain::sessions::message_dispatch::{self, DispatchClaim};
 use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::PersistedUserMessage;
-use crate::domain::ws_session::handler::session_prompt::publish_user_message;
+use crate::domain::ws_session::runtime::prompt::publish_user_message;
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -325,7 +325,7 @@ async fn dispatch_immediate_message_once(
             message_dispatch::mark_failed(&state.write_pool, message_id, &token, &dispatch_message)
                 .await
         {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "message dispatch failed ({dispatch_message}) and its retry state could not be persisted ({status_error})"
             )));
         }
@@ -349,5 +349,5 @@ pub(super) async fn publish_generated_user_message(
         false,
     )
     .await
-    .map_err(|error| AppError::Internal(error.to_string()))
+    .map_err(|error| AppError::internal(error.to_string()))
 }

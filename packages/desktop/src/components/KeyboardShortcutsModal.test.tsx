@@ -4,7 +4,7 @@ import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 
 describe("KeyboardShortcutsModal", () => {
   it("renders real shortcuts from the registry — sidebar, plan approval, and git", () => {
-    render(<KeyboardShortcutsModal open onOpenChange={() => {}} />);
+    render(<KeyboardShortcutsModal open onOpenChange={() => {}} projectId={null} />);
 
     expect(screen.getByText("Open focused item")).toBeInTheDocument();
     expect(screen.getByText("Approve plan")).toBeInTheDocument();
@@ -14,7 +14,7 @@ describe("KeyboardShortcutsModal", () => {
   });
 
   it("does not render shortcuts that were removed from the codebase", () => {
-    render(<KeyboardShortcutsModal open onOpenChange={() => {}} />);
+    render(<KeyboardShortcutsModal open onOpenChange={() => {}} projectId={null} />);
     // The old, drifted modal listed several shortcuts that aren't real bindings.
     // The registry should only carry actual `useHotkeys` registrations.
     expect(screen.queryByText("Mark session agent done")).not.toBeInTheDocument();
@@ -23,7 +23,7 @@ describe("KeyboardShortcutsModal", () => {
   });
 
   it("filters by description and by combo text via the search box", () => {
-    render(<KeyboardShortcutsModal open onOpenChange={() => {}} />);
+    render(<KeyboardShortcutsModal open onOpenChange={() => {}} projectId={null} />);
     const search = screen.getByLabelText("Search shortcuts");
 
     fireEvent.change(search, { target: { value: "zoom" } });
@@ -36,7 +36,7 @@ describe("KeyboardShortcutsModal", () => {
   });
 
   it("lists and searches every Git command from the central registry", () => {
-    render(<KeyboardShortcutsModal open onOpenChange={() => {}} />);
+    render(<KeyboardShortcutsModal open onOpenChange={() => {}} projectId={null} />);
     const search = screen.getByLabelText("Search shortcuts");
 
     fireEvent.change(search, { target: { value: "git" } });

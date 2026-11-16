@@ -1,10 +1,23 @@
 use sqlx::{QueryBuilder, Sqlite, SqlitePool, Transaction};
 
-use super::models::{ArchivePreview, ArchiveRequest, ArchiveResponse};
+use super::models::{ArchivePreview, ArchiveProjectSessionsResponse, ArchiveRequest};
 use crate::error::AppError;
 
 mod graph;
 use graph::load_graph;
+
+/// A session that is running an agent turn. Mirrors the session-status
+/// snapshot predicate
+/// (`domain::sessions::repository::queries::get_session_status_snapshot`):
+/// `status = 'running'` or a pending question/permission column set. A macro
+/// so the queries stay static strings.
+macro_rules! busy_session {
+    () => {
+        "(s.status = 'running' \
+         OR s.pending_questions IS NOT NULL \
+         OR s.pending_permission IS NOT NULL)"
+    };
+}
 
 pub async fn preview(pool: &SqlitePool, selected_id: i64) -> Result<ArchivePreview, AppError> {
     let mut connection = pool.acquire().await?;
@@ -13,15 +26,67 @@ pub async fn preview(pool: &SqlitePool, selected_id: i64) -> Result<ArchivePrevi
         .preview(selected_id))
 }
 
-pub async fn archive(
+/// Who archives: the user may archive any conversation; an agent
+/// (`project_archive_session`) only idle ones, and never its own.
+#[derive(Debug, Clone, Copy)]
+pub enum Archiver {
+    User,
+    Agent { caller_id: i64 },
+}
+
+/// Archive `selected_id` (with the relatives `request` asks for) inside the
+/// caller's transaction, so the cleanup plan commits with it.
+///
+/// For [`Archiver::Agent`] it is refused when the selection includes the
+/// caller, or a conversation whose agent is running or waiting at a gate — it
+/// would keep running, hidden. Checked in the archive's own transaction, so
+/// nothing starts between check and write.
+pub async fn archive_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    selected_id: i64,
+    request: &ArchiveRequest,
+    archiver: Archiver,
+) -> Result<Vec<i64>, AppError> {
+    let ids = selection(tx, selected_id, request).await?;
+    if let Archiver::Agent { caller_id } = archiver {
+        if ids.contains(&caller_id) {
+            return Err(AppError::BadRequest(format!(
+                "archiving {selected_id} with its parent or descendants would archive \
+                 the calling conversation {caller_id}"
+            )));
+        }
+        let busy = busy_ids(tx, &ids).await?;
+        if !busy.is_empty() {
+            return Err(AppError::Conflict(format!(
+                "conversation(s) {busy:?} have a working agent or a pending gate; \
+                 archive them once they are idle"
+            )));
+        }
+    }
+    archive_ids(tx, &ids).await?;
+    Ok(ids)
+}
+
+#[cfg(test)]
+async fn archive(
     pool: &SqlitePool,
     selected_id: i64,
     request: ArchiveRequest,
-) -> Result<ArchiveResponse, AppError> {
+) -> Result<Vec<i64>, AppError> {
     let mut tx = pool.begin().await?;
+    let ids = archive_in(&mut tx, selected_id, &request, Archiver::User).await?;
+    tx.commit().await?;
+    Ok(ids)
+}
+
+async fn selection(
+    tx: &mut Transaction<'_, Sqlite>,
+    selected_id: i64,
+    request: &ArchiveRequest,
+) -> Result<Vec<i64>, AppError> {
     let mut ids = vec![selected_id];
     if request.include_parent || request.include_descendants {
-        let preview = load_graph(&mut tx, selected_id).await?.preview(selected_id);
+        let preview = load_graph(tx, selected_id).await?.preview(selected_id);
         if request.include_parent {
             ids.extend(preview.parent_ids);
         }
@@ -31,9 +96,69 @@ pub async fn archive(
     }
     ids.sort_unstable();
     ids.dedup();
-    archive_ids(&mut tx, &ids).await?;
+    Ok(ids)
+}
+
+async fn busy_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<Vec<i64>, AppError> {
+    let mut query = QueryBuilder::<Sqlite>::new(concat!(
+        "SELECT DISTINCT feature_id FROM agent_sessions s WHERE ",
+        busy_session!(),
+        " AND feature_id IN ("
+    ));
+    let mut separated = query.separated(", ");
+    for id in ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(") ORDER BY feature_id");
+    Ok(query.build_query_scalar().fetch_all(&mut **tx).await?)
+}
+
+/// Archive every session of a project that is neither pinned nor running an
+/// agent turn (`busy_session!`).
+pub async fn archive_project_sessions(
+    pool: &SqlitePool,
+    project_id: i64,
+) -> Result<ArchiveProjectSessionsResponse, AppError> {
+    let mut tx = pool.begin().await?;
+    crate::domain::projects::service::ensure_project_exists(&mut *tx, project_id).await?;
+    let archived_ids: Vec<i64> = sqlx::query_scalar(concat!(
+        "SELECT id FROM features \
+         WHERE project_id = ? AND status = 'active' AND is_pinned = 0 \
+           AND NOT EXISTS ( \
+             SELECT 1 FROM agent_sessions s \
+             WHERE s.feature_id = features.id AND ",
+        busy_session!(),
+        ") ORDER BY id"
+    ))
+    .bind(project_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let skipped_pinned: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM features \
+         WHERE project_id = ? AND status = 'active' AND is_pinned = 1",
+    )
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let skipped_running: i64 = sqlx::query_scalar(concat!(
+        "SELECT COUNT(*) FROM features \
+         WHERE project_id = ? AND status = 'active' AND is_pinned = 0 \
+           AND EXISTS ( \
+             SELECT 1 FROM agent_sessions s \
+             WHERE s.feature_id = features.id AND ",
+        busy_session!(),
+        ")"
+    ))
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    archive_ids(&mut tx, &archived_ids).await?;
     tx.commit().await?;
-    Ok(ArchiveResponse { archived_ids: ids })
+    Ok(ArchiveProjectSessionsResponse {
+        archived_ids,
+        skipped_pinned,
+        skipped_running,
+    })
 }
 
 async fn archive_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<(), AppError> {
@@ -152,10 +277,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            archive(&pool, 1, ArchiveRequest::default())
-                .await
-                .unwrap()
-                .archived_ids,
+            archive(&pool, 1, ArchiveRequest::default()).await.unwrap(),
             vec![1]
         );
         assert!(matches!(
@@ -183,6 +305,7 @@ mod tests {
         let request = || ArchiveRequest {
             include_parent: false,
             include_descendants: true,
+            ..Default::default()
         };
         assert!(archive(&pool, root, request()).await.is_err());
         let active: i64 = sqlx::query_scalar(
@@ -200,7 +323,7 @@ mod tests {
         let response = archive(&pool, root, request()).await.unwrap();
         let mut expected = vec![root];
         expected.extend(children);
-        assert_eq!(response.archived_ids, expected);
+        assert_eq!(response, expected);
         let archived: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM features WHERE project_id = ? AND status = 'archived'",
         )
@@ -232,6 +355,7 @@ mod tests {
                 ArchiveRequest {
                     include_parent,
                     include_descendants,
+                    ..Default::default()
                 },
             )
             .await
@@ -244,7 +368,7 @@ mod tests {
                 expected.push(child);
             }
             expected.sort_unstable();
-            assert_eq!(response.archived_ids, expected);
+            assert_eq!(response, expected);
             let actual = statuses(&pool, &[grandparent, parent, selected, child, sibling]).await;
             assert_eq!(actual[0], "active");
             assert_eq!(
@@ -340,7 +464,8 @@ mod tests {
             selected,
             ArchiveRequest {
                 include_parent: false,
-                include_descendants: true
+                include_descendants: true,
+                ..Default::default()
             },
         )
         .await
@@ -370,5 +495,95 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(archived_at, "2020-01-01");
+    }
+
+    async fn add_pinned_feature(pool: &SqlitePool, project: i64) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO features (project_id, title, status, is_pinned) \
+             VALUES (?, 'pinned', 'active', 1) RETURNING id",
+        )
+        .bind(project)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn add_agent_session(
+        pool: &SqlitePool,
+        feature: i64,
+        status: &str,
+        pending_questions: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO agent_sessions (feature_id, agent_type, status, pending_questions) \
+             VALUES (?, 'session', ?, ?)",
+        )
+        .bind(feature)
+        .bind(status)
+        .bind(pending_questions)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn archive_project_sessions_keeps_pinned_and_running_sessions() {
+        let (pool, project, other_project) = setup().await;
+        let idle = add_feature(&pool, project, "active").await;
+        let pinned = add_pinned_feature(&pool, project).await;
+        let running = add_feature(&pool, project, "active").await;
+        let pending_question = add_feature(&pool, project, "active").await;
+        let already_archived = add_feature(&pool, project, "archived").await;
+        let other_project_idle = add_feature(&pool, other_project, "active").await;
+        add_agent_session(&pool, running, "running", None).await;
+        add_agent_session(
+            &pool,
+            pending_question,
+            "paused",
+            Some(r#"{"request_id":"r1"}"#),
+        )
+        .await;
+
+        let response = archive_project_sessions(&pool, project).await.unwrap();
+
+        assert_eq!(response.archived_ids, vec![idle]);
+        assert_eq!(response.skipped_pinned, 1);
+        assert_eq!(response.skipped_running, 2);
+        assert_eq!(
+            statuses(
+                &pool,
+                &[
+                    idle,
+                    pinned,
+                    running,
+                    pending_question,
+                    already_archived,
+                    other_project_idle
+                ]
+            )
+            .await,
+            vec!["archived", "active", "active", "active", "archived", "active"]
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_project_sessions_without_eligible_sessions_archives_nothing() {
+        let (pool, project, _) = setup().await;
+        add_pinned_feature(&pool, project).await;
+
+        let response = archive_project_sessions(&pool, project).await.unwrap();
+
+        assert_eq!(response.archived_ids, Vec::<i64>::new());
+        assert_eq!(response.skipped_pinned, 1);
+        assert_eq!(response.skipped_running, 0);
+    }
+
+    #[tokio::test]
+    async fn archive_project_sessions_unknown_project_is_not_found() {
+        let (pool, _, _) = setup().await;
+        assert!(matches!(
+            archive_project_sessions(&pool, 999).await,
+            Err(AppError::NotFound(_))
+        ));
     }
 }

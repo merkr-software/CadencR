@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::cli_command::run_opencode_command;
 use crate::error::SdkError;
 use crate::process::resolve_binary;
 use serde_json::Value;
@@ -20,6 +21,17 @@ pub async fn list_mcp_servers_from_cli(
     list_mcp_servers_from_binary(&binary, cwd).await
 }
 
+/// The MCP servers of OpenCode's resolved config (`opencode debug config`),
+/// or an error when it cannot be read or parsed — never the partial guess of
+/// [`list_mcp_servers_from_binary`]'s config-file fallback.
+pub async fn list_mcp_servers_from_resolved_config(
+    cwd: Option<&Path>,
+) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
+    let binary = resolve_binary().await?;
+    let output = run_opencode_command(&binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT).await?;
+    parse_mcp_config_output(&output)
+}
+
 pub async fn list_mcp_servers_from_binary(
     binary: &Path,
     cwd: Option<&Path>,
@@ -29,7 +41,8 @@ pub async fn list_mcp_servers_from_binary(
         cwd = cwd.map(|path| path.display().to_string()).as_deref().unwrap_or("<none>"),
         "discovering OpenCode MCP servers"
     );
-    let config_output = run_opencode_command(binary, cwd, ["debug", "config"]).await;
+    let config_output =
+        run_opencode_command(binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT).await;
     match config_output {
         Ok(output) => {
             tracing::info!(
@@ -48,19 +61,35 @@ pub async fn list_mcp_servers_from_binary(
                 servers = ?servers,
                 "OpenCode MCP servers parsed from debug config"
             );
-            return Ok(servers);
+            Ok(servers)
         }
         Err(error) => {
             tracing::warn!(%error, "failed to read OpenCode resolved config");
-            if let Ok(servers) = fallback_mcp_servers(cwd) {
-                if !servers.is_empty() {
-                    return Ok(servers);
-                }
-            }
+            list_from_config_files_or_mcp_list(binary, cwd).await
         }
     }
+}
 
-    let output = run_opencode_command(binary, cwd, ["mcp", "list"]).await?;
+/// What [`list_mcp_servers_from_cli`] falls back to when OpenCode's resolved
+/// config could not be read: the config files, else `opencode mcp list`. For a
+/// caller that already tried [`list_mcp_servers_from_resolved_config`].
+pub async fn list_mcp_servers_without_resolved_config(
+    cwd: Option<&Path>,
+) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
+    let binary = resolve_binary().await?;
+    list_from_config_files_or_mcp_list(&binary, cwd).await
+}
+
+async fn list_from_config_files_or_mcp_list(
+    binary: &Path,
+    cwd: Option<&Path>,
+) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
+    if let Ok(servers) = fallback_mcp_servers(cwd) {
+        if !servers.is_empty() {
+            return Ok(servers);
+        }
+    }
+    let output = run_opencode_command(binary, cwd, &["mcp", "list"], MCP_LIST_TIMEOUT).await?;
     tracing::info!(
         bytes = output.len(),
         "OpenCode mcp list output received for MCP discovery"
@@ -93,33 +122,6 @@ pub fn list_mcp_servers_from_config_files(
     }
     dedupe_servers(&mut servers);
     Ok(servers)
-}
-
-async fn run_opencode_command<const N: usize>(
-    binary: &Path,
-    cwd: Option<&Path>,
-    args: [&str; N],
-) -> Result<String, SdkError> {
-    let mut command = cli_discovery::login_shell_exec_command(
-        binary.as_os_str(),
-        args.map(std::ffi::OsString::from),
-    );
-    command.kill_on_drop(true);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let output = tokio::time::timeout(MCP_LIST_TIMEOUT, command.output())
-        .await
-        .map_err(|_| SdkError::Timeout("opencode mcp list".to_string()))??;
-
-    if !output.status.success() {
-        return Err(SdkError::Protocol(format!(
-            "opencode mcp list exited with status {}",
-            output.status,
-        )));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 pub fn parse_mcp_config_output(raw: &str) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {

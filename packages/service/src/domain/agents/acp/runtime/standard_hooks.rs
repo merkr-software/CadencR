@@ -77,7 +77,6 @@ mod tests {
         assert!(hooks.thinking_effort_config_id().is_none());
         assert!(hooks.default_mode_id().is_none());
         assert!(hooks.compact_prompt().is_none());
-        assert!(hooks.client_capabilities_meta().is_empty());
         assert!(hooks
             .mode_for_permission_mode(crate::domain::agents::adapter::RuntimePermissionMode::Plan)
             .is_none());

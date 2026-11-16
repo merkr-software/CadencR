@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+use super::events::{notify_run, CustomActionEventKind, CustomActionEventSender};
 use super::models::TriggeredBy;
 use super::repository;
 use super::run_registry::CustomActionRunRegistry;
@@ -24,12 +25,51 @@ const FLUSH_INTERVAL: Duration = Duration::from_millis(750);
 /// well-behaved command can clean up but a stuck one still dies promptly.
 const CANCEL_GRACE: Duration = Duration::from_secs(3);
 
+/// How long a cancelled run waits for the output it has not read yet. Once its
+/// process group is dead, only a process that left the group (a daemon) can
+/// still hold the pipes open, and the run must not wait on it.
+const CANCEL_DRAIN: Duration = Duration::from_secs(1);
+
 /// How a run's wait ended, deciding how the child is torn down.
 enum WaitResult {
     /// The command exited on its own with this code.
     Exited(i64),
     /// The user requested cancellation (Ctrl-C).
     Cancelled,
+}
+
+/// Where a run's progress is persisted and announced.
+#[derive(Clone)]
+struct RunContext {
+    pool: SqlitePool,
+    runs: Arc<CustomActionRunRegistry>,
+    events: CustomActionEventSender,
+    action_id: i64,
+    feature_id: i64,
+    run_id: i64,
+}
+
+impl RunContext {
+    fn new(state: &AppState, action_id: i64, feature_id: i64, run_id: i64) -> Self {
+        Self {
+            pool: state.write_pool.clone(),
+            runs: state.custom_action_runs.clone(),
+            events: state.custom_action_events_tx.clone(),
+            action_id,
+            feature_id,
+            run_id,
+        }
+    }
+
+    fn notify(&self, kind: CustomActionEventKind) {
+        notify_run(
+            &self.events,
+            kind,
+            self.action_id,
+            self.feature_id,
+            self.run_id,
+        );
+    }
 }
 
 /// Resolved command + working directory for an `(action, feature)` pair.
@@ -75,30 +115,6 @@ pub async fn resolve(
     Ok((prepared.command, prepared.cwd))
 }
 
-/// Execute `action_id` for `feature_id`, blocking until completion.
-///
-/// Used by the scheduler, where serialising runs prevents a slow command from
-/// overlapping itself across ticks.
-pub async fn execute(
-    state: &AppState,
-    action_id: i64,
-    feature_id: i64,
-    triggered_by: TriggeredBy,
-) -> Result<(), AppError> {
-    let prepared = prepare(state, action_id, feature_id).await?;
-    let run_id =
-        repository::insert_run(&state.write_pool, action_id, feature_id, triggered_by).await?;
-    run_and_finalize(
-        state.write_pool.clone(),
-        state.custom_action_runs.clone(),
-        run_id,
-        feature_id,
-        prepared,
-    )
-    .await;
-    Ok(())
-}
-
 /// Start an asynchronous run: create the run row, kick the command off in the
 /// background and return `run_id` immediately.
 ///
@@ -115,29 +131,20 @@ pub async fn start(
     let prepared = prepare(state, action_id, feature_id).await?;
     let run_id =
         repository::insert_run(&state.write_pool, action_id, feature_id, triggered_by).await?;
-    let pool = state.write_pool.clone();
-    let runs = state.custom_action_runs.clone();
-    tokio::spawn(async move {
-        run_and_finalize(pool, runs, run_id, feature_id, prepared).await;
-    });
+    let ctx = RunContext::new(state, action_id, feature_id, run_id);
+    ctx.notify(CustomActionEventKind::RunStarted);
+    tokio::spawn(run_and_finalize(ctx, prepared));
     Ok(run_id)
 }
 
 /// Spawn the shell, stream stdout/stderr into the run row while it runs, and
 /// finalize with the exit code once it exits or is cancelled.
-async fn run_and_finalize(
-    pool: SqlitePool,
-    runs: Arc<CustomActionRunRegistry>,
-    run_id: i64,
-    feature_id: i64,
-    prepared: Prepared,
-) {
+async fn run_and_finalize(ctx: RunContext, prepared: Prepared) {
     let mut child = match spawn_shell(&prepared.command, &prepared.cwd) {
         Ok(c) => c,
         Err(e) => {
             finalize(
-                &pool,
-                run_id,
+                &ctx,
                 Some(-1),
                 "",
                 &format!("Failed to start login shell: {e}"),
@@ -160,8 +167,7 @@ async fn run_and_finalize(
 
     let stop = Arc::new(Notify::new());
     let flusher = spawn_flusher(
-        pool.clone(),
-        run_id,
+        ctx.clone(),
         stdout_buf.clone(),
         stderr_buf.clone(),
         stop.clone(),
@@ -171,7 +177,7 @@ async fn run_and_finalize(
     // There is no timeout: custom actions are user-defined and may run
     // indefinitely (e.g. dev servers), so a run only ends when the command
     // exits or the user cancels it.
-    let cancel = runs.register(run_id, feature_id).await;
+    let cancel = ctx.runs.register(ctx.run_id, ctx.feature_id).await;
     let wait = tokio::select! {
         res = child.wait() => match res {
             Ok(status) => WaitResult::Exited(status.code().map(i64::from).unwrap_or(-1)),
@@ -179,28 +185,28 @@ async fn run_and_finalize(
         },
         _ = cancel.notified() => WaitResult::Cancelled,
     };
-    runs.unregister(run_id).await;
+    ctx.runs.unregister(ctx.run_id).await;
 
     // The select! futures are dropped above, so `child` is free to borrow again.
-    let (exit_code, note) = match wait {
-        WaitResult::Exited(code) => (code, None),
+    let (exit_code, note, drain) = match wait {
+        WaitResult::Exited(code) => (code, None, None),
         WaitResult::Cancelled => {
-            let code = cancel_child(&mut child).await;
-            (
-                code,
-                Some("\n[cadencr] Command stopped (Ctrl-C).".to_string()),
-            )
+            let note = match cancel_child(&mut child).await {
+                Ok(()) => "\n[cadencr] Command stopped (Ctrl-C).".to_string(),
+                Err(error) => format!(
+                    "\n[cadencr] Command stopped (Ctrl-C), but some of its processes could not be killed: {error}"
+                ),
+            };
+            (USER_CANCEL_EXIT_CODE, Some(note), Some(CANCEL_DRAIN))
         }
     };
 
     // Stop the flusher and drain the readers so the final write is complete.
     stop.notify_one();
     let _ = flusher.await;
-    if let Some(h) = stdout_reader {
-        let _ = h.await;
-    }
-    if let Some(h) = stderr_reader {
-        let _ = h.await;
+    let drain_deadline = drain.map(|limit| tokio::time::Instant::now() + limit);
+    for reader in [stdout_reader, stderr_reader].into_iter().flatten() {
+        drain_reader(reader, drain_deadline).await;
     }
 
     let stdout = stdout_buf.lock().await.clone();
@@ -208,45 +214,44 @@ async fn run_and_finalize(
     if let Some(note) = note {
         stderr.push_str(&note);
     }
-    finalize(&pool, run_id, Some(exit_code), &stdout, &stderr).await;
+    finalize(&ctx, Some(exit_code), &stdout, &stderr).await;
 }
 
-/// Tear down a user-cancelled child and reap it. Sends a Ctrl-C (SIGINT) first
-/// and escalates to SIGKILL only if the command ignores it within
-/// [`CANCEL_GRACE`], so a well-behaved command can clean up. Returns the exit
-/// code to record (130 = 128 + SIGINT for a user cancel).
-async fn cancel_child(child: &mut Child) -> i64 {
+/// The exit code a user-cancelled run records (128 + SIGINT).
+const USER_CANCEL_EXIT_CODE: i64 = 130;
+
+/// Tear down a user-cancelled child and reap it. The child leads its own
+/// process group (see [`spawn_shell`]): a Ctrl-C (SIGINT) reaches the login
+/// shell and every descendant, [`CANCEL_GRACE`] lets well-behaved ones clean
+/// up, then SIGKILL ends whatever is left of the group, a background job the
+/// shell started with SIGINT ignored included.
+async fn cancel_child(child: &mut Child) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        signal_group(child, libc::SIGINT);
-        if tokio::time::timeout(CANCEL_GRACE, child.wait())
+        crate::shared::process_group::interrupt_process_group(child, libc::SIGINT, CANCEL_GRACE)
             .await
-            .is_err()
-        {
-            signal_group(child, libc::SIGKILL);
-            let _ = child.wait().await;
-        }
+            .map(drop)
     }
     #[cfg(not(unix))]
     {
-        let _ = child.kill().await;
-        let _ = child.wait().await;
+        child.kill().await
     }
-    130
 }
 
-/// Send `sig` to the child's whole process group (negative pid). The child
-/// leads its own group (see `process_group(0)` in [`spawn_shell`]), so the
-/// signal reaches the login shell *and* every descendant it spawned — matching
-/// what Ctrl-C does to a terminal's foreground job. Best-effort: a dead group
-/// just yields `ESRCH`.
-#[cfg(unix)]
-fn signal_group(child: &Child, sig: i32) {
-    if let Some(pid) = child.id() {
-        // Safety: a bare `kill(2)` syscall with no shared-state requirements.
-        unsafe {
-            libc::kill(-(pid as i32), sig);
+/// Wait for a reader to collect what is left in its pipe: without limit when
+/// the command exited, until `deadline` after a cancel (then the reader stops
+/// and the output read so far is kept).
+async fn drain_reader(mut reader: JoinHandle<()>, deadline: Option<tokio::time::Instant>) {
+    let Some(deadline) = deadline else {
+        if let Err(error) = reader.await {
+            warn!(%error, "custom action output reader failed");
         }
+        return;
+    };
+    match tokio::time::timeout_at(deadline, &mut reader).await {
+        Ok(Err(error)) => warn!(%error, "custom action output reader failed"),
+        Ok(Ok(())) => {}
+        Err(_) => reader.abort(),
     }
 }
 
@@ -260,9 +265,9 @@ fn spawn_shell(command: &str, cwd: &str) -> std::io::Result<Child> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     // Run in its own process group so cancellation can signal the shell and
-    // every descendant at once (see `signal_group`).
+    // every descendant at once (see `cancel_child`).
     #[cfg(unix)]
-    cmd.process_group(0);
+    crate::shared::process_group::lead_new_process_group(&mut cmd);
     cmd.spawn()
 }
 
@@ -287,8 +292,7 @@ where
 
 /// Periodically persist the captured streams until signalled to stop.
 fn spawn_flusher(
-    pool: SqlitePool,
-    run_id: i64,
+    ctx: RunContext,
     stdout_buf: Arc<Mutex<String>>,
     stderr_buf: Arc<Mutex<String>>,
     stop: Arc<Notify>,
@@ -301,7 +305,7 @@ fn spawn_flusher(
             tokio::select! {
                 _ = stop.notified() => break,
                 _ = ticker.tick() => {
-                    last_len = flush_partial(&pool, run_id, &stdout_buf, &stderr_buf, last_len).await;
+                    last_len = flush_partial(&ctx, &stdout_buf, &stderr_buf, last_len).await;
                 }
             }
         }
@@ -315,8 +319,7 @@ fn spawn_flusher(
 /// process and we avoid hammering the shared write pool every tick. Returns the
 /// combined length now persisted for the next tick's comparison.
 async fn flush_partial(
-    pool: &SqlitePool,
-    run_id: i64,
+    ctx: &RunContext,
     stdout_buf: &Arc<Mutex<String>>,
     stderr_buf: &Arc<Mutex<String>>,
     last_len: usize,
@@ -327,22 +330,115 @@ async fn flush_partial(
     if len == last_len {
         return len;
     }
-    if let Err(e) = repository::update_run_output(pool, run_id, &stdout, &stderr).await {
-        warn!(error = %e, run_id, "failed to persist partial custom action output");
+    match repository::update_run_output(&ctx.pool, ctx.run_id, &stdout, &stderr).await {
+        Ok(()) => ctx.notify(CustomActionEventKind::RunOutput),
+        Err(e) => {
+            warn!(error = %e, run_id = ctx.run_id, "failed to persist partial custom action output")
+        }
     }
     len
 }
 
 /// Mark the run finished. Logs (rather than propagates) failures because this
 /// runs in a detached background task with no caller to receive the error.
-async fn finalize(
-    pool: &SqlitePool,
-    run_id: i64,
-    exit_code: Option<i64>,
-    stdout: &str,
-    stderr: &str,
-) {
-    if let Err(e) = repository::finalize_run(pool, run_id, exit_code, stdout, stderr).await {
-        warn!(error = %e, run_id, "failed to finalize custom action run");
+async fn finalize(ctx: &RunContext, exit_code: Option<i64>, stdout: &str, stderr: &str) {
+    if let Err(e) = repository::finalize_run(&ctx.pool, ctx.run_id, exit_code, stdout, stderr).await
+    {
+        warn!(error = %e, run_id = ctx.run_id, "failed to finalize custom action run");
+    }
+    // Announced even when the write failed: clients re-fetch and show the
+    // row's actual state rather than waiting on a run that will never update.
+    ctx.notify(CustomActionEventKind::RunFinished);
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::{run_and_finalize, Prepared, RunContext, USER_CANCEL_EXIT_CODE};
+    use crate::domain::custom_actions::models::{Scope, TriggeredBy};
+    use crate::domain::custom_actions::repository::{self, test_support};
+    use crate::domain::custom_actions::run_registry::CustomActionRunRegistry;
+
+    #[tokio::test]
+    async fn cancelling_kills_a_background_job_and_finishes_without_waiting_for_it() {
+        let (pool, project_id, feature_id) = test_support::pool_with_project_and_feature().await;
+        let action_id = repository::insert(
+            &pool,
+            "bg",
+            "-",
+            None,
+            Scope::Project,
+            Some(project_id),
+            false,
+        )
+        .await
+        .unwrap();
+        let run_id = repository::insert_run(&pool, action_id, feature_id, TriggeredBy::Manual)
+            .await
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("background.pid");
+        let runs = Arc::new(CustomActionRunRegistry::new());
+        let ctx = RunContext {
+            pool: pool.clone(),
+            runs: runs.clone(),
+            events: tokio::sync::broadcast::channel(16).0,
+            action_id,
+            feature_id,
+            run_id,
+        };
+        // The background `sleep` starts with SIGINT ignored and keeps the
+        // output pipes open: a Ctrl-C alone neither ends it nor the run.
+        let prepared = Prepared {
+            command: format!("sleep 120 & echo $! > '{}'; sleep 120", pid_file.display()),
+            cwd: directory.path().display().to_string(),
+        };
+        let run = tokio::spawn(run_and_finalize(ctx, prepared));
+
+        let mut background = None;
+        // The login shell sources the user's profile first: give it time.
+        for _ in 0..1000 {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse::<libc::pid_t>().ok())
+            {
+                background = Some(pid);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let background = background.expect("the action started its background job");
+        assert!(runs.cancel(run_id).await, "the run is cancellable");
+
+        tokio::time::timeout(Duration::from_secs(15), run)
+            .await
+            .expect("the cancelled run finishes without waiting for its job")
+            .unwrap();
+        let mut alive = true;
+        for _ in 0..100 {
+            alive = unsafe { libc::kill(background, 0) } == 0;
+            if !alive {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        if alive {
+            unsafe { libc::kill(background, libc::SIGKILL) };
+        }
+        assert!(!alive, "the background job survived the cancel");
+
+        let recorded = repository::list_runs(&pool, action_id, feature_id, 1)
+            .await
+            .unwrap();
+        assert_eq!(recorded[0].exit_code, Some(USER_CANCEL_EXIT_CODE));
+        assert!(recorded[0].ended_at.is_some());
+        assert!(
+            recorded[0].stderr.contains("Command stopped (Ctrl-C)."),
+            "{}",
+            recorded[0].stderr
+        );
     }
 }

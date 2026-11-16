@@ -7,6 +7,7 @@ import {
   forwardRef,
   memo,
   type Ref,
+  type RefObject,
 } from "react";
 import type { AgentPromptBarHandle } from "../AgentPromptBar";
 import { useGetFeatureWorkingDir } from "../../api/generated";
@@ -17,10 +18,15 @@ import { useAgentSessionScroll } from "./useAgentSessionScroll";
 import { useAgentSessionModelAndProfile } from "./useAgentSessionModelAndProfile";
 import { useAgentSessionMetaVisibility } from "./useAgentSessionMetaVisibility";
 import { useAgentSessionDisplay } from "./useAgentSessionDisplay";
+import type { StartJump } from "./agent-session-scroll-utils";
 import type { MetaBarHandle } from "./MetaBar";
-import { useNarrowContainer } from "./useNarrowContainer";
 import { useAutoScrollShortcut } from "./useAutoScrollShortcut";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { AgentImageScope } from "@/components/AgentMarkdownImage";
+import { useSetting } from "@/hooks/useSetting";
+import {
+  AGENT_MESSAGE_NAVIGATOR_SETTING_KEY,
+  parseAgentMessageNavigator,
+} from "@/lib/agent-message-navigator";
 import {
   AGENT_SUMMARY_MODE_SETTING_KEY,
   AGENT_VERBOSITY_SETTING_KEY,
@@ -28,14 +34,16 @@ import {
   parseAgentVerbosityMode,
 } from "@/lib/agent-verbosity";
 import { AgentSessionComposer } from "./AgentSessionComposer";
+import { AgentSessionPersistenceNotice } from "./AgentSessionPersistenceNotice";
+import { AgentSessionStreamNotice } from "./AgentSessionStreamNotice";
 import { AgentSessionFrame } from "./AgentSessionFrame";
 import { AgentSessionStreamContent } from "./AgentSessionStreamContent";
 import { AgentSessionProvider } from "./agent-session-context";
 import { BranchConfirmDialog } from "./BranchConfirmDialog";
 import { useAgentSessionBranchEffects } from "./useAgentSessionBranchEffects";
 import { useAgentSessionImperativeHandle } from "./useAgentSessionImperativeHandle";
-
-const META_BAR_COMPACT_THRESHOLD_PX = 640;
+import { SubagentCards } from "./subagent-cards";
+import { SubagentLinkContext, type SubagentLink } from "./subagent-reveal";
 
 function useAgentSessionCollapsible(props: AgentSessionProps, ref: Ref<AgentSessionHandle>) {
   const { status, open: controlledOpen, onToggle, wsSessionId } = props;
@@ -104,11 +112,10 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
   );
   const projectPath = cwdQuery.data?.path ?? undefined;
 
-  const verbosityMode = parseAgentVerbosityMode(
-    useDebouncedSetting(AGENT_VERBOSITY_SETTING_KEY).value,
-  );
-  const summaryMode = parseAgentSummaryMode(
-    useDebouncedSetting(AGENT_SUMMARY_MODE_SETTING_KEY).value,
+  const verbosityMode = parseAgentVerbosityMode(useSetting(AGENT_VERBOSITY_SETTING_KEY).value);
+  const summaryMode = parseAgentSummaryMode(useSetting(AGENT_SUMMARY_MODE_SETTING_KEY).value);
+  const messageNavigatorEnabled = parseAgentMessageNavigator(
+    useSetting(AGENT_MESSAGE_NAVIGATOR_SETTING_KEY).value,
   );
   const loadOlder = onLoadOlder
     ? (): Promise<number | void> =>
@@ -125,7 +132,50 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
     onEnableAutoScroll: scroll.scrollToBottom,
   });
 
-  return { agentCatalog, projectPath, verbosityMode, summaryMode, scroll };
+  const { startJump } = scroll;
+  const { onLoadPromptTurn } = props;
+  const compactMode = verbosityMode === "compact";
+  const messageNavigator = useMemo(() => {
+    // A hidden agent tab keeps streaming: skip the rail's per-delta work there.
+    if (!messageNavigatorEnabled || !agentTabActive || !onLoadPromptTurn) return null;
+    const loadPromptTurn = (messageDbId: number): Promise<boolean> =>
+      onLoadPromptTurn(messageDbId, { summaryMode, compactMode });
+    return { startJump, loadPromptTurn };
+  }, [
+    messageNavigatorEnabled,
+    agentTabActive,
+    startJump,
+    onLoadPromptTurn,
+    summaryMode,
+    compactMode,
+  ]);
+
+  return { agentCatalog, projectPath, verbosityMode, summaryMode, messageNavigator, scroll };
+}
+
+/**
+ * The session context its transcript and composer share, and the link behind
+ * the composer's agent list: the transcript reports its cards and reveals one.
+ */
+function useAgentSessionContextValue(
+  wsSessionId: string | undefined,
+  featureId: number | undefined,
+  metaBarRef: RefObject<MetaBarHandle | null>,
+  startJump: StartJump,
+) {
+  const sendRef = useRef<((text: string) => void) | null>(null);
+  const [cards] = useState(() => new SubagentCards());
+  const subagentLink = useMemo<SubagentLink>(() => ({ cards, startJump }), [cards, startJump]);
+  const agentSessionContextValue = useMemo(
+    () => ({
+      wsSessionId: wsSessionId ?? null,
+      featureId: featureId ?? null,
+      sendPrompt: (text: string) => sendRef.current?.(text),
+      openModelPicker: () => metaBarRef.current?.openModelPicker(),
+    }),
+    [featureId, metaBarRef, wsSessionId],
+  );
+  return { sendRef, subagentLink, agentSessionContextValue };
 }
 
 function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHandle>) {
@@ -146,17 +196,20 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     handleToggle,
     handleCollapse,
   } = useAgentSessionCollapsible(props, ref);
-  const { agentCatalog, projectPath, verbosityMode, summaryMode, scroll } =
+  const { agentCatalog, projectPath, verbosityMode, summaryMode, messageNavigator, scroll } =
     useAgentSessionScrollAndCatalog(props);
-  const agentSessionContextValue = useMemo(
-    () => ({ wsSessionId: wsSessionId ?? null }),
-    [wsSessionId],
+  const { sendRef, subagentLink, agentSessionContextValue } = useAgentSessionContextValue(
+    wsSessionId,
+    props.featureId,
+    metaBarRef,
+    scroll.startJump,
   );
   const {
     isAgentWorking,
     isTurnActive,
     streamLifecycle,
     workingLabel,
+    workingClock,
     badge,
     IconComponent,
     displayLabel,
@@ -177,14 +230,15 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     isFastModePending,
     handleFastModeChange,
   } = useAgentSessionModelAndProfile(props, agentCatalog.data, scroll.scrollToBottom);
-  const isNarrow = useNarrowContainer(containerRef, META_BAR_COMPACT_THRESHOLD_PX);
-  const {
-    showWorktreeChip,
-    showClaudeProfileSelector,
-    showAutoScrollChip,
-    hasMeta,
-    hasSecondaryMeta,
-  } = useAgentSessionMetaVisibility(props, isClaudeProvider, isNarrow, shouldShowPromptBar);
+  useEffect(() => {
+    sendRef.current = (text) => {
+      Promise.resolve(handleSend(text)).catch(() => {
+        // The send handler already toasted the failure.
+      });
+    };
+  }, [handleSend]);
+  const { showWorktreeChip, showClaudeProfileSelector, showAutoScrollChip, hasMeta } =
+    useAgentSessionMetaVisibility(props, isClaudeProvider, shouldShowPromptBar);
   return {
     promptBarRef,
     metaBarRef,
@@ -199,8 +253,11 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     isTurnActive,
     streamLifecycle,
     workingLabel,
+    workingClock,
     verbosityMode,
     summaryMode,
+    messageNavigator,
+    subagentLink,
     scroll,
     isIdle,
     shouldShowPromptBar,
@@ -214,9 +271,7 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     showWorktreeChip,
     showClaudeProfileSelector,
     showAutoScrollChip,
-    isNarrow,
     hasMeta,
-    hasSecondaryMeta,
     badge,
     IconComponent,
     displayLabel,
@@ -236,9 +291,11 @@ export const AgentSession = memo(
         turnActive={s.isTurnActive}
         lifecycle={s.streamLifecycle}
         workingLabel={s.workingLabel}
+        workingClock={s.workingClock}
         projectPath={s.projectPath}
         scrollContainerRef={s.scroll.scrollContainerRef}
         virtuosoRef={s.scroll.virtuosoRef}
+        itemSize={s.scroll.itemSize}
         followOutput={s.scroll.followOutput}
         onAtBottomStateChange={s.scroll.onAtBottomStateChange}
         onTotalListHeightChanged={s.scroll.onTotalListHeightChanged}
@@ -248,73 +305,80 @@ export const AgentSession = memo(
         verbosityMode={s.verbosityMode}
         summaryMode={s.summaryMode}
         searchEnabled={(props.agentTabActive ?? true) && !props.disableShortcuts}
+        messageNavigator={s.messageNavigator}
       />
     );
 
     const bottomSection = (
-      <AgentSessionComposer
-        sessionProps={props}
-        promptBarRef={s.promptBarRef}
-        metaBarRef={s.metaBarRef}
-        onSend={s.handleSend}
-        onToggleAutoScroll={s.scroll.scrollToBottom}
-        onCollapse={s.handleCollapse}
-        shouldShowPromptBar={s.shouldShowPromptBar}
-        hasMeta={s.hasMeta}
-        isNarrow={s.isNarrow}
-        hasSecondaryMeta={!!s.hasSecondaryMeta}
-        showAutoScrollChip={s.showAutoScrollChip}
-        autoScrollEnabled={s.scroll.autoScrollEnabled}
-        showWorktreeChip={s.showWorktreeChip}
-        activeProviderId={s.model.activeProviderId}
-        models={s.model.visibleModels}
-        providers={s.visibleProviders}
-        canChangeProvider={s.model.canChangeProvider}
-        supportedThinkingEfforts={s.model.supportedThinkingEfforts}
-        supportsFastMode={s.model.supportsFastMode}
-        isFastModePending={s.isFastModePending}
-        onFastModeChange={s.handleFastModeChange}
-        projectPath={s.projectPath}
-        isAgentWorking={s.isAgentWorking}
-        agentTabActive={props.agentTabActive ?? true}
-        collapsible={props.collapsible ?? false}
-        showClaudeProfileSelector={s.showClaudeProfileSelector}
-        claudeProfile={s.profile.selectedClaudeProfile}
-        claudeProfiles={s.profile.claudeProfiles}
-        claudeProfilesLoading={s.profile.claudeProfilesLoading}
-        claudeProfilesError={s.profile.claudeProfilesError}
-        onClaudeProfileChange={s.profile.handleClaudeProfileChange}
-        activeClaudeProfile={s.profile.activeClaudeProfile}
-      />
+      <>
+        <AgentSessionPersistenceNotice sessionId={props.wsSessionId} />
+        <AgentSessionStreamNotice sessionId={props.wsSessionId} />
+        <AgentSessionComposer
+          sessionProps={props}
+          promptBarRef={s.promptBarRef}
+          metaBarRef={s.metaBarRef}
+          onSend={s.handleSend}
+          onToggleAutoScroll={s.scroll.scrollToBottom}
+          onCollapse={s.handleCollapse}
+          shouldShowPromptBar={s.shouldShowPromptBar}
+          hasMeta={s.hasMeta}
+          showAutoScrollChip={s.showAutoScrollChip}
+          autoScrollEnabled={s.scroll.autoScrollEnabled}
+          showWorktreeChip={s.showWorktreeChip}
+          activeProviderId={s.model.activeProviderId}
+          models={s.model.visibleModels}
+          providers={s.visibleProviders}
+          canChangeProvider={s.model.canChangeProvider}
+          supportedThinkingEfforts={s.model.supportedThinkingEfforts}
+          supportsFastMode={s.model.supportsFastMode}
+          isFastModePending={s.isFastModePending}
+          onFastModeChange={s.handleFastModeChange}
+          projectPath={s.projectPath}
+          isAgentWorking={s.isAgentWorking}
+          agentTabActive={props.agentTabActive ?? true}
+          collapsible={props.collapsible ?? false}
+          showClaudeProfileSelector={s.showClaudeProfileSelector}
+          claudeProfile={s.profile.selectedClaudeProfile}
+          claudeProfiles={s.profile.claudeProfiles}
+          claudeProfilesLoading={s.profile.claudeProfilesLoading}
+          claudeProfilesError={s.profile.claudeProfilesError}
+          onClaudeProfileChange={s.profile.handleClaudeProfileChange}
+          activeClaudeProfile={s.profile.activeClaudeProfile}
+        />
+      </>
     );
 
     return (
       <AgentSessionProvider value={s.agentSessionContextValue}>
-        {props.wsSessionId && <BranchConfirmDialog wsSessionId={props.wsSessionId} />}
-        <AgentSessionFrame
-          containerRef={s.containerRef}
-          headerRef={s.headerRef}
-          collapsible={props.collapsible ?? false}
-          className={props.className}
-          navAgentIndex={props.navAgentIndex}
-          maximized={props.maximized}
-          isOpen={s.isOpen}
-          isIdle={s.isIdle}
-          status={props.status}
-          blocks={props.blocks}
-          streamContent={streamContent}
-          bottomContent={bottomSection}
-          onToggle={s.handleToggle}
-          IconComponent={s.IconComponent}
-          badge={s.badge}
-          displayLabel={s.displayLabel}
-          onMarkDone={props.onMarkDone}
-          resumable={props.resumable}
-          onResume={props.onResume}
-          canDelete={props.canDelete}
-          onDelete={props.onDelete}
-          onToggleMaximize={props.onToggleMaximize}
-        />
+        <SubagentLinkContext.Provider value={s.subagentLink}>
+          {props.wsSessionId && <BranchConfirmDialog wsSessionId={props.wsSessionId} />}
+          <AgentSessionFrame
+            containerRef={s.containerRef}
+            headerRef={s.headerRef}
+            collapsible={props.collapsible ?? false}
+            className={props.className}
+            navAgentIndex={props.navAgentIndex}
+            maximized={props.maximized}
+            isOpen={s.isOpen}
+            isIdle={s.isIdle}
+            status={props.status}
+            blocks={props.blocks}
+            streamContent={
+              <AgentImageScope featureId={props.featureId}>{streamContent}</AgentImageScope>
+            }
+            bottomContent={bottomSection}
+            onToggle={s.handleToggle}
+            IconComponent={s.IconComponent}
+            badge={s.badge}
+            displayLabel={s.displayLabel}
+            onMarkDone={props.onMarkDone}
+            resumable={props.resumable}
+            onResume={props.onResume}
+            canDelete={props.canDelete}
+            onDelete={props.onDelete}
+            onToggleMaximize={props.onToggleMaximize}
+          />
+        </SubagentLinkContext.Provider>
       </AgentSessionProvider>
     );
   }),

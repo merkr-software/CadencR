@@ -1,11 +1,16 @@
 import { useEffect, useRef, type ReactElement, type RefObject } from "react";
 import { EditorFuzzyShortcut } from "@/components/editor/EditorFuzzyShortcut";
-import { OpenDiffInEditorProvider } from "@/components/diff/OpenDiffInEditorContext";
+import {
+  OpenDiffInEditorProvider,
+  type OpenDiffInEditor,
+} from "@/components/diff/OpenDiffInEditorContext";
 import { LinkRoutingProvider } from "@/components/links/LinkRoutingProvider";
 import { FeatureContentSearchShortcut } from "@/components/FeatureContentSearchShortcut";
 import { FeatureTopBar } from "@/components/FeatureTopBar";
 import { FeatureLayoutProvider } from "@/components/feature-layout/FeatureLayoutContext";
 import { FeatureLayoutShell } from "@/components/feature-layout/FeatureLayoutShell";
+import { PluginTabAddMenu } from "@/components/plugin-tabs/PluginTabAddMenu";
+import { pluginTabsAvailable } from "@/lib/plugin-tabs/availability";
 import type { TabKind } from "@/stores/feature-layout-schema";
 import {
   getFocusedTab,
@@ -21,6 +26,7 @@ import {
   useWsSessionEffects,
   useWsSessionShortcuts,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
+import { useCliPendingFileOpen } from "@/components/useCliPendingFileOpen";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   focusTabTrigger,
@@ -102,7 +108,7 @@ interface SessionFeatureViewProps {
   refs: ReturnType<typeof useSessionRefs>;
   tabs: ReturnType<typeof useFeatureBlockTabs>;
   sectionRef: RefObject<HTMLElement | null>;
-  openDiffFileInEditor: ReturnType<typeof useOpenDiffFileInEditor>;
+  openDiffFileInEditor: OpenDiffInEditor;
   promptDropTargetId: string;
   agentDropZone: ReturnType<typeof useSessionPromptDropZone>["agentDropZone"];
   splitsEnabled: boolean;
@@ -176,6 +182,11 @@ function SessionFeatureView({
             splitsEnabled={splitsEnabled}
             hotkeysEnabled={hotkeysEnabled}
             mountInactiveTabs={false}
+            rootStripActions={
+              splitsEnabled && pluginTabsAvailable() ? (
+                <PluginTabAddMenu featureId={layoutFeatureId} projectId={projectId} />
+              ) : undefined
+            }
             onTerminalActivate={() =>
               requestAnimationFrame(() => refs.terminal.current?.activate())
             }
@@ -218,9 +229,13 @@ function WebSocketSessionFeatureBody(
   } = props;
   const isMobile = useIsMobile();
   const splitsEnabled = !embedded && !isMobile;
-  const layoutState = useFeatureLayoutStore(selectFeatureLayout(layoutFeatureId));
+  // Primitive slices only: the whole layout state changes on every pane focus
+  // and resize, and this block renders the entire workspace.
+  const layoutOf = selectFeatureLayout(layoutFeatureId);
+  const focusedTabId = useFeatureLayoutStore((s) => getFocusedTab(layoutOf(s)) ?? "agent");
+  const gitVisible = useFeatureLayoutStore((s) => isTabVisible(layoutOf(s), "git"));
+  const agentVisible = useFeatureLayoutStore((s) => isTabVisible(layoutOf(s), "agent"));
   const requestedFocusPending = useRequestedFeatureFocus(layoutFeatureId, requestedFocusTab);
-  const focusedTabId = getFocusedTab(layoutState) ?? "agent";
   const readiness = useNonAgentTabReadiness({
     embedded,
     focusedTabId,
@@ -228,7 +243,6 @@ function WebSocketSessionFeatureBody(
     sessionId,
   });
 
-  const gitVisible = isTabVisible(layoutState, "git");
   const data = useSessionFeatureData(sessionId, cwd, featureId, projectId, {
     gitMetadataEnabled: readiness.workEnabled && (!embedded || gitVisible),
     projectLookupEnabled: readiness.workEnabled,
@@ -239,12 +253,14 @@ function WebSocketSessionFeatureBody(
   });
   const refs = useSessionRefs();
   const sectionRef = useRef<HTMLElement>(null);
-  const openDiffFileInEditor = useOpenDiffFileInEditor({
-    featureId,
-    layoutFeatureId,
-    rootPath: data.effectiveCwd || data.projectPath || cwd,
-    refs,
-  });
+  const { openInPlace: openDiffFileInEditor, openBesideAgent: openAgentFileInEditor } =
+    useOpenDiffFileInEditor({
+      featureId,
+      layoutFeatureId,
+      rootPath: data.effectiveCwd || data.projectPath || cwd,
+      refs,
+    });
+  useCliPendingFileOpen(featureId, !embedded, openDiffFileInEditor);
 
   const { sendFromGitTab } = useSessionFeatureActions({ layoutFeatureId, controls, refs });
 
@@ -281,10 +297,12 @@ function WebSocketSessionFeatureBody(
     data,
     controls,
     refs,
-    layoutState,
+    agentVisible,
     tabReady: readiness.tabReady,
     hotkeysEnabled,
     sendFromGitTab,
+    openAgentFileInEditor,
+    pluginTabsEnabled: !embedded,
   });
 
   return (

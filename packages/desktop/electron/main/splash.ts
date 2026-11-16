@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import { readFileSync } from "node:fs";
 import {
   EMERALD,
@@ -10,12 +10,10 @@ import {
   SOFT as MUTED,
   STANDARD_CUT,
 } from "@cadencr/brand";
-import {
-  parseStartupRecoveryActionUrl,
-  type StartupRecoveryAction,
-  type StartupRecoveryActionId,
-} from "./startup-recovery";
+import { type StartupRecoveryAction, type StartupRecoveryActionId } from "./startup-recovery";
 import type { SidecarPhase } from "./sidecar";
+import { windowIconOption } from "./app-icon";
+import { secureSplashWebContents } from "./splash-security";
 
 // The splash loads from a data: URL before the renderer exists, so the brand
 // font (Figtree — the "CADENCR" wordmark face) must be embedded inline rather
@@ -132,6 +130,11 @@ function createSplashBrowserWindow(): BrowserWindow {
     center: true,
     backgroundColor: BACKGROUND,
     title: "Cadencr",
+    ...windowIconOption({
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    }),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -142,7 +145,7 @@ function createSplashBrowserWindow(): BrowserWindow {
 
 export function createSplashWindow(version: string): SplashHandle {
   const win = createSplashBrowserWindow();
-
+  secureSplashWebContents(win.webContents, (action) => actionHandler?.(action));
   const html = renderSplashHtml(version);
   void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   win.once("ready-to-show", () => win.show());
@@ -157,12 +160,6 @@ export function createSplashWindow(version: string): SplashHandle {
   win.on("closed", () => {
     closed = true;
     if (!programmaticClose) userCloseHandler?.();
-  });
-  win.webContents.on("will-navigate", (event, url) => {
-    const action = parseStartupRecoveryActionUrl(url);
-    if (!action) return;
-    event.preventDefault();
-    actionHandler?.(action);
   });
   win.webContents.once("did-finish-load", () => {
     domReady = true;
@@ -356,6 +353,7 @@ export function renderSplashHtml(version: string, initialError?: SplashErrorStat
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; base-uri 'none'; form-action 'none'" />
 <title>Cadencr</title>
 <style>
 ${renderSplashStyles()}

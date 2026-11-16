@@ -17,6 +17,7 @@ use super::protocol::NeovimStartResponse;
 
 mod file;
 mod lifecycle;
+mod startup;
 pub use lifecycle::nvim_available;
 use lifecycle::{nvim_version, wait_for_socket, StartupPty};
 
@@ -219,15 +220,8 @@ impl NeovimManager {
             .get(&pty_id)
             .map(|handle| handle.cwd.clone())
             .ok_or(AppError::NeovimProcessNotRunning)?;
-        let path = file::scoped_file_path(&cwd, path)?;
-        tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            file::open_file(&socket, &path, line, col),
-        )
-        .await
-        .map_err(|_| AppError::NeovimSpawnError {
-            detail: "Neovim file-open request timed out".to_string(),
-        })?
+        let path = file::resolve_file_path(&cwd, path)?;
+        file::open_file(&socket, &path, line, col).await
     }
 
     /// Current cursor position as Neovim reports it: (1-indexed line,
@@ -619,6 +613,38 @@ pub(crate) mod tests {
         );
 
         manager.stop(11).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn open_file_opens_an_external_absolute_link_in_the_feature_session() {
+        if !nvim_available_test().await {
+            eprintln!("SKIP: nvim binary not found");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        let report = dir.path().join("report.md");
+        std::fs::write(&report, "External report\nSecond line\n").unwrap();
+        let manager = test_manager().await;
+        sqlx::query("UPDATE projects SET path = ? WHERE id = 1")
+            .bind(root.to_str().unwrap())
+            .execute(&manager.read_pool)
+            .await
+            .unwrap();
+        manager.start(10).await.unwrap();
+
+        manager
+            .open_file(10, report.to_str().unwrap(), Some(2), Some(3))
+            .await
+            .expect("open a document outside the feature's project");
+
+        assert_eq!(
+            current_buffer_name(&manager, 10).await,
+            std::fs::canonicalize(&report).unwrap().to_string_lossy()
+        );
+        assert_eq!(manager.cursor_position(10).await.unwrap(), (2, 2));
+        manager.stop(10).await.unwrap();
     }
 
     #[tokio::test]

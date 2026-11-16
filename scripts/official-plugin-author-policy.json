@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "publication": "APPROVED",
+  "repository": "merkr-software/CadencR",
+  "repository_id": 1238684786,
+  "author_account": "rle-mino",
+  "author_cli_version": "0.15.7",
+  "author_cli_sha256": "4bd0a2d6bb0067f976ee27a0636006a495b0ce5c9f4aed52324e7aa0a17108d7",
+  "author_cli_qualification_sha256": "feca0203df0b0b3b51bb31aae590ca6f080f3cee32c1d1fbc9b0843e686132a5",
+  "author_cli_pin_sha256": "aa44ea8dce50458b7726199b86871cdc74892e456e43ff5cbdca668abd291e29",
+  "environment_id": 25284345176,
+  "admin_bypass_reviewed_disabled": true,
+  "environment_review_policy": {
+    "environment_id": 25284345176,
+    "prevent_self_review": false,
+    "reviewers": [
+      {
+        "type": "User",
+        "id": 15014965
+      }
+    ]
+  }
+}

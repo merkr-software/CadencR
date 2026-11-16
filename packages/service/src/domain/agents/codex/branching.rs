@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use codex_app_server_sdk_rs::{CodexAppServerClient, SdkError, ThreadSnapshot};
 
-use super::{profile_runtime::app_server_spawn_options, CodexAdapter};
+use super::{app_server_failure, profile_runtime::app_server_spawn_options, CodexAdapter};
 use crate::domain::agents::adapter::{
     AgentRuntimeAdapter, BranchContext, BranchError, BranchResult, SessionBranching,
 };
@@ -18,6 +18,7 @@ impl SessionBranching for CodexSessionBranching {
             .await
             .map_err(|error| BranchError::Surgery(error.to_string()))?
             .expect("Codex always resolves a default profile");
+        let secrets = app_server_failure::secrets(Some(&resolved.env));
         let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
             Some(resolved.env),
             resolved.env_unset,
@@ -27,7 +28,18 @@ impl SessionBranching for CodexSessionBranching {
         .map_err(branch_surgery)?;
         let result = truncate_with_client(&client, ctx).await;
         client.shutdown().await;
-        result
+        result.map_err(|error| {
+            explain_surgery_failure(error, app_server_failure::exit_reason(&client, &secrets))
+        })
+    }
+}
+
+/// A fork that failed because the app-server died says how and why, like
+/// every other Codex request; a cut Cadencr refused stays as it is.
+fn explain_surgery_failure(error: BranchError, app_server_died: Option<String>) -> BranchError {
+    match (error, app_server_died) {
+        (BranchError::Surgery(_), Some(reason)) => BranchError::Surgery(reason),
+        (error, _) => error,
     }
 }
 
@@ -92,7 +104,7 @@ fn branch_surgery(error: SdkError) -> BranchError {
 
 #[cfg(test)]
 mod tests {
-    use super::rollback_turns_for_cut;
+    use super::{explain_surgery_failure, rollback_turns_for_cut};
     use crate::domain::agents::adapter::BranchError;
     use codex_app_server_sdk_rs::{ThreadSnapshot, ThreadTurn};
 
@@ -126,5 +138,27 @@ mod tests {
         let error = rollback_turns_for_cut(&snapshot(&[1]), 3).unwrap_err();
 
         assert!(matches!(error, BranchError::Surgery(_)), "{error}");
+    }
+
+    #[test]
+    fn a_fork_the_app_server_died_on_says_why() {
+        let died = "Codex app-server exited with status 1: simulated codex failure".to_string();
+        let error = explain_surgery_failure(
+            BranchError::Surgery("Codex app-server branching failed: stdout closed".to_string()),
+            Some(died.clone()),
+        );
+        assert!(
+            matches!(&error, BranchError::Surgery(message) if *message == died),
+            "{error}"
+        );
+
+        let refused = explain_surgery_failure(
+            BranchError::Unsupported("multi-message turn".to_string()),
+            Some(died),
+        );
+        assert!(matches!(refused, BranchError::Unsupported(_)), "{refused}");
+
+        let alive = explain_surgery_failure(BranchError::Surgery("rejected".to_string()), None);
+        assert!(matches!(&alive, BranchError::Surgery(message) if message == "rejected"));
     }
 }

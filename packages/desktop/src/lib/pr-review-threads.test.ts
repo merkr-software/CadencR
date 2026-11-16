@@ -11,6 +11,9 @@ import {
   unresolvedThreadLinesByFile,
   unresolvedThreads,
 } from "./pr-review-threads";
+import { gitPathForAgent } from "./git-paths";
+
+const asIs = (path: string): string => path;
 
 function thread(overrides: Partial<CommentThread> = {}): CommentThread {
   return {
@@ -65,7 +68,7 @@ describe("isThreadUnresolved", () => {
     const stale = thread({ outdated: true });
     expect(isThreadUnresolved(stale)).toBe(true);
     expect(unresolvedThreads([stale])).toHaveLength(1);
-    expect(formatPrThreadsForAgent([stale], PR)).toContain("outdated");
+    expect(formatPrThreadsForAgent([stale], PR, asIs)).toContain("outdated");
   });
 });
 
@@ -227,7 +230,7 @@ describe("review work queue", () => {
 
 describe("formatPrThreadsForAgent", () => {
   it("names the reviewer behind every comment", () => {
-    const message = formatPrThreadsForAgent([thread()], PR);
+    const message = formatPrThreadsForAgent([thread()], PR, asIs);
 
     expect(message).toContain("Pull request #17 — Add forge support");
     expect(message).toContain("### src/app.ts:12");
@@ -246,7 +249,7 @@ describe("formatPrThreadsForAgent", () => {
         },
       ],
     });
-    expect(formatPrThreadsForAgent([anonymous], PR)).toContain("- **bob:** Rename this.");
+    expect(formatPrThreadsForAgent([anonymous], PR, asIs)).toContain("- **bob:** Rename this.");
   });
 
   it("indents a multi-line body so it stays inside its bullet", () => {
@@ -260,7 +263,7 @@ describe("formatPrThreadsForAgent", () => {
         },
       ],
     });
-    expect(formatPrThreadsForAgent([multiline], PR)).toContain(
+    expect(formatPrThreadsForAgent([multiline], PR, asIs)).toContain(
       "- **alice:** First line.\n  \n  Second line.",
     );
   });
@@ -269,14 +272,30 @@ describe("formatPrThreadsForAgent", () => {
     const message = formatPrThreadsForAgent(
       [thread({ side: "old", outdated: true }), thread({ id: "general", file: null, line: null })],
       PR,
+      asIs,
     );
     expect(message).toContain("(on the removed side)");
     expect(message).toContain("outdated, the diff moved since");
     expect(message).toContain("### General discussion");
   });
 
+  it("names files the way an agent in a monorepo subdirectory resolves them", () => {
+    const mapping = { prefix: "packages/app", root: "/repo" };
+    const message = formatPrThreadsForAgent(
+      [
+        thread({ file: "packages/app/src/app.ts" }),
+        thread({ id: "root", file: "README.md", line: 3 }),
+      ],
+      PR,
+      (path) => gitPathForAgent(path, mapping),
+    );
+    expect(message).toContain("### src/app.ts:12");
+    expect(message).toContain("### /repo/README.md:3");
+    expect(message).not.toContain("packages/app/src/app.ts");
+  });
+
   it("returns nothing to send when every thread is resolved", () => {
     expect(unresolvedThreads([thread({ resolved: true })])).toHaveLength(0);
-    expect(formatPrThreadsForAgent([thread({ resolved: true })], PR)).toBe("");
+    expect(formatPrThreadsForAgent([thread({ resolved: true })], PR, asIs)).toBe("");
   });
 });

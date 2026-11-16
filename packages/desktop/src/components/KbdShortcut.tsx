@@ -1,51 +1,32 @@
 /**
  * Inline keyboard shortcut badge for buttons.
  * Accepts an array of key tokens: "cmd", "shift", "enter", or any letter/symbol.
- * Renders Lucide icons for modifier/special keys and text for letters.
+ * Renders platform-aware modifier glyphs/labels and text for letters.
  *
- * Callers that pre-format via `formatCombo` pass glyphs (`⌘`, `⇧`, `↵`), so
- * the map recognizes both the raw tokens and their formatted equivalents.
+ * Callers that pre-format via `formatCombo` pass glyphs (`⌘`, `⇧`, `↵`) or
+ * words (`Ctrl`, `Shift`); `kbd-key.tsx` resolves both spellings to one key.
  */
-import { CommandIcon, CornerDownLeftIcon, ArrowUpIcon } from "lucide-react";
-import type { ReactNode } from "react";
 import { useIsTabFocused } from "@/hooks/useScopedHotkeys";
-import { formatCombo } from "@/lib/shortcuts/format";
-import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
+import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 import type { TabKind } from "@/stores/feature-layout-schema";
 import { cn } from "@/lib/utils";
+import { KbdKeyContent } from "./kbd-key";
 
-const ICON_SIZE = "size-2.5";
-const ICON_SIZE_SM = "size-2";
-
-function createKeyMap(sizeClass: string): Record<string, ReactNode> {
-  const command = <CommandIcon className={sizeClass} />;
-  const shift = <ArrowUpIcon className={sizeClass} />;
-  const enter = <CornerDownLeftIcon className={sizeClass} />;
-  return {
-    cmd: command,
-    "⌘": command,
-    ctrl: <span className="leading-none">⌃</span>,
-    shift,
-    "⇧": shift,
-    enter,
-    "↵": enter,
-  };
-}
-
-const KEY_MAP = createKeyMap(ICON_SIZE);
-const KEY_MAP_SM = createKeyMap(ICON_SIZE_SM);
-
+// One badge grammar: sans digits and words at 11px, Lucide glyphs sized in
+// `em` so they track the text. Variants only change the chrome around it.
+// `font-sans` is explicit because browsers style `<kbd>` as monospace.
 const VARIANT_CLASSES = {
   inline:
-    "ml-2 inline-flex items-center gap-0.5 rounded border border-current/20 bg-current/10 px-2 py-1 text-[10px] font-medium leading-none text-current [&_svg]:!size-2.5",
+    "ml-2 font-sans inline-flex h-[18px] items-center gap-px rounded border border-current/20 bg-current/10 px-1 text-[11px] font-medium leading-none text-current",
   "inline-sm":
-    "ml-1 inline-flex items-center gap-px rounded border border-current/20 bg-current/10 px-1.5 py-0.5 text-[8px] font-medium leading-none text-current [&_svg]:!size-2",
+    "ml-1 font-sans inline-flex h-4 items-center gap-px rounded border border-current/20 bg-current/10 px-1 text-[10px] font-medium leading-none text-current",
   square:
-    "mr-1.5 inline-flex size-6 items-center justify-center rounded border border-border bg-card text-[10px] text-foreground",
+    "mr-1.5 font-sans inline-flex h-6 min-w-6 items-center justify-center gap-px rounded border border-border bg-card px-1 text-[11px] font-medium leading-none text-foreground",
   modal:
-    "inline-flex items-center justify-center rounded border border-border bg-card px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-sm min-w-[24px]",
-  hint: "inline-flex items-center justify-center gap-px rounded border border-current/25 bg-transparent px-1 py-0.5 text-[10px] font-mono font-medium leading-none text-current [&_svg]:!size-2.5",
+    "font-sans inline-flex h-5 min-w-5 items-center justify-center gap-px rounded border border-border bg-card px-1.5 text-[11px] font-medium leading-none text-foreground shadow-[0_1px_0_var(--border)]",
+  hint: "font-sans inline-flex h-[18px] min-w-[18px] items-center justify-center gap-px rounded border border-current/25 bg-transparent px-1 text-[11px] font-medium leading-none text-current",
 } as const;
 
 type Variant = keyof typeof VARIANT_CLASSES;
@@ -76,16 +57,15 @@ export function KbdShortcut({
   disabled,
 }: KbdShortcutProps) {
   const resolvedVariant = variant ?? (size === "sm" ? "inline-sm" : "inline");
-  const map = size === "sm" ? KEY_MAP_SM : KEY_MAP;
   const className = VARIANT_CLASSES[resolvedVariant];
 
   if (disabled) {
     return <KbdPlaceholder className={className} />;
   }
   if (scope !== undefined) {
-    return <ScopedKbdShortcut keys={keys} map={map} className={className} scope={scope} />;
+    return <ScopedKbdShortcut keys={keys} className={className} scope={scope} />;
   }
-  return <KbdContent keys={keys} map={map} className={className} />;
+  return <KbdContent keys={keys} className={className} />;
 }
 
 function KbdPlaceholder({ className }: { className: string }) {
@@ -98,24 +78,21 @@ function KbdPlaceholder({ className }: { className: string }) {
 
 interface ScopedProps {
   keys: string[];
-  map: Record<string, ReactNode>;
   className: string;
   scope: TabKind;
 }
 
 // Split into its own component so unscoped badges don't subscribe to the
-// feature-layout store on every render.
-function ScopedKbdShortcut({ keys, map, className, scope }: ScopedProps) {
+// feature-layout store on every render. Out of focus, the keys stay visible
+// but faded: a bare `-` on every unfocused card read as a rendering bug,
+// while faded keys still say "these work once you're in this pane".
+function ScopedKbdShortcut({ keys, className, scope }: ScopedProps) {
   const isActive = useIsTabFocused(scope);
-  if (!isActive) {
-    return <KbdPlaceholder className={className} />;
-  }
-  return <KbdContent keys={keys} map={map} className={className} />;
+  return <KbdContent keys={keys} className={isActive ? className : cn(className, "opacity-35")} />;
 }
 
 interface KbdContentProps {
   keys: string[];
-  map: Record<string, ReactNode>;
   className: string;
 }
 
@@ -125,7 +102,7 @@ interface KbdContentProps {
  * always prefer this over hardcoding key tokens.
  */
 export function ResolvedShortcutHint({ shortcutId }: { shortcutId: ShortcutId }) {
-  const keys = formatCombo(useResolvedShortcut(shortcutId).keys);
+  const keys = useShortcutKeys(shortcutId);
   return (
     <span aria-hidden="true" className="shrink-0">
       <KbdShortcut keys={keys} variant="hint" />
@@ -133,21 +110,50 @@ export function ResolvedShortcutHint({ shortcutId }: { shortcutId: ShortcutId })
   );
 }
 
-function KbdContent({ keys, map, className }: KbdContentProps) {
+/**
+ * Hint for a button that also works without a keyboard (a dialog's Cancel /
+ * submit). Hidden when the primary pointer is touch, where no key can trigger it.
+ */
+export function KeyboardOnlyShortcutHint({
+  keys,
+  disabled,
+}: {
+  keys: string[];
+  /** Dimmed: the key doesn't act right now (a text field has the keyboard). */
+  disabled?: boolean;
+}) {
+  return (
+    <span aria-hidden="true" className="shrink-0 pointer-coarse:hidden">
+      <KbdShortcut keys={keys} variant="hint" disabled={disabled} />
+    </span>
+  );
+}
+
+/**
+ * A chord as one key cap per key (`⌘` `⇧` `/`), for reference lists such as
+ * the shortcuts modal where each key reads as a physical key.
+ */
+export function KbdChord({ keys, className }: { keys: string[]; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1", className)}>
+      {keys.map((k, i) => (
+        <KbdShortcut key={i} keys={[k]} variant="modal" />
+      ))}
+    </span>
+  );
+}
+
+/** `KbdChord` for a registry shortcut, following the user's rebinds. */
+export function ResolvedKbdChord({ shortcutId }: { shortcutId: ShortcutId }) {
+  return <KbdChord keys={useShortcutKeys(shortcutId)} />;
+}
+
+function KbdContent({ keys, className }: KbdContentProps) {
   return (
     <kbd className={className}>
-      {keys.map((k, i) => {
-        const icon = map[k.toLowerCase()];
-        return icon ? (
-          <span key={i} className="flex items-center">
-            {icon}
-          </span>
-        ) : (
-          <span key={i} className="leading-none">
-            {k}
-          </span>
-        );
-      })}
+      {keys.map((k, i) => (
+        <KbdKeyContent key={i} keyName={k} isMac={PLATFORM_IS_MAC} />
+      ))}
     </kbd>
   );
 }

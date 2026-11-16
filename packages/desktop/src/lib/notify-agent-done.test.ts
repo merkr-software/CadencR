@@ -1,8 +1,12 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockToastError = vi.hoisted(() => vi.fn());
 const mockToastMessage = vi.hoisted(() => vi.fn());
 vi.mock("sonner", () => ({ toast: { error: mockToastError, message: mockToastMessage } }));
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 
 // `notifyAgentDone` fetches the agent's latest-reply preview for the body.
 // Partial-mock the generated client so the real query-key helpers stay intact.
@@ -29,6 +33,7 @@ import {
 import type { CadencrDesktopBridge } from "@/lib/desktop-bridge";
 import { getGetWorkspaceSettingQueryKey, type SettingValueResponse } from "@/api/generated";
 import { NOTIFICATION_MODE_KEY } from "@/lib/notification-mode";
+import { NOTCH_CAPABILITIES_QUERY_KEY } from "@/lib/notch/notch-capabilities";
 import {
   initNotificationPermission,
   listenForNotificationFailures,
@@ -79,17 +84,25 @@ function bridge(): CadencrDesktopBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     setZoom: vi.fn(),
+    setTrafficLightsCenter: vi.fn(),
     currentTheme: vi.fn(),
     onThemeChange: vi.fn(() => () => undefined),
     setBusy: vi.fn(() => Promise.resolve()),
     setRemoteHostAwake: vi.fn(() => Promise.resolve()),
     onPowerSuspend: vi.fn(() => () => undefined),
     onPowerResume: vi.fn(() => () => undefined),
-    checkForUpdates: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
+    fetchChangelogImage: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
   };
 }
 
@@ -105,9 +118,15 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   clearDesktopBridgeOverrideForTests();
   setStoredMode(undefined);
+  queryClient.removeQueries({ queryKey: NOTCH_CAPABILITIES_QUERY_KEY });
 });
+
+function setNotchSupported(supported: boolean): void {
+  queryClient.setQueryData(NOTCH_CAPABILITIES_QUERY_KEY, { supported, hardware: supported });
+}
 
 describe("initNotificationPermission", () => {
   it("caches the permission result", async () => {
@@ -154,6 +173,7 @@ describe("notifyAgentDone", () => {
     await initNotificationPermission();
     mockNotify.mockClear();
 
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     setRoute("/ws-session/ws-feature-1");
 
     notifyAgentDone({
@@ -164,6 +184,19 @@ describe("notifyAgentDone", () => {
       routeType: "session",
     });
     expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("still sends for the open conversation while Cadencr is in the background", async () => {
+    mockNotifyPermission.mockResolvedValue(true);
+    mockNotify.mockResolvedValue(undefined);
+    await initNotificationPermission();
+    mockNotify.mockClear();
+
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    setRoute("/ws-session/ws-feature-1");
+
+    notifyAgentDone({ status: "completed", featureTitle: "My Feature", ...baseOpts });
+    await vi.waitFor(() => expect(mockNotify).toHaveBeenCalledTimes(1));
   });
 
   it("sends notification when user is on a different page", async () => {
@@ -366,7 +399,7 @@ describe("listenForNotificationFallbacks", () => {
     expect(mockToastMessage).toHaveBeenCalledWith(
       "🟢 | My Feature",
       expect.objectContaining({
-        description: "Refactored the auth module.",
+        description: { scope: { projectId: 2 }, description: "Refactored the auth module." },
         action: expect.objectContaining({ label: "Open" }),
       }),
     );
@@ -402,7 +435,7 @@ describe("listenForNotificationFallbacks", () => {
 
     expect(mockToastMessage).toHaveBeenCalledWith(
       "Test",
-      expect.objectContaining({ description: "Hi", action: undefined }),
+      expect.objectContaining({ description: { scope: {}, description: "Hi" }, action: undefined }),
     );
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -428,5 +461,67 @@ describe("notifyAgentNeedsInput", () => {
         mode: "native",
       }),
     );
+  });
+});
+
+describe("notifyAgentDone in notch mode", () => {
+  it("peeks through the notch island with a plain-text preview, without OS permission", async () => {
+    mockNotifyPermission.mockResolvedValue(false);
+    await initNotificationPermission();
+    const notchNotify = vi.fn(() => Promise.resolve());
+    setDesktopBridgeOverrideForTests({ ...bridge(), notchNotify });
+    setStoredMode("notch");
+    setNotchSupported(true);
+    setRoute("/");
+    mockGetMessagePreview.mockResolvedValue({ preview: "## Done\n**Fixed** the `parser`." });
+
+    notifyAgentNeedsInput({ featureTitle: "My Feature", ...baseOpts });
+
+    await vi.waitFor(() =>
+      expect(notchNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          featureId: 1,
+          projectId: 2,
+          status: "needs_input",
+          title: "My Feature",
+          body: "Done Fixed the parser.",
+        }),
+      ),
+    );
+    expect(mockNotify).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed notch delivery as a toast", async () => {
+    const notchNotify = vi.fn(() => Promise.reject(new Error("island gone")));
+    setDesktopBridgeOverrideForTests({ ...bridge(), notchNotify });
+    setStoredMode("notch");
+    setNotchSupported(true);
+    setRoute("/");
+
+    notifyAgentDone({ status: "completed", featureTitle: "My Feature", ...baseOpts });
+
+    await vi.waitFor(() =>
+      expect(mockToastError).toHaveBeenCalledWith("Couldn't show the notch notification", {
+        description: "island gone",
+      }),
+    );
+  });
+
+  it("falls back to the system banner on a device that can't host the notch", async () => {
+    mockNotifyPermission.mockResolvedValue(true);
+    mockNotify.mockResolvedValue(undefined);
+    await initNotificationPermission();
+    const notchNotify = vi.fn(() => Promise.resolve());
+    setDesktopBridgeOverrideForTests({ ...bridge(), notchNotify });
+    setStoredMode("notch");
+    setNotchSupported(false);
+    setRoute("/");
+
+    notifyAgentDone({ status: "completed", featureTitle: "My Feature", ...baseOpts });
+
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(expect.objectContaining({ mode: "native" })),
+    );
+    expect(notchNotify).not.toHaveBeenCalled();
   });
 });

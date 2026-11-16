@@ -154,7 +154,7 @@ async fn terminal_ws_handler(
             Ok(resolved) => resolved,
             Err(resp) => return resp,
         };
-    let ws = ws.protocols([selected_proto]);
+    let ws = ws.protocols(selected_proto);
     match device_id {
         Some(device_id) => ws
             .on_upgrade(move |socket| handle_remote_terminal_ws(socket, params, state, device_id))

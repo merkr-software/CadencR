@@ -10,7 +10,7 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
 use super::trust::ManagedTrustStore;
-use super::{canonical_json, ManagedIndexSignature};
+use super::{legacy_canonical_json, ManagedIndexSignature};
 
 pub const MANAGED_BLOCKLIST_SCHEMA_VERSION: u32 = 1;
 pub const MAX_BLOCKLIST_BYTES: usize = 1024 * 1024;
@@ -54,10 +54,15 @@ pub struct ManagedBlocklistEntry {
 
 impl ManagedProviderBlocklist {
     pub fn signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
-        serde_json::to_vec(&canonical_json(serde_json::to_value(self)?))
+        let value = serde_json::to_value(self)?;
+        Ok(cadencr_registry_core::canonical_json_bytes(&value))
     }
 
-    fn validate(&self, now: DateTime<Utc>) -> Result<(), ManagedBlocklistError> {
+    fn legacy_signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(&legacy_canonical_json(serde_json::to_value(self)?))
+    }
+
+    pub(crate) fn validate(&self, now: DateTime<Utc>) -> Result<(), ManagedBlocklistError> {
         if self.schema_version != MANAGED_BLOCKLIST_SCHEMA_VERSION {
             return Err(invalid(format!(
                 "managed blocklist schema_version {} is unsupported",
@@ -183,8 +188,13 @@ impl ManagedTrustStore {
                 "managed blocklist could not be canonicalized: {error}"
             ))
         })?;
-        let signer_key_id = self
-            .verify_bytes(&bytes, &envelope.signature)
+        let (signer_key_id, _) = self
+            .verify_compatible_bytes(
+                &bytes,
+                &envelope.signature,
+                || envelope.signed.legacy_signing_bytes(),
+                "managed blocklist could not be canonicalized",
+            )
             .map_err(|error| ManagedBlocklistError::new(error.code.as_str(), error.message))?;
         Ok(VerifiedManagedBlocklist {
             blocklist: envelope.signed,

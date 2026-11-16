@@ -4,7 +4,12 @@ import { findAdjacentEditorLeaf, getEditorLeaves, removeLeaf, splitLeaf } from "
 
 type EditorPaneActions = Pick<
   EditorStore,
-  "toggleSidebar" | "splitEditorPane" | "removeEditorPane" | "navigatePane" | "setActivePane"
+  | "toggleSidebar"
+  | "hideSidebarBesideAgent"
+  | "splitEditorPane"
+  | "removeEditorPane"
+  | "navigatePane"
+  | "setActivePane"
 >;
 
 export function createEditorPaneActions(set: EditorSet): EditorPaneActions {
@@ -16,6 +21,18 @@ export function createEditorPaneActions(set: EditorSet): EditorPaneActions {
         return updateFeature(state, featureId, {
           ...feature,
           sidebarVisible: !feature.sidebarVisible,
+          sidebarAutoHidden: false,
+        });
+      }),
+
+    hideSidebarBesideAgent: (featureId) =>
+      set((state) => {
+        const feature = state.features[featureId];
+        if (!feature?.sidebarVisible) return state;
+        return updateFeature(state, featureId, {
+          ...feature,
+          sidebarVisible: false,
+          sidebarAutoHidden: true,
         });
       }),
 

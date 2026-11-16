@@ -10,17 +10,29 @@
 //! validator (super-defensive: a bad value never breaks the app). `None` means
 //! "treat an invalid value as unset" and let the consumer's own fallback apply.
 
+mod sidebar;
+mod tab_replacements;
+
 /// The shape a setting's string value must take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValueKind {
     /// `"true"` or `"false"`.
     Bool,
+    LspLanguages,
+    StringArray,
     /// One of a fixed set of strings.
     Enum(&'static [&'static str]),
     /// Parses as a number.
     Number,
     /// Parses as an integer within an inclusive range.
-    IntegerRange { min: i64, max: i64 },
+    IntegerRange {
+        min: i64,
+        max: i64,
+    },
+    /// Comma-separated values from a fixed set, none twice; empty is the empty list.
+    IdList(&'static [&'static str]),
+    /// A JSON object of replaceable built-in tab → custom tab id.
+    TabReplacements,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -38,6 +50,9 @@ impl SettingSpec {
     pub fn is_valid(&self, value: &str) -> bool {
         match self.kind {
             ValueKind::Bool => value == "true" || value == "false",
+            ValueKind::LspLanguages => crate::domain::lsp::selection::valid_preferences(value),
+            ValueKind::StringArray => serde_json::from_str::<Vec<String>>(value)
+                .is_ok_and(|ids| ids.iter().all(|id| !id.is_empty())),
             ValueKind::Enum(allowed) => allowed.contains(&value),
             ValueKind::Number => value
                 .trim()
@@ -47,8 +62,20 @@ impl SettingSpec {
                 .trim()
                 .parse::<i64>()
                 .is_ok_and(|number| (min..=max).contains(&number)),
+            ValueKind::IdList(allowed) => is_id_list(value, allowed),
+            ValueKind::TabReplacements => tab_replacements::is_valid(value),
         }
     }
+}
+
+fn is_id_list(value: &str, allowed: &[&str]) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    let ids: Vec<&str> = value.split(',').collect();
+    ids.iter()
+        .enumerate()
+        .all(|(index, id)| allowed.contains(id) && !ids[..index].contains(id))
 }
 
 const BOOL: ValueKind = ValueKind::Bool;
@@ -59,6 +86,8 @@ const NUMBER: ValueKind = ValueKind::Number;
 /// at the other. Returns `None` for keys not in this set.
 fn editor_tooling_spec(key: &str) -> Option<SettingSpec> {
     let spec = match key {
+        "editor_lsp_languages" => SettingSpec::new(ValueKind::LspLanguages, None),
+        "editor_lsp_ignored_languages" => SettingSpec::new(ValueKind::StringArray, None),
         "editor_typescript_server" => SettingSpec::new(
             ValueKind::Enum(&["typescript-language-server", "tsgo"]),
             Some("typescript-language-server"),
@@ -79,8 +108,14 @@ fn editor_tooling_spec(key: &str) -> Option<SettingSpec> {
 
 /// Spec for a workspace/global key, or `None` for free-form keys.
 pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
-    if let Some(spec) = editor_tooling_spec(key) {
+    if let Some(spec) = editor_tooling_spec(key).or_else(|| sidebar::sidebar_display_spec(key)) {
         return Some(spec);
+    }
+    if crate::domain::settings_allowlist::is_provider_access_mode_key(key) {
+        return Some(SettingSpec::new(
+            ValueKind::Enum(&["default", "fullAccess", "autoReview"]),
+            Some("default"),
+        ));
     }
     let spec = match key {
         // Booleans default to "false" — the historical "unset == off" behavior.
@@ -91,15 +126,20 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "editor_sidebar_collapsed"
         | "git_sidebar_collapsed"
         | "theme_follow_system"
+        | "notch_always_animate"
+        | "notch_default_applied"
         | "claude_bypass_permissions_enabled"
         | "codex_full_access_enabled"
         | "onboarding_intro_shown" => SettingSpec::new(BOOL, Some("false")),
         // These default on.
         "editor_auto_save"
         | "sidebar_provider_logos"
+        | "layout_auto_mode_default"
         | "animations_enabled"
+        | "notch_always_on"
         | "browser_mcp_enabled"
-        | "project_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
+        | "project_mcp_enabled"
+        | "agent_restart_resume_enabled" => SettingSpec::new(BOOL, Some("true")),
         "workspace_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
         "workspace_mcp_max_result_chars" => SettingSpec::new(NUMBER, Some("100000")),
         // Storage retention is the only lossy maintenance pass, so users must
@@ -110,8 +150,16 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         }
         // Enums (mirrors the frontend option sets).
         "notification_mode" => SettingSpec::new(
-            ValueKind::Enum(&["native", "in_app", "off"]),
+            ValueKind::Enum(&["native", "in_app", "notch", "off"]),
             Some("native"),
+        ),
+        "notch_display_mode" => SettingSpec::new(
+            ValueKind::Enum(&["builtin_always", "both", "primary"]),
+            Some("builtin_always"),
+        ),
+        "notch_primary_style" => SettingSpec::new(
+            ValueKind::Enum(&["none", "strip_4", "strip_8", "builtin"]),
+            Some("strip_8"),
         ),
         "browser_default_mode" => {
             SettingSpec::new(ValueKind::Enum(&["normal", "private"]), Some("normal"))
@@ -130,6 +178,8 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         "editor_vim_mode_level" => {
             SettingSpec::new(ValueKind::Enum(&["0", "1", "2", "3"]), Some("0"))
         }
+        // Invalid → unset: every built-in tab shows.
+        "custom_tab_replacements" => SettingSpec::new(ValueKind::TabReplacements, None),
         "agent_stream_verbosity_mode" => SettingSpec::new(
             ValueKind::Enum(&["maximal", "auto_collapse", "collapsed", "compact"]),
             None,
@@ -173,6 +223,25 @@ mod tests {
     }
 
     #[test]
+    fn provider_access_mode_defaults_accept_only_access_mode_ids() {
+        let spec = workspace_spec("provider_access_mode.acme-agent").unwrap();
+        for value in ["default", "fullAccess", "autoReview"] {
+            assert!(spec.is_valid(value), "{value}");
+        }
+        assert!(!spec.is_valid("bypassPermissions"));
+        assert_eq!(spec.default, Some("default"));
+        assert!(workspace_spec("provider_access_mode.Bad Id").is_none());
+    }
+
+    #[test]
+    fn auto_layout_defaults_on() {
+        assert_eq!(
+            workspace_spec("layout_auto_mode_default").unwrap().default,
+            Some("true")
+        );
+    }
+
+    #[test]
     fn mcp_setting_defaults_enable_agent_mcp_tools_by_default() {
         assert_eq!(
             workspace_spec("project_mcp_enabled").unwrap().default,
@@ -196,7 +265,28 @@ mod tests {
     fn enum_spec_validates() {
         let spec = workspace_spec("notification_mode").unwrap();
         assert!(spec.is_valid("native"));
+        assert!(spec.is_valid("notch"));
         assert!(!spec.is_valid("loud"));
+    }
+
+    #[test]
+    fn notch_display_mode_validates_and_preserves_the_builtin_default() {
+        let spec = workspace_spec("notch_display_mode").unwrap();
+        for mode in ["builtin_always", "both", "primary"] {
+            assert!(spec.is_valid(mode));
+        }
+        assert!(!spec.is_valid("all"));
+        assert_eq!(spec.default, Some("builtin_always"));
+    }
+
+    #[test]
+    fn notch_primary_style_validates_and_keeps_the_current_strip_by_default() {
+        let spec = workspace_spec("notch_primary_style").unwrap();
+        for style in ["none", "strip_4", "strip_8", "builtin"] {
+            assert!(spec.is_valid(style));
+        }
+        assert!(!spec.is_valid("strip_5"));
+        assert_eq!(spec.default, Some("strip_8"));
     }
 
     #[test]

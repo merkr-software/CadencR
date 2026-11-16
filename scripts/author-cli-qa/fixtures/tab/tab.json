@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "qa-author-tab",
+  "name": "Author CLI QA tab",
+  "version": "1.0.0",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "permissions": [],
+  "configuration": []
+}

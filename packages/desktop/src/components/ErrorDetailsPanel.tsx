@@ -1,6 +1,7 @@
 import { CopyIcon } from "lucide-react";
 import type { ReactElement } from "react";
 
+import { ExportDiagnosticsButton } from "./ExportDiagnosticsButton";
 import { Button } from "@/components/ui/button";
 import { copyToClipboard } from "@/lib/clipboard";
 
@@ -23,6 +24,7 @@ export function ErrorDetailsPanel({ details }: ErrorDetailsPanelProps): ReactEle
           <CopyIcon className="size-4" />
           Copy error details
         </Button>
+        <ExportDiagnosticsButton />
       </div>
     </>
   );

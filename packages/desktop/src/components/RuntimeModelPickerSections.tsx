@@ -1,4 +1,4 @@
-import { CheckIcon, LockIcon, StarIcon } from "lucide-react";
+import { CheckIcon, HistoryIcon, LockIcon, StarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandGroup, CommandItem } from "@/components/ui/command";
 import { ProviderIcon } from "@/lib/provider-icons";
@@ -12,6 +12,7 @@ import {
   VendorBrowseItem,
 } from "./RuntimeModelPickerChrome";
 import {
+  type CatalogRefreshNotice,
   displayModelDescription,
   displayModelId,
   displayModelLabel,
@@ -295,6 +296,36 @@ function FavoriteToggle({
       <StarIcon className={cn("size-3", isFavorite && "fill-current")} />
       <span className="sr-only">{`${isFavorite ? "Unstar" : "Star"} ${modelLabel}`}</span>
     </Button>
+  );
+}
+
+/**
+ * Quiet line per provider whose models are the last known catalog: the list
+ * still works, but it may be out of date and the refresh failed for a reason.
+ */
+export function CatalogRefreshNotices({
+  notices,
+}: {
+  notices: CatalogRefreshNotice[];
+}): React.ReactElement {
+  return (
+    <div role="status" className="flex flex-col gap-1 border-b border-border/60 px-2.5 py-1.5">
+      {notices.map((notice) => (
+        <p
+          key={notice.providerId}
+          className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground"
+          title={notice.reason}
+        >
+          <HistoryIcon className="mt-px size-3 shrink-0 text-[var(--acc-yellow)]" />
+          <span className="min-w-0">
+            <span className="text-foreground/80">
+              {notice.providerLabel}: showing the last known models.
+            </span>{" "}
+            <span className="line-clamp-2 break-words">Refresh failed: {notice.reason}</span>
+          </span>
+        </p>
+      ))}
+    </div>
   );
 }
 

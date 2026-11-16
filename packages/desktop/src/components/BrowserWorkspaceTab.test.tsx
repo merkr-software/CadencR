@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: relies on jsdom's focus handling for menu keyboard navigation.
 import { http, HttpResponse } from "msw";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +11,7 @@ import { getGetWorkspaceSettingQueryKey } from "@/api/generated";
 import { MAX_BROWSER_FAVICON_DATA_URL_LENGTH } from "@/shared/browser-types";
 import {
   clearDesktopBridgeOverrideForTests,
+  noopPluginTabs,
   setDesktopBridgeOverrideForTests,
   type BrowserShortcut,
   type BrowserStateSnapshot,
@@ -47,9 +50,6 @@ function bridge(): CadencrBrowserBridge {
     ],
     activeTabId: "tab-1",
     scopeId: 1,
-    consoleEntries: [],
-    networkEntries: [],
-    knownOrigins: [],
     error: null,
   };
   return {
@@ -76,8 +76,25 @@ function bridge(): CadencrBrowserBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
+    exportRendererDiagnostics: vi.fn(async () => ({ canceled: false })),
     reportRendererError: vi.fn(() => Promise.resolve()),
+    notchCapabilities: vi.fn(() => Promise.resolve({ supported: false, hardware: false })),
+    notchConfigure: vi.fn(() => Promise.resolve()),
+    notchPushSnapshot: vi.fn(() => Promise.resolve()),
+    notchNotify: vi.fn(() => Promise.resolve()),
+    onNotchDismissed: vi.fn(() => () => undefined),
+    drainCliRequests: vi.fn(() => Promise.resolve([])),
+    onCliRequestsPending: vi.fn(() => () => undefined),
+    cliInstallStatus: vi.fn(),
+    installCli: vi.fn(),
+    uninstallCli: vi.fn(),
     setZoom: vi.fn(),
+    setTrafficLightsCenter: vi.fn(() => Promise.resolve()),
     currentTheme: vi.fn<() => Promise<"dark">>(() => Promise.resolve("dark")),
     onThemeChange: vi.fn(() => () => undefined),
     setBusy: vi.fn(),
@@ -111,20 +128,6 @@ function bridge(): CadencrBrowserBridge {
     dismissBrowserPopup: vi.fn(() => Promise.resolve()),
     setBrowserBounds: vi.fn(() => Promise.resolve(state)),
     setBrowserSuppressed: vi.fn(() => Promise.resolve()),
-    listBrowserProfiles: vi.fn(() =>
-      Promise.resolve([
-        { id: "default", label: "default", mode: "persistent" as const },
-        { id: "dev", label: "dev", mode: "persistent" as const },
-      ]),
-    ),
-    clearBrowserStorage: vi.fn(() => Promise.resolve()),
-    createBrowserProfile: vi.fn(() =>
-      Promise.resolve({ id: "created", label: "created", mode: "persistent" as const }),
-    ),
-    duplicateBrowserProfile: vi.fn(() =>
-      Promise.resolve({ id: "copy", label: "copy", mode: "persistent" as const }),
-    ),
-    deleteBrowserProfile: vi.fn(() => Promise.resolve()),
     getBrowserSiteInfo: vi.fn(() =>
       Promise.resolve({
         tabId: "tab-1",
@@ -165,18 +168,13 @@ function bridge(): CadencrBrowserBridge {
     setBrowserBookmark: vi.fn(() => Promise.resolve(null)),
     toggleBrowserDevTools: vi.fn(() => Promise.resolve(state.tabs[0])),
     setBrowserResponsive: vi.fn(() => Promise.resolve(state.tabs[0])),
-    getBrowserConsole: vi.fn(() => Promise.resolve([])),
-    getBrowserNetwork: vi.fn(() => Promise.resolve([])),
-    getBrowserSnapshot: vi.fn(),
     getBrowserScreenshot: vi.fn(() => Promise.resolve("png-base64")),
-    browserClick: vi.fn(),
-    browserType: vi.fn(),
-    browserKeypress: vi.fn(),
     selectBrowserElementContext: vi.fn(),
     removeBrowserCommentBadge: vi.fn(() => Promise.resolve()),
     clearBrowserCommentBadges: vi.fn(() => Promise.resolve()),
     onBrowserState: vi.fn(() => () => undefined),
     onBrowserTabCounts: vi.fn(() => () => undefined),
+    onBrowserAgentActivity: vi.fn(() => () => undefined),
     onBrowserDownloadsChanged: vi.fn(() => () => undefined),
     onBrowserDownloadCounts: vi.fn(() => () => undefined),
     onBrowserShortcut: vi.fn(() => () => undefined),
@@ -188,7 +186,10 @@ function bridge(): CadencrBrowserBridge {
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(),
     fetchChangelog: vi.fn(),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    fetchChangelogImage: vi.fn(),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
+    pluginTabs: noopPluginTabs,
   };
 }
 
@@ -314,6 +315,18 @@ describe("BrowserWorkspaceTab", () => {
     await waitFor(() => expect(mockBridge.setBrowserSuppressed).toHaveBeenLastCalledWith(false));
   });
 
+  it("keeps the Downloads popover open when it is opened from the overflow menu", async () => {
+    setDesktopBridgeOverrideForTests(bridge());
+    const { user } = render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "More Browser actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Downloads/ }));
+
+    expect(await screen.findByText("Saved to your Downloads folder")).toBeInTheDocument();
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(screen.getByText("Saved to your Downloads folder")).toBeInTheDocument();
+  });
+
   it("supports opening a private tab from the split-button menu with the keyboard", async () => {
     const mockBridge = bridge();
     setDesktopBridgeOverrideForTests(mockBridge);
@@ -429,9 +442,6 @@ describe("BrowserWorkspaceTab", () => {
       Promise.resolve<BrowserStateSnapshot>({
         tabs: [],
         activeTabId: null,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: null,
       }),
     );
@@ -530,31 +540,6 @@ describe("BrowserWorkspaceTab", () => {
         ],
         activeTabId: "tab-1",
         scopeId: 1,
-        knownOrigins: [],
-        consoleEntries: [
-          {
-            id: "console-1",
-            tabId: "tab-1",
-            level: "error",
-            message: "Hydration failed",
-            sourceUrl: "http://localhost:1420/main.tsx",
-            lineNumber: 42,
-            timestamp: "2026-06-09T00:00:00.000Z",
-          },
-        ],
-        networkEntries: [
-          {
-            id: "network-1",
-            tabId: "tab-1",
-            method: "GET",
-            url: "http://localhost:1420/api/items",
-            status: 500,
-            requestHeaders: {},
-            responseHeaders: {},
-            resourceType: "xhr",
-            timestamp: "2026-06-09T00:00:00.000Z",
-          },
-        ],
         error: null,
       }),
     );
@@ -612,6 +597,8 @@ describe("BrowserWorkspaceTab", () => {
       responsive: { keys: ["mod", "shift", "m"], altKeys: undefined },
       devtools: { keys: ["f12"], altKeys: undefined },
       zoomReset: { keys: ["mod", "0"], altKeys: undefined },
+      navigateBack: { keys: ["mod", "lbracket"], altKeys: undefined },
+      navigateForward: { keys: ["mod", "rbracket"], altKeys: undefined },
     });
     act(() => shortcutRelay?.("find"));
     const input = await screen.findByRole("textbox", { name: "Find in page" });
@@ -719,9 +706,6 @@ describe("BrowserWorkspaceTab", () => {
       Promise.resolve<BrowserStateSnapshot>({
         tabs: [],
         activeTabId: null,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: null,
       }),
     );
@@ -783,9 +767,6 @@ describe("BrowserWorkspaceTab", () => {
         ],
         activeTabId: "tab-1",
         scopeId: 1,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: "ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:5175/signup'",
       }),
     );

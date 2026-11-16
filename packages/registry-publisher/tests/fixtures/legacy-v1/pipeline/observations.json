@@ -1,0 +1,39 @@
+{
+  "initial": {
+    "ok": true
+  },
+  "replay": {
+    "ok": true
+  },
+  "fresh": {
+    "ok": true
+  },
+  "tamper": {
+    "catalog-publication-receipt.json": {
+      "result": {
+        "ok": false,
+        "error": "existing catalog receipt conflicts"
+      },
+      "unchanged_disk": true
+    },
+    "discovery-receipt.json": {
+      "result": {
+        "ok": false,
+        "error": "existing discovery receipt conflicts"
+      },
+      "unchanged_disk": true
+    }
+  },
+  "noncanonical": {
+    "ok": false,
+    "error": "existing publication manifest conflicts"
+  },
+  "writes_before": 10,
+  "writes_after": 10,
+  "inputs": {
+    "private.pem": "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSUFjSEJ3Y0hCd2NIQndjSEJ3Y0hCd2NIQndjSEJ3Y0hCd2NIQndjSEJ3Y0gKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=",
+    "public.pem": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQTZrcHNZK0tjVWdxKzlWQjdFeTdGK1pWSGRxNit2bnVTUWg3cWFSUkcwaXc9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
+    "request.json": "eyJzY2hlbWFfdmVyc2lvbiI6MSwicmVwb3NpdG9yeSI6ImNhZGVuY3IvcmVnaXN0cnkiLCJrZXlfaWQiOiJyZWxlYXNlLTIwMjYiLCJkaXNjb3ZlcnlfYnJhbmNoIjoibWFpbiIsImdlbmVyYXRlZF9hdCI6IjIwMjYtMTAtMTdUMTI6MDY6MjdaIiwiZXhwaXJlc19hdCI6IjIwMjYtMTAtMThUMTI6MDc6MjdaIiwicHJldmlvdXNfaW5kZXgiOiJib290c3RyYXAiLCJwdWJsaWNfa2V5IjoicHVibGljLnBlbSIsInB1YmxpY2F0aW9ucyI6W3sic3VibWlzc2lvbiI6InN1Ym1pc3Npb24uanNvbiJ9XX0=",
+    "submission.json": "eyJzY2hlbWFfdmVyc2lvbiI6MSwicGFja2FnZSI6eyJhZ2VudCI6eyJpZCI6ImFjbWUiLCJuYW1lIjoiQWNtZSIsInZlcnNpb24iOiIxLjAuMCIsImRlc2NyaXB0aW9uIjoiQWdlbnQiLCJsaWNlbnNlIjoiTUlUIiwicmVwb3NpdG9yeSI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hY21lL3Byb3ZpZGVyIiwiZGlzdHJpYnV0aW9uIjp7ImJpbmFyeSI6eyJsaW51eC14ODZfNjQiOnsiYXJjaGl2ZSI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hY21lL3Byb3ZpZGVyL3JlbGVhc2VzL2Rvd25sb2FkL3YxL3Byb3ZpZGVyLnRneiIsImNtZCI6ImJpbi9wcm92aWRlciIsInNoYTI1NiI6IjBlYjNlMzZiZmIyNGRjZDliYjFkMWJlY2UxNTMxMjE2YjU5NTM5YThmZGUxN2VlODAyMjRhZjA2NTNjOTJhYTMifX19fSwiaG9zdCI6eyJwdWJsaXNoZXIiOiJhY21lIiwiY29tcGF0aWJpbGl0eSI6eyJtaW5fYXBwX3ZlcnNpb24iOiIwLjEyLjAifSwiYXNzZXRzIjp7Imljb24iOiJpY29uLnN2ZyIsInJlYWRtZSI6IlJFQURNRS5tZCIsImxpY2Vuc2UiOiJMSUNFTlNFIn19fSwic291cmNlIjp7InJlcG9zaXRvcnkiOiJodHRwczovL2dpdGh1Yi5jb20vYWNtZS9wcm92aWRlciIsImNvbW1pdCI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiLCJ0YWciOiJ2MSJ9LCJjaGFuZ2Vsb2ciOiJSZWxlYXNlIn0="
+  }
+}

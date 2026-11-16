@@ -3,11 +3,10 @@ import { OnboardingFooter } from "../OnboardingFooter";
 import type { OnboardingStepProps } from "../OnboardingOverlay";
 
 /**
- * Step 4 — choose the runtime model new sessions use, plus the model that
- * auto-names sessions. Replaces the old provider-only picker: reusing the
- * global `ModelSelector` gives provider *and* model selection for both the
- * `session` runtime and the `auto_name` agent, with the same catalog defaults
- * the rest of the app resolves to.
+ * Step 4 — choose the runtime model the first conversation starts on, plus the
+ * model that auto-names sessions. The `session` pick seeds the workspace's
+ * last-used selection: from then on every new conversation starts on whatever
+ * model the user last prompted with, so there is no default to revisit later.
  *
  * The selector autosaves each pick through its own mutations, so advancing is
  * a plain navigation — there's nothing extra to persist here. Skipping simply
@@ -30,8 +29,8 @@ export function PickAgentStep({
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold tracking-tight">Choose your agent</h2>
         <p className="text-sm text-muted-foreground">
-          Pick the runtime model new sessions use, and the model that auto-names your sessions.
-          Changes save automatically — you can override any of this later from Settings.
+          Pick the model your first conversation starts on, and the model that auto-names your
+          sessions. After that, new conversations reuse the model you last used.
         </p>
       </header>
 
@@ -39,7 +38,6 @@ export function PickAgentStep({
 
       <OnboardingFooter
         primaryLabel="Continue"
-        onPrimary={onAdvance}
         primaryDisabled={isPersisting}
         onBack={onBack}
         onSkipStep={onSkipStep}

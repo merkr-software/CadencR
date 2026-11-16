@@ -7,17 +7,13 @@
 
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
+import { developmentApiBaseUrl } from "@/api/runtime-origin";
 
-// Scoped to the dev backend base URL, resolved exactly the way `src/api/client.ts`
-// resolves it: `VITE_API_URL` when set, else `DEFAULT_DEV_BASE_URL`. Hardcoding
-// :5005 here silently stopped intercepting in any worktree whose `.env` picks a
-// different port — axios then hit the real network and unmocked hooks failed.
-// Keeping the matcher narrow (one host) means an accidental fetch elsewhere
-// (CDN, analytics, real network) still fails loudly instead of being swallowed.
-export const API_BASE_URL = (import.meta.env.VITE_API_URL || "http://127.0.0.1:5005").replace(
-  /\/$/,
-  "",
-);
+// Follow the same narrow origin selection as the runtime client: plain HTTP
+// browsers use Vite's same-origin credentialed proxy, while Node and Electron
+// use the configured sidecar endpoint. Keep this helper independent of Axios
+// so installing MSW does not initialize or cache the API client before mocks.
+export const API_BASE_URL = developmentApiBaseUrl();
 
 export const server = setupServer(
   http.all(`${API_BASE_URL}/*`, () => HttpResponse.json({}, { status: 200 })),

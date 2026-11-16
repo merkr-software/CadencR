@@ -10,6 +10,7 @@ use cli_discovery::DiscoverySpec;
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
 
 use crate::error::SdkError;
 
@@ -21,8 +22,13 @@ use crate::error::SdkError;
 pub fn opencode_discovery_spec() -> DiscoverySpec {
     DiscoverySpec {
         bin_name: "opencode".into(),
-        well_known_relative_to_home: vec![".opencode/bin".into()],
-        well_known_absolute: vec!["/opt/homebrew/bin".into(), "/usr/local/bin".into()],
+        well_known_relative_to_home: vec![".opencode/bin".into(), ".cargo/bin".into()],
+        well_known_absolute: vec![
+            "/opt/homebrew/bin".into(),
+            "/usr/local/bin".into(),
+            "/usr/bin".into(),
+            "/snap/bin".into(),
+        ],
         version_args: vec!["--version".into()],
         version_must_contain: None,
     }
@@ -32,6 +38,34 @@ pub fn opencode_discovery_spec() -> DiscoverySpec {
 ///
 /// Set once by the host app at startup (e.g. read from settings).
 static BINARY_OVERRIDE: Lazy<RwLock<Option<PathBuf>>> = Lazy::new(|| RwLock::new(None));
+
+/// Discovery result keyed on the override snapshot. Every ACP spawn, MCP
+/// discovery and model probe resolves the binary; uncached, each call re-walks
+/// PATH and spawns a `--version` per candidate (~0.4 s before the agent even
+/// starts).
+static RESOLVED: Lazy<RwLock<Option<ResolvedBinary>>> = Lazy::new(|| RwLock::new(None));
+
+/// How long a discovery result is reused. Installs move under a running
+/// service (`brew upgrade`, an nvm/asdf version switch, a newer copy landing
+/// elsewhere on PATH); re-walking now and then picks them up without paying the
+/// walk on every spawn.
+const RESOLVED_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Clone)]
+struct ResolvedBinary {
+    override_path: Option<PathBuf>,
+    path: PathBuf,
+    resolved_at: Instant,
+}
+
+impl ResolvedBinary {
+    /// Still answers for `override_path`, and the binary is still there.
+    fn is_fresh_for(&self, override_path: &Option<PathBuf>) -> bool {
+        self.override_path == *override_path
+            && self.resolved_at.elapsed() < RESOLVED_TTL
+            && is_executable_file(&self.path)
+    }
+}
 
 #[cfg(test)]
 static TEST_DISCOVERY_LOCK: Lazy<tokio::sync::Mutex<()>> =
@@ -44,6 +78,9 @@ static TEST_DISCOVERY_LOCK: Lazy<tokio::sync::Mutex<()>> =
 pub fn set_binary_override(path: Option<PathBuf>) {
     if let Ok(mut guard) = BINARY_OVERRIDE.write() {
         *guard = path;
+    }
+    if let Ok(mut cache) = RESOLVED.write() {
+        *cache = None;
     }
 }
 
@@ -61,13 +98,26 @@ pub async fn resolve_binary() -> Result<PathBuf, SdkError> {
             });
         }
     }
+    if let Some(cached) = RESOLVED.read().ok().and_then(|guard| guard.clone()) {
+        if cached.is_fresh_for(&override_path) {
+            return Ok(cached.path);
+        }
+    }
     let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await;
     let Some(best) = cli_discovery::select_best(&candidates) else {
         return Err(SdkError::CliNotFound {
             searched: cli_discovery::searched_dirs(&spec).await,
         });
     };
-    Ok(best.path.clone())
+    let resolved = best.path.clone();
+    if let Ok(mut cache) = RESOLVED.write() {
+        *cache = Some(ResolvedBinary {
+            override_path,
+            path: resolved.clone(),
+            resolved_at: Instant::now(),
+        });
+    }
+    Ok(resolved)
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -92,10 +142,11 @@ fn is_executable_file(path: &Path) -> bool {
 mod tests {
     use super::{
         current_binary_override, opencode_discovery_spec, resolve_binary, set_binary_override,
-        TEST_DISCOVERY_LOCK,
+        ResolvedBinary, RESOLVED, RESOLVED_TTL, TEST_DISCOVERY_LOCK,
     };
     use crate::error::SdkError;
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
 
     #[test]
     fn opencode_discovery_spec_includes_user_install_and_homebrew() {
@@ -109,6 +160,13 @@ mod tests {
             .well_known_absolute
             .iter()
             .any(|path| path == "/opt/homebrew/bin"));
+        for dir in ["/usr/bin", "/snap/bin"] {
+            assert!(spec.well_known_absolute.iter().any(|path| path == dir));
+        }
+        assert!(spec
+            .well_known_relative_to_home
+            .iter()
+            .any(|path| path == ".cargo/bin"));
     }
 
     #[tokio::test]
@@ -168,5 +226,55 @@ mod tests {
             Err(other) => panic!("unexpected error: {other:?}"),
         }
         assert_ne!(path_binary, missing_override);
+    }
+
+    fn seed_cache(path: std::path::PathBuf, resolved_at: Instant) {
+        *RESOLVED.write().unwrap() = Some(ResolvedBinary {
+            override_path: None,
+            path,
+            resolved_at,
+        });
+    }
+
+    #[tokio::test]
+    async fn a_cached_binary_that_disappeared_is_rediscovered() {
+        let _guard = TEST_DISCOVERY_LOCK.lock().await;
+        let prior = current_binary_override();
+        set_binary_override(None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let gone = dir.path().join("opencode");
+        seed_cache(gone.clone(), Instant::now());
+
+        let result = resolve_binary().await;
+
+        set_binary_override(prior);
+        assert!(
+            !matches!(&result, Ok(path) if *path == gone),
+            "served a binary that no longer exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cached_binary_is_rediscovered_once_its_ttl_lapses() {
+        let _guard = TEST_DISCOVERY_LOCK.lock().await;
+        let prior = current_binary_override();
+        set_binary_override(None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let stale = dir.path().join("opencode");
+        std::fs::write(&stale, "#!/bin/sh\necho 0.0.1\n").unwrap();
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let Some(expired_at) = Instant::now().checked_sub(RESOLVED_TTL) else {
+            set_binary_override(prior);
+            return; // Monotonic clock younger than the TTL: nothing to expire.
+        };
+        seed_cache(stale.clone(), expired_at);
+
+        let result = resolve_binary().await;
+
+        set_binary_override(prior);
+        assert!(
+            !matches!(&result, Ok(path) if *path == stale),
+            "kept serving an expired discovery result"
+        );
     }
 }

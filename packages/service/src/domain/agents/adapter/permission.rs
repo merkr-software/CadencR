@@ -27,6 +27,16 @@ pub struct RuntimePermissionResponse {
     pub updated_input: Option<Value>,
 }
 
+/// How a user's answer to a runtime permission request reaches the runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimePermissionResponseRoute {
+    /// Delivered through `AgentRuntimeSession::respond_permission`.
+    Session,
+    /// Delivered to the `RuntimeToolPermissionHandler` callback that is
+    /// waiting on that request id (the runtime blocks inside the callback).
+    PermissionCallback,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimePermissionResponseKind {
     Normal,

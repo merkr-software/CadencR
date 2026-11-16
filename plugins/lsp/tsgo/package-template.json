@@ -1,0 +1,99 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--lsp",
+        "--stdio"
+      ],
+      "description": "TypeScript and JavaScript code intelligence using a Cadencr source build of the native TypeScript Go preview with an upstream shutdown fix backported, and bundled standard libraries.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.1/lsp-tsgo-0.1.1-darwin-aarch64.tar.gz",
+            "entry": "lib/tsgo",
+            "entry_sha256": "595a27418cea2657233d01213496d97c85f307e2d00251d51af4d4b0ede935a2",
+            "entry_size": 23620594,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "857108d35ee025041a44a6ab46401d60f500ba5d41bc61edf42d3314852527bd",
+            "size": 9131751
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.1/lsp-tsgo-0.1.1-darwin-x86_64.tar.gz",
+            "entry": "lib/tsgo",
+            "entry_sha256": "168674568e330571cab9973bb664702361e43f10313d391824415e70449282f5",
+            "entry_size": 24748800,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "a95fcc3b2f6dc098df15707eb3e8c8970f4e1023c741b1c8ffe2ef3583359021",
+            "size": 9747571
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tsgo-v0.1.1/lsp-tsgo-0.1.1-linux-x86_64.tar.gz",
+            "entry": "lib/tsgo",
+            "entry_sha256": "8f0a7541d28e7094df4cac08af76b877d3bb558beee0d1d2aa2abe784a215d7b",
+            "entry_size": 24109218,
+            "runtime": "native",
+            "sha256": "3fa243ff28648eba2e0fd3d7edc6a7d04b249488652cbd6fbdf0fb7a687ee2bd",
+            "size": 9562864
+          }
+        }
+      },
+      "id": "tsgo",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "js",
+            "mjs",
+            "cjs"
+          ],
+          "filenames": [],
+          "id": "javascript"
+        },
+        {
+          "extensions": [
+            "jsx"
+          ],
+          "filenames": [],
+          "id": "javascriptreact"
+        },
+        {
+          "extensions": [
+            "ts",
+            "mts",
+            "cts"
+          ],
+          "filenames": [],
+          "id": "typescript"
+        },
+        {
+          "extensions": [
+            "tsx"
+          ],
+          "filenames": [],
+          "id": "typescriptreact"
+        }
+      ],
+      "license": "Apache-2.0",
+      "name": "TypeScript native preview",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "tsconfig.json",
+        "jsconfig.json",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.1"
+    }
+  }
+}

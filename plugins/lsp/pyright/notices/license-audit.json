@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "pyright",
+  "status": "available-upstream-notices-preserved; metadata-only-cases-explicit",
+  "packages": [
+    {
+      "name": "pyright",
+      "version": "1.1.414",
+      "destination": "node_modules/pyright",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE.txt",
+        "dist/typeshed-fallback/LICENSE"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/pyright/-/pyright-1.1.414.tgz",
+      "npm_sha256": "bf5f473f6167c0d14175492c3263d783b4489a6956e1c06c18e15228e3a3fa42",
+      "notice_status": "original-notices-preserved"
+    }
+  ]
+}

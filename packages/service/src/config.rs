@@ -46,6 +46,14 @@ pub struct Config {
     #[arg(long, default_value = "5006", env = "CADENCR_REMOTE_PORT")]
     pub remote_port: u16,
 
+    /// Shut down when stdin reaches end-of-file. The desktop shell spawns the
+    /// service with a stdin pipe it never writes to, so the pipe closes when
+    /// the shell exits however it exits (crash and force-quit included),
+    /// instead of leaving an orphan holding the port. Dev and standalone runs
+    /// leave it unset.
+    #[arg(long)]
+    pub exit_with_parent: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -85,4 +93,18 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: std::path::PathBuf,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+    use clap::Parser;
+
+    #[test]
+    fn the_desktop_shell_lifetime_flag_is_opt_in() {
+        let shell = Config::try_parse_from(["cadencr-service", "--exit-with-parent"]).unwrap();
+        assert!(shell.exit_with_parent);
+        let standalone = Config::try_parse_from(["cadencr-service"]).unwrap();
+        assert!(!standalone.exit_with_parent);
+    }
 }

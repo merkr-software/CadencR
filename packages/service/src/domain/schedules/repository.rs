@@ -3,12 +3,15 @@ mod mutations;
 mod reads;
 mod row;
 
-pub use claim::{claim_due, finish_run, record_manual_run, ClaimedSchedule, RunOutcome};
-pub use mutations::{delete, insert, set_enabled, update};
+pub use claim::{
+    claim_due, finish_run, record_check, record_manual_run, release_claim, ClaimedSchedule,
+    RunOutcome,
+};
+pub use mutations::{delete, insert, set_enabled, update, update_in_place};
 pub use reads::{get, list, ScheduleFilter};
 
 #[cfg(test)]
-pub(super) mod test_support {
+pub(crate) mod test_support {
     use sqlx::SqlitePool;
 
     use super::super::models::{RecurrenceInput, SaveScheduleRequest, ScheduleTarget, TargetKind};
@@ -48,6 +51,7 @@ pub(super) mod test_support {
             target: ScheduleTarget {
                 kind: TargetKind::Conversation,
                 feature_id: Some(feature_id),
+                action_id: None,
                 project_id: None,
                 provider: None,
                 model: None,
@@ -68,6 +72,7 @@ pub(super) mod test_support {
                 day_of_month: None,
                 timezone: Some("UTC".into()),
             },
+            condition: None,
             enabled: None,
         }
     }
@@ -79,6 +84,7 @@ pub(super) mod test_support {
             target: ScheduleTarget {
                 kind: TargetKind::NewConversation,
                 feature_id: None,
+                action_id: None,
                 project_id: Some(project_id),
                 provider: None,
                 model: None,
@@ -99,6 +105,7 @@ pub(super) mod test_support {
                 day_of_month: None,
                 timezone: Some("UTC".into()),
             },
+            condition: None,
             enabled: None,
         }
     }

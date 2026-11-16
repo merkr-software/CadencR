@@ -1,0 +1,87 @@
+Third-party license and attribution inventory
+
+Complete official npm distributions are retained unmodified, including package.json license/author declarations and every original license/notice. This file supplements notices omitted from tarballs using exact upstream commits or a locked README. Metadata-only cases are explicitly labeled and retain standard SPDX template text without fictional copyright assertions. Consult license-audit.json for every exact package and original notice path.
+
+@vscode/l10n@0.0.18 | MIT | node_modules/@vscode/l10n | verbatim-supplement
+boolbase@1.0.0 | ISC | node_modules/boolbase | metadata-only-original-no-copyright-notice
+core-js@3.51.0 | MIT | node_modules/core-js | original-notices-preserved
+css-select@5.2.2 | BSD-2-Clause | node_modules/css-select | original-notices-preserved
+css-what@6.2.2 | BSD-2-Clause | node_modules/css-what | original-notices-preserved
+dom-serializer@2.0.0 | MIT | node_modules/dom-serializer | original-notices-preserved
+domelementtype@2.3.0 | BSD-2-Clause | node_modules/domelementtype | original-notices-preserved
+domhandler@5.0.3 | BSD-2-Clause | node_modules/domhandler | original-notices-preserved
+domutils@3.2.2 | BSD-2-Clause | node_modules/domutils | original-notices-preserved
+entities@4.5.0 | BSD-2-Clause | node_modules/entities | original-notices-preserved
+he@1.2.0 | MIT | node_modules/he | original-notices-preserved
+jsonc-parser@3.3.1 | MIT | node_modules/jsonc-parser | original-notices-preserved
+node-html-parser@6.1.13 | MIT | node_modules/node-html-parser | original-notices-preserved
+nth-check@2.1.1 | BSD-2-Clause | node_modules/nth-check | original-notices-preserved
+picomatch@2.3.2 | MIT | node_modules/picomatch | original-notices-preserved
+regenerator-runtime@0.13.11 | MIT | node_modules/regenerator-runtime | original-notices-preserved
+request-light@0.7.0 | MIT | node_modules/request-light | original-notices-preserved
+semver@7.8.6 | ISC | node_modules/semver | original-notices-preserved
+typescript@4.9.5 | Apache-2.0 | node_modules/typescript | original-notices-preserved
+vscode-css-languageservice@6.3.10 | MIT | node_modules/vscode-css-languageservice | original-notices-preserved
+vscode-languageserver-types@3.17.5 | MIT | node_modules/vscode-css-languageservice/node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-html-languageservice@5.6.2 | MIT | node_modules/vscode-html-languageservice | original-notices-preserved
+vscode-json-languageservice@5.7.2 | MIT | node_modules/vscode-json-languageservice | original-notices-preserved
+vscode-jsonrpc@9.0.3 | MIT | node_modules/vscode-jsonrpc | original-notices-preserved
+vscode-langservers-extracted@4.10.0 | MIT | node_modules/vscode-langservers-extracted | original-notices-preserved
+vscode-languageserver@10.1.2 | MIT | node_modules/vscode-languageserver | original-notices-preserved
+vscode-languageserver-protocol@3.18.4 | MIT | node_modules/vscode-languageserver-protocol | original-notices-preserved
+vscode-languageserver-types@3.18.4 | MIT | node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-languageserver-textdocument@1.0.16 | MIT | node_modules/vscode-languageserver-textdocument | original-notices-preserved
+vscode-languageserver-types@3.18.5 | MIT | node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-markdown-languageservice@0.5.0 | MIT | node_modules/vscode-markdown-languageservice | original-notices-preserved
+vscode-nls@5.2.0 | MIT | node_modules/vscode-nls | original-notices-preserved
+vscode-uri@3.2.0 | MIT | node_modules/vscode-uri | original-notices-preserved
+
+
+
+Package: @vscode/l10n@0.0.18
+License declaration: MIT
+Supplement source: https://raw.githubusercontent.com/microsoft/vscode-l10n/fc7e3d79ddb91a2cc24a9730aad912026a43dbf2/LICENSE
+Source commit: fc7e3d79ddb91a2cc24a9730aad912026a43dbf2
+SHA256: c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+Package: boolbase@1.0.0
+License declaration copied from the locked package metadata: ISC
+Published author metadata (not an assertion of copyright ownership): {"name": "Felix Boehm", "email": "me@feedic.com"}
+Tarball source: https://registry.npmjs.org/boolbase/-/boolbase-1.0.0.tgz
+Tarball SHA256: 69628ff8092c5ff940ea4a0f29da98d520615bae138755c9e059033606c6caa8
+Historical source commit when published: not supplied by npm metadata
+
+The locked upstream distribution and identified historical source provide the above SPDX license declaration without a separate copyright notice. No copyright owner or year has been invented. The following are explicitly labeled SPDX STANDARD TERMS; template placeholders are retained verbatim and are not asserted as an upstream notice.
+Standard terms source: https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/json/details/ISC.json
+
+ISC License
+
+Copyright <year> <owner> 
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+

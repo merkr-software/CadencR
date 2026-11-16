@@ -169,6 +169,16 @@ pub struct Message {
     pub model: Option<String>,
     pub tokens: Option<TokenUsage>,
     pub finished: bool,
+    /// Assistant `time.completed` (epoch ms, as text like `created_at`).
+    pub completed_at: Option<String>,
+    /// Assistant `finish` reason of its last step (`stop`, `tool-calls`, …).
+    pub finish: Option<String>,
+    /// Assistant `error`: `error.data.message`, else the error `name`.
+    pub error: Option<String>,
+    /// Assistant `error.name`: which `NamedError` it is (`MessageAbortedError`, …).
+    pub error_name: Option<String>,
+    /// Assistant `variant`: the reasoning-effort variant the model ran with.
+    pub variant: Option<String>,
 }
 
 impl Message {

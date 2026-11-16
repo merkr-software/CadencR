@@ -16,11 +16,8 @@ let mockRegisterEditorView = true;
 const mockToggleSidebar = vi.fn();
 const mockPersistCollapsed = vi.fn();
 let mockSidebarVisible = false;
-const mockUseDebouncedSetting = vi.fn<
-  (
-    key: string,
-    debounceMs?: number,
-  ) => {
+const mockUseSetting = vi.fn<
+  (key: string) => {
     value: string | null;
     setValue: typeof mockPersistCollapsed;
   }
@@ -47,9 +44,8 @@ vi.mock("@/stores/feature-layout-store", () => ({
   getFocusedTab: () => "editor",
 }));
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: (key: string, debounceMs?: number) =>
-    mockUseDebouncedSetting(key, debounceMs),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: (key: string) => mockUseSetting(key),
 }));
 
 vi.mock("@/hooks/useEditorState", () => ({
@@ -149,8 +145,8 @@ describe("FeatureEditorTab", () => {
     mockToggleSidebar.mockReset();
     mockPersistCollapsed.mockReset();
     mockSidebarVisible = false;
-    mockUseDebouncedSetting.mockReset();
-    mockUseDebouncedSetting.mockReturnValue({ value: null, setValue: mockPersistCollapsed });
+    mockUseSetting.mockReset();
+    mockUseSetting.mockReturnValue({ value: null, setValue: mockPersistCollapsed });
   });
 
   it("subscribes to file changes even when the file tree sidebar is hidden", () => {
@@ -170,7 +166,7 @@ describe("FeatureEditorTab", () => {
   it("uses a workspace-level collapse setting", () => {
     render(<FeatureEditorTab featureId={1} projectId={1} projectPath="/project" />);
 
-    expect(mockUseDebouncedSetting).toHaveBeenCalledWith("editor_sidebar_collapsed", 0);
+    expect(mockUseSetting).toHaveBeenCalledWith("editor_sidebar_collapsed");
   });
 
   it("reserves a rail for the expand button when the sidebar is collapsed", () => {

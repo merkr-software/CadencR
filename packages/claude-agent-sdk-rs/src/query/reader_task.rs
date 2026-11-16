@@ -13,12 +13,13 @@ use crate::permissions::CanUseTool;
 use crate::transport::CliProcess;
 use crate::types::McpServerStatus;
 
-use super::cancelled_control::CancelledControlRequests;
-use super::permission_dispatch::handle_can_use_tool_request;
+use super::permission_dispatch::{handle_can_use_tool_request, release_permission_wait};
+use super::permission_requests::PermissionRequests;
+use super::stale_task_turns::StaleTaskTurns;
 use super::turn_state::TurnState;
 use super::wire::{
     build_success_ack, control_cancel_request_id, control_request_subtype, parse_control_response,
-    parse_permission_request, write_to_stdin, InterruptAck, PendingControl,
+    parse_permission_request, write_to_stdin, PendingControl,
 };
 
 pub(super) struct ReaderTask {
@@ -30,15 +31,14 @@ pub(super) struct ReaderTask {
     pub mcp_servers: Arc<Mutex<Vec<McpServerStatus>>>,
     pub turn_state: Arc<Mutex<TurnState>>,
     pub pending_control: PendingControl,
-    pub cancelled_control_requests: CancelledControlRequests,
+    pub permission_requests: PermissionRequests,
     pub cancel_token: Option<CancellationToken>,
-    pub interrupt_rx: mpsc::Receiver<InterruptAck>,
     pub kill_rx: mpsc::Receiver<()>,
+    pub stale_task_turns: StaleTaskTurns,
 }
 
 enum ReaderAction {
     Raw(Value),
-    Continue,
     Break,
 }
 
@@ -49,15 +49,9 @@ enum RawOutcome {
 
 impl ReaderTask {
     pub async fn run(mut self) {
-        loop {
-            match self.next_action().await {
-                ReaderAction::Raw(raw) => {
-                    if let RawOutcome::Break = self.handle_raw(raw).await {
-                        break;
-                    }
-                }
-                ReaderAction::Continue => continue,
-                ReaderAction::Break => break,
+        while let ReaderAction::Raw(raw) = self.next_action().await {
+            if let RawOutcome::Break = self.handle_raw(raw).await {
+                break;
             }
         }
     }
@@ -65,15 +59,6 @@ impl ReaderTask {
     async fn next_action(&mut self) -> ReaderAction {
         tokio::select! {
             result = self.process.read_message() => self.handle_read_result(result).await,
-            Some(ack) = self.interrupt_rx.recv() => {
-                debug!("interrupt signal received, sending SIGINT to CLI process");
-                let result = self.process.interrupt().await;
-                if let Err(error) = &result {
-                    warn!("failed to interrupt CLI process: {error}");
-                }
-                let _ = ack.send(result);
-                ReaderAction::Continue
-            }
             _ = self.kill_rx.recv() => {
                 debug!("kill signal received, terminating CLI process");
                 if let Err(e) = self.process.kill().await {
@@ -105,20 +90,18 @@ impl ReaderTask {
         match result {
             Ok(Some(value)) => ReaderAction::Raw(value),
             Ok(None) => {
-                let (code, stderr) = self.process.wait_with_stderr().await;
+                let end = self.process.wait_with_stderr().await;
                 // A persistent stream-json session only reaches stdout EOF when
-                // the CLI exited on its own. Treat a non-zero code OR any stderr
-                // output as abnormal and surface it (with stderr) so the turn
-                // never just silently stops — previously a code-0 exit sent
-                // nothing and the captured stderr was discarded.
-                if code.unwrap_or(0) != 0 || !stderr.trim().is_empty() {
-                    warn!(?code, stderr = %stderr, "CLI process exited abnormally; surfacing as error");
-                    let _ = self
-                        .tx
-                        .send(Err(SdkError::ProcessExit { code, stderr }))
-                        .await;
+                // the CLI ended on its own: a stop or kill through the SDK
+                // breaks out before reading on. So anything but exit code 0
+                // with an empty stderr is abnormal and surfaces (with stderr),
+                // a signal death included (it has no exit code), so the turn
+                // never just silently stops.
+                if end.is_clean() {
+                    info!(code = ?end.code, "CLI process exited cleanly");
                 } else {
-                    info!(?code, "CLI process exited cleanly");
+                    warn!(code = ?end.code, signal = ?end.signal, stderr = %end.stderr, "CLI process exited abnormally; surfacing as error");
+                    let _ = self.tx.send(Err(end.into_error())).await;
                 }
                 ReaderAction::Break
             }
@@ -129,7 +112,7 @@ impl ReaderTask {
         }
     }
 
-    async fn handle_raw(&self, raw: Value) -> RawOutcome {
+    async fn handle_raw(&mut self, raw: Value) -> RawOutcome {
         if self.handle_control_response(&raw).await {
             return RawOutcome::Continue;
         }
@@ -177,17 +160,9 @@ impl ReaderTask {
             return true;
         };
 
-        let inserted = self.cancelled_control_requests.mark(request_id).await;
-        let mut turn_state = self.turn_state.lock().await;
-        if matches!(
-            &*turn_state,
-            TurnState::WaitingForPermission { tool_use_id, .. } if tool_use_id == request_id
-        ) {
-            *turn_state = TurnState::AgentWorking;
+        if self.permission_requests.mark(request_id).await {
+            release_permission_wait(&self.turn_state, request_id).await;
         } else {
-            if inserted {
-                self.cancelled_control_requests.take(request_id).await;
-            }
             debug!(
                 request_id,
                 "received control_cancel_request for non-active permission request"
@@ -221,14 +196,23 @@ impl ReaderTask {
         }
         let request = parse_permission_request(raw);
         debug!(tool = %request.tool_name, "received permission request");
-        *self.turn_state.lock().await = TurnState::WaitingForPermission {
-            tool_name: request.tool_name.clone(),
-            tool_use_id: request.tool_use_id.clone(),
-        };
+        self.permission_requests.open(&request.tool_use_id).await;
+        {
+            let mut turn_state = self.turn_state.lock().await;
+            // A request after the turn's `result` comes from work that
+            // outlived the turn (a background sub-agent): it blocks no turn,
+            // and must not make `interrupt` wait for a `result`.
+            if !matches!(*turn_state, TurnState::TurnComplete { .. }) {
+                *turn_state = TurnState::WaitingForPermission {
+                    tool_name: request.tool_name.clone(),
+                    tool_use_id: request.tool_use_id.clone(),
+                };
+            }
+        }
         tokio::spawn(handle_can_use_tool_request(
             Arc::clone(&self.process_stdin),
             Arc::clone(&self.turn_state),
-            self.cancelled_control_requests.clone(),
+            self.permission_requests.clone(),
             self.tx.clone(),
             self.can_use_tool.as_ref().map(Arc::clone),
             request,
@@ -236,10 +220,14 @@ impl ReaderTask {
         true
     }
 
-    async fn forward_sdk_message(&self, raw: Value) -> RawOutcome {
+    async fn forward_sdk_message(&mut self, raw: Value) -> RawOutcome {
         // Infallible: falls back to `Unknown(raw)` (raw payload preserved)
         // and logs internally when the message matches no known schema.
         let message = SdkMessage::from_raw(raw);
+        if self.stale_task_turns.closes_empty_turn(&message) {
+            info!("dropping the empty turn the CLI ran for a background task its previous process lost");
+            return RawOutcome::Continue;
+        }
         self.capture_session_id(&message).await;
         self.cache_mcp_servers(&message).await;
         self.update_turn_state(&message).await;
@@ -295,14 +283,242 @@ impl ReaderTask {
     }
 
     async fn update_turn_state(&self, message: &SdkMessage) {
-        if let SdkMessage::Result {
-            subtype, is_error, ..
-        } = message
-        {
-            *self.turn_state.lock().await = TurnState::TurnComplete {
+        let completed = match message {
+            SdkMessage::Result {
+                subtype, is_error, ..
+            } => TurnState::TurnComplete {
                 result_subtype: subtype.clone(),
                 is_error: *is_error,
-            };
+            },
+            // A `result` that failed to decode still ends the turn; unless the
+            // CLI explicitly reported success, treat it as failed.
+            SdkMessage::Malformed(malformed) if malformed.is_result() => TurnState::TurnComplete {
+                result_subtype: malformed.subtype().unwrap_or("malformed").to_string(),
+                is_error: malformed.reported_is_error().unwrap_or(true),
+            },
+            _ => return,
+        };
+        *self.turn_state.lock().await = completed;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::StreamExt;
+    use tempfile::TempDir;
+
+    use super::super::test_support::{mock_mcp_servers, write_mock_cli};
+    use crate::error::SdkError;
+    use crate::messages::SdkMessage;
+    use crate::options::Options;
+    use crate::query::{query, TurnState};
+
+    /// A `result` whose `subtype` drifted cannot decode, yet the turn is over:
+    /// the turn state must still complete (as a failure) instead of staying
+    /// "streaming" forever.
+    #[tokio::test]
+    async fn malformed_result_still_completes_the_turn() {
+        let dir = TempDir::new().unwrap();
+        let script = r#"#!/bin/sh
+read -r INIT_REQ
+read -r MCP_REQ; MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p'); printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"mcpServers":[]}}}\n' "$MCP_ID"
+read -r USER_PROMPT
+echo '{"type":"result","subtype":{"kind":"success"},"uuid":"u1","session_id":"sess_bad","duration_ms":"later"}'
+"#;
+        let options = Options {
+            path_to_cli: Some(write_mock_cli(dir.path(), script)),
+            mcp_servers: Some(mock_mcp_servers()),
+            ..Options::default()
+        };
+        let mut q = query(serde_json::Value::String("test".into()), options)
+            .await
+            .unwrap();
+
+        let mut saw_turn_end = false;
+        while let Some(message) = q.next().await {
+            if let Ok(message @ SdkMessage::Malformed(_)) = message {
+                saw_turn_end |= message.is_turn_complete();
+            }
         }
+
+        assert!(saw_turn_end, "the malformed result must reach the consumer");
+        assert_eq!(q.session_id().await, Some("sess_bad".to_string()));
+        assert!(matches!(
+            q.turn_state().await,
+            TurnState::TurnComplete { ref result_subtype, is_error: true }
+                if result_subtype == "malformed"
+        ));
+    }
+
+    /// A CLI that completes the handshake and reads the prompt, then runs
+    /// `then` (shell) in the middle of its turn.
+    async fn cli_mid_turn(dir: &std::path::Path, then: &str) -> crate::Query {
+        cli_mid_turn_in_group(dir, then, false).await
+    }
+
+    async fn cli_mid_turn_in_group(
+        dir: &std::path::Path,
+        then: &str,
+        own_process_group: bool,
+    ) -> crate::Query {
+        let script = format!(
+            r#"#!/bin/sh
+read -r INIT_REQ
+read -r MCP_REQ; MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p'); printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{"mcpServers":[]}}}}}}\n' "$MCP_ID"
+read -r USER_PROMPT
+{then}
+"#
+        );
+        let options = Options {
+            path_to_cli: Some(write_mock_cli(dir, &script)),
+            mcp_servers: Some(mock_mcp_servers()),
+            own_process_group,
+            ..Options::default()
+        };
+        query(serde_json::Value::String("test".into()), options)
+            .await
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cli_in_its_own_group_leads_it_and_reports_its_exit() {
+        let dir = TempDir::new().unwrap();
+        let q = cli_mid_turn_in_group(dir.path(), "exec sleep 30", true).await;
+        let pid = q.pid().unwrap() as libc::pid_t;
+        assert_eq!(unsafe { libc::getpgid(pid) }, pid);
+
+        let exited = q.process_exited();
+        tokio::pin!(exited);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), &mut exited)
+                .await
+                .is_err(),
+            "a live CLI has not exited"
+        );
+        q.kill().await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), exited)
+            .await
+            .expect("the kill must report the exit");
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the CLI was waited on");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cli_stays_in_the_host_group_by_default() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "exec sleep 30").await;
+        let pid = q.pid().unwrap() as libc::pid_t;
+        assert_eq!(unsafe { libc::getpgid(pid) }, unsafe { libc::getpgid(0) });
+        q.close().await;
+    }
+
+    /// Found live: a CLI killed with `kill -9` has no exit code, and was
+    /// taken for a clean exit (nothing reported). It must end the stream with
+    /// an explicit abnormal end naming the signal.
+    #[tokio::test]
+    async fn a_signal_death_surfaces_as_an_abnormal_end() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "kill -9 $$").await;
+
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the death must end the stream")
+            .expect("a terminal item");
+
+        match end {
+            Err(error @ SdkError::ProcessSignaled { signal: 9, .. }) => {
+                assert!(error.to_string().contains("SIGKILL"), "{error}");
+            }
+            other => panic!("expected a signal death, got {other:?}"),
+        }
+        assert!(q.next().await.is_none());
+    }
+
+    /// A kill through the SDK (Stop escalation, close) is intended: the
+    /// stream ends without reporting the signal it sent.
+    #[tokio::test]
+    async fn a_kill_through_the_sdk_is_not_an_abnormal_end() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "exec sleep 30").await;
+
+        q.kill().await;
+        let rest = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let mut items = Vec::new();
+            while let Some(item) = q.next().await {
+                items.push(item);
+            }
+            items
+        })
+        .await
+        .expect("the kill must end the stream");
+
+        assert!(
+            rest.iter().all(Result::is_ok),
+            "an intended kill must not surface an error: {rest:?}"
+        );
+    }
+
+    /// Found live (CLI 2.1.312): resumed after `kill -9`, the CLI closes the
+    /// lost task's notification turn with a zero-turn `result` before it
+    /// takes the prompt. That result neither reaches the consumer nor ends
+    /// the turn; the prompt's own result does.
+    #[tokio::test]
+    async fn a_resumed_cli_s_empty_notification_turn_does_not_end_the_turn() {
+        let dir = TempDir::new().unwrap();
+        let notification = r#"{"type":"system","subtype":"task_notification","uuid":"u1","session_id":"s","task_id":"gone","tool_use_id":"toolu_1","status":"stopped","output_file":"","summary":"Background shell command did not finish"}"#;
+        let result = |turns: u32, api_ms: u32| {
+            format!(
+                r#"{{"type":"result","subtype":"success","uuid":"r{turns}","session_id":"s","duration_ms":10,"duration_api_ms":{api_ms},"is_error":false,"num_turns":{turns},"result":"","stop_reason":null,"total_cost_usd":0.0,"usage":{{"input_tokens":0,"output_tokens":0}},"permission_denials":[]}}"#
+            )
+        };
+        let then = format!(
+            "echo '{notification}'\necho '{}'\nread -r GO\necho '{}'\nexec sleep 30",
+            result(0, 0),
+            result(1, 2091)
+        );
+        let mut q = cli_mid_turn(dir.path(), &then).await;
+
+        let first = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the notification arrives")
+            .expect("a message")
+            .expect("not an error");
+        assert!(matches!(first, SdkMessage::TaskLifecycle(_)), "{first:?}");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(300), q.next())
+                .await
+                .is_err(),
+            "the empty turn's result is not forwarded"
+        );
+        assert_eq!(q.turn_state().await, TurnState::AgentWorking);
+
+        q.stream_input(serde_json::json!("go")).await.unwrap();
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the prompt's result arrives")
+            .expect("a message")
+            .expect("not an error");
+        assert!(
+            matches!(end, SdkMessage::Result { num_turns: 1, .. }),
+            "{end:?}"
+        );
+        assert!(matches!(
+            q.turn_state().await,
+            TurnState::TurnComplete { .. }
+        ));
+        q.close().await;
+    }
+
+    /// A clean exit (code 0, empty stderr) still ends the stream silently.
+    #[tokio::test]
+    async fn a_clean_exit_reports_nothing() {
+        let dir = TempDir::new().unwrap();
+        let mut q = cli_mid_turn(dir.path(), "exit 0").await;
+
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), q.next())
+            .await
+            .expect("the exit must end the stream");
+        assert!(end.is_none(), "{end:?}");
     }
 }

@@ -2,13 +2,16 @@
 
 use std::collections::HashMap;
 
+use crate::domain::agents::default_provider_id;
+use crate::domain::agents::permission_modes::default_permission_mode_wire;
+
 use super::super::models::*;
 use super::blocks::build_blocks;
 use super::byte_pagination::{
     trim_blocks_to_byte_cap, trim_newest_blocks_to_byte_cap, SESSION_WIRE_SOFT_CAP_BYTES,
 };
 use super::pagination::{block_message_id, trim_blocks_to_cap, BLOCK_SOFT_CAP};
-use super::wire_preview::content_preview;
+use super::wire_preview::tool_content_preview;
 
 fn build_block_page(
     msgs: &[AgentMessageRow],
@@ -52,7 +55,7 @@ fn preview_tool_updates(
             .iter()
             .map(|(id, content)| {
                 let block_id = format!("msg-{id}");
-                let (preview, truncated) = content_preview(content);
+                let (preview, truncated) = tool_content_preview(content);
                 if truncated {
                     truncated_ids.push(block_id.clone());
                 }
@@ -118,6 +121,16 @@ pub(super) fn build_session_state(
         .and_then(|p| serde_json::from_str(p).ok());
     let resumable = (s.status == "paused" || s.status == "completed" || s.status == "error")
         && s.runtime_session_id.is_some();
+    // A NULL mode (e.g. schedule-spawned sessions) runs with the provider
+    // default, so report that rather than a provider-agnostic guess.
+    let permission_mode = s.permission_mode.unwrap_or_else(|| {
+        default_permission_mode_wire(
+            s.runtime_provider
+                .as_deref()
+                .unwrap_or(default_provider_id()),
+        )
+        .into_owned()
+    });
 
     SessionState {
         session_db_id: s.id,
@@ -143,9 +156,7 @@ pub(super) fn build_session_state(
         runtime_provider: s.runtime_provider,
         runtime_session_id: s.runtime_session_id,
         todos: todos_by_session.get(&s.id).cloned(),
-        permission_mode: s
-            .permission_mode
-            .unwrap_or_else(|| "acceptEdits".to_string()),
+        permission_mode,
         codex_permission_mode: s
             .codex_permission_mode
             .unwrap_or_else(|| "default".to_string()),

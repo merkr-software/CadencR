@@ -1,22 +1,27 @@
+mod close;
+pub(super) mod compaction;
 mod input;
 mod interrupt;
+mod options;
+mod question;
+mod stream;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use codex_app_server_sdk_rs::{AppServerEvent, CodexAppServerClient};
+use codex_app_server_sdk_rs::{AppServerEventReceiver, CodexAppServerClient};
 use serde_json::Value;
 use tempfile::TempPath;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::warn;
 
+use super::async_questions::PendingAsyncQuestions;
 use super::event_loop::spawn_event_loop;
 use super::event_system::init_event;
 use super::event_turn_state::RootTurnTracker;
-use super::input::user_input_from_content;
 use super::mcp_status::parse_mcp_server_statuses;
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
@@ -27,10 +32,13 @@ use super::session_permissions::{
 use super::timeouts::with_probe_timeout;
 use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeAccessMode, RuntimeError, RuntimeEvent, RuntimeMcpServerStatus,
-    RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
+    AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
+    RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
     RuntimePermissionResponseKind,
 };
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
+pub(super) use options::CodexSessionOptions;
+use stream::{error_receiver, spawn_local_forwarder, stream_channel};
 
 pub(super) struct CodexSession {
     client: CodexAppServerClient,
@@ -42,40 +50,37 @@ pub(super) struct CodexSession {
     model: Arc<RwLock<Option<String>>>,
     effort: Arc<RwLock<Option<String>>>,
     effective_model: Arc<RwLock<Option<String>>>,
+    /// The running turn's model: Codex applies `set_model` at the next turn,
+    /// a `model/rerouted` within it.
+    turn_model: Arc<RwLock<Option<String>>>,
     effective_effort: Arc<RwLock<Option<String>>>,
+    summary: Option<String>,
     fast_mode: Arc<RwLock<Option<bool>>>,
     permission_mode: Arc<RwLock<Option<RuntimePermissionMode>>>,
     access_mode: Arc<RwLock<Option<RuntimeAccessMode>>>,
     cwd: PathBuf,
-    event_rx: Option<broadcast::Receiver<AppServerEvent>>,
+    event_rx: Option<AppServerEventReceiver>,
     local_rx: Option<mpsc::UnboundedReceiver<Result<RuntimeEvent, RuntimeError>>>,
     local_tx: mpsc::UnboundedSender<Result<RuntimeEvent, RuntimeError>>,
     pending_requests: Arc<Mutex<HashMap<String, PendingCodexRequest>>>,
+    async_questions: Arc<Mutex<PendingAsyncQuestions>>,
     pending_prompt_receipts: Arc<PendingPromptReceipts>,
     temp_files: Arc<Mutex<Vec<TempPath>>>,
     closing: Arc<AtomicBool>,
+    /// Interrupts so far: an input that raced one starts no turn (see `session/input.rs`).
+    interrupts: AtomicU64,
+    compaction: Arc<compaction::CompactionState>,
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
-}
-
-pub(super) struct CodexSessionOptions {
-    pub(super) model: Option<String>,
-    pub(super) effort: Option<String>,
-    pub(super) effective_model: Option<String>,
-    pub(super) effective_effort: Option<String>,
-    pub(super) fast_mode: Option<bool>,
-    pub(super) permission_mode: Option<RuntimePermissionMode>,
-    pub(super) access_mode: Option<RuntimeAccessMode>,
-    pub(super) cwd: PathBuf,
-    pub(super) mcp_servers: Vec<RuntimeMcpServerStatus>,
-    pub(super) context_window: Option<u64>,
+    known_subagents: Vec<KnownSubagent>,
+    browser_trust: CadencrBrowserTrust,
 }
 
 impl CodexSession {
     pub(super) fn new(
         client: CodexAppServerClient,
         thread_id: String,
-        event_rx: broadcast::Receiver<AppServerEvent>,
+        event_rx: AppServerEventReceiver,
         options: CodexSessionOptions,
     ) -> Self {
         let (local_tx, local_rx) = mpsc::unbounded_channel();
@@ -87,8 +92,10 @@ impl CodexSession {
             child_turn_ids: Arc::new(RwLock::new(HashMap::new())),
             model: Arc::new(RwLock::new(options.model)),
             effort: Arc::new(RwLock::new(options.effort)),
+            turn_model: Arc::new(RwLock::new(options.effective_model.clone())),
             effective_model: Arc::new(RwLock::new(options.effective_model)),
             effective_effort: Arc::new(RwLock::new(options.effective_effort)),
+            summary: options.summary,
             fast_mode: Arc::new(RwLock::new(options.fast_mode)),
             permission_mode: Arc::new(RwLock::new(options.permission_mode)),
             access_mode: Arc::new(RwLock::new(options.access_mode)),
@@ -97,12 +104,21 @@ impl CodexSession {
             local_rx: Some(local_rx),
             local_tx,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            async_questions: Arc::new(Mutex::new(PendingAsyncQuestions::default())),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             temp_files: Arc::new(Mutex::new(Vec::new())),
             closing: Arc::new(AtomicBool::new(false)),
-            mcp_servers: Arc::new(RwLock::new(options.mcp_servers)),
+            interrupts: AtomicU64::new(0),
+            compaction: Arc::default(),
+            mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
+            known_subagents: Vec::new(),
+            browser_trust: options.browser_trust,
         }
+    }
+
+    pub(super) async fn set_mcp_servers(&self, servers: Vec<RuntimeMcpServerStatus>) {
+        *self.mcp_servers.write().await = servers;
     }
 
     pub(super) async fn send_init_event(&self) {
@@ -128,6 +144,8 @@ impl CodexSession {
         let model = self.model.read().await.clone();
         let effort = self.effort.read().await.clone();
         let collaboration_model = self.effective_model.read().await.clone();
+        // Before `turn/start`: its `turn/started` can arrive before the reply.
+        *self.turn_model.write().await = collaboration_model.clone();
         let collaboration_effort = self.effective_effort.read().await.clone();
         let fast_mode = *self.fast_mode.read().await;
         let permission_mode = self.permission_mode.read().await.clone();
@@ -143,6 +161,7 @@ impl CodexSession {
                 effort,
                 collaboration_model,
                 collaboration_effort,
+                summary: self.summary.clone(),
                 fast_mode,
             },
         );
@@ -153,15 +172,6 @@ impl CodexSession {
         *self.active_turn_id.write().await = Some(turn.id.clone());
         *self.last_root_turn_id.write().await = Some(turn.id);
         Ok(())
-    }
-
-    async fn convert_input(&self, content: Value) -> Result<Vec<Value>, RuntimeError> {
-        let mut new_files = Vec::new();
-        let input = user_input_from_content(content, &mut new_files)?;
-        if !new_files.is_empty() {
-            self.temp_files.lock().await.extend(new_files);
-        }
-        Ok(input)
     }
 }
 
@@ -176,29 +186,37 @@ impl AgentRuntimeSession for CodexSession {
             warn!("Codex take_message_rx called twice");
             return error_receiver("Codex message stream was already taken");
         };
-        let Some(local_rx) = self.local_rx.take() else {
+        let Some(mut local_rx) = self.local_rx.take() else {
             warn!("Codex local receiver missing");
             return error_receiver("Codex local message stream is unavailable");
         };
 
-        let (tx, rx) = mpsc::channel(256);
-        spawn_event_loop(
-            self.client.clone(),
-            source_rx,
-            tx.clone(),
-            Arc::clone(&self.pending_requests),
-            Arc::clone(&self.pending_prompt_receipts),
-            RootTurnTracker {
+        let (tx, rx) = stream_channel(&mut local_rx);
+        spawn_event_loop()
+            .client(self.client.clone())
+            .source_rx(source_rx)
+            .tx(tx.clone())
+            .pending_requests(Arc::clone(&self.pending_requests))
+            .async_questions(Arc::clone(&self.async_questions))
+            .pending_prompt_receipts(Arc::clone(&self.pending_prompt_receipts))
+            .turns(RootTurnTracker {
                 active_turn_id: Arc::clone(&self.active_turn_id),
                 last_root_turn_id: Arc::clone(&self.last_root_turn_id),
                 root_thread_id: self.thread_id.clone(),
                 child_turn_ids: Arc::clone(&self.child_turn_ids),
-            },
-            self.effective_model.clone(),
-            Arc::clone(&self.closing),
-        );
+            })
+            .model(Arc::clone(&self.turn_model))
+            .closing(Arc::clone(&self.closing))
+            .compaction(Arc::clone(&self.compaction))
+            .known_subagents(std::mem::take(&mut self.known_subagents))
+            .browser_trust(self.browser_trust)
+            .call();
         spawn_local_forwarder(local_rx, tx);
         rx
+    }
+
+    fn seed_known_subagents(&mut self, known: Vec<KnownSubagent>) {
+        self.known_subagents = known;
     }
 
     async fn session_id(&self) -> Option<String> {
@@ -232,11 +250,16 @@ impl AgentRuntimeSession for CodexSession {
             .await
     }
 
+    fn requires_prompt_queue(&self) -> bool {
+        self.compaction.is_active()
+    }
+
     async fn stream_input_with_client_message_id(
         &self,
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
+        let interrupts_at_entry = self.interrupts.load(Ordering::SeqCst);
         if let Some(client_message_id) = client_message_id.as_ref() {
             self.pending_prompt_receipts
                 .enqueue(client_message_id.clone());
@@ -244,8 +267,12 @@ impl AgentRuntimeSession for CodexSession {
 
         let result = match self.convert_input(content).await {
             Ok(input) => {
-                self.stream_converted_input(input, client_message_id.as_deref())
-                    .await
+                self.stream_converted_input(
+                    input,
+                    client_message_id.as_deref(),
+                    interrupts_at_entry,
+                )
+                .await
             }
             Err(error) => Err(error),
         };
@@ -265,6 +292,7 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
+        self.interrupts.fetch_add(1, Ordering::SeqCst);
         // Snapshot before awaiting RPCs; completion events keep updating the tracker.
         let children = self.child_turn_ids.read().await.clone();
         let root_turn = self.active_turn_id.read().await.clone();
@@ -287,26 +315,17 @@ impl AgentRuntimeSession for CodexSession {
                     fallback: false,
                 }),
         );
-        interrupt::interrupt_turns(&self.client, targets).await
+        interrupt::interrupt_turns(&self.client, targets).await?;
+        self.async_questions.lock().await.clear();
+        Ok(())
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {
-        self.client
-            .thread_compact_start(&self.thread_id)
-            .await
-            .map_err(RuntimeError::from)
+        self.start_compaction().await
     }
 
-    async fn close(&mut self) {
-        self.closing.store(true, Ordering::SeqCst);
-        let _ = with_probe_timeout(
-            "Codex thread/unsubscribe",
-            self.client.thread_unsubscribe(&self.thread_id),
-        )
-        .await;
-        self.temp_files.lock().await.clear();
-        self.pending_prompt_receipts.clear();
-        self.client.shutdown().await;
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        self.close_session().await
     }
 
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError> {
@@ -346,8 +365,11 @@ impl AgentRuntimeSession for CodexSession {
         if is_plan_approval_request_id(&response.request_id) {
             return self.respond_plan_approval(response).await;
         }
+        if super::async_questions::is_async_question(&response.request_id) {
+            return self.respond_async_question(response).await;
+        }
         let pending = take_pending(&self.pending_requests, &response.request_id).await?;
-        let result = response_value(&pending.method, &pending.params, &response);
+        let result = response_value(pending.method, &pending.params, &response);
         self.client
             .respond_server_request(pending.id.clone(), result)
             .await?;
@@ -358,26 +380,15 @@ impl AgentRuntimeSession for CodexSession {
         permission_kind_for_request_id(request_id)
     }
 
+    async fn dismiss_nonblocking_request(&self, request_id: &str) -> Result<bool, RuntimeError> {
+        if !super::async_questions::is_async_question(request_id) {
+            return Ok(false);
+        }
+        self.dismiss_async_question(request_id).await?;
+        Ok(true)
+    }
+
     fn pid(&self) -> Option<u32> {
         self.client.pid()
     }
-}
-
-fn error_receiver(message: &'static str) -> RuntimeMessageRx {
-    let (tx, rx) = mpsc::channel(1);
-    let _ = tx.try_send(Err(RuntimeError::new(message)));
-    rx
-}
-
-fn spawn_local_forwarder(
-    mut local_rx: mpsc::UnboundedReceiver<Result<RuntimeEvent, RuntimeError>>,
-    tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
-) {
-    tokio::spawn(async move {
-        while let Some(event) = local_rx.recv().await {
-            if tx.send(event).await.is_err() {
-                break;
-            }
-        }
-    });
 }

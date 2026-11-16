@@ -1,0 +1,69 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Themes & appearance"
+description: "Install a marketplace theme or create, edit, export, and publish your own."
+lastReviewed: "2026-11-03"
+version: "0.16.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/themes.png";
+
+Open **Settings → Appearance** to choose light, dark, or system-following appearance and select a theme for each mode. Built-in choices include CadencR Dark/Light and Catppuccin Mocha/Latte, alongside the other bundled themes.
+
+<DocScreenshot
+  src={pageImage}
+  alt="Theme picker from v0.13.0 with built-in dark and light themes."
+  caption="Appearance settings in v0.13.0. Marketplace themes can also be installed in the current version."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Choose and preview a theme
+
+Use the theme library to inspect its colors and apply a theme to the appropriate appearance mode. A system-following setup can use different themes for its dark and light states.
+
+The app's workspace, terminal, and Git diffs use theme-aware presentation. A separately configured Alacritty theme can affect terminal-specific settings.
+
+## Create a personal theme
+
+1. Duplicate a built-in or existing custom theme.
+2. Give it a name before creation.
+3. Open the dedicated theme project.
+4. Edit its portable theme files directly or ask an agent to make the changes.
+5. Inspect the live app repaint and any validation errors.
+
+The project is an ordinary workspace for authoring the local theme. Keep its theme contract and validation results in view while editing. A generated project is not a published marketplace package.
+
+## Share and remove local themes
+
+Export a custom theme to share its portable files. Deleting a user theme moves it safely to the Trash. Built-in themes remain available as starting points.
+
+## Install or publish a marketplace theme
+
+Open **Marketplace → Themes**, inspect a theme and its exact version, then choose **Install** and **Use this theme**. Manage its appearance-mode selection in **Settings → Appearance**. To edit an installed marketplace theme, use **Duplicate** on its detail page to create an author project; signed installed revisions are immutable.
+
+To publish your own, open the theme project's settings and use **Prepare a declarative theme bundle**, then review and publish the author GitHub release and submit a registry PR. The [publishing guide](../marketplace-publishing/) walks through metadata, source tags, and review. Local export alone does not create a marketplace listing.
+
+Remove an installed marketplace theme from its detail page. Any active selections using it return to a built-in theme.
+
+## Fonts, motion, and density
+
+| Preference                 | Effect                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| Monospace font             | Search installed fonts and apply the family across terminals, editors, and code snippets |
+| Fluid animations           | Control interface motion from Appearance                                                 |
+| Interface zoom             | Adjust the size of the whole interface in General                                        |
+| Sidebar preset and details | Change information density in the Sidebar settings                                       |
+
+Font discovery runs on demand. Neovim and the terminal share font family/size resolution so configured Nerd Font glyphs can render consistently.
+
+## Related guides
+
+- [Marketplace](../marketplace/) — installation, updates, and catalog troubleshooting.
+- [Publish to the marketplace](../marketplace-publishing/) — share your theme through the registry.
+- [Settings](../settings/) — appearance modes and other preferences.
+- [Sidebar](../sidebar/) — quiet or detailed navigation.
+- [Terminal](../terminal/) — Alacritty settings.
+- [Editor](../editor/) — CodeMirror and Neovim.

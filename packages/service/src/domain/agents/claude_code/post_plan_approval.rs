@@ -1,29 +1,15 @@
+use super::auto_mode::auto_mode_support;
 use super::ClaudeCodeAdapter;
 
 impl ClaudeCodeAdapter {
     /// Whether the active model can run Claude's classifier-backed `auto`
-    /// mode (Sonnet 4.6+ / Opus 4.6+).
-    ///
-    /// Non-obvious: the live CLI catalog only sets `supportsAutoMode: true`
-    /// on the `default` row; aliases like `sonnet` / `opus` ship with the
-    /// flag unset even though they resolve to auto-capable models. So we
-    /// trust those modern aliases when *any* catalog entry advertises auto
-    /// (proof this CLI version knows about the mode). `haiku` is excluded
-    /// because Haiku 4.5 doesn't support it. Behaviour matrix lives in the
-    /// `post_plan_approval_mode_*` tests below.
+    /// mode (Sonnet 4.6+ / Opus 4.6+). See [`auto_mode_support`]; unknown
+    /// counts as unsupported.
     pub(super) fn model_supports_auto(&self, model_id: &str) -> bool {
         let Ok(models) = self.models_cell().read() else {
             return false;
         };
-        if let Some(Some(flag)) = models
-            .iter()
-            .find(|m| m.id == model_id)
-            .map(|m| m.supports_auto_mode)
-        {
-            return flag;
-        }
-        let is_modern_alias = matches!(model_id, "default" | "sonnet" | "opus");
-        is_modern_alias && models.iter().any(|m| m.supports_auto_mode == Some(true))
+        auto_mode_support(&models, model_id).unwrap_or(false)
     }
 }
 

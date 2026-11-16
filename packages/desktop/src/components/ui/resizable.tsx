@@ -78,6 +78,10 @@ function ResizableHandle({ className, ...props }: SeparatorProps) {
         "aria-[orientation=vertical]:after:inset-y-0 aria-[orientation=vertical]:after:-left-2 aria-[orientation=vertical]:after:-right-2",
         "aria-[orientation=horizontal]:after:inset-x-0 aria-[orientation=horizontal]:after:-top-2 aria-[orientation=horizontal]:after:-bottom-2",
         "focus-visible:ring-ring focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden",
+        // Disabled (the library sets aria-disabled): keep the pixel, show
+        // nothing — no hover line or grip, no not-allowed cursor — and take
+        // no pointer. `resize-coordinator` skips it as well.
+        "aria-disabled:pointer-events-none aria-disabled:invisible",
         className,
       )}
       {...props}

@@ -24,3 +24,12 @@ export const WORKTREE_SEGMENT =
   "inline-flex h-full min-w-0 items-center gap-1.5 px-2.5 transition-colors text-foreground hover:bg-accent";
 export const WORKTREE_SEGMENT_ACTIVE =
   "inline-flex h-full min-w-0 items-center gap-1.5 px-2.5 transition-colors bg-[var(--chip-worktree-bg)] text-[var(--chip-worktree-fg)] hover:bg-[var(--chip-worktree-bg-hover)]";
+
+// Manifest variant — the same two pickers rendered as inline tokens of the
+// composer's launch sentence ("in a new worktree from main"): no chip chrome,
+// worktree modes keep their cyan ink.
+export const WORKTREE_MANIFEST_GROUP = "inline-flex min-w-0 items-center gap-0.5";
+export const WORKTREE_MANIFEST_SEGMENT =
+  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted data-[state=open]:bg-muted";
+export const WORKTREE_MANIFEST_SEGMENT_ACTIVE =
+  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[var(--chip-worktree-fg)] transition-colors hover:bg-[var(--chip-worktree-bg)] data-[state=open]:bg-[var(--chip-worktree-bg)]";

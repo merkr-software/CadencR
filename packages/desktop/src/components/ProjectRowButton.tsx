@@ -1,6 +1,10 @@
-import { forwardRef, type MouseEventHandler, type ReactNode } from "react";
+import { forwardRef, type MouseEventHandler, type ReactElement, type ReactNode } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { ProjectBadge } from "@/components/ProjectBadge";
 import { SidebarShortcutBadge } from "@/components/SidebarShortcutBadge";
+import { PROJECT_ROW_CLASS } from "@/components/SidebarLensGroupHeader";
 import { useNavShortcutHint } from "@/hooks/useNavShortcutHints";
+import { cn } from "@/lib/utils";
 
 interface ProjectRowButtonProps {
   projectId: number;
@@ -26,9 +30,7 @@ export const ProjectRowButton = forwardRef<HTMLButtonElement, ProjectRowButtonPr
         data-nav-type="project"
         data-nav-id={String(projectId)}
         onClick={onClick}
-        className={`group/project relative flex w-full min-w-0 items-center gap-1 rounded-md px-1.5 py-1.5 text-left text-sm outline-none transition-colors ${
-          isActive ? "text-accent-foreground font-medium" : "hover:bg-accent/50"
-        }`}
+        className={cn(PROJECT_ROW_CLASS, "group/project", isActive && "text-foreground")}
         {...rest}
       >
         <SidebarShortcutBadge ref={badgeRef} />
@@ -37,3 +39,31 @@ export const ProjectRowButton = forwardRef<HTMLButtonElement, ProjectRowButtonPr
     );
   },
 );
+
+/** A project row's fold chevron, badge and name: shared by the tree and the display options preview. */
+export function ProjectRowLabel({
+  projectId,
+  name,
+  expanded,
+}: {
+  projectId: number;
+  name: string;
+  expanded: boolean;
+}): ReactElement {
+  return (
+    <>
+      {expanded ? (
+        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : (
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+      <span
+        data-sidebar-project-badge
+        className="inline-flex size-3.5 shrink-0 items-center justify-center"
+      >
+        <ProjectBadge projectId={projectId} className="max-w-none" />
+      </span>
+      <span className="min-w-0 truncate">{name}</span>
+    </>
+  );
+}

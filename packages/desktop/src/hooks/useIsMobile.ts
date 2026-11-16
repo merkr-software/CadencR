@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { mediaQueryStore } from "@/lib/media-query";
 
 /**
  * Phone-sized viewport breakpoint. We intentionally treat anything at or below
@@ -7,18 +8,7 @@ import { useSyncExternalStore } from "react";
  */
 const MOBILE_QUERY = "(max-width: 767px)";
 
-// One shared MediaQueryList for every consumer — `getSnapshot` runs on each
-// render, so allocating a fresh `matchMedia` per call would be needless churn.
-const mql = window.matchMedia(MOBILE_QUERY);
-
-function subscribe(onChange: () => void): () => void {
-  mql.addEventListener("change", onChange);
-  return () => mql.removeEventListener("change", onChange);
-}
-
-function getSnapshot(): boolean {
-  return mql.matches;
-}
+const mobileQuery = mediaQueryStore(MOBILE_QUERY);
 
 /**
  * `true` when the viewport is phone-sized. Drives mobile-only layout decisions
@@ -26,5 +16,10 @@ function getSnapshot(): boolean {
  * a constant server snapshot — the renderer is client-only so this never flips.
  */
 export function useIsMobile(): boolean {
-  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+  return useSyncExternalStore(mobileQuery.subscribe, mobileQuery.getSnapshot, () => false);
+}
+
+/** The same answer read once, for code outside React (palette command lists). */
+export function isMobileViewport(): boolean {
+  return mobileQuery.getSnapshot();
 }

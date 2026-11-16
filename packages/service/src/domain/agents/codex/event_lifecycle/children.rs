@@ -207,7 +207,7 @@ mod tests {
             json!({"threadId":"child","turn":{"id":"c1"}})
         )
         .is_empty());
-        indexes.reset();
+        indexes.reset(|_| false);
         send(
             &mut lifecycle,
             &mut indexes,

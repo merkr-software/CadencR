@@ -100,7 +100,8 @@ async fn handle_commands_get(envelope: WsEnvelope, sender: &WsSender) {
         payload.profile.as_deref(),
     )
     .await;
-    let cached_payload_commands = to_payload_commands(cached);
+    let cached_error = cached.error;
+    let cached_payload_commands = to_payload_commands(cached.commands);
 
     let adapter = runtime_adapter(provider);
     let refreshing = adapter
@@ -120,6 +121,7 @@ async fn handle_commands_get(envelope: WsEnvelope, sender: &WsSender) {
                 .unwrap_or_default()
                 .into(),
             refreshing,
+            error: cached_error,
         })
         .unwrap(),
     );
@@ -149,12 +151,12 @@ async fn handle_commands_get(envelope: WsEnvelope, sender: &WsSender) {
                 profile.as_deref(),
             )
             .await;
-            let merged_payload = to_payload_commands(merged);
             let env = WsEnvelope::new(
                 "commands",
                 "updated",
                 serde_json::to_value(CommandsUpdatedPayload {
-                    commands: merged_payload,
+                    commands: to_payload_commands(merged.commands),
+                    error: merged.error,
                 })
                 .unwrap(),
             );

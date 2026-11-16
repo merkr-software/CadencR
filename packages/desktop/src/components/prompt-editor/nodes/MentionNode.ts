@@ -32,8 +32,11 @@ export class MentionNode extends TextNode {
 
   createDOM(config: EditorConfig): HTMLElement {
     const el = super.createDOM(config);
+    // Cyan is the design system's file-reference hue (DESIGN.md › Iconography),
+    // matching how the transcript renders the same path.
     el.className =
-      "inline-block rounded border border-[var(--chip-blue-fg)]/25 bg-[var(--chip-blue-bg)]/18 px-1 text-sm font-semibold text-[var(--chip-blue-fg)]";
+      "inline-block rounded border border-[var(--acc-cyan)]/30 bg-[var(--acc-cyan)]/10 px-1 text-sm font-medium text-[var(--acc-cyan)]";
+    el.spellcheck = false;
     el.dataset.mentionPath = this.__mentionPath;
     return el;
   }

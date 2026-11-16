@@ -6,8 +6,9 @@
  */
 
 import type { AgentBlock } from "../api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { applyBlockContentBudget, clampJsonText, clampText } from "@/lib/block-content-budget";
+import { isSubagentToolName } from "@/lib/tool-display-policy";
 import {
   mergeCanonicalUserBlock,
   messageDbIdFromBlockId,
@@ -20,8 +21,7 @@ function nullToUndefined<T>(value: T | null | undefined): T | undefined {
 
 export function serverBlocksToAgentBlocks(serverBlocks: AgentBlock[]): AgentBlockData[] {
   return serverBlocks.map((sb) => {
-    const isSubagent =
-      sb.type === "tool_call" && (sb.toolName === "Task" || sb.toolName === "Agent");
+    const isSubagent = sb.type === "tool_call" && isSubagentToolName(sb.toolName ?? undefined);
     const childBlocks = sb.childBlocks
       ? serverBlocksToAgentBlocks(sb.childBlocks as unknown as AgentBlock[])
       : undefined;
@@ -45,6 +45,7 @@ export function serverBlocksToAgentBlocks(serverBlocks: AgentBlock[]): AgentBloc
       model: nullToUndefined(sb.model),
       origin: sb.origin ?? null,
       truncatedContent: sb.truncatedContent === true,
+      fullContentBytes: nullToUndefined(sb.fullContentBytes),
       // DB-loaded sub-agents are always complete (streaming state handles the active one)
       ...(isSubagent ? { taskComplete: true } : {}),
     });
@@ -191,7 +192,13 @@ export function applyToolCallUpdates(
     return {
       ...block,
       ...(contentChanged
-        ? { content: clamped.text, toolArgs: clamped.text, truncatedContent: truncated }
+        ? // The revision's own size is unknown; a stale one would mislabel it.
+          {
+            content: clamped.text,
+            toolArgs: clamped.text,
+            truncatedContent: truncated,
+            fullContentBytes: undefined,
+          }
         : {}),
       ...(children === block.childBlocks ? {} : { childBlocks: children }),
     };

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "bash-language-server",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "Bash language server",
+  "description": "Bash language server using pinned complete upstream npm distributions.",
+  "license": "MIT",
+  "upstream": {
+    "name": "bash-language-server",
+    "version": "5.8.1",
+    "url": "https://registry.npmjs.org/bash-language-server/-/bash-language-server-5.8.1.tgz"
+  },
+  "runtime": "node",
+  "entry": "node_modules/bash-language-server/out/cli.js",
+  "args": [
+    "start"
+  ],
+  "role": "general",
+  "languages": [
+    {
+      "id": "shellscript",
+      "extensions": [
+        "sh",
+        "bash",
+        "zsh"
+      ],
+      "filenames": [
+        ".bashrc",
+        ".bash_profile",
+        ".bash_login",
+        ".bash_logout",
+        ".profile",
+        ".zshrc"
+      ]
+    }
+  ],
+  "root_markers": [],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "20.0.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0"
+  },
+  "setup_requirements": [
+    "Includes the portable tree-sitter WASM grammar. shellcheck and shfmt are external optional tools; they are not installed by the app."
+  ],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 2393,
+  "source_expanded_bytes": 21788621,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "local_overlay": {
+    "path": "plugins/lsp/bash-language-server/notices",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "kind": "third-party-notices",
+    "files": [
+      "THIRD_PARTY_NOTICES.txt",
+      "license-audit.json"
+    ]
+  },
+  "license_audit": {
+    "path": "plugins/lsp/bash-language-server/notices/license-audit.json",
+    "metadata_only_packages": []
+  }
+}

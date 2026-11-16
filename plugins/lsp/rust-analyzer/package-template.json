@@ -1,0 +1,70 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [],
+      "description": "Rust code intelligence using rust-analyzer 2026-11-02; requires a Rust toolchain.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-rust-analyzer-v0.1.0/lsp-rust-analyzer-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "rust-analyzer",
+            "entry_sha256": "4bf4ee6e3d21c6e99efe0c811cc05878094d7a304381bc29972d878812c4c6f3",
+            "entry_size": 38883744,
+            "macos_min_version": "15.0.0",
+            "runtime": "native",
+            "sha256": "48487c2db008d02bcf4ceb11c178057581e749ab7a1d5a8a84e0cf674616c95c",
+            "size": 14314877
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-rust-analyzer-v0.1.0/lsp-rust-analyzer-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "rust-analyzer",
+            "entry_sha256": "2ba2a508a7c6d57c33bd8967dc6241bf626400002f2104ecd8c3acde9afd4ba6",
+            "entry_size": 40322712,
+            "macos_min_version": "15.0.0",
+            "runtime": "native",
+            "sha256": "b256926251c177c1f83aecccdfa947a73f30c99988f707db0dcda6983ef8fc8c",
+            "size": 15057304
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-rust-analyzer-v0.1.0/lsp-rust-analyzer-0.1.0-linux-x86_64.tar.gz",
+            "entry": "rust-analyzer",
+            "entry_sha256": "23ac93011a30b2d1689e2bde2fa1034c996dc7de8bdc887930747eee01c8f66f",
+            "entry_size": 43116568,
+            "runtime": "native",
+            "sha256": "373e17665b3e673d1ff27c3751f7acc91924858afb3f35d3c4126a67cefc5c36",
+            "size": 15303890
+          }
+        }
+      },
+      "id": "rust-analyzer",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "rs"
+          ],
+          "filenames": [],
+          "id": "rust"
+        }
+      ],
+      "license": "MIT OR Apache-2.0",
+      "name": "rust-analyzer",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "Cargo.toml",
+        "rust-project.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

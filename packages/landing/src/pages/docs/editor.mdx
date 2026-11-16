@@ -1,131 +1,66 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Editor"
-description: "Browse files, search fast, compare changes, and work next to agents without losing context."
+description: "Navigate files, edit with language tooling, draw diagrams, or use your own Neovim."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import DocCallout from "@/components/docs/DocCallout.astro";
-import editorImage from "@/assets/docs/editor.png";
+import pageImage from "@/assets/docs/v0.13.0/editor.png";
 
-## What the editor is for
-
-CadencR’s built-in editor is where you read files, make small manual fixes, and double-check what an agent just changed. It is meant to feel practical, not precious. You do not need to master every panel and tab to use it well.
+Open **Editor** to inspect and change files in the conversation's working folder. Use CodeMirror for the built-in editing surface or switch to a real Neovim instance.
 
 <DocScreenshot
-  src={editorImage}
-  alt="CadencR editor inside a feature workspace, with the file tree, open files, and a diff view"
-  caption="The built-in editor can show your file tree, search results, open files, and diffs side by side."
+  src={pageImage}
+  alt="The current editor showing the example checkout calculation and file tree."
+  caption="The current editor showing the example checkout calculation and file tree."
   bordered={false}
+  rounded
+  elevated
 />
 
-<DocCallout title="Beginner-friendly truth" variant="tip">
-  You do **not** need to edit everything by hand. The editor is just as useful for reading,
-  reviewing, and sanity-checking agent work as it is for typing.
-</DocCallout>
+## Find and open files
 
-## Everyday tasks it makes easier
+Use the file tree when you know the folder, or `Cmd/Ctrl+P` in the editor scope for quick open. Content search finds text across the project. Tabs and split panes let you keep related files visible.
 
-Here is the quick version:
+File-and-line references such as `src/checkout.ts:6` in an agent reply can open that location directly. Auto layout can place the file beside the conversation. **Copy Path** copies the project-relative path from the active file or tree.
 
-| If you want to...                | Use the editor for...                          |
-| -------------------------------- | ---------------------------------------------- |
-| find a file                      | browsing the file tree or using file search    |
-| find a word, function, or phrase | content search across the project              |
-| keep two things visible          | split panes and multiple open tabs             |
-| compare what changed             | read-only diffs and Git gutter markers         |
-| jump through code                | symbol navigation, definitions, and references |
-| rename safely                    | LSP-backed symbol rename where supported       |
-| understand who touched a line    | blame view                                     |
+## Edit and inspect code
 
-### Browse files without going on a side quest
+| Feature                              | Use it for                                                             |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| Git gutter and read-only diffs       | Inspect changed lines and compare revisions                            |
+| Blame                                | See the commit responsible for a line                                  |
+| Definitions, references, and symbols | Navigate code when its language server supports the operation          |
+| Diagnostics and rename               | Inspect errors and perform supported symbol refactors                  |
+| Formatting                           | Apply the configured language formatter and inspect any reported error |
+| Language mode                        | Override detection for one file or persist a choice for its extension  |
 
-The file tree is the easiest place to start when you roughly know where something lives.
+Language tooling depends on available servers. The editor shows their status rather than assuming every language has identical features. Oversized files can open in read-only large-file mode.
 
-It is handy for:
+Unsaved buffers are preserved across formatting and external file updates. Review the visible state before deciding whether to save or adopt an external change.
 
-- opening a file from the project structure
-- jumping between related files without losing context
-- getting a feel for how a project is organized
+## Preview documents and diagrams
 
-If you are newer to code, this is often the least stressful path. You can move one folder at a time instead of pretending you definitely knew the filename all along.
+Markdown preview renders diagrams and sanitized HTML. Repository-relative images resolve from the document's project context, with visible loading and error states.
 
-### Search when you do not remember where something lives
+Opening an `.excalidraw` file launches the embedded diagram editor rather than raw JSON. It tracks dirty state, supports auto-save, and accepts `Cmd/Ctrl+S`.
 
-When you do **not** know exactly where something lives, search is your friend.
+## Use Neovim
 
-- **File search** helps when you know the file name or part of it.
-- **Content search** helps when you know text that appears inside the file.
+Select Neovim in **Settings → Editor**. CadencR runs a real instance using your own configuration and plugins. Its file tree, quick-open navigation, and file-and-line references open in the active editor backend.
 
-A very normal workflow looks like this:
+Neovim accepts keyboard and mouse input. If the process exits, use the restart control in the pane. Terminal and Neovim resolve the same configured font family and size, including Nerd Font glyphs. Configuration errors are shown without discarding an editor that is already running.
 
-1. search for a filename like `settings` or `login`
-2. open the most likely file
-3. if that guess was wildly optimistic, search for actual text instead
+On touch platforms, the interface can fall back to the built-in editor where a modal terminal editor cannot be driven reliably.
 
-## Working side by side with agents
+## Split panes and shortcuts
 
-The editor is at its best when you use it as your "show me the receipts" tool.
+Use [Shortcuts](../shortcuts/) for the editor and editor-buffer scopes. Editor and terminal split shortcuts have different default directions; check the active scope before using them.
 
-A simple rhythm works well:
+## Related guides
 
-1. ask the agent to make or explain a change
-2. open the touched files in the editor
-3. keep the relevant files, notes, or prompt nearby in another tab or pane
-4. check the diff before you decide the work is done
-
-This side-by-side setup is especially useful when you want to:
-
-- read the agent’s changes in plain human chunks
-- compare a docs file and the UI file it describes
-- keep instructions open while you review the result
-- make a tiny follow-up fix yourself instead of starting a whole new conversation
-
-<DocCallout title="A good rule of thumb" variant="note">
-  Let the agent do the heavy lifting. Use the editor to verify, compare, and polish the last 5%.
-</DocCallout>
-
-## Multi-pane behavior that is actually useful
-
-You can open more than one thing at once without losing your place.
-
-### Split panes
-
-Use split panes when you want two files visible at the same time.
-
-Common examples:
-
-- source file on one side, diff on the other
-- instructions on one side, implementation on the other
-- old file on one side, related file on the other
-
-### Tabs and subtabs
-
-Tabs help you keep several files open while staying in the same workspace. Subtabs are useful when one main area has a few closely related views and you want to bounce between them without rebuilding your whole layout every five seconds.
-
-In practice, that means you can keep your place instead of repeatedly reopening the same file.
-
-## Nice quality-of-life features
-
-A few editor details quietly do a lot of work:
-
-- **Read-only diffs** let you review changes safely before you edit anything.
-- **Git gutter markers** show changed lines while you read a file.
-- **Large-file mode** opens oversized files read-only instead of freezing the workspace.
-- **LSP navigation and refactors** help with definitions, references, symbols, diagnostics, and rename support when a language server is available.
-- **Blame support** helps answer, "Why is this line like this?"
-- **Search + open tabs** makes it easy to move from "I think it is in here somewhere" to "okay, found it."
-- **Split panes** make comparison much easier.
-
-The editor tends to help agent work most when the job has a few related files, a change you want to verify, or text you need to search across quickly. If the task is mostly "read, compare, confirm," the editor is doing exactly its thing.
-
-## Prefer modal editing? Use Neovim
-
-If you already live in Neovim, CadencR can run a real instance of it in the editor tab instead of CodeMirror — same file tree, same <kbd>⌘ P</kbd> file search, but your own `init.lua`, plugins, and muscle memory. Turn it on from **Settings → Editor**; it's an app-wide switch, so every session's editor tab follows it.
-
-## Related docs
-
-- [Feature workspace](../feature-workspace/) — the bigger home base around the editor
-- [Session view](../session-view/) — follow one agent conversation more closely
-- [Prompt](../prompting/) — ask for clearer edits and explanations
-- [Workspace pages](../workspace-pages/) — get the bigger map of where everything lives
+- [Git](../git/) — review, stage, and resolve conflicts.
+- [Terminal](../terminal/) — commands and shared font settings.
+- [Feature workspace](../feature-workspace/) — layouts beside the agent.

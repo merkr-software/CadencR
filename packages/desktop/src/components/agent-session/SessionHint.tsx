@@ -16,16 +16,17 @@
  * muted prose, card surface with `--border`. No invented tokens.
  */
 import { useState } from "react";
-import { ArrowUpIcon, Keyboard, Lightbulb, RotateCw } from "lucide-react";
+import { Keyboard, Lightbulb, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatKey } from "@/lib/shortcuts/format";
+import { ResolvedKbdChord } from "@/components/KbdShortcut";
 import {
   SHORTCUTS_BY_SCOPE,
   type Shortcut,
-  type ShortcutKey,
+  type ShortcutId,
   type ShortcutScope,
 } from "@/lib/shortcuts/registry";
 import { SESSION_HINT_BEHAVIORS } from "./session-hint-behaviors";
+import { SessionUsageChart } from "./SessionUsageChart";
 
 interface Hint {
   shortcut: Shortcut;
@@ -43,10 +44,13 @@ function randomItem<T>(items: readonly T[]): T {
  * trust randomness. Picking a scope first and then a shortcut from its
  * `items` keeps `(shortcut, scope)` consistent without an extra `.find()`.
  */
+/** The empty state sits above the composer: teach the keys that drive it. */
+const COMPOSER_SCOPES = SHORTCUTS_BY_SCOPE.filter((group) => group.scope.id === "agent");
+
 function pickHint(prev?: Hint): Hint {
   const eligibleGroups = prev
-    ? SHORTCUTS_BY_SCOPE.filter((g) => g.items.length > 1 || g.items[0].id !== prev.shortcut.id)
-    : SHORTCUTS_BY_SCOPE;
+    ? COMPOSER_SCOPES.filter((g) => g.items.length > 1 || g.items[0].id !== prev.shortcut.id)
+    : COMPOSER_SCOPES;
   const group = randomItem(eligibleGroups);
   const candidates = prev ? group.items.filter((s) => s.id !== prev.shortcut.id) : group.items;
   // `candidates` is guaranteed non-empty by the `eligibleGroups` filter above.
@@ -85,13 +89,16 @@ export function SessionHint() {
         <p className="text-xs text-muted-foreground">A quick tip while you draft.</p>
       </div>
 
+      <SessionUsageChart />
+
       <div
         key={rerollKey}
         className="w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
       >
         <HintSection icon={<Keyboard className="size-3" aria-hidden />} label="Keyboard shortcut">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-            <KbdChord keys={hint.shortcut.keys} />
+            {/* Hints are drawn from SHORTCUTS_BY_SCOPE, so the id is a registry id. */}
+            <ResolvedKbdChord shortcutId={hint.shortcut.id as ShortcutId} />
             <span className="text-sm font-medium text-foreground">{hint.shortcut.description}</span>
           </div>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint.scope.hint}</p>
@@ -139,32 +146,5 @@ function HintSection({
       </header>
       {children}
     </section>
-  );
-}
-
-/**
- * Renders a chord as a row of small key pills. Each key is its own `<kbd>`
- * (semantically correct per MDN) wrapped in a non-semantic `<span>`, since
- * the chord as a whole isn't itself a single key. `shift` uses the
- * `ArrowUpIcon` to match the in-app convention from `components/KbdShortcut`;
- * everything else passes through the platform-aware `formatKey` (⌘ on macOS,
- * "Ctrl" elsewhere).
- */
-function KbdChord({ keys }: { keys: readonly ShortcutKey[] }) {
-  return (
-    <span className="inline-flex items-center gap-0.5">
-      {keys.map((k, i) => (
-        <kbd
-          key={i}
-          className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-background px-1.5 font-mono text-[11px] font-semibold leading-none text-foreground shadow-sm"
-        >
-          {k === "shift" ? (
-            <ArrowUpIcon className="size-3" strokeWidth={2.25} aria-label="Shift" />
-          ) : (
-            formatKey(k)
-          )}
-        </kbd>
-      ))}
-    </span>
   );
 }

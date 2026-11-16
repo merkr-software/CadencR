@@ -10,6 +10,11 @@ const { openFileMutateAsync, startMutateAsync } = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
   activateFeatureTab: vi.fn(),
+  requestAutoReveal: vi.fn(),
+}));
+
+vi.mock("@/lib/auto-layout/auto-layout-controller", () => ({
+  requestAutoReveal: mocks.requestAutoReveal,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }));
@@ -38,16 +43,16 @@ const refs = {
 } as unknown as ReturnType<typeof useSessionRefs>;
 
 function open() {
-  return renderHook(() =>
-    useOpenDiffFileInEditor({ featureId, layoutFeatureId: featureId, rootPath: "/repo", refs }),
+  return renderHook(
+    () =>
+      useOpenDiffFileInEditor({ featureId, layoutFeatureId: featureId, rootPath: "/repo", refs })
+        .openInPlace,
   );
 }
 
 function openWithVimLevel(level: "0" | "1" | "2") {
   vi.mocked(useVimModeLevel).mockReturnValue(level);
-  return renderHook(() =>
-    useOpenDiffFileInEditor({ featureId, layoutFeatureId: featureId, rootPath: "/repo", refs }),
-  );
+  return open();
 }
 
 beforeEach(() => {
@@ -118,5 +123,42 @@ describe("useOpenDiffFileInEditor vim-level routing", () => {
     await act(async () => result.current("/repo/src/main.rs", 3));
     expect(openFileMutateAsync).not.toHaveBeenCalled();
     expect(startMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe("useOpenDiffFileInEditor beside the agent", () => {
+  function openBesideAgent(outcome: string) {
+    mocks.requestAutoReveal.mockReturnValue(outcome);
+    const store = useEditorStore.getState();
+    store.initFeature(featureId);
+    return renderHook(
+      () =>
+        useOpenDiffFileInEditor({ featureId, layoutFeatureId: featureId, rootPath: "/repo", refs })
+          .openBesideAgent,
+    );
+  }
+
+  it("splits the editor in and tucks its tree away", () => {
+    const { result } = openBesideAgent("split");
+    act(() => result.current("/repo/src/a.ts", 3));
+    expect(mocks.requestAutoReveal).toHaveBeenCalledWith(featureId, "editor", "user-link");
+    expect(mocks.activateFeatureTab).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().features[featureId]).toMatchObject({
+      sidebarVisible: false,
+      sidebarAutoHidden: true,
+    });
+  });
+
+  it("leaves a tree the user reopened alone once the editor is already showing", () => {
+    const { result } = openBesideAgent("noop");
+    act(() => result.current("/repo/src/a.ts"));
+    expect(useEditorStore.getState().features[featureId].sidebarVisible).toBe(true);
+  });
+
+  it("switches tabs in place when auto layout declines", () => {
+    const { result } = openBesideAgent("declined");
+    act(() => result.current("/repo/src/a.ts"));
+    expect(mocks.activateFeatureTab).toHaveBeenCalledWith(featureId, "editor");
+    expect(useEditorStore.getState().features[featureId].sidebarVisible).toBe(true);
   });
 });

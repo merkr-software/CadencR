@@ -1,0 +1,82 @@
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
+import { toCadencrError } from "@cadencr/tab-sdk";
+import { getGitStatus, type GitStatusSnapshot } from "@cadencr/tab-sdk/api";
+import { useCadencr, useStream, useTabContext } from "@cadencr/tab-sdk/react";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, cn } from "@cadencr/tab-kit";
+
+export function App() {
+  const { feature, pullRequest } = useTabContext();
+  const client = useCadencr();
+  const [changedFiles, setChangedFiles] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // Typed client of Cadencr's API (needs the `git:read` permission).
+      const status = await getGitStatus({ feature_id: feature.id });
+      setChangedFiles(status.uncommitted_count);
+    } catch (error) {
+      // Every SDK failure is a CadencrError: `message`, a stable `code`
+      // (e.g. PLUGIN_SCOPE_DENIED) and, for HTTP errors, a `status`.
+      const { message } = toCadencrError(error);
+      void client.ui.toast({ title: `Could not refresh: ${message}`, variant: "error" });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [client, feature.id]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Pushed by Cadencr whenever the worktree changes; no polling needed. The
+  // payload is the same snapshot `getGitStatus()` returns.
+  useStream("git.status", (event) => {
+    const status = event.data.payload as GitStatusSnapshot;
+    setChangedFiles(status.uncommitted_count);
+  });
+
+  return (
+    <main className="mx-auto flex max-w-xl flex-col gap-4 p-6 text-foreground">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="truncate">{feature.name}</CardTitle>
+          <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>
+            <RefreshCw className={cn(refreshing && "motion-safe:animate-spin")} />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 text-sm">
+          <Row label="Branch">
+            {feature.branch ?? "—"}
+            {feature.baseBranch ? <span className="text-muted-foreground"> → {feature.baseBranch}</span> : null}
+          </Row>
+          <Row label="Pull request">
+            {pullRequest ? (
+              <span className="flex items-center gap-2">
+                #{pullRequest.number} {pullRequest.title ?? ""}
+                <Badge variant="secondary">{pullRequest.state}</Badge>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">None yet</span>
+            )}
+          </Row>
+          <Row label="Uncommitted files">
+            <Badge>{changedFiles ?? "…"}</Badge>
+          </Row>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right">{children}</span>
+    </div>
+  );
+}

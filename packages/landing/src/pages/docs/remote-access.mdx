@@ -1,0 +1,75 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Remote access"
+description: "Pair a phone, tablet, or browser with the host running your workspace."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/remote-access.png";
+
+Remote access lets a browser on another device control the workspace running on your host. Open **Remote access** from the sidebar to enable access and manage pairing.
+
+<DocScreenshot
+  src={pageImage}
+  alt="The current Remote access dialog. Pairing links and device secrets are not included in this capture."
+  caption="The current Remote access dialog. Pairing links and device secrets are not included in this capture."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Pair a device
+
+1. Keep CadencR running on the host machine.
+2. Enable remote access and choose an available connection address.
+3. Use the pairing link or QR code on the other device.
+4. Follow the certificate and pairing information shown by the host.
+5. Check that the device appears in the connected-device list.
+
+The service uses a separate HTTPS listener for remote clients. A reachable LAN or configured Tailscale connection can provide the network path. Remote access is opt-in; a pairing link is access information, so share it only with the device you intend to pair.
+
+Use the dialog's device controls to inspect activity and revoke a device you no longer use. Remote-browser notifications are configured on that device.
+
+## Without the desktop app
+
+A host does not need the desktop app open, or a screen at all: `cadencr serve` runs CadencR headless with remote access on and prints a pairing link, and `cadencr pair` prints a new one. On a server without a desktop session, install the server archive. See [Command line](../cli/#run-cadencr-on-a-server).
+
+## What runs where
+
+| Component                      | Runs on                         |
+| ------------------------------ | ------------------------------- |
+| Agent CLI and its commands     | Host machine                    |
+| Repository files and terminals | Host machine                    |
+| Workspace data and scheduler   | Host machine                    |
+| Remote interface               | Paired browser or installed PWA |
+
+You can read and steer conversations, answer requests, inspect files/Git, and use terminals from the paired interface. Commands still affect the host's checkout.
+
+## Desktop-specific surfaces
+
+The embedded **Browser** uses Electron's desktop browser surface and is not available inside a remote browser client. Its tab explains that requirement. Use a reachable preview URL in your device's own browser when appropriate.
+
+Neovim's modal terminal interface may use a built-in-editor fallback on touch devices. Capabilities that depend on desktop-native operations can differ from the browser interface.
+
+## Install as a PWA and enable notifications
+
+Use your browser's **Install** or **Add to Home Screen** action when available. The installed web app uses the same paired host and workspace; it does not move agents onto the phone.
+
+Enable Web Push from the paired client's notification settings and allow notifications in that browser/OS. The host must remain running for activity and delivery.
+
+## Touch interaction
+
+Tap links to open them; dragging link text preserves selection. Long press enables text selection, and **Copy as** offers Markdown, Slack, plain text, and email formats. The composer and Send controls remain available while an agent is working.
+
+## If the device cannot connect
+
+Check that remote access is enabled, the host is running, the chosen network address is reachable, and the device remains paired. Follow any certificate or authentication error shown. A remote dev renderer must be pre-built for service hosting; Vite alone does not provide the remote bundle.
+
+## Related guides
+
+- [Command line](../cli/) — run CadencR headless with `cadencr serve`.
+- [Settings](../settings/) — Web Push and notifications.
+- [Terminal](../terminal/) — host-side shells.
+- [Browser](../browser/) — desktop browser capabilities.

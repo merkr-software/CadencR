@@ -27,12 +27,18 @@ import { useListBranches, type BranchInfo } from "@/api/generated";
 import { useBranchList, type BranchListRowContext } from "@/components/branch-chip/BranchList";
 import {
   branchWorktreeState,
+  createsBranch,
   firstPromptBranchEffect,
   isWorktreeModeDisabled,
   type WorktreeMode,
 } from "@/lib/worktree-mode";
 import { WorktreeModePicker } from "./WorktreeModePicker";
-import { WORKTREE_GROUP, WORKTREE_SEGMENT_ACTIVE } from "./meta-bar-chip-styles";
+import {
+  WORKTREE_GROUP,
+  WORKTREE_MANIFEST_GROUP,
+  WORKTREE_MANIFEST_SEGMENT,
+  WORKTREE_SEGMENT_ACTIVE,
+} from "./meta-bar-chip-styles";
 import { SlidingText } from "@/components/SlidingText";
 
 const EMPTY_BRANCHES: BranchInfo[] = [];
@@ -93,9 +99,12 @@ interface WorktreeButtonGroupProps {
   modes?: readonly WorktreeMode[];
   /** Bind the cycle shortcut. See `WorktreeChipProps.enableModeShortcut`. */
   enableModeShortcut?: boolean;
+  /** `manifest`: inline tokens for the composer's launch sentence. */
+  variant?: "chip" | "manifest";
 }
 
 interface BranchPickerProps {
+  variant: "chip" | "manifest";
   open: boolean;
   query: string;
   branchLabel: string;
@@ -110,6 +119,7 @@ interface BranchPickerProps {
 }
 
 function BranchPicker({
+  variant,
   open,
   query,
   branchLabel,
@@ -127,8 +137,13 @@ function BranchPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(WORKTREE_SEGMENT_ACTIVE, "rounded-l-md")}
+          className={
+            variant === "manifest"
+              ? WORKTREE_MANIFEST_SEGMENT
+              : cn(WORKTREE_SEGMENT_ACTIVE, "rounded-l-md")
+          }
           title={effectHint ?? undefined}
+          aria-label={variant === "manifest" ? `Base branch: ${branchLabel}` : undefined}
         >
           <GitBranchIcon className="size-3 shrink-0" />
           <SlidingText text={branchLabel} className="max-w-[160px]" />
@@ -190,6 +205,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
   onSelectedBranchChange,
   modes,
   enableModeShortcut,
+  variant = "chip",
 }: WorktreeButtonGroupProps): ReactElement {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -204,6 +220,94 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
     selectedBranch,
   );
 
+  const closePicker = useCallback(() => setOpen(false), []);
+  const { selectBranch, handlePick } = useBranchSelection({
+    branches,
+    defaultBranch,
+    projectPath,
+    mode,
+    onModeChange,
+    onSelectedBranchChange,
+    close: closePicker,
+  });
+  const branchList = useBranchPickerList({
+    branches,
+    query,
+    defaultBranch,
+    selectedBranch,
+    onPick: handlePick,
+  });
+
+  const branchLabel = state.effectiveBranch ?? "branch";
+  const effectHint = firstPromptBranchEffect({ mode, selectedBranch, defaultBranch });
+  // The manifest reads "<mode> from <branch>"; the chip reads "<branch> | <mode>".
+  const modePicker = (
+    <WorktreeModePicker
+      variant={variant}
+      mode={mode}
+      onModeChange={onModeChange}
+      state={state}
+      modes={modes}
+      effectHint={effectHint}
+      enableModeShortcut={enableModeShortcut}
+      projectId={projectId}
+    />
+  );
+
+  return (
+    <div
+      className={cn(
+        variant === "manifest" ? WORKTREE_MANIFEST_GROUP : WORKTREE_GROUP,
+        reuseFlash && "worktree-reuse-flash",
+      )}
+    >
+      {variant === "manifest" && modePicker}
+      {variant === "manifest" && (
+        <span className="px-0.5 text-muted-foreground">{manifestJoiner(mode)}</span>
+      )}
+      <BranchPicker
+        variant={variant}
+        open={open}
+        query={query}
+        branchLabel={branchLabel}
+        effectHint={effectHint}
+        defaultBranch={defaultBranch}
+        selectedBranch={selectedBranch}
+        branchesQuery={branchesQuery}
+        branchList={branchList}
+        onOpenChange={setOpen}
+        onQueryChange={setQuery}
+        onSelectDefault={() => selectBranch(null)}
+      />
+
+      {variant === "chip" && (
+        <>
+          <div className="w-px bg-border" aria-hidden="true" />
+          {modePicker}
+        </>
+      )}
+    </div>
+  );
+});
+
+/** Picking a branch also moves the mode when the new branch requires it. */
+function useBranchSelection({
+  branches,
+  defaultBranch,
+  projectPath,
+  mode,
+  onModeChange,
+  onSelectedBranchChange,
+  close,
+}: {
+  branches: BranchInfo[];
+  defaultBranch: string | undefined;
+  projectPath: string | undefined;
+  mode: WorktreeMode;
+  onModeChange: (mode: WorktreeMode) => void;
+  onSelectedBranchChange: (next: string | null) => void;
+  close: () => void;
+}) {
   const selectBranch = useCallback(
     (next: string | null) => {
       onSelectedBranchChange(next);
@@ -218,9 +322,9 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
       } else if (isWorktreeModeDisabled(mode, nextState)) {
         onModeChange("on_branch");
       }
-      setOpen(false);
+      close();
     },
-    [branches, defaultBranch, mode, onModeChange, onSelectedBranchChange, projectPath],
+    [branches, close, defaultBranch, mode, onModeChange, onSelectedBranchChange, projectPath],
   );
 
   const handlePick = useCallback(
@@ -230,6 +334,22 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
     [defaultBranch, selectBranch],
   );
 
+  return { selectBranch, handlePick };
+}
+
+function useBranchPickerList({
+  branches,
+  query,
+  defaultBranch,
+  selectedBranch,
+  onPick,
+}: {
+  branches: BranchInfo[];
+  query: string;
+  defaultBranch: string | undefined;
+  selectedBranch: string | null;
+  onPick: (branch: BranchInfo) => void;
+}) {
   const renderBranchRow = useCallback(
     (ctx: BranchListRowContext) => (
       <BranchRow
@@ -237,54 +357,27 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
         isActive={ctx.isActive}
         isDefault={defaultBranch === ctx.branch.name}
         isSelected={selectedBranch === ctx.branch.name}
-        onPick={handlePick}
+        onPick={onPick}
       />
     ),
-    [defaultBranch, handlePick, selectedBranch],
+    [defaultBranch, onPick, selectedBranch],
   );
-  const branchList = useBranchList({
+  return useBranchList({
     branches,
     query,
-    onPick: handlePick,
+    onPick,
     renderRow: renderBranchRow,
     height: 240,
     emptyState: (
       <p className="text-sm text-muted-foreground p-3 text-center">No matching branches.</p>
     ),
   });
+}
 
-  const branchLabel = state.effectiveBranch ?? "branch";
-  const effectHint = firstPromptBranchEffect({ mode, selectedBranch, defaultBranch });
-
-  return (
-    <div className={cn(WORKTREE_GROUP, reuseFlash && "worktree-reuse-flash")}>
-      <BranchPicker
-        open={open}
-        query={query}
-        branchLabel={branchLabel}
-        effectHint={effectHint}
-        defaultBranch={defaultBranch}
-        selectedBranch={selectedBranch}
-        branchesQuery={branchesQuery}
-        branchList={branchList}
-        onOpenChange={setOpen}
-        onQueryChange={setQuery}
-        onSelectDefault={() => selectBranch(null)}
-      />
-
-      <div className="w-px bg-border" aria-hidden="true" />
-
-      <WorktreeModePicker
-        mode={mode}
-        onModeChange={onModeChange}
-        state={state}
-        modes={modes}
-        effectHint={effectHint}
-        enableModeShortcut={enableModeShortcut}
-      />
-    </div>
-  );
-});
+/** "<mode> from|on <branch>" — the word linking the two manifest tokens. */
+function manifestJoiner(mode: WorktreeMode): string {
+  return createsBranch(mode) ? "from" : "on";
+}
 
 interface BranchListProps {
   isLoading: boolean;

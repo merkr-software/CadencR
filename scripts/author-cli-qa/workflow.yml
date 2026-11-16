@@ -1,0 +1,109 @@
+name: Qualify distributed author CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: Exact reviewed QA workflow and candidate commit
+        required: true
+        type: string
+      candidate_sha256:
+        description: Exact reviewed author-cli-candidate.json SHA-256
+        required: true
+        type: string
+      publish:
+        description: Permit inert author publication in the fixed public QA repository
+        required: true
+        default: false
+        type: boolean
+      interrupt_draft:
+        description: Observe and interrupt an empty draft before exact-request resume
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: author-cli-qa
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    if: >-
+      github.repository == 'merkr-software/cadencr-registry-qa' &&
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate exact reviewed QA dispatch and binary pin
+        env:
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+        run: python3 scripts/author-cli-qa/guard.py
+      - name: Exercise qualification harness guards
+        run: python3 -B scripts/author-cli-qa/test_harness.py
+      - name: Fetch exact released CLI without source fallback
+        run: sh scripts/fetch-released-cli.sh author-cli-pin.env "$RUNNER_TEMP/author-cli"
+      - name: Exercise the distributed ELF without network or credentials
+        env:
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+        run: |
+          sudo unshare --net -- setpriv \
+            --reuid "$(id -u)" --regid "$(id -g)" --clear-groups \
+            --bounding-set=-all --no-new-privs \
+            env -i PATH=/usr/bin:/bin python3 scripts/qualify-author-cli.py \
+            --candidate "$GITHUB_WORKSPACE/author-cli-candidate.json" \
+            --confirm-candidate-sha256 "$CANDIDATE_SHA256" \
+            --cli "$RUNNER_TEMP/author-cli/cadencr" \
+            --output "$RUNNER_TEMP/author-offline-proof.json"
+      - name: Retain only allowlisted public evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: author-offline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/author-offline-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  author:
+    needs: offline
+    if: inputs.publish == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Independently verify the reviewed candidate
+        env:
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+        run: python3 scripts/author-cli-qa/guard.py
+      - name: Fetch the same pinned released ELF independently
+        run: sh scripts/fetch-released-cli.sh author-cli-pin.env "$RUNNER_TEMP/author-cli"
+      - name: Publish inert QA content and verify exact retries
+        env:
+          QA_AUTHOR_GITHUB_TOKEN: ${{ secrets.QA_AUTHOR_GITHUB_TOKEN }}
+          CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+          INTERRUPT_DRAFT: ${{ inputs.interrupt_draft }}
+        run: |
+          set --
+          if [ "$INTERRUPT_DRAFT" = true ]; then set -- --interrupt-draft; fi
+          python3 scripts/qualify-author-cli.py \
+            --candidate "$GITHUB_WORKSPACE/author-cli-candidate.json" \
+            --confirm-candidate-sha256 "$CANDIDATE_SHA256" \
+            --cli "$RUNNER_TEMP/author-cli/cadencr" \
+            --output "$RUNNER_TEMP/author-publication-proof.json" --publish "$@"
+      - name: Retain only verified public evidence, never scratch or credentials
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: author-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/author-publication-proof.json
+          if-no-files-found: error
+          retention-days: 14

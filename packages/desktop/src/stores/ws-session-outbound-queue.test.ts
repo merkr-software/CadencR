@@ -1,3 +1,5 @@
+import { installSessionPresentationEffects } from "./ws-session-store";
+// @vitest-environment happy-dom
 /**
  * Outbound-queue behavior of the WS session store: envelopes sent while the
  * socket is down are held and delivered after the reconnect, instead of being
@@ -5,8 +7,25 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore } from "./ws-session-store";
-import { createEnvelope } from "@/lib/ws-envelope";
+import { createSessionEnvelope } from "@/lib/ws-envelope";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
+import { COMMAND_QUEUE_TTL_MS } from "./ws-session-commands";
+import { SESSION_ACTION } from "./ws-session-action-names";
+
+const { toastError, toastWarning } = vi.hoisted(() => ({
+  toastError: vi.fn(),
+  toastWarning: vi.fn(),
+}));
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), {
+    error: toastError,
+    warning: toastWarning,
+    info: vi.fn(),
+    dismiss: vi.fn(),
+    success: vi.fn(),
+    loading: vi.fn(),
+  }),
+}));
 
 // --- Mock WebSocket (same shape as ws-session-store.test.ts) ---
 
@@ -78,14 +97,20 @@ function sentActions(ws: MockWebSocket): string[] {
   });
 }
 
+let disposePresentation: () => void;
+
 beforeEach(() => {
+  disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
   MockWebSocket.reset();
   useWsSessionStore.setState({ sessions: {} });
   vi.stubGlobal("WebSocket", MockWebSocket);
   vi.spyOn(console, "info").mockImplementation(() => undefined);
+  toastError.mockClear();
+  toastWarning.mockClear();
 });
 
 afterEach(() => {
+  disposePresentation();
   const store = useWsSessionStore.getState();
   for (const sessionId of Object.keys(store.sessions)) {
     store.disconnect(sessionId);
@@ -111,18 +136,243 @@ async function connectInitializedThenDrop(sessionId = "s1"): Promise<void> {
 }
 
 describe("ws-session outbound queue", () => {
-  it("queues an envelope sent while disconnected and flushes it on reconnect", async () => {
+  it("queues a setting sent while disconnected and flushes it on reconnect", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
 
-    store.interrupt("s1");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
+    store.setModel("s1", "opus", "claude-code");
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual(["model.set"]);
 
     store.connect("s1");
     await tick();
 
-    expect(sentActions(getWs())).toContain("session.interrupt");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(0);
+    expect(sentActions(getWs())).toContain("session.model.set");
+  });
+
+  it("never replays a Stop pressed while disconnected", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+
+    store.interrupt("s1");
+    expect(toastError).toHaveBeenCalledWith("Couldn't stop the agent", expect.anything());
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+
+    store.connect("s1");
+    await tick();
+
+    expect(sentActions(getWs())).not.toContain("session.interrupt");
+  });
+
+  it("drops a queued setting that outlived its TTL instead of replaying it late", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(1_000);
+    store.setModel("s1", "opus", "claude-code");
+
+    now.mockReturnValue(1_000 + COMMAND_QUEUE_TTL_MS + 1);
+    store.connect("s1");
+    await tick();
+
+    expect(sentActions(getWs())).not.toContain("session.model.set");
+    expect(toastError).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+  });
+
+  it("presents a failed command by the command, not as a turn error", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.interrupt("s1");
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual(["interrupt"]);
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string; action: string };
+    expect(sent.action).toBe("interrupt");
+    const lifecycleBefore = useWsSessionStore.getState().sessions.s1.lifecycle;
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: sent.id,
+      payload: { code: "SDK_ERROR", message: "interrupt timed out" },
+    });
+
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(toastError).toHaveBeenCalledWith("Couldn't stop the agent", {
+      description: "interrupt timed out",
+    });
+    expect(session.blocks.some((block) => block.type === "error")).toBe(false);
+    expect(session.lifecycle).toEqual(lifecycleBefore);
+    expect(session.pendingCommandActions).toEqual([]);
+  });
+
+  it("presents a refused pause for sleep as a toast: the turn goes on", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+    useWsSessionStore.setState((state) => ({
+      sessions: { ...state.sessions, s1: { ...state.sessions.s1, lifecycle: { phase: "active" } } },
+    }));
+
+    store.suspendForSleep("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string; action: string };
+    expect(sent.action).toBe("suspend");
+
+    // The order the backend sends: the gate it closed (an event), then the
+    // outcome, the only reply correlated to the command.
+    ws.simulateMessage({
+      domain: "session",
+      action: "gate.closed",
+      payload: { session_id: "7", reason: "sleep" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: sent.id,
+      payload: { code: "SDK_ERROR", message: "The agent did not pause for sleep: refused" },
+    });
+
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(toastError).toHaveBeenCalledWith("Agent kept running into sleep", {
+      description: "The agent did not pause for sleep: refused",
+    });
+    expect(session.blocks.some((block) => block.type === "error")).toBe(false);
+    expect(session.lifecycle).toEqual({ phase: "active" });
+  });
+
+  it("settles a pause for sleep on its acknowledgement, without a toast", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.suspendForSleep("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual(["suspend"]);
+    ws.simulateMessage({
+      domain: "session",
+      action: "acknowledged",
+      ref: sent.id,
+      payload: { action: "suspend" },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("settles a Stop once the status book reports the session stopped, then allows another", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.interrupt("s1");
+    store.interrupt("s1");
+    expect(sentActions(ws).filter((action) => action === "session.interrupt")).toHaveLength(1);
+
+    store.settleInterrupt("s1");
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+    store.interrupt("s1");
+    expect(sentActions(ws).filter((action) => action === "session.interrupt")).toHaveLength(2);
+  });
+
+  it("treats a Stop with nothing running as done, without an error toast", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.interrupt("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: sent.id,
+      payload: { code: "NOTHING_TO_STOP", message: "Session not active" },
+    });
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+  });
+
+  it("reports a Stop sent while the agent is still starting: it was not stopped", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.interrupt("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+    const message = "The agent is still starting. Stop it again once it runs.";
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: sent.id,
+      payload: { code: "AGENT_STARTING", message },
+    });
+
+    expect(toastError).toHaveBeenCalledWith(
+      "Couldn't stop the agent",
+      expect.objectContaining({ description: message }),
+    );
+  });
+
+  it("reports a queued setting as unsent once its TTL passes without a reconnect", async () => {
+    await connectInitializedThenDrop();
+    vi.useFakeTimers();
+    try {
+      useWsSessionStore.getState().setModel("s1", "opus", "claude-code");
+      vi.advanceTimersByTime(COMMAND_QUEUE_TTL_MS);
+      expect(toastError).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
+      expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("warns about a replayed setting whose outcome a later drop leaves unknown", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setModel("s1", "opus", "claude-code");
+    store.connect("s1");
+    await tick();
+    expect(sentActions(getWs())).toContain("session.model.set");
+
+    const ws = getWs();
+    ws.readyState = MockWebSocket.CLOSED;
+    ws.fireEvent("close");
+
+    expect(toastWarning).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
+  });
+
+  it("settles a command on its correlated success reply and still applies it", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.setThinkingEffort("s1", "high");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual(["effort.set"]);
+    ws.simulateMessage({
+      domain: "session",
+      action: SESSION_ACTION.effortsetok,
+      ref: sent.id,
+      payload: { thinking_effort: "high" },
+    });
+
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(session.pendingCommandActions).toEqual([]);
+    expect(session.currentThinkingEffort).toBe("high");
   });
 
   it("delivers a prompt sent during the reconnect gap instead of dropping it", async () => {
@@ -159,23 +409,23 @@ describe("ws-session outbound queue", () => {
     ws.readyState = MockWebSocket.CLOSED;
     ws.fireEvent("close");
 
-    store.interrupt("s1");
+    store.setModel("s1", "opus", "claude-code");
     store.connect("s1");
     await tick();
 
     // A single assertion covers both presence and relative order.
     const actions = sentActions(getWs());
     const replayThenFlush = actions.filter(
-      (action) => action === "session.init" || action === "session.interrupt",
+      (action) => action === "session.init" || action === "session.model.set",
     );
-    expect(replayThenFlush).toEqual(["session.init", "session.interrupt"]);
+    expect(replayThenFlush).toEqual(["session.init", "session.model.set"]);
   });
 
   it("sendRequest during the gap resolves with the reply that arrives after reconnect", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
 
-    const envelope = createEnvelope("session", "retry_worktree_setup", { feature_id: 42 });
+    const envelope = createSessionEnvelope("retry_worktree_setup", { feature_id: 42 });
     const pending = store.sendRequest("s1", envelope);
 
     store.connect("s1");
@@ -196,12 +446,12 @@ describe("ws-session outbound queue", () => {
     const store = useWsSessionStore.getState();
 
     store.interrupt("s1");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     store.disconnect("s1");
-    const session = useWsSessionStore.getState().sessions.s1;
-    // The entry may survive (no live conn to tear down) but its queue must not.
-    expect(session?.outboundQueue ?? []).toHaveLength(0);
+    expect(useWsSessionStore.getState().sessions.s1).toBeUndefined();
+    store.connect("s1");
+    await tick();
+    expect(sentActions(getWs())).not.toContain("session.interrupt");
   });
 
   it("does not resend a sendRequest() envelope that timed out before the reconnect", async () => {
@@ -221,15 +471,13 @@ describe("ws-session outbound queue", () => {
 
     vi.useFakeTimers();
     try {
-      const envelope = createEnvelope("session", "retry_worktree_setup", { feature_id: 42 });
+      const envelope = createSessionEnvelope("retry_worktree_setup", { feature_id: 42 });
       const pending = store.sendRequest("s1", envelope);
-      expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
       // 10s elapse with the socket still down: the request times out and its
       // envelope must leave the queue instead of lingering as a stale flush.
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(pending).resolves.toBeNull();
-      expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(0);
 
       // The socket comes back: the timed-out envelope must not be replayed.
       ws.readyState = MockWebSocket.OPEN;
@@ -255,15 +503,13 @@ describe("ws-session outbound queue", () => {
     ws.readyState = MockWebSocket.CLOSED;
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     // The close lands: the pending-request sweep resolves the promise null
     // and must take the matching queued envelope with it.
     ws.fireEvent("close");
     await expect(pending).resolves.toBeNull();
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(0);
 
     // The reconnect must not replay a request the caller was told failed.
     store.connect("s1");
@@ -285,9 +531,8 @@ describe("ws-session outbound queue", () => {
     ws.readyState = MockWebSocket.CLOSED;
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     // Wake-style force reconnect (usePowerEvents.handleResume): closes the
     // old socket, sweeps pending requests, opens a replacement.
@@ -304,24 +549,11 @@ describe("ws-session outbound queue", () => {
 
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
     store.disconnect("s1");
 
     // Resolves now instead of hanging until the 10s timeout after teardown.
-    await expect(pending).resolves.toBeNull();
-  });
-
-  it("resolves an in-flight sendRequest() immediately on destroy", async () => {
-    await connectInitializedThenDrop();
-    const store = useWsSessionStore.getState();
-
-    const pending = store.sendRequest(
-      "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
-    );
-    store.destroy("s1");
-
     await expect(pending).resolves.toBeNull();
   });
 });

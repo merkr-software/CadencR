@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  app,
   dialog,
   ipcMain,
   nativeTheme,
@@ -12,7 +11,9 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import { getRuntimeConfig } from "./runtime-config";
+import { getRendererRuntimeConfig } from "./runtime-config";
+import { isMainRendererFrame, type RendererTarget } from "./renderer-trust";
+import { rendererLoadTarget } from "./renderer-window-security";
 import {
   notificationPermission,
   sendNotification,
@@ -20,26 +21,27 @@ import {
   type NotifyOptions,
 } from "./notifications";
 import { sendToWindow } from "./safe-send";
-import { appendRendererErrorLog } from "./renderer-error-log";
+import { registerRendererDiagnosticsIpc } from "./renderer-diagnostics-ipc";
 import { setLinkHoverContext, suppressNextNativeContextMenu } from "./context-menu";
 import { assertOpenableLocalFile } from "./openable-local-file";
+import {
+  applyTrafficLights,
+  parseTrafficLightsCenter,
+  setTrafficLightsCenter,
+} from "./traffic-lights";
 
 const MAX_READ_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_FILE_HANDLES = 128;
-const MAX_RENDERER_ERROR_LOGS_PER_RUN = 100;
 const fileHandles = new Map<string, string>();
-let rendererErrorLogCount = 0;
 
 export interface IpcOptions {
   getMainWindow: () => BrowserWindow | null;
-  confirmClose: () => void;
-  requestQuit: () => void;
 }
 
-export function registerIpc({ getMainWindow, confirmClose, requestQuit }: IpcOptions): void {
+export function registerIpc({ getMainWindow }: IpcOptions): void {
   ipcMain.handle("runtime-config", (event) => {
     assertTrustedSender(event, getMainWindow);
-    return getRuntimeConfig();
+    return getRendererRuntimeConfig();
   });
   ipcMain.handle("fs:register-file-paths", (event, rawPaths: unknown) => {
     assertTrustedSender(event, getMainWindow);
@@ -94,32 +96,45 @@ export function registerIpc({ getMainWindow, confirmClose, requestQuit }: IpcOpt
     assertTrustedSender(event, getMainWindow);
     sendTestNotification(requireMainWindow(getMainWindow));
   });
-  ipcMain.handle("app:confirm-close", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    confirmClose();
-  });
-  ipcMain.handle("app:request-quit", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    requestQuit();
-  });
-  ipcMain.handle("app:renderer-error", (event, payload: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    if (rendererErrorLogCount >= MAX_RENDERER_ERROR_LOGS_PER_RUN) return;
-    appendRendererErrorLog(payload, {
-      appVersion: app.getVersion(),
-      logPath: path.join(app.getPath("logs"), "renderer-errors.log"),
-      now: () => new Date(),
-      platform: process.platform,
-    });
-    rendererErrorLogCount += 1;
-  });
+  registerWindowControlIpc(getMainWindow);
+  registerRendererDiagnosticsIpc(getMainWindow, (event) =>
+    assertTrustedSender(event, getMainWindow),
+  );
   ipcMain.handle("webview:set-zoom", (event, factor: unknown) => {
     assertTrustedSender(event, getMainWindow);
-    requireMainWindow(getMainWindow).webContents.setZoomFactor(parseZoomFactor(factor));
+    const win = requireMainWindow(getMainWindow);
+    win.webContents.setZoomFactor(parseZoomFactor(factor));
+    applyTrafficLights(win);
+  });
+  ipcMain.handle("window:set-traffic-lights-center", (event, center: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    setTrafficLightsCenter(requireMainWindow(getMainWindow), parseTrafficLightsCenter(center));
+  });
+  ipcMain.handle("window:is-focused", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    return requireMainWindow(getMainWindow).isFocused();
   });
   ipcMain.handle("theme:current", (event) => {
     assertTrustedSender(event, getMainWindow);
     return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  });
+}
+
+/** App-owned window controls (the Linux frameless window has no native frame). */
+function registerWindowControlIpc(getMainWindow: () => BrowserWindow | null): void {
+  ipcMain.handle("app:window-minimize", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    requireMainWindow(getMainWindow).minimize();
+  });
+  ipcMain.handle("app:window-toggle-maximize", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    const window = requireMainWindow(getMainWindow);
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+  });
+  ipcMain.handle("app:window-close", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    requireMainWindow(getMainWindow).close();
   });
 }
 
@@ -146,27 +161,14 @@ export function clearRegisteredFilePaths(): void {
 export function assertTrustedSender(
   event: IpcMainEvent | IpcMainInvokeEvent,
   getMainWindow: () => BrowserWindow | null,
+  target: RendererTarget = rendererLoadTarget(),
 ): void {
   const mainWindow = requireMainWindow(getMainWindow);
   if (event.sender.id !== mainWindow.webContents.id) {
     throw new Error("Rejected IPC call from an untrusted window.");
   }
-  const senderFrame = event.senderFrame;
-  if (senderFrame === null) return;
-  const senderUrl = senderFrame?.url;
-  if (!senderUrl || !isTrustedRendererUrl(senderUrl)) {
-    throw new Error("Rejected IPC call from an untrusted renderer origin.");
-  }
-}
-
-export function isTrustedRendererUrl(rawUrl: string): boolean {
-  if (app.isPackaged) return rawUrl.startsWith("file://");
-  try {
-    const parsed = new URL(rawUrl);
-    const isLoopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
-    return parsed.protocol === "http:" && isLoopback;
-  } catch {
-    return false;
+  if (!isMainRendererFrame(event.senderFrame, mainWindow.webContents.mainFrame, target)) {
+    throw new Error("Rejected IPC call from an untrusted renderer origin or frame.");
   }
 }
 
@@ -246,12 +248,14 @@ export async function openExternal(rawUrl: unknown): Promise<void> {
  * `openExternal` (which also backs auto navigation-interception): permits
  * `http:` and loopback so a dev-server URL can be opened in the system
  * browser on demand, and `file:` so agent-emitted links to local documents
- * open in their default app. Still rejects credentials and any other scheme
- * (`javascript:`, `data:`, ...).
+ * open in their default app. Agents often emit a bare absolute path instead
+ * of a `file:` URL; it is resolved against `file:///` because Markdown hrefs
+ * arrive percent-encoded (`crm%20prototype.html`). Still rejects credentials
+ * and any other scheme (`javascript:`, `data:`, ...).
  */
 export async function openExternalLink(rawUrl: unknown): Promise<void> {
   if (typeof rawUrl !== "string") throw new Error("Expected a URL.");
-  const parsed = new URL(rawUrl);
+  const parsed = rawUrl.startsWith("/") ? new URL(rawUrl, "file:///") : new URL(rawUrl);
   if (parsed.protocol === "file:") {
     // A file URL host becomes a UNC host on Windows (`\\server\share`), and
     // merely stat-ing that path dials out over SMB — local files only.

@@ -20,3 +20,8 @@ export function getWsProtocols(): string[] {
   const token = getAuthTokenSync();
   return token ? [`cadencr-token.${token}`] : [];
 }
+
+/** A custom tab's plugin socket (docs/CUSTOM_TABS.md §4.4); auth is the grant subprotocol. */
+export function getPluginTabWsUrl(): string {
+  return resolveApiBaseUrlSync().replace(/^http/, "ws") + "/api/plugin-tabs/ws";
+}

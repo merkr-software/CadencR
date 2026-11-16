@@ -50,6 +50,11 @@ interface ConnectionStatusState {
   lastConnectedAt: number | null;
   /** Internal: per-source latest report so we can recompute on changes. */
   sources: Record<string, SourceState>;
+  /**
+   * Internal: a source reported `connected` since global last left `connected`.
+   * Clearing a failing source (pane closed mid-reconnect) is not a recovery.
+   */
+  recoveredSinceOutage: boolean;
   reportSource: (key: string, status: ConnectionStatus, reason?: string | null) => void;
   clearSource: (key: string) => void;
   /** Force every registered WS reconnector + a fresh health probe. */
@@ -101,6 +106,7 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
   // !connected -> connected will set this.
   lastConnectedAt: null,
   sources: {},
+  recoveredSinceOutage: false,
 
   reportSource(key, status, reason = null) {
     const prev = get().sources[key];
@@ -108,12 +114,16 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
     const sources = { ...get().sources, [key]: { status, reason } };
     const agg = aggregate(sources);
     const wasConnected = get().status === "connected";
+    // A fresh source counts too: a forced reconnect clears the old socket's
+    // source before the new one opens.
+    const isRecovery = status === "connected" && prev?.status !== "connected";
     set({
       sources,
       status: agg.status,
       reason: agg.reason,
       lastConnectedAt:
         agg.status === "connected" && !wasConnected ? Date.now() : get().lastConnectedAt,
+      recoveredSinceOutage: wasConnected ? false : get().recoveredSinceOutage || isRecovery,
     });
   },
 
@@ -192,14 +202,8 @@ useConnectionStatusStore.subscribe((state, prev) => {
 
   toast.dismiss(MANUAL_RECONNECT_TOAST_ID);
 
-  if (state.status === "connected") {
-    if (
-      prev.status === "disconnected" ||
-      prev.status === "reconnecting" ||
-      prev.status === "manual_reconnect_required"
-    ) {
-      toast.success("Reconnected to backend", { id: RECONNECTED_TOAST_ID, duration: 3000 });
-    }
+  if (state.status === "connected" && state.recoveredSinceOutage) {
+    toast.success("Reconnected to backend", { id: RECONNECTED_TOAST_ID, duration: 3000 });
   }
 });
 

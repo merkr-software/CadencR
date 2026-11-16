@@ -1,6 +1,6 @@
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
-use super::super::helpers::{parse_session_id, send_error};
+use super::super::helpers::{parse_session_id, send_error, send_state_not_saved};
 use super::super::session_profile::{
     apply_profile_update, desired_profile_name, resolve_provider_profile,
     validate_resume_profile_state,
@@ -29,7 +29,7 @@ pub(crate) async fn handle_profile_set(
     }
 
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
     let (feature_id, provider, model, current_profile, cwd, overrides) = {
         let sessions = sdk_sessions.lock().await;
@@ -52,7 +52,7 @@ pub(crate) async fn handle_profile_set(
         )
     };
 
-    let update = match resolve_provider_profile(app_state, &provider, profile, &cwd).await {
+    let update = match resolve_provider_profile(&provider, profile, &cwd).await {
         Ok(update) => update,
         Err(error) => {
             send_error(sender, &envelope.id, "PROFILE_ERROR", &error);
@@ -96,20 +96,22 @@ pub(crate) async fn handle_profile_set(
     };
 
     if changed || current_profile.as_deref() != Some(update.name.as_str()) {
-        WsSessionPersistence::update_profile_static(
+        if let Err(error) = WsSessionPersistence::update_profile_static(
             &app_state.write_pool,
             db_session_id,
             &update.name,
         )
-        .await;
+        .await
+        {
+            send_state_not_saved(sender, &envelope.id, "the profile", &error);
+        }
     }
     super::reply_and_broadcast(
         app_state,
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::ProfileChanged,
-        ProfileChangedPayload {
+        &WsSessionEvent::ProfileChanged(ProfileChangedPayload {
             provider,
             model: effective
                 .as_ref()
@@ -117,7 +119,7 @@ pub(crate) async fn handle_profile_set(
                 .or(model),
             profile: update.name,
             effective,
-        },
+        }),
     )
     .await;
 }

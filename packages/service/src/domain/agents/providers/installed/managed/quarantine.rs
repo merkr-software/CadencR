@@ -60,9 +60,9 @@ pub fn append(
     stage: ManagedFailureStage,
     code: &str,
 ) -> Result<ManagedQuarantineRecord, AppError> {
-    let _guard = LEDGER_WRITE_LOCK.lock().map_err(|_| {
-        AppError::Internal("managed quarantine ledger write lock is poisoned".into())
-    })?;
+    let _guard = LEDGER_WRITE_LOCK
+        .lock()
+        .map_err(|_| AppError::internal("managed quarantine ledger write lock is poisoned"))?;
     let path = quarantine_path(storage, provider_id)?;
     let mut ledger = read_ledger(&path, provider_id)?;
     let record = ManagedQuarantineRecord {
@@ -80,7 +80,7 @@ pub fn append(
     };
     ledger.records.push(record.clone());
     let mut json = serde_json::to_string_pretty(&ledger)
-        .map_err(|error| AppError::Internal(format!("serialize quarantine ledger: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize quarantine ledger: {error}")))?;
     json.push('\n');
     atomic_file::write_atomic_private(&path, &json)?;
     Ok(record)
@@ -98,13 +98,13 @@ fn read_ledger(path: &Path, provider_id: &str) -> Result<ManagedQuarantineLedger
         Ok(bytes) => {
             let ledger: ManagedQuarantineLedger =
                 serde_json::from_slice(&bytes).map_err(|error| {
-                    AppError::Internal(format!(
+                    AppError::internal(format!(
                         "parse quarantine ledger {}: {error}",
                         path.display()
                     ))
                 })?;
             if ledger.schema_version != SCHEMA_VERSION || ledger.provider_id != provider_id {
-                return Err(AppError::Internal(format!(
+                return Err(AppError::internal(format!(
                     "quarantine ledger {} has mismatched identity",
                     path.display()
                 )));
@@ -116,7 +116,7 @@ fn read_ledger(path: &Path, provider_id: &str) -> Result<ManagedQuarantineLedger
             provider_id: provider_id.to_string(),
             records: Vec::new(),
         }),
-        Err(error) => Err(AppError::Internal(format!(
+        Err(error) => Err(AppError::internal(format!(
             "read quarantine ledger {}: {error}",
             path.display()
         ))),

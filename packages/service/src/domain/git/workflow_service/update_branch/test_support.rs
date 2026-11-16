@@ -85,6 +85,10 @@ impl RepoFixture {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(crate::domain::git::linked_branches::repository::TEST_SCHEMA)
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'repo', ?)")
             .bind(self.project.to_string_lossy().as_ref())
             .execute(&pool)

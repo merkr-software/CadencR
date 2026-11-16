@@ -19,6 +19,15 @@ pub struct RemoteAuditEntry {
     pub created_at: String,
 }
 
+/// Listener metadata needed by the desktop browser's origin policy.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RemoteBrowserOrigins {
+    pub enabled: bool,
+    pub port: Option<u16>,
+    pub lan_urls: Vec<String>,
+    pub tunnel_host: Option<String>,
+}
+
 /// Full remote-access state for the host dialog.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RemoteStatus {
@@ -55,7 +64,7 @@ pub struct RemoteConnectedEvent {
 pub struct PairingCodeResponse {
     pub code: String,
     pub expires_in_secs: u64,
-    /// `https://<lan-ip>:<port>/?code=<code>` for each interface.
+    /// `https://<lan-ip>:<port>/#code=<code>` for each interface.
     pub urls: Vec<String>,
     pub fingerprint: String,
 }

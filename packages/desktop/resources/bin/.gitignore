@@ -1,2 +1,5 @@
 cadencr-service
 cadencr-service.exe
+# Per-arch release sidecars (build:macos-sidecars)
+arm64/
+x64/

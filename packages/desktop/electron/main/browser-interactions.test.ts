@@ -10,12 +10,17 @@ import {
 } from "./browser-interactions";
 
 interface MockWebContents {
+  getURL: () => string;
   executeJavaScript: ReturnType<typeof vi.fn>;
   sendInputEvent: ReturnType<typeof vi.fn>;
 }
 
 function mockWebContents(result: unknown): MockWebContents {
-  return { executeJavaScript: vi.fn(async () => result), sendInputEvent: vi.fn() };
+  return {
+    getURL: () => "http://localhost:3000/",
+    executeJavaScript: vi.fn(async () => result),
+    sendInputEvent: vi.fn(),
+  };
 }
 
 function asWebContents(mock: MockWebContents): Electron.WebContents {

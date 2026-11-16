@@ -51,6 +51,17 @@ describe("PromptEditor", () => {
     expect(screen.getByText("Type here...")).toBeInTheDocument();
   });
 
+  it("refuses typing while disabled and accepts it again once re-enabled", () => {
+    const { rerender } = render(<PromptEditor disabled />);
+    expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "false");
+
+    rerender(<PromptEditor />);
+    expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "true");
+
+    rerender(<PromptEditor disabled />);
+    expect(screen.getByRole("textbox")).toHaveAttribute("contenteditable", "false");
+  });
+
   it("does not format markdown syntax as rich text", async () => {
     const onChange = vi.fn();
     const ref = createRef<PromptEditorHandle>();

@@ -3,6 +3,10 @@ import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, X } from "lucide-
 import SearchToggleButton from "../SearchToggleButton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+
+// Mirrors the input's Shift+Enter handler.
+const PREVIOUS_MATCH_COMBO = formatCompactCombo(["shift", "enter"]);
 
 interface SearchInputRowProps {
   inputRef: RefObject<HTMLInputElement | null>;
@@ -81,7 +85,7 @@ export function SearchPanelControls({
       <Button
         variant="ghost"
         size="icon-xs"
-        title="Previous match (Shift+Enter)"
+        title={`Previous match (${PREVIOUS_MATCH_COMBO})`}
         aria-label="Previous match"
         onClick={onPrev}
         disabled={disabled}

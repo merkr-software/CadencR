@@ -27,7 +27,9 @@ impl AgentRuntimeSession for RecordingPromptSession {
         Ok(())
     }
 
-    async fn close(&mut self) {}
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
 
     async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
         Ok(())
@@ -81,8 +83,7 @@ async fn public_replay_flag_is_ignored_and_legacy_prompt_gets_canonical_identity
     {
         let mut sessions = sdk_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         let (_message_tx, message_rx) = mpsc::channel(1);
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(RecordingPromptSession {
@@ -132,7 +133,7 @@ async fn public_replay_flag_is_ignored_and_legacy_prompt_gets_canonical_identity
 
 #[test]
 fn first_prompt_spawn_path_releases_sdk_session_lock_before_awaits() {
-    let source = include_str!("../session_prompt/prompt_send.rs");
+    let source = include_str!("../session_prompt/prompt_send_pending.rs");
     let drop_index = source
         .find("drop(sessions);")
         .expect("pending spawn path should explicitly release sdk_sessions");
@@ -206,8 +207,7 @@ async fn test_follow_up_prompt_does_not_block_ws_dispatch() {
     {
         let mut sessions = sdk_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(BlockingFollowUpSession::new(
                 release.clone(),
@@ -263,8 +263,7 @@ async fn test_prompt_send_steers_turn_owned_by_another_connection_without_spawni
     {
         let mut sessions = owner_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         let (_message_tx, message_rx) = mpsc::channel(1);
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(RecordingPromptSession {
@@ -273,11 +272,16 @@ async fn test_prompt_send_steers_turn_owned_by_another_connection_without_spawni
             }))),
             permission_tx,
         };
+        handle.spawned_model = handle.desired_model.clone();
+        handle.spawned_permission_mode = handle.desired_permission_mode.clone();
+        handle.spawned_access_mode = handle.desired_access_mode.clone();
+        handle.spawned_thinking_effort = handle.desired_thinking_effort.clone();
+        handle.spawned_claude_profile = handle.desired_claude_profile.clone();
     }
     // Register A as the turn's owner in the global registry (as mark_agent_running does).
     app_state
         .active_turns
-        .begin_turn(db_id, &owner_sessions, 1_000)
+        .begin_turn(db_id, &owner_sessions)
         .await;
 
     // Connection B (the host): a Pending handle for the SAME db session id.

@@ -15,18 +15,25 @@
 import type { HotkeyCallback } from "@tanstack/hotkeys";
 import type { DependencyList } from "react";
 
+import { paletteHotkeyContext } from "@/lib/command-palette/shortcut-actions";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import { resolveHotkeyTrigger } from "@/lib/shortcuts/resolve";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 import { useAppHotkeys, type ShortcutHotkeyOptions } from "./useAppHotkeys";
 import { useGlobalShortcut } from "./useGlobalShortcut";
-import { useScopedGlobalShortcut, useScopedHotkeys } from "./useScopedHotkeys";
+import { useIsTabFocused, useScopedGlobalShortcut, useScopedHotkeys } from "./useScopedHotkeys";
+import { useShortcutPaletteAction } from "./useShortcutPaletteAction";
 import type { TabKind } from "@/stores/feature-layout-schema";
 
 const SHORTCUT_DEFAULTS = {
   enableOnContentEditable: true,
   enableOnFormTags: true,
 } as const;
+
+/** The chord a palette run reports to a TanStack-style callback. */
+function firstTrigger(trigger: string | string[]): string {
+  return Array.isArray(trigger) ? (trigger[0] ?? "") : trigger;
+}
 
 function mergeShortcutOptions(options: ShortcutHotkeyOptions | undefined): ShortcutHotkeyOptions {
   return options ? { ...SHORTCUT_DEFAULTS, ...options } : SHORTCUT_DEFAULTS;
@@ -45,7 +52,13 @@ export function useShortcut(
   deps?: DependencyList,
 ): void {
   const resolved = useResolvedShortcut(id);
-  useAppHotkeys(resolveHotkeyTrigger(resolved), callback, mergeShortcutOptions(options), deps);
+  const trigger = resolveHotkeyTrigger(resolved);
+  useAppHotkeys(trigger, callback, mergeShortcutOptions(options), deps);
+  useShortcutPaletteAction(
+    id,
+    (event) => callback(event, paletteHotkeyContext(firstTrigger(trigger))),
+    options?.enabled !== false,
+  );
 }
 
 /** Customizable shortcut, gated on which feature-workspace tab has focus. */
@@ -57,12 +70,14 @@ export function useScopedShortcut(
   deps?: DependencyList,
 ): void {
   const resolved = useResolvedShortcut(id);
-  useScopedHotkeys(
-    resolveHotkeyTrigger(resolved),
-    callback,
-    scope,
-    mergeShortcutOptions(options),
-    deps,
+  const trigger = resolveHotkeyTrigger(resolved);
+  useScopedHotkeys(trigger, callback, scope, mergeShortcutOptions(options), deps);
+  // Only the focused tab's handler: other panes and features stay mounted.
+  const focused = useIsTabFocused(scope);
+  useShortcutPaletteAction(
+    id,
+    (event) => callback(event, paletteHotkeyContext(firstTrigger(trigger))),
+    focused && options?.enabled !== false,
   );
 }
 
@@ -79,6 +94,7 @@ export function useGlobalShortcutById(
 ): void {
   const resolved = useResolvedShortcut(id);
   useGlobalShortcut(resolveHotkeyTrigger(resolved), callback, options);
+  useShortcutPaletteAction(id, callback, options?.enabled !== false);
 }
 
 /** Capture-phase + tab-focus gate. */
@@ -90,4 +106,6 @@ export function useScopedGlobalShortcutById(
 ): void {
   const resolved = useResolvedShortcut(id);
   useScopedGlobalShortcut(resolveHotkeyTrigger(resolved), callback, scope, options);
+  const focused = useIsTabFocused(scope);
+  useShortcutPaletteAction(id, callback, focused && options?.enabled !== false);
 }

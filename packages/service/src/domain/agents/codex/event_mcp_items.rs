@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use super::event_inputs::{mcp_input, mcp_tool_name};
-use super::event_items::{stream_start_event, tool_result_event_with_error};
+use super::event_items::{item_failed, stream_start_event, tool_result_event_with_error};
 use super::event_json::thread_id;
 use super::event_state::IndexState;
 use crate::domain::agents::adapter::{RuntimeContentBlock, RuntimeEvent};
@@ -58,7 +58,7 @@ fn completed_mcp_events(
             params,
             id,
             mcp_result_content(item, fallback.as_ref()),
-            mcp_result_is_error(item),
+            item_failed(item),
         ));
     }
     events
@@ -87,10 +87,6 @@ fn mcp_result_content(item: &Value, fallback: Option<&Value>) -> Value {
         .unwrap_or_else(|| fallback.cloned().unwrap_or_else(|| mcp_input(item)))
 }
 
-fn mcp_result_is_error(item: &Value) -> bool {
-    item.get("error").is_some_and(|error| !error.is_null())
-}
-
 fn item_id(item: &Value) -> String {
     item.get("id")
         .and_then(Value::as_str)
@@ -112,6 +108,31 @@ mod tests {
             .find_map(RuntimeEvent::user_message)
             .expect("tool result message");
         &message.content[0]
+    }
+
+    #[test]
+    fn mcp_failed_status_is_an_error_result() {
+        let mut indexes = IndexState::default();
+        let events = mcp_tool_item(
+            json!({
+                "threadId": "thread",
+                "item": {
+                    "type": "mcpToolCall",
+                    "id": "tool",
+                    "server": "cadencr-browser",
+                    "tool": "browser_screenshot",
+                    "status": "failed",
+                    "error": null
+                }
+            }),
+            true,
+            &mut indexes,
+        );
+
+        let RuntimeUserContentBlock::ToolResult { is_error, .. } = tool_result(&events) else {
+            panic!("expected tool result");
+        };
+        assert!(is_error);
     }
 
     #[test]

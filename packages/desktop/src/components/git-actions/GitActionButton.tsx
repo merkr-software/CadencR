@@ -156,6 +156,7 @@ export const GitActionButton = memo(function GitActionButton({
         featureId={featureId}
         projectId={projectId}
         isMobile={isMobile}
+        checkedOut={snapshot?.current_branch || undefined}
         state={state}
         activities={activities}
         popoverOpen={popoverOpen}

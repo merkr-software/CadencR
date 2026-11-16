@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { useSlashCommand, type SlashCommand } from "./useSlashCommand";

@@ -11,4 +11,4 @@ pub use cache_control::cache_control_middleware;
 pub use rate_limit::{loopback_rate_limit_middleware, rate_limit_middleware, RateLimiter};
 pub use remote_auth::{remote_auth_middleware, DeviceId};
 pub use security_headers::remote_security_headers_middleware;
-pub use ws::authenticate_ws;
+pub use ws::{authenticate_ws, offered_subprotocols, validate_ws_origin};

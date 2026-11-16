@@ -1,0 +1,395 @@
+/* Peek, panel and agent rows of the notch island (shape lives in notch.css). */
+
+.brand-word {
+  font-family: "Figtree Variable", var(--n-font);
+  font-weight: 800;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--n-ink);
+}
+.ear-meta {
+  font-size: 11px;
+  color: var(--n-soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ear-meta b {
+  font-weight: 600;
+  color: var(--n-ink);
+}
+.tone-running {
+  color: var(--n-working);
+}
+.tone-permission {
+  color: var(--n-permission);
+}
+.tone-question {
+  color: var(--n-question);
+}
+.tone-done {
+  color: var(--n-done);
+}
+.tone-error {
+  color: var(--n-error);
+}
+
+/* ── Peek ─────────────────────────────────────────────────────────────── */
+
+.peek {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  padding: 10px 18px 16px;
+}
+/* Above the tile (itself positioned), below the held peek's controls. */
+.peek-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.peek-head {
+  min-width: 0;
+  align-self: center;
+}
+.peek-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peek-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--n-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peek-body {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--n-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.peek-drain {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.55;
+  transform-origin: left center;
+  animation: peek-drain var(--peek-ms) linear forwards;
+}
+.peek[data-paused="true"] .peek-drain {
+  animation-play-state: paused;
+}
+@keyframes peek-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ── Panel ────────────────────────────────────────────────────────────── */
+
+.panel-list {
+  max-height: 452px;
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
+}
+.panel-list::-webkit-scrollbar {
+  display: none;
+}
+.panel-sep {
+  height: 1px;
+  margin: 6px 12px;
+  background: var(--n-hair);
+}
+.panel-empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px 22px;
+}
+.panel-empty strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.panel-empty span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--n-muted);
+}
+.panel-error {
+  margin: 0 12px 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--n-error);
+  background: color-mix(in oklab, var(--n-error) 12%, transparent);
+}
+
+/* ── Agent row ────────────────────────────────────────────────────────── */
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 12px;
+  align-items: start;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  animation: row-in 420ms var(--n-out) both;
+  animation-delay: calc(80ms + var(--i) * 32ms);
+  transition: background-color 120ms var(--n-out);
+}
+.row:hover {
+  background: var(--n-wash);
+}
+.row:active {
+  background: var(--n-wash-strong);
+}
+.row:focus-visible {
+  outline: 1.5px solid color-mix(in oklab, var(--n-ink) 55%, transparent);
+  outline-offset: -1.5px;
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+    filter: blur(4px);
+  }
+}
+.row-main {
+  min-width: 0;
+}
+.row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.row-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-project {
+  flex: none;
+  max-width: 40%;
+  font-size: 11px;
+  color: var(--n-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 0;
+  font-family: var(--n-mono);
+  font-size: 11.5px;
+  color: var(--n-soft);
+}
+.row-action svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--n-muted);
+}
+.row-action-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A light band sweeping the working agent's last action (mask, not a text gradient). */
+.shimmer {
+  mask-image: linear-gradient(100deg, #000 40%, rgb(0 0 0 / 0.45) 50%, #000 60%);
+  mask-size: 300% 100%;
+  animation: shimmer 2.2s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    mask-position: 100% 0;
+  }
+  to {
+    mask-position: 0 0;
+  }
+}
+.row-preview {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--n-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.row-aside {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  font-size: 11px;
+  color: var(--n-muted);
+  font-variant-numeric: tabular-nums;
+}
+.row-timer {
+  font-family: var(--n-mono);
+  color: var(--n-working);
+}
+.row-chip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--n-permission);
+  background: color-mix(in oklab, var(--n-permission) 16%, transparent);
+}
+.row-chip[data-kind="question"] {
+  color: var(--n-question);
+  background: color-mix(in oklab, var(--n-question) 16%, transparent);
+}
+.row-unread {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--n-done);
+}
+.row-open {
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition:
+    opacity 140ms var(--n-out),
+    transform 200ms var(--n-out);
+}
+.row:hover .row-open {
+  opacity: 1;
+  transform: none;
+  color: var(--n-ink);
+}
+.row-dismiss {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: -1px -4px -1px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--n-muted);
+  cursor: pointer;
+}
+.row-dismiss:hover {
+  background: var(--n-wash-strong);
+  color: var(--n-ink);
+}
+.row:hover .row-dismiss {
+  display: inline-flex;
+}
+.row:hover .row-age {
+  display: none;
+}
+
+/* ── Provider tile + status badge ─────────────────────────────────────── */
+
+.tile {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--n-wash);
+  box-shadow: inset 0 0 0 1px var(--n-hair);
+}
+.tile[data-size="lg"] {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+.tile-mark {
+  width: 55%;
+  height: 55%;
+  background: var(--n-ink);
+  mask: var(--mark) center / var(--mark-size, 100%) no-repeat;
+}
+.tile-img {
+  width: 58%;
+  height: 58%;
+  object-fit: contain;
+}
+.tile-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--n-body);
+}
+.tile-badge > * {
+  width: 9px;
+  height: 9px;
+}
+.badge-spin {
+  border-radius: 50%;
+  border: 1.6px solid color-mix(in oklab, var(--n-working) 25%, transparent);
+  border-top-color: var(--n-working);
+  border-right-color: var(--n-working);
+  box-sizing: border-box;
+  animation: badge-spin 900ms linear infinite;
+}
+@keyframes badge-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row,
+  .badge-spin,
+  .peek-drain {
+    animation: none;
+  }
+}

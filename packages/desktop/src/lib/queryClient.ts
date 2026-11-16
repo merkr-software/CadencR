@@ -68,6 +68,18 @@ export function invalidateByExactUrl(
 }
 
 /**
+ * Run once the persisted cache is restored. Restored entries are placeholders
+ * from a past run: push events emitted while the app was closed never reached
+ * them, and a `staleTime: Infinity` query would otherwise keep them forever
+ * (the persister re-stamps its 24 h max age on every write, so age is no
+ * guard). Invalidating keeps them on screen while each one refetches as soon
+ * as it is observed.
+ */
+export function revalidateRestoredQueries(): Promise<void> {
+  return queryClient.invalidateQueries();
+}
+
+/**
  * localStorage persister used by `PersistQueryClientProvider` in `App.tsx`.
  *
  * Only queries that pass `shouldDehydrateQuery` (see `persistedQueries.ts`)

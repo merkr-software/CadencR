@@ -1,47 +1,58 @@
-/**
- * Pure helpers + envelope-routing for `session-status-store`.
- *
- * Extracted to keep the store file under the 400-line limit. The store
- * still owns the WebSocket lifecycle and Zustand wiring; this file holds
- * the snapshot/update reducers, value validators, feature-lookup, and
- * notification trigger that the store imports.
- */
+/** App-envelope presentation effects and backend-confirmed status notifications. */
 import { invalidateByExactUrl, invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 import { createLeadingSettleCoalescer } from "@/lib/coalesceInvalidation";
+import { invalidateChangedDocuments } from "@/lib/document-file";
 import { scheduleSettingsInvalidation } from "@/lib/settingsInvalidation";
 import { scheduleThemeInvalidation } from "@/lib/themeInvalidation";
+import { handlePluginTabChanged } from "@/lib/plugin-tabs/live-instances";
 import {
   getAlacrittyConfigRouteQueryKey,
+  getGetFeatureQueryKey,
   getListFeaturesQueryKey,
   type Feature,
 } from "@/api/generated";
 import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
-import { invalidateFeatureQueries } from "@/lib/featureUpdated";
+import { invalidatePromptQueue } from "@/lib/prompt-queue";
+import { applyCustomActionEvent } from "@/lib/custom-actions/events";
+import { GLOBAL_FEATURE_LIST_URLS, invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { isViewingFeature, notifyAgentDone, notifyAgentNeedsInput } from "@/lib/notify-agent-done";
+import { openingClearsForMe } from "@/stores/for-me-ack";
 import { useUnreadStore } from "@/stores/unread-store";
 import { handleGitEnvelope } from "@/stores/ws-git-status-handler";
 import { showRemoteConnectedToast } from "@/lib/remote/connection-toast";
+import { handleAgentArchived } from "@/lib/agent-archived";
+import { handleArchiveCleanupEvent } from "@/lib/archive-cleanup-events";
 import { applyStorageMaintenanceEvent } from "@/stores/storage-maintenance-store";
-import type { LiveAgentStatus, PendingKind } from "@/types/agent";
-import type { SessionStatusEntry } from "@/stores/session-status-store";
+import { applyProviderUpdatesEvent } from "@/stores/provider-updates";
+import { applyRestartContinuationsEvent } from "@/stores/restart-continuations";
+import type { LiveAgentStatus } from "@/types/agent";
 
-const STATUS_VALUES: LiveAgentStatus[] = ["idle", "agent", "question"];
-const PENDING_KIND_VALUES: PendingKind[] = ["permission", "question"];
-
-export function isStatus(val: unknown): val is LiveAgentStatus {
-  return typeof val === "string" && (STATUS_VALUES as string[]).includes(val);
+function isFeatureList(data: Feature[] | object | undefined): data is Feature[] {
+  return Array.isArray(data);
 }
 
-export function isPendingKind(val: unknown): val is PendingKind {
-  return typeof val === "string" && (PENDING_KIND_VALUES as string[]).includes(val);
+/** A feature's record from any loaded project list, without a request. */
+export function lookupFeature(featureId: number): Feature | undefined {
+  return lookupListedFeature(featureId)?.feature;
 }
 
-function lookupFeature(featureId: number): Feature | undefined {
+/**
+ * A feature's record from a loaded project list, with when that list was
+ * fetched: 0 once the list is invalidated, so a cache seeded from it refetches
+ * instead of trusting a record a newer prompt already changed.
+ */
+export function lookupListedFeature(
+  featureId: number,
+): { feature: Feature; updatedAt: number } | undefined {
   // Prefix-match all per-project listFeatures caches via the orval-generated key.
-  const queries = queryClient.getQueriesData<Feature[]>({ queryKey: getListFeaturesQueryKey() });
-  for (const [, data] of queries) {
-    const feature = data?.find((f) => f.id === featureId);
-    if (feature) return feature;
+  // Other per-feature queries share the prefix (a pending gate is
+  // `["/api/features", id, "pending-gate", …]`): only lists hold features.
+  const queries = queryClient.getQueryCache().findAll({ queryKey: getListFeaturesQueryKey() });
+  for (const { state } of queries) {
+    const data = state.data as Feature[] | object | undefined;
+    if (!isFeatureList(data)) continue;
+    const feature = data.find((f) => f.id === featureId);
+    if (feature) return { feature, updatedAt: state.isInvalidated ? 0 : state.dataUpdatedAt };
   }
   return undefined;
 }
@@ -50,7 +61,10 @@ export function notifyTransition(
   featureId: number,
   prevStatus: LiveAgentStatus | undefined,
   nextStatus: LiveAgentStatus,
+  failed = false,
 ): void {
+  const endedTurn = nextStatus === "idle" && (failed || prevStatus === "agent");
+  markUnseenOutcome(featureId, nextStatus, endedTurn, failed);
   const feature = lookupFeature(featureId);
   if (!feature) return;
   const opts = {
@@ -61,171 +75,32 @@ export function notifyTransition(
   };
   if (nextStatus === "question" && prevStatus !== "question") {
     notifyAgentNeedsInput(opts);
-  } else if (nextStatus === "idle" && prevStatus === "agent") {
-    notifyAgentDone({ ...opts, status: "completed" });
-    // The agent finished while the user wasn't looking — flag the sidebar row
-    // unread. (If they're already viewing it, there's nothing unread.)
-    if (!isViewingFeature(featureId)) {
-      useUnreadStore.getState().markUnread(featureId);
-    }
+  } else if (endedTurn) {
+    notifyAgentDone({ ...opts, status: failed ? "error" : "completed" });
   }
 }
 
 /**
- * Apply a `session_status.snapshot` envelope to the per-session map. Pure
- * over `prev` — see store comments for the seq-merge invariants.
+ * Flag a turn that ended while the user wasn't looking: unread when it
+ * completed, failed when it stopped on an error. (If they're already viewing
+ * it, there's nothing unseen, unless For me clears only when done: then the
+ * outcome waits in For me until marked done, viewed or not.) Independent of
+ * the feature lists, so a collapsed project's conversations are flagged too.
  */
-export function applySnapshot(
-  prev: Record<number, SessionStatusEntry>,
-  payload: Record<string, unknown>,
-): Record<number, SessionStatusEntry> {
-  const rawStates = (payload.states ?? {}) as Record<string, unknown>;
-  const snapshotSeq = typeof payload.seq === "number" ? payload.seq : 0;
-  const next: Record<number, SessionStatusEntry> = {};
-
-  for (const [idKey, entryRaw] of Object.entries(rawStates)) {
-    const sessionId = Number(idKey);
-    if (!Number.isFinite(sessionId)) continue;
-    if (!entryRaw || typeof entryRaw !== "object") continue;
-    const obj = entryRaw as Record<string, unknown>;
-    const featureId = typeof obj.feature_id === "number" ? obj.feature_id : null;
-    if (featureId == null) continue;
-    const status = isStatus(obj.status) ? obj.status : null;
-    if (!status) continue;
-    const kind = isPendingKind(obj.kind) ? obj.kind : null;
-    const requestId = typeof obj.request_id === "string" ? obj.request_id : null;
-    const turnStartedAtMs =
-      typeof obj.turn_started_at_ms === "number" ? obj.turn_started_at_ms : null;
-
-    // Preserve a more recent live entry if it has overtaken the snapshot.
-    const existing = prev[sessionId];
-    if (existing && existing.seq > snapshotSeq) {
-      next[sessionId] = existing;
-      continue;
-    }
-    next[sessionId] = {
-      status,
-      kind,
-      requestId,
-      featureId,
-      seq: snapshotSeq,
-      turnStartedAtMs,
-    };
-
-    if (status === "question" && existing?.status !== "question") {
-      notifyTransition(featureId, existing?.status, status);
-    }
+function markUnseenOutcome(
+  featureId: number,
+  nextStatus: LiveAgentStatus,
+  endedTurn: boolean,
+  failed: boolean,
+): void {
+  const marks = useUnreadStore.getState();
+  if (nextStatus === "agent") {
+    marks.clearFailed(featureId);
+    return;
   }
-
-  // Carry over live entries with seq > snapshotSeq that the snapshot
-  // didn't include (the backend filters Idle entries from snapshots, so
-  // a live "agent" event arriving just before the snapshot must be
-  // preserved here).
-  for (const [idKey, entry] of Object.entries(prev)) {
-    const sessionId = Number(idKey);
-    if (!Number.isFinite(sessionId)) continue;
-    if (sessionId in next) continue;
-    if (entry.seq > snapshotSeq) {
-      next[sessionId] = entry;
-    }
-  }
-
-  return next;
-}
-
-/**
- * Apply a `session_status.update` envelope. Returns the patched map plus
- * the prev/next status pair so the caller can fire native notifications.
- */
-export function applyUpdate(
-  prev: Record<number, SessionStatusEntry>,
-  payload: Record<string, unknown>,
-): {
-  next: Record<number, SessionStatusEntry> | null;
-  sessionId: number | null;
-  featureId: number | null;
-  prevStatus: LiveAgentStatus | undefined;
-  nextStatus: LiveAgentStatus | null;
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "requestId" | "turnStartedAtMs"> | null;
-} {
-  const sessionId = typeof payload.session_id === "number" ? payload.session_id : null;
-  const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
-  const seq = typeof payload.seq === "number" ? payload.seq : 0;
-  const turnStartedAtMs =
-    typeof payload.turn_started_at_ms === "number" ? payload.turn_started_at_ms : null;
-  if (sessionId == null || featureId == null) {
-    return {
-      next: null,
-      sessionId: null,
-      featureId: null,
-      prevStatus: undefined,
-      nextStatus: null,
-      entry: null,
-    };
-  }
-  if (!isStatus(payload.status)) {
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: undefined,
-      nextStatus: null,
-      entry: null,
-    };
-  }
-  const kind = isPendingKind(payload.kind) ? payload.kind : null;
-  const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
-
-  const existing = prev[sessionId];
-  if (existing && seq <= existing.seq) {
-    // Out-of-order — drop.
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: existing.status,
-      nextStatus: null,
-      entry: null,
-    };
-  }
-
-  const sameValue =
-    existing?.status === payload.status &&
-    (existing?.kind ?? null) === kind &&
-    (existing?.requestId ?? null) === requestId &&
-    existing?.featureId === featureId;
-
-  if (sameValue) {
-    // Skipping the `set` keeps every selector subscribed to `bySession`
-    // referentially stable through the long Agent-streaming runs.
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: existing.status,
-      nextStatus: payload.status,
-      entry: { status: payload.status, kind, requestId, turnStartedAtMs },
-    };
-  }
-
-  return {
-    next: {
-      ...prev,
-      [sessionId]: {
-        status: payload.status,
-        kind,
-        requestId,
-        featureId,
-        seq,
-        turnStartedAtMs,
-      },
-    },
-    sessionId,
-    featureId,
-    prevStatus: existing?.status,
-    nextStatus: payload.status,
-    entry: { status: payload.status, kind, requestId, turnStartedAtMs },
-  };
+  if (!endedTurn || (isViewingFeature(featureId) && openingClearsForMe())) return;
+  if (failed) marks.markFailed(featureId);
+  else marks.markUnread(featureId);
 }
 
 /**
@@ -250,7 +125,7 @@ const editorInvalidationCoalescer = createLeadingSettleCoalescer(
   EDITOR_INVALIDATION_SETTLE_MS,
 );
 
-function scheduleEditorInvalidation(): void {
+export function scheduleEditorInvalidation(): void {
   editorInvalidationCoalescer.trigger();
 }
 
@@ -280,14 +155,32 @@ export function handleAppEnvelope(
     // file-tree change was a second, unprotected route to the exact storm that
     // path already guards against.
     scheduleEditorInvalidation();
+    // Document previews refetch only for the documents the event names.
+    invalidateChangedDocuments(queryClient, payload);
     return true;
   }
   if (domain === "git") {
     handleGitEnvelope(action, payload);
     return true;
   }
+  if (domain === "app" && action === "agent_archived") {
+    handleAgentArchived(payload);
+    return true;
+  }
+  if (domain === "app" && action === "archive_cleanup") {
+    handleArchiveCleanupEvent(payload);
+    return true;
+  }
   if (domain === "app" && action === "remote_connected") {
     showRemoteConnectedToast();
+    return true;
+  }
+  if (domain === "app" && action === "provider_updates") {
+    applyProviderUpdatesEvent(payload);
+    return true;
+  }
+  if (domain === "app" && action === "restart_continuations") {
+    applyRestartContinuationsEvent(payload);
     return true;
   }
   if (domain === "app" && action === "storage_maintenance") {
@@ -322,7 +215,20 @@ export function handleAppEnvelope(
     // re-read-and-revalidate of every theme file per keystroke.
     // The same file holds the label the theme's project is named after, so the
     // sidebar's list is refetched with it.
-    scheduleThemeInvalidation(queryClient);
+    scheduleThemeInvalidation(queryClient, typeof payload.id === "string" ? payload.id : undefined);
+    return true;
+  }
+  if (domain === "app" && action === "prompt_queue_changed") {
+    // Bare ping ({session_id}, or nothing after a lagged stream): re-fetch.
+    invalidatePromptQueue(typeof payload.session_id === "number" ? payload.session_id : undefined);
+    return true;
+  }
+  if (domain === "app" && action === "custom_action_event") {
+    applyCustomActionEvent(queryClient, payload);
+    return true;
+  }
+  if (domain === "app" && action === "plugin_tab_changed") {
+    handlePluginTabChanged(payload);
     return true;
   }
   if (domain === "app" && action === "alacritty_config_event") {
@@ -338,8 +244,10 @@ export function handleAppEnvelope(
     // auto-name) also changed a title, so refresh the individual feature — an
     // open conversation header falls back to the REST title when this device
     // has no live WS title — via the shared invalidation helper. "reordered"
-    // (a new user message changed the most-recent-user-message sort key) only
-    // reshuffles its own project's list, so it's scoped to that project.
+    // (a new user message changed the most-recent-user-message sort key)
+    // reshuffles its own project's list, scoped to that project. That prompt
+    // also recorded the provider, model and effort it was sent with, which the
+    // individual record shows too (the "For me" rows read it).
     // create/delete reshape the lists too, but a created feature isn't cached
     // yet, so they fall back to invalidating every project's list. The
     // single-feature refetch (a guaranteed 404 after a delete) is skipped for
@@ -348,6 +256,7 @@ export function handleAppEnvelope(
     if (payload.action === "updated" && featureId != null) {
       invalidateFeatureQueries(featureId, ["title"]);
     } else if (payload.action === "reordered" && featureId != null) {
+      void queryClient.invalidateQueries({ queryKey: getGetFeatureQueryKey(featureId) });
       const projectId = lookupFeature(featureId)?.project_id;
       void queryClient.invalidateQueries({
         queryKey:
@@ -358,12 +267,11 @@ export function handleAppEnvelope(
     } else {
       void queryClient.invalidateQueries({ queryKey: getListFeaturesQueryKey() });
     }
-    // The global "Pinned" sidebar section is keyed by `/api/features/pinned`,
-    // a sibling URL that the `["/api/features"]` array-prefix above can't reach
-    // (React Query only prefix-matches array elements). Refresh it explicitly
-    // so a pin/unpin (or a delete of a pinned conversation) on any device keeps
-    // the section in sync.
-    void invalidateByUrlPrefix(queryClient, "/api/features/pinned");
+    // The cross-project lists (Pinned, Recent, lenses) are keyed by sibling URLs
+    // that the `["/api/features"]` array-prefix above can't reach (React Query
+    // only prefix-matches array elements). Refresh them explicitly so a pin, a
+    // rename or a delete on any device keeps them in sync.
+    void invalidateByUrlPrefix(queryClient, GLOBAL_FEATURE_LIST_URLS);
     return true;
   }
   return false;

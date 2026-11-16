@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,16 +10,63 @@ interface CelerittyTerminalMockResult {
   status: "loading" | "ready" | "error";
   errorMessage: string | null;
 }
-const celerittyTerminalMock = vi.fn<() => CelerittyTerminalMockResult>(() => ({
+const celerittyTerminalMock = vi.fn<(args?: unknown) => CelerittyTerminalMockResult>(() => ({
   terminal: undefined,
   status: "ready",
   errorMessage: null,
 }));
+
+const RESOLVED_TERMINAL_OPTIONS = {
+  font: { family: "'Iosevka Nerd Font', monospace", size: 15 },
+  colors: { foreground: "#fff", background: "#000" },
+  cursor: { style: "beam" as const, blink: true },
+  scrollback: 5_000,
+};
+// A config error clears through a react-query refetch, not a prop change, and
+// the pane is `memo`ed — so the mock has to re-render it from the outside the
+// way the real hook does.
+let terminalOptionsError: string | null = null;
+const optionsListeners = new Set<() => void>();
+function setTerminalOptionsError(value: string | null): void {
+  terminalOptionsError = value;
+  for (const listener of optionsListeners) listener();
+}
+const terminalOptionsMock = vi.fn(() => {
+  useSyncExternalStore(
+    (onChange) => {
+      optionsListeners.add(onChange);
+      return () => optionsListeners.delete(onChange);
+    },
+    () => terminalOptionsError,
+  );
+  return {
+    options: terminalOptionsError ? undefined : RESOLVED_TERMINAL_OPTIONS,
+    isLoading: false,
+    error: terminalOptionsError,
+  };
+});
+
 vi.mock("@/components/terminal-core", () => ({
   useCelerittyTerminal: (...args: unknown[]) => celerittyTerminalMock(...(args as [])),
+  useTerminalOptions: (...args: unknown[]) => terminalOptionsMock(...(args as [])),
+}));
+
+const toastErrorMock = vi.fn();
+vi.mock("sonner", () => ({
+  toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
+}));
+
+vi.mock("@/lib/fonts/mono-font-setting", () => ({
+  useMonoFont: () => ({
+    family: "JetBrainsMono Nerd Font",
+    resolved: '"JetBrainsMono Nerd Font", monospace',
+    setFamily: vi.fn(),
+    isLoading: false,
+  }),
 }));
 
 const connectMock = vi.fn();
+const detachMock = vi.fn();
 const snapshotMock = vi.fn();
 const transportCloseMock = vi.fn();
 let socketError: string | null = null;
@@ -31,7 +79,7 @@ vi.mock("./useNeovimWebSocket", () => ({
       connect: connectMock,
       write: vi.fn(),
       resize: vi.fn(),
-      detach: vi.fn(),
+      detach: detachMock,
       isConnected: true,
       lastError: socketError,
     };
@@ -131,5 +179,85 @@ describe("Neovim attachment replay", () => {
     expect(screen.getByRole("application")).toBeInTheDocument();
     expect(screen.getByText(/failed to start neovim/)).toBeInTheDocument();
     socketError = null;
+  });
+});
+
+describe("NeovimPane appearance", () => {
+  afterEach(() => {
+    setTerminalOptionsError(null);
+  });
+
+  it("renders with the terminal's resolved font instead of a pane-local stack", () => {
+    render(<NeovimPane featureId={1} />);
+    expect(celerittyTerminalMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ font: RESOLVED_TERMINAL_OPTIONS.font }),
+      }),
+    );
+  });
+
+  it("resolves that font from the theme palette and the chosen Cadencr mono family", () => {
+    render(<NeovimPane featureId={1} />);
+    expect(terminalOptionsMock).toHaveBeenCalledWith({
+      palette: expect.objectContaining({ background: "#000" }),
+      fontFamily: '"JetBrainsMono Nerd Font", monospace',
+    });
+  });
+
+  it("keeps a steady block cursor as the shape nvim starts from", () => {
+    render(<NeovimPane featureId={1} />);
+    expect(celerittyTerminalMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ cursor: { style: "block", blink: false } }),
+      }),
+    );
+  });
+
+  it("surfaces a broken terminal configuration instead of rendering a silent blank pane", () => {
+    terminalOptionsError = "alacritty.toml: expected a table";
+    render(<NeovimPane featureId={1} />);
+    expect(screen.getByText(/alacritty.toml: expected a table/)).toBeInTheDocument();
+  });
+
+  it("hides the restart action on a broken configuration, which reconnecting cannot fix", () => {
+    terminalOptionsError = "alacritty.toml: expected a table";
+    render(<NeovimPane featureId={1} />);
+    expect(screen.queryByRole("button", { name: /Restart Neovim session/ })).toBeNull();
+  });
+
+  it("keeps the live engine when the configuration breaks after the pane is up", () => {
+    render(<NeovimPane featureId={1} />);
+    celerittyTerminalMock.mockClear();
+    toastErrorMock.mockClear();
+
+    act(() => setTerminalOptionsError("alacritty.toml: expected a table"));
+
+    // Dropping the options would dispose the engine, and the replacement would
+    // start on a blank grid: no reconnection means no `attached` snapshot.
+    const lastCall = celerittyTerminalMock.mock.calls.at(-1)?.[0] as
+      | { options: unknown }
+      | undefined;
+    expect(lastCall?.options).toEqual(
+      expect.objectContaining({ font: RESOLVED_TERMINAL_OPTIONS.font }),
+    );
+    expect(screen.queryByText(/Neovim could not start/)).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("alacritty.toml: expected a table"),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the session attached on a broken configuration so a repaired file recovers on its own", () => {
+    terminalOptionsError = "alacritty.toml: expected a table";
+    detachMock.mockClear();
+    render(<NeovimPane featureId={1} />);
+    expect(detachMock).not.toHaveBeenCalled();
+    connectMock.mockClear();
+
+    act(() => setTerminalOptionsError(null));
+    expect(screen.queryByText(/alacritty.toml: expected a table/)).toBeNull();
+    expect(screen.queryByText(/Connecting to Neovim/)).toBeNull();
+    // No reconnection needed: the socket was never dropped.
+    expect(connectMock).not.toHaveBeenCalled();
   });
 });

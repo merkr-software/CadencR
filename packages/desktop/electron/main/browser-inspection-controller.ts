@@ -105,8 +105,12 @@ export class BrowserInspectionController {
     return waitForPage(this.requireTab(tabId), opts, timeoutMs);
   }
 
-  async selectElementContext(tabId: string, anchorId?: string): Promise<BrowserElementContext> {
-    return selectElementContext(this.requireTab(tabId), anchorId);
+  async selectElementContext(
+    tabId: string,
+    anchorId?: string,
+    authorize?: () => void,
+  ): Promise<BrowserElementContext> {
+    return selectElementContext(this.requireTab(tabId), anchorId, authorize);
   }
 
   async removeCommentBadge(tabId: string, anchorId: string): Promise<void> {

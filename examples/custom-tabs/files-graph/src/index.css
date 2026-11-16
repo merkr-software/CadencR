@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@import "@cadencr/tab-kit/preset.css";
+
+/*
+ * Tiles and swatches are tinted from one theme token each (`--kind`, set
+ * inline from model.ts KINDS), mixed into the surface so text keeps the
+ * theme's foreground ink in light and dark themes alike. `@variant dark`
+ * follows the kit preset's definition of a dark Cadencr theme.
+ */
+.kind-tile {
+  background-color: color-mix(in oklab, var(--kind) 16%, var(--cadencr-background));
+  border: 1px solid color-mix(in oklab, var(--kind) 42%, transparent);
+  @variant dark {
+    background-color: color-mix(in oklab, var(--kind) 20%, var(--cadencr-background));
+  }
+  &:hover,
+  &[data-selected="true"] {
+    background-color: color-mix(in oklab, var(--kind) 30%, var(--cadencr-background));
+    border-color: var(--kind);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--cadencr-ring);
+    outline-offset: 1px;
+    z-index: 1;
+  }
+  /* Secondary encodings, so a kind never rests on hue alone: deleted files are
+   * hatched, untracked ones have a dashed edge (plus the glyph on every tile). */
+  &[data-kind="deleted"] {
+    background-image: repeating-linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--kind) 26%, transparent) 0 1px,
+      transparent 1px 6px
+    );
+  }
+  &[data-kind="untracked"] {
+    border-style: dashed;
+  }
+}
+
+.kind-swatch {
+  background-color: color-mix(in oklab, var(--kind) 30%, var(--cadencr-background));
+  border: 1px solid var(--kind);
+  &[data-kind="deleted"] {
+    background-image: repeating-linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--kind) 50%, transparent) 0 1px,
+      transparent 1px 3px
+    );
+  }
+  &[data-kind="untracked"] {
+    border-style: dashed;
+  }
+}
+
+/* Line counts and diff rows use the preset's utilities (`text-numstat-add-fg`,
+ * `bg-diff-add-bg`, …); only the code surface and hunk headers are local. */
+.diff-surface {
+  background-color: var(--cadencr-code-bg);
+  color: var(--cadencr-code-fg);
+}
+.diff-hunk {
+  background-color: color-mix(in oklab, var(--cadencr-acc-cyan) 8%, transparent);
+}

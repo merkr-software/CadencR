@@ -1,8 +1,8 @@
-import { AppWindow, Bell, BellOff, type LucideIcon } from "lucide-react";
+import { AppWindow, Bell, BellOff, LaptopMinimal, type LucideIcon } from "lucide-react";
 
 export const NOTIFICATION_MODE_KEY = "notification_mode";
 
-export const NOTIFICATION_MODE_VALUES = ["native", "in_app", "off"] as const;
+export const NOTIFICATION_MODE_VALUES = ["native", "in_app", "notch", "off"] as const;
 export type NotificationMode = (typeof NOTIFICATION_MODE_VALUES)[number];
 
 export const DEFAULT_NOTIFICATION_MODE: NotificationMode = "native";
@@ -17,6 +17,14 @@ export interface NotificationModeOption {
 }
 
 export const NOTIFICATION_MODE_OPTIONS: readonly NotificationModeOption[] = [
+  {
+    value: "notch",
+    label: "Notch",
+    description:
+      "Agents live in your Mac's notch. Finished and blocked agents peek out of it; hover it to see every agent and jump into a conversation.",
+    icon: LaptopMinimal,
+    iconColorVar: "var(--primary)",
+  },
   {
     value: "native",
     label: "System",

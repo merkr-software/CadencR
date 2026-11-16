@@ -1,0 +1,399 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+use crate::tab_backend::TabBackendCommand;
+
+#[derive(Debug, Parser)]
+#[command(name = "cadencr", version = env!("CADENCR_CLI_VERSION"), about = crate::app::ABOUT)]
+pub(crate) struct Cli {
+    /// Emit one JSON diagnostic object instead of human-readable output.
+    #[arg(long, global = true)]
+    pub(crate) json: bool,
+    /// Without a command, opens CadencR (or brings it to the front).
+    #[command(subcommand)]
+    pub(crate) command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum Command {
+    #[command(flatten)]
+    App(crate::app::AppCommand),
+    /// Validate local provider structure without installing or executing it.
+    Plugin(PluginArgs),
+    /// Validate, package, sign, or publish a local package registry.
+    Registry(RegistryArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginArgs {
+    #[command(subcommand)]
+    pub(crate) command: PluginCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum PluginCommand {
+    /// Inspect a content-bound author release locally only (no network or credentials).
+    InspectRelease {
+        #[arg(long)]
+        request: PathBuf,
+        #[arg(long)]
+        directory: PathBuf,
+    },
+    /// Publish the exact reviewed original-author request using the author token.
+    PublishRelease {
+        #[arg(long)]
+        request: PathBuf,
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        confirm_request_sha256: String,
+    },
+    /// Validate a provider, theme, custom-tab, language-server or multi-export plugin folder.
+    Validate {
+        /// Package workspace containing its manifest and prepared content.
+        folder: PathBuf,
+        /// Temporary explicit host descriptor input; never discovered from user state.
+        #[arg(long, required_if_eq("kind", "provider"))]
+        descriptor: Option<PathBuf>,
+        /// Content kind; themes, custom tabs, language servers and multi-export plugins are
+        /// validated from their own manifest and need no provider descriptor
+        /// (a plugin's provider members name theirs in `plugin.json`).
+        #[arg(long, value_enum, default_value_t = PluginKind::Provider)]
+        kind: PluginKind,
+        /// Custom tabs (and plugin tab members): do not run the backend's
+        /// protocol conformance checks (static checks still apply), for
+        /// machines that cannot execute it.
+        #[arg(long)]
+        no_run: bool,
+        /// LSP only: validate this target's payload while checking the full manifest.
+        #[arg(long)]
+        target: Option<String>,
+        /// LSP only: also verify this exact archive against the selected signed target.
+        #[arg(long, requires = "target")]
+        archive: Option<PathBuf>,
+    },
+}
+
+/// What `plugin validate` inspects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum PluginKind {
+    Provider,
+    Theme,
+    Tab,
+    Lsp,
+    /// A multi-export plugin: `plugin.json` and each member folder it names.
+    Plugin,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RegistryArgs {
+    #[command(subcommand)]
+    pub(crate) command: RegistryCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum RegistryCommand {
+    #[command(flatten)]
+    Diagnostics(crate::metadata::MetadataCommand),
+    #[command(flatten)]
+    TabBackend(TabBackendCommand),
+    #[command(flatten)]
+    Lsp(crate::lsp::LspCommand),
+    #[command(flatten)]
+    Policy(crate::policy::PolicyCommand),
+    /// Validate a candidate contribution relative to a base registry.
+    Validate {
+        #[arg(long)]
+        base: PathBuf,
+        #[arg(long)]
+        candidate: PathBuf,
+        /// Review append-only provider handoffs; never used for ordinary PR validation.
+        #[arg(long)]
+        administrative: bool,
+    },
+    /// Build a deterministic, unsigned index from local packages.
+    BuildIndex {
+        /// Schema 1 preserves legacy providers; schema 2 accepts discriminated mixed content.
+        #[arg(long, default_value_t = 1)]
+        schema_version: u64,
+        #[arg(long)]
+        packages: PathBuf,
+        /// Trusted, reviewed administrative records; unsigned assembly only.
+        #[arg(long)]
+        provider_handoffs: Option<PathBuf>,
+        #[arg(long)]
+        generated_at: String,
+        #[arg(long)]
+        expires_at: String,
+        /// Write to a new file instead of stdout. Existing paths are refused.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Build a deterministic provider archive from a prepared staging tree.
+    PackProvider {
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a deterministic, platform-independent declarative theme archive.
+    PackTheme {
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a deterministic, platform-independent custom tab archive.
+    PackTab {
+        #[arg(long)]
+        directory: PathBuf,
+        /// Bind the runtime manifest to full schema-2 marketplace metadata.
+        #[arg(long)]
+        package: Option<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a deterministic local publication plan without network access.
+    PlanPublication {
+        #[arg(long)]
+        submission: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Download and verify publication artifacts into an immutable staging directory.
+    StagePublication {
+        #[arg(long)]
+        submission: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        directory: PathBuf,
+    },
+    /// Mirror verified local artifacts into an explicitly confirmed GitHub draft.
+    MirrorPublication(MirrorArgs),
+    /// Publish a verified draft after explicit repository and release-tag confirmation.
+    PromotePublication(PromoteArgs),
+    /// Recover local mirror proof for an already published, fully staged release.
+    RecoverPublication(RecoverArgs),
+    /// Restore missing archives from an already published managed release and verify proof.
+    RestorePublication(RestoreArgs),
+    /// Sign a catalog only from verified publications and public artifact bytes.
+    SignPublicationCatalog(SignCatalogArgs),
+    /// Publish an explicitly confirmed signed catalog to its immutable GitHub release.
+    PublishCatalog(Box<PublishCatalogArgs>),
+    /// Advance a confirmed stable discovery branch to an already published catalog.
+    AdvanceCatalog(Box<AdvanceCatalogArgs>),
+    /// Run an explicitly confirmed protected publication pipeline.
+    PublishRegistry(PublishRegistryArgs),
+    /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
+    SignIndex {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        private_key: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify a signed index with an Ed25519 SPKI PEM key.
+    VerifyIndex {
+        #[arg(long)]
+        index: PathBuf,
+        #[arg(long)]
+        public_key: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        allow_expired: bool,
+    },
+    /// Sign offline-root-authorized registry key metadata.
+    SignTrustManifest {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        root_private_key: PathBuf,
+        #[arg(long)]
+        root_key_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify offline-root-authorized registry key metadata.
+    VerifyTrustManifest {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        root_public_key: PathBuf,
+        #[arg(long)]
+        root_key_id: String,
+        #[arg(long, default_value_t = 1)]
+        minimum_generation: u64,
+    },
+    /// Join a validated canonical payload and detached signature document.
+    AssembleSignedIndex {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        signature: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
+
+impl Cli {
+    pub(crate) fn writes_index_to_stdout(&self) -> bool {
+        matches!(
+            &self.command,
+            Some(Command::Plugin(PluginArgs {
+                command: PluginCommand::InspectRelease { .. }
+                    | PluginCommand::PublishRelease { .. }
+            })) | Some(Command::Registry(RegistryArgs {
+                command: RegistryCommand::BuildIndex { output: None, .. }
+            })) | Some(Command::Registry(RegistryArgs {
+                command: RegistryCommand::Diagnostics(
+                    crate::metadata::MetadataCommand::CheckMetadataExpiry { .. }
+                ) | RegistryCommand::PackProvider { .. }
+                    | RegistryCommand::PackTheme { .. }
+                    | RegistryCommand::PackTab { .. }
+                    | RegistryCommand::Lsp(crate::lsp::LspCommand::PackLsp { .. })
+                    | RegistryCommand::TabBackend(TabBackendCommand::PackTabBackend { .. })
+            }))
+        )
+    }
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct MirrorArgs {
+    #[arg(long)]
+    pub(crate) submission: PathBuf,
+    #[arg(long)]
+    pub(crate) repository: String,
+    #[arg(long)]
+    pub(crate) registry_commit: String,
+    #[arg(long)]
+    pub(crate) directory: PathBuf,
+    #[arg(long)]
+    pub(crate) confirm_repository: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PromoteArgs {
+    #[command(flatten)]
+    pub(crate) publication: MirrorArgs,
+    /// Must exactly match the planned immutable release tag.
+    #[arg(long)]
+    pub(crate) confirm_publish: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SignCatalogArgs {
+    #[arg(long)]
+    pub(crate) manifest: PathBuf,
+    #[arg(long)]
+    pub(crate) generated_at: String,
+    #[arg(long)]
+    pub(crate) expires_at: String,
+    #[arg(long)]
+    pub(crate) private_key: PathBuf,
+    #[arg(long)]
+    pub(crate) key_id: String,
+    #[arg(long)]
+    pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PublishCatalogArgs {
+    #[arg(long)]
+    pub(crate) catalog: PathBuf,
+    #[command(flatten)]
+    pub(crate) trust: TrustArgs,
+
+    /// Exact previous catalog file, or the literal bootstrap for the first publication.
+    #[arg(long)]
+    pub(crate) previous_index: String,
+    /// Explicitly permit an authenticated schema 1 to 2 transition (never downgrade).
+    #[arg(long)]
+    pub(crate) allow_schema_upgrade: bool,
+    #[arg(long)]
+    pub(crate) public_key: PathBuf,
+    #[arg(long)]
+    pub(crate) key_id: String,
+    #[arg(long)]
+    pub(crate) manifest: PathBuf,
+    #[arg(long)]
+    pub(crate) repository: String,
+    #[arg(long)]
+    pub(crate) registry_commit: String,
+    #[arg(long)]
+    pub(crate) directory: PathBuf,
+    #[arg(long)]
+    pub(crate) confirm_repository: String,
+    /// Must exactly match catalog-<SHA-256 of the canonical signed catalog>.
+    #[arg(long)]
+    pub(crate) confirm_publish: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AdvanceCatalogArgs {
+    #[command(flatten)]
+    pub(crate) catalog: PublishCatalogArgs,
+    #[arg(long)]
+    pub(crate) discovery_branch: String,
+    /// Must exactly match the canonical raw GitHub discovery URL.
+    #[arg(long)]
+    pub(crate) confirm_discovery: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RecoverArgs {
+    #[command(flatten)]
+    pub(crate) publication: MirrorArgs,
+    /// Must exactly match the planned published release tag; never publishes it.
+    #[arg(long)]
+    pub(crate) confirm_recover: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RestoreArgs {
+    #[command(flatten)]
+    pub(crate) publication: MirrorArgs,
+    /// Must exactly match the planned published release tag; never publishes it.
+    #[arg(long)]
+    pub(crate) confirm_restore: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PublishRegistryArgs {
+    #[arg(long)]
+    pub(crate) request: PathBuf,
+    #[arg(long)]
+    pub(crate) directory: PathBuf,
+    #[arg(long)]
+    pub(crate) repository: String,
+    #[arg(long)]
+    pub(crate) registry_commit: String,
+    #[arg(long)]
+    pub(crate) private_key: PathBuf,
+    /// Exact SHA-256 of the reviewed protected publication request bytes.
+    #[arg(long)]
+    pub(crate) confirm_request_sha256: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TrustArgs {
+    #[arg(long, requires_all = ["trust_root_public_key", "trust_root_key_id"])]
+    pub(crate) trust_manifest: Option<PathBuf>,
+    #[arg(long, requires_all = ["trust_manifest", "trust_root_key_id"])]
+    pub(crate) trust_root_public_key: Option<PathBuf>,
+    #[arg(long, requires_all = ["trust_manifest", "trust_root_public_key"])]
+    pub(crate) trust_root_key_id: Option<String>,
+    #[arg(long, requires = "trust_manifest")]
+    pub(crate) trust_minimum_generation: Option<u64>,
+}

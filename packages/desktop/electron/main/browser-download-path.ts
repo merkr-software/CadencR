@@ -23,6 +23,7 @@ export interface BrowserDownloadReservation {
   path: string;
   device: number;
   inode: number;
+  descriptor: number | null;
 }
 
 /** Atomically reserve a destination that did not exist before this download. */
@@ -47,6 +48,22 @@ export function reserveBrowserDownloadPath(
 export function removeEmptyBrowserDownloadReservation(
   reservation: BrowserDownloadReservation,
 ): void {
+  if (reservation.descriptor === null) return;
+  try {
+    removeReservedEmptyFile(reservation);
+  } finally {
+    releaseBrowserDownloadReservation(reservation);
+  }
+}
+
+export function releaseBrowserDownloadReservation(reservation: BrowserDownloadReservation): void {
+  const descriptor = reservation.descriptor;
+  if (descriptor === null) return;
+  reservation.descriptor = null;
+  closeSync(descriptor);
+}
+
+function removeReservedEmptyFile(reservation: BrowserDownloadReservation): void {
   let stat;
   try {
     stat = lstatSync(reservation.path);
@@ -88,9 +105,11 @@ function tryReserve(directory: string, filename: string): BrowserDownloadReserva
   }
   try {
     const stat = fstatSync(descriptor);
-    return { path: destination, device: stat.dev, inode: stat.ino };
-  } finally {
+    // Keep the inode allocated even if another writer unlinks the placeholder.
+    return { path: destination, device: stat.dev, inode: stat.ino, descriptor };
+  } catch (error) {
     closeSync(descriptor);
+    throw error;
   }
 }
 

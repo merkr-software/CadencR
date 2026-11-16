@@ -1,7 +1,8 @@
 import { memo, type ComponentProps, type ReactElement } from "react";
 import { AgentStream } from "../AgentStream";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
+import type { TurnClock } from "@/lib/turn-clock";
 
 type AgentStreamProps = ComponentProps<typeof AgentStream>;
 
@@ -14,9 +15,11 @@ interface AgentSessionStreamContentProps {
   turnActive: boolean;
   lifecycle?: TurnLifecycle;
   workingLabel: string;
+  workingClock: TurnClock | null;
   projectPath?: string;
   scrollContainerRef: AgentStreamProps["scrollContainerRef"];
   virtuosoRef: AgentStreamProps["virtuosoRef"];
+  itemSize: AgentStreamProps["itemSize"];
   followOutput: AgentStreamProps["followOutput"];
   onAtBottomStateChange: (atBottom: boolean) => void;
   onTotalListHeightChanged: (height: number) => void;
@@ -26,6 +29,7 @@ interface AgentSessionStreamContentProps {
   verbosityMode: AgentStreamProps["verbosityMode"];
   summaryMode: AgentStreamProps["summaryMode"];
   searchEnabled: boolean;
+  messageNavigator: AgentStreamProps["messageNavigator"];
 }
 
 export const AgentSessionStreamContent = memo(function AgentSessionStreamContent({
@@ -36,9 +40,11 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   turnActive,
   lifecycle,
   workingLabel,
+  workingClock,
   projectPath,
   scrollContainerRef,
   virtuosoRef,
+  itemSize,
   followOutput,
   onAtBottomStateChange,
   onTotalListHeightChanged,
@@ -48,6 +54,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   verbosityMode,
   summaryMode,
   searchEnabled,
+  messageNavigator,
 }: AgentSessionStreamContentProps): ReactElement | null {
   if (blocks.length === 0 && !isAgentWorking) return null;
 
@@ -60,9 +67,11 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       turnActive={turnActive}
       lifecycle={lifecycle}
       workingLabel={workingLabel}
+      workingClock={workingClock}
       basePath={projectPath}
       scrollContainerRef={scrollContainerRef}
       virtuosoRef={virtuosoRef}
+      itemSize={itemSize}
       followOutput={followOutput}
       onAtBottomStateChange={onAtBottomStateChange}
       onTotalListHeightChanged={onTotalListHeightChanged}
@@ -72,6 +81,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       verbosityMode={verbosityMode}
       summaryMode={summaryMode}
       searchEnabled={searchEnabled}
+      messageNavigator={messageNavigator}
     />
   );
 });

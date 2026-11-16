@@ -1,0 +1,153 @@
+/* Virtual islands share the existing peek/panel; only their closed activity band is flat. */
+.island[data-flat="true"] .island-shoulder {
+  display: none;
+}
+.island[data-flat="true"] .island-body {
+  /* One outline joins 6px-wide shoulders to corners whose radius is half the strip height. */
+  --curve-inset: calc(var(--ir) * 0.4477);
+  clip-path: shape(
+    from calc(var(--gap) - 6px) 0px,
+    line to calc(100% - var(--gap) + 6px) 0px,
+    curve to calc(100% - var(--gap)) var(--ir) with calc(100% - var(--gap) + 2.69px) 0px /
+      calc(100% - var(--gap)) var(--curve-inset),
+    line to calc(100% - var(--gap)) calc(var(--ih) - var(--ir)),
+    curve to calc(100% - var(--gap) - var(--ir)) var(--ih) with calc(100% - var(--gap))
+      calc(var(--ih) - var(--curve-inset)) / calc(100% - var(--gap) - var(--curve-inset)) var(--ih),
+    line to calc(var(--gap) + var(--ir)) var(--ih),
+    curve to var(--gap) calc(var(--ih) - var(--ir)) with calc(var(--gap) + var(--curve-inset))
+      var(--ih) / var(--gap) calc(var(--ih) - var(--curve-inset)),
+    line to var(--gap) var(--ir),
+    curve to calc(var(--gap) - 6px) 0px with var(--gap) var(--curve-inset) /
+      calc(var(--gap) - 2.69px) 0px,
+    close
+  );
+}
+
+.layer[data-flat="true"] {
+  filter: none;
+}
+.layer[data-flat="true"] .ears {
+  padding: 0;
+}
+
+.activity-strip {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+.activity-logo,
+.activity-statuses {
+  display: flex;
+  align-items: center;
+}
+.activity-logo {
+  flex: none;
+  gap: 2px;
+}
+.activity-logo-point {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--n-working);
+  animation: activity-logo-edge 1.6s linear infinite;
+}
+.activity-logo-point:nth-child(2) {
+  animation-name: activity-logo-center;
+}
+.activity-logo-point:nth-child(3) {
+  animation-delay: -800ms;
+}
+.activity-logo[data-state="done"] .activity-logo-point {
+  background: var(--n-done);
+  opacity: 0.5;
+  animation: none;
+}
+.activity-logo[data-state="done"] .activity-logo-point:nth-child(2) {
+  opacity: 1;
+}
+.activity-statuses {
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 0;
+  margin-left: 8px;
+  overflow: hidden;
+}
+.activity-count {
+  flex: none;
+  color: var(--n-soft);
+  font-family: var(--n-mono);
+  font-size: var(--count-size);
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+.activity-segment {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.activity-segment[data-status="running"] {
+  color: var(--n-working);
+  animation: activity-breathe 1.6s var(--n-out) infinite;
+  animation-delay: calc(var(--i) * 180ms);
+}
+.activity-segment[data-status="question"] {
+  color: var(--n-permission);
+}
+.activity-segment[data-status="question"][data-kind="question"] {
+  color: var(--n-question);
+}
+.activity-segment[data-status="done"] {
+  color: var(--n-done);
+}
+.activity-strip[data-still="true"] .activity-segment,
+.activity-strip[data-still="true"] .activity-logo-point {
+  animation: none;
+}
+
+@keyframes activity-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+/* Left → center → right → center → left; the dim tail matches the orb comet. */
+@keyframes activity-logo-edge {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  25%,
+  50%,
+  75% {
+    opacity: 0.18;
+  }
+}
+@keyframes activity-logo-center {
+  0%,
+  50%,
+  100% {
+    opacity: 0.18;
+  }
+  25%,
+  75% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-segment,
+  .activity-logo-point {
+    animation: none !important;
+  }
+}

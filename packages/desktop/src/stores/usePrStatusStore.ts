@@ -5,7 +5,7 @@
  * updates both flow through `setStatus`, which rejects stale snapshots.
  */
 import { create } from "zustand";
-import type { CiRollup, ForgeUser, PrStatusSnapshot, PrSummary } from "@/api/generated";
+import type { BranchPr, CiRollup, ForgeUser, PrStatusSnapshot, PrSummary } from "@/api/generated";
 
 interface PrStatusState {
   byFeature: Record<number, PrStatusSnapshot>;
@@ -105,8 +105,23 @@ export function prStatusSnapshotsEqual(a: PrStatusSnapshot, b: PrStatusSnapshot)
     a.error === b.error &&
     a.unresolved_threads === b.unresolved_threads &&
     prSummariesEqual(a.pr, b.pr) &&
-    ciRollupsEqual(a.ci, b.ci)
+    ciRollupsEqual(a.ci, b.ci) &&
+    branchPrsEqual(a.other_prs ?? [], b.other_prs ?? [])
   );
+}
+
+function branchPrsEqual(a: readonly BranchPr[], b: readonly BranchPr[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((entry, index) => {
+    const other = b[index];
+    return (
+      other != null &&
+      entry.branch === other.branch &&
+      entry.unresolved_threads === other.unresolved_threads &&
+      prSummariesEqual(entry.pr, other.pr) &&
+      ciRollupsEqual(entry.ci, other.ci)
+    );
+  });
 }
 
 function prSummariesEqual(

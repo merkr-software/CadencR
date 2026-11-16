@@ -35,7 +35,9 @@ impl AgentRuntimeSession for AcceptingPermissionSession {
         Ok(())
     }
 
-    async fn close(&mut self) {}
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
 
     async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
         Ok(())
@@ -59,7 +61,7 @@ impl AgentRuntimeSession for AcceptingPermissionSession {
 
 fn make_permission_handle(feature_id: i64) -> SdkHandle {
     let mut handle = make_in_place_effort_handle(feature_id);
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     handle.state = QueryState::Active {
         query: Arc::new(RwLock::new(Box::new(AcceptingPermissionSession::new()))),
         permission_tx,

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearDesktopBridgeOverrideForTests,
@@ -31,17 +32,25 @@ function makeElectronBridge(): CadencrDesktopBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(() => Promise.resolve()),
     requestQuit: vi.fn(() => Promise.resolve()),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     setZoom: vi.fn(() => Promise.resolve()),
+    setTrafficLightsCenter: vi.fn(() => Promise.resolve()),
     currentTheme: vi.fn<() => Promise<"dark">>(() => Promise.resolve("dark")),
     onThemeChange: vi.fn(() => () => undefined),
     setBusy: vi.fn(() => Promise.resolve()),
     setRemoteHostAwake: vi.fn(() => Promise.resolve()),
     onPowerSuspend: vi.fn(() => () => undefined),
     onPowerResume: vi.fn(() => () => undefined),
-    checkForUpdates: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
+    fetchChangelogImage: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
   };
 }
 

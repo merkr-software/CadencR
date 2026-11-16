@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub use crate::domain::agents::runtime::ProviderSettings as ProjectProviderSettings;
-
 /// Legacy `projects.kind` used by theme projects created before durable
 /// authoring metadata. New theme projects remain `kind = 'user'` and use
 /// [`ProjectAuthoringTarget::Theme`] plus `plugin_id`; this constant exists only
@@ -15,6 +13,8 @@ pub const THEME_PROJECT_KIND: &str = "theme";
 pub enum ProjectAuthoringTarget {
     Theme,
     Provider,
+    /// A custom tab (`docs/CUSTOM_TABS.md`); `plugin_id` is the tab id.
+    Tab,
 }
 
 impl ProjectAuthoringTarget {
@@ -22,6 +22,7 @@ impl ProjectAuthoringTarget {
         match self {
             Self::Theme => "theme",
             Self::Provider => "provider",
+            Self::Tab => "tab",
         }
     }
 }
@@ -33,6 +34,7 @@ impl TryFrom<&str> for ProjectAuthoringTarget {
         match value {
             "theme" => Ok(Self::Theme),
             "provider" => Ok(Self::Provider),
+            "tab" => Ok(Self::Tab),
             _ => Err(format!("unknown project authoring target {value:?}")),
         }
     }
@@ -51,6 +53,40 @@ pub struct Project {
     pub plugin_id: Option<String>,
 }
 
+/// Result of read-only, local preparation checks for an authored provider.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PublicationReadinessResponse {
+    pub project_id: i64,
+    pub plugin_id: String,
+    pub local_preparation: PublicationPreparationStatus,
+    pub summary: String,
+    pub checks: Vec<PublicationReadinessCheck>,
+    pub supported_package_targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationPreparationStatus {
+    Prepared,
+    Blocked,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PublicationReadinessCheck {
+    pub id: String,
+    pub label: String,
+    pub status: PublicationCheckStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationCheckStatus {
+    Pass,
+    Warning,
+    Fail,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateProjectRequest {
     pub name: String,
@@ -67,23 +103,6 @@ pub struct ProjectSetting {
 pub struct SetProjectSettingRequest {
     pub key: String,
     pub value: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ProjectModelSettings {
-    pub session: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SetProjectModelSettingRequest {
-    pub model_type: String,
-    pub model: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SetProjectProviderSettingRequest {
-    pub provider_type: String,
-    pub provider: String,
 }
 
 #[cfg(test)]
@@ -107,6 +126,25 @@ mod tests {
     }
 
     #[test]
+    fn authoring_targets_round_trip_through_their_column_value() {
+        for target in [
+            ProjectAuthoringTarget::Theme,
+            ProjectAuthoringTarget::Provider,
+            ProjectAuthoringTarget::Tab,
+        ] {
+            assert_eq!(
+                ProjectAuthoringTarget::try_from(target.as_str()),
+                Ok(target)
+            );
+            assert_eq!(
+                serde_json::to_value(target).unwrap(),
+                serde_json::Value::String(target.as_str().into())
+            );
+        }
+        assert!(ProjectAuthoringTarget::try_from("bogus").is_err());
+    }
+
+    #[test]
     fn test_create_project_request_deserialize() {
         let json = r#"{"name": "My Project", "path": "/home/user/project"}"#;
         let req: CreateProjectRequest = serde_json::from_str(json).unwrap();
@@ -120,13 +158,5 @@ mod tests {
         let req: SetProjectSettingRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.key, "branch_prefix");
         assert_eq!(req.value, "feature/");
-    }
-
-    #[test]
-    fn test_set_project_model_setting_request_deserialize() {
-        let json = r#"{"model_type": "session", "model": "claude-3-5-sonnet"}"#;
-        let req: SetProjectModelSettingRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.model_type, "session");
-        assert_eq!(req.model, "claude-3-5-sonnet");
     }
 }

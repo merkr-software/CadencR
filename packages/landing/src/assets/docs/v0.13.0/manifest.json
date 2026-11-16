@@ -1,0 +1,299 @@
+{
+  "version": "0.13.0",
+  "capturedOn": "2026-10-13",
+  "sourceCommit": "fd02b2499152521ff47743b35f93c61099e161b2",
+  "environment": "Running Cadencr dev app with a separate example SQLite database, temporary example Git projects, and isolated desktop/browser profiles.",
+  "data": "Conversations, permission request, paused schedules, and usage statistics are synthetic examples rendered by the real app. Code, diffs, terminal, browser preview, settings and controls were captured from the running app. No real provider turn was executed for the documentation captures.",
+  "assets": [
+    {
+      "file": "approvals.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "d41f89c6542fe688e8eec0361a632e0e982159b9f17e8e89c38e5b25767a9f7d"
+    },
+    {
+      "file": "auto-naming.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "61d1675df93ecbb14659192815eb95dc7cfe24c40dfdbfb344ee253748f25ab9"
+    },
+    {
+      "file": "browser-preview.png",
+      "width": 2000,
+      "height": 1720,
+      "sha256": "d8b5f4040d79c9cf9a8ca67a92c9fa6b1c8cdde74e57f09fadbd20f193f15128"
+    },
+    {
+      "file": "browser.png",
+      "width": 1888,
+      "height": 408,
+      "sha256": "6fd443e7308570fa50c98df8d6d2724cf517acae042fb4cf3741d025df8f7012"
+    },
+    {
+      "file": "concept.png",
+      "width": 2880,
+      "height": 1920,
+      "sha256": "eb9cd76ec8d83a32d8f7d357e7f3eee24455f23386e931c3d5e96ac082f3f477"
+    },
+    {
+      "file": "custom-actions.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "f20e6a5ebaacadccb52588f31edf661fa8657e1fc3998a16c1b84415d6d8042e"
+    },
+    {
+      "file": "editor.png",
+      "width": 1888,
+      "height": 1436,
+      "sha256": "7701536b18db30d67b6f087a4c994d8501b7f26e0c9e6e26a7ee8a000842cd06"
+    },
+    {
+      "file": "feature-workspace.png",
+      "width": 2880,
+      "height": 1920,
+      "sha256": "6d4ee8e540368dd9b2d839d861d7e4ac9ccdfe3df190535d8610921989d95664"
+    },
+    {
+      "file": "git.png",
+      "width": 2880,
+      "height": 1920,
+      "sha256": "e2900cc3d2eeb92d2745af2a92abca4296e485a75a8477ed16f56ab75bec9156"
+    },
+    {
+      "file": "index.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "2105bc35e57c4e91f1b11ebe783c69d49b724fcc71b214f6516be993cd832c55"
+    },
+    {
+      "file": "mcp.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "1abba853b97a44f8ccbc936484d4a20850a01bf71e9bf829c7e2af38fbf3b113"
+    },
+    {
+      "file": "prompting.png",
+      "width": 1872,
+      "height": 288,
+      "sha256": "b8c311613850092f3ec297bb58ec1ab0528aca112167943694fe97eeb1d61f64"
+    },
+    {
+      "file": "provider-claude.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "f34841e849ab2269a182e4402860766d43acb4ab2b2f5b140b2e22369875b50f"
+    },
+    {
+      "file": "provider-codex.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "f86b2443ecf31393ed03d7578c38bdb4dd0456f1485bc94218848a6d836e245f"
+    },
+    {
+      "file": "provider-cursor.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "357fd825f43d86f7900646e927ea62d6b0fe88dd23e89d08713d6c85a0641750"
+    },
+    {
+      "file": "provider-opencode.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "b467a3698c76f21f1a99ad0198adbaed3b46d067079a1b2e9cd6f4f2e3ba92f2"
+    },
+    {
+      "file": "providers.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "eeba0fcd7ed0a74c917b3266137dfb82f36ff3795cb4caaa1549be30ada1182e"
+    },
+    {
+      "file": "remote-access.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "3d316faa80c1b677ec1067bb0376be725a3ab2e3a22f89db6efaa79610056eed"
+    },
+    {
+      "file": "rewind-and-fork.png",
+      "width": 1840,
+      "height": 700,
+      "sha256": "b4ffd2c7ca9cd8b947662bc152a66cb6b6c12f2fdaf1e51e554fa827fa4b05c8"
+    },
+    {
+      "file": "schedules-overview.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "89643c4bb4d39e26c9adfa1eb6453a19a7779400904e532f9b89578309c2a9b6"
+    },
+    {
+      "file": "schedules.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "5f905f61d049910232493afec3681eae21deb8e90b9d871ac30b19c2d30dfff1"
+    },
+    {
+      "file": "session-view.png",
+      "width": 1888,
+      "height": 1440,
+      "sha256": "4f1c936b5178d3491eeef56b9fc9107596d83d72ef62c40d7dd3aadb034116c4"
+    },
+    {
+      "file": "settings.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "609b92b12341a491aeb475db3d82922c92ee0b9b8eaaf1bf7f8e30b81f7f878f"
+    },
+    {
+      "file": "shortcuts.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "c96e7e938e6e870999a8a8fcbfe5afe0c31b59bd2b8e7b7361cc79a39eb7ad7f"
+    },
+    {
+      "file": "sidebar.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "137f07d20a379c8204e779dd68f2b3bb0601555665fc4f1d05ee855ac29f1ad7"
+    },
+    {
+      "file": "storage.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "821c8d2f1a773dd97c291cec2958bd07befa70b02988815384715163abe376c0"
+    },
+    {
+      "file": "terminal.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "24aa2765e15a5a636cf2c7613bedb2011b71353a8b2f80bd7173d5bc9a735d51"
+    },
+    {
+      "file": "themes.png",
+      "width": 732,
+      "height": 688,
+      "sha256": "4f46e6f9ea21c230f094706b29384e32ce6b43153fafbbb4ab81223f432c978f"
+    },
+    {
+      "file": "unified-agent-list.png",
+      "width": 2880,
+      "height": 1920,
+      "sha256": "ba03b4d1e034924f251d1fdadd20fbd187cef0a56e8b68be70fc6680aa7eb458"
+    },
+    {
+      "file": "usage-messages.png",
+      "width": 2880,
+      "height": 1920,
+      "sha256": "fe42159dd4299f2914b50703a851d731dce7c8b0acf78a72f1bd40d38ee7a05b"
+    },
+    {
+      "file": "usage-stats.png",
+      "width": 2400,
+      "height": 1600,
+      "sha256": "184afcee3a4d1e3b33266537a125b1136a7704aa1e280ecccd1cd1fa338f8fa1"
+    },
+    {
+      "file": "worktrees.png",
+      "width": 1888,
+      "height": 940,
+      "sha256": "6cc4534b5280be7a46926183d7ec0d673c5301c4ebd4f8b57908dae877dca2fd"
+    }
+  ],
+  "pages": [
+    {
+      "page": "approvals",
+      "screenshots": ["approvals.png"]
+    },
+    {
+      "page": "browser",
+      "screenshots": ["browser-preview.png", "browser.png"]
+    },
+    {
+      "page": "concept",
+      "screenshots": ["concept.png"]
+    },
+    {
+      "page": "custom-actions",
+      "screenshots": ["custom-actions.png"]
+    },
+    {
+      "page": "editor",
+      "screenshots": ["editor.png"]
+    },
+    {
+      "page": "feature-workspace",
+      "screenshots": ["feature-workspace.png"]
+    },
+    {
+      "page": "git",
+      "screenshots": ["git.png"]
+    },
+    {
+      "page": "index",
+      "screenshots": ["index.png"]
+    },
+    {
+      "page": "mcp",
+      "screenshots": ["mcp.png"]
+    },
+    {
+      "page": "prompting",
+      "screenshots": ["prompting.png"]
+    },
+    {
+      "page": "providers",
+      "screenshots": ["providers.png"]
+    },
+    {
+      "page": "remote-access",
+      "screenshots": ["remote-access.png"]
+    },
+    {
+      "page": "rewind-and-fork",
+      "screenshots": ["rewind-and-fork.png"]
+    },
+    {
+      "page": "schedules",
+      "screenshots": ["schedules-overview.png", "schedules.png"]
+    },
+    {
+      "page": "session-view",
+      "screenshots": ["session-view.png"]
+    },
+    {
+      "page": "settings",
+      "screenshots": ["auto-naming.png", "storage.png", "settings.png"]
+    },
+    {
+      "page": "shortcuts",
+      "screenshots": ["shortcuts.png"]
+    },
+    {
+      "page": "sidebar",
+      "screenshots": ["sidebar.png"]
+    },
+    {
+      "page": "terminal",
+      "screenshots": ["terminal.png"]
+    },
+    {
+      "page": "themes",
+      "screenshots": ["themes.png"]
+    },
+    {
+      "page": "unified-agent-list",
+      "screenshots": ["unified-agent-list.png"]
+    },
+    {
+      "page": "usage-stats",
+      "screenshots": ["usage-messages.png", "usage-stats.png"]
+    },
+    {
+      "page": "workspace-pages",
+      "screenshots": ["unified-agent-list.png"]
+    },
+    {
+      "page": "worktrees",
+      "screenshots": ["worktrees.png"]
+    }
+  ]
+}

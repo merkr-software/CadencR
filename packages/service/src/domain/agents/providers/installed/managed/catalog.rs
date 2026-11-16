@@ -10,11 +10,14 @@ use futures::StreamExt as _;
 use serde::Serialize;
 
 use super::trust::{ManagedTrustStore, VerifiedManagedProviderIndex};
-use super::SignedManagedProviderIndex;
+use super::SignedProviderCatalog;
+use crate::domain::marketplace::models::TabVersionUnavailable;
 
+mod availability;
 mod cache;
+mod recommendation;
 
-const MAX_CATALOG_BYTES: usize = 1024 * 1024;
+const MAX_CATALOG_BYTES: usize = cadencr_registry_core::MAX_CATALOG_BYTES;
 const CATALOG_REFRESH_TIMEOUT: Duration = Duration::from_secs(15);
 const CATALOG_REFRESH_CADENCE: chrono::Duration = chrono::Duration::hours(1);
 
@@ -46,7 +49,17 @@ pub struct ManagedCatalogResponse {
     pub signer_key_id: Option<String>,
     pub generated_at: Option<String>,
     pub expires_at: Option<String>,
-    pub index: Option<SignedManagedProviderIndex>,
+    pub index: Option<SignedProviderCatalog>,
+    /// Host-compatible recommendation per provider, outside the signed payload.
+    #[serde(default)]
+    pub recommended_versions: std::collections::BTreeMap<String, String>,
+    /// Provider versions that cannot install on this host, by provider id then
+    /// version: the installer would find no binary for it. Never recommended.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub unavailable_versions: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, TabVersionUnavailable>,
+    >,
     pub error_code: Option<String>,
     pub error: Option<String>,
 }
@@ -82,6 +95,8 @@ impl ManagedCatalogResponse {
             generated_at: None,
             expires_at: None,
             index: None,
+            recommended_versions: Default::default(),
+            unavailable_versions: Default::default(),
             error_code,
             error: message,
         }
@@ -93,6 +108,7 @@ impl ManagedCatalogResponse {
         fallback_error: Option<ManagedCatalogError>,
     ) -> Self {
         let index = catalog.index();
+        let host = crate::domain::agents::providers::installed::descriptor::current_binary_target();
         Self {
             source_configured: pinned_catalog_url().is_some(),
             cache_status: ManagedCatalogCacheStatus::Verified,
@@ -102,12 +118,51 @@ impl ManagedCatalogResponse {
             generated_at: Some(index.generated_at.to_rfc3339()),
             expires_at: Some(index.expires_at.to_rfc3339()),
             index: Some(catalog.envelope().clone()),
+            recommended_versions: recommendation::recommended_versions(
+                &index.packages,
+                env!("CARGO_PKG_VERSION"),
+                host,
+            ),
+            unavailable_versions: availability::unavailable_versions(&index.packages, host),
             error_code: fallback_error
                 .as_ref()
                 .map(|error| error.code.as_str().into()),
             error: fallback_error.map(|error| error.message),
         }
     }
+}
+
+/// The verified cached catalog installs resolve their package from; it is
+/// never fetched here, and never the client's copy.
+pub(crate) fn cached_verified(
+    path: &Path,
+    trust: &ManagedTrustStore,
+) -> Result<VerifiedManagedProviderIndex, ManagedCatalogError> {
+    cache::load(path, trust, Utc::now())?
+        .map(|catalog| catalog.verified)
+        .ok_or_else(|| {
+            ManagedCatalogError::new(
+                ManagedCatalogErrorCode::Unavailable,
+                "the provider catalog has not been fetched yet; refresh the marketplace and try again",
+            )
+        })
+}
+
+#[cfg(test)]
+pub(crate) fn admit_request(
+    path: &Path,
+    trust: &ManagedTrustStore,
+    index: SignedProviderCatalog,
+) -> Result<(), crate::error::AppError> {
+    cache::persist(path, trust, index, Utc::now())
+        .map(|_| ())
+        .map_err(|error| {
+            crate::error::AppError::coded(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                error.code.as_str(),
+                error.message,
+            )
+        })
 }
 
 pub async fn acquire(
@@ -207,7 +262,7 @@ async fn refresh_inner(
         }
         bytes.extend_from_slice(&chunk);
     }
-    let envelope = serde_json::from_slice(&bytes)
+    let envelope: SignedProviderCatalog = serde_json::from_slice(&bytes)
         .map_err(|error| invalid(format!("downloaded catalog is invalid: {error}")))?;
     // Freshness is a property at acceptance time, not request-start time. A
     // catalog can expire while a slow response is still arriving.
@@ -265,7 +320,7 @@ fn download(message: impl Into<String>) -> ManagedCatalogError {
 fn too_large() -> ManagedCatalogError {
     ManagedCatalogError::new(
         ManagedCatalogErrorCode::TooLarge,
-        "managed provider catalog exceeds 1 MiB",
+        "managed provider catalog exceeds 32 MiB",
     )
 }
 

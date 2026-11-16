@@ -12,24 +12,33 @@ import type {
 } from "./generated";
 import { getGetAgentSelectionQueryKey } from "./generated";
 import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
+import {
+  validateHostCapabilityFields,
+  type ProviderHostCapabilityFields,
+} from "@/lib/provider-host-capabilities";
 import { PROVIDER_IDS } from "@/lib/providers";
+import { invalidateExtensionInventories } from "@/lib/agent-extensions";
 
 export type RuntimeModelOption = {
   [Key in keyof ModelCatalogEntry]: Exclude<ModelCatalogEntry[Key], null>;
 };
 
-export interface RuntimeProviderOption {
+export interface RuntimeProviderOption extends ProviderHostCapabilityFields {
   id: string;
   label: string;
   status: "available" | "unavailable" | "coming_soon";
   origin: ProviderOrigin;
   status_message?: string;
+  /** Set when `models` is the last known catalog because refreshing it failed; says why. */
+  refresh_error?: string;
   icon_data?: string;
   models: RuntimeModelOption[];
   modes?: RuntimeProviderModeOption[];
   access_modes?: RuntimeProviderAccessModeOption[];
   default_model: string | null;
   profile_capability?: ProviderCatalogResponseEntry["profile_capability"];
+  /** Mid-turn prompts are delivered into the running turn and acknowledged. */
+  steering_acknowledged?: boolean;
 }
 
 export interface RuntimeProviderModeOption {
@@ -95,7 +104,16 @@ function readQueryExtras(arg: boolean | QueryExtras | undefined): QueryExtras {
 // profile mutations invalidate `["agent-catalog"]` explicitly; switching back to
 // an already-probed cwd then serves from cache instead of re-probing.
 const AGENT_CATALOG_STALE_MS = 10 * 60_000;
+// A provider serving its last known catalog retries the refresh on the backend
+// within 30s. Poll at that pace while one does (focus and reconnect never
+// refetch, and the picker mounts no new observer), so the notice goes away once
+// the refresh recovers.
+const AGENT_CATALOG_LAST_KNOWN_POLL_MS = 30_000;
 const AGENT_CATALOG_GC_MS = 30 * 60_000;
+
+function servesLastKnownCatalog(catalog: AgentCatalog | undefined): boolean {
+  return catalog?.providers.some((provider) => provider.refresh_error) ?? false;
+}
 
 export function useAgentCatalog(extras?: QueryExtras) {
   const { cwd, provider, profile, ...queryExtras } = extras ?? {};
@@ -105,8 +123,8 @@ export function useAgentCatalog(extras?: QueryExtras) {
   // than serving the active profile's stale models.
   const query = useQuery({
     queryKey: ["agent-catalog", cwd ?? null, provider ?? null, profile ?? null],
-    queryFn: () =>
-      customInstance<AgentCatalog>({
+    queryFn: async () => {
+      const catalog = await customInstance<AgentCatalog>({
         method: "GET",
         url: "/api/agent-catalog",
         params:
@@ -117,8 +135,18 @@ export function useAgentCatalog(extras?: QueryExtras) {
                 ...(profile ? { profile } : {}),
               }
             : undefined,
-      }),
-    staleTime: AGENT_CATALOG_STALE_MS,
+      });
+      return {
+        ...catalog,
+        providers: catalog.providers.map(validateHostCapabilityFields),
+      };
+    },
+    staleTime: (catalogQuery) =>
+      servesLastKnownCatalog(catalogQuery.state.data)
+        ? AGENT_CATALOG_LAST_KNOWN_POLL_MS
+        : AGENT_CATALOG_STALE_MS,
+    refetchInterval: (catalogQuery) =>
+      servesLastKnownCatalog(catalogQuery.state.data) ? AGENT_CATALOG_LAST_KNOWN_POLL_MS : false,
     gcTime: AGENT_CATALOG_GC_MS,
     ...queryExtras,
   });
@@ -177,56 +205,6 @@ export function useSetWorkspaceProviderSetting(
   });
 }
 
-export function useGetProjectProviderSettings(
-  projectId: number,
-  arg: boolean | QueryExtras = true,
-) {
-  const { enabled = true, staleTime } = readQueryExtras(arg);
-  return useQuery({
-    queryKey: ["projects", "provider-settings", projectId],
-    queryFn: () =>
-      customInstance<ProviderSettings>({
-        method: "GET",
-        url: `/api/projects/${projectId}/provider-settings`,
-      }),
-    enabled,
-    staleTime,
-  });
-}
-
-export function useSetProjectProviderSetting(
-  callbacks?: ProviderMutationCallbacks<{
-    projectId: number;
-    providerType: AgentTypeSetting;
-    provider: string;
-  }>,
-) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      projectId,
-      providerType,
-      provider,
-    }: {
-      projectId: number;
-      providerType: AgentTypeSetting;
-      provider: string;
-    }) =>
-      customInstance<{ success: boolean }>({
-        method: "PUT",
-        url: `/api/projects/${projectId}/provider-settings`,
-        data: { provider_type: providerType, provider },
-      }),
-    onSuccess: async (data, variables) => {
-      await queryClient.invalidateQueries({
-        queryKey: ["projects", "provider-settings", variables.projectId],
-      });
-      callbacks?.onSuccess?.(data, variables);
-    },
-    onError: (error, variables) => callbacks?.onError?.(error, variables),
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Claude Code profiles & custom models
 // ---------------------------------------------------------------------------
@@ -266,13 +244,15 @@ export function useClaudeCodeProfiles(arg: boolean | QueryExtras = true) {
 // (and the model picker built from it) is profile-dependent — under Bedrock /
 // Vertex even the model ids change. Any profile mutation that can alter the
 // active env therefore invalidates the catalog so the picker refetches the
-// right models, not just the profiles list.
+// right models, not just the profiles list. The env can also move Claude
+// Code's config dir, so the skills and MCP servers it reports re-list too.
 async function invalidateProfilesAndCatalog(queryClient: ReturnType<typeof useQueryClient>) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["claude-code", "profiles"] }),
     queryClient.invalidateQueries({ queryKey: ["agent-profiles", PROVIDER_IDS.CLAUDE_CODE] }),
     queryClient.invalidateQueries({ queryKey: ["agent-catalog"] }),
     queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() }),
+    invalidateExtensionInventories(queryClient),
   ]);
 }
 

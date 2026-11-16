@@ -12,8 +12,6 @@
 //! can `POST /api/git/push-input` to forward the user's typed line back
 //! into the PTY in real time.
 
-use std::path::PathBuf;
-
 use tokio::sync::mpsc;
 
 use crate::app_state::AppState;
@@ -24,18 +22,18 @@ use crate::error::AppError;
 
 use super::streaming::{broadcast_complete, stream_git_operation, GitStreamOp};
 use super::{broadcast_after_write, mutation_guard_error};
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::resolve_feature_git_dir;
 
 pub async fn push(state: &AppState, body: PushBody) -> Result<SuccessResponse, AppError> {
     let feature_id = body.feature_id;
-    let git_path = resolve_feature_git_path(state, feature_id)
+    let repo = resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    let repo = PathBuf::from(git_path);
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
+        .cwd;
     let permit = state
         .git_mutations
         .try_acquire(&repo)
-        .map_err(mutation_guard_error)?;
+        .map_err(|error| mutation_guard_error(error))?;
 
     // ssh's prompts (`Enter passphrase…`, `(yes/no)?`) arrive on stdout
     // exactly like any other line, so the dialog can detect them and
@@ -159,12 +157,10 @@ async fn ssh_auth_diagnostic() -> String {
     let sock = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| "<unset>".into());
     let home = std::env::var("HOME").unwrap_or_else(|_| "<unset>".into());
 
-    let listing = match tokio::process::Command::new("ssh-add")
-        .arg("-l")
-        .env_remove(crate::shared::security::SERVICE_AUTH_TOKEN_ENV)
-        .output()
-        .await
-    {
+    let mut ssh_add = tokio::process::Command::new("ssh-add");
+    ssh_add.arg("-l");
+    crate::shared::security::scrub_service_only_env(&mut ssh_add);
+    let listing = match ssh_add.output().await {
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);

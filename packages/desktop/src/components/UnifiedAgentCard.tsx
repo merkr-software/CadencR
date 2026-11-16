@@ -5,10 +5,13 @@ import { useUnifiedAgentPinControls } from "@/components/useUnifiedAgentPinContr
 import { WebSocketSessionFeatureBlock } from "@/components/WebSocketSessionFeatureBlock";
 import { ResolvedModelProvider } from "@/contexts/ResolvedModelContext";
 import { useFeaturePrefetch } from "@/hooks/useFeaturePrefetch";
+import { useFeatureAttention } from "@/hooks/useFeatureAttention";
 import { useShortcut } from "@/hooks/useShortcut";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { cn } from "@/lib/utils";
+import { openingClearsForMe } from "@/stores/for-me-ack";
+import { useUnreadStore } from "@/stores/unread-store";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry, type SessionEntry } from "@/stores/ws-session-types";
 import { persistedSessionToLifecycle, type TurnLifecycle } from "@/stores/ws-turn-lifecycle";
@@ -16,8 +19,6 @@ import { normalizeContextWindow } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
 import { parsePermissionMode } from "@/types/permission-mode";
 import { parseAccessMode } from "@/types/access-mode";
-import type { AgentQuestion } from "@/components/AgentQuestionDrawer";
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
 
 type WsSessionState = ReturnType<(typeof useWsSessionStore)["getState"]>;
 type PersistedSnapshot = Parameters<WsSessionState["setPersistedState"]>[1];
@@ -26,7 +27,7 @@ interface UnifiedAgentCardProps {
   entry: UnifiedAgentEntry;
   index: number;
   isActive: boolean;
-  onActivate: (index: number) => void;
+  onActivate: (sessionId: number) => void;
   onExcludeAgent: (title: string) => void;
 }
 
@@ -42,14 +43,22 @@ export const UnifiedAgentCard = memo(function UnifiedAgentCard({
   const prefetchFeature = useFeaturePrefetch(entry.feature.id, entry.project.id);
   // Stable so the surrounding `React.memo` and the section's focus/pointer
   // handlers don't tear down every render while the grid streams updates.
-  const activate = useCallback((): void => onActivate(index), [onActivate, index]);
+  // Activating a card is opening its conversation: it reads an unread reply
+  // the way the feature page does (unless "For me" clears only when done).
+  // The first card is active on mount without the user touching it, so this
+  // runs on user activation only, never from `isActive` itself.
+  const sessionId = entry.session.sessionDbId;
+  const activate = useCallback((): void => {
+    onActivate(sessionId);
+    if (openingClearsForMe()) useUnreadStore.getState().markRead(entry.feature.id);
+  }, [onActivate, sessionId, entry.feature.id]);
   const excludeAgent = useCallback(
     (): void => onExcludeAgent(entry.feature.title),
     [onExcludeAgent, entry.feature.title],
   );
-  // CMD+O on the active card opens its dedicated feature page. Gated on
+  // ⌘⇧O (`agents-open-feature`) on the active card opens its feature page. Gated on
   // `isActive` so only the focused card listens — the listener is bubble-
-  // phase (@tanstack/react-hotkeys), and Cadencr doesn't bind CMD+O elsewhere
+  // phase (@tanstack/react-hotkeys), and Cadencr doesn't bind ⌘⇧O elsewhere
   // outside of a scoped drawer, so the active-card gate is the disambiguator.
   const navigate = useNavigate();
   useShortcut(
@@ -67,7 +76,7 @@ export const UnifiedAgentCard = memo(function UnifiedAgentCard({
     { enabled: isActive },
   );
   const baseClass = cn(
-    "group/card relative flex h-full min-h-[420px] flex-col overflow-hidden rounded-[10px] border bg-card outline-none transition-[border-color,box-shadow] duration-200",
+    "unified-agent-card group/card relative flex h-full flex-col overflow-hidden rounded-[10px] border bg-card outline-none transition-[border-color,box-shadow] duration-200",
     // Active = focused agent (set via `onFocusCapture={activate}`). The
     // active class paints a primary-tinted border + floating shadow and
     // plays a one-shot 200ms border flash; the global
@@ -83,6 +92,7 @@ export const UnifiedAgentCard = memo(function UnifiedAgentCard({
   return (
     <section
       tabIndex={0}
+      aria-label={entry.feature.title}
       data-unified-agent-index={index}
       onFocusCapture={activate}
       onPointerDownCapture={activate}
@@ -90,7 +100,8 @@ export const UnifiedAgentCard = memo(function UnifiedAgentCard({
       onFocus={prefetchFeature}
       className={baseClass}
     >
-      <ResolvedModelProvider featureId={entry.feature.id} projectId={entry.project.id}>
+      <AgentCardAttentionMark featureId={entry.feature.id} />
+      <ResolvedModelProvider featureId={entry.feature.id}>
         <WebSocketSessionFeatureBlock
           sessionId={wsSessionIdFromFeature(entry.feature.id)}
           cwd={entry.project.path}
@@ -112,6 +123,20 @@ export const UnifiedAgentCard = memo(function UnifiedAgentCard({
       </ResolvedModelProvider>
     </section>
   );
+});
+
+/**
+ * Carries the card's attention state for the rim (`unified-agents.css`). A
+ * child of its own, so a state change re-renders this tag, not the embedded
+ * session.
+ */
+const AgentCardAttentionMark = memo(function AgentCardAttentionMark({
+  featureId,
+}: {
+  featureId: number;
+}): ReactElement {
+  const { state } = useFeatureAttention(featureId);
+  return <span hidden data-agent-card-attention={state} />;
 });
 
 function useHydrateUnifiedWsSession(entry: UnifiedAgentEntry): void {
@@ -141,7 +166,7 @@ function useHydrateUnifiedWsSession(entry: UnifiedAgentEntry): void {
 function shouldRestoreUnifiedBlocks(session: SessionEntry | undefined): boolean {
   if (!session) return true;
   if (session.persistedLoaded || session.blocks.length > 0) return false;
-  return !session.conn && !session.isConnected && !session.serverSessionId;
+  return !session.isConnecting && !session.isConnected && !session.serverSessionId;
 }
 
 function ensureWsSessionEntry(sessionId: string): void {
@@ -170,8 +195,6 @@ function patchHydratedSession(sessionId: string, entry: UnifiedAgentEntry): void
 }
 
 function buildPersistedSnapshot(entry: UnifiedAgentEntry): PersistedSnapshot {
-  const pendingPermission = asPendingPermission(entry.session.pendingPermission);
-  const pendingQuestions = asQuestions(entry.session.pendingQuestions) ?? [];
   return {
     blocks: serverBlocksToAgentBlocks(entry.session.blocks),
     // Bootstrap seed only. The live agent-status badge reads from
@@ -183,14 +206,7 @@ function buildPersistedSnapshot(entry: UnifiedAgentEntry): PersistedSnapshot {
     // already running before app launch wouldn't be detected by those
     // consumers until the user opens its feature and WS turn events fire.
     // The WS handler overwrites this on the next turn event.
-    lifecycle: persistedSessionToLifecycle(
-      {
-        ...entry.session,
-        pendingPermission,
-        pendingQuestions,
-      },
-      { runningStatus: "active" },
-    ),
+    lifecycle: persistedSessionToLifecycle(entry.session, { runningStatus: "active" }),
     hasMore: entry.session.hasMore,
     oldestMessageId: entry.session.oldestMessageId,
     featureId: entry.feature.id,
@@ -203,6 +219,12 @@ function buildPersistedSnapshot(entry: UnifiedAgentEntry): PersistedSnapshot {
     accessMode: parseAccessMode(entry.session.accessMode),
     contextUsage: buildContextUsage(entry),
     hasFileChanges: entry.session.hasFileChanges,
+    // Raw `agent_sessions` JSON: `setPersistedState` decodes both gates
+    // exactly as the feature page does (snake_case permission fields, the
+    // AskUserQuestion `tool_input`). Pre-decoding them here dropped every
+    // pending question and blanked the permission's tool name.
+    pendingPermission: entry.session.pendingPermission ?? null,
+    pendingQuestions: entry.session.pendingQuestions ?? null,
   };
 }
 
@@ -210,20 +232,11 @@ function buildUnifiedSessionPatch(
   entry: UnifiedAgentEntry,
   session: SessionEntry,
 ): Partial<SessionEntry> {
-  const pendingPermission = asPendingPermission(entry.session.pendingPermission);
-  const pendingQuestions = asQuestions(entry.session.pendingQuestions) ?? [];
   const permissionMode = parsePermissionMode(entry.session.permissionMode);
-  const lifecycle = persistedSessionToLifecycle(
-    {
-      ...entry.session,
-      pendingPermission,
-      pendingQuestions,
-    },
-    { runningStatus: "active" },
-  );
+  const lifecycle = persistedSessionToLifecycle(entry.session, { runningStatus: "active" });
+  // Pending gates are not patched: `setPersistedState` has just decoded them
+  // from the same snapshot, and a raw copy here would overwrite them.
   const patch: Partial<SessionEntry> = {
-    pendingPermission,
-    pendingQuestions,
     contextUsage: buildContextUsage(entry),
     hasFileChanges: entry.session.hasFileChanges,
     hasMore: entry.session.hasMore,
@@ -242,7 +255,6 @@ function buildUnifiedSessionPatch(
       : {}),
     ...(entry.session.profile ? { currentProfile: entry.session.profile } : {}),
     ...(entry.session.runtimeSessionId ? { runtimeSessionId: entry.session.runtimeSessionId } : {}),
-    ...pendingRequestIdPatch(pendingPermission, pendingQuestions),
   };
   // Guarded patch: never demote a session whose WS handler has already
   // moved it to "active" with a stale REST snapshot, but freely apply
@@ -251,15 +263,6 @@ function buildUnifiedSessionPatch(
     patch.lifecycle = lifecycle;
   }
   return patch;
-}
-
-function pendingRequestIdPatch(
-  pendingPermission: PendingPermission | null,
-  pendingQuestions: AgentQuestion[],
-): Partial<SessionEntry> {
-  if (pendingPermission?.requestId) return { pendingRequestId: pendingPermission.requestId };
-  if (!pendingPermission && pendingQuestions.length === 0) return { pendingRequestId: "" };
-  return {};
 }
 
 function shouldPatchLifecycle(session: SessionEntry, nextLifecycle: TurnLifecycle): boolean {
@@ -286,18 +289,6 @@ function safeStringify(value: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asPendingPermission(value: unknown): PendingPermission | null {
-  return isObject(value) ? (value as unknown as PendingPermission) : null;
-}
-
-function asQuestions(value: unknown): AgentQuestion[] | undefined {
-  return Array.isArray(value) ? (value as AgentQuestion[]) : undefined;
 }
 
 function buildContextUsage(entry: UnifiedAgentEntry): ContextUsageState {

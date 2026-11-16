@@ -132,6 +132,15 @@ function useViewedFiles(featureId: number, queryClient: QueryClient) {
     }
     return map;
   }, [blobShasQuery.data]);
+  const blobShasError = blobShasQuery.isError
+    ? apiErrorMessage(blobShasQuery.error, "Failed to read file versions")
+    : null;
+  useEffect(() => {
+    if (!blobShasError) return;
+    toast.error(`Review comment checks paused: ${blobShasError}`, {
+      id: `diff-blob-shas-${featureId}`,
+    });
+  }, [blobShasError, featureId]);
   const viewedQuery = useListDiffViewed(featureId);
   const viewedFilesSet = useMemo(() => {
     const set = new Set<string>();
@@ -154,10 +163,18 @@ function useViewedFiles(featureId: number, queryClient: QueryClient) {
         queryClient.invalidateQueries({ queryKey: getListDiffViewedQueryKey(featureId) }),
     },
   });
-  return useMemo(
+  const viewed = useMemo(
     () => ({ blobShas, viewedFilesSet, markViewed, unmarkViewed }),
     [blobShas, markViewed, unmarkViewed, viewedFilesSet],
   );
+  // Kept out of the memo: the timestamp moves on every refetch, and only the
+  // stale-comment gate reads it.
+  return { viewed, blobShasUpdatedAt: successfulAt(blobShasQuery) };
+}
+
+/** When the query last succeeded, or `null` while loading or after an error. */
+function successfulAt(query: { isSuccess: boolean; dataUpdatedAt: number }): number | null {
+  return query.isSuccess ? query.dataUpdatedAt : null;
 }
 
 function useCommentActions(featureId: number, queryClient: QueryClient) {
@@ -168,21 +185,46 @@ function useCommentActions(featureId: number, queryClient: QueryClient) {
   const createComment = useCreateDiffComment({ mutation: { onSuccess: invalidate } });
   const updateComment = useUpdateDiffComment({ mutation: { onSuccess: invalidate } });
   const deleteComment = useDeleteDiffComment({ mutation: { onSuccess: invalidate } });
-  return useMemo(
+  const actions = useMemo(
     () => ({ comments, createComment, updateComment, deleteComment }),
     [comments, createComment, deleteComment, updateComment],
   );
+  return { actions, commentsUpdatedAt: successfulAt(commentsQuery) };
+}
+
+/**
+ * A pending comment whose file is missing from `blobShas`, or whose SHA
+ * differs, gets deleted. So the map must come from a successful response
+ * (never the empty map shown while loading or after an error) that is at
+ * least as recent as the comment list: a cached map older than a comment
+ * stamped by another client would retire it.
+ */
+function staleCommentCheckReady(
+  blobShasUpdatedAt: number | null,
+  commentsUpdatedAt: number | null,
+): boolean {
+  return (
+    blobShasUpdatedAt !== null &&
+    commentsUpdatedAt !== null &&
+    blobShasUpdatedAt >= commentsUpdatedAt
+  );
+}
+
+interface StaleCommentInputs {
+  comments: ReturnType<typeof useCommentActions>["actions"]["comments"];
+  blobShas: Record<string, string>;
+  /** See {@link staleCommentCheckReady}. */
+  ready: boolean;
 }
 
 function useStaleCommentInvalidation(
   featureId: number,
-  comments: ReturnType<typeof useCommentActions>["comments"],
-  blobShas: Record<string, string>,
-  deleteComment: ReturnType<typeof useCommentActions>["deleteComment"],
+  { comments, blobShas, ready }: StaleCommentInputs,
+  deleteComment: ReturnType<typeof useCommentActions>["actions"]["deleteComment"],
 ): void {
   const deleteCommentMutate = deleteComment.mutate;
   useEffect(() => {
-    if (comments.length === 0) return;
+    if (!ready || comments.length === 0) return;
     const staleIds = findStalePendingCommentIds(comments, blobShas).filter(
       (id) => !inFlightStaleDeleteIds.has(id),
     );
@@ -206,7 +248,7 @@ function useStaleCommentInvalidation(
         },
       );
     }
-  }, [blobShas, comments, deleteCommentMutate, featureId]);
+  }, [blobShas, comments, deleteCommentMutate, featureId, ready]);
 }
 
 export function useDiffData(
@@ -224,12 +266,15 @@ export function useDiffData(
   const queryClient = useQueryClient();
   const selectedCommit = commitSha ?? null;
   const changed = useChangedFiles(featureId, mode, targetBranch, selectedCommit);
-  const viewed = useViewedFiles(featureId, queryClient);
-  const commentActions = useCommentActions(featureId, queryClient);
+  const { viewed, blobShasUpdatedAt } = useViewedFiles(featureId, queryClient);
+  const { actions: commentActions, commentsUpdatedAt } = useCommentActions(featureId, queryClient);
   useStaleCommentInvalidation(
     featureId,
-    commentActions.comments,
-    viewed.blobShas,
+    {
+      comments: commentActions.comments,
+      blobShas: viewed.blobShas,
+      ready: staleCommentCheckReady(blobShasUpdatedAt, commentsUpdatedAt),
+    },
     commentActions.deleteComment,
   );
   const hasInitializedCollapse = useRef(false);

@@ -5,12 +5,15 @@
  * boolean "Use worktree" toggle.
  */
 import { memo, useCallback, useState, type ReactElement } from "react";
-import { CheckIcon, ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import { useIsMutating } from "@tanstack/react-query";
+import { CheckIcon, ChevronDownIcon, GitBranchIcon, LoaderCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { defaultWorktreeModeMutationKey } from "@/lib/default-worktree-mode";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import {
   WORKTREE_MODES,
   describeWorktreeMode,
@@ -19,7 +22,12 @@ import {
   type BranchWorktreeState,
   type WorktreeMode,
 } from "@/lib/worktree-mode";
-import { WORKTREE_SEGMENT, WORKTREE_SEGMENT_ACTIVE } from "./meta-bar-chip-styles";
+import {
+  WORKTREE_MANIFEST_SEGMENT,
+  WORKTREE_MANIFEST_SEGMENT_ACTIVE,
+  WORKTREE_SEGMENT,
+  WORKTREE_SEGMENT_ACTIVE,
+} from "./meta-bar-chip-styles";
 import { SlidingText } from "@/components/SlidingText";
 
 /** Modes that actually provision a worktree light the segment cyan, matching
@@ -40,6 +48,10 @@ interface WorktreeModePickerProps {
   effectHint?: string | null;
   /** Bind the cycle shortcut. See `WorktreeChipProps.enableModeShortcut`. */
   enableModeShortcut?: boolean;
+  /** `manifest`: an inline token of the composer's launch sentence. */
+  variant?: "chip" | "manifest";
+  /** Project whose default mode a pick may save; the label changes once it is saved. */
+  projectId: number;
 }
 
 export const WorktreeModePicker = memo(function WorktreeModePicker({
@@ -49,10 +61,16 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   modes = WORKTREE_MODES,
   effectHint,
   enableModeShortcut = true,
+  variant = "chip",
+  projectId,
 }: WorktreeModePickerProps): ReactElement {
+  const saving = useIsMutating({ mutationKey: defaultWorktreeModeMutationKey(projectId) }) > 0;
   const [open, setOpen] = useState(false);
   const active = modeUsesWorktree(mode);
-  const label = describeWorktreeMode(mode, state).label;
+  const label =
+    variant === "manifest"
+      ? manifestModeLabel(mode, state)
+      : describeWorktreeMode(mode, state).label;
   const handlePick = useCallback(
     (next: WorktreeMode) => {
       onModeChange(next);
@@ -67,6 +85,7 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   useScopedShortcut(
     "agent-worktree-mode",
     () => {
+      if (focusInSkillWizard()) return;
       const next = nextWorktreeMode(mode, state, modes);
       if (next) onModeChange(next);
     },
@@ -79,15 +98,34 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(active ? WORKTREE_SEGMENT_ACTIVE : WORKTREE_SEGMENT, "rounded-r-md")}
-          aria-label="Branch / worktree behavior"
+          className={
+            variant === "manifest"
+              ? active
+                ? WORKTREE_MANIFEST_SEGMENT_ACTIVE
+                : WORKTREE_MANIFEST_SEGMENT
+              : cn(active ? WORKTREE_SEGMENT_ACTIVE : WORKTREE_SEGMENT, "rounded-r-md")
+          }
+          aria-busy={saving}
+          aria-label={
+            variant === "manifest"
+              ? `Where the agent works: ${label}`
+              : "Branch / worktree behavior"
+          }
         >
-          <GitBranchIcon className="size-3 shrink-0" />
+          {saving ? (
+            <LoaderCircle aria-label="Saving" className="size-3 shrink-0 animate-spin" />
+          ) : (
+            <GitBranchIcon className="size-3 shrink-0" />
+          )}
           <SlidingText text={label} className="max-w-[140px]" />
           <ChevronDownIcon className="size-3 shrink-0 opacity-70" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="top" className="w-80 p-1">
+      <PopoverContent
+        align={variant === "manifest" ? "start" : "end"}
+        side="top"
+        className="w-80 p-1"
+      >
         {modes.map((m) => (
           <WorktreeModeRow
             key={m}
@@ -152,9 +190,33 @@ function WorktreeModeRow({ mode, state, selected, onPick }: WorktreeModeRowProps
       )}
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium leading-tight">{descriptor.label}</div>
-        <div className="text-xs leading-tight text-muted-foreground">{descriptor.description}</div>
+        <div className="text-xs leading-tight text-muted-foreground">
+          {disabled ? disabledReason(state) : descriptor.description}
+        </div>
       </div>
       {selected && <CheckIcon className="size-3.5 shrink-0 text-[var(--chip-worktree-fg)]" />}
     </button>
   );
+}
+
+/** Why `branch_worktree` can't apply to this branch (see `isWorktreeModeDisabled`). */
+function disabledReason(state: BranchWorktreeState): string {
+  const branch = state.effectiveBranch ?? "This branch";
+  if (!state.isLocal)
+    return `${branch} is a remote branch: start from it in a new worktree instead.`;
+  return `${branch} is checked out in the project folder, and git can't check a branch out twice. Start from it in a new worktree instead.`;
+}
+
+/** Short noun for the launch sentence: "<label> from|on <branch>". */
+function manifestModeLabel(mode: WorktreeMode, state: BranchWorktreeState): string {
+  switch (mode) {
+    case "on_branch":
+      return "Project folder";
+    case "branch_worktree":
+      return state.hasWorktree ? "Its worktree" : "New worktree";
+    case "from_branch":
+      return "New branch, project folder";
+    case "from_branch_worktree":
+      return "New worktree";
+  }
 }

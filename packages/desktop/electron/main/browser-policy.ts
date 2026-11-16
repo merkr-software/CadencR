@@ -1,4 +1,7 @@
 import { pathToFileURL } from "node:url";
+import { isLoopbackHost } from "./loopback-host";
+import { isCadencrBrowserUrl } from "./browser-self-origin-policy";
+import { isBrowserOriginPolicyReady } from "./runtime-config";
 
 export type BrowserAutomationAccess = "full" | "read-only" | "denied";
 
@@ -16,19 +19,32 @@ export function isLocalhostAutomationUrl(rawUrl: string): boolean {
   const parsed = safeUrl(rawUrl);
   if (!parsed) return false;
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  return (
-    parsed.hostname === "localhost" ||
-    parsed.hostname === "127.0.0.1" ||
-    parsed.hostname === "[::1]"
-  );
+  return isLoopbackHost(parsed.hostname);
 }
 
 export function browserAutomationAccess(rawUrl: string): BrowserAutomationAccess {
   const parsed = safeUrl(rawUrl);
   if (!parsed) return "denied";
+  if (isCadencrBrowserUrl(rawUrl)) return "denied";
   if (isLocalhostAutomationUrl(rawUrl)) return "full";
   if (parsed.protocol === "https:") return "read-only";
   return "denied";
+}
+
+export function assertBrowserAgentUrl(rawUrl: string, external = false): string {
+  if (!isBrowserOriginPolicyReady()) {
+    throw new Error("Browser access is unavailable until Cadencr's listener origins are verified.");
+  }
+  const url = normalizeBrowserOpenUrl(rawUrl);
+  const parsed = new URL(url);
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    isCadencrBrowserUrl(url) ||
+    (!external && !isLocalhostAutomationUrl(url))
+  ) {
+    throw new Error("Browser MCP requires a web development URL outside Cadencr's own origins.");
+  }
+  return url;
 }
 
 export function normalizeBrowserOpenUrl(rawInput: string): string {

@@ -7,6 +7,9 @@
 //! live entirely behind the `SessionBranching` capability; nothing here branches
 //! on provider identity.
 
+use crate::domain::ws_session::runtime::detached_closes::DetachedCloseLease;
+use crate::domain::ws_session::runtime::detached_runtime::DetachedRuntime;
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 mod fork;
 mod fork_db;
 mod rewind;
@@ -15,31 +18,17 @@ mod rewind_state;
 pub(crate) use fork::handle_fork;
 pub(crate) use rewind::handle_rewind;
 
-use axum::extract::ws::Message;
-use serde::Deserialize;
-use serde::Serialize;
 use tracing::warn;
 
 use super::super::persistence::WsSessionPersistence;
-use super::super::protocol::{WsEnvelope, WsSessionAction};
-use super::helpers::{parse_session_id, persist_and_close_query, send_error};
-use super::session_control::resolve_owner_sessions;
+use super::super::protocol::{BranchPayload, WsEnvelope};
+use super::helpers::{parse_session_id, send_error};
+use super::session_control::{reply_and_broadcast, resolve_owner_sessions};
 use super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::{BranchContext, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{BranchContext, BranchError, RuntimeSpawnConfig};
 use crate::domain::agents::providers::runtime_adapter;
 use crate::error::AppError;
-
-/// Inbound payload shared by `branch.rewind` and `branch.fork`.
-#[derive(Debug, Deserialize)]
-pub(super) struct BranchPayload {
-    pub session_id: String,
-    pub message_id: i64,
-    /// Rewind only: the user has acknowledged that uncommitted changes since the
-    /// checkpoint will be discarded. Ignored by fork.
-    #[serde(default)]
-    pub confirm_discard: bool,
-}
 
 /// Resolved, validated inputs for a branch operation.
 pub(super) struct BranchInputs {
@@ -226,6 +215,18 @@ pub(super) async fn truncate_context(
     inputs: &BranchInputs,
     source: Option<String>,
 ) -> Result<TruncateOutcome, BranchAbort> {
+    let adapter = runtime_adapter(&inputs.provider_id);
+    let branching = adapter
+        .as_ref()
+        .and_then(|adapter| adapter.session_branching());
+    // The session's profile must still resolve, whatever the cut: starting
+    // fresh would otherwise create a branch that fails on its first prompt.
+    if let Some(branching) = branching {
+        branching
+            .check_profile(inputs.profile.as_deref())
+            .await
+            .map_err(|error| surgery_abort(inputs, error))?;
+    }
     // Rewinding to (or before) the first prompt keeps no prior context.
     if inputs.cut_user_ordinal <= 1 {
         return Ok(TruncateOutcome::Fresh);
@@ -235,13 +236,13 @@ pub(super) async fn truncate_context(
         // so there is no full history to accidentally carry over: start fresh.
         return Ok(TruncateOutcome::Fresh);
     };
-    let Some(adapter) = runtime_adapter(&inputs.provider_id) else {
+    if adapter.is_none() {
         return Err(BranchAbort::Unsupported(format!(
             "Provider '{}' is not available, so this conversation can't be branched.",
             inputs.provider_id
         )));
-    };
-    let Some(branching) = adapter.session_branching() else {
+    }
+    let Some(branching) = branching else {
         return Err(BranchAbort::Unsupported(format!(
             "Rewind & Fork isn't supported for the '{}' provider yet.",
             inputs.provider_id
@@ -256,44 +257,48 @@ pub(super) async fn truncate_context(
     };
     match branching.truncate_before(&ctx).await {
         Ok(result) => Ok(TruncateOutcome::Truncated(result.new_runtime_session_id)),
-        Err(error) => {
-            warn!(
-                inputs.db_session_id,
-                error = %error,
-                "transcript surgery failed; aborting branch before any mutation"
-            );
-            Err(BranchAbort::Surgery(format!(
-                "The conversation couldn't be branched: {error}"
-            )))
-        }
+        Err(error) => Err(surgery_abort(inputs, error)),
     }
+}
+
+fn surgery_abort(inputs: &BranchInputs, error: BranchError) -> BranchAbort {
+    warn!(
+        inputs.db_session_id,
+        error = %error,
+        "transcript surgery failed; aborting branch before any mutation"
+    );
+    BranchAbort::Surgery(format!("The conversation couldn't be branched: {error}"))
 }
 
 /// Interrupt and close any live turn for this session, then reset the handle to
 /// `Pending` so the next prompt respawns (resuming whatever `runtime_session_id`
-/// the DB then holds). Returns the source provider session id (persisted to the
-/// DB by the close). Holds the sessions lock only for this transition.
+/// the DB then holds). The source provider session id is persisted to the DB
+/// by the close, which runs once the sessions lock is released (see
+/// `detached_runtime`). Spawns of the session wait while the caller holds the
+/// returned lease, so it can rewrite the transcript and the resume id before
+/// any new runtime reads them.
 pub(super) async fn stop_live_turn(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
     db_session_id: i64,
-) {
-    let effective = resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+) -> DetachedCloseLease {
+    let effective =
+        resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let mut sessions = effective.lock().await;
+    let branching = app_state
+        .session_runtimes
+        .begin_detached_close(db_session_id);
     let Some(handle) = sessions.get_mut(&db_session_id) else {
-        return;
+        return branching;
     };
-    if let QueryState::Active { query, .. } = &handle.state {
+    let Some(query) = handle.state.active_query() else {
+        return branching;
+    };
+    let (retired, feature_id, completed) = {
         // Flip status off `running` BEFORE closing so the per-turn reader reads
         // the close as benign (mirrors handle_clear / handle_destroy).
-        WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
-        persist_and_close_query(
-            query,
-            &app_state.write_pool,
-            db_session_id,
-            &handle.runtime_provider,
-        )
-        .await;
+        let completed =
+            WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
         let fresh = RuntimeSpawnConfig {
             cwd: handle.config.cwd.clone(),
             permission_mode: handle.desired_permission_mode.clone(),
@@ -310,7 +315,16 @@ pub(super) async fn stop_live_turn(
             ..RuntimeSpawnConfig::default()
         };
         handle.state = QueryState::Pending(fresh);
-    }
+        let retired =
+            DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes);
+        (retired, handle.feature_id, completed)
+    };
+    drop(sessions);
+    let senders = &app_state.ws_feature_senders;
+    let what = "that the agent stopped";
+    report_if_unsaved(senders, feature_id, db_session_id, what, completed).await;
+    retired.close_in(app_state).await;
+    branching
 }
 
 /// The provider session id currently recorded for this session.
@@ -334,31 +348,6 @@ pub(super) async fn current_runtime_session_id(
             None
         }
     }
-}
-
-/// Send the originating client a typed reply, then broadcast the same change to
-/// the other devices viewing this feature so they reload.
-pub(super) async fn reply_and_broadcast<P: Serialize>(
-    app_state: &AppState,
-    sender: &WsSender,
-    envelope_id: &str,
-    feature_id: i64,
-    action: WsSessionAction,
-    payload: P,
-) {
-    let reply = WsEnvelope::session_reply(envelope_id, action, &payload)
-        .expect("session branch reply payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
-    let broadcast = WsEnvelope::session_event(action, payload)
-        .expect("session branch broadcast payload should serialize");
-    app_state
-        .ws_feature_senders
-        .broadcast_others(
-            feature_id,
-            sender,
-            &Message::Text(String::from(broadcast).into()),
-        )
-        .await;
 }
 
 #[cfg(test)]
@@ -386,5 +375,42 @@ mod tests {
         );
         // The carried message is surfaced verbatim to the user.
         assert_eq!(BranchAbort::Surgery("boom".into()).message(), "boom");
+    }
+
+    fn first_message_of(profile: Option<&str>) -> BranchInputs {
+        BranchInputs {
+            db_session_id: 1,
+            feature_id: 1,
+            message_id: 1,
+            provider_id: "claude_code".into(),
+            profile: profile.map(ToOwned::to_owned),
+            cwd: std::path::PathBuf::from("/tmp/cadencr-branch-test"),
+            message_text: "first".into(),
+            cut_user_ordinal: 1,
+            cut_provider_uuid: None,
+        }
+    }
+
+    /// Found in QA: a fork from the first message of a session whose profile
+    /// was deleted created the fork, which only failed on its first prompt.
+    /// It must abort before any mutation, like a cut after the first message.
+    #[tokio::test]
+    async fn a_first_message_branch_aborts_when_the_sessions_profile_is_gone() {
+        let inputs = first_message_of(Some("deleted"));
+        for source in [None, Some("source-session".to_string())] {
+            match truncate_context(&inputs, source).await {
+                Err(BranchAbort::Surgery(message)) => {
+                    assert!(message.contains("profile 'deleted' not found"), "{message}");
+                }
+                Err(other) => panic!("unexpected abort: {}", other.message()),
+                Ok(_) => panic!("a branch under a deleted profile must abort"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_first_message_branch_under_a_live_profile_starts_fresh() {
+        let outcome = truncate_context(&first_message_of(None), Some("source".into())).await;
+        assert!(matches!(outcome, Ok(TruncateOutcome::Fresh)));
     }
 }

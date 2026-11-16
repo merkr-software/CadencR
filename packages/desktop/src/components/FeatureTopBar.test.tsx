@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@/test-utils";
+import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { FeatureTopBar } from "./FeatureTopBar";
+
+function hideRail(): void {
+  useSidebarConfigStore.setState({ config: { ...DEFAULT_SIDEBAR_CONFIG, rail: "none" } });
+}
 
 const platformMock = vi.hoisted(() => ({ hasMacWindowControls: false }));
 
@@ -15,9 +23,9 @@ vi.mock("@/lib/mac-window-controls", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: unknown; to: string }) => {
+  Link: ({ children, to, ...props }: { children: unknown; to: string }) => {
     const React = require("react");
-    return React.createElement("a", { href: to }, children);
+    return React.createElement("a", { ...props, href: to }, children);
   },
 }));
 
@@ -48,6 +56,9 @@ let mockFeatureData: Record<string, unknown> = {
   created_at: "2024-01-01",
 };
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 vi.mock("@/api/generated", () => ({
   useGetFeature: vi.fn(() => ({ data: mockFeatureData })),
   useGetFeatureSettings: vi.fn(() => ({
@@ -73,9 +84,19 @@ vi.mock("@/api/generated", () => ({
   getCompareUrl: vi.fn(),
 }));
 
-// CustomActionsBar pulls in network hooks we don't care about for these tests.
-vi.mock("./CustomActionsBar", () => ({
-  CustomActionsBar: () => {
+// The embedded (unified-grid) header reads live attention; the full store
+// graph would need the whole generated API client.
+vi.mock("@/hooks/useFeatureAttention", () => ({
+  useFeatureAttention: () => ({ state: "idle", sourceFeatureId: 0 }),
+}));
+
+vi.mock("@/stores/session-status-selectors", () => ({
+  useFeatureStatus: () => ({ status: "idle", kind: null }),
+}));
+
+// The launcher pulls in network hooks we don't care about for these tests.
+vi.mock("./custom-actions/CustomActionsLauncher", () => ({
+  CustomActionsLauncher: () => {
     const React = require("react");
     return React.createElement("div", { "data-testid": "custom-actions-bar" });
   },
@@ -101,6 +122,9 @@ vi.mock("./ModelSelector", () => ({
 }));
 
 const mockSetCollapsed = vi.fn();
+const EXPAND_TITLE = `Expand sidebar (${formatCompactCombo(
+  getRegistryShortcut("toggle-sidebar").keys,
+)})`;
 let mockSidebarCollapsed = false;
 
 vi.mock("@/components/SidebarContext", () => ({
@@ -114,6 +138,7 @@ describe("FeatureTopBar", () => {
     mockAutoName.mockClear();
     mockSidebarCollapsed = false;
     platformMock.hasMacWindowControls = false;
+    useSidebarConfigStore.setState({ config: DEFAULT_SIDEBAR_CONFIG });
     mockFeatureData = {
       id: 1,
       title: "My Test Feature",
@@ -126,6 +151,29 @@ describe("FeatureTopBar", () => {
   it("renders feature title", () => {
     render(<FeatureTopBar featureId={1} projectId={1} />);
     expect(screen.getByText("My Test Feature")).toBeInTheDocument();
+  });
+
+  it("carries the worktree summary inside the header and the details below it", async () => {
+    const { user } = render(
+      <FeatureTopBar
+        featureId={1}
+        projectId={1}
+        wsWorktreeStatus="ready"
+        wsWorktreeBranch="feature/my-branch"
+      />,
+    );
+    const header = screen
+      .getByRole("heading", { name: "My Test Feature" })
+      .closest("[data-feature-header]");
+    expect(header).not.toBeNull();
+    const toggle = screen.getByRole("button", { name: /worktree setup/i });
+    expect(header).toContainElement(toggle);
+    expect(screen.queryByText("Create worktree")).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(header).not.toContainElement(screen.getByText("Create worktree"));
   });
 
   it("renders the feature label next to the title", () => {
@@ -175,6 +223,7 @@ describe("FeatureTopBar", () => {
   });
 
   it("keeps collapsed chrome mounted while toggling its accessibility state", () => {
+    platformMock.hasMacWindowControls = true;
     const { container, rerender } = render(<FeatureTopBar featureId={1} projectId={1} />);
     const chrome = container.querySelector("[data-sidebar-collapsed-chrome]");
     expect(chrome).toHaveAttribute("data-visible", "false");
@@ -190,38 +239,36 @@ describe("FeatureTopBar", () => {
     expect(chrome).not.toHaveAttribute("inert");
   });
 
-  it("shows logo and app name when sidebar is collapsed", () => {
-    mockSidebarCollapsed = true;
-    const { container } = render(<FeatureTopBar featureId={1} projectId={1} />);
-    const chrome = container.querySelector("[data-sidebar-collapsed-chrome]");
-    expect(chrome).toHaveAttribute("data-visible", "true");
-    expect(chrome).not.toHaveAttribute("inert");
-    expect(screen.getByText("Cadencr")).toBeInTheDocument();
-    expect(screen.getByAltText("Cadencr")).toBeInTheDocument();
-  });
-
-  it("shows expand button when sidebar is collapsed", () => {
+  it("leaves expand and settings to the rail when the sidebar is collapsed", () => {
     mockSidebarCollapsed = true;
     render(<FeatureTopBar featureId={1} projectId={1} />);
-    expect(screen.getByTitle("Expand sidebar (⌘B)")).toBeInTheDocument();
+    expect(screen.queryByTitle(EXPAND_TITLE)).not.toBeInTheDocument();
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cadencr")).not.toBeInTheDocument();
   });
 
-  it("shows settings link when sidebar is collapsed", () => {
+  it("shows expand and settings when collapsed without a rail", () => {
     mockSidebarCollapsed = true;
+    hideRail();
     render(<FeatureTopBar featureId={1} projectId={1} />);
+    expect(screen.getByTitle(EXPAND_TITLE)).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
-  it("uses compact Mac spacing when the sidebar is collapsed", () => {
-    mockSidebarCollapsed = true;
+  it("keeps the Mac header's expanded height when the sidebar collapses", () => {
     platformMock.hasMacWindowControls = true;
-    render(<FeatureTopBar featureId={1} projectId={1} />);
-
+    hideRail();
+    const { rerender } = render(<FeatureTopBar featureId={1} projectId={1} />);
     const header = screen
       .getByRole("heading", { name: "My Test Feature" })
       .closest("[data-feature-header]");
-    expect(header).toHaveClass("pt-1.5", "pb-0");
-    expect(screen.getByTitle("Expand sidebar (⌘B)")).toHaveClass("size-6");
+    const expandedClasses = header?.className;
+
+    mockSidebarCollapsed = true;
+    rerender(<FeatureTopBar featureId={1} projectId={1} />);
+
+    expect(header?.className).toBe(expandedClasses);
+    expect(screen.getByTitle(EXPAND_TITLE)).toHaveClass("size-6");
     expect(screen.getByTitle("Settings")).toHaveClass("size-6");
   });
 
@@ -241,10 +288,11 @@ describe("FeatureTopBar", () => {
 
   it("calls setCollapsed(false) when expand button is clicked", async () => {
     mockSidebarCollapsed = true;
+    hideRail();
     const { default: userEvent } = await import("@testing-library/user-event");
     const user = userEvent.setup();
     render(<FeatureTopBar featureId={1} projectId={1} />);
-    await user.click(screen.getByTitle("Expand sidebar (⌘B)"));
+    await user.click(screen.getByTitle(EXPAND_TITLE));
     expect(mockSetCollapsed).toHaveBeenCalledWith(false);
   });
 });

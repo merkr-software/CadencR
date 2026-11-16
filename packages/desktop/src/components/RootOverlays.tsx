@@ -1,32 +1,32 @@
 import type { Dispatch, ReactElement, SetStateAction } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
+import { ArchiveCleanupDialog } from "@/components/ArchiveCleanupDialog";
+import { ArchiveCleanupNotices } from "@/components/ArchiveCleanupNotices";
 import { FeatureDeleteDialog } from "@/components/FeatureDeleteDialog";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { AppCloseDialog } from "@/components/AppCloseDialog";
+import { ServiceStatusNotifier } from "@/components/ServiceStatusNotifier";
 import { ImageLightboxHost } from "@/components/ImageLightbox";
+import { MermaidFullscreenHost } from "@/components/MermaidFullscreen";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { Toaster } from "@/components/ui/sonner";
 import { SchedulesShortcut } from "@/components/SchedulesShortcut";
 import { UnifiedAgentsShortcut } from "@/components/UnifiedAgentsShortcut";
 import { PostUpdateChangelogDialog } from "@/components/PostUpdateChangelogDialog";
 import { ThemeDrawer } from "@/components/theme/ThemeDrawer";
+import { PluginTabPresenceKeeper } from "@/components/plugin-tabs/PluginTabPresenceKeeper";
+import { PluginTabShortcutRelay } from "@/components/plugin-tabs/PluginTabShortcutRelay";
 import { useRemoteUpdateCheck } from "@/hooks/useRemoteUpdateCheck";
+import type { AppCloseState } from "@/hooks/useAppClose";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { useListFeatureWorktrees, type Feature } from "@/api/generated";
 import { getArchiveCleanupAvailability } from "@/components/archive-cleanup-availability";
 import { type FeatureArchiveAction } from "@/lib/feature-archive-decision";
-import type { ArchiveRelativeSelection } from "@/components/ArchiveRelativeOptions";
+import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 
 export interface ConfirmFeatureAction {
   action: FeatureArchiveAction;
   feature: Feature;
-}
-
-interface AppCloseOverlayState {
-  showConfirm: boolean;
-  setShowConfirm: Dispatch<SetStateAction<boolean>>;
-  confirmAndClose: () => void;
-  runningAgents: Array<{ sessionId: string; label: string }>;
 }
 
 interface RootOverlaysProps {
@@ -36,9 +36,9 @@ interface RootOverlaysProps {
   activeFeatureId: number | null;
   confirmAction: ConfirmFeatureAction | null;
   setConfirmAction: Dispatch<SetStateAction<ConfirmFeatureAction | null>>;
-  onArchiveFeature: (featureId: number, options: ArchiveRelativeSelection) => Promise<unknown>;
+  onArchiveFeature: (featureId: number, options: ArchiveFeatureOptions) => void;
   onDeleteFeature: (featureId: number) => void;
-  appClose: AppCloseOverlayState;
+  appClose: AppCloseState;
 }
 
 export function RootOverlays({
@@ -81,11 +81,19 @@ export function RootOverlays({
       />
       <UnifiedAgentsShortcut />
       <SchedulesShortcut />
-      <KeyboardShortcutsModal open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
-      <Toaster position="top-center" />
+      <PluginTabPresenceKeeper />
+      <PluginTabShortcutRelay />
+      <KeyboardShortcutsModal
+        open={shortcutsHelpOpen}
+        onOpenChange={setShortcutsHelpOpen}
+        projectId={activeProjectId}
+      />
+      <Toaster />
+      <ServiceStatusNotifier />
       <PostUpdateChangelogDialog />
       <ThemeDrawer />
       <ImageLightboxHost />
+      <MermaidFullscreenHost />
       <ArchiveFeatureDialog
         open={archiveConfirmAction != null}
         feature={archiveConfirmAction?.feature}
@@ -107,21 +115,9 @@ export function RootOverlays({
         }}
         onDelete={onDeleteFeature}
       />
-      <ConfirmDialog
-        open={appClose.showConfirm}
-        onOpenChange={appClose.setShowConfirm}
-        title="Quit Cadencr?"
-        description="The following agents are still running. They will be stopped and can be resumed next time you open the app."
-        confirmText="Quit"
-        variant="destructive"
-        onConfirm={appClose.confirmAndClose}
-      >
-        <ul className="text-sm text-muted-foreground space-y-1 py-2">
-          {appClose.runningAgents.map((agent) => (
-            <li key={agent.sessionId}>{agent.label}</li>
-          ))}
-        </ul>
-      </ConfirmDialog>
+      <ArchiveCleanupNotices />
+      <ArchiveCleanupDialog />
+      <AppCloseDialog state={appClose} />
     </>
   );
 }

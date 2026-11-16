@@ -1,7 +1,6 @@
 import { AlertCircle, Loader2, RefreshCw, SlidersHorizontal } from "lucide-react";
 import type {
   RuntimeSessionConfigOption,
-  RuntimeSessionConfigSelectOption,
   RuntimeSessionConfigSnapshot,
   RuntimeSessionConfigValue,
 } from "@/api/generated";
@@ -15,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { flattenChoices, isHostRenderedConfigOption } from "@/lib/host-rendered-config-options";
 import { cn } from "@/lib/utils";
 import { META_BAR_CHIP } from "./meta-bar-chip-styles";
 
@@ -26,6 +26,8 @@ interface SessionConfigPopoverProps {
   pendingId: string | null;
   onRefresh: () => void;
   onChange: (configId: string, value: RuntimeSessionConfigValue) => void;
+  /** `instrument`: the composer card's instrument row (no chip chrome). */
+  variant?: "chip" | "instrument";
 }
 
 export function SessionConfigPopover({
@@ -36,6 +38,7 @@ export function SessionConfigPopover({
   pendingId,
   onRefresh,
   onChange,
+  variant = "chip",
 }: SessionConfigPopoverProps): React.JSX.Element | null {
   if (!shouldShowSessionConfig(config, loading, supported, error)) return null;
   const options = additionalSessionConfigOptions(config);
@@ -44,7 +47,12 @@ export function SessionConfigPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(META_BAR_CHIP, error && "text-destructive")}
+          className={cn(
+            variant === "instrument"
+              ? "composer-instrument gap-1.5 text-foreground/85 [&_svg]:size-3.5"
+              : META_BAR_CHIP,
+            error && "text-destructive",
+          )}
           aria-label="Session configuration"
           title="Configuration negotiated with this ACP provider"
         >
@@ -122,7 +130,11 @@ function additionalSessionConfigOptions(
 }
 
 function isDedicatedControl(option: RuntimeSessionConfigOption): boolean {
-  return option.category === "model" || option.category === "thought_level";
+  return (
+    option.category === "model" ||
+    option.category === "thought_level" ||
+    isHostRenderedConfigOption(option)
+  );
 }
 
 function SessionConfigField({
@@ -204,16 +216,5 @@ function SessionConfigSelect({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-function flattenChoices(
-  option: Extract<RuntimeSessionConfigOption, { type: "select" }>,
-): Array<{ option: RuntimeSessionConfigSelectOption; group?: string }> {
-  if (option.choices.layout === "ungrouped") {
-    return option.choices.options.map((choice) => ({ option: choice }));
-  }
-  return option.choices.groups.flatMap((group) =>
-    group.options.map((choice) => ({ option: choice, group: group.name })),
   );
 }

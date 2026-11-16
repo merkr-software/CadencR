@@ -10,8 +10,9 @@
  * macOS or Ctrl/Alt/Shift on other platforms.
  *
  * Order within a scope is the order rendered. Editor + editor-buffer
- * entries live in {@link ./entries-editor} to keep this file under the
- * 400-line limit; they are concatenated below.
+ * entries live in {@link ./entries-editor}, sidebar entries in
+ * {@link ./entries-sidebar}, to keep this file under the 400-line limit;
+ * they are concatenated below.
  *
  * `as const satisfies` keeps the literal `id` of every entry so the
  * `ShortcutId` union below is derived from this single source — typos in
@@ -22,6 +23,8 @@ import { BROWSER_SHORTCUTS } from "./entries-browser";
 import { EDITOR_SHORTCUTS } from "./entries-editor";
 import { GIT_SHORTCUTS } from "./entries-git";
 import { MODEL_PICKER_SHORTCUTS } from "./entries-model-picker";
+import { PALETTE_SHORTCUTS } from "./entries-palette";
+import { SIDEBAR_SHORTCUTS } from "./entries-sidebar";
 import { TERMINAL_SHORTCUTS } from "./entries-terminal";
 
 const APP_SHORTCUTS = [
@@ -40,6 +43,8 @@ const APP_SHORTCUTS = [
   },
   { id: "open-settings", keys: ["mod", "comma"], description: "Open settings", scope: "global" },
   { id: "toggle-sidebar", keys: ["mod", "b"], description: "Toggle sidebar", scope: "global" },
+  { id: "navigate-back", keys: ["mod", "lbracket"], description: "Go back", scope: "global" },
+  { id: "navigate-forward", keys: ["mod", "rbracket"], description: "Go forward", scope: "global" },
   { id: "new-session", keys: ["mod", "shift", "n"], description: "New session", scope: "feature" },
   {
     id: "delete-feature",
@@ -116,26 +121,18 @@ const APP_SHORTCUTS = [
   },
 
   // ─── Settings ────────────────────────────────────────────────────────
-  { id: "settings-back", keys: ["escape"], description: "Back to workspace", scope: "settings" },
-
-  // ─── Sidebar ─────────────────────────────────────────────────────────
   {
-    id: "sidebar-focus-down",
-    keys: ["mod", "alt", "down"],
-    description: "Move focus down",
-    scope: "sidebar",
+    id: "settings-back",
+    keys: ["escape"],
+    description: "Clear the settings search, else back to workspace",
+    scope: "settings",
   },
   {
-    id: "sidebar-focus-up",
-    keys: ["mod", "alt", "up"],
-    description: "Move focus up",
-    scope: "sidebar",
-  },
-  {
-    id: "sidebar-activate",
-    keys: ["enter"],
-    description: "Open focused item",
-    scope: "sidebar",
+    id: "settings-search",
+    keys: ["mod", "f"],
+    description: "Search settings",
+    scope: "settings",
+    aliases: ["find"],
   },
 
   // ─── Unified Agents ──────────────────────────────────────────────────
@@ -220,6 +217,17 @@ const APP_SHORTCUTS = [
     description: "Editor tab",
     scope: "feature-panes",
   },
+  {
+    // ⌘⌥B: every free ⌘⇧ letter is taken, and B sits beside the Browser tab's
+    // ⌘⇧B — auto layout's headline move is splitting the Browser in. Off macOS
+    // this is Ctrl+Alt+B (an AltGr chord), and no common layout composes a
+    // character on AltGr+B. Cmd suppresses Option's composition on macOS.
+    id: "layout-auto-toggle",
+    keys: ["mod", "alt", "b"],
+    description: "Toggle auto layout",
+    scope: "feature-panes",
+    aliases: ["auto layout", "split"],
+  },
 
   // ─── Feature actions ─────────────────────────────────────────────────
   {
@@ -241,6 +249,20 @@ const APP_SHORTCUTS = [
     keys: ["mod", "g"],
     description: "Git actions popover",
     scope: "feature",
+  },
+  {
+    id: "custom-actions",
+    keys: ["mod", "alt", "r"],
+    description: "Custom actions menu",
+    scope: "feature",
+    aliases: ["run", "task", "script", "command"],
+  },
+  {
+    id: "custom-action-run-1-9",
+    keys: ["mod", "alt", "1-9"],
+    description: "Run custom action 1–9",
+    scope: "feature",
+    aliases: ["run", "task", "script", "command"],
   },
   {
     id: "git-commit",
@@ -284,8 +306,18 @@ const APP_SHORTCUTS = [
     scope: "agent",
     aliases: ["search", "find"],
   },
-  { id: "agent-send", keys: ["mod", "enter"], description: "Send message", scope: "agent" },
-  { id: "agent-maximize", keys: ["mod", "enter"], description: "Maximize agent", scope: "agent" },
+  {
+    id: "agent-send",
+    keys: ["mod", "enter"],
+    description: "Send message (queue it while the agent works)",
+    scope: "agent",
+  },
+  {
+    id: "agent-maximize",
+    keys: ["mod", "shift", "enter"],
+    description: "Maximize agent",
+    scope: "agent",
+  },
   {
     id: "agent-collapse",
     keys: ["mod", "shift", "z"],
@@ -299,10 +331,33 @@ const APP_SHORTCUTS = [
     scope: "agent",
   },
   {
+    // Free in this scope: ⌘⇧C is only the Editor tab's "Copy file path".
+    // Toggles: from the prompt into the wizard, and from the wizard back.
+    id: "agent-skill-wizard",
+    keys: ["mod", "shift", "c"],
+    description: "Configure the invoked /cadencr skill, or return to the prompt",
+    scope: "agent",
+    aliases: ["skill", "wizard"],
+  },
+  {
     id: "agent-autoscroll",
     keys: ["mod", "shift", "s"],
     description: "Re-enable auto-scroll",
     scope: "agent",
+  },
+  {
+    id: "agent-previous-message",
+    keys: ["alt", "up"],
+    description: "Jump to your previous message",
+    scope: "agent",
+    aliases: ["navigator", "prompt"],
+  },
+  {
+    id: "agent-next-message",
+    keys: ["alt", "down"],
+    description: "Jump to your next message",
+    scope: "agent",
+    aliases: ["navigator", "prompt"],
   },
   {
     id: "agent-use-referenced-worktree",
@@ -330,7 +385,29 @@ const APP_SHORTCUTS = [
     scope: "agent",
     aliases: ["worktree", "branch"],
   },
-  { id: "agent-stop", keys: ["escape"], description: "Stop running agent", scope: "agent" },
+  {
+    // Literal Control on every platform, like a shell's reverse search.
+    id: "prompt-history-search",
+    keys: ["ctrl", "r"],
+    description: "Search prompt history and stashed drafts",
+    scope: "agent",
+    aliases: ["history", "recall"],
+  },
+  {
+    id: "prompt-stash-draft",
+    keys: ["ctrl", "s"],
+    description: "Stash the draft (bring it back from history search)",
+    scope: "agent",
+    aliases: ["stash", "draft"],
+  },
+  {
+    // Two presses: the first arms stop and shows a hint, the second (within
+    // `STOP_ARM_WINDOW_MS`) stops. A lone Esc only ever closes/backs out.
+    id: "agent-stop",
+    keys: ["escape"],
+    description: "Stop running agent (press twice)",
+    scope: "agent",
+  },
 
   // ─── Plan approval ───────────────────────────────────────────────────
   { id: "plan-approve", keys: ["mod", "y"], description: "Approve plan", scope: "plan-approval" },
@@ -372,11 +449,13 @@ const APP_SHORTCUTS = [
 
 export const SHORTCUTS = [
   ...APP_SHORTCUTS,
+  ...SIDEBAR_SHORTCUTS,
   ...GIT_SHORTCUTS,
   ...TERMINAL_SHORTCUTS,
   ...EDITOR_SHORTCUTS,
   ...BROWSER_SHORTCUTS,
   ...MODEL_PICKER_SHORTCUTS,
+  ...PALETTE_SHORTCUTS,
 ] as const;
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];

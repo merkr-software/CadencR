@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { parseToolArgsObject } from "@/lib/tool-args";
 import { isFileChangeTool } from "@/lib/tool-adapter";
 import {
@@ -35,7 +35,7 @@ export function latestValidJsonSnapshot(content: string): string | undefined {
   // did parse, which is stale but never wrong.
   if (content.includes(TRUNCATION_NOTICE)) return undefined;
 
-  for (let index = content.lastIndexOf("{"); index >= 0; ) {
+  for (let index = content.lastIndexOf("{"); index >= 0;) {
     const candidate = content.slice(index);
     try {
       JSON.parse(candidate);

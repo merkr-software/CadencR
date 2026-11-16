@@ -1,38 +1,41 @@
-import { create, type StoreApi } from "zustand";
+import { createPermissionActions } from "./ws-session-permission-actions";
+import { create, type StateCreator, type StoreApi } from "zustand";
 import {
   type PromptDispatchOptions,
   type WsEnvelope,
   createSessionInit,
   createPromptSend,
-  createPermissionRespond,
 } from "@/lib/ws-envelope";
 import * as branch from "./ws-session-branch";
 import type { BranchDeps } from "./ws-session-branch";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { parseErrorPayload } from "./ws-envelope-payload";
-import { buildClearedGatePatch, isGateClosingErrorCode } from "./ws-gate-state";
-import {
-  makeErrorBlock,
-  buildQueuedInitEnvelopes,
-  buildQueuedPromptPatch,
-} from "./ws-session-store-helpers";
+import { buildQueuedInitEnvelopes, buildQueuedPromptPatch } from "./ws-session-store-helpers";
 import {
   type SessionEntry,
   type WsSessionStore,
   createSessionEntry,
   updateSession,
 } from "./ws-session-types";
-import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
-import { buildAskUserQuestionUpdatedInput } from "@/lib/build-ask-user-question-payload";
-import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
-import { advancePendingPermissionQueue } from "@/lib/pending-permission-queue";
+import { isTurnActive } from "./ws-turn-lifecycle";
 import type { SocketHandlerDeps } from "./ws-session-socket-handler";
-import { connectSession } from "./ws-session-connect";
+import { connectSession, initRequestIdAfterDrop } from "./ws-session-connect";
 import { createWsSessionSimpleActions } from "./ws-session-simple-actions";
 import { createWsSessionTransportActions } from "./ws-session-transport-actions";
+import { SessionTransportRegistry } from "./ws-session-transport";
+import {
+  sessionPresentationEffects,
+  type SessionPresentationEffects,
+} from "./ws-session-presentation";
+export { installSessionPresentationEffects } from "./ws-session-presentation";
+export type { SessionPresentationEffects } from "./ws-session-presentation";
 import { createWsSessionConfigActions } from "./ws-session-config-actions";
+import {
+  abandonInFlight,
+  queuedCommandHooks,
+  sendSessionCommand,
+  type SessionCommandSpec,
+} from "./ws-session-commands";
 
-import { blocksPatchWithDerived } from "./ws-message-processing";
 export type { PermissionMode, PendingPlanApproval } from "./ws-session-types";
 export {
   type StreamingState,
@@ -43,35 +46,10 @@ export {
   applyMutations,
 } from "./ws-message-processing";
 
-/** Prefix for synthetic request IDs created during plan-restore flows. */
-const PLAN_RESTORE_PREFIX = "plan_restore_";
-const wsSessionSourceKey = (sessionId: string): string => `ws-session:${sessionId}`;
-
 function shouldTrackPromptReceipt(session: SessionEntry): boolean {
   return (
     session.supportsPromptReceipts && !!session.serverSessionId && isTurnActive(session.lifecycle)
   );
-}
-
-/**
- * Resolve every in-flight `sendRequest()` with `null` and clear the map, so
- * callers stop waiting the moment the socket is gone (transient drop or
- * deliberate teardown) instead of hanging until the 10s timeout.
- *
- * A request resolved as failed must not execute later as a stale side effect:
- * its envelope may still sit in `outboundQueue` (queued while the socket was
- * down), so drop it too. Non-request envelopes (prompts, resume, control)
- * keep the queue-and-flush policy — only rejected requests are removed.
- */
-function rejectPendingRequests(session: SessionEntry): void {
-  if (!session.pendingWsRequests.size) return;
-  const requestIds = new Set(session.pendingWsRequests.keys());
-  for (const cb of session.pendingWsRequests.values()) cb(null);
-  session.pendingWsRequests.clear();
-  const queue = session.outboundQueue;
-  for (let i = queue.length - 1; i >= 0; i -= 1) {
-    if (requestIds.has(queue[i].id)) queue.splice(i, 1);
-  }
 }
 
 type WsStoreSet = StoreApi<WsSessionStore>["setState"];
@@ -81,46 +59,63 @@ function getSessionEntry(get: WsStoreGet, sessionId: string): SessionEntry {
   return get().sessions[sessionId] ?? createSessionEntry();
 }
 
-function sendRawEnvelope(get: WsStoreGet, sessionId: string, envelope: WsEnvelope): void {
-  const session = get().sessions[sessionId];
-  if (session?.conn?.sendJson(envelope)) return;
-  session?.outboundQueue.push(envelope);
+/** Returns false when the envelope was parked in the outbound queue instead. */
+function sendRawEnvelope(ctx: StoreAccessors, sessionId: string, envelope: WsEnvelope): boolean {
+  return !!ctx.get().sessions[sessionId] && ctx.transport.send(sessionId, envelope);
 }
 
-function flushOutboundQueue(get: WsStoreGet, sessionId: string): void {
+function forceReconnectSession(ctx: StoreAccessors, sessionId: string): void {
+  const { set, get, transport } = ctx;
   const session = get().sessions[sessionId];
-  if (!session?.conn) return;
-  const queue = session.outboundQueue;
-  let sent = 0;
-  while (sent < queue.length && session.conn.sendJson(queue[sent])) sent += 1;
-  if (sent > 0) queue.splice(0, sent);
-}
-
-function forceReconnectSession(set: WsStoreSet, get: WsStoreGet, sessionId: string): void {
-  const session = get().sessions[sessionId];
-  if (session?.conn) {
-    rejectPendingRequests(session);
-    session.conn.close(1000, "force-reconnect");
-    set(updateSession(get(), sessionId, { conn: null, isConnected: false }));
+  const resources = transport.get(sessionId);
+  if (resources?.conn) {
+    abandonInFlight(ctx, sessionId);
+    const conn = resources.conn;
+    resources.conn = null;
+    conn.close(1000, "force-reconnect");
+    // The close handler ignores this intentional close, so drop a sent init here.
+    set(
+      updateSession(get(), sessionId, {
+        isConnected: false,
+        isConnecting: false,
+        initRequestId: initRequestIdAfterDrop(session, resources.outboundQueue),
+      }),
+    );
   }
   get().connect(sessionId);
 }
 
-function flushQueuedInitActions(set: WsStoreSet, get: WsStoreGet, sessionId: string): void {
+function flushQueuedInitActions(ctx: StoreAccessors, sessionId: string): void {
+  const { set, get, transport } = ctx;
   const session = get().sessions[sessionId];
   if (!session || !session.serverSessionId) return;
   for (const envelope of buildQueuedInitEnvelopes(session)) {
-    sendRawEnvelope(get, sessionId, envelope);
+    sendRawEnvelope(ctx, sessionId, envelope);
   }
-  if (session.queuedPrompts.length === 0) return;
-  set(updateSession(get(), sessionId, { queuedPrompts: [] }));
+  transport
+    .get(sessionId)
+    ?.delivery.settle(session.queuedPrompts.map((prompt) => prompt.messageUuid));
+  if (session.queuedPrompts.length === 0 && !session.pendingInitAccessMode) return;
+  set(updateSession(get(), sessionId, { queuedPrompts: [], pendingInitAccessMode: null }));
 }
 
-function reinitOnReconnect(get: WsStoreGet, sessionId: string): void {
+/**
+ * `session.init` was refused: its queued prompts will never be sent. Awaiting
+ * callers get theirs back; fire-and-forget `sendPrompt` callers only see the
+ * inline error block. `pendingInitAccessMode` is kept — it is still the
+ * user's choice for the next init.
+ */
+function failQueuedInit(ctx: StoreAccessors, sessionId: string, message: string) {
+  ctx.set(updateSession(ctx.get(), sessionId, { queuedPrompts: [], initRequestId: null }));
+  ctx.transport.get(sessionId)?.delivery.fail(message);
+}
+
+function reinitOnReconnect(ctx: StoreAccessors, sessionId: string): void {
+  const { get } = ctx;
   const session = get().sessions[sessionId];
   if (!session?.featureId || !session.serverSessionId || !session.cwd) return;
   sendRawEnvelope(
-    get,
+    ctx,
     sessionId,
     createSessionInit({
       cwd: session.cwd,
@@ -131,105 +126,6 @@ function reinitOnReconnect(get: WsStoreGet, sessionId: string): void {
       permissionMode: session.permissionMode,
     }),
   );
-}
-
-function handlePermissionResponse(
-  set: WsStoreSet,
-  get: WsStoreGet,
-  sessionId: string,
-  currentRequestId: string,
-  payload: unknown,
-): void {
-  const session = getSessionEntry(get, sessionId);
-  const error = parseErrorPayload(payload);
-  if (error?.message || payload === null) {
-    const message = error?.message ?? "Permission response timed out.";
-    const errorBlock = makeErrorBlock(session, message, { idPrefix: "ws-permission-error" });
-    const isDeadSessionError = isGateClosingErrorCode(error?.code);
-    const responseUuids = new Map(session.permissionResponseMessageUuids);
-    if (isDeadSessionError) responseUuids.delete(currentRequestId);
-    const gatePatch: Partial<SessionEntry> = isDeadSessionError
-      ? {
-          ...buildClearedGatePatch(session),
-          lifecycle: transitionTurn(session.lifecycle, { type: "turn_errored", message }),
-        }
-      : { submittingPermissionRequestId: null };
-    set(
-      updateSession(get(), sessionId, {
-        ...blocksPatchWithDerived(session.streamingState, [...session.blocks, errorBlock]),
-        ...gatePatch,
-        permissionResponseMessageUuids: responseUuids,
-      }),
-    );
-    return;
-  }
-  const responseUuids = new Map(session.permissionResponseMessageUuids);
-  responseUuids.delete(currentRequestId);
-  const permissionPatch = advancePendingPermissionQueue(session.pendingPermissionQueue);
-  set(
-    updateSession(get(), sessionId, {
-      ...permissionPatch,
-      pendingRequestId: permissionPatch.pendingPermission?.requestId ?? "",
-      submittingPermissionRequestId: null,
-      permissionResponseMessageUuids: responseUuids,
-    }),
-  );
-}
-
-function createPermissionActions(
-  set: WsStoreSet,
-  get: WsStoreGet,
-): Pick<WsSessionStore, "respondToPermission" | "respondToQuestion"> {
-  return {
-    respondToPermission(sessionId, requestId, decision, feedback, optionId) {
-      const session = getSessionEntry(get, sessionId);
-      const currentRequestId = session.pendingPermission?.requestId ?? requestId;
-      if (session.submittingPermissionRequestId === currentRequestId) return;
-      const permissionResponseMessageUuids = new Map(session.permissionResponseMessageUuids);
-      const messageUuid =
-        permissionResponseMessageUuids.get(currentRequestId) ?? crypto.randomUUID();
-      permissionResponseMessageUuids.set(currentRequestId, messageUuid);
-      const envelope = createPermissionRespond(
-        session.serverSessionId,
-        currentRequestId,
-        decision,
-        { feedback, optionId, messageUuid },
-      );
-      set(
-        updateSession(get(), sessionId, {
-          submittingPermissionRequestId: currentRequestId,
-          permissionResponseMessageUuids,
-        }),
-      );
-      void get()
-        .sendRequest(sessionId, envelope)
-        .then((payload) =>
-          handlePermissionResponse(set, get, sessionId, currentRequestId, payload),
-        );
-    },
-    respondToQuestion(sessionId, response: AgentQuestionAnswers) {
-      const session = getSessionEntry(get, sessionId);
-      sendRawEnvelope(
-        get,
-        sessionId,
-        createPermissionRespond(session.serverSessionId, session.pendingRequestId, "allow_once", {
-          updatedInput: buildAskUserQuestionUpdatedInput(
-            session.pendingQuestionToolInput,
-            response,
-          ),
-          messageUuid: crypto.randomUUID(),
-        }),
-      );
-      set(
-        updateSession(get(), sessionId, {
-          pendingQuestions: [],
-          pendingQuestionToolInput: {},
-          pendingRequestId: "",
-          lifecycle: transitionTurn(session.lifecycle, { type: "question_answered" }),
-        }),
-      );
-    },
-  };
 }
 
 function createBranchActions(
@@ -261,39 +157,80 @@ function createBranchActions(
   };
 }
 
-function createPromptActions(set: WsStoreSet, get: WsStoreGet): Pick<WsSessionStore, "sendPrompt"> {
+/**
+ * Send the prompt now, or hold it until it can leave. Returns the key its
+ * delivery waits on — the init-queue `messageUuid`, or the envelope id when
+ * the socket is down and it was parked in the outbound queue — or `null`
+ * once it is on the wire.
+ */
+function dispatchPrompt(
+  ctx: StoreAccessors,
+  presentation: SessionPresentationEffects,
+  sessionId: string,
+  text: string,
+  options: PromptDispatchOptions,
+): string | null {
+  const { get, set } = ctx;
+  const session = getSessionEntry(get, sessionId);
+  if (session.featureId !== null) presentation.onUserPromptDispatched(session.featureId);
+  const messageUuid = options.messageUuid ?? crypto.randomUUID();
+  if (session.serverSessionId) {
+    const envelope = createPromptSend(session.serverSessionId, text, {
+      ...options,
+      messageUuid,
+      trackPromptReceipt: shouldTrackPromptReceipt(session),
+    });
+    return sendRawEnvelope(ctx, sessionId, envelope) ? null : envelope.id;
+  }
+  set(
+    updateSession(
+      get(),
+      sessionId,
+      buildQueuedPromptPatch(session, text, { ...options, messageUuid }),
+    ),
+  );
+  return messageUuid;
+}
+
+function createPromptActions(
+  ctx: StoreAccessors,
+  presentation: SessionPresentationEffects,
+): Pick<WsSessionStore, "sendPrompt" | "deliverPrompt"> {
+  const { get, transport } = ctx;
   return {
-    sendPrompt(sessionId, text, options: PromptDispatchOptions = {}) {
-      const session = getSessionEntry(get, sessionId);
-      const messageUuid = options.messageUuid ?? crypto.randomUUID();
-      if (session.serverSessionId) {
-        sendRawEnvelope(
-          get,
-          sessionId,
-          createPromptSend(session.serverSessionId, text, {
-            ...options,
-            messageUuid,
-            trackPromptReceipt: shouldTrackPromptReceipt(session),
-          }),
-        );
-        return;
+    deliverPrompt(sessionId, text, options: PromptDispatchOptions = {}) {
+      // Queueing onto a missing entry is a no-op, so nothing would settle it.
+      if (!get().sessions[sessionId]) {
+        return Promise.reject(new Error("The session is not connected."));
       }
-      set(
-        updateSession(
-          get(),
-          sessionId,
-          buildQueuedPromptPatch(session, text, { ...options, messageUuid }),
-        ),
-      );
+      const pendingKey = dispatchPrompt(ctx, presentation, sessionId, text, options);
+      return pendingKey
+        ? transport.ensure(sessionId).delivery.await(pendingKey)
+        : Promise.resolve();
+    },
+    sendPrompt(sessionId, text, options: PromptDispatchOptions = {}) {
+      dispatchPrompt(ctx, presentation, sessionId, text, options);
     },
   };
 }
 
-function createWsSessionStore(set: WsStoreSet, get: WsStoreGet): WsSessionStore {
+function buildWsSessionStore(
+  set: WsStoreSet,
+  get: WsStoreGet,
+  presentation: SessionPresentationEffects,
+): WsSessionStore {
+  const transport = new SessionTransportRegistry();
+  // Global reconnect/status services must distinguish equally named sessions
+  // owned by independently initialized stores, including overlapping HMR roots.
+  const sourceNamespace = crypto.randomUUID();
+  const sourceKey = (sessionId: string): string => `ws-session:${sourceNamespace}:${sessionId}`;
   const getSession = (sessionId: string): SessionEntry => getSessionEntry(get, sessionId);
-  const sendRaw = (sessionId: string, envelope: WsEnvelope): void =>
-    sendRawEnvelope(get, sessionId, envelope);
-  const ctx: StoreAccessors = { get, set, getSession };
+  const sendRaw = (sessionId: string, envelope: WsEnvelope): void => {
+    sendRawEnvelope(ctx, sessionId, envelope);
+  };
+  const ctx: StoreAccessors = { get, set, getSession, transport };
+  const sendCommand = (sessionId: string, envelope: WsEnvelope, spec: SessionCommandSpec) =>
+    sendSessionCommand(ctx, sessionId, envelope, spec);
   const branchDeps: BranchDeps = {
     get,
     set,
@@ -301,7 +238,8 @@ function createWsSessionStore(set: WsStoreSet, get: WsStoreGet): WsSessionStore 
   };
   const socketDeps: SocketHandlerDeps = {
     ctx,
-    flushQueuedInitActions: (sessionId) => flushQueuedInitActions(set, get, sessionId),
+    flushQueuedInitActions: (sessionId) => flushQueuedInitActions(ctx, sessionId),
+    failQueuedInit: (sessionId, message) => failQueuedInit(ctx, sessionId, message),
   };
   return {
     sessions: {},
@@ -314,31 +252,36 @@ function createWsSessionStore(set: WsStoreSet, get: WsStoreGet): WsSessionStore 
         {
           ctx,
           socketDeps,
-          sourceKey: wsSessionSourceKey,
-          rejectPendingRequests,
-          forceReconnectSession: (id) => forceReconnectSession(set, get, id),
-          reinitOnReconnect: (id) => reinitOnReconnect(get, id),
-          flushOutboundQueue: (id) => flushOutboundQueue(get, id),
+          sourceKey,
+          forceReconnectSession: (id) => forceReconnectSession(ctx, id),
+          reinitOnReconnect: (id) => reinitOnReconnect(ctx, id),
+          flushOutboundQueue: (id) => transport.flush(id, queuedCommandHooks(ctx, id)),
         },
         sessionId,
       ),
     ...createWsSessionTransportActions({
       ctx,
       sendRaw,
-      sourceKey: wsSessionSourceKey,
-      rejectPendingRequests,
+      sourceKey,
     }),
     ...createWsSessionConfigActions(ctx),
-    ...createPromptActions(set, get),
+    ...createPromptActions(ctx, presentation),
     ...createPermissionActions(set, get),
     ...createWsSessionSimpleActions({
       ctx,
       sendRaw,
-      sourceKey: wsSessionSourceKey,
-      rejectPendingRequests,
-      planRestorePrefix: PLAN_RESTORE_PREFIX,
+      sendCommand,
     }),
   };
 }
 
-export const useWsSessionStore = create<WsSessionStore>(createWsSessionStore);
+/** A fresh registry is allocated for every initialized store, even if this creator is reused. */
+export function createWsSessionStore(
+  presentation: SessionPresentationEffects,
+): StateCreator<WsSessionStore> {
+  return (set, get) => buildWsSessionStore(set, get, presentation);
+}
+
+export const useWsSessionStore = create<WsSessionStore>(
+  createWsSessionStore(sessionPresentationEffects),
+);

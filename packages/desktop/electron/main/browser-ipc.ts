@@ -8,9 +8,9 @@ import {
   requiredString,
 } from "./browser-arg-validation";
 import { BrowserManager } from "./browser-manager";
+import { reclaimRendererFocus } from "./browser-manager-utils";
 import { registerBrowserDownloadIpc } from "./browser-download-ipc";
 import { parseBrowserGuestShortcutBindings } from "./browser-guest-shortcuts";
-import { BrowserProfileController } from "./browser-profile-controller";
 import { parseBrowserResponsiveRequest } from "./browser-responsive-schema";
 import {
   BROWSER_SITE_PERMISSIONS,
@@ -23,6 +23,11 @@ import { assertTrustedSender } from "./ipc";
 
 interface BrowserIpcOptions {
   getMainWindow: () => BrowserWindow | null;
+  /**
+   * Other native views a React overlay must uncover too (custom-tab guests):
+   * `useSuppressBrowserView` drives them all through `browser:set-suppressed`.
+   */
+  onSuppressed?: (value: boolean) => void;
 }
 
 const sitePermissionSchema = z.enum(BROWSER_SITE_PERMISSIONS);
@@ -45,10 +50,8 @@ const siteOriginSchema = z.url().refine((value) => {
   return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.origin === value;
 }, "Expected an HTTP(S) origin without a path.");
 
-function registerTabIpc(
-  manager: BrowserManager,
-  getMainWindow: BrowserIpcOptions["getMainWindow"],
-): void {
+function registerTabIpc(manager: BrowserManager, options: BrowserIpcOptions): void {
+  const { getMainWindow } = options;
   ipcMain.handle(
     "browser:create-tab",
     async (event, rawUrl: unknown, profileId: unknown, scopeId: unknown) => {
@@ -129,6 +132,7 @@ function registerTabIpc(
   ipcMain.handle("browser:set-suppressed", (event, value: unknown) => {
     assertTrustedSender(event, getMainWindow);
     manager.setSuppressed(value === true);
+    options.onSuppressed?.(value === true);
   });
 }
 
@@ -151,35 +155,6 @@ function registerPopupIpc(
   ipcMain.handle("browser:dismiss-popup", (event, requestId: unknown) => {
     assertTrustedSender(event, getMainWindow);
     manager.popup.dismiss(z.string().uuid().parse(requestId));
-  });
-}
-
-function registerProfileIpc(
-  profiles: BrowserProfileController,
-  getMainWindow: BrowserIpcOptions["getMainWindow"],
-): void {
-  ipcMain.handle("browser:list-profiles", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.list();
-  });
-  ipcMain.handle("browser:clear-storage", (event, profileId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.clearStorage(requiredString(profileId, "profile id"));
-  });
-  ipcMain.handle("browser:create-profile", (event, profileId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.create(requiredString(profileId, "profile id"));
-  });
-  ipcMain.handle("browser:duplicate-profile", (event, sourceId: unknown, newId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.duplicate(
-      requiredString(sourceId, "source profile id"),
-      requiredString(newId, "new profile id"),
-    );
-  });
-  ipcMain.handle("browser:delete-profile", (event, profileId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    profiles.delete(requiredString(profileId, "profile id"));
   });
 }
 
@@ -291,51 +266,24 @@ function registerInspectionIpc(
   manager: BrowserManager,
   getMainWindow: BrowserIpcOptions["getMainWindow"],
 ): void {
-  ipcMain.handle("browser:get-console", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.state().consoleEntries;
-  });
-  ipcMain.handle("browser:get-network", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.state().networkEntries;
-  });
-  ipcMain.handle("browser:get-snapshot", (event, tabId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.snapshot(requiredString(tabId, "tab id"));
-  });
   ipcMain.handle("browser:screenshot", (event, tabId: unknown) => {
     assertTrustedSender(event, getMainWindow);
     return manager.inspection.screenshot(requiredString(tabId, "tab id"));
   });
-  ipcMain.handle("browser:click", (event, tabId: unknown, x: unknown, y: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.click(
-      requiredString(tabId, "tab id"),
-      requiredNumber(x, "x"),
-      requiredNumber(y, "y"),
-    );
-  });
-  ipcMain.handle("browser:type", (event, tabId: unknown, text: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.typeText(
-      requiredString(tabId, "tab id"),
-      requiredString(text, "text"),
-    );
-  });
-  ipcMain.handle("browser:keypress", (event, tabId: unknown, keyCode: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.keypress(
-      requiredString(tabId, "tab id"),
-      requiredString(keyCode, "key"),
-    );
-  });
-  ipcMain.handle("browser:select-element-context", (event, tabId: unknown, anchorId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.selectElementContext(
-      requiredString(tabId, "tab id"),
-      requiredString(anchorId, "anchor id"),
-    );
-  });
+  ipcMain.handle(
+    "browser:select-element-context",
+    async (event, tabId: unknown, anchorId: unknown) => {
+      assertTrustedSender(event, getMainWindow);
+      const context = await manager.inspection.selectElementContext(
+        requiredString(tabId, "tab id"),
+        requiredString(anchorId, "anchor id"),
+      );
+      // The pick was a click in the guest view, which kept keyboard focus: hand
+      // it back so the comment composer can be typed into straight away.
+      reclaimRendererFocus(getMainWindow());
+      return context;
+    },
+  );
   ipcMain.handle("browser:remove-comment-badge", (event, tabId: unknown, anchorId: unknown) => {
     assertTrustedSender(event, getMainWindow);
     return manager.inspection.removeCommentBadge(
@@ -380,10 +328,8 @@ function registerLibraryIpc(
 
 export function registerBrowserIpc(options: BrowserIpcOptions): BrowserManager {
   const manager = new BrowserManager(options.getMainWindow);
-  const profiles = new BrowserProfileController();
-  registerTabIpc(manager, options.getMainWindow);
+  registerTabIpc(manager, options);
   registerPopupIpc(manager, options.getMainWindow);
-  registerProfileIpc(profiles, options.getMainWindow);
   registerNavigationIpc(manager, options.getMainWindow);
   registerSiteIpc(manager, options.getMainWindow);
   registerInspectionIpc(manager, options.getMainWindow);

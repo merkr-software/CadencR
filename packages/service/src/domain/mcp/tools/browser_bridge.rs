@@ -54,8 +54,13 @@ impl BrowserBridgeClient {
 
     pub fn from_env_values(url: Option<String>, token: Option<String>) -> Option<Self> {
         let config = BrowserBridgeConfig::from_raw(&url?, &token?).ok()?;
-        Some(Self {
-            url: Url::parse(&config.url).ok()?,
+        Self::from_config(config).ok()
+    }
+
+    pub fn from_config(config: BrowserBridgeConfig) -> Result<Self, String> {
+        Ok(Self {
+            url: Url::parse(&config.url)
+                .map_err(|err| format!("Browser bridge URL is invalid: {err}"))?,
             token: config.token,
             client: Client::new(),
         })

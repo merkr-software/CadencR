@@ -44,6 +44,11 @@ export function isSvgFile(filePath: string): boolean {
   return getFileExtension(filePath) === "svg";
 }
 
+export function isDelimitedTextFile(filePath: string): boolean {
+  const ext = getFileExtension(filePath);
+  return ext === "csv" || ext === "tsv";
+}
+
 const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
   "png",
   "jpg",
@@ -67,7 +72,7 @@ export function isExcalidrawFile(filePath: string): boolean {
   return getFileExtension(filePath) === "excalidraw";
 }
 
-export type PreviewKind = "markdown" | "html" | "svg";
+export type PreviewKind = "markdown" | "html" | "svg" | "csv";
 
 /**
  * Returns the kind of preview a file supports, or `null` when the file
@@ -79,5 +84,6 @@ export function getPreviewKind(filePath: string): PreviewKind | null {
   if (isMarkdownFile(filePath)) return "markdown";
   if (isHtmlFile(filePath)) return "html";
   if (isSvgFile(filePath)) return "svg";
+  if (isDelimitedTextFile(filePath)) return "csv";
   return null;
 }

@@ -1,117 +1,69 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Terminal"
-description: "Use the built-in terminal when agent work needs a little human keyboard energy."
+description: "Run commands in persistent shell panes tied to your conversation."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import DocCallout from "@/components/docs/DocCallout.astro";
-import Kbd from "@/components/ui/Kbd.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
-import terminalImage from "@/assets/docs/terminal.png";
+import pageImage from "@/assets/docs/v0.13.0/terminal.png";
 
-The terminal in CadencR is here for the moments when a task needs a command, a log, a manual check, or a small amount of direct work from you. It is useful. It is powerful. It is also **not** the only way to get work done.
-
-<DocCallout title="Good to know" variant="tip">
-  You do **not** need to become a terminal-heavy user to use CadencR well. The terminal is a helper,
-  not the center of the workflow.
-</DocCallout>
-
-## What the terminal is doing here
-
-Inside a feature workspace, the terminal gives you a built-in place to run commands without leaving the work you are already doing.
-
-That matters because sometimes the fastest path is not another chat message. Sometimes you want to:
-
-- run the exact command the agent suggested,
-- read logs with your own eyes,
-- check whether something actually works, or
-- do a quick little human cleanup before moving on.
-
-Think of it as the **manual override**. Most of the time, the agent and editor do the heavy lifting. The terminal is there for the practical finishing moves.
+The Terminal pane gives you a shell in the conversation's working folder. Use it for interactive commands, dev servers, tests, and checks you want to run directly.
 
 <DocScreenshot
-  src={terminalImage}
-  alt="CadencR terminal inside a feature workspace, with split panes and a focused shell"
-  caption="Use the terminal panel or tab when you want commands, output, logs, or a quick manual check without leaving the feature workspace."
+  src={pageImage}
+  alt="A real shell in the example project, with the current terminal pane and its working directory."
+  caption="A real shell in the example project, with the current terminal pane and its working directory."
   bordered={false}
+  rounded
+  elevated
 />
 
-## When to use it
+## Start and split a shell
 
-These are the most common “yep, terminal time” moments:
+Open **Terminal** in the workspace. Each shell has its own PTY session. Split the pane when you need a server and command prompt side by side; closing or reopening a pane follows the app's persistent session and reconnection behavior.
 
-| Use the terminal when you want to... | Why it helps                                                                   |
-| ------------------------------------ | ------------------------------------------------------------------------------ |
-| Run a command the agent recommended  | You can verify the result yourself instead of relying only on a summary        |
-| Read logs or error output            | Raw output is often clearer than a paraphrase                                  |
-| Do a manual check                    | Great for quick “does this build / start / pass?” moments                      |
-| Start a local tool or dev server     | Handy when a task needs something running beside the agent                     |
-| Make a tiny one-off change yourself  | Sometimes typing one command is faster than describing it three different ways |
+The pane's context menu offers its available controls. Use [Shortcuts](../shortcuts/) for terminal focus, splitting, pane navigation, copying, and pasting.
 
-A good rule of thumb: if the task involves **commands, output, or verification**, the terminal is probably the right tool.
+## Check the working folder
 
-## Controls that pay for themselves quickly
+Shells start in the task's working context. CadencR shows a warning when a shell drifts to another folder.
 
-The terminal has its own small keyboard scope inside a feature workspace:
+When a new worktree is created, idle shells can move to it automatically. A busy shell is left running with a warning instead of being killed. Check the folder before running a command that changes files.
 
-| Shortcut                     | What it does                         |
-| ---------------------------- | ------------------------------------ |
-| <kbd>⌘ T</kbd>               | Focus or open the terminal           |
-| <kbd>⌘ D</kbd>               | Split horizontally                   |
-| <kbd>⌘ <ShiftIcon /> D</kbd> | Split vertically                     |
-| <kbd>⌘ ⌥</kbd> + arrows      | Focus the neighbouring terminal pane |
-| <kbd>⌘ W</kbd>               | Close the focused pane               |
-| <kbd>⌘ C</kbd>               | Copy the current selection           |
-| <kbd>⌘ V</kbd>               | Paste into the focused pane          |
+## Match your terminal preferences
 
-<DocCallout title="Heads up: opposite of the editor" variant="note">
-  In the terminal, <kbd>⌘ D</kbd> splits **horizontally** and{" "}
-  <kbd>
-    ⌘ <ShiftIcon /> D
-  </kbd>{" "}
-  splits **vertically**. In the editor, those two are reversed. The defaults match what most people
-  reach for first in each surface.
-</DocCallout>
+CadencR uses **CeleriTTY**, a WebGPU terminal backed by Rust/WASM. It reads an available Alacritty configuration for font, colors, cursor, and scrollback, including files loaded through `general.import`. A common configuration path is `~/.config/alacritty/alacritty.toml`; without one, defaults are used.
 
-### Working directory awareness
+Colors left unset fall back to your selected CadencR theme. A configuration that only overrides `red` changes exactly that color.
 
-Each terminal pane is launched in the feature's worktree. If something inside the shell drifts the cwd elsewhere (for example, a misbehaving `cd` in a script), CadencR shows a small cwd warning so you do not accidentally run commands against the wrong checkout.
+Appearance's **Monospace font** setting also applies across terminals, editor surfaces, and code snippets. Neovim uses the same font family and size resolution. Applicable terminal configuration changes are applied live.
 
-### Matching your own terminal
+Copy and paste use the terminal selection and paste controls. A terminal canvas is not ordinary page text selection.
 
-CadencR's terminal reads your `~/.config/alacritty/alacritty.toml` if you have one, so the font, colors, cursor, and scrollback depth already match the terminal you use outside the app. No file? CadencR falls back to its own defaults — nothing to configure.
+## Open links from command output
 
-## When not to use it
+Use `Cmd/Ctrl` click or the link context menu. Local addresses can open in the conversation's embedded Browser; external links can open in the system browser. The menu also offers open targets and copying.
 
-The terminal is helpful, but it does not need to become your default answer to everything with a pulse.
+Listening servers associated with a conversation can appear as port badges in the sidebar. Use those badges to find an active preview without searching old output.
 
-You can usually skip it when:
+## Terminal, shell prompts, or custom actions?
 
-- the agent can handle the step just fine on its own,
-- the editor already shows you what you need,
-- you are about to paste a command you do not understand at all,
-- you are only opening it because terminals seem like what “real developers” do.
+| Surface                 | Best fit                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| Terminal                | Interactive commands, long-running servers, and manual investigation             |
+| Composer `!` shell mode | A supported command whose result should stay in agent context                    |
+| Custom action           | A reusable project command, optionally run in a terminal split or at an interval |
 
-That last one is especially unnecessary. Plenty of good developers use the terminal only when it is the clearest tool for the job.
+## Remote access and cleanup
 
-## Good habits and small confidence tips
+Paired browser clients can use terminals through [remote access](../remote-access/). Their shell still runs on the host machine.
 
-If you are terminal-curious but terminal-cautious, these habits help a lot:
+Archive and delete dialogs offer terminal cleanup when shells are running. Sidebar conversation menus can close a task's terminals and browser tabs without opening it. Inspect the options before confirming cleanup.
 
-1. **Start with read-only checks.** Things like listing files, printing the current folder, or reading output feel much safer than change-making commands.
-2. **Run one thing at a time.** You do not need to learn everything at once.
-3. **Read before pressing Enter.** Even a five-second pause counts as wisdom.
-4. **Ask the agent to explain a command in plain English.** “What will this do?” is a very good question.
-5. **Use it for confidence, not performance.** The goal is not to look advanced. The goal is to understand what is happening.
+## Related guides
 
-<DocCallout title="A surprisingly strong move" variant="note">
-  If a command looks unclear, ask the agent to break it into parts before you run it.
-</DocCallout>
-
-## Related docs
-
-- [Feature workspace](../feature-workspace/) — where the terminal lives alongside the rest of the task
-- [Session view](../session-view/) — for following what the agent is doing before or after you jump into commands
-- [Workspace pages](../workspace-pages/) — the quick tour of the main surfaces in CadencR
-- [Concept](../concept/) — the bigger picture of how agents, files, terminal, and Git fit together
+- [Prompt](../prompting/) — shell mode and context.
+- [Custom actions](../custom-actions/) — repeat commands.
+- [Worktrees](../worktrees/) — working folders and branch setup.

@@ -1,5 +1,10 @@
 # Provider status — Claude Code
 
+> Reviewed against v0.13.0 source and release changes on 2026-10-13. This is a
+> source review, not a new end-to-end parity certification of every local CLI.
+
+![Current provider settings](../../packages/landing/src/assets/docs/v0.13.0/provider-claude.png)
+
 The Phase 0 catalog contract is pinned by
 [`claude_code_catalog.json`](../../packages/service/tests/fixtures/provider_parity/v1/claude_code_catalog.json)
 and asserted by an inline adapter test. It covers bootstrap identity, fallback
@@ -18,7 +23,7 @@ JSON on the CLI's stdio (`--output-format stream-json
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 1 | Modes: plan / build / accept-edits | ✅ | `--permission-mode` at spawn; `set_permission_mode` control request mid-session. The CLI applies the new mode immediately to subsequent tool requests in the running turn. All six `RuntimePermissionMode` variants supported. |
+| 1 | Modes: plan / build / accept-edits | ✅ | `--permission-mode` at spawn; `set_permission_mode` control request mid-session. The CLI applies the new mode immediately to subsequent tool requests in the running turn. Claude-supported modes are translated by the adapter; shared modes are not assumed to have a native equivalent. |
 | 2 | Thinking | ✅ | `ContentBlock::Thinking` and `ContentDelta::ThinkingDelta` mapped to runtime thinking blocks/deltas. `--thinking-display summarized` always on. |
 | 3 | Partial / streaming messages | ✅ | `StreamEventData::ContentBlockStart/Delta/Stop` + `Result` turn-complete. Indexes assigned by the CLI. |
 | 4 | Bash tool calls + outputs | ✅ | `Bash` is a native CLI tool; results flow back as `ToolResult` user-messages. |
@@ -333,3 +338,27 @@ For mid-session sends, `stream_input` writes to the CLI's stdin:
 
 The CLI routes by `session_id`. There is no separate "target detection"
 step — the adapter holds a single live session per slot.
+
+## Current defaults, profiles, and context
+
+- New Claude conversations default to `Auto`. A model known not to support Auto
+  resolves to `AcceptEdits`; the displayed mode follows the effective mode.
+- Profiles own environment/custom backend configuration. Session Info selects the
+  profile for the next prompt; changing it does not restart the current turn.
+- Reported context windows are learned from native provider events and remembered
+  across restarts. When the window is unknown, show known token counts with a
+  pending state rather than inventing a percentage.
+- New-conversation provider/model selection follows the last accepted manual
+  prompt across projects, with explicit conversation overrides taking priority.
+- Thinking and model choices are reconciled with the selected model's advertised
+  capabilities, including native profile defaults.
+
+## Conversation branching
+
+`claude_code/branching.rs` implements `SessionBranching` by writing a new transcript
+containing the prefix before the selected real user-prompt ordinal. Tool-result,
+meta, and compaction-summary records are excluded from prompt counting.
+
+[Rewind & Fork](../REWIND_AND_FORK.md) owns the shared orchestration and code
+checkpoint rules. A fork shares the current checkout; it does not restore code.
+Provider transcript failure aborts the operation before conversation/code mutation.

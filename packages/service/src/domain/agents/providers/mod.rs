@@ -21,7 +21,10 @@ pub use model_validation::{
     provider_aliases, provider_model_catalog_entry, resolve_model_or_error_for_profile,
     valid_provider_ids, validate_thinking_level_or_error,
 };
-pub use registry::{provider_registry, ProviderAdapterHandle};
+pub(crate) use registry::{builtin_provider_identifiers, provider_identifier_key};
+pub use registry::{
+    provider_registry, ProviderAdapterHandle, ProviderDiscoveryMetadata, RegisteredProvider,
+};
 
 /// Resolve a provider id to its registered adapter.
 ///
@@ -198,6 +201,10 @@ async fn provider_catalog_entries_with_origin_live_for_cwd(
             provider,
             origin: registered.origin(),
             profile_capability,
+            steering_acknowledged: adapter.supports_prompt_receipts(),
+            compact_action: adapter.compaction_strategy().is_some(),
+            resume_command: adapter.resume_command(),
+            prompt_capabilities: adapter.prompt_capabilities(),
         }
     }))
     .await
@@ -246,27 +253,28 @@ pub async fn provider_default_model(read_pool: &SqlitePool, provider_id: &str) -
     None
 }
 
-/// Resolves the model to use for `provider_id`. Prefers `requested_model` when
-/// it belongs to that provider's catalog; falls back to the provider's
-/// default (e.g. when the requested model is absent, belongs to a different
-/// provider's catalog, or was never set).
+/// Resolves the catalog entry of the model to use for `provider_id`. Prefers
+/// `requested_model` when it belongs to that provider's catalog; falls back to
+/// the provider's default (e.g. when the requested model is absent, belongs to
+/// a different provider's catalog, or was never set). Returning the entry lets
+/// a caller read the model's capabilities, such as its thinking levels,
+/// without probing the catalog a second time.
 ///
 /// Both branches read the same `cwd`/`profile`-scoped catalog, so the fallback
 /// can never come from a different scope than the one the request was
 /// validated against.
-pub async fn resolve_requested_model_or_provider_default(
+pub async fn resolve_requested_model_entry_or_provider_default(
     read_pool: &SqlitePool,
     cwd: Option<&Path>,
     provider_id: &str,
     requested_model: Option<&str>,
     profile: Option<&str>,
-) -> Option<String> {
+) -> Option<ModelCatalogEntry> {
     if let Some(model) = requested_model {
-        if provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile)
-            .await
-            .is_some()
+        if let Some(entry) =
+            provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile).await
         {
-            return Some(model.to_string());
+            return Some(entry);
         }
         tracing::info!(
             requested_model = %model,
@@ -274,9 +282,7 @@ pub async fn resolve_requested_model_or_provider_default(
             "requested model does not belong to the provider; falling back to provider default"
         );
     }
-    provider_model_catalog_entry(read_pool, cwd, provider_id, None, profile)
-        .await
-        .map(|entry| entry.id)
+    provider_model_catalog_entry(read_pool, cwd, provider_id, None, profile).await
 }
 
 pub fn spawn_runtime_startup_warmups() {
@@ -299,10 +305,11 @@ pub async fn notify_worktree_created_for_all_providers(
 }
 
 pub async fn shutdown_runtime_servers() {
-    // Previously shut down a long-running OpenCode HTTP server. With the
-    // ACP-only transport, OpenCode subprocesses are owned by individual
-    // sessions and torn down with their owning runtime — there's no
-    // shared server to terminate from here.
+    // Provider subprocesses are owned by their sessions and torn down with
+    // their runtime. ACP terminals are not: they lead their own process
+    // groups, so the service's own group signals never reach them, and what
+    // they left running would outlive the service.
+    crate::domain::agents::acp::runtime::stop_all_terminals().await;
 }
 
 pub async fn runtime_session_finished(provider_id: &str, runtime_session_id: &str) -> bool {
@@ -342,6 +349,7 @@ mod tests {
             icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
+            refresh_error: None,
             models,
             modes: Vec::new(),
             access_modes: Vec::new(),
@@ -391,7 +399,6 @@ mod tests {
         assert!(runtime_adapter("opencode").is_some());
         let codex = runtime_adapter("codex_cli").expect("codex adapter");
         assert!(codex.session_branching().is_some());
-        assert!(runtime_adapter("cursor").is_some());
         assert!(runtime_adapter("unknown").is_none());
     }
 

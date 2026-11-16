@@ -3,6 +3,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type MutableRefObject,
   type ReactNode,
@@ -14,17 +15,20 @@ import {
   type Components,
   type FollowOutput,
   type ListRange,
+  type SizeFunction,
   type VirtuosoHandle,
 } from "react-virtuoso";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { STREAM_AT_BOTTOM_THRESHOLD_PX, STREAM_BOTTOM_GAP_PX } from "./agent-session/stream-fade";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
-import { ConversationSearch } from "./agent-session/ConversationSearch";
-import type { DisplayItem } from "./agentStreamDisplay";
+import { AgentStreamTools } from "./agent-session/AgentStreamTools";
+import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
+import type { DisplayItem } from "@/types/agent-stream";
 import { useAgentDisplayItems, useRootBlocks, useToolResultMap } from "./useAgentStreamData";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import { isTurnInProgress } from "@/components/TurnWorkingLabel";
+import type { TurnClock } from "@/lib/turn-clock";
+import { TurnProgressCursor } from "./agent-session/TurnProgressCursor";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
 
 type ScrollRef = (el: HTMLElement | null) => void;
@@ -43,6 +47,10 @@ interface AgentStreamVirtuosoContext {
   streamingBlockId: string | null;
   lifecycle?: TurnLifecycle;
   workingLabel: string;
+  /** Live turn clock: the cursor ticks its elapsed time itself. */
+  workingClock: TurnClock | null;
+  /** Block holding the active search match: a compact run holding it unfolds. */
+  searchBlockId: string | null;
 }
 
 interface AgentStreamProps {
@@ -72,12 +80,16 @@ interface AgentStreamProps {
   showStreamingIndicator?: boolean;
   lifecycle?: TurnLifecycle;
   workingLabel?: string;
+  /** When set, the cursor shows this turn's live "Working · model · 12s" label. */
+  workingClock?: TurnClock | null;
   /** Base path to strip from file paths in diffs */
   basePath?: string;
   /** Callback ref for the scrollable container (auto-scroll listeners attach here). */
   scrollContainerRef?: ScrollRef;
   /** Imperative handle to Virtuoso (used to scroll to the true last item). */
   virtuosoRef?: Ref<VirtuosoHandle>;
+  /** Virtuoso row measurement (the scroll hook's anchor guard hooks in here). */
+  itemSize?: SizeFunction;
   /**
    * Virtuoso `followOutput` callback. Returns `'auto'` while auto-scroll is
    * engaged so the view stays pinned to the bottom across async item
@@ -110,16 +122,9 @@ interface AgentStreamProps {
    * focus gate so search only binds/opens for the visible feature workspace.
    */
   searchEnabled?: boolean;
+  /** Scroll hooks for the prompt rail; null/absent hides it (Settings → Appearance → Agent transcript). */
+  messageNavigator?: MessageNavigatorControls | null;
 }
-
-const StreamingCursor = memo(function StreamingCursor({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 text-xs text-primary">
-      <span className="animate-pulse">█</span>
-      <span className="font-medium tabular-nums">{label}</span>
-    </div>
-  );
-});
 
 // The spacer is unconditional and lives inside the list rather than as padding
 // on the wrapper: the composer's fade band sits on the scroller's clip edge, so
@@ -136,7 +141,11 @@ const StreamFooter = memo(function StreamFooter({
   return (
     <>
       {context?.showStreamingIndicator && (
-        <TurnProgressCursor lifecycle={context.lifecycle} label={context.workingLabel} />
+        <TurnProgressCursor
+          lifecycle={context.lifecycle}
+          label={context.workingLabel}
+          clock={context.workingClock}
+        />
       )}
       <div aria-hidden style={STREAM_BOTTOM_GAP_STYLE} />
     </>
@@ -147,9 +156,24 @@ const VIRTUOSO_COMPONENTS = {
   Footer: StreamFooter,
 } satisfies Components<DisplayItem, AgentStreamVirtuosoContext>;
 
+/** No rows yet: only the working cursor, while a turn runs. */
+function EmptyStream({ context }: { context: AgentStreamVirtuosoContext }) {
+  return (
+    <div className="p-3">
+      {context.showStreamingIndicator && (
+        <TurnProgressCursor
+          lifecycle={context.lifecycle}
+          label={context.workingLabel}
+          clock={context.workingClock}
+        />
+      )}
+    </div>
+  );
+}
+
 const LoadingOlderOverlay = memo(function LoadingOlderOverlay() {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
       <div className="rounded-full border bg-background/80 p-1 shadow-sm backdrop-blur">
         <Loader2Icon className="h-4 w-4 animate-spin text-muted-foreground" />
       </div>
@@ -186,6 +210,53 @@ function useAgentStreamRefs(
   );
 }
 
+/** Row keys and the history prefetch trigger, both offset by `firstItemIndex`. */
+function useVirtuosoIndexing(
+  displayItems: DisplayItem[],
+  firstItemIndex: number,
+  onStartReached: (() => void) | undefined,
+) {
+  const onRangeChanged = useCallback(
+    (range: ListRange): void => {
+      if (range.startIndex <= firstItemIndex + HISTORY_PREFETCH_ROWS) onStartReached?.();
+    },
+    [firstItemIndex, onStartReached],
+  );
+  const computeItemKey = useCallback(
+    (i: number): string => displayItems[i - firstItemIndex]?.key ?? String(i),
+    [displayItems, firstItemIndex],
+  );
+  return { onRangeChanged, computeItemKey };
+}
+
+function useVirtuosoContext({
+  showStreamingIndicator,
+  streamingBlockId,
+  lifecycle,
+  workingLabel,
+  workingClock,
+  searchBlockId,
+}: AgentStreamVirtuosoContext): AgentStreamVirtuosoContext {
+  return useMemo(
+    () => ({
+      showStreamingIndicator,
+      streamingBlockId,
+      lifecycle,
+      workingLabel,
+      workingClock,
+      searchBlockId,
+    }),
+    [
+      showStreamingIndicator,
+      streamingBlockId,
+      lifecycle,
+      workingLabel,
+      workingClock,
+      searchBlockId,
+    ],
+  );
+}
+
 function useAgentStreamItemRenderer(
   basePath: string | undefined,
   toolResultMap: Map<string, AgentBlockData>,
@@ -194,7 +265,16 @@ function useAgentStreamItemRenderer(
   return useCallback(
     (_index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => {
       if (item.kind === "flow") {
-        return <CompactFlowRow blocks={item.blocks} basePath={basePath} />;
+        const target = context.searchBlockId;
+        const reveal = target && item.blocks.some((block) => block.id === target);
+        return (
+          <CompactFlowRow
+            blocks={item.blocks}
+            basePath={basePath}
+            revealBlockId={reveal ? target : undefined}
+            toolResultMap={toolResultMap}
+          />
+        );
       }
       return (
         <AgentStreamItem
@@ -214,6 +294,7 @@ interface AgentVirtuosoProps {
   items: DisplayItem[];
   firstItemIndex: number;
   context: AgentStreamVirtuosoContext;
+  itemSize?: SizeFunction;
   followOutput?: FollowOutput;
   onAtBottomStateChange?: AgentStreamProps["onAtBottomStateChange"];
   onTotalListHeightChanged?: AgentStreamProps["onTotalListHeightChanged"];
@@ -229,6 +310,7 @@ function AgentVirtuoso({
   items,
   firstItemIndex,
   context,
+  itemSize,
   followOutput,
   onAtBottomStateChange,
   onTotalListHeightChanged,
@@ -254,6 +336,7 @@ function AgentVirtuoso({
       increaseViewportBy={{ top: 600, bottom: 400 }}
       minOverscanItemCount={{ top: 4, bottom: 3 }}
       overscan={{ main: 300, reverse: 300 }}
+      itemSize={itemSize}
       components={VIRTUOSO_COMPONENTS}
       context={context}
       followOutput={followOutput}
@@ -276,9 +359,11 @@ export const AgentStream = memo(function AgentStream({
   showStreamingIndicator = true,
   lifecycle,
   workingLabel = "Working",
+  workingClock = null,
   basePath,
   scrollContainerRef,
   virtuosoRef,
+  itemSize,
   followOutput,
   onAtBottomStateChange,
   onTotalListHeightChanged,
@@ -288,6 +373,7 @@ export const AgentStream = memo(function AgentStream({
   verbosityMode = "maximal",
   summaryMode = false,
   searchEnabled = false,
+  messageNavigator = null,
 }: AgentStreamProps) {
   const rootBlocks = useRootBlocks(blocks, rootBlocksProp);
   const toolResultMap = useToolResultMap(blocks, toolResultMapProp);
@@ -300,60 +386,50 @@ export const AgentStream = memo(function AgentStream({
   );
   const firstItemIndex = FIRST_ITEM_INDEX_BASE - historyPrependDisplayOffset;
 
-  // Only the last displayed block can receive stream chunks; pass its id
-  // through Virtuoso context so older memoized rows remain stable.
-  const lastBlockId = displayBlocks.at(-1)?.id;
-  const virtuosoContext = useMemo(
-    (): AgentStreamVirtuosoContext => ({
-      showStreamingIndicator,
-      streamingBlockId: isStreaming && lastBlockId ? lastBlockId : null,
-      lifecycle,
-      workingLabel,
-    }),
-    [isStreaming, lastBlockId, lifecycle, showStreamingIndicator, workingLabel],
-  );
+  const [searchBlockId, setSearchBlockId] = useState<string | null>(null);
+  const virtuosoContext = useVirtuosoContext({
+    showStreamingIndicator,
+    // Only the last displayed block can receive stream chunks; pass its id
+    // through Virtuoso context so older memoized rows remain stable.
+    streamingBlockId: isStreaming ? (displayBlocks.at(-1)?.id ?? null) : null,
+    lifecycle,
+    workingLabel,
+    workingClock,
+    searchBlockId,
+  });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
-  const onRangeChanged = useCallback(
-    (range: ListRange): void => {
-      if (range.startIndex <= firstItemIndex + HISTORY_PREFETCH_ROWS) onStartReached?.();
-    },
-    [firstItemIndex, onStartReached],
-  );
-  const computeItemKey = useCallback(
-    (i: number): string => {
-      const localIndex = i - firstItemIndex;
-      return displayItems[localIndex]?.key ?? String(i);
-    },
-    [displayItems, firstItemIndex],
+  const { onRangeChanged, computeItemKey } = useVirtuosoIndexing(
+    displayItems,
+    firstItemIndex,
+    onStartReached,
   );
   const renderItem = useAgentStreamItemRenderer(basePath, toolResultMap, verbosityMode);
 
-  if (displayItems.length === 0) {
-    return (
-      <div className="p-3">
-        {showStreamingIndicator && (
-          <TurnProgressCursor lifecycle={lifecycle} label={workingLabel} />
-        )}
-      </div>
-    );
-  }
+  if (displayItems.length === 0) return <EmptyStream context={virtuosoContext} />;
 
   return (
-    <div className="relative h-full" data-rich-copy="true">
+    // With the navigator on, the stream gives up 8px so its rail gets a lane
+    // of its own: the wrapper's right padding alone is partly taken by the
+    // split-pane resize handle's hit area.
+    <div
+      className={messageNavigator ? "relative mr-2 h-full" : "relative h-full"}
+      data-rich-copy="true"
+    >
       {isLoadingOlder && <LoadingOlderOverlay />}
-      {searchEnabled && (
-        <ConversationSearch
-          enabled={searchEnabled}
-          items={displayItems}
-          toolResultMap={toolResultMap}
-          virtuosoRef={streamRefs.localVirtuosoRef}
-          scrollerRef={streamRefs.scrollerElRef}
-        />
-      )}
+      <AgentStreamTools
+        items={displayItems}
+        toolResultMap={toolResultMap}
+        virtuosoRef={streamRefs.localVirtuosoRef}
+        scrollerRef={streamRefs.scrollerElRef}
+        shortcutsEnabled={searchEnabled}
+        messageNavigator={messageNavigator}
+        onSearchBlockChange={setSearchBlockId}
+      />
       <AgentVirtuoso
         items={displayItems}
         firstItemIndex={firstItemIndex}
         context={virtuosoContext}
+        itemSize={itemSize}
         followOutput={followOutput}
         onAtBottomStateChange={onAtBottomStateChange}
         onTotalListHeightChanged={onTotalListHeightChanged}
@@ -366,15 +442,4 @@ export const AgentStream = memo(function AgentStream({
       />
     </div>
   );
-});
-
-const TurnProgressCursor = memo(function TurnProgressCursor({
-  lifecycle,
-  label,
-}: {
-  lifecycle?: TurnLifecycle;
-  label: string;
-}) {
-  if (!isTurnInProgress(lifecycle)) return null;
-  return <StreamingCursor label={label} />;
 });

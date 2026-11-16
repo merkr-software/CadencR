@@ -3,11 +3,16 @@ import { app, session, shell, type WebContents } from "electron";
 import { rendererCsp, resolveRendererCspDevelopment } from "./csp";
 import { approvedExternalUrl, isAllowedNavigationUrl, isLoopbackDevUrl } from "./navigation";
 import { packagedRendererDir } from "./sidecar";
+import { keepsOwnCsp } from "./visual-frame-csp";
 
 export function installCsp(): void {
   const development = resolveRendererCspDevelopment(process.env);
   const csp = rendererCsp(app.isPackaged, development);
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (keepsOwnCsp(details)) {
+      callback({});
+      return;
+    }
     callback({
       responseHeaders: {
         ...details.responseHeaders,

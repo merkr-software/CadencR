@@ -1,6 +1,6 @@
 import { CheckSquareIcon, CircleHelpIcon, ListChecksIcon, SquareTerminalIcon } from "lucide-react";
 import { memo, useMemo, type ReactElement } from "react";
-import { parseAskUserQuestions } from "@/components/agent-question/parse-questions";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import { getPermissionPreview } from "@/components/permission-preview";
 import type { SessionGateEnvelope, SessionGateKind } from "@/lib/session-gate";
 import { parsePermissionPayload } from "@/stores/ws-envelope-payload";

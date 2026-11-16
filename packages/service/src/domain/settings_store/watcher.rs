@@ -23,6 +23,7 @@ pub fn start(dir: &Path, tx: broadcast::Sender<SettingsChangeEvent>) {
         settings_file_name(path).map(|file| {
             if file == paths::GLOBAL_FILE_NAME {
                 super::generation::bump_global();
+                crate::domain::telemetry::settings_changed();
             }
             SettingsChangeEvent { file }
         })

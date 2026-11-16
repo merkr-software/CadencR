@@ -6,7 +6,9 @@ import {
   useStageFile,
   type FileStageState as FileStageStateValue,
 } from "@/api/generated";
+import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { gitPathToFeaturePath } from "@/lib/git-paths";
 import { useEditorStore } from "@/stores/editor-store";
 
 export type GitFileIndexAction = "stage" | "reset";
@@ -36,9 +38,11 @@ export interface GitFileActionAvailability {
   canReset: boolean;
 }
 
-function hasDirtyEditorBuffer(featureId: number, filePath: string): boolean {
+/** `gitPath` is checkout-relative; editor tabs are feature-relative. */
+function hasDirtyEditorBuffer(featureId: number, gitPath: string, gitPrefix: string): boolean {
   const feature = useEditorStore.getState().features[featureId];
-  if (!feature) return false;
+  const filePath = gitPathToFeaturePath(gitPath, gitPrefix);
+  if (!feature || filePath == null) return false;
   return Object.values(feature.panes).some((pane) =>
     pane.tabs.some((tab) => tab.filePath === filePath && tab.isDirty),
   );
@@ -65,6 +69,7 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
     action: GitFileIndexAction;
     filePath: string;
   } | null>(null);
+  const gitPrefix = useGitPathPrefix(featureId);
   const flightAcquiredRef = useRef(false);
   const conflictWarnPathRef = useRef<string | null>(null);
   const releaseFlight = useCallback((): void => {
@@ -117,8 +122,15 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
 
   const stage = useCallback(
     (filePath: string, options?: StageFileOptions): void => {
-      if (hasDirtyEditorBuffer(featureId, filePath)) {
-        const message = "Save the open Editor buffer before staging this file.";
+      // Without the prefix an open Editor buffer cannot be matched, so a
+      // dirty one could be staged from stale disk content.
+      const message =
+        gitPrefix == null
+          ? "The project's Git root is still loading; try again."
+          : hasDirtyEditorBuffer(featureId, filePath, gitPrefix)
+            ? "Save the open Editor buffer before staging this file."
+            : null;
+      if (message != null) {
         setError({ action: "stage", filePath, message });
         toast.error(`Could not stage ${filePath}`, { description: message });
         return;
@@ -127,7 +139,7 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
       conflictWarnPathRef.current = options?.conflicted ? filePath : null;
       stageMutate({ data: { feature_id: featureId, file_path: filePath } });
     },
-    [acquireFlight, featureId, stageMutate],
+    [acquireFlight, featureId, gitPrefix, stageMutate],
   );
   const reset = useCallback(
     (filePath: string): void => {

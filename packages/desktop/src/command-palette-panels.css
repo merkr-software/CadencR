@@ -1,0 +1,274 @@
+/* Command palette (⌘K): preview, footer, steps and narrow windows. Shell and rows: command-palette.css. */
+
+/* ─── Preview ────────────────────────────────────────────────────────── */
+
+.cp-preview-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.cp-preview-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cp-preview-glyph {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  color: var(--foreground);
+}
+
+.cp-preview-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cp-preview-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  text-wrap: pretty;
+}
+
+.cp-preview-sub {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.cp-facts {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.cp-facts dt {
+  color: var(--muted-foreground);
+}
+
+.cp-facts dd {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--foreground);
+}
+
+.cp-facts dd > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-preview-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+}
+
+.cp-preview-block-label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cp-preview-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 85%, transparent);
+  font-size: 12.5px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 12;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cp-code {
+  max-height: 320px;
+  overflow: hidden;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+  mask-image: linear-gradient(to bottom, black 80%, transparent);
+}
+
+.cp-preview-empty {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ─── Footer ─────────────────────────────────────────────────────────── */
+
+.cp-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+}
+
+.cp-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.cp-hint-button {
+  height: 24px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+}
+
+.cp-hint-button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.cp-modes {
+  display: inline-flex;
+  margin-left: auto;
+  gap: 4px;
+}
+
+.cp-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.cp-mode:hover,
+.cp-mode:focus-visible {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.cp-mode:focus-visible {
+  outline: 2px solid var(--control-focus-ring);
+  outline-offset: 1px;
+}
+
+.cp-mode[data-active="true"] {
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+}
+
+.cp-mode-prefix {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* ─── Steps ──────────────────────────────────────────────────────────── */
+
+.cp-step-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.cp-theme-swatch {
+  display: inline-flex;
+  width: 28px;
+  height: 16px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.cp-theme-swatch > span {
+  flex: 1;
+}
+
+/* ─── Narrow windows and phones ──────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  [data-slot="dialog-content"].cp-dialog {
+    --cp-row-height: 44px;
+    top: calc(8px + env(safe-area-inset-top));
+    width: calc(100vw - 16px);
+    height: min(560px, calc(var(--app-vh, 100dvh) - 16px - env(safe-area-inset-top)));
+  }
+
+  .cp-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cp-preview,
+  .cp-hint:not(.cp-hint-button),
+  .cp-keys,
+  .cp-scope kbd {
+    display: none;
+  }
+
+  .cp-hint-button {
+    order: 1;
+    height: 28px;
+    margin: 0;
+  }
+
+  .cp-modes {
+    margin-left: 0;
+    flex: 1;
+    justify-content: flex-start;
+  }
+
+  .cp-mode {
+    height: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="dialog-content"].cp-dialog {
+    animation-duration: 1ms;
+  }
+}

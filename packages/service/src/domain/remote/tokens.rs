@@ -11,6 +11,7 @@ use base64::Engine;
 use rand::TryRng;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
+use std::fmt::Write;
 
 /// Mint a fresh 256-bit device token (URL-safe base64, no padding — safe in a
 /// `Sec-WebSocket-Protocol` token and a URL).
@@ -27,11 +28,12 @@ pub fn hash_token(pepper: &[u8], raw: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(pepper);
     hasher.update(raw.as_bytes());
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    hex
 }
 
 /// Resolve a presented raw token to an active device id, or `None`. The lookup

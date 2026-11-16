@@ -12,8 +12,15 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface KeyboardShortcutsPluginProps {
   onEnterSend?: () => boolean;
+  /** ⌘/Ctrl+Enter — queue while the agent works; falls back to `onEnterSend`. */
+  onModEnterSend?: () => boolean;
   onArrowUp?: () => string | null;
   onArrowDown?: () => string | null;
+  /**
+   * True while the editor shows an untouched history entry: ↑/↓ then keep
+   * walking history wherever the caret is, so one press per entry suffices.
+   */
+  isBrowsingHistory?: () => boolean;
   shellCommandsEnabled: boolean;
 }
 
@@ -70,8 +77,10 @@ function isCursorAtDocumentBoundary(
  */
 export function KeyboardShortcutsPlugin({
   onEnterSend,
+  onModEnterSend,
   onArrowUp,
   onArrowDown,
+  isBrowsingHistory,
   shellCommandsEnabled,
 }: KeyboardShortcutsPluginProps) {
   const [editor] = useLexicalComposerContext();
@@ -85,8 +94,12 @@ export function KeyboardShortcutsPlugin({
     const unregisterEnter = editor.registerCommand(
       KEY_ENTER_COMMAND,
       (event) => {
-        if (isMobile) return false;
         if (event?.shiftKey) return false;
+        if (onModEnterSend && (event?.metaKey || event?.ctrlKey)) {
+          event.preventDefault();
+          return onModEnterSend();
+        }
+        if (isMobile) return false;
         if (!onEnterSend) return false;
         event?.preventDefault();
         return onEnterSend();
@@ -95,7 +108,7 @@ export function KeyboardShortcutsPlugin({
     );
 
     function registerArrowHandler(
-      command: LexicalCommand<KeyboardEvent | null>,
+      command: LexicalCommand<KeyboardEvent>,
       callback: (() => string | null) | undefined,
       boundary: "start" | "end",
     ) {
@@ -103,7 +116,7 @@ export function KeyboardShortcutsPlugin({
         command,
         (event) => {
           if (!callback || event?.metaKey || event?.altKey) return false;
-          if (!isCursorAtDocumentBoundary(editor, boundary)) return false;
+          if (!isBrowsingHistory?.() && !isCursorAtDocumentBoundary(editor, boundary)) return false;
           const result = callback();
           event?.preventDefault();
           if (result === null) return true;
@@ -122,7 +135,16 @@ export function KeyboardShortcutsPlugin({
       unregisterUp();
       unregisterDown();
     };
-  }, [editor, isMobile, onEnterSend, onArrowUp, onArrowDown, shellCommandsEnabled]);
+  }, [
+    editor,
+    isMobile,
+    onEnterSend,
+    onModEnterSend,
+    onArrowUp,
+    onArrowDown,
+    isBrowsingHistory,
+    shellCommandsEnabled,
+  ]);
 
   return null;
 }

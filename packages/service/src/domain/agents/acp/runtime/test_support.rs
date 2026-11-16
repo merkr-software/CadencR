@@ -18,11 +18,11 @@ pub(crate) async fn build_in_memory_client() -> (AcpClient, DuplexStream, BufRea
 }
 
 pub(crate) fn spawn_event_barrier_acker(client: &AcpClient) {
-    let mut events = client.subscribe();
+    let mut events = client.subscribe_reliable();
     tokio::spawn(async move {
-        while let Ok(event) = events.recv().await {
+        while let Some(event) = events.recv().await {
             if let AcpEvent::EventBarrier(barrier) = event {
-                barrier.notify_one();
+                barrier.release();
             }
         }
     });

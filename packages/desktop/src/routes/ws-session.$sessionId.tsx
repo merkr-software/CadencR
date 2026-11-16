@@ -4,7 +4,7 @@ import { WebSocketSessionFeatureBlock } from "@/components/WebSocketSessionFeatu
 import { FeatureWorkspaceSkeleton } from "@/components/FeatureWorkspaceSkeleton";
 import { ResolvedModelProvider } from "@/contexts/ResolvedModelContext";
 import { useSaveLastOpenedFeature } from "@/hooks/useSaveLastOpenedFeature";
-import { useMarkFeatureRead } from "@/stores/unread-store";
+import { useMarkFeatureRead } from "@/stores/for-me-ack";
 import {
   getFocusedTab,
   selectFeatureLayout,
@@ -20,12 +20,7 @@ export const Route = createFileRoute("/ws-session/$sessionId")({
 function WebSocketSessionPage() {
   const { sessionId } = Route.useParams();
   const { cwd, featureId, projectId, focusTab } = Route.useSearch();
-  // Persist the last-opened feature at the route (not the inner block) so we
-  // don't double-PUT — `WebSocketSessionFeatureBlock` used to call this too.
-  const layoutState = useFeatureLayoutStore(selectFeatureLayout(featureId));
-  const focusedTabId = getFocusedTab(layoutState) ?? "agent";
-  useSaveLastOpenedFeature(projectId, featureId, focusedTabId);
-  // Opening a conversation reads it: clear any pending unread dot.
+  // Opening a conversation reads it (unless For me clears only when done).
   useMarkFeatureRead(featureId);
   // Mounting the whole workspace (agent Virtuoso + Lexical composer + the staged
   // side panels) in the switch's commit is what drives the switch INP up. Paint
@@ -33,7 +28,8 @@ function WebSocketSessionPage() {
   // `useDeferredWorkspaceMount`.
   const workspaceReady = useDeferredWorkspaceMount();
   return (
-    <ResolvedModelProvider featureId={featureId} projectId={projectId}>
+    <ResolvedModelProvider featureId={featureId}>
+      <LastOpenedFeatureSaver projectId={projectId} featureId={featureId} />
       {workspaceReady ? (
         <WebSocketSessionFeatureBlock
           sessionId={sessionId}
@@ -47,6 +43,26 @@ function WebSocketSessionPage() {
       )}
     </ResolvedModelProvider>
   );
+}
+
+/**
+ * Persists the last-opened feature at the route (not the inner block) so we
+ * don't double-PUT. A leaf of its own: it follows the focused tab, which
+ * changes on every pane focus, and the page must not re-render the workspace
+ * for that.
+ */
+function LastOpenedFeatureSaver({
+  projectId,
+  featureId,
+}: {
+  projectId: number;
+  featureId: number;
+}): null {
+  const focusedTabId = useFeatureLayoutStore(
+    (s) => getFocusedTab(selectFeatureLayout(featureId)(s)) ?? "agent",
+  );
+  useSaveLastOpenedFeature(projectId, featureId, focusedTabId);
+  return null;
 }
 
 /**

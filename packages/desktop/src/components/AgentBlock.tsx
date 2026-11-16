@@ -1,6 +1,6 @@
-import { useState, useCallback, memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
+import { AgentResultBlock, CodeBlock, TextBlock } from "@/components/AgentTextBlocks";
 import { toRelativePath } from "@/lib/utils";
-import { CopyIcon, CheckIcon } from "lucide-react";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import {
   extractBashCommand,
@@ -11,39 +11,41 @@ import {
   isToolCallError,
 } from "@/lib/tool-adapter";
 import { ToolCallBlock } from "@/components/AgentToolCallBlock";
-import { Markdown } from "@/components/Markdown";
-import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrottle";
 import { renderFileChangeBlocks } from "@/components/file-change-block";
 import { UserMessageBlock } from "@/components/UserMessageBlock";
+import { AgentMessageSender } from "@/components/AgentMessageSender";
+import { isAgentSentMessage, isRestartContinuationMessage } from "@/lib/agent-message-origin";
 import { renderGeneratedSessionMessage } from "@/components/session-generated-message";
 import { UserMessageActions } from "@/components/agent-session/UserMessageActions";
 import { TaskAgentBlock } from "@/components/TaskAgentBlock";
+import { SpawnedSessionBlock } from "@/components/SpawnedSessionBlock";
+import { isSpawnedSessionCarrier } from "@/lib/spawned-session";
 import { PlanBlock } from "@/components/PlanBlock";
 import { BashBlock } from "@/components/BashBlock";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
-import { CompactDivider, ClearDivider, TurnSummaryDivider } from "@/components/StreamDividers";
+import { TranscriptMarker } from "@/components/agent-session/TranscriptMarker";
 import { ToolSummaryBlock } from "@/components/agent-session/ToolSummaryBlock";
 import { ErrorBlock } from "@/components/ErrorBlock";
-import { FullContentPreview } from "@/components/FullContentPreview";
-import { CodeBlockHeader } from "@/components/CodeBlockHeader";
-import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
-import { isTaskTodoTool } from "@/lib/tool-adapter";
+import { RestartResumedDivider } from "@/components/TurnInterruptedMarker";
+import { FullContentPreview, type FullContentMode } from "@/components/FullContentPreview";
+import { CompactToolLine } from "@/components/agent-session/CompactToolLine";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
-import { semanticSkillPresentation, shouldHideToolCall } from "@/lib/tool-display-policy";
+import {
+  isSubagentCarrier,
+  semanticSkillPresentation,
+  shouldHideToolCall,
+} from "@/lib/tool-display-policy";
 import { verbosityControlsCollapse, type AgentVerbosityMode } from "@/lib/agent-verbosity";
 import { blockMessageDbId } from "@/stores/ws-message-identity";
 import type { SessionReplyEnvelope } from "@/lib/session-reply";
 
-export type { AgentBlockData, BlockType } from "@/components/agent-block-types";
-import { shouldGateFullContent, type AgentBlockData } from "@/components/agent-block-types";
-
-export function buildToolResultMap(blocks: AgentBlockData[]): Map<string, AgentBlockData> {
-  const map = new Map<string, AgentBlockData>();
-  for (const block of blocks) {
-    if (block.type === "tool_result" && block.toolUseId) map.set(block.toolUseId, block);
-  }
-  return map;
-}
+export type { AgentBlockData, BlockType } from "@/types/agent-block";
+import {
+  rendersStandaloneToolResult,
+  rendersToolCall,
+  shouldGateFullContent,
+} from "@/lib/agent-block-content";
+import type { AgentBlockData } from "@/types/agent-block";
 
 interface AgentBlockProps {
   block: AgentBlockData;
@@ -55,7 +57,8 @@ interface AgentBlockProps {
   isCollapsedByPolicy?: boolean;
   onExpandedChange?: (next: boolean) => void;
   sessionReply?: SessionReplyEnvelope | null;
-  contentMode?: "normal" | "loaded-full";
+  /** `preview`: a truncated wire preview, drawn without copy/retry actions. */
+  contentMode?: "normal" | "preview" | "loaded-full";
 }
 
 export const AgentBlock = memo(function AgentBlock({
@@ -70,6 +73,7 @@ export const AgentBlock = memo(function AgentBlock({
   contentMode = "normal",
 }: AgentBlockProps) {
   const loadedFullContent = contentMode === "loaded-full";
+  const actions = contentMode !== "preview";
   // Cache the rendered markdown tree for STABLE blocks (keyed by block id) so
   // Virtuoso recycling reuses it across mounts. The actively streaming block is
   // deliberately NOT cached: its content changes every batch, so caching each
@@ -86,28 +90,17 @@ export const AgentBlock = memo(function AgentBlock({
     ? !isCollapsedByPolicy
     : undefined;
   if (shouldGateFullContent(block)) {
-    const messageId = blockMessageDbId(block) ?? undefined;
     return (
-      <FullContentPreview preview={block.content} messageId={messageId}>
-        {(content) => (
-          <AgentBlock
-            block={{
-              ...block,
-              content,
-              toolArgs: block.type === "tool_call" ? content : block.toolArgs,
-              truncatedContent: false,
-            }}
-            isStreaming={false}
-            basePath={basePath}
-            toolResultMap={toolResultMap}
-            verbosityMode={verbosityMode}
-            isCollapsedByPolicy={isCollapsedByPolicy}
-            onExpandedChange={onExpandedChange}
-            sessionReply={sessionReply}
-            contentMode="loaded-full"
-          />
-        )}
-      </FullContentPreview>
+      <TruncatedAgentBlock
+        block={block}
+        isStreaming={isStreaming}
+        basePath={basePath}
+        toolResultMap={toolResultMap}
+        verbosityMode={verbosityMode}
+        isCollapsedByPolicy={isCollapsedByPolicy}
+        onExpandedChange={onExpandedChange}
+        sessionReply={sessionReply}
+      />
     );
   }
   switch (block.type) {
@@ -118,6 +111,7 @@ export const AgentBlock = memo(function AgentBlock({
           cacheKey={markdownCacheKey}
           isStreaming={isStreaming}
           disableCache={loadedFullContent}
+          actions={actions}
         />
       );
     case "code":
@@ -130,10 +124,11 @@ export const AgentBlock = memo(function AgentBlock({
           toolResultMap={toolResultMap}
           controlledExpanded={controlledExpanded}
           onExpandedChange={onExpandedChange}
+          compact={verbosityMode === "compact"}
         />
       );
     case "tool_result":
-      return <ToolResultContent block={block} showGeneric={loadedFullContent} />;
+      return <ToolResultContent block={block} actions={actions} />;
     case "thinking":
       return (
         <ThinkingBlock
@@ -146,9 +141,7 @@ export const AgentBlock = memo(function AgentBlock({
         />
       );
     case "user_message":
-      return <UserMessageContent block={block} sessionReply={sessionReply} />;
-    case "turn_summary":
-      return <TurnSummaryDivider content={block.content} />;
+      return <UserMessageContent block={block} sessionReply={sessionReply} actions={actions} />;
     case "tool_summary":
       return (
         <ToolSummaryBlock
@@ -159,15 +152,72 @@ export const AgentBlock = memo(function AgentBlock({
         />
       );
     case "compact_divider":
-      return <CompactDivider metadata={block.content} />;
     case "clear_divider":
-      return <ClearDivider previousSessionId={block.content} />;
+    case "turn_interrupted":
     case "error":
-      return <ErrorBlock content={block.content} code={block.errorCode} />;
+      return <TranscriptMarker block={block} />;
     default:
       return null;
   }
 });
+
+/** Prose past this sits under the preview mask anyway; parsing it only costs. */
+const PROSE_PREVIEW_CHARS = 16 * 1024;
+
+/** A bounded wire preview: its own renderer on the preview, the rest on demand. */
+function TruncatedAgentBlock(props: Omit<AgentBlockProps, "contentMode">) {
+  const { block, verbosityMode = "maximal", isCollapsedByPolicy = false } = props;
+  return (
+    <FullContentPreview
+      preview={block.content}
+      messageId={blockMessageDbId(block) ?? undefined}
+      fullBytes={block.fullContentBytes}
+      // A card the policy folded shows nothing a "Show all" would change.
+      hideLine={verbosityControlsCollapse(verbosityMode) && isCollapsedByPolicy}
+    >
+      {(content, mode) => <TruncatedBlockBody {...props} content={content} mode={mode} />}
+    </FullContentPreview>
+  );
+}
+
+function TruncatedBlockBody({
+  content,
+  mode,
+  ...props
+}: Omit<AgentBlockProps, "contentMode"> & { content: string; mode: FullContentMode }) {
+  const { block, basePath } = props;
+  const shown = useMemo<AgentBlockData>(() => {
+    if (mode === "full") {
+      const toolArgs = block.type === "tool_call" ? content : block.toolArgs;
+      return { ...block, content, toolArgs, truncatedContent: false };
+    }
+    const prose = block.type === "text" || block.type === "thinking";
+    return {
+      ...block,
+      content: prose ? sliceUtf16(block.content, PROSE_PREVIEW_CHARS) : block.content,
+      truncatedContent: false,
+    };
+  }, [block, content, mode]);
+  // A cut edit would draw a wrong diff: its preview is the name only.
+  if (mode === "preview" && block.type === "tool_call" && isFileChangeTool(block.toolName)) {
+    return <CompactToolLine block={block} basePath={basePath} />;
+  }
+  return (
+    <AgentBlock
+      {...props}
+      block={shown}
+      isStreaming={mode === "preview" && props.isStreaming}
+      contentMode={mode === "full" ? "loaded-full" : "preview"}
+    />
+  );
+}
+
+/** `slice` without leaving a lone high surrogate at the cut. */
+function sliceUtf16(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const code = text.charCodeAt(max - 1);
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? max - 1 : max);
+}
 
 interface ToolCallContentProps {
   block: AgentBlockData;
@@ -175,6 +225,8 @@ interface ToolCallContentProps {
   toolResultMap?: Map<string, AgentBlockData>;
   controlledExpanded?: boolean;
   onExpandedChange?: (next: boolean) => void;
+  /** Compact flow: sub-agents keep one line until opened. */
+  compact?: boolean;
 }
 
 function ToolCallContent({
@@ -183,13 +235,17 @@ function ToolCallContent({
   toolResultMap,
   controlledExpanded,
   onExpandedChange,
+  compact,
 }: ToolCallContentProps): ReactNode {
-  if (block.toolName === "TodoWrite" || isTaskTodoTool(block.toolName)) return null;
-  if (shouldHideToolCall(block.toolName)) return null;
+  if (!rendersToolCall(block)) return null;
   const skill = semanticSkillPresentation(block.toolName, block.toolArgs);
   if (skill) return <ToolCallBlock name="Skill" args={skill.args} basePath={basePath} />;
-  if ((block.toolName === "Task" || block.toolName === "Agent") && block.childBlocks) {
-    return <TaskAgentBlock block={block} basePath={basePath} />;
+  if (isSubagentCarrier(block)) {
+    return <TaskAgentBlock block={block} basePath={basePath} compact={compact} />;
+  }
+  if (isSpawnedSessionCarrier(block)) {
+    const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
+    return <SpawnedSessionBlock block={block} result={result} basePath={basePath} />;
   }
   if (
     block.toolName === "ExitPlanMode" ||
@@ -223,51 +279,64 @@ function ToolCallContent({
       controlledExpanded,
       onExpandedChange,
     );
-    if (fileChangeBlocks) return fileChangeBlocks;
+    // Same outer margin as the stream's other cards (Bash, thinking, tools).
+    if (fileChangeBlocks) return <div className="my-1">{fileChangeBlocks}</div>;
   }
+  // A failed call shows its result's message (a Read of a missing file); a
+  // successful one keeps its result folded away.
+  const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
   return (
-    <ToolCallBlock name={block.toolName ?? "unknown"} args={block.toolArgs} basePath={basePath} />
+    <ToolCallBlock
+      name={block.toolName ?? "unknown"}
+      args={block.toolArgs}
+      basePath={basePath}
+      error={result?.isError ? result.content : undefined}
+    />
   );
 }
 
 function ToolResultContent({
   block,
-  showGeneric = false,
+  actions,
 }: {
   block: AgentBlockData;
-  showGeneric?: boolean;
+  actions: boolean;
 }): ReactNode {
-  if (block.sourceToolName === "Bash") return null;
-  if (isFileChangeTool(block.sourceToolName) && !showGeneric) return null;
+  if (!rendersStandaloneToolResult(block)) return null;
   if (block.isError && shouldHideToolCall(block.sourceToolName)) {
     return <ErrorBlock content={block.content} />;
   }
-  if (block.sourceToolName === "Agent" || block.sourceToolName === "Task") {
-    return <AgentResultBlock content={block.content} />;
-  }
-  if (!showGeneric) return null;
-  return (
-    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 text-xs text-foreground">
-      {block.content}
-    </pre>
-  );
+  return <AgentResultBlock content={block.content} actions={actions} />;
 }
 
 function UserMessageContent({
   block,
   sessionReply,
+  actions,
 }: {
   block: AgentBlockData;
   sessionReply?: SessionReplyEnvelope | null;
+  /** Off for a truncated preview: Retry would resend it without its images. */
+  actions: boolean;
 }): ReactNode {
+  if (isRestartContinuationMessage(block))
+    return <RestartResumedDivider sentAt={block.createdAt} />;
   const generated = renderGeneratedSessionMessage(block.content, block.origin, sessionReply);
   if (generated) return generated;
   return (
     <UserMessageBlock
       content={block.content}
-      origin={block.origin}
+      senderTab={
+        isAgentSentMessage(block) ? (
+          <AgentMessageSender origin={block.origin} sentAt={block.createdAt} />
+        ) : undefined
+      }
       deliveryState={block.promptDeliveryState}
-      actions={<UserMessageActions block={block} />}
+      renderActions={
+        actions
+          ? (bubbleRef) => <UserMessageActions block={block} bubbleRef={bubbleRef} />
+          : undefined
+      }
     />
   );
 }
@@ -278,104 +347,4 @@ function isPlanPresentationTool(toolName: string | undefined): boolean {
 
 function hasAttachedPlanContent(args: string | undefined): boolean {
   return !!stringArg(parseToolArgsObject(args), "plan");
-}
-
-/** Render the final text output from an Agent/Task tool_result (JSON content blocks). */
-function AgentResultBlock({ content }: { content: string }) {
-  const text = useMemo(() => {
-    try {
-      const blocks = JSON.parse(content) as Array<{
-        type?: string;
-        text?: string;
-      }>;
-      return blocks
-        .filter((b) => b.type === "text" || (!b.type && typeof b.text === "string"))
-        .map((b) => b.text ?? "")
-        .join("\n");
-    } catch {
-      return content;
-    }
-  }, [content]);
-  if (!text) return null;
-  return <TextBlock content={text} />;
-}
-
-const TextBlock = memo(function TextBlock({
-  content,
-  cacheKey,
-  isStreaming,
-  disableCache,
-}: {
-  content: string;
-  cacheKey?: string;
-  isStreaming?: boolean;
-  disableCache?: boolean;
-}) {
-  const [copied, setCopied] = useState(false);
-  // Throttle re-parse of the actively streaming block; copy always uses the
-  // full latest content.
-  const displayContent = useStreamingMarkdownThrottle(content, !!isStreaming);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [content]);
-
-  return (
-    <div className="group/textblock">
-      <Markdown
-        content={displayContent}
-        cacheKey={cacheKey}
-        isStreaming={isStreaming}
-        disableCache={disableCache}
-      />
-      <div className="opacity-0 group-hover/textblock:opacity-100 transition-colors">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
-          title="Copy to clipboard"
-        >
-          {copied ? (
-            <>
-              <CheckIcon className="size-3 text-green-400" />
-              <span className="text-green-400">Copied</span>
-            </>
-          ) : (
-            <>
-              <CopyIcon className="size-3" />
-              <span>Copy</span>
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-});
-
-const SHELL_LANGUAGES = new Set(["bash", "sh", "zsh", "shell", "console", "terminal"]);
-
-function CodeBlock({ content, language }: { content: string; language?: string }) {
-  const { sendToTerminal } = useCodeBlockActions();
-  const isShell = !!language && SHELL_LANGUAGES.has(language);
-
-  return (
-    <div
-      data-code-block
-      className="my-1 rounded-md border border-border bg-muted/50 overflow-hidden group/codeblock"
-    >
-      {language && (
-        <CodeBlockHeader
-          language={language}
-          code={content}
-          showTerminalButton={isShell && !!sendToTerminal}
-          onSendToTerminal={sendToTerminal}
-        />
-      )}
-      <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
-        <code>{content}</code>
-      </pre>
-    </div>
-  );
 }

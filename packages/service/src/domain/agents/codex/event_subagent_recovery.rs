@@ -9,7 +9,7 @@ use super::event_lifecycle::SessionLifecycle;
 use super::event_state::IndexState;
 use super::event_subagent_routes::{lineage_error, thread_spawn_parent};
 use super::events::notification_events;
-use super::timeouts::PROBE_TIMEOUT;
+use super::timeouts::RECOVERY_TIMEOUT;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
 
 pub(super) async fn recover_interacted_routes(
@@ -37,12 +37,12 @@ pub(super) async fn recover_interacted_routes(
             .request_with_timeout(
                 "thread/read",
                 json!({"threadId":thread,"includeTurns":false}),
-                PROBE_TIMEOUT,
+                RECOVERY_TIMEOUT,
             )
             .await
             .map_err(RuntimeError::from)
     });
-    let result = tokio::time::timeout(PROBE_TIMEOUT, recovery)
+    let result = tokio::time::timeout(RECOVERY_TIMEOUT, recovery)
         .await
         .unwrap_or_else(|_| {
             Err(RuntimeError::new(
@@ -151,8 +151,12 @@ mod tests {
             indexes.subagent_parent_tool_use_id("grandchild"),
             Some("codex-agent-grandchild")
         );
+        let transcript: Vec<_> = events
+            .iter()
+            .filter(|event| !event.is_subagent_signal_only())
+            .collect();
         assert_eq!(
-            events.last().unwrap().parent_tool_use_id(),
+            transcript.last().unwrap().parent_tool_use_id(),
             Some("codex-agent-sibling")
         );
         assert!(lifecycle.children.contains_key("grandchild"));

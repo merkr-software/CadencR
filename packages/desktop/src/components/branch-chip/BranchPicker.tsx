@@ -4,54 +4,56 @@
  * scales with user data, so we render through `react-virtuoso` (already a
  * project dep — we don't add `@tanstack/react-virtual` just for this).
  *
- * Selection triggers `useUpdateTargetBranch`. Per `no-optimistic-updates.md`
- * we don't manually invalidate after success; the backend WS push drives it.
+ * The list itself is generic: {@link TargetBranchPicker} picks a branch's
+ * compare target, {@link LinkBranchPicker} links a branch to the conversation.
+ * Per `no-optimistic-updates.md` neither invalidates after success; the
+ * backend's `git.status` push carries the change.
  */
 import { useCallback, useState, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { useListBranches, useUpdateTargetBranch, type BranchInfo } from "@/api/generated";
+import {
+  useLinkFeatureBranch,
+  useListBranches,
+  useUpdateTargetBranch,
+  type BranchInfo,
+} from "@/api/generated";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage, toastError } from "@/lib/api-errors";
 import { useBranchList, type BranchListRowContext } from "./BranchList";
 
 interface BranchPickerProps {
-  featureId: number;
   projectId: number;
-  currentTarget: string | null | undefined;
-  onPicked: () => void;
+  /** Highlighted as the current choice. */
+  selected: string | null | undefined;
+  onSelect: (name: string) => Promise<unknown>;
+  /** Toast title when `onSelect` fails. */
+  errorMessage: string;
 }
 
-export function BranchPicker({
-  featureId,
+function BranchPicker({
   projectId,
-  currentTarget,
-  onPicked,
+  selected,
+  onSelect,
+  errorMessage,
 }: BranchPickerProps): ReactElement {
   const branchesQuery = useListBranches({ project_id: projectId });
   const [query, setQuery] = useState("");
   const [pendingName, setPendingName] = useState<string | null>(null);
 
-  const updateTarget = useUpdateTargetBranch();
-
   const pick = useCallback(
     async (name: string): Promise<void> => {
-      if (name === currentTarget) {
-        onPicked();
-        return;
-      }
       setPendingName(name);
       try {
-        await updateTarget.mutateAsync({ id: featureId, data: { target_branch: name } });
-        onPicked();
+        await onSelect(name);
       } catch (err) {
-        toastError(err, "Failed to update target branch.");
+        toastError(err, errorMessage);
       } finally {
         setPendingName(null);
       }
     },
-    [currentTarget, featureId, onPicked, updateTarget],
+    [errorMessage, onSelect],
   );
 
   const onPickBranch = useCallback((b: BranchInfo) => void pick(b.name), [pick]);
@@ -60,13 +62,13 @@ export function BranchPicker({
     ({ branch, isActive }: BranchListRowContext) => (
       <BranchRow
         branch={branch}
-        isCurrentTarget={branch.name === currentTarget}
+        isSelected={branch.name === selected}
         isActive={isActive}
         isPending={pendingName === branch.name}
         onSelect={() => pick(branch.name)}
       />
     ),
-    [currentTarget, pendingName, pick],
+    [selected, pendingName, pick],
   );
 
   const branches = branchesQuery.data ?? [];
@@ -109,9 +111,76 @@ export function BranchPicker({
   );
 }
 
+interface TargetBranchPickerProps {
+  featureId: number;
+  projectId: number;
+  /** The conversation branch whose target this picks. */
+  branch: string;
+  currentTarget: string | null | undefined;
+  onPicked: () => void;
+}
+
+/** Pick the compare target of one of the conversation's branches. */
+export function TargetBranchPicker({
+  featureId,
+  projectId,
+  branch,
+  currentTarget,
+  onPicked,
+}: TargetBranchPickerProps): ReactElement {
+  const { mutateAsync } = useUpdateTargetBranch();
+  const select = useCallback(
+    async (name: string): Promise<void> => {
+      if (name !== currentTarget) {
+        await mutateAsync({ id: featureId, data: { target_branch: name, branch } });
+      }
+      onPicked();
+    },
+    [branch, currentTarget, featureId, mutateAsync, onPicked],
+  );
+  return (
+    <BranchPicker
+      projectId={projectId}
+      selected={currentTarget}
+      onSelect={select}
+      errorMessage="Failed to update target branch."
+    />
+  );
+}
+
+interface LinkBranchPickerProps {
+  featureId: number;
+  projectId: number;
+  onLinked: () => void;
+}
+
+/** Link an existing branch to the conversation by hand. */
+export function LinkBranchPicker({
+  featureId,
+  projectId,
+  onLinked,
+}: LinkBranchPickerProps): ReactElement {
+  const { mutateAsync } = useLinkFeatureBranch();
+  const select = useCallback(
+    async (name: string): Promise<void> => {
+      await mutateAsync({ id: featureId, data: { branch: name } });
+      onLinked();
+    },
+    [featureId, mutateAsync, onLinked],
+  );
+  return (
+    <BranchPicker
+      projectId={projectId}
+      selected={null}
+      onSelect={select}
+      errorMessage="Failed to link the branch."
+    />
+  );
+}
+
 interface BranchRowProps {
   branch: BranchInfo;
-  isCurrentTarget: boolean;
+  isSelected: boolean;
   isActive: boolean;
   isPending: boolean;
   onSelect: () => void;
@@ -119,7 +188,7 @@ interface BranchRowProps {
 
 function BranchRow({
   branch,
-  isCurrentTarget,
+  isSelected,
   isActive,
   isPending,
   onSelect,
@@ -132,7 +201,7 @@ function BranchRow({
       aria-label={`Select ${branch.is_local ? "local" : "remote"} branch ${branch.name}`}
       className={cn(
         "w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left hover:bg-accent disabled:opacity-50",
-        isCurrentTarget && "bg-accent/50",
+        isSelected && "bg-accent/50",
         isActive && "bg-accent",
       )}
     >

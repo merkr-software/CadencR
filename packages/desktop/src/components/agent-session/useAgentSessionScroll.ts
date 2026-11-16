@@ -1,18 +1,19 @@
+import { recordDiagnosticEvent } from "@/lib/renderer-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { FollowOutputCallback, VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
 import { isIos } from "@/lib/is-ios";
 import { subscribeResize } from "@/lib/resize-coordinator";
 import {
   canScrollStream,
   MAX_VIEWPORT_FILL_PAGES,
-  PIN_EPSILON_PX,
-  pinToBottom,
-  type HistoryAnchor,
+  type StartJump,
   type UseAgentSessionScrollResult,
 } from "./agent-session-scroll-utils";
+import { ScrollAnchorGuard } from "./stream-scroll-anchor";
+import { StreamScrollWriter } from "./stream-scroll-writer";
 import { useAgentSessionScrollInput } from "./useAgentSessionScrollInput";
 
 interface UseAgentSessionScrollOptions {
@@ -29,7 +30,6 @@ function useScrollState(options: UseAgentSessionScrollOptions) {
   const historyLoadArmedRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const loadGenerationRef = useRef(0);
-  const historyAnchorRef = useRef<HistoryAnchor | null>(null);
   const lastScrollTopRef = useRef(0);
   const suppressScrollIntentRef = useRef(false);
   const userScrollIntentRef = useRef(false);
@@ -47,7 +47,6 @@ function useScrollState(options: UseAgentSessionScrollOptions) {
       autoScrollEnabled,
       didFirstPaintScrollRef,
       hasMoreRef,
-      historyAnchorRef,
       historyLoadArmedRef,
       isLoadingOlder,
       lastScrollTopRef,
@@ -70,32 +69,29 @@ function useScrollState(options: UseAgentSessionScrollOptions) {
 
 type ScrollState = ReturnType<typeof useScrollState>;
 
-function useScrollPinning(state: ScrollState) {
+function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
   const setAutoScrollEnabled = useCallback(
     (enabled: boolean): void => {
       if (state.stickRef.current === enabled) return;
+      recordDiagnosticEvent("scroll", { following: enabled });
       state.stickRef.current = enabled;
       state.setAutoScrollEnabledState(enabled);
     },
     [state.setAutoScrollEnabledState, state.stickRef],
   );
+  // The writer skips the raw pin on iOS, where Virtuoso owns bottom pinning
+  // through its deviation-aware `followOutput` path, and once stick lets go.
   const pinScrollerToEnd = useCallback((): void => {
-    // On iOS, Virtuoso owns bottom pinning through its deviation-aware
-    // `followOutput` path. A raw scrollTop write can fight that correction and
-    // feed a synchronous scroll/measurement loop back into React.
-    if (isIos()) return;
-    const element = state.scrollerElRef.current;
-    if (!element || !state.stickRef.current) return;
-    pinToBottom(element);
-  }, [state.scrollerElRef, state.stickRef]);
+    writer.pinToBottom();
+  }, [writer]);
   const pinToEnd = useCallback((): void => {
-    state.virtuosoRef.current?.scrollToIndex({
+    writer.scrollToIndex(state.virtuosoRef.current, "follow-bottom", {
       index: "LAST",
       align: "end",
       behavior: "auto",
     });
     requestAnimationFrame(pinScrollerToEnd);
-  }, [pinScrollerToEnd, state.virtuosoRef]);
+  }, [pinScrollerToEnd, state.virtuosoRef, writer]);
   const suppressProgrammaticScrollIntent = useCallback((): void => {
     state.suppressScrollIntentRef.current = true;
     requestAnimationFrame(() => {
@@ -112,58 +108,19 @@ function useScrollPinning(state: ScrollState) {
 
 type ScrollPinning = ReturnType<typeof useScrollPinning>;
 
-function useHistoryAnchors(state: ScrollState) {
-  const capture = useCallback((): void => {
-    if (isIos()) return;
-    const element = state.scrollerElRef.current;
-    state.historyAnchorRef.current = element
-      ? { scrollTop: element.scrollTop, scrollHeight: element.scrollHeight }
-      : null;
-  }, [state.historyAnchorRef, state.scrollerElRef]);
-  const restore = useCallback((): void => {
-    const anchor = state.historyAnchorRef.current;
-    const element = state.scrollerElRef.current;
-    if (!anchor || !element || state.stickRef.current) return;
-    const heightDelta = element.scrollHeight - anchor.scrollHeight;
-    if (heightDelta <= 0) return;
-    const targetScrollTop = anchor.scrollTop + heightDelta;
-    if (Math.abs(element.scrollTop - targetScrollTop) <= PIN_EPSILON_PX) return;
-    element.scrollTop = targetScrollTop;
-    state.lastScrollTopRef.current = targetScrollTop;
-  }, [state.historyAnchorRef, state.lastScrollTopRef, state.scrollerElRef, state.stickRef]);
-  const scheduleRestore = useCallback((): void => {
-    let frames = 0;
-    const restoreFrame = (): void => {
-      restore();
-      frames += 1;
-      if (frames < 3) requestAnimationFrame(restoreFrame);
-    };
-    requestAnimationFrame(restoreFrame);
-    window.setTimeout(() => {
-      restore();
-      state.historyAnchorRef.current = null;
-    }, 750);
-  }, [restore, state.historyAnchorRef]);
-  return useMemo(
-    () => ({ capture, restore, scheduleRestore }),
-    [capture, restore, scheduleRestore],
-  );
-}
-
-type HistoryAnchors = ReturnType<typeof useHistoryAnchors>;
-
-function useHistoryLoader(state: ScrollState, anchors: HistoryAnchors) {
+function useHistoryLoader(state: ScrollState) {
+  // Depends on the refs it reads rather than on `state`, which is rebuilt on
+  // every stick and loading toggle: `onScroll` closes over this, and with it the
+  // scroller ref, whose identity must hold (see `useScrollContainerRef`).
   const requestOlderHistory = useCallback((): void => {
     const loadOlder = state.onLoadOlderRef.current;
     if (!state.hasMoreRef.current || !loadOlder || state.loadingOlderRef.current) return;
-    anchors.capture();
     const generation = state.loadGenerationRef.current;
     state.loadingOlderRef.current = true;
     state.setIsLoadingOlder(true);
     void loadOlder()
       .then(() => {
         if (generation !== state.loadGenerationRef.current) return;
-        anchors.scheduleRestore();
         state.historyLoadArmedRef.current = false;
         state.userScrollIntentRef.current = false;
         state.loadingOlderRef.current = false;
@@ -171,14 +128,21 @@ function useHistoryLoader(state: ScrollState, anchors: HistoryAnchors) {
       })
       .catch(() => {
         if (generation !== state.loadGenerationRef.current) return;
-        state.historyAnchorRef.current = null;
         state.historyLoadArmedRef.current = false;
         state.userScrollIntentRef.current = false;
         state.loadingOlderRef.current = false;
         state.setIsLoadingOlder(false);
         toast.error("Failed to load older messages");
       });
-  }, [anchors, state]);
+  }, [
+    state.hasMoreRef,
+    state.historyLoadArmedRef,
+    state.loadGenerationRef,
+    state.loadingOlderRef,
+    state.onLoadOlderRef,
+    state.setIsLoadingOlder,
+    state.userScrollIntentRef,
+  ]);
   const maybeFillViewport = useCallback((): void => {
     if (!state.stickRef.current || state.loadingOlderRef.current) return;
     if (!state.hasMoreRef.current || !state.onLoadOlderRef.current) return;
@@ -191,7 +155,6 @@ function useHistoryLoader(state: ScrollState, anchors: HistoryAnchors) {
   const resetIntent = useCallback((): void => {
     state.historyLoadArmedRef.current = false;
     state.userScrollIntentRef.current = false;
-    state.historyAnchorRef.current = null;
     state.lastScrollTopRef.current = state.scrollerElRef.current?.scrollTop ?? 0;
   }, [state]);
   const armUserScrollIntent = useCallback((): void => {
@@ -205,12 +168,7 @@ function useHistoryLoader(state: ScrollState, anchors: HistoryAnchors) {
 
 type HistoryLoader = ReturnType<typeof useHistoryLoader>;
 
-function useScrollCallbacks(
-  state: ScrollState,
-  pinning: ScrollPinning,
-  anchors: HistoryAnchors,
-  history: HistoryLoader,
-) {
+function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history: HistoryLoader) {
   const scrollToBottom = useCallback((): void => {
     history.resetIntent();
     pinning.setAutoScrollEnabled(true);
@@ -232,7 +190,6 @@ function useScrollCallbacks(
   );
   const onTotalListHeightChanged = useCallback(
     (_height: number): void => {
-      anchors.restore();
       // Skip the bottom-pin while a recap toggle is animating its height — that
       // height delta is user-driven, not new content, so re-pinning would jump
       // the clicked recap out of view.
@@ -243,7 +200,7 @@ function useScrollCallbacks(
       if (!isIos()) pinning.pinToEnd();
       history.maybeFillViewport();
     },
-    [anchors, history, pinning, state.stickRef],
+    [history, pinning, state.stickRef],
   );
   const onStartReached = useCallback((): void => {
     if (state.historyLoadArmedRef.current) history.requestOlderHistory();
@@ -269,6 +226,7 @@ function useScrollLifecycle(
 ) {
   useLayoutEffect(() => {
     if (state.prevConversationKeyRef.current === conversationKey) return;
+    recordDiagnosticEvent("scroll", { event: "conversation-changed", following: true });
     state.prevConversationKeyRef.current = conversationKey;
     state.loadGenerationRef.current += 1;
     state.loadingOlderRef.current = false;
@@ -295,18 +253,60 @@ function useScrollLifecycle(
   );
 }
 
+/**
+ * One programmatic jump at a time, whoever starts it (the prompt rail, the
+ * composer's agent list): a new one cancels the one still settling, so two
+ * never fight over `scrollTop`. Identity-stable, unlike `prepareJump`.
+ */
+export function useJumpOwner(prepareJump: () => void): StartJump {
+  const prepareRef = useRef(prepareJump);
+  prepareRef.current = prepareJump;
+  const cancelRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => cancelRef.current?.(), []);
+  return useCallback((run) => {
+    prepareRef.current();
+    cancelRef.current?.();
+    const cancel = run();
+    cancelRef.current = cancel;
+    return cancel;
+  }, []);
+}
+
 export function useAgentSessionScroll(
   options: UseAgentSessionScrollOptions,
 ): UseAgentSessionScrollResult {
   const state = useScrollState(options);
-  const pinning = useScrollPinning(state);
-  const anchors = useHistoryAnchors(state);
-  const history = useHistoryLoader(state, anchors);
-  const callbacks = useScrollCallbacks(state, pinning, anchors, history);
+  // Every scroll write names its intent through this writer; a jump or reveal
+  // it performs releases bottom-stick through `prepareJump` (set below).
+  const prepareJumpRef = useRef<() => void>(() => {});
+  const [writer] = useState(
+    () =>
+      new StreamScrollWriter({
+        isFollowing: () => state.stickRef.current,
+        prepareJump: () => prepareJumpRef.current(),
+      }),
+  );
+  const pinning = useScrollPinning(state, writer);
+  const [anchorGuard] = useState(() => new ScrollAnchorGuard(() => state.stickRef.current));
+  const history = useHistoryLoader(state);
+  const callbacks = useScrollCallbacks(state, pinning, history);
+  const { setAutoScrollEnabled } = pinning;
+  const { resetIntent } = history;
+  // A programmatic jump owns the viewport: bottom-stick lets go, and neither
+  // the anchor guard nor an armed history load may pull it back.
+  const prepareJump = useCallback((): void => {
+    anchorGuard.suspend();
+    resetIntent();
+    setAutoScrollEnabled(false);
+  }, [anchorGuard, resetIntent, setAutoScrollEnabled]);
+  prepareJumpRef.current = prepareJump;
+  const startJump = useJumpOwner(prepareJump);
   useScrollLifecycle(state, pinning, history, options.conversationKey, options.blocks.length);
   const scrollContainerRef = useAgentSessionScrollInput({
     scrollerElRef: state.scrollerElRef,
     stickRef: state.stickRef,
+    writer,
+    anchorGuard,
     historyLoadArmedRef: state.historyLoadArmedRef,
     lastScrollTopRef: state.lastScrollTopRef,
     userScrollIntentRef: state.userScrollIntentRef,
@@ -319,6 +319,7 @@ export function useAgentSessionScroll(
     () => ({
       virtuosoRef: state.virtuosoRef,
       scrollContainerRef,
+      itemSize: anchorGuard.measureItem,
       onStartReached: callbacks.onStartReached,
       followOutput: callbacks.followOutput,
       onAtBottomStateChange: callbacks.onAtBottomStateChange,
@@ -326,10 +327,13 @@ export function useAgentSessionScroll(
       autoScrollEnabled: state.autoScrollEnabled,
       isLoadingOlder: state.isLoadingOlder,
       scrollToBottom: callbacks.scrollToBottom,
+      startJump,
     }),
     [
+      anchorGuard,
       callbacks,
       scrollContainerRef,
+      startJump,
       state.autoScrollEnabled,
       state.isLoadingOlder,
       state.virtuosoRef,

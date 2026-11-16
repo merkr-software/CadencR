@@ -60,6 +60,23 @@ describe("GitTabToggle", () => {
     expect(onChange).toHaveBeenCalledWith("pr");
   });
 
+  it("counts the conversation's other open proposals beside its own", () => {
+    render(
+      <GitTabToggle
+        value="uncommitted"
+        onChange={vi.fn()}
+        prNumber={128}
+        prOtherCount={2}
+        prOtherTone="danger"
+      />,
+    );
+    const others = screen
+      .getByRole("tab", { name: "Pull request #128" })
+      .querySelector("[data-pr-tab-others]")!;
+    expect(others).toHaveTextContent("+2");
+    expect(others.className).toContain("--acc-red");
+  });
+
   it("falls back to the backend's proposal noun when there is no proposal yet", () => {
     render(<GitTabToggle value="uncommitted" onChange={vi.fn()} prLabel="MR" />);
     expect(screen.getByRole("tab", { name: "MR" })).toBeInTheDocument();

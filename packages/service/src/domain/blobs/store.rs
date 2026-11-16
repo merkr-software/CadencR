@@ -71,7 +71,7 @@ pub fn put(bytes: &[u8]) -> Result<BlobHash, AppError> {
 /// background maintenance can replace inline payloads with blob references.
 pub fn ensure_root(root: &Path) -> Result<(), AppError> {
     durability::ensure_blob_directories(root, root)
-        .map_err(blob_io("create durable blob directory"))
+        .map_err(|error| blob_io("create durable blob directory", error))
 }
 
 fn put_in(root: &Path, bytes: &[u8]) -> Result<BlobHash, AppError> {
@@ -79,11 +79,11 @@ fn put_in(root: &Path, bytes: &[u8]) -> Result<BlobHash, AppError> {
     let path = path_for_in(root, &hash);
     let shard = path
         .parent()
-        .ok_or_else(|| AppError::Internal("blob path has no parent".into()))?;
+        .ok_or_else(|| AppError::internal("blob path has no parent"))?;
     durability::ensure_blob_directories(root, shard)
-        .map_err(blob_io("create durable blob shard"))?;
+        .map_err(|error| blob_io("create durable blob shard", error))?;
 
-    if verify_blob(&path, &hash).map_err(blob_io("verify existing blob"))? {
+    if verify_blob(&path, &hash).map_err(|error| blob_io("verify existing blob", error))? {
         return Ok(hash);
     }
     quarantine_corrupt(&path, shard, &hash)?;
@@ -95,30 +95,33 @@ fn put_in(root: &Path, bytes: &[u8]) -> Result<BlobHash, AppError> {
         uuid::Uuid::new_v4()
     ));
     write_and_sync_new(&staging, bytes)
-        .map_err(|e| AppError::Internal(format!("failed to write blob: {e}")))?;
+        .map_err(|e| AppError::internal(format!("failed to write blob: {e}")))?;
     if let Err(error) = std::fs::rename(&staging, &path) {
         // On platforms where rename cannot replace an existing file, another
         // writer may have won. Success is allowed only after verifying bytes.
-        if !verify_blob(&path, &hash).map_err(blob_io("verify concurrently stored blob"))? {
+        if !verify_blob(&path, &hash)
+            .map_err(|error| blob_io("verify concurrently stored blob", error))?
+        {
             cleanup_staging(&staging);
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "failed to commit blob: {error}"
             )));
         }
         cleanup_staging(&staging);
     }
-    if !verify_blob(&path, &hash).map_err(blob_io("verify committed blob"))? {
-        return Err(AppError::Internal(format!(
+    if !verify_blob(&path, &hash).map_err(|error| blob_io("verify committed blob", error))? {
+        return Err(AppError::internal(format!(
             "committed blob {hash} failed integrity verification"
         )));
     }
     crate::shared::fs_durability::sync_directory(shard)
-        .map_err(|e| AppError::Internal(format!("failed to sync blob directory: {e}")))?;
+        .map_err(|e| AppError::internal(format!("failed to sync blob directory: {e}")))?;
     Ok(hash)
 }
 
-fn blob_io(action: &'static str) -> impl FnOnce(std::io::Error) -> AppError {
-    move |error| AppError::Internal(format!("failed to {action}: {error}"))
+#[track_caller]
+fn blob_io(action: &'static str, error: std::io::Error) -> AppError {
+    AppError::internal(format!("failed to {action}: {error}"))
 }
 
 /// A false result covers both absence and a corrupt/non-file path.
@@ -155,7 +158,7 @@ fn quarantine_corrupt(path: &Path, shard: &Path, hash: &str) -> Result<(), AppEr
         uuid::Uuid::new_v4()
     ));
     std::fs::rename(path, &quarantine).map_err(|error| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "failed to quarantine corrupt blob {} as {}: {error}",
             path.display(),
             quarantine.display()

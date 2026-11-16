@@ -1,7 +1,8 @@
 //! Parser for Claude Code's on-disk conversation history.
 //!
 //! Claude Code stores each session as a single JSONL file under
-//! `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl`. The encoded
+//! `<config-dir>/projects/<encoded-cwd>/<session-uuid>.jsonl`, the config dir
+//! being the profile's (`claude_code::config_dir`). The encoded
 //! directory name is the absolute project path with `/` replaced by `-`
 //! (so `/Users/foo/bar` → `-Users-foo-bar`). Each line is a JSON event;
 //! the relevant types are `user`, `assistant`, `ai-title`, plus several
@@ -39,18 +40,6 @@ pub fn encode_project_path(path: &Path) -> String {
         encoded.push(if ch.is_ascii_alphanumeric() { ch } else { '-' });
     }
     encoded
-}
-
-/// Resolve the directory Claude Code would use for a given project path,
-/// rooted at `~/.claude/projects/`. Returns `None` if the home dir can't
-/// be resolved — callers should treat that as "no conversations".
-pub fn claude_projects_dir_for(project_path: &Path) -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    Some(
-        home.join(".claude")
-            .join("projects")
-            .join(encode_project_path(project_path)),
-    )
 }
 
 /// Scan all `*.jsonl` files directly under the given dir. Subdirectories

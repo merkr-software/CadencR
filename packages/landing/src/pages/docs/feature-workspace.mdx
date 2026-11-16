@@ -1,89 +1,62 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Feature workspace"
-description: "Your home base for one feature, fix, or task — with agent work, files, terminal, and Git in one place."
+description: "Work with an agent, files, a browser, terminal, and Git in one task workspace."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
-import DocCallout from "@/components/docs/DocCallout.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/feature-workspace.png";
 
-A feature workspace is the main place where you do one piece of work in CadencR. If a task needs agent help, file edits, terminal commands, and a quick Git confidence check, this is where those things live together instead of being scattered across separate windows.
+A feature workspace holds one conversation and the working context around it. Keep a task here while you ask for changes, inspect files, run checks, and review Git.
 
-<DocCallout title="Quick translation" variant="tip">
-  In CadencR, a “feature” does **not** have to mean something fancy. It can be a bug fix, docs
-  update, refactor, cleanup, or any other focused task.
-</DocCallout>
+<DocScreenshot
+  src={pageImage}
+  alt="An example checkout task with the next-prompt provider profile open in Session Info."
+  caption="An example checkout task with the next-prompt provider profile open in Session Info."
+  bordered={false}
+  rounded
+  elevated
+/>
 
-## What a feature workspace is
+## Read the header
 
-Think of a feature workspace as a **home base for one job**.
+The title block includes the conversation title, worktree branch, and setup state. Open the setup details to inspect progress or errors. Setup output persists when you reopen a conversation or reconnect; interrupted setup can be retried.
 
-It gives you a single, focused space for:
+The header also gives access to conversation information, custom actions, Git controls, and archive actions. Conversation Info exposes runtime details such as the provider profile and connected MCP servers when supported.
 
-- the agent session doing the work,
-- the files you want to inspect or edit,
-- the browser for live previews, docs, or visual feedback,
-- the terminal for commands that need a human touch, and
-- the Git view for checking what changed before you call it done.
+## Choose a pane
 
-The big mental model is simple: **one workspace = one piece of work**. That makes it easier to stay organized, easier to review changes, and much easier to come back later without asking yourself, “Wait, which tab was the important one again?”
+| Pane     | What you can do                                                                          |
+| -------- | ---------------------------------------------------------------------------------------- |
+| Agent    | Read the transcript, send prompts, answer requests, and navigate earlier messages        |
+| Editor   | Open files, follow file-and-line links, use language tooling, or run Neovim              |
+| Terminal | Run commands in the conversation's working folder                                        |
+| Browser  | Preview pages, manage browser state, and send visual comments to the agent               |
+| Git      | Review changes, stage files, update the branch, inspect history, and follow PR/MR review |
 
-## What you’ll usually see there
+## Automatic and manual layouts
 
-The exact layout can change a bit, but these are the usual suspects:
+**Auto layout** opens browser pages and file references beside the agent. It is enabled by default and remembers pane sizes. Manual layout changes are respected, and automatic rearrangements offer undo.
 
-| Area               | What it is for                                                       | When to use it                                                           |
-| ------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Agent/session area | Chatting with the agent and following its progress                   | When you want to ask for work, steer it, or review what it is doing      |
-| Editor             | Opening files, reading code, checking diffs, and making manual edits | When you want to verify something with your own eyes or tweak the result |
-| Terminal           | Running commands inside the feature’s working context                | When the task needs tests, tooling, or direct command-line work          |
-| Git view           | Seeing changed files and checking your work before the next step     | When you want the “okay, what actually changed?” view                    |
+Use the conversation and workspace controls to disable it where needed. Split or resize panes when a different arrangement makes the work easier to inspect.
 
-You may see these as tabs, panes, or both. That is normal. The workspace is meant to help you move between thinking, checking, editing, and verifying without losing the thread.
+## Keep the task's context clear
 
-The main panes have one-stroke keyboard switches: <kbd>⌘ <ShiftIcon /> A</kbd> for Agent, <kbd>⌘ <ShiftIcon /> E</kbd> for Editor, <kbd>⌘ <ShiftIcon /> T</kbd> for Terminal, and <kbd>⌘ <ShiftIcon /> G</kbd> for Git. Open the Browser tab when you need a live page or want to send page context back to the agent.
+Before the first prompt, check the selected branch and worktree behavior. The task can use a new checkout, reuse one, or work in the project folder. A branch operation may wait until the first prompt starts setup; its pending state is shown in the interface.
 
-### The feature header
+The provider and model for a new conversation follow your last accepted manual prompt across projects unless the conversation has an explicit override. Profiles, thinking, modes, and Fast controls appear according to provider capabilities.
 
-Above the panes you get a handful of header controls that are easy to miss:
+## Archive with the cleanup options you intend
 
-- **Feature label** — <kbd>⌘ <ShiftIcon /> L</kbd> to rename inline.
-- **Feature settings popover** — <kbd>⌘ <ShiftIcon /> P</kbd> (or <kbd>⌥ P</kbd>) for the per-feature options (provider profile, model defaults, working directory, …).
-- **Custom actions bar** — your saved actions live here; the `+` opens the action menu. See [Custom actions](../custom-actions/).
-- **Git actions** — <kbd>⌘ G</kbd> opens the popover with commit / push / compare; the branch picker is <kbd>⌘ B</kbd>.
-- **Archive** — <kbd>⌘ <ShiftIcon /> X</kbd> archives the feature (or permanently deletes it when run on an already-archived one). Archived features stay searchable from the sidebar; they are not destroyed on first press. When terminals are still running, the archive / delete dialogs can also kill those terminals.
+Archiving removes a conversation from the active list while preserving its history. The confirmation dialog can optionally include its parent or descendants and shows linked-conversation counts.
 
-## A good way to work inside it
+Worktree removal, branch removal, and terminal cleanup are separate options when applicable. Review the checked options and any warnings before confirming. Deleting an already archived conversation is a separate permanent action; do not assume it has the same effect as archiving.
 
-A simple rhythm works well for most people:
+## Related guides
 
-1. **Start with the task.** Open or create the feature workspace for the thing you want to finish.
-2. **Use the agent to get moving.** Ask for the first draft, investigation, or implementation pass.
-3. **Check the editor.** Open the files the agent touched so you can confirm they make sense in plain human language.
-4. **Use the terminal only when it helps.** Run tests, inspect output, or do quick project tasks when needed.
-5. **Finish with Git.** Before you call the work done, check the changed files so nothing surprising slipped in.
-
-If you are newer to development, this flow is especially helpful because it keeps every step visible. You do not need to “just know” what is happening — the workspace is built so you can inspect the work as you go.
-
-## Common mistakes to avoid
-
-- **Putting unrelated tasks in one feature workspace.** If the work is really a different job, give it a different home base.
-- **Staying only in the chat.** The agent is helpful, but the editor and Git view are where confidence comes from.
-- **Using the terminal as a first resort.** It is there to help, not to intimidate. If the agent or editor answers the question, start there.
-- **Skipping the final Git check.** This is how tiny surprises become medium-sized surprises.
-
-<DocCallout title="A good rule of thumb" variant="note">
-  If the workspace starts to feel messy, that is usually a sign the task is too broad, not that you
-  are doing something wrong.
-</DocCallout>
-
-## Related docs
-
-If you want the guided tour version, these pages are good next stops:
-
-- [Workspace pages](../workspace-pages/) for the big-picture tour of the app
-- [Session view](../session-view/) for reading and steering agent work
-- [Editor](../editor/) for file browsing, diffs, and manual changes
-- [Browser](../browser/) for live previews and page comments
-- [Terminal](../terminal/) for command-line tasks inside CadencR
-- [Git in CadencR](../git/) for reviewing changes with more confidence
+- [Session view](../session-view/) — read and steer the conversation.
+- [Worktrees](../worktrees/) — branches, reuse, and cleanup.
+- [Git](../git/) — review before publishing.
+- [Custom actions](../custom-actions/) — repeat project commands.

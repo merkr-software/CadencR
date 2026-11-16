@@ -8,10 +8,13 @@ use crate::domain::agents::runtime_adapter;
 use crate::domain::workflow::worktree;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 use super::super::{send_error, QueryState, SdkSessions, WsSender};
 use super::prompt_send::PreparedPrompt;
-use super::user_shell_local::{run_cadencr_managed_user_shell, LocalUserShellRequest};
+use crate::domain::ws_session::runtime::prompt::user_shell_local::{
+    run_cadencr_managed_user_shell, LocalUserShellRequest,
+};
 
 struct UserShellTarget {
     feature_id: i64,
@@ -34,7 +37,7 @@ impl UserShellRouteError {
 }
 
 /// Return `true` when `prepared` was a user shell command and was fully handled.
-pub(super) async fn maybe_handle_user_shell_prompt(
+pub(in crate::domain::ws_session) async fn maybe_handle_user_shell_prompt(
     envelope: &WsEnvelope,
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
@@ -177,12 +180,15 @@ async fn run_local(
     ensure_session_idle(app_state, session_id).await?;
     let cwd = PathBuf::from(worktree::resolve_feature_cwd(&app_state.read_pool, feature_id).await?);
     let cancellation = app_state.user_shell_runs.register(session_id).await?;
-    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await;
-    app_state.session_status_tx.broadcast_running_with_start(
-        session_id,
-        feature_id,
-        super::super::active_turns::now_ms(),
-    );
+    if let Err(error) =
+        WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await
+    {
+        app_state.user_shell_runs.unregister(session_id).await;
+        return Err(format!("Could not start the command: {error}"));
+    }
+    app_state
+        .session_status_tx
+        .broadcast_shell_running(session_id, feature_id);
     let request = LocalUserShellRequest {
         session_id,
         feature_id,
@@ -199,9 +205,9 @@ async fn run_local(
     tokio::spawn(async move {
         let result = run_cadencr_managed_user_shell(request).await;
         app_state.user_shell_runs.unregister(session_id).await;
-        WsSessionPersistence::mark_paused_static(&app_state.write_pool, session_id).await;
-        WsSessionPersistence::broadcast_session_status(
-            &app_state.session_status_tx,
+        let paused =
+            WsSessionPersistence::mark_paused_static(&app_state.write_pool, session_id).await;
+        app_state.session_status_tx.broadcast(
             session_id,
             feature_id,
             crate::domain::session_status::AgentStatus::Idle,
@@ -210,6 +216,9 @@ async fn run_local(
         if let Err(error) = result {
             super::super::send_error(&sender, &envelope_id, "USER_SHELL_FAILED", &error);
         }
+        let senders = &app_state.ws_feature_senders;
+        let what = "that the command finished";
+        report_if_unsaved(senders, feature_id, session_id, what, paused).await;
     });
     Ok(())
 }
@@ -234,8 +243,12 @@ async fn resolve_target(
     app_state: &AppState,
     session_id: i64,
 ) -> Option<UserShellTarget> {
-    let effective =
-        super::super::session_control::resolve_owner_sessions(local, app_state, session_id).await;
+    let effective = crate::domain::ws_session::runtime::control_policy::resolve_owner_sessions(
+        local,
+        &app_state.active_turns,
+        session_id,
+    )
+    .await;
     target_from_sessions(&effective, session_id).await
 }
 
@@ -270,7 +283,7 @@ async fn prepare_branch_if_requested(
     let QueryState::Pending(options) = &mut handle.state else {
         return Err("Branch setup is only valid before the provider runtime starts.".to_string());
     };
-    super::prompt_worktree::prepare_branch_provisioning(
+    crate::domain::ws_session::runtime::prompt::prompt_worktree::prepare_branch_provisioning(
         app_state,
         &app_state.write_pool,
         sender,

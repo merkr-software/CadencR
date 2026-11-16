@@ -186,8 +186,8 @@ vi.mock("@/stores/editor-store", () => ({
 
 let mockDebouncedSettings: Record<string, string> = {};
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn((key: string) => ({
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: vi.fn((key: string) => ({
     value: mockDebouncedSettings[key] ?? "false",
   })),
 }));

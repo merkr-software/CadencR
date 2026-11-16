@@ -1,4 +1,4 @@
-import { FoldVerticalIcon, LayoutGrid, ListTree, Minimize2, type LucideIcon } from "lucide-react";
+import { FoldVerticalIcon, ListTree, Minimize2, Rows2, type LucideIcon } from "lucide-react";
 import { isFileChangeTool } from "@/lib/tool-adapter";
 
 export const AGENT_VERBOSITY_SETTING_KEY = "agent_stream_verbosity_mode";
@@ -7,7 +7,7 @@ export const AGENT_VERBOSITY_MODES = ["maximal", "auto_collapse", "collapsed", "
 
 export type AgentVerbosityMode = (typeof AGENT_VERBOSITY_MODES)[number];
 
-export const DEFAULT_AGENT_VERBOSITY_MODE: AgentVerbosityMode = "maximal";
+export const DEFAULT_AGENT_VERBOSITY_MODE: AgentVerbosityMode = "compact";
 
 /**
  * Workspace setting key for "Summary mode". Independent of the verbosity mode
@@ -62,8 +62,8 @@ export const AGENT_VERBOSITY_OPTIONS: readonly AgentVerbosityOption[] = [
     value: "compact",
     label: "Compact flow",
     description:
-      "Lay tools out as a flex-wrap of tiles between the agent's text blocks. Each tile shows just the tool name (plus the command for Bash or the numstat for Edit). Dense, glance-friendly view.",
-    icon: LayoutGrid,
+      "Keep the stream to your prompts and the agent's replies. The tool calls and thinking between them shrink to a single line showing the latest step; click it to list every step, newest first.",
+    icon: Rows2,
     iconColorVar: "var(--acc-green)",
   },
 ] as const;

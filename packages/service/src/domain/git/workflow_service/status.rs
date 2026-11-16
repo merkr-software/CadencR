@@ -1,5 +1,5 @@
 //! `GET /api/git/status` and `GET /api/git/compare-url`, plus the
-//! `enrich_with_sharing` helper shared with the file-watcher.
+//! `enrich_snapshot` helper shared with the file-watcher.
 //! Target-branch persistence lives in [`super::target_branch`].
 
 use std::path::Path;
@@ -34,8 +34,16 @@ pub async fn get_git_status(
     let mut snapshot =
         git_status::compute_status_or_empty(Path::new(&git_path), params.feature_id, &target)
             .await?;
-    enrich_with_sharing(state, &mut snapshot, &git_path).await;
+    enrich_snapshot(state, &mut snapshot, &git_path).await;
     Ok(snapshot)
+}
+
+/// Everything a computed snapshot carries beyond what `git status` reports:
+/// the features sharing its worktree, then the conversation's branches (which
+/// need `shared_with` to know whether a checkout can be attributed).
+pub async fn enrich_snapshot(state: &AppState, snapshot: &mut GitStatusSnapshot, path: &str) {
+    enrich_with_sharing(state, snapshot, path).await;
+    crate::domain::git::linked_branches::enrich_snapshot(state, snapshot, path).await;
 }
 
 /// Fill `snapshot.shared_with` with OTHER features in the same project whose
@@ -43,7 +51,7 @@ pub async fn get_git_status(
 /// reuse-branch flow's signal — multiple features share a single worktree
 /// dir, and we want the header to surface that. Best-effort: a DB error is
 /// logged but doesn't fail the snapshot.
-pub async fn enrich_with_sharing(
+async fn enrich_with_sharing(
     state: &AppState,
     snapshot: &mut GitStatusSnapshot,
     worktree_path: &str,
@@ -224,6 +232,7 @@ mod tests {
             compare_url: None,
             action_label: None,
             shared_with: Vec::new(),
+            thread_branches: Vec::new(),
             computed_at: 0,
         }
     }

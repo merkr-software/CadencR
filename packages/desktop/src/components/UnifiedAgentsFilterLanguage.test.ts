@@ -35,11 +35,11 @@ describe("UnifiedAgentsFilterLanguage", () => {
   it("treats non-slash key:value text as free text", () => {
     expect(parseUnifiedAgentsFilterText('last:20 project:"Core App" auth', PROJECTS)).toMatchObject(
       {
-        mode: "recent",
+        mode: "all",
         freshMinutes: 5,
         projectIds: [],
         query: 'last:20 project:"Core App" auth',
-        sortOrder: "created_desc",
+        sortOrder: "attention",
       },
     );
   });
@@ -59,6 +59,23 @@ describe("UnifiedAgentsFilterLanguage", () => {
       query: "",
       sortOrder: "created_desc",
     });
+  });
+
+  it("shows no time chip for every agent, whatever window was last chosen", () => {
+    expect(
+      serializeUnifiedAgentsFilterText(
+        {
+          mode: "all",
+          freshMinutes: 20,
+          projectIds: [],
+          excludedTitles: [],
+          pinnedOnly: false,
+          query: "",
+          sortOrder: "attention",
+        },
+        PROJECTS,
+      ),
+    ).toBe("");
   });
 
   it("serializes filters with slash-prefixed project names", () => {
@@ -82,17 +99,44 @@ describe("UnifiedAgentsFilterLanguage", () => {
     expect(
       serializeUnifiedAgentsFilterText(
         {
-          mode: "recent",
+          mode: "all",
           freshMinutes: 5,
           projectIds: [],
           excludedTitles: [],
           pinnedOnly: false,
           query: "review ui",
-          sortOrder: "created_desc",
+          sortOrder: "attention",
         },
         PROJECTS,
       ),
     ).toBe("review ui");
+  });
+
+  it("writes an activity window out as a visible token", () => {
+    expect(
+      serializeUnifiedAgentsFilterText(
+        {
+          mode: "recent",
+          freshMinutes: 5,
+          projectIds: [],
+          excludedTitles: [],
+          pinnedOnly: false,
+          query: "",
+          sortOrder: "attention",
+        },
+        PROJECTS,
+      ),
+    ).toBe("/last:5");
+  });
+
+  it("round-trips the attention sort", () => {
+    expect(parseUnifiedAgentsFilterText("/sort:attention", PROJECTS).sortOrder).toBe("attention");
+    expect(
+      serializeUnifiedAgentsFilterText(
+        { ...parseUnifiedAgentsFilterText("/sort:created", PROJECTS), sortOrder: "attention" },
+        PROJECTS,
+      ),
+    ).toBe("");
   });
 
   it("keeps non-default filters visible in the prompt", () => {
@@ -109,7 +153,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
         },
         PROJECTS,
       ),
-    ).toBe("/last:all /sort:message");
+    ).toBe("/sort:message");
   });
 
   it("parses /exclude into a deduped, quote-aware title list", () => {
@@ -125,13 +169,13 @@ describe("UnifiedAgentsFilterLanguage", () => {
     expect(
       serializeUnifiedAgentsFilterText(
         {
-          mode: "recent",
+          mode: "all",
           freshMinutes: 5,
           projectIds: [],
           excludedTitles: ["auth", "Docs site"],
           pinnedOnly: false,
           query: "",
-          sortOrder: "created_desc",
+          sortOrder: "attention",
         },
         PROJECTS,
       ),
@@ -158,13 +202,13 @@ describe("UnifiedAgentsFilterLanguage", () => {
   it("serializes pinnedOnly back to /pin:true and round-trips", () => {
     const text = serializeUnifiedAgentsFilterText(
       {
-        mode: "recent",
+        mode: "all",
         freshMinutes: 5,
         projectIds: [],
         excludedTitles: [],
         pinnedOnly: true,
         query: "",
-        sortOrder: "created_desc",
+        sortOrder: "attention",
       },
       PROJECTS,
     );
@@ -193,7 +237,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
   it("keeps invalid slash filters as free text", () => {
     expect(parseUnifiedAgentsFilterText("/unknown:value auth /sort:wat", PROJECTS)).toMatchObject({
       query: "/unknown:value auth",
-      sortOrder: "created_desc",
+      sortOrder: "attention",
     });
   });
 

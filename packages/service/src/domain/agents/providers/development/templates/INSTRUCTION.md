@@ -78,6 +78,30 @@ Optional model presentation metadata may be added at `option._meta.cadencr`:
 
 Do not invent values. Omit metadata the native provider does not expose.
 
+## Optional update commands
+
+Implement these when the connector can tell which version of the native provider is installed and upgrade it. Cadencr shows the versions in Settings → Providers → Versions & updates, toasts newly detected versions, and runs `update` when the user asks.
+
+| Command                               | Required behavior                                                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `updates --format cadencr-updates-v1` | Print one JSON object (below) and exit `0` within 20 seconds. Print `{"supported": false}` when this connector does not manage updates. |
+| `update [--version <version>]`        | Install `<version>`, or the latest version when omitted. Exit `0` on success within 10 minutes; optionally print `{"message": "..."}`.  |
+
+```json
+{
+  "supported": true,
+  "current_version": "1.4.0",
+  "latest_version": "1.5.0",
+  "available_versions": ["1.5.0", "1.4.1"],
+  "supports_target_version": true
+}
+```
+
+- `current_version` is `null` when the native CLI is not installed; `latest_version` is the newest installable version. Cadencr offers an update whenever both are present and differ.
+- `available_versions` is newest first (at most 100). Set `supports_target_version` only if `update --version` accepts every listed entry.
+- `update` must never prompt: `stdin` is closed. On failure, either command exits non-zero and prints `{"message": "..."}` with an actionable reason; `stderr` is never shown. A non-zero `updates` exit without that message reads as "Updates not managed".
+- Version strings are trimmed, at most 64 characters, without control characters.
+
 ## ACP v1 runtime requirements
 
 - Complete ACP v1 initialization and `session/new` over stdio.
@@ -104,6 +128,7 @@ Run these from the repository root after building:
 ```bash
 ./__EXECUTABLE__ version
 ./__EXECUTABLE__ models --format acp-config-options-v1 --cwd "$PWD"
+./__EXECUTABLE__ updates --format cadencr-updates-v1   # optional
 ```
 
 Then verify the `run` entry point with an ACP v1 client or an automated protocol fixture. Confirm `git status` contains only intentional source/documentation changes; generated binaries under `bin/` are ignored.

@@ -11,6 +11,8 @@ describe("parseBrowserGuestShortcutBindings", () => {
         responsive: { keys: ["mod", "shift", "m"] },
         devtools: { keys: ["mod", "alt", "i"] },
         zoomReset: { keys: [], altKeys: [] },
+        navigateBack: { keys: ["mod", "lbracket"] },
+        navigateForward: { keys: ["mod", "rbracket"] },
       }),
     ).toEqual({
       find: { keys: ["mod", "f"] },
@@ -18,6 +20,8 @@ describe("parseBrowserGuestShortcutBindings", () => {
       responsive: { keys: ["mod", "shift", "m"] },
       devtools: { keys: ["mod", "alt", "i"] },
       zoomReset: { keys: [], altKeys: [] },
+      navigateBack: { keys: ["mod", "lbracket"] },
+      navigateForward: { keys: ["mod", "rbracket"] },
     });
   });
 
@@ -29,6 +33,8 @@ describe("parseBrowserGuestShortcutBindings", () => {
         responsive: { keys: ["mod", "shift", "m"] },
         devtools: { keys: ["mod", "alt", "i"] },
         zoomReset: { keys: ["mod", "0"] },
+        navigateBack: { keys: ["mod", "lbracket"] },
+        navigateForward: { keys: ["mod", "rbracket"] },
       }),
     ).toThrow();
     expect(() =>
@@ -38,6 +44,8 @@ describe("parseBrowserGuestShortcutBindings", () => {
         responsive: { keys: ["mod", "shift", "m"] },
         devtools: { keys: ["mod", "alt", "i"] },
         zoomReset: { keys: ["mod", "0", "x"] },
+        navigateBack: { keys: ["mod", "lbracket"] },
+        navigateForward: { keys: ["mod", "rbracket"] },
       }),
     ).toThrow();
   });

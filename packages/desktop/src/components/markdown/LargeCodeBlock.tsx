@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, type ReactElement } from "react";
+import { memo, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { Virtuoso, type ItemContent } from "react-virtuoso";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
 
@@ -15,6 +15,8 @@ interface LargeCodeBlockProps {
   isStreaming?: boolean;
   showTerminalButton: boolean;
   onSendToTerminal?: (command: string) => void;
+  icon?: ReactNode;
+  leadingActions?: ReactNode;
 }
 
 interface CodeLineIndex {
@@ -95,6 +97,8 @@ function LargeCodeBlockImpl({
   isStreaming = false,
   showTerminalButton,
   onSendToTerminal,
+  icon,
+  leadingActions,
 }: LargeCodeBlockProps): ReactElement {
   const lineIndexRef = useRef<CodeLineIndex | null>(null);
   const lineIndex = lineIndexRef.current
@@ -106,9 +110,11 @@ function LargeCodeBlockImpl({
   return (
     <CodeBlockShell
       language={language}
+      icon={icon}
       code={code}
       showTerminalButton={showTerminalButton}
       onSendToTerminal={onSendToTerminal}
+      leadingActions={leadingActions}
     >
       <p className="border-b border-border px-3 py-1 text-[11px] text-muted-foreground">
         Large code — virtualized for performance. Very long lines are shortened visually; Copy

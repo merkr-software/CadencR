@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { CopyIcon, CheckIcon, RotateCcwIcon, GitBranchIcon, RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -7,13 +7,16 @@ import { copyAs } from "@/lib/markdown-export";
 import { readBlobBase64, readPromptBlobBase64 } from "@/lib/prompt-image-cache";
 import { parseUserMessageContent, type PromptAttachmentPayload } from "@/types/agent-types";
 import { cn } from "@/lib/utils";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { useMessageBranchActions } from "./use-message-branch-actions";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useAgentSessionContext } from "./agent-session-context";
+import { CopyAsMenu } from "./CopyAsMenu";
 
 interface UserMessageActionsProps {
   block: AgentBlockData;
+  /** The rendered message bubble, serialized by "Copy as → Email". */
+  bubbleRef: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -21,7 +24,7 @@ interface UserMessageActionsProps {
  * Rewind. Mirrors the agent text-block copy affordance. Rendered inside the
  * `group/usermsg` hover group owned by `UserMessageBlock`.
  */
-function UserMessageActionsImpl({ block }: UserMessageActionsProps) {
+function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   const [copied, setCopied] = useState(false);
   const { canBranch, rewind, fork } = useMessageBranchActions(block);
   const { wsSessionId } = useAgentSessionContext();
@@ -47,7 +50,7 @@ function UserMessageActionsImpl({ block }: UserMessageActionsProps) {
   }, [parsedContent.text]);
 
   return (
-    <div className="mt-2 mb-2 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
+    <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
       <ActionButton onClick={handleCopy} title="Copy as Markdown">
         {copied ? (
           <>
@@ -61,6 +64,7 @@ function UserMessageActionsImpl({ block }: UserMessageActionsProps) {
           </>
         )}
       </ActionButton>
+      <CopyAsMenu content={parsedContent.text} sourceRef={bubbleRef} />
       {retry.visible && (
         <ActionButton
           disabled={!retry.available || retry.retrying}

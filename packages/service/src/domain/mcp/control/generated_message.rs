@@ -5,7 +5,7 @@ use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::{
     persist_user_message, NewUserMessage, PersistedUserMessage,
 };
-use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt_with_message_uuid;
+use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
 use crate::error::AppError;
 
 pub(super) async fn persist_generated_user_message(
@@ -35,7 +35,7 @@ pub(super) async fn persist_generated_user_message(
         crate::domain::sessions::repository::get_message_origin(&state.write_pool, persisted.id)
             .await?
             .ok_or_else(|| {
-                AppError::Internal(format!(
+                AppError::internal(format!(
                     "message {} is missing canonical provenance",
                     persisted.id
                 ))
@@ -133,10 +133,10 @@ pub(super) async fn dispatch_generated_prompt(
         )
         .await
         {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "generated prompt dispatch failed ({dispatch_error}) and its receipt state could not be persisted ({state_error})"
             )));
         }
     }
-    result
+    result.map(|outcome| outcome.delivery_confirmed())
 }

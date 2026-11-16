@@ -11,6 +11,9 @@ pub enum AcpError {
     /// Per-RPC timeout. Carries a static label of the method that timed out so
     /// the host can surface a helpful error ("session/prompt timed out").
     Timeout(&'static str),
+    /// The transport closed (shutdown, or the agent process exited) while the
+    /// request was in flight. Carries the method label.
+    ConnectionClosed(&'static str),
     /// Framing or parse error in the JSON-RPC stream — oversized line, invalid
     /// UTF-8, malformed frame envelope. Always surfaced; never swallowed.
     Protocol(String),
@@ -30,6 +33,9 @@ impl Display for AcpError {
         match self {
             Self::Io(error) => write!(f, "io error: {error}"),
             Self::Timeout(label) => write!(f, "ACP request timed out: {label}"),
+            Self::ConnectionClosed(label) => {
+                write!(f, "ACP connection closed before {label} completed")
+            }
             Self::Protocol(message) => write!(f, "ACP protocol error: {message}"),
             Self::Rpc {
                 code,

@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: react-resizable-panels needs jsdom's layout and pointer semantics.
 import { createRef, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -13,6 +15,13 @@ import { AppShell } from "./AppShell";
 
 vi.mock("@/components/Sidebar", () => ({
   Sidebar: () => <div data-testid="sidebar-content" />,
+}));
+
+vi.mock("@/components/SidebarRail", () => ({
+  SidebarRail: () => <nav data-testid="sidebar-rail" />,
+}));
+vi.mock("@/components/SidebarAttentionProvider", () => ({
+  SidebarAttentionProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("@/components/MobileDrawer", () => ({

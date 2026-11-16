@@ -1,12 +1,12 @@
 /**
- * Client-local preference: "Prevent Mac sleep while hosting". Persisted in
- * `localStorage` (this is a per-machine choice about *this* Mac, not workspace
+ * Client-local preference: "Prevent sleep while hosting". Persisted in
+ * `localStorage` (this is a per-machine choice about *this* computer, not workspace
  * data), mirroring the localStorage + custom-event pattern used elsewhere for
  * UI prefs. Default `false` — hosting must never silently change power
  * behavior until the user opts in.
  *
  * The flag alone does nothing; the assertion is only held while remote hosting
- * is also active and the platform is macOS — see `useRemoteSleepGuard`.
+ * is also active on a desktop host — see `useRemoteSleepGuard`.
  */
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -59,4 +59,13 @@ export function useRemotePreventSleep(): readonly [boolean, (value: boolean) => 
   const value = useSyncExternalStore(subscribe, readRemotePreventSleep, () => false);
   const setValue = useCallback((next: boolean) => setRemotePreventSleep(next), []);
   return [value, setValue] as const;
+}
+
+/**
+ * Whether this client hosts remote access and can hold a sleep block: the
+ * desktop shell itself (Electron's power blocker works on macOS and Linux),
+ * never a paired remote browser.
+ */
+export function canPreventHostSleep(isElectron: boolean, isRemoteBrowser: boolean): boolean {
+  return isElectron && !isRemoteBrowser;
 }

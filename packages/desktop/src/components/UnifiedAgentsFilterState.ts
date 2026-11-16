@@ -6,15 +6,19 @@ import { intArraysEqual, stringArraysEqual } from "@/lib/utils";
 
 const FILTER_EVENT = "cadencr:unified-agents-filters-changed";
 
+// v2 keys: the grid used to default to a hidden "active in the last 5
+// minutes" window sorted by creation date, and every filter write persisted
+// those defaults. Fresh keys let existing installs land on the new default
+// (every agent, most urgent first) instead of the stale persisted one.
 const FILTER_KEYS = {
-  mode: "unified_agents_mode",
+  mode: "unified_agents_mode_v2",
   freshMinutes: "unified_agents_fresh_minutes",
   projectId: "unified_agents_project_id",
   projectIds: "unified_agents_project_ids",
   excludedTitles: "unified_agents_excluded_titles",
   pinnedOnly: "unified_agents_pinned_only",
   query: "unified_agents_query",
-  sortOrder: "unified_agents_sort_order",
+  sortOrder: "unified_agents_sort_order_v2",
 } as const;
 
 const FRESH_MINUTES_MIN = 1;
@@ -22,6 +26,7 @@ const FRESH_MINUTES_MAX = 43_200;
 const DEFAULT_FRESH_MINUTES = 5;
 
 export type UnifiedAgentsSortOrder =
+  | "attention"
   | "created_desc"
   | "created_asc"
   | "activity_desc"
@@ -96,7 +101,7 @@ export function toUnifiedAgentsQueryParams(
 
 function normalizeFilters(filters: PersistedUnifiedAgentsFilters): PersistedUnifiedAgentsFilters {
   return {
-    mode: filters.mode === "all" ? "all" : "recent",
+    mode: filters.mode === "recent" ? "recent" : "all",
     freshMinutes: clampInt(
       filters.freshMinutes,
       DEFAULT_FRESH_MINUTES,
@@ -172,7 +177,7 @@ function subscribeFilters(callback: () => void): () => void {
 
 function readMode(): UnifiedAgentsFilterMode {
   const value = window.localStorage.getItem(FILTER_KEYS.mode);
-  return value === "all" ? "all" : "recent";
+  return value === "recent" ? "recent" : "all";
 }
 
 function readSortOrder(): UnifiedAgentsSortOrder {
@@ -180,8 +185,15 @@ function readSortOrder(): UnifiedAgentsSortOrder {
 }
 
 function normalizeSortOrder(value: string | null): UnifiedAgentsSortOrder {
-  if (value === "activity_desc" || value === "activity_asc") return value;
-  return value === "created_asc" ? "created_asc" : "created_desc";
+  if (
+    value === "activity_desc" ||
+    value === "activity_asc" ||
+    value === "created_desc" ||
+    value === "created_asc"
+  ) {
+    return value;
+  }
+  return "attention";
 }
 
 function readBoundedInt(key: string, fallback: number, min: number, max: number): number {

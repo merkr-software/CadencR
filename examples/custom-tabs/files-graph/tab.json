@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "files-graph",
+  "name": "Files graph",
+  "version": "0.1.0",
+  "description": "A treemap of the files this feature changed, sized by changed lines, with each file's diff one click away.",
+  "icon": "icon.svg",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "Files graph" },
+  "permissions": ["git:read"]
+}

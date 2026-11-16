@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+
+// Mirrors the input's Shift+Enter handler.
+const PREVIOUS_MATCH_COMBO = formatCompactCombo(["shift", "enter"]);
 
 interface DiffSearchProps {
   /** Container element to search within */
@@ -176,7 +180,7 @@ export function DiffSearch({ containerRef }: DiffSearchProps) {
           <button
             onClick={controller.goPrev}
             className="rounded p-0.5 text-[#6272a4] hover:text-[#f8f8f2]"
-            title="Previous match (Shift+Enter)"
+            title={`Previous match (${PREVIOUS_MATCH_COMBO})`}
           >
             <ChevronUp className="h-3.5 w-3.5" />
           </button>

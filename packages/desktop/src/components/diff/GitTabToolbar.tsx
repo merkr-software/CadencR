@@ -18,6 +18,8 @@ export interface GitTabToolbarProps {
   prNumber: number | undefined;
   prTone: PrIndicatorTone;
   prAttention: boolean;
+  prOtherCount: number;
+  prOtherTone: PrIndicatorTone;
   uncommittedCount: number | undefined;
   conflictCount: number;
   /** Set while a view switch is being persisted; identifies which tab. */
@@ -46,6 +48,8 @@ export function GitTabToolbar({
   prNumber,
   prTone,
   prAttention,
+  prOtherCount,
+  prOtherTone,
   uncommittedCount,
   conflictCount,
   pendingViewMode,
@@ -74,6 +78,8 @@ export function GitTabToolbar({
         prNumber={prNumber}
         prTone={prTone}
         prAttention={prAttention}
+        prOtherCount={prOtherCount}
+        prOtherTone={prOtherTone}
         uncommittedCount={uncommittedCount}
         conflictCount={conflictCount}
         pendingValue={pendingViewMode}

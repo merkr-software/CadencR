@@ -2,14 +2,37 @@
 layout: "@/layouts/DocLayout.astro"
 title: "Browser"
 description: "Preview local apps, keep browser tabs scoped to a feature, and send page context back to an agent."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import browser_previewImage from "@/assets/docs/v0.13.0/browser-preview.png";
+import pageImage from "@/assets/docs/v0.13.0/browser.png";
 
 import DocCallout from "@/components/docs/DocCallout.astro";
 import Kbd from "@/components/ui/Kbd.astro";
 
 The Browser tab gives each feature workspace a built-in web browser. Use it when the work needs a live page nearby: a local dev server, a docs site, an OAuth flow, or a UI you want the agent to inspect with you.
 
+<DocScreenshot
+  src={pageImage}
+  alt="The current desktop Browser toolbar with responsive viewport controls."
+  caption="The current desktop Browser toolbar with responsive viewport controls."
+  bordered={false}
+  rounded
+  elevated
+/>
+
 ## What the Browser is for
+
+<DocScreenshot
+  src={browser_previewImage}
+  alt="An example storefront loaded in the actual embedded Chromium page."
+  caption="An example storefront loaded in the actual embedded Chromium page."
+  rounded
+  elevated
+/>
 
 The Browser is most useful when the task depends on what a page actually does, not just what the code says.
 
@@ -30,14 +53,44 @@ Use it to:
 
 The Browser has the usual basics: tabs, back / forward, reload / stop, an address bar, page loading state, favicons, and DevTools access. The address bar accepts normal URLs and local addresses like `localhost:3000`.
 
-The tab strip includes a cookie-mode toggle:
+New tabs use a browser profile and cookie mode. The normal/private distinction is:
 
 | Mode        | What it means                                      | Use it when...                                               |
 | ----------- | -------------------------------------------------- | ------------------------------------------------------------ |
 | **Normal**  | Reuses the normal browser session and its cookies. | You want existing logins, app state, or repeated test setup. |
 | **Private** | Uses an in-memory session cleared when closed.     | You want a fresh login state or a clean browser context.     |
 
-Set the default for new Browser tabs in **Settings → Browser**.
+Set defaults for new tabs in **Settings → Browser**. That section also selects the search engine for address-bar searches and the domains whose conversation/terminal links open in CadencR rather than your system browser.
+
+## Profiles and site controls
+
+Use browser profiles to choose persistent or isolated browsing state. Site controls expose permissions, stored site data, and agent access for the current site. Inspect them when testing a fresh login, clearing test data, or choosing which page an agent may drive.
+
+Persistent profiles keep their cookies and logins on disk. Private tabs use an in-memory session that is discarded when closed. A conversation's tabs remain scoped to that conversation even when a profile is persistent.
+
+## History, bookmarks, and tabs
+
+The address bar suggests pages from local history and bookmarks. Bookmark a page you expect to revisit; use browser-tab organization controls to manage larger groups of tabs.
+
+Saved tabs restore lazily, loading when needed instead of opening every saved page at once. Back/forward, reload/stop, and page-loading state help distinguish a restored tab from one that has finished loading.
+
+## Find, zoom, and responsive previews
+
+Use **Find in page** to locate text in the active page. Page zoom changes that tab's content independently from the workspace's overall UI zoom.
+
+The responsive viewport controls emulate different screen sizes inside the embedded browser. Inspect your layout at a narrow or wide viewport; screenshots and element annotations follow the emulated page coordinates.
+
+## Popups and downloads
+
+Browser popup handling reports blocked popups and offers the available controls for opening them. Secondary-click link actions can open the intended destination without replacing your current page.
+
+Downloads belong to the workspace. The download controls show progress and let you pause, resume, cancel, and reveal a completed file in its folder. Destination handling avoids silently overwriting an existing file.
+
+## Desktop and remote devices
+
+The embedded browser uses the **desktop Electron app**. A remote browser/PWA cannot host that native pane; its Browser tab explains the requirement. On a paired device, open a reachable preview in that device's own browser. See [Remote access](../remote-access/).
+
+Opening a browser page can use **Auto layout** to keep the agent beside it. Turn off the conversation/workspace option or undo the rearrangement when you prefer another layout.
 
 ## Page comments
 

@@ -304,7 +304,9 @@ fn map_session_info_update(body: &Value, mut metadata: RuntimeEventMetadata) -> 
 ///
 /// ACP wire shape: `{ availableCommands: [{ name, description?, … }] }`.
 /// Each entry maps to `RuntimeSlashCommand` with kind `Command` (ACP
-/// doesn't distinguish skills today). The provider-neutral
+/// doesn't distinguish skills) unless it carries `_meta.cadencr.kind:
+/// "skill"`, the same kind a provider package's `slash-commands` listing
+/// reports for it. The provider-neutral
 /// `RuntimeEventKind::SlashCommandsUpdated` lets the WS bridge fan
 /// updates out to live FE pickers; the per-cwd snapshot store the
 /// synchronous `commands.get` reads back is mirrored separately by the
@@ -337,10 +339,14 @@ fn parse_available_command(value: &Value) -> Option<RuntimeSlashCommand> {
         .get("description")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
+    let kind = match value.pointer("/_meta/cadencr/kind").and_then(Value::as_str) {
+        Some("skill") => RuntimeSlashCommandKind::Skill,
+        _ => RuntimeSlashCommandKind::Command,
+    };
     Some(RuntimeSlashCommand {
         name,
         description,
-        kind: RuntimeSlashCommandKind::Command,
+        kind,
     })
 }
 

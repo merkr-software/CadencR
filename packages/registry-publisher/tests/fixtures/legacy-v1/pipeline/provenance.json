@@ -1,0 +1,101 @@
+{
+  "base_revision": "620cf847e",
+  "runtime": "Node.js v22.19.0",
+  "capture": "Original runRegistryPublisher with original downloadVerifiedArchive/downloadVerifiedDiscovery against startGitHubFixture; only extra control action serialized fake HTTP state. No Rust publisher used.",
+  "sources_sha256": {
+    "tooling/marketplace-registry/scripts/build-index.mjs": "13b94b83d0c51a6186ff5268890cb30195b9b11e4492f5bc208288e66e9764ce",
+    "tooling/marketplace-registry/scripts/sign-publication-catalog.mjs": "7d6c8204ea504531b6c30da7cf00d37745afa8168586f34ab49eca4a1d1d9fa2",
+    "tooling/marketplace-registry/scripts/pack-provider.mjs": "6fc73a1cf7f646af500639e70bc018d0652e20c8265aaff8a55451914b626843",
+    "tooling/marketplace-registry/scripts/submission.mjs": "56336de762d6c49fc1f4d9b5a389c1732cb09f2a06dbd75f83ac14a6eec2fcd0",
+    "tooling/marketplace-registry/scripts/validate.mjs": "b0282b7d7030c37cc61bc7b9bf17d212856337e0502976b0930ebaf7cbd7be03",
+    "tooling/marketplace-registry/scripts/publish-catalog.mjs": "047208d8b5b676a3c2e9524dd91aa91dbe04cb32bf3166422f8ed63bd20ec0e2",
+    "tooling/marketplace-registry/scripts/lib.mjs": "77ade63a7e1fd43820385cca7143b670bb7a824bc650be31732560c67dd09f19",
+    "tooling/marketplace-registry/scripts/plan-publication.mjs": "99c2cc56c77c9bb67c3da19f9ce3782e5fbbe2801545dd89f540529306a031a8",
+    "tooling/marketplace-registry/scripts/validate-contribution.mjs": "d309543c8e04626ca4428aa4836c87cab38a4a881d809821ffd0904ec4f42778",
+    "tooling/marketplace-registry/scripts/check-metadata-expiry.mjs": "4be7401a53a3eb8b4839e96a741fe61787ba9d3af8b49bc0ea47e92af081de3d",
+    "tooling/marketplace-registry/scripts/promote-publication.mjs": "eef310ed294694a544ad7bd0a1c3f81c8231c51dcd072f05c67db08d8fa2ed2f",
+    "tooling/marketplace-registry/scripts/assemble-signed-index.mjs": "43fddc87709ace1f1b5d8b013405508b01df85dfb769cd2437f2545e63308448",
+    "tooling/marketplace-registry/scripts/sign-index.mjs": "fcce57d52bd32833e850a97fbbdef913d9f753408bc3020d8d71451fb911a6a4",
+    "tooling/marketplace-registry/scripts/mirror-publication.mjs": "54ee262e95656e549538407b20bc3addd0790be90c59d317a4a3248c5285699d",
+    "tooling/marketplace-registry/scripts/validate-submission.mjs": "916f5f4fdb51c4282fe3ab64b57c1fd0b9362d80491e9418b0e1274598dc373c",
+    "tooling/marketplace-registry/scripts/stage-publication.mjs": "a20b95711062841232d355f73cab3276f2e3b6d62c8cbf02dfb5f79395dcf73e",
+    "tooling/marketplace-registry/scripts/advance-catalog.mjs": "1b0d1f648ef0d87f6d7965edfbe4eac9e157d718543d4408911377311088d55e",
+    "tooling/marketplace-registry/scripts/publish-registry.mjs": "52be78d3bd628182d90ed82bfe01e3cf2426c6d7e8528d824d29b48b7138318e",
+    "tooling/marketplace-registry/scripts/publication/mirror.mjs": "48af98f8f768bb4fb39398583efd9f4d1fa8d053467923b5c3c6790990774992",
+    "tooling/marketplace-registry/scripts/publication/discovery.mjs": "b4dc088afc1ad827b0133fcc567dd4cbe8afd5f51713a9d906f129c0c475f7e6",
+    "tooling/marketplace-registry/scripts/publication/recover-publication.mjs": "9e3f7054f66882d6d60fe33912a59333a054f7a6cf71ec59398c65e4db8220eb",
+    "tooling/marketplace-registry/scripts/publication/pipeline.mjs": "8293567dd0fdf9643f55fbdae068f843aa902e72cd38eaf156fe88b8bc76ac47",
+    "tooling/marketplace-registry/scripts/publication/publish-catalog.mjs": "02c54b51b5da0d88c60b2953866979876231517426604017a53842476d6d0e5f",
+    "tooling/marketplace-registry/scripts/publication/pipeline-archives.mjs": "02bf9865020ffe6096fede518a6b98fc64ffc9f2dd6170add45b9484baa2c1af",
+    "tooling/marketplace-registry/scripts/publication/stage.mjs": "088722c915833a5a107586e3a37fc7658d75fb0e5030900567e4647bb0c32fbb",
+    "tooling/marketplace-registry/scripts/publication/pipeline-preflight.mjs": "6b58db7d60696c60536df241b8c5fcbfb9e8b655737ae6d229a5f8c1a88fb898",
+    "tooling/marketplace-registry/scripts/publication/plan.mjs": "a8dc4af9c6be230f925a578b5b1567412f96a291aea96336a5f5bbf9b340e85a",
+    "tooling/marketplace-registry/scripts/publication/binding.mjs": "e16f51d739832b1e7ba4019cbd85de2f2dbd85baea0b2fabcf622f38e3f4a616",
+    "tooling/marketplace-registry/scripts/publication/artifacts.mjs": "e6b95567994a502339e7dfe5f8de3b329492381ba514226b4e2d3f41b3fa060d",
+    "tooling/marketplace-registry/scripts/publication/catalog-limits.mjs": "5ec9bea3afd900ed4354ac50310f7955dea8b9b58e140d8bc488c19c5ee0a1dc",
+    "tooling/marketplace-registry/scripts/publication/catalog.mjs": "9bd023714031de0e990913393216c8e4bfcbf5e3462be5aa2fef1c29c3b11d5b",
+    "tooling/marketplace-registry/scripts/publication/signing.mjs": "7cd0db05182cd88a23f667ef6c1811e467dc6fafe6631da24218eaa3b39f21f7",
+    "tooling/marketplace-registry/scripts/publication/pipeline-staging.mjs": "a466fa91ade48457af7370202d0ad1f25557c92b3d182b47eda92acab26f76e0",
+    "tooling/marketplace-registry/scripts/publication/incremental.mjs": "e6309d00d95b5eaabcee140c3ffec2c7daae31e6c8c783e9c49420519dd7616c",
+    "tooling/marketplace-registry/scripts/publication/pipeline-state.mjs": "ef990524d01b1605bd3d6267d354156290ab969b248068ccb0e4c6c9d9094884",
+    "tooling/marketplace-registry/scripts/publication/download.mjs": "439969a9ed1682fbceb28b753c767472e8cd5087415fa00d881203ea074d7edd",
+    "tooling/marketplace-registry/scripts/publication/github.mjs": "4cf093ee8103a81bf97918b36474c7440e78977bb4a521d7bc4f463151a2e771",
+    "tooling/marketplace-registry/scripts/publication/files.mjs": "a9e402e8f1cc64cec6c671e1e55bda233aaa909008cc58be52ab8093d91d322a",
+    "tooling/marketplace-registry/scripts/publication/io.mjs": "16ed805eda1502f45375957f72429146210a2c7c06b4ce06a664355c80f25795",
+    "tooling/marketplace-registry/scripts/publication/snapshot.mjs": "315f0b184a8ea63c3bed66fd3205d8a2376acd3eef1dde6582eeb68fb4a539cf",
+    "tooling/marketplace-registry/scripts/publication/discovery-location.mjs": "cb85b59c93ca4348de8db2ca805a3a88351634533cb6e307cb68015eb686f0b3",
+    "tooling/marketplace-registry/scripts/publication/promote.mjs": "7e632cb00488d677cee52ef1d7704bf3781ff4023e7b4994a18a2f1c068fc6b3",
+    "tooling/marketplace-registry/scripts/publication/cli.mjs": "c04ccfc0e527563eda949a2b114a060926e7703780be3365810026d02e9a76cb",
+    "tooling/marketplace-registry/scripts/publication/commit.mjs": "321a1cb9fb92444b41fe1583b906d86bfdc0d48ae7a98074da79c81f48fa7dea",
+    "tooling/marketplace-registry/scripts/pack-provider/archive.mjs": "efc493cee4170c9410ff271d0a0ca21a12d194e9a9eae45ce77999e1a1441ae1",
+    "tooling/marketplace-registry/scripts/contribution/validate.mjs": "60c628c3a3e79f6dfc6b0e58499214ae039d04ed8ff75a48bb40de6207727ed9",
+    "tooling/marketplace-registry/scripts/publication/github/upload.mjs": "44775ee7cb4599da4c69356f7f8c6b25f40448780e11a78406ae3a3ca86d1ab1",
+    "tooling/marketplace-registry/scripts/publication/github/request.mjs": "c76debb5f618a307633a5b41bc2fad575ffc773ff24fac244773c35213974dfb",
+    "tooling/marketplace-registry/scripts/publication/github/discovery.mjs": "1d5b33347e29f12f3680271e41c0d694a6e5706eae45d0ef7136d6ed6fa2916d",
+    "tooling/marketplace-registry/scripts/publication/github/tags.mjs": "64a815b59f1b8c35b2527e960ae39978d5c6f2cbe86fd894bf170c83e5b3852d",
+    "tooling/marketplace-registry/scripts/publication/github/validation.mjs": "74489f4e34ef283cbe25108b488dedc3ada5c7f4b93f6ebea4b9207a9de86123",
+    "tooling/marketplace-registry/scripts/publication/github/promotion.mjs": "4f63485e11d8b51258dd778df744bd340121edd83546bd70e36b353ef983edf4",
+    "tooling/marketplace-registry/tests/helpers/github-server.mjs": "5d461a651a04cc3ef32742362a93bfa4da989d1eaa1c56b8ffa3c4a9bce6f43c"
+  },
+  "capture_sha256": {
+    "none.json": "53ab25468b97ae0e22ed30448f6f4fda1f2fcc8f6669771525e4efbdca8a2deb",
+    "discovery.json": "c74f19bf4a10d9d13b4a3345eda215ec15489894e4e58c18ea0469aef81d4ab8",
+    "provider.json": "5dcfc50fb03a219f4e3902ec6fa73c805ae9e15b369cae06eb9db9cfc72eb3b2",
+    "observations.json": "2c0672a59aac4b93dbe9dd601039281c19e08b70cba79d3e9e4efffd6363f003"
+  },
+  "inputs_and_disk_encoding": "base64; exact original bytes",
+  "remote_buffers": "Node Buffer JSON type/data arrays; tags/sourceArchives serialized as map entry arrays",
+  "interruption_configuration": {
+    "none": {},
+    "provider": {
+      "publicUnavailable": true
+    },
+    "discovery": {
+      "rawUnavailable": true
+    }
+  },
+  "observations_procedure": "Original JS none run; configure retireSources:true; replay same state; run fresh-state; replace each fresh receipt with {} individually, record result and unchanged recursive disk snapshot then restore test-owned probe; pretty-print original publication manifest and replay; record writes before/after. Inputs recorded exactly. No Rust publisher used.",
+  "encoded_capture_sha256": {
+    "none.json.gz": {
+      "sha256": "e5a94795f15de6c1ce8eda53ecb077cdef57668408b2ad55361185b35fd8c2b8",
+      "uncompressed_sha256": "53ab25468b97ae0e22ed30448f6f4fda1f2fcc8f6669771525e4efbdca8a2deb"
+    },
+    "provider.json.gz": {
+      "sha256": "1db9d487eac7c94cf7eae1408c9e19e385429895527e55c886573db11698e445",
+      "uncompressed_sha256": "5dcfc50fb03a219f4e3902ec6fa73c805ae9e15b369cae06eb9db9cfc72eb3b2"
+    },
+    "discovery.json.gz": {
+      "sha256": "1f19ba3390964399efe7f146630e602e62c997280d68eb1bd5bf5d25c98da758",
+      "uncompressed_sha256": "c74f19bf4a10d9d13b4a3345eda215ec15489894e4e58c18ea0469aef81d4ab8"
+    }
+  },
+  "compression": {
+    "format": "gzip",
+    "node_options": {
+      "level": 9,
+      "mtime": 0
+    },
+    "max_uncompressed_bytes": 524288,
+    "note": "Lossless storage-only change; capture_sha256 preserves exact original raw JSON hashes. No semantic regeneration."
+  }
+}

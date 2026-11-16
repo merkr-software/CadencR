@@ -1,18 +1,69 @@
 import { cn } from "@/lib/utils";
 import { CheckIcon, CircleIcon, Loader2Icon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactElement,
+} from "react";
 import type { TodoItem } from "@/types/agent";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface AgentTodoListProps {
   todos: TodoItem[];
   chipClass?: string;
+  /** `instrument`: the composer card's quiet instrument row (no tinted chip). */
+  variant?: "chip" | "instrument";
 }
 
 /** Milliseconds the popover stays open after an automatic, todo-change-triggered open. */
 const AUTO_OPEN_DURATION_MS = 3000;
 
-export function AgentTodoList({ todos, chipClass }: AgentTodoListProps): ReactElement {
+/** The task count: a rose chip, or a plain instrument in the composer row. */
+const TodoTrigger = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    completed: number;
+    total: number;
+    inProgress: boolean;
+    chipClass?: string;
+    variant: "chip" | "instrument";
+  }
+>(function TodoTrigger({ completed, total, inProgress, chipClass, variant, ...props }, ref) {
+  const instrument = variant === "instrument";
+  return (
+    <button
+      {...props}
+      ref={ref}
+      type="button"
+      aria-label={`Tasks: ${completed} of ${total} done`}
+      className={
+        instrument
+          ? "composer-instrument gap-1.5 tabular-nums text-foreground/80"
+          : cn(chipClass, "bg-rose-500/15 text-rose-400 hover:bg-rose-500/25")
+      }
+    >
+      {inProgress ? (
+        <Loader2Icon
+          className={cn("size-3 animate-spin", instrument && "text-[var(--acc-yellow)]")}
+        />
+      ) : (
+        <CheckIcon className={cn("size-3", instrument && "text-[var(--acc-green)]")} />
+      )}
+      <span>
+        {completed}/{total}
+      </span>
+    </button>
+  );
+});
+
+export function AgentTodoList({
+  todos,
+  chipClass,
+  variant = "chip",
+}: AgentTodoListProps): ReactElement {
   const completed = todos.filter((t) => t.status === "completed").length;
   const total = todos.length;
   const inProgress = todos.find((t) => t.status === "in_progress");
@@ -54,19 +105,13 @@ export function AgentTodoList({ todos, chipClass }: AgentTodoListProps): ReactEl
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(chipClass, "bg-rose-500/15 text-rose-400 hover:bg-rose-500/25")}
-        >
-          {inProgress ? (
-            <Loader2Icon className="size-3 animate-spin" />
-          ) : (
-            <CheckIcon className="size-3" />
-          )}
-          <span>
-            {completed}/{total}
-          </span>
-        </button>
+        <TodoTrigger
+          completed={completed}
+          total={total}
+          inProgress={!!inProgress}
+          chipClass={chipClass}
+          variant={variant}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"

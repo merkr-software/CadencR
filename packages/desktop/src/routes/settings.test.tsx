@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@/test-utils";
+import { render, screen, within } from "@/test-utils";
 import React from "react";
 import { FORGE_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
+import { SETTINGS_PAGES } from "@/components/settings/settings-catalog";
+import {
+  availableSettingsGroups,
+  currentSettingsPlatform,
+} from "@/components/settings/settings-availability";
 
 const mocks = vi.hoisted(() => {
   const mockGetWorkspaceSetting = vi.fn(() => ({
@@ -23,7 +28,18 @@ vi.mock("@tanstack/react-router", () => ({
     useParams: vi.fn(() => ({})),
   }),
   useNavigate: () => vi.fn(),
-  useRouterState: () => ({ location: { pathname: "/settings" } }),
+  useSearch: (options?: { select?: (search: Record<string, unknown>) => unknown }) => {
+    const search: Record<string, unknown> = mocks.mockUseSearch();
+    return options?.select ? options.select(search) : search;
+  },
+  useRouterState: (options?: {
+    select?: (state: {
+      location: { pathname: string; search?: Record<string, unknown> };
+    }) => unknown;
+  }) => {
+    const state = { location: { pathname: "/settings" } };
+    return options?.select ? options.select(state) : state;
+  },
   Link: ({ children, to }: { children: unknown; to: string }) => {
     const React = require("react");
     return React.createElement("a", { href: to }, children);
@@ -70,36 +86,54 @@ describe("SettingsPage route", () => {
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });
 
-  it("renders the sidebar nav with grouped sections", () => {
+  it("renders the rail with every page, grouped", () => {
     render(<SettingsPage />);
-    // sidebar nav buttons (the visible ones, not the section headings)
-    expect(screen.getAllByRole("button", { name: /Appearance/ }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: /^MCP$/ }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: /CLI Providers/ }).length).toBeGreaterThan(0);
+    const rail = screen.getByRole("navigation", { name: "Settings pages" });
+    for (const group of ["Preferences", "Agents", "Tools", "System"]) {
+      expect(within(rail).getByRole("group", { name: group })).toBeInTheDocument();
+    }
+    expect(within(rail).getByRole("button", { name: "Appearance" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "MCP servers" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "Providers" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "General" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(screen.queryByRole("button", { name: /Session Defaults/ })).not.toBeInTheDocument();
   });
 
-  it("renders MCP as its own settings section", () => {
+  it("shows one page at a time", () => {
     render(<SettingsPage />);
-    expect(screen.getByRole("heading", { name: "MCP" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "General" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Git" })).not.toBeInTheDocument();
+  });
+
+  it("renders MCP as its own settings page", () => {
+    mocks.mockUseSearch.mockReturnValue({ section: "mcp" });
+    render(<SettingsPage />);
+    expect(screen.getByRole("heading", { name: "MCP servers" })).toBeInTheDocument();
     expect(
       screen.getByRole("switch", { name: /workspace memory for agents/i }),
     ).toBeInTheDocument();
   });
 
-  it("renders runtime & models section with the model selector", () => {
+  it("renders conversation naming on the Agents page with the model selector and prompt", () => {
+    mocks.mockUseSearch.mockReturnValue({ section: "auto-naming" });
     render(<SettingsPage />);
-    expect(screen.getByRole("heading", { name: /Runtime & Models/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Conversation names" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Naming prompt" })).toBeInTheDocument();
     expect(screen.getByTestId("model-selector")).toBeInTheDocument();
   });
 
   it("does not render removed session autonomy or parallel defaults", () => {
+    mocks.mockUseSearch.mockReturnValue({ section: "agents" });
     render(<SettingsPage />);
     expect(screen.queryByRole("radiogroup", { name: /agent autonomy/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Parallel agent execution/i)).not.toBeInTheDocument();
   });
 
   it("renders git merge-strategy radio group", () => {
+    mocks.mockUseSearch.mockReturnValue({ section: "git" });
     render(<SettingsPage />);
     expect(screen.getByRole("heading", { name: "Git" })).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: /merge strategy/i })).toBeInTheDocument();
@@ -119,6 +153,30 @@ describe("SettingsPage route", () => {
     expect(vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts).toContain(anchor);
   });
 
+  // jsdom is a desktop-width plain browser: the catalog drops what such a
+  // client never renders (push, the notch, the OS test notification), and every
+  // anchor it still offers must exist on its page.
+  const offered = availableSettingsGroups(currentSettingsPlatform(false)).flatMap(
+    (group) => group.pages,
+  );
+
+  it.each(offered.map((page) => [page.id, page] as const))(
+    "renders every anchor the %s page's search entries point at",
+    (id, page) => {
+      mocks.mockUseSearch.mockReturnValue({ section: id });
+      const { container } = render(<SettingsPage />);
+      expect(container.querySelector(`#settings-page-${id}`)).not.toBeNull();
+      for (const entry of page.entries) {
+        if (!entry.anchor) continue;
+        expect(container.querySelector(`#${entry.anchor}`), entry.label).not.toBeNull();
+      }
+    },
+  );
+
+  it("offers every page in the catalog", () => {
+    expect(offered.map((page) => page.id)).toEqual(SETTINGS_PAGES.map((page) => page.id));
+  });
+
   it("leaves the page at the top when no section is requested", () => {
     render(<SettingsPage />);
 
@@ -126,6 +184,7 @@ describe("SettingsPage route", () => {
   });
 
   it("does not render the removed loader-style option", () => {
+    mocks.mockUseSearch.mockReturnValue({ section: "appearance" });
     render(<SettingsPage />);
     expect(screen.queryByText("Loader style")).not.toBeInTheDocument();
     expect(screen.queryByText("Usage Glow")).not.toBeInTheDocument();

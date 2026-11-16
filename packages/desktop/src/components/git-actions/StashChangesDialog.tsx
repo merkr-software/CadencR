@@ -69,7 +69,7 @@ const StashChangesDialog = memo(function StashChangesDialog({
     <Dialog open={open} onOpenChange={submission.handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="max-h-[90vh] gap-0 overflow-hidden p-0 shadow-xl !w-[min(92vw,46rem)] !max-w-[min(92vw,46rem)] sm:!max-w-[min(92vw,46rem)]"
+        className="max-h-[min(90vh,var(--dialog-max-h))] gap-0 p-0 shadow-xl !w-[min(92vw,46rem)] !max-w-[min(92vw,46rem)] sm:!max-w-[min(92vw,46rem)]"
         aria-busy={submission.pending}
       >
         <form onSubmit={submission.handleSubmit} className="grid min-h-0">

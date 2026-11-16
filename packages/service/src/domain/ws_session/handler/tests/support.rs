@@ -101,7 +101,9 @@ impl AgentRuntimeSession for InPlaceEffortSession {
         Ok(())
     }
 
-    async fn close(&mut self) {}
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
 
     async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
         Ok(())
@@ -143,7 +145,9 @@ impl AgentRuntimeSession for BlockingFollowUpSession {
         Ok(())
     }
 
-    async fn close(&mut self) {}
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
 
     async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
         Ok(())
@@ -176,7 +180,9 @@ impl AgentRuntimeSession for RejectingModeSession {
         Ok(())
     }
 
-    async fn close(&mut self) {}
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
 
     async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
         Ok(())
@@ -220,7 +226,7 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 pending_permission TEXT,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 thinking_effort TEXT,
                 fast_mode INTEGER NOT NULL DEFAULT 0,
                 runtime_overrides TEXT
@@ -229,6 +235,19 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .execute(&pool)
     .await
     .unwrap();
+
+    for migration in [
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/migrations/20261024210000_session_prompt_queue.sql"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/migrations/20261026210000_prompt_queue_message_identity.sql"
+        )),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    }
 
     sqlx::query(
         r#"CREATE TABLE agent_messages (
@@ -246,6 +265,14 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"#,
     )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // The sub-agent registry the reader writes.
+    sqlx::raw_sql(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/20261030120000_subagent_runs.sql"
+    )))
     .execute(&pool)
     .await
     .unwrap();
@@ -271,6 +298,25 @@ pub(crate) async fn make_test_app_state() -> AppState {
     sqlx::query(
         "CREATE UNIQUE INDEX idx_agent_messages_session_message_uuid
          ON agent_messages(session_id, message_uuid) WHERE message_uuid IS NOT NULL",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Persisting a prompt also counts it in the usage stats, in the same
+    // transaction.
+    sqlx::query(
+        r#"CREATE TABLE provider_usage_stats (
+                day TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                model_id TEXT NOT NULL DEFAULT '',
+                thinking_effort TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                user_messages INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (day, provider_id, model_id, thinking_effort)
+            )"#,
     )
     .execute(&pool)
     .await
@@ -306,6 +352,16 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 title TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Feature directory resolution reads `worktree_path` here and surfaces a
+    // missing table as an error instead of silently using the project root.
+    sqlx::query(
+        "CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT, \
+         PRIMARY KEY (feature_id, key))",
     )
     .execute(&pool)
     .await
@@ -389,11 +445,32 @@ pub(crate) async fn init_session_and_get_response(
     }
 }
 
+pub(crate) async fn assert_next_persistence_status(
+    rx: &mut mpsc::UnboundedReceiver<Message>,
+    expected: PersistenceStatusState,
+) {
+    let message = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timed out waiting for transcript durability snapshot")
+        .expect("session channel closed before durability snapshot");
+    let Message::Text(text) = message else {
+        panic!("expected text status message")
+    };
+    let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+    assert_eq!(envelope.domain, "session");
+    assert_eq!(envelope.action, "persistence_status");
+    let payload: SessionPersistenceStatusPayload =
+        serde_json::from_value(envelope.payload).unwrap();
+    assert_eq!(payload.status, expected);
+    assert!(!payload.message.is_empty());
+}
+
 /// Helper: insert an SdkHandle with QueryState::Active using a test stub Query.
 pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) -> SdkHandle {
     let query = Query::new_test_stub(session_id);
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
+        identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(ClaudeCodeSession::from_query(query)))),
             permission_tx,
@@ -429,14 +506,15 @@ pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) ->
             profile_revision: None,
             profile_state_identity: None,
         },
-        manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+        manual_compact_start: Default::default(),
         manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
     }
 }
 
 pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
+        identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(InPlaceEffortSession::new()))),
             permission_tx,
@@ -472,7 +550,111 @@ pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
             profile_revision: None,
             profile_state_identity: None,
         },
-        manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+        manual_compact_start: Default::default(),
         manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
+    }
+}
+
+/// Register a Claude custom model with known effort metadata. Catalog lookups
+/// merge custom models on top of whatever the installed CLI reports, so tests
+/// that depend on a model's thinking levels stay independent of the machine.
+pub(crate) async fn add_claude_custom_model(
+    app_state: &AppState,
+    model_id: &str,
+    levels: &[&str],
+    default_level: Option<&str>,
+) {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS claude_code_custom_models (\
+            id INTEGER PRIMARY KEY, \
+            model_id TEXT NOT NULL UNIQUE, \
+            label TEXT NOT NULL, \
+            description TEXT, \
+            supports_effort BOOLEAN, \
+            supported_effort_levels_json TEXT, \
+            default_effort_level TEXT, \
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP\
+        )",
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+    crate::domain::agents::claude_code::custom_models::upsert_custom_model(
+        &app_state.write_pool,
+        model_id,
+        model_id,
+        None,
+        crate::domain::agents::claude_code::custom_models::CustomModelEffort {
+            supports_effort: Some(true),
+            supported_effort_levels: Some(levels.iter().map(|level| level.to_string()).collect()),
+            default_effort_level: default_level.map(ToOwned::to_owned),
+        },
+    )
+    .await
+    .unwrap();
+}
+
+/// A provider `Result` event: the turn ended.
+pub(crate) fn result_event() -> RuntimeEvent {
+    RuntimeEvent::new(
+        crate::domain::agents::adapter::RuntimeEventMetadata::default(),
+        RuntimeEventKind::Result,
+    )
+}
+
+pub(crate) async fn insert_running_session(
+    app_state: &AppState,
+    db_session_id: i64,
+    feature_id: i64,
+) {
+    sqlx::query(
+        "INSERT INTO agent_sessions (id, feature_id, agent_type, status) VALUES (?, ?, 'session', 'running')",
+    )
+    .bind(db_session_id)
+    .bind(feature_id)
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+}
+
+pub(crate) async fn db_status(app_state: &AppState, db_session_id: i64) -> String {
+    sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id = ?")
+        .bind(db_session_id)
+        .fetch_one(&app_state.write_pool)
+        .await
+        .unwrap()
+}
+
+/// A live runtime that only records the prompts it is given.
+pub(crate) struct RecordingRuntime {
+    pub(crate) delivered: mpsc::UnboundedSender<Value>,
+}
+
+#[async_trait::async_trait]
+impl AgentRuntimeSession for RecordingRuntime {
+    fn take_message_rx(&mut self) -> RuntimeMessageRx {
+        mpsc::channel(1).1
+    }
+    async fn session_id(&self) -> Option<String> {
+        None
+    }
+    async fn stream_input(&self, content: Value) -> Result<(), RuntimeError> {
+        self.delivered.send(content).unwrap();
+        Ok(())
+    }
+    async fn interrupt(&self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn pid(&self) -> Option<u32> {
+        None
     }
 }

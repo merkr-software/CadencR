@@ -1,3 +1,6 @@
+import { installSessionPresentationEffects } from "./ws-session-store";
+import { updateQuestionDraft, useQuestionDraftStore } from "./question-drafts";
+// @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore, applyMutations, createStreamingState } from "./ws-session-store";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
@@ -58,7 +61,11 @@ class MockWebSocket {
 
 Object.assign(MockWebSocket, { OPEN: 1, CONNECTING: 0, CLOSED: 3 });
 
+let disposePresentation: () => void;
+
 beforeEach(() => {
+  disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
+  useQuestionDraftStore.setState({ drafts: new Map() });
   MockWebSocket.reset();
   canonicalMessageSequence = 1000;
   useWsSessionStore.setState({ sessions: {} });
@@ -69,6 +76,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposePresentation();
   // Disconnect all sessions to close WebSocket connections and clear pending state
   const store = useWsSessionStore.getState();
   for (const sessionId of Object.keys(store.sessions)) {
@@ -245,7 +253,7 @@ describe("ws-session-store", () => {
     expect(useWsSessionStore.getState().sessions["s1"]).toBeUndefined();
   });
 
-  it("destroy sends destroy envelope and closes connection", async () => {
+  it("release closes the connection without stopping the runtime", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");
     await tick();
@@ -255,15 +263,11 @@ describe("ws-session-store", () => {
       action: "initialized",
       payload: { session_id: "srv-1" },
     });
-    store.destroy("s1");
-    const destroyMsg = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(destroyMsg.action).toBe("destroy");
-    expect(destroyMsg.payload.session_id).toBe("srv-1");
+    store.release("s1");
+    const actions = ws.sent.map((raw) => JSON.parse(raw).action);
+    expect(actions).not.toContain("destroy");
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
-    expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
-      phase: "terminal",
-      reason: "completed",
-    });
+    expect(useWsSessionStore.getState().sessions["s1"]).toBeUndefined();
   });
 
   it("sendPrompt waits for the canonical backend event without marking the agent running", async () => {
@@ -760,6 +764,7 @@ describe("ws-session-store", () => {
     store.setPermissionMode("s1", "plan");
     expect(ws.sent).toHaveLength(0);
     expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("plan");
+    expect(useWsSessionStore.getState().sessions["s1"].pendingInitPermissionMode).toBe("plan");
 
     ws.simulateMessage({
       domain: "session",
@@ -774,6 +779,147 @@ describe("ws-session-store", () => {
       session_id: "srv-1",
       mode: "plan",
     });
+    expect(useWsSessionStore.getState().sessions["s1"].pendingInitPermissionMode).toBeNull();
+  });
+
+  it.each(["autoReview", "default", "fullAccess"] as const)(
+    "replays a pre-init %s access choice before the first queued prompt",
+    async (mode) => {
+      const store = useWsSessionStore.getState();
+      store.connect("s1");
+      await tick();
+      const ws = getWs();
+      store.setAccessMode("s1", mode);
+      store.sendPrompt("s1", "hello");
+      const confirmedMode = mode === "default" ? "autoReview" : "default";
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-1", provider: "codex_cli", access_mode: confirmedMode },
+      });
+
+      const sent = ws.sent.map((raw) => JSON.parse(raw));
+      expect(sent.map((envelope) => envelope.action)).toEqual([
+        "mode.set",
+        "access_mode.set",
+        "prompt.send",
+      ]);
+      expect(sent[1].payload).toEqual({ session_id: "srv-1", mode });
+      expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe(confirmedMode);
+      expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "access_mode.changed",
+        payload: { mode },
+      });
+      expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe(mode);
+    },
+  );
+
+  it.each(["autoReview", "default", "fullAccess"] as const)(
+    "consumes a pre-init %s choice already confirmed by initialization without replay",
+    async (mode) => {
+      const store = useWsSessionStore.getState();
+      store.connect("s1");
+      await tick();
+      const ws = getWs();
+      store.setAccessMode("s1", mode);
+      store.sendPrompt("s1", "hello");
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-1", provider: "codex_cli", access_mode: mode },
+      });
+
+      expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["mode.set", "prompt.send"]);
+      expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe(mode);
+      expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
+    },
+  );
+
+  it.each([undefined, "unknown"])(
+    "replays an explicit default when initialization does not confirm its mode: %s",
+    async (reportedMode) => {
+      const store = useWsSessionStore.getState();
+      store.connect("s1");
+      await tick();
+      const ws = getWs();
+      store.setAccessMode("s1", "default");
+      store.sendPrompt("s1", "hello");
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-1", provider: "codex_cli", access_mode: reportedMode },
+      });
+
+      const sent = ws.sent.map((raw) => JSON.parse(raw));
+      expect(sent.map((envelope) => envelope.action)).toEqual([
+        "mode.set",
+        "access_mode.set",
+        "prompt.send",
+      ]);
+      expect(sent[1].payload.mode).toBe("default");
+      expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
+    },
+  );
+
+  it("consumes the latest pre-init access choice even without a queued prompt", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setAccessMode("s1", "fullAccess");
+    store.setAccessMode("s1", "autoReview");
+    const initialized = {
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", access_mode: "default" },
+    };
+
+    ws.simulateMessage(initialized);
+    ws.simulateMessage(initialized);
+
+    const accessChanges = ws.sent
+      .map((raw) => JSON.parse(raw))
+      .filter((envelope) => envelope.action === "access_mode.set");
+    expect(accessChanges).toHaveLength(1);
+    expect(accessChanges[0].payload.mode).toBe("autoReview");
+    expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
+  });
+
+  it("keeps the initialized access policy when no pre-init choice was made", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", access_mode: "autoReview" },
+    });
+
+    expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe("autoReview");
+    expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["mode.set"]);
+  });
+
+  it("drops a pre-init access choice if the resolved provider has no access modes", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setAccessMode("s1", "autoReview");
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "claude_code" },
+    });
+
+    expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["mode.set"]);
+    expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
   });
 
   // Regression test for the first-prompt permission-mode race: pre-init
@@ -848,6 +994,52 @@ describe("ws-session-store", () => {
     });
   });
 
+  // A new entry is seeded with Claude's `auto`; replaying it to a session that
+  // initialized on Codex made the backend answer MODE_NOT_SUPPORTED (a toast
+  // on every new non-Claude conversation).
+  it("replays the backend's mode when the seeded one doesn't fit the provider", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("auto");
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", permission_mode: "default" },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("default");
+    const sent = ws.sent.map((raw) => JSON.parse(raw));
+    expect(sent).toEqual([
+      expect.objectContaining({
+        action: "mode.set",
+        payload: expect.objectContaining({ mode: "default" }),
+      }),
+    ]);
+  });
+
+  it("keeps a valid mode picked while session.init was in flight", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+
+    store.setPermissionMode("s1", "plan");
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", permission_mode: "default" },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("plan");
+    expect(JSON.parse(ws.sent[0])).toMatchObject({
+      action: "mode.set",
+      payload: { mode: "plan" },
+    });
+  });
+
   it("setPersistedState sets blocks and lifecycle", () => {
     // Ensure session exists first
     useWsSessionStore.getState().connect("s1");
@@ -885,9 +1077,9 @@ describe("ws-session-store", () => {
     // Regression: a re-seed (app relaunch, dev HMR reload, reconnect rebuild)
     // must rehydrate the persisted mode rather than keep the createSessionEntry
     // default. Without this, sticky bypassPermissions silently reverts to
-    // acceptEdits.
+    // the provider default.
     useWsSessionStore.getState().connect("s1");
-    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("acceptEdits");
+    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("auto");
     useWsSessionStore.getState().setPersistedState("s1", {
       blocks: [{ id: "b1", type: "text" as const, content: "restored" }],
       lifecycle: { phase: "terminal", reason: "completed" },
@@ -904,7 +1096,7 @@ describe("ws-session-store", () => {
       lifecycle: { phase: "terminal", reason: "completed" },
       currentSelection: { providerId: "claude_code", modelId: "haiku" },
     });
-    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("acceptEdits");
+    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("auto");
   });
 
   it("runtime_session_id action sets runtimeSessionId on the session", async () => {
@@ -992,7 +1184,7 @@ describe("ws-session-store", () => {
     // to rebuild the per-connection handle on the backend.
     expect(session.serverSessionId).toBe("srv-1");
     expect(session.runtimeSessionId).toBe("uuid-abc-123");
-    expect(session.conn).toBeNull();
+    expect(session).not.toHaveProperty("conn");
   });
 
   it("re-emits session.init on reconnect to rebuild the backend handle", async () => {
@@ -1201,18 +1393,102 @@ describe("ws-session-store", () => {
     const { store, ws } = await connectInitializedSession();
     simulatePermissionRequest(ws, "perm-retry");
 
-    store.respondToPermission("s1", "perm-retry", "allow_once");
-    const respondEnvelope = JSON.parse(ws.sent[ws.sent.length - 1]);
-    // Simulate the WS-level null payload that `sendRequest` resolves with on
-    // timeout — the gate stays so the user can retry once the WS recovers.
-    const session = useWsSessionStore.getState().sessions["s1"];
-    const cb = session.pendingWsRequests.get(respondEnvelope.id);
-    cb?.(null);
+    // Exercise the request timer: the gate stays so the user can retry.
+    vi.useFakeTimers();
+    try {
+      store.respondToPermission("s1", "perm-retry", "allow_once");
+      await vi.advanceTimersByTimeAsync(10_000);
+    } finally {
+      vi.useRealTimers();
+    }
     await tick();
 
     const after = useWsSessionStore.getState().sessions["s1"];
     expect(after.pendingPermission?.requestId).toBe("perm-retry");
     expect(after.submittingPermissionRequestId).toBeNull();
+  });
+
+  it.each(["error", "timeout"])(
+    "keeps question and draft on %s, then cleans only after ack",
+    async (failure) => {
+      const { store, ws } = await connectInitializedSession();
+      useWsSessionStore.setState(
+        updateSession(useWsSessionStore.getState(), "s1", { sessionDbId: 7 }),
+      );
+      simulateQuestionRequest(ws, "q-retry");
+      updateQuestionDraft({ sessionId: 7, requestId: "q-retry" }, (draft) => ({
+        ...draft,
+        freeText: "kept",
+      }));
+      store.respondToQuestion("s1", [["Sonnet"]]);
+      const first = lastSentEnvelope(ws, "permission.respond");
+      store.respondToQuestion("s1", [["Sonnet"]]);
+      expect(lastSentEnvelope(ws, "permission.respond").id).toBe(first.id);
+      expect(useWsSessionStore.getState().sessions.s1.pendingRequestId).toBe("q-retry");
+      ws.simulateMessage({
+        domain: "session",
+        action: "error",
+        ref: String(first.id),
+        payload: failure === "timeout" ? null : { code: "DB_ERROR", message: "Disk full" },
+      });
+      await tick();
+      const after = useWsSessionStore.getState().sessions.s1;
+      expect(after.pendingQuestions).toHaveLength(1);
+      expect(after.submittingPermissionRequestId).toBeNull();
+      expect(after.blocks.at(-1)?.type).toBe("error");
+      expect(useQuestionDraftStore.getState().drafts.get(7)?.draft.freeText).toBe("kept");
+      store.respondToQuestion("s1", [["Sonnet"]]);
+      const retry = lastSentEnvelope(ws, "permission.respond");
+      expect(retry.payload).toEqual(first.payload);
+      ws.simulateMessage({ domain: "session", action: "ack", ref: String(retry.id), payload: {} });
+      await tick();
+      expect(useWsSessionStore.getState().sessions.s1.pendingQuestions).toEqual([]);
+      expect(useQuestionDraftStore.getState().drafts.has(7)).toBe(false);
+    },
+  );
+
+  it("keeps a draft on failed close and removes it on confirmed close/replacement", async () => {
+    const { store, ws } = await connectInitializedSession();
+    useWsSessionStore.setState(
+      updateSession(useWsSessionStore.getState(), "s1", { sessionDbId: 7 }),
+    );
+    simulateQuestionRequest(ws, "q-close");
+    updateQuestionDraft({ sessionId: 7, requestId: "q-close" }, (draft) => ({
+      ...draft,
+      freeText: "kept",
+    }));
+    store.closeGate("s1", "escape");
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      payload: { code: "DB_ERROR", message: "Disk full" },
+    });
+    expect(useQuestionDraftStore.getState().drafts.has(7)).toBe(true);
+    ws.simulateMessage({
+      domain: "session",
+      action: "gate.closed",
+      payload: { request_id: "q-close", reason: "escape" },
+    });
+    expect(useQuestionDraftStore.getState().drafts.has(7)).toBe(false);
+    simulateQuestionRequest(ws, "q-new");
+    updateQuestionDraft({ sessionId: 7, requestId: "q-new" }, (draft) => ({
+      ...draft,
+      freeText: "new",
+    }));
+    store.respondToQuestion("s1", [["Sonnet"]]);
+    const response = lastSentEnvelope(ws, "permission.respond");
+    simulateQuestionRequest(ws, "q-replaced");
+    updateQuestionDraft({ sessionId: 7, requestId: "q-replaced" }, (draft) => ({
+      ...draft,
+      freeText: "replacement",
+    }));
+    ws.simulateMessage({ domain: "session", action: "ack", ref: String(response.id), payload: {} });
+    await tick();
+    expect(useWsSessionStore.getState().sessions.s1.pendingRequestId).toBe("q-replaced");
+    expect(
+      useWsSessionStore.getState().sessions.s1.permissionResponseMessageUuids.has("q-new"),
+    ).toBe(false);
+    expect(useQuestionDraftStore.getState().drafts.get(7)?.draft.freeText).toBe("replacement");
   });
 
   it("new session starts with no selection until the backend confirms one", async () => {
@@ -1302,7 +1578,7 @@ describe("ws-session-store", () => {
     expect(session.accessMode).toBe("fullAccess");
   });
 
-  it("session.initialized with Cursor access mode updates the stored access chip", async () => {
+  it("session.initialized with a provider-neutral access mode updates the access chip", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");
     await tick();
@@ -1312,7 +1588,7 @@ describe("ws-session-store", () => {
       action: "initialized",
       payload: {
         session_id: "42",
-        provider: "cursor",
+        provider: "codex_cli",
         access_mode: "autoReview",
       },
     });
@@ -2527,6 +2803,19 @@ describe("ws-session-store", () => {
       });
     }
 
+    /** The backend's correlated acknowledgement of the last `permission.respond`. */
+    async function acknowledgePermission(ws: MockWebSocket) {
+      const sent = lastSentEnvelope(ws, "permission.respond");
+      ws.simulateMessage({
+        domain: "session",
+        action: "acknowledged",
+        ref: String(sent.id),
+        payload: { action: "permission.respond" },
+      });
+      // The response settles on the request's promise.
+      await Promise.resolve();
+    }
+
     function sendPlanPermissionRequest(ws: MockWebSocket) {
       ws.simulateMessage({
         domain: "session",
@@ -2573,38 +2862,6 @@ describe("ws-session-store", () => {
       });
     });
 
-    it("restores synthetic plan approval request id even when live blocks already exist", () => {
-      const store = useWsSessionStore.getState();
-      store.connect("s1");
-
-      useWsSessionStore.setState(
-        updateSession(useWsSessionStore.getState(), "s1", {
-          blocks: [{ id: "live-1", type: "text" as const, content: "live block" }],
-        }),
-      );
-
-      store.setPersistedState("s1", {
-        blocks: [
-          {
-            id: "plan-1",
-            type: "tool_call" as const,
-            content: "",
-            toolName: "ExitPlanMode",
-          },
-        ],
-        lifecycle: { phase: "terminal", reason: "completed" },
-        pendingPlanApproval: { plan: "## Restored Plan" },
-      });
-
-      const session = useWsSessionStore.getState().sessions["s1"];
-      expect(session.pendingPlanApproval).toEqual({ plan: "## Restored Plan" });
-      expect(session.pendingRequestId).toMatch(/^plan_restore_/);
-      expect(session.lifecycle).toEqual({
-        phase: "paused",
-        reason: "planApproval",
-      });
-    });
-
     it("approvePlan sends permission.respond and waits for backend mode.changed", async () => {
       const { ws } = await setupWithInit();
       // mode.changed only applies once a provider is known — seed the pair as
@@ -2625,12 +2882,20 @@ describe("ws-session-store", () => {
 
       useWsSessionStore.getState().approvePlan("s1");
 
-      // Approval clears the gate immediately, but the chip is unchanged
-      // until the backend bridge has actually pushed
-      // `set_permission_mode` to the CLI and broadcast `mode.changed`.
-      // Anything else would let the chip lie about CLI state.
+      // The click only marks the decision in flight: the gate stays until
+      // the backend acknowledges the response.
       let session = useWsSessionStore.getState().sessions["s1"];
+      expect(session.pendingPlanApproval).not.toBeNull();
+      expect(session.submittingPermissionRequestId).toBe("req-plan-1");
+      await acknowledgePermission(ws);
+
+      // Acknowledged: the gate closes, but the chip is unchanged until the
+      // backend bridge has actually pushed `set_permission_mode` to the CLI
+      // and broadcast `mode.changed`. Anything else would let the chip lie
+      // about CLI state.
+      session = useWsSessionStore.getState().sessions["s1"];
       expect(session.pendingPlanApproval).toBeNull();
+      expect(session.submittingPermissionRequestId).toBeNull();
       expect(session.pendingRequestId).toBe("");
       expect(session.permissionMode).toBe(modeBeforeApproval);
       expect(session.lifecycle).toEqual({ phase: "active" });
@@ -2705,6 +2970,7 @@ describe("ws-session-store", () => {
         throw new Error("missing permission message_uuid");
       }
       expect(messageUuid).toMatch(/^[0-9a-f-]{36}$/i);
+      await acknowledgePermission(ws);
       simulateCanonicalUserMessage(ws, "Plan approved.", messageUuid);
 
       const session = useWsSessionStore.getState().sessions["s1"];
@@ -2750,6 +3016,8 @@ describe("ws-session-store", () => {
       sendPlanPermissionRequest(ws);
 
       useWsSessionStore.getState().requestPlanChanges("s1", "Use a simpler approach");
+      expect(useWsSessionStore.getState().sessions["s1"].pendingPlanApproval).not.toBeNull();
+      await acknowledgePermission(ws);
 
       const session = useWsSessionStore.getState().sessions["s1"];
       expect(session.pendingPlanApproval).toBeNull();
@@ -2777,6 +3045,7 @@ describe("ws-session-store", () => {
         throw new Error("missing permission message_uuid");
       }
       expect(messageUuid).toMatch(/^[0-9a-f-]{36}$/i);
+      await acknowledgePermission(ws);
       simulateCanonicalUserMessage(ws, "Try again differently", messageUuid);
 
       const session = useWsSessionStore.getState().sessions["s1"];
@@ -2794,6 +3063,7 @@ describe("ws-session-store", () => {
       sendPlanPermissionRequest(ws);
 
       useWsSessionStore.getState().requestPlanChanges("s1", "");
+      await acknowledgePermission(ws);
 
       const session = useWsSessionStore.getState().sessions["s1"];
       const userMsgs = session.blocks.filter((b) => b.type === "user_message");
@@ -2803,11 +3073,91 @@ describe("ws-session-store", () => {
       expect(planBlock?.planApprovalStatus).toBe("rejected");
     });
 
+    it("never writes a prompt for a plan: one with no open gate sends nothing", async () => {
+      const { ws } = await setupWithInit();
+      streamExitPlanMode(ws);
+      const sentBefore = ws.sent.length;
+
+      useWsSessionStore.getState().approvePlan("s1");
+      useWsSessionStore.getState().requestPlanChanges("s1", "Revise it");
+
+      expect(ws.sent.slice(sentBefore)).toEqual([]);
+      expect(useWsSessionStore.getState().sessions["s1"].submittingPermissionRequestId).toBeNull();
+    });
+
+    it("records the plan's outcome when the status update closed the gate before the ack", async () => {
+      const { ws } = await setupWithInit();
+      streamExitPlanMode(ws);
+      sendPlanPermissionRequest(ws);
+      useWsSessionStore.getState().approvePlan("s1");
+      // The app socket's question→agent update lands first and closes the gate.
+      useWsSessionStore.setState((state) =>
+        updateSession(state, "s1", {
+          pendingPlanApproval: null,
+          pendingRequestId: "",
+          submittingPermissionRequestId: null,
+        }),
+      );
+
+      await acknowledgePermission(ws);
+
+      const session = useWsSessionStore.getState().sessions["s1"];
+      const planBlock = session.blocks.find((b) => b.toolName === "ExitPlanMode");
+      expect(planBlock?.planApprovalStatus).toBe("approved");
+    });
+
+    it("retries a failed plan response with the same idempotency key", async () => {
+      const { ws } = await setupWithInit();
+      streamExitPlanMode(ws);
+      sendPlanPermissionRequest(ws);
+
+      useWsSessionStore.getState().requestPlanChanges("s1", "Smaller steps");
+      const first = lastSentEnvelope(ws, "permission.respond");
+      ws.simulateMessage({
+        domain: "session",
+        action: "error",
+        ref: String(first.id),
+        payload: { code: "SDK_ERROR", message: "busy" },
+      });
+      await Promise.resolve();
+      useWsSessionStore.getState().requestPlanChanges("s1", "Smaller steps");
+      const second = lastSentEnvelope(ws, "permission.respond");
+
+      expect(second.id).not.toBe(first.id);
+      const uuid = (envelope: Record<string, unknown>) =>
+        (envelope.payload as Record<string, unknown>).message_uuid;
+      expect(uuid(second)).toBe(uuid(first));
+    });
+
+    it("a rejected plan response keeps the gate open with the reason", async () => {
+      const { ws } = await setupWithInit();
+      streamExitPlanMode(ws);
+      sendPlanPermissionRequest(ws);
+
+      useWsSessionStore.getState().approvePlan("s1");
+      const sent = lastSentEnvelope(ws, "permission.respond");
+      ws.simulateMessage({
+        domain: "session",
+        action: "error",
+        ref: String(sent.id),
+        payload: { code: "SDK_ERROR", message: "CLI refused the response" },
+      });
+      await Promise.resolve();
+
+      const session = useWsSessionStore.getState().sessions["s1"];
+      expect(session.pendingPlanApproval).not.toBeNull();
+      expect(session.submittingPermissionRequestId).toBeNull();
+      expect(session.blocks.at(-1)?.content).toBe("CLI refused the response");
+      const planBlock = session.blocks.find((b) => b.toolName === "ExitPlanMode");
+      expect(planBlock?.planApprovalStatus).toBeUndefined();
+    });
+
     it("turn_complete after gate-based approval does not re-trigger approval bar", async () => {
       const { ws } = await setupWithInit();
       streamExitPlanMode(ws);
       sendPlanPermissionRequest(ws);
       useWsSessionStore.getState().approvePlan("s1");
+      await acknowledgePermission(ws);
 
       // Simulate turn_complete after the CLI resumes
       ws.simulateMessage({
@@ -3106,59 +3456,14 @@ describe("ws-session-store", () => {
       });
     });
 
-    it("records active and user-pending timing across permission-gated turns", async () => {
+    it("leaves a turn's closing line to the backend instead of measuring it locally", async () => {
       const ws = await setupActiveSession();
-      vi.useFakeTimers();
-      vi.setSystemTime(1_000);
-      const store = useWsSessionStore.getState();
+      useWsSessionStore.getState().sendPrompt("s1", "build it");
+      streamTextMessage(ws, "done");
+      ws.simulateMessage({ domain: "session", action: "turn_complete", payload: {} });
 
-      store.sendPrompt("s1", "build it");
-      vi.setSystemTime(4_000);
-      ws.simulateMessage({
-        domain: "session",
-        action: "permission.request",
-        payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
-      });
-      vi.setSystemTime(9_000);
-      streamTextMessage(ws, "resumed after permission");
-      vi.setSystemTime(11_000);
-      ws.simulateMessage({
-        domain: "session",
-        action: "turn_complete",
-        payload: {},
-      });
-
-      const session = useWsSessionStore.getState().sessions["s1"];
-      expect(session.turnTiming.completed).toEqual({
-        totalMs: 7_000,
-        activeMs: 2_000,
-        userPendingMs: 5_000,
-      });
-      expect(session.blocks.at(-1)).toMatchObject({
-        type: "turn_summary",
-        content: "Worked - 7s · Agent 2s · Waiting 5s",
-      });
-      vi.useRealTimers();
-    });
-
-    it("adds a visible turn summary even when a turn completes without output blocks", async () => {
-      const ws = await setupActiveSession();
-      vi.useFakeTimers();
-      vi.setSystemTime(1_000);
-
-      streamTextMessage(ws, "");
-      vi.setSystemTime(4_000);
-      ws.simulateMessage({
-        domain: "session",
-        action: "turn_complete",
-        payload: {},
-      });
-
-      expect(useWsSessionStore.getState().sessions["s1"].blocks.at(-1)).toMatchObject({
-        type: "turn_summary",
-        content: "Worked - 3s · Agent 3s · Waiting 0s",
-      });
-      vi.useRealTimers();
+      const blocks = useWsSessionStore.getState().sessions["s1"].blocks;
+      expect(blocks.some((block) => block.type === "turn_summary")).toBe(false);
     });
   });
 

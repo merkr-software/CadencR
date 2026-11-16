@@ -1,0 +1,58 @@
+/*
+ * `--app-vh` is the height the app shell fills. `100dvh` (the dynamic viewport)
+ * is right in a mobile browser, where it tracks the show/hide of the URL bar.
+ * Installed iOS apps cache their status-bar mode. Older translucent installs
+ * need the top safe-area added to their short viewport; new default installs
+ * already start below the status bar. Use the measured layout height, capped
+ * at lvh, because lvh can include the status bar even in default mode:
+ * https://bugs.webkit.org/show_bug.cgi?id=316008
+ * One variable feeds the root elements, shell and drawer so nothing clips.
+ *
+ * Mobile UI zoom (see `useAppZoom`) scales the root font-size rather than using CSS
+ * `zoom`: it resizes rem-based text without touching these viewport units, so the
+ * shell never under/overflows the screen the way a `zoom`-scaled box would.
+ */
+html {
+  --app-vh: 100dvh;
+}
+/*
+ * Home-indicator clearance for bottom-pinned chrome (composer, terminal key
+ * bar). While the on-screen keyboard is up the indicator is under it, yet an
+ * installed app still reports the inset, which opened a ~34px gap between the
+ * prompt and the keyboard. `useVisualViewportHeight` flags that state.
+ */
+html {
+  --app-inset-bottom: env(safe-area-inset-bottom, 0px);
+}
+html[data-keyboard-open] {
+  --app-inset-bottom: 0px;
+}
+html.is-standalone {
+  --app-vh: min(100lvh, calc(var(--standalone-vh, 100dvh) + env(safe-area-inset-top, 0px)));
+}
+/*
+ * Tallest a centered modal may be: the app viewport less a 1rem margin on each
+ * side and the notch / home-indicator insets. `DialogContent` caps at it; a
+ * dialog that prefers a share of the screen takes `min(<n>vh, this)`, since
+ * `vh` alone is the large viewport on iOS and runs under the browser chrome.
+ */
+html {
+  --dialog-max-h: calc(
+    var(--app-vh) - 2rem - env(safe-area-inset-top, 0px) - var(--app-inset-bottom)
+  );
+}
+
+/*
+ * Lock the document to the viewport so the app never page-scrolls — scrolling
+ * belongs to the inner surfaces (agent stream, terminal, diff, editor). On
+ * mobile this is what keeps the feature header and prompt bar pinned while only
+ * the active tab's content scrolls. `overscroll-behavior: none` also kills the
+ * iOS rubber-band bounce that would otherwise reveal a blank strip.
+ */
+html,
+body,
+#root {
+  height: var(--app-vh);
+  overflow: hidden;
+  overscroll-behavior: none;
+}

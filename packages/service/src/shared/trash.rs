@@ -19,12 +19,12 @@ pub async fn move_to_trash(path: &Path) -> Result<(), AppError> {
     let owned: PathBuf = path.to_path_buf();
     tokio::task::spawn_blocking(move || delete_blocking(&owned))
         .await
-        .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))?
+        .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))?
 }
 
 #[cfg(not(test))]
 fn delete_blocking(path: &Path) -> Result<(), AppError> {
-    move_to_trash_blocking(path).map_err(|e| AppError::Internal(format!("Trash failed: {e}")))
+    move_to_trash_blocking(path).map_err(|e| AppError::internal(format!("Trash failed: {e}")))
 }
 
 #[cfg(test)]
@@ -34,7 +34,7 @@ fn delete_blocking(path: &Path) -> Result<(), AppError> {
     } else {
         std::fs::remove_file(path)
     };
-    removed.map_err(|e| AppError::Internal(format!("failed to delete {}: {e}", path.display())))
+    removed.map_err(|e| AppError::internal(format!("failed to delete {}: {e}", path.display())))
 }
 
 /// On macOS we explicitly use `NSFileManager` rather than the default `Finder`

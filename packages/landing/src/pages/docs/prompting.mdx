@@ -1,102 +1,94 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Prompt"
-description: "Understand the prompt bar in CadencR: where it appears, what it can do, and how it helps you work with agents."
+description: "Give agents context, choose their runtime, and send or schedule work."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import DocCallout from "@/components/docs/DocCallout.astro";
-import Kbd from "@/components/ui/Kbd.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
-import promptImage from "@/assets/docs/prompt.png";
+import pageImage from "@/assets/docs/v0.13.0/prompting.png";
 
-The prompt feature in CadencR is more than a text box. It is the main control surface for working with an agent: starting work, continuing a session, attaching context, and responding when the agent needs something from you.
+The composer holds your prompt, context references, attachments, and runtime controls. Drafts are preserved per conversation when you switch tasks.
 
 <DocScreenshot
-  src={promptImage}
-  alt="CadencR prompt bar showing a draft, an attachment, model picker, thinking-effort, and permission-mode controls"
-  caption="The prompt area is where you start work, continue a session, and manage the flow of agent interaction."
+  src={pageImage}
+  alt="The current composer in an example checkout conversation. Provider controls depend on the selected runtime."
+  caption="The current composer in an example checkout conversation. Provider controls depend on the selected runtime."
+  bordered={false}
+  rounded
+  elevated
 />
 
-<DocCallout title="Simple mental model" variant="tip">
-  Think of the prompt bar as the place where you steer the session, not just where you type.
-</DocCallout>
+## Send and steer
 
-## What the prompt feature is for
+Write the result you want and the constraints that matter. `Cmd/Ctrl+Enter` sends; plain `Enter` adds a newline. A follow-up sent during an active turn can steer the agent. Watch the prompt's delivery receipt, especially after reconnecting.
 
-You will usually use the prompt bar to:
+Use the send button's scheduling action to open the same editor used by the [Schedules](../schedules/) page. Scheduling requires CadencR to remain running.
 
-- start a new piece of work
-- continue an existing session
-- refine or redirect what the agent is doing
-- attach extra context when the task needs it
-- respond to questions, approvals, or permission requests
+## Add context
 
-In other words, this is not just input. It is the main handoff point between you and the agent.
+| Input                  | What it does                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| `@`                    | Search current project files and insert a file or folder reference                    |
+| `@@`                   | Search conversations across registered projects and add a clickable history reference |
+| `/`                    | Find provider commands and CadencR orchestration commands                             |
+| `$`                    | Insert supported skill references, including CadencR orchestration skills             |
+| Paste, drop, or attach | Add images and provider-supported files                                               |
 
-## What the prompt feature includes
+An `@@` reference gives the agent a route to the selected history through Workspace MCP. If the task should continue in that conversation's live checkout, use the offered **reuse worktree** action and check the resulting branch/worktree selection before sending.
 
-Here are the main capabilities around the prompt bar:
+### Commands and skills vary by provider
 
-| Feature             | How to reach it                                                                | Why it is useful                                                                |
-| ------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| **Draft saving**    | Automatic — drafts persist per session                                         | Helpful when you switch context or come back later                              |
-| **Prompt history**  | Up / down arrow from an empty prompt                                           | Useful when you repeat similar actions or want to resend a previous request     |
-| **File mentions**   | Type `@` and start typing a path                                               | Makes it easier to point the agent at the right place                           |
-| **Slash commands**  | Type `/` at the start of the prompt                                            | Speeds up common workflows without leaving the keyboard                         |
-| **Attachments**     | Paste, drag and drop, or use the attach button                                 | Add images, PDFs, and provider-supported files without leaving the prompt       |
-| **Send**            | <kbd>⌘ Enter</kbd>                                                             | Plain <kbd>Enter</kbd> inserts a newline so you can write multi-line prompts    |
-| **Schedule send**   | Use the send split-button when a feature can schedule messages                 | Queue a message for later; it is sent while CadencR is running                  |
-| **Stop**            | <kbd>Esc</kbd> inside the session, or <kbd>⌘ Esc</kbd> for every running agent | Keeps you in control when the agent is moving in the wrong direction            |
-| **Model picker**    | <kbd>⌘ P</kbd>                                                                 | Switch model per-message without leaving the prompt bar                         |
-| **Thinking effort** | <kbd>⌘ T</kbd>                                                                 | Cycle reasoning effort when the task is harder (or easier) than usual           |
-| **Permission mode** | <Kbd><ShiftIcon /></Kbd> <Kbd>Tab</Kbd>                                        | Cycle between ask / accept-edits / bypass — pick the right amount of guardrails |
+Claude slash commands can appear within a prompt. OpenCode slash commands are anchored at its start. Codex skill references use `$`. CadencR's virtual `cadencr:*` skills accept either `/` or `$` and expand at send time; see [MCP & orchestration](../mcp/).
 
-### Mentions and slash commands in detail
+## Ask for a chart or a visual
 
-- **`@` mentions** open a file picker as you type. Pick a file (or a folder) and CadencR inlines the reference so the agent knows exactly what to read.
-- **`/` slash commands** at the start of the prompt expose project-specific, built-in, and CadencR orchestration commands. Arrow keys to pick, <kbd>Enter</kbd> or <kbd>Tab</kbd> to insert. See [MCP & orchestration](../mcp/) for the provider-neutral `cadencr:*` commands, which also accept a `$` prefix.
-- **Attachments** support paste, drag-and-drop, and the attach button. Images show previews; non-image files show as removable file chips. CadencR filters accepted file types by the active provider and sends provider-aware payloads — for example, Codex receives PDFs as file references.
+`/cadencr:visualize` followed by what you want to see asks the agent to draw it in the conversation, with any provider:
 
-### Picking model, profile, and effort per message
+```text
+/cadencr:visualize test duration per package over the last 10 CI runs
+```
 
-CadencR stays provider-neutral: the model picker (<kbd>⌘ P</kbd>) lists whatever models your active provider profile exposes — Claude, Codex, OpenCode, or a custom model you added in **Settings → Runtime & Models**. When a provider supports multiple profiles, the session controls let you pick the profile for the next prompt without rebuilding the whole session. The thinking-effort cycle (<kbd>⌘ T</kbd>) toggles among the levels that model supports; unsupported effort settings are cleared instead of being sent to a model that cannot use them.
+- **Data charts** come back as a Vega-Lite spec and render as a native chart in the current theme, light or dark. They redraw when you switch themes and fit the conversation width.
+- **Diagrams, interactive explainers, mockups and dashboards** come back as HTML. Each one runs in a sandboxed frame styled with the theme, with D3 and Chart.js bundled.
+- **Source** in a block's header shows the spec or HTML behind it, and **Copy** copies it.
 
-## What happens around the prompt while you work
+Visuals run offline: they can't reach the network, CadencR's API or your browser storage, and they can't navigate away. A blocked request or a script error appears as a message above the visual. Mermaid diagrams keep working as before.
 
-The prompt feature also supports the back-and-forth that happens after you send something.
+## Run a shell command with `!`
 
-For example, the prompt area may become the place where you:
+Start the prompt with `!` to enter shell mode on supported providers:
 
-- send a message now or schedule it for later
-- answer a question from the agent
-- approve or reject a plan
-- respond to a permission request
-- continue from a paused state
+```text
+! npm test
+```
 
-That matters because the prompt feature is built for ongoing work, not just one-shot messages. It helps the session keep moving without making you jump to a completely different part of the app every time the agent needs input.
+CadencR uses provider-native shell execution where available and a worktree-aware local path where needed. Output streams into the conversation and is kept as context for following prompts. Use Stop to cancel a command. The terminal pane remains useful for interactive shell work.
 
-<DocCallout title="Why this matters" variant="note">
-  The prompt feature is designed to keep the interaction close to the work itself. You can write,
-  review, respond, and continue without constantly rebuilding context.
-</DocCallout>
+## Select provider, model, and profile
 
-## When the prompt feature feels most useful
+Open the model picker with its button or `Cmd/Ctrl+P` while the composer is focused. Search the catalog, expand a provider group, and star models you use often. Favorites are stored by provider and remain available across conversations.
 
-The prompt feature becomes especially helpful when:
+New conversations use the provider and model from the last accepted manual prompt across projects. Explicit conversation choices take priority. Scheduled or delegated work does not replace that manual-prompt preference.
 
-- you are working across several sessions and want a consistent control surface
-- you need to attach extra context, like files, PDFs, screenshots, or Browser page comments
-- the agent needs follow-up input instead of a full restart
-- you want the app to remember your draft or recent prompt flow
-- you prefer to stay inside the same workspace instead of switching tools
+Provider profiles can change the available model catalog and runtime configuration. Codex supports named profiles, including native `config.toml` and environment overrides. Manage them in **Settings → Providers**; select a conversation profile in its supported session controls.
 
-## Related docs
+### Thinking, modes, and Fast
 
-- [Session view](../session-view/) — see how prompting fits into a focused agent conversation
-- [Feature workspace](../feature-workspace/) — understand the bigger home base around the prompt bar
-- [Unified agent list](../unified-agent-list/) — find the session you want to continue
-- [Browser](../browser/) — page comments and browser context for agents
-- [MCP & orchestration](../mcp/) — search session history, delegate work, and use `cadencr:*` commands
-- [Custom actions](../custom-actions/) — related shortcuts for repeatable actions
-- [Shortcuts](../shortcuts/) — keyboard help for moving quickly around the app
+The selected model determines available thinking levels. CadencR remembers applicable choices and clears options the next model does not support. Profile defaults can supply a choice when you have not set one explicitly.
+
+Collaboration and access modes are provider capabilities. Use the modes displayed in the composer; `Shift+Tab` cycles the appropriate control. Supported Codex models also expose **Fast** mode, which uses the priority service tier. A provider may offer other model-specific controls.
+
+## Attachments and images
+
+Accepted types depend on the active provider. Codex can receive supported documents, including PDFs and spreadsheets, through temporary file references. Images appear as previews in the composer and transcript.
+
+Open an image to zoom, pan, navigate attachments, copy, or save it. Unsent images stay with the draft when switching conversations. If an attachment is no longer available during a retry, CadencR reports the problem instead of silently dropping it.
+
+## Related guides
+
+- [Providers](../providers/) — profiles, discovery, and local connectors.
+- [Approvals & permissions](../approvals/) — access and request handling.
+- [Worktrees](../worktrees/) — choose where the prompt runs.
+- [Schedules](../schedules/) — recurring or delayed prompts.

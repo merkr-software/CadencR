@@ -2,6 +2,8 @@
 //! to print your username.  It is made more complex because there are multiple
 //! pipes involved and it is easy to get blocked/deadlocked if care and attention
 //! is not paid to those pipes!
+// Cadencr: `to_write` below is an intentionally empty placeholder.
+#![allow(clippy::const_is_empty)]
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::sync::mpsc::channel;
 

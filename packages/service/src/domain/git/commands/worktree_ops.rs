@@ -5,14 +5,38 @@ use std::path::Path;
 
 use crate::domain::git::models::WorktreeInfo;
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_background, run_git_safe_refs};
+use crate::shared::git_cli::version::{self, GitFeature};
+use crate::shared::git_cli::{
+    git_ref_resolves_background, run_git, run_git_background, run_git_safe_refs,
+};
 use crate::shared::worktree_paths::compute_worktree_path;
 
 /// List all worktrees for a repository.
 pub async fn list_worktrees(repo_path: &Path) -> Result<Vec<WorktreeInfo>, AppError> {
     crate::shared::git_context::require_git_metadata(repo_path).await?;
-    let stdout = run_git(&["worktree", "list", "--porcelain"], repo_path).await?;
+    let stdout = worktree_porcelain(repo_path).await?;
     Ok(parse_worktree_list(&stdout))
+}
+
+/// `git worktree list --porcelain`, NUL-terminated where Git supports it so a
+/// worktree path holding a newline stays one record.
+async fn worktree_porcelain(repo: &Path) -> Result<String, AppError> {
+    let args: &[&str] = if version::supports(GitFeature::WorktreeListNul) {
+        &["worktree", "list", "--porcelain", "-z"]
+    } else {
+        &["worktree", "list", "--porcelain"]
+    };
+    run_git(args, repo).await
+}
+
+/// The records of either `worktree list --porcelain` form; an empty record
+/// ends each worktree.
+fn porcelain_records(output: &str) -> Vec<&str> {
+    if output.contains('\0') {
+        output.split_terminator('\0').collect()
+    } else {
+        output.lines().collect()
+    }
 }
 
 /// List local branch short names with one read-only Git call.
@@ -38,7 +62,7 @@ fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
     let mut branch = String::new();
     let mut is_bare = false;
 
-    for line in output.lines() {
+    for line in porcelain_records(output) {
         if let Some(p) = line.strip_prefix("worktree ") {
             // Push previous entry if exists
             if let Some(prev_path) = path.take() {
@@ -96,7 +120,8 @@ fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
 }
 
 /// Create a git worktree with a new branch.
-/// Places the worktree at ~/.cadencr/worktrees/<project_name>/<safe_branch>.
+/// Places the worktree at `<worktrees-root>/<project_name>/<safe_branch>`,
+/// where the root is platform-dependent — see `shared::app_paths`.
 pub async fn create_worktree(
     repo_path: &Path,
     branch_name: &str,
@@ -139,36 +164,40 @@ pub async fn create_worktree(
     if let Some(parent) = worktree_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to create directory: {e}")))?;
+            .map_err(|e| AppError::internal(format!("Failed to create directory: {e}")))?;
     }
 
-    // Try with -b first; fall back without -b if branch already exists
-    match run_git_safe_refs(
-        &["worktree", "add"],
-        &["-b", branch_name],
-        &[&worktree_str],
-        repo_path,
-    )
-    .await
-    {
-        Ok(_) => {}
-        Err(e) => {
-            let err_msg = e.to_string();
-            if err_msg.contains("already exists") {
-                run_git_safe_refs(
-                    &["worktree", "add"],
-                    &[],
-                    &[&worktree_str, branch_name],
-                    repo_path,
-                )
-                .await?;
-            } else {
-                return Err(e);
-            }
-        }
-    }
-
+    add_worktree_for_branch(repo_path, &worktree_str, branch_name).await?;
     Ok((worktree_str, branch_name.to_string()))
+}
+
+/// Attach an existing branch, otherwise create it. Decided from the ref
+/// itself: Git's "already exists" message is translated with the user's
+/// locale and also names unrelated collisions.
+async fn add_worktree_for_branch(
+    repo_path: &Path,
+    worktree_path: &str,
+    branch_name: &str,
+) -> Result<(), AppError> {
+    let branch_ref = format!("refs/heads/{branch_name}");
+    if git_ref_resolves_background(&branch_ref, repo_path).await? {
+        run_git_safe_refs(
+            &["worktree", "add"],
+            &[],
+            &[worktree_path, branch_name],
+            repo_path,
+        )
+        .await?;
+    } else {
+        run_git_safe_refs(
+            &["worktree", "add"],
+            &["-b", branch_name],
+            &[worktree_path],
+            repo_path,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Parse `git worktree list --porcelain` and return a map of
@@ -179,7 +208,7 @@ pub async fn create_worktree(
 pub async fn list_worktree_branches(
     repo: &Path,
 ) -> Result<HashMap<String, std::path::PathBuf>, AppError> {
-    let output = run_git(&["worktree", "list", "--porcelain"], repo).await?;
+    let output = worktree_porcelain(repo).await?;
     Ok(parse_worktree_branches(&output))
 }
 
@@ -189,7 +218,10 @@ fn parse_worktree_branches(output: &str) -> HashMap<String, std::path::PathBuf> 
     let mut cur_branch: Option<String> = None;
     let mut is_bare = false;
 
-    for line in output.lines().chain(std::iter::once("")) {
+    for line in porcelain_records(output)
+        .into_iter()
+        .chain(std::iter::once(""))
+    {
         if line.is_empty() {
             if !is_bare {
                 if let (Some(p), Some(b)) = (cur_path.take(), cur_branch.take()) {
@@ -256,6 +288,67 @@ mod tests {
         assert_eq!(worktrees[1].head, "def456");
     }
 
+    /// The `-z` form keeps a worktree path holding a newline in one record;
+    /// the line form older Git prints still parses the same way otherwise.
+    #[test]
+    fn nul_terminated_worktree_records_keep_awkward_paths() {
+        let nul = "worktree /home/user/repo\0HEAD abc123\0branch refs/heads/main\0\0\
+                   worktree /home/user/wt é\nnext\0HEAD def456\0branch refs/heads/feat\0\0";
+        let worktrees = parse_worktree_list(nul);
+        assert_eq!(worktrees.len(), 2);
+        assert_eq!(worktrees[1].path, "/home/user/wt é\nnext");
+        assert_eq!(worktrees[1].branch, "feat");
+        let branches = parse_worktree_branches(nul);
+        assert_eq!(
+            branches.get("feat"),
+            Some(&std::path::PathBuf::from("/home/user/wt é\nnext"))
+        );
+        let lines = nul.replace("\0", "\n").replace("wt é\nnext", "wt é");
+        assert_eq!(parse_worktree_list(&lines)[1].path, "/home/user/wt é");
+    }
+
+    #[tokio::test]
+    async fn real_worktree_listing_keeps_accented_paths() {
+        let base = tempfile::tempdir().unwrap();
+        let repo = base.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let run = |args: Vec<String>, cwd: std::path::PathBuf| async move {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            crate::shared::git_cli::run_git(&args, &cwd).await.unwrap();
+        };
+        run(vec!["init".into(), "-q".into()], repo.clone()).await;
+        let identity = ["-c", "user.name=t", "-c", "user.email=t@t"].map(String::from);
+        let commit = [
+            &identity[..],
+            &[
+                "commit".into(),
+                "-q".into(),
+                "--allow-empty".into(),
+                "-m".into(),
+                "i".into(),
+            ],
+        ]
+        .concat();
+        run(commit, repo.clone()).await;
+        let linked = std::fs::canonicalize(base.path()).unwrap().join("wt é x");
+        let add = ["worktree", "add", "-q", "-b", "feat"].map(String::from);
+        run(
+            [&add[..], &[linked.to_string_lossy().into_owned()]].concat(),
+            repo.clone(),
+        )
+        .await;
+
+        let worktrees = list_worktrees(&repo).await.unwrap();
+        assert!(
+            worktrees.iter().any(|w| w.path == linked.to_string_lossy()),
+            "{worktrees:?}"
+        );
+        assert_eq!(
+            list_worktree_branches(&repo).await.unwrap().get("feat"),
+            Some(&linked)
+        );
+    }
+
     #[tokio::test]
     async fn lists_local_branch_names() {
         let repo = tempfile::tempdir().unwrap();
@@ -268,6 +361,50 @@ mod tests {
         // An unborn repository has no refs. The command still succeeds and
         // should return an empty set rather than a phantom branch.
         assert!(list_local_branches(repo.path()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn worktree_add_creates_missing_branches_and_attaches_existing_ones() {
+        let repo = tempfile::tempdir().unwrap();
+        let worktrees = tempfile::tempdir().unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ][..],
+            &["branch", "existing"][..],
+        ] {
+            run_git(args, repo.path()).await.unwrap();
+        }
+        let fresh = worktrees
+            .path()
+            .join("fresh")
+            .to_string_lossy()
+            .into_owned();
+        let attached = worktrees
+            .path()
+            .join("attached")
+            .to_string_lossy()
+            .into_owned();
+
+        add_worktree_for_branch(repo.path(), &fresh, "fresh-branch")
+            .await
+            .unwrap();
+        add_worktree_for_branch(repo.path(), &attached, "existing")
+            .await
+            .unwrap();
+
+        let branches = list_worktree_branches(repo.path()).await.unwrap();
+        assert!(branches.contains_key("fresh-branch"), "{branches:?}");
+        assert!(branches.contains_key("existing"), "{branches:?}");
     }
 
     #[test]

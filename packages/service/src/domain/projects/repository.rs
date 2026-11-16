@@ -1,9 +1,6 @@
-use super::models::{
-    Project, ProjectAuthoringTarget, ProjectModelSettings, ProjectProviderSettings, ProjectSetting,
-};
-use crate::domain::agents::runtime::{runtime_setting_key, validate_agent_type};
+use super::models::{Project, ProjectAuthoringTarget, ProjectSetting};
 use crate::error::AppError;
-use sqlx::{AssertSqlSafe, SqlitePool};
+use sqlx::SqlitePool;
 
 pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> {
     let rows = sqlx::query_as::<_, ProjectRow>(
@@ -28,10 +25,9 @@ pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> 
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(project_from_row)
-        .collect::<Result<Vec<_>, _>>()?)
+        .collect::<Result<Vec<_>, _>>()
 }
 
 pub async fn create_project(
@@ -99,7 +95,7 @@ fn project_from_row(row: ProjectRow) -> Result<Project, AppError> {
         .as_deref()
         .map(ProjectAuthoringTarget::try_from)
         .transpose()
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     Ok(Project {
         id: row.0,
         name: row.1,
@@ -111,7 +107,9 @@ fn project_from_row(row: ProjectRow) -> Result<Project, AppError> {
     })
 }
 
-pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
+/// Delete a project and all its conversations; returns the deleted
+/// conversations' ids.
+pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<Vec<i64>, AppError> {
     // Resolve the project's settings file path while the project row still
     // exists (path derivation reads its name). We only remove the file after the
     // DB delete commits, and only when no other project shares this name —
@@ -129,77 +127,14 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
 
     let mut tx = pool.begin().await?;
 
-    let feature_ids: Vec<i64> =
-        sqlx::query_as::<_, (i64,)>("SELECT id FROM features WHERE project_id = ?")
-            .bind(id)
-            .fetch_all(&mut *tx)
-            .await?
-            .into_iter()
-            .map(|r| r.0)
-            .collect();
-
-    if !feature_ids.is_empty() {
-        let ph = feature_ids
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let session_ids: Vec<i64> = {
-            let query = format!("SELECT id FROM agent_sessions WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query_as::<_, (i64,)>(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.fetch_all(&mut *tx)
-                .await?
-                .into_iter()
-                .map(|r| r.0)
-                .collect()
-        };
-
-        if !session_ids.is_empty() {
-            let sp = session_ids
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(",");
-            let query = format!("DELETE FROM agent_messages WHERE session_id IN ({})", sp);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for sid in &session_ids {
-                q = q.bind(sid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-
-        {
-            let query = format!("DELETE FROM agent_sessions WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-        {
-            let query = format!("DELETE FROM feature_settings WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-        {
-            let query = format!("DELETE FROM diff_viewed_files WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-        sqlx::query("DELETE FROM features WHERE project_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+    let feature_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM features WHERE project_id = ?")
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+    // The same per-feature cascade as deleting one feature, in this
+    // transaction: a child row left behind would fail the project delete.
+    for feature_id in &feature_ids {
+        crate::domain::features::repository::delete_feature_rows(&mut tx, *feature_id).await?;
     }
 
     sqlx::query("DELETE FROM project_settings WHERE project_id = ?")
@@ -223,7 +158,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
         }
     }
 
-    Ok(())
+    Ok(feature_ids)
 }
 
 // Project settings now live in `~/.cadencr/settings/<name>.settings.json`
@@ -245,64 +180,6 @@ pub async fn set_project_setting(
     value: &str,
 ) -> Result<(), AppError> {
     crate::domain::settings_store::project_set(pool, project_id, key, value).await
-}
-
-pub async fn get_project_model_settings(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<ProjectModelSettings, AppError> {
-    let session = crate::domain::settings_store::project_get(pool, project_id, "model_session")
-        .await?
-        .unwrap_or_default();
-    Ok(ProjectModelSettings { session })
-}
-
-pub async fn set_project_model_setting(
-    pool: &SqlitePool,
-    project_id: i64,
-    model_type: &str,
-    model: &str,
-) -> Result<(), AppError> {
-    if !validate_agent_type(model_type) {
-        return Err(AppError::BadRequest(format!(
-            "Invalid model type: {}",
-            model_type
-        )));
-    }
-    crate::domain::agents::runtime::reject_workspace_only(model_type, "project")?;
-    let key = format!("model_{}", model_type);
-    crate::domain::settings_store::project_set(pool, project_id, &key, model).await
-}
-
-pub async fn get_project_provider_settings(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<ProjectProviderSettings, AppError> {
-    let session =
-        crate::domain::settings_store::project_get(pool, project_id, "agent_runtime_session")
-            .await?
-            .unwrap_or_default();
-    Ok(ProjectProviderSettings {
-        session,
-        auto_name: String::new(),
-    })
-}
-
-pub async fn set_project_provider_setting(
-    pool: &SqlitePool,
-    project_id: i64,
-    provider_type: &str,
-    provider: &str,
-) -> Result<(), AppError> {
-    if !validate_agent_type(provider_type) {
-        return Err(AppError::BadRequest(format!(
-            "Invalid provider type: {}",
-            provider_type
-        )));
-    }
-    crate::domain::agents::runtime::reject_workspace_only(provider_type, "project")?;
-    let key = runtime_setting_key(provider_type);
-    crate::domain::settings_store::project_set(pool, project_id, &key, provider).await
 }
 
 #[cfg(test)]
@@ -327,7 +204,7 @@ mod tests {
                 model_session TEXT,
                 agent_runtime_session TEXT,
                 kind TEXT NOT NULL DEFAULT 'user',
-                authoring_target TEXT CHECK (authoring_target IN ('theme', 'provider')),
+                authoring_target TEXT CHECK (authoring_target IN ('theme', 'provider', 'tab')),
                 plugin_id TEXT CHECK ((authoring_target IS NULL) = (plugin_id IS NULL))
             )"#,
         )
@@ -357,6 +234,14 @@ mod tests {
 
         sqlx::query(
             "CREATE TABLE feature_settings (feature_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(feature_id, key))"
+        ).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE diff_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL)"
+        ).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE session_runtime_ids (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL)"
         ).execute(&pool).await.unwrap();
 
         pool
@@ -478,15 +363,94 @@ mod tests {
         assert_eq!(count.0, 0);
     }
 
-    #[tokio::test]
-    async fn test_set_project_setting_rejects_workspace_only_agent() {
-        let pool = setup_test_db().await;
-        let project = create_project(&pool, "WsOnly", "/tmp/wsonly")
+    async fn migrated_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
             .await
             .unwrap();
-        let err = set_project_model_setting(&pool, project.id, "auto_name", "haiku")
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn count(pool: &SqlitePool, table: &str) -> i64 {
+        sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
+            .fetch_one(pool)
             .await
-            .unwrap_err();
-        assert!(matches!(err, AppError::BadRequest(_)));
+            .unwrap()
+    }
+
+    /// The real schema enforces foreign keys, and `diff_comments` and
+    /// `session_runtime_ids` reference features/sessions without a cascade:
+    /// deleting a project whose feature has either used to fail outright.
+    #[tokio::test]
+    async fn delete_project_removes_every_non_cascading_feature_child() {
+        let pool = migrated_pool().await;
+        let project = create_project(&pool, "Cascade FK", "/tmp/cascade-fk")
+            .await
+            .unwrap();
+        let other = create_project(&pool, "Survivor", "/tmp/survivor")
+            .await
+            .unwrap();
+        let mut feature_ids = Vec::new();
+        for project_id in [project.id, project.id, other.id] {
+            let feature_id: i64 = sqlx::query_scalar(
+                "INSERT INTO features (project_id, title) VALUES (?, 'f') RETURNING id",
+            )
+            .bind(project_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let session_id: i64 = sqlx::query_scalar(
+                "INSERT INTO agent_sessions (feature_id, agent_type) VALUES (?, 'session') RETURNING id",
+            )
+            .bind(feature_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            for statement in [
+                "INSERT INTO session_runtime_ids (session_id, runtime_session_id) VALUES (?, 'runtime')",
+                "INSERT INTO agent_messages (session_id, role, message_type, content) VALUES (?, 'user', 'text', 'hi')",
+            ] {
+                sqlx::query(statement)
+                    .bind(session_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            for statement in [
+                "INSERT INTO diff_comments (feature_id, file_path, line_number, side, content) VALUES (?, 'a.rs', 1, 'new', 'c')",
+                "INSERT INTO diff_viewed_files (feature_id, file_path, blob_sha) VALUES (?, 'a.rs', 'sha')",
+                "INSERT INTO feature_settings (feature_id, key, value) VALUES (?, 'k', 'v')",
+            ] {
+                sqlx::query(statement)
+                    .bind(feature_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+            feature_ids.push(feature_id);
+        }
+
+        let deleted = delete_project(&pool, project.id).await.unwrap();
+
+        assert_eq!(deleted, feature_ids[..2]);
+        assert_eq!(count(&pool, "projects").await, 1);
+        // Only the surviving project's feature keeps its rows.
+        for table in [
+            "features",
+            "agent_sessions",
+            "agent_messages",
+            "session_runtime_ids",
+            "diff_comments",
+            "diff_viewed_files",
+            "feature_settings",
+        ] {
+            assert_eq!(count(&pool, table).await, 1, "{table}");
+        }
     }
 }

@@ -127,6 +127,8 @@ async fn assert_token_only_schema(pool: &SqlitePool) {
             "input_tokens",
             "output_tokens",
             "updated_at",
+            // Added by 20261011120000, after the word schema was gone.
+            "user_messages",
         ]
         .into_iter()
         .map(String::from)

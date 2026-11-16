@@ -121,6 +121,26 @@ impl StreamSynthesizer {
         output
     }
 
+    /// The client appends input deltas, so only an extension of what it holds
+    /// can go out. A pending tool's empty `{}` is held back: the real input
+    /// that follows is not an extension of it, and `{}{…}` would leave the
+    /// tool unreadable until it ends. A rewritten input waits for the end too.
+    fn input_delta(&mut self, part_id: &str, input: &serde_json::Value) -> Option<String> {
+        if input.is_null() || input.as_object().is_some_and(serde_json::Map::is_empty) {
+            return None;
+        }
+        let as_json = serde_json::to_string(input).unwrap_or_default();
+        let previous = self
+            .part_text
+            .get(part_id)
+            .map(String::as_str)
+            .unwrap_or("");
+        if !as_json.starts_with(previous) {
+            return None;
+        }
+        Some(self.compute_delta(part_id, &as_json))
+    }
+
     fn part_delta(
         &mut self,
         part_id: &str,
@@ -135,13 +155,9 @@ impl StreamSynthesizer {
                 let delta = self.compute_delta(part_id, thinking);
                 Some(RuntimeContentDelta::Thinking { thinking: delta })
             }
-            opencode_sdk_rs::MessagePart::ToolUse { input, .. } => {
-                let as_json = serde_json::to_string(input).unwrap_or_default();
-                let delta = self.compute_delta(part_id, &as_json);
-                Some(RuntimeContentDelta::InputJson {
-                    partial_json: delta,
-                })
-            }
+            opencode_sdk_rs::MessagePart::ToolUse { input, .. } => self
+                .input_delta(part_id, input)
+                .map(|partial_json| RuntimeContentDelta::InputJson { partial_json }),
             _ => None,
         }
     }
@@ -188,8 +204,43 @@ mod tests {
         ));
     }
 
+    /// What the client holds for a tool: the concatenated input deltas.
+    fn streamed_input(events: &[crate::domain::agents::adapter::RuntimeEvent]) -> String {
+        events
+            .iter()
+            .filter_map(|event| match event.stream_event() {
+                Some(RuntimeStreamEvent::ContentBlockDelta {
+                    delta:
+                        crate::domain::agents::adapter::RuntimeContentDelta::InputJson { partial_json },
+                    ..
+                }) => Some(partial_json.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
-    fn ingest_part_emits_incremental_delta_after_initial_start() {
+    fn a_pending_tool_streams_its_input_once_it_has_one() {
+        let mut synth = StreamSynthesizer::new(None);
+        let mut events = Vec::new();
+        for input in [json!({}), json!({ "command": "sleep 8 && cat README.md" })] {
+            events.extend(synth.ingest_part(
+                "ses_child",
+                &opencode_sdk_rs::MessagePart::ToolUse {
+                    id: "part_1".to_string(),
+                    tool_id: "call_1".to_string(),
+                    name: "Bash".to_string(),
+                    input,
+                },
+                Some("task_1"),
+            ));
+        }
+        let held: serde_json::Value = serde_json::from_str(&streamed_input(&events)).unwrap();
+        assert_eq!(held["command"], "sleep 8 && cat README.md");
+    }
+
+    #[test]
+    fn a_rewritten_input_is_not_appended_to_the_streamed_one() {
         let mut synth = StreamSynthesizer::new(None);
         let _ = synth.ingest_part(
             "ses_1",
@@ -213,16 +264,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            events[0].stream_event(),
-            Some(RuntimeStreamEvent::ContentBlockDelta {
-                delta: crate::domain::agents::adapter::RuntimeContentDelta::InputJson {
-                    partial_json
-                },
-                ..
-            }) if partial_json.contains("-la")
-        ));
+        assert!(streamed_input(&events).is_empty());
     }
 
     #[test]

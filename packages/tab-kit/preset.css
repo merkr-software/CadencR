@@ -1,0 +1,120 @@
+/*
+ * @cadencr/tab-kit — Tailwind v4 preset. Import it right after Tailwind:
+ *
+ *   @import "tailwindcss";
+ *   @import "@cadencr/tab-kit/preset.css";
+ *
+ * Utilities carry the desktop app's names (bg-background, text-muted-foreground,
+ * border-border, bg-primary, ring-ring, bg-sidebar…) and resolve to the
+ * `--cadencr-*` custom properties: defaults from tokens.css, the live Cadencr
+ * theme once `@cadencr/tab-sdk` connects.
+ */
+@import "./fonts.css";
+@import "./tokens.css";
+@import "./dist/tw-animate.css";
+
+/* The kit's components ship pre-built; let Tailwind see their classes. */
+@source "./dist/index.js";
+
+/* `dark:` follows the Cadencr theme (`data-appearance`), not the OS. */
+@custom-variant dark (&:where([data-appearance="dark"], [data-appearance="dark"] *));
+
+@theme inline {
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  --color-background: var(--cadencr-background);
+  --color-foreground: var(--cadencr-foreground);
+  --color-card: var(--cadencr-card);
+  --color-card-foreground: var(--cadencr-card-foreground);
+  --color-surface-sunken: var(--cadencr-surface-sunken);
+  --color-popover: var(--cadencr-popover);
+  --color-popover-foreground: var(--cadencr-popover-foreground);
+  --color-primary: var(--cadencr-primary);
+  --color-primary-foreground: var(--cadencr-primary-foreground);
+  --color-secondary: var(--cadencr-secondary);
+  --color-secondary-foreground: var(--cadencr-secondary-foreground);
+  --color-muted: var(--cadencr-muted);
+  --color-muted-foreground: var(--cadencr-muted-foreground);
+  --color-accent: var(--cadencr-accent);
+  --color-accent-foreground: var(--cadencr-accent-foreground);
+  --color-destructive: var(--cadencr-destructive);
+  --color-destructive-foreground: var(--cadencr-destructive-foreground);
+  --color-border: var(--cadencr-border);
+  --color-input: var(--cadencr-input);
+  --color-control-border: var(--cadencr-control-border);
+  --color-control-focus-ring: var(--cadencr-control-focus-ring);
+  --color-ring: var(--cadencr-ring);
+  --color-chart-1: var(--cadencr-chart-1);
+  --color-chart-2: var(--cadencr-chart-2);
+  --color-chart-3: var(--cadencr-chart-3);
+  --color-chart-4: var(--cadencr-chart-4);
+  --color-chart-5: var(--cadencr-chart-5);
+  --color-sidebar: var(--cadencr-sidebar);
+  --color-sidebar-foreground: var(--cadencr-sidebar-foreground);
+  --color-sidebar-primary: var(--cadencr-sidebar-primary);
+  --color-sidebar-primary-foreground: var(--cadencr-sidebar-primary-foreground);
+  --color-sidebar-accent: var(--cadencr-sidebar-accent);
+  --color-sidebar-accent-foreground: var(--cadencr-sidebar-accent-foreground);
+  --color-sidebar-border: var(--cadencr-sidebar-border);
+  --color-sidebar-ring: var(--cadencr-sidebar-ring);
+  /* Functional palette (status, syntax, diffs) — tuned per theme. */
+  --color-acc-cyan: var(--cadencr-acc-cyan);
+  --color-acc-green: var(--cadencr-acc-green);
+  --color-acc-orange: var(--cadencr-acc-orange);
+  --color-acc-pink: var(--cadencr-acc-pink);
+  --color-acc-purple: var(--cadencr-acc-purple);
+  --color-acc-red: var(--cadencr-acc-red);
+  --color-acc-yellow: var(--cadencr-acc-yellow);
+  --color-acc-comment: var(--cadencr-acc-comment);
+  /* Line counts and diff rows, as the desktop's Git views draw them. */
+  --color-numstat-add-fg: var(--cadencr-numstat-add-fg);
+  --color-numstat-del-fg: var(--cadencr-numstat-del-fg);
+  --color-diff-add-bg: var(--cadencr-diff-add-bg);
+  --color-diff-del-bg: var(--cadencr-diff-del-bg);
+  --color-diff-add-bg-strong: var(--cadencr-diff-add-bg-strong);
+  --color-diff-del-bg-strong: var(--cadencr-diff-del-bg-strong);
+  --radius-sm: calc(var(--cadencr-radius) - 4px);
+  --radius-md: calc(var(--cadencr-radius) - 2px);
+  --radius-lg: var(--cadencr-radius);
+  --radius-xl: calc(var(--cadencr-radius) + 4px);
+}
+
+:root {
+  /* Same derivations as the desktop app (theme.css): control outlines clear
+   * 3:1 against the surface; light themes get a solid focus halo. */
+  --cadencr-control-border: light-dark(
+    color-mix(in oklab, var(--cadencr-muted-foreground) 82%, var(--cadencr-background)),
+    color-mix(in oklab, var(--cadencr-muted-foreground) 70%, var(--cadencr-background))
+  );
+  --cadencr-control-focus-ring: light-dark(
+    var(--cadencr-primary),
+    color-mix(in oklab, var(--cadencr-ring) 50%, transparent)
+  );
+  --cadencr-scrollbar-thumb: color-mix(in oklab, var(--cadencr-foreground) 34%, transparent);
+  --cadencr-scrollbar-thumb-hover: color-mix(in oklab, var(--cadencr-foreground) 48%, transparent);
+  scrollbar-color: var(--cadencr-scrollbar-thumb) transparent;
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    overscroll-behavior: none;
+  }
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+}

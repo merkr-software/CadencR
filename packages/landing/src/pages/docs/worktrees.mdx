@@ -1,62 +1,74 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Worktrees"
-description: "Why each feature in CadencR runs in its own Git worktree, and how to work with them without surprise."
+description: "Choose a branch and checkout for a task, reuse work safely, and control cleanup."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
-import DocCallout from "@/components/docs/DocCallout.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/worktrees.png";
 
-A **worktree** is a checked-out copy of your repository on its own branch, living in its own folder. CadencR leans on worktrees so several features — and several agents — can work in parallel without overwriting each other's files.
+A Git worktree is another checked-out folder belonging to the same repository. Separate worktrees let independent tasks edit different folders and branches.
 
-## Why CadencR uses worktrees
+<DocScreenshot
+  src={pageImage}
+  alt="The current branch and working-context controls for the example conversation."
+  caption="The current branch and working-context controls for the example conversation."
+  bordered={false}
+  rounded
+  elevated
+/>
 
-If two agents are editing the same checkout at once, you get one of two outcomes: a corrupted working tree, or both agents fighting over the same files. Neither is fun. Worktrees give every feature its own isolated playground:
+## Choose the working context before sending
 
-- the agent has a clean directory it can change freely,
-- you can run tests or builds against one feature without affecting the others,
-- switching features no longer means a `git stash` dance,
-- archiving or deleting a feature is just cleaning up its worktree.
+The branch/worktree selector describes where the next task runs. Available choices depend on the selected branch and existing checkouts.
 
-<DocCallout title="One-line mental model" variant="tip">
-  Feature = a focused unit of work. Worktree = the folder on disk where that work happens.
-</DocCallout>
+| Choice                           | Result                                                                   | Good use                                                     |
+| -------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| New worktree                     | A separate folder and task branch                                        | Independent implementation or parallel work                  |
+| Reuse worktree                   | An existing live checkout                                                | Review, rescue, or continuation of the same uncommitted work |
+| Project folder / no new worktree | Work in the project's existing folder, with the selected branch behavior | Deliberate work in the current checkout or non-Git folder    |
 
-## How worktrees show up in the UI
+Some flows also create a new branch in the project folder. Read both the branch and folder choice; a new branch alone does not create another checkout.
 
-You will rarely have to think about them, but a few places make the worktree explicit:
+A branch change or new branch can be deferred until the first prompt starts setup. Its pending state stays visible. New task branch naming can use the name generated from that first prompt.
 
-- **Command palette** (<kbd>⌘ K</kbd>) — when you start a new feature, the worktree step lets you pick an existing worktree, create a fresh worktree on a new branch, or choose the explicit branch/worktree mode that matches the task.
-- **Git tab** — the branch displayed is the branch of the current feature's worktree. The diff is against that worktree's target branch.
-- **Terminal** — every pane starts inside the feature's worktree folder. The cwd warning appears if something drifts elsewhere.
-- **Editor** — the file tree is rooted at the worktree.
-- **Sidebar status** — setup output and deferred branch-switch messages stay visible so you can see whether the feature is ready before the first prompt runs.
+## Reuse a referenced conversation
 
-## When to reuse vs create
+Type `@@` in the composer, choose a conversation, and use its offered worktree-reuse action when you need that exact checkout. Check the resulting branch/worktree controls before sending.
 
-You usually want a **new worktree** when:
+Shared worktrees mean shared files. Two conversations can inspect the same uncommitted changes, but concurrent edits can interfere. [Fork](../rewind-and-fork/) also shares the source worktree; it is a conversation branch rather than a new Git checkout.
 
-- you are starting a new feature, fix, or refactor,
-- you want a clean branch for the agent to work on,
-- you might want to compare results from several attempts side by side,
-- you are tempted to reuse the project's main working tree. CadencR avoids using the main checkout as a feature worktree because it is too easy to overwrite unrelated local work.
+## Setup commands and progress
 
-You usually want to **reuse an existing worktree** when:
+Project settings can define setup commands for new worktrees. Commands run in an interactive login-shell environment. Setup status and output appear in the conversation title block; output persists across reopen, reconnect, and service restart.
 
-- you are continuing yesterday's work on the same branch,
-- the feature is mid-review and you do not want to start a new branch,
-- you deliberately picked an existing worktree and understand what else is already in it.
+An interrupted or failed setup shows an error and can be retried. Resolve that error before expecting the agent to work in the intended checkout.
 
-## Branch switching notes
+The selected source branch remains the task's comparison target. It does not automatically become `main` when setup finishes.
 
-If a feature has not sent its first prompt yet, CadencR may defer a branch switch until that first message starts the worktree setup. The UI surfaces that state instead of pretending the branch moved immediately. Once the worktree exists, the Git tab, Editor, Terminal, and Browser all stay tied to that feature's folder.
+## How tools use the checkout
 
-## Cleaning up
+- Editor's tree and file operations use the conversation's working folder.
+- Terminals start there; idle shells can move when a new worktree is created, while busy shells remain running with a warning.
+- Git status, diffs, and branch history use the task's checkout and target.
+- Browser tabs belong to the conversation, so its preview stays attached to that task.
 
-Archiving a feature (<kbd>⌘ <ShiftIcon /> X</kbd>) leaves its worktree alone by default. If you archive an already-archived feature, CadencR removes the worktree from disk and prunes it from Git. That two-step is intentional — it is hard to lose work by accident.
+## Archive and cleanup are separate decisions
 
-## Related docs
+Archiving preserves conversation history and moves it out of active lists. The dialog can include related parent/descendant conversations and shows their counts.
 
-- [Git in CadencR](../git/) — the rest of the Git story
-- [Feature workspace](../feature-workspace/) — what lives on top of each worktree
-- [Shortcuts](../shortcuts/) — keyboard map for the surfaces that touch worktrees
+When applicable, separate options remove the worktree, remove the branch, or kill terminals. The interface checks Git state and warns about unmerged branches, local changes, and residual folders. Review every selected option before confirming.
+
+Deleting an archived conversation is permanent. Do not infer folder or branch removal solely from whether the conversation was active or archived; use the options shown.
+
+## Boundaries
+
+A worktree is a Git organization mechanism. Provider access modes and sandbox policies determine what an agent may access beyond it.
+
+## Related guides
+
+- [Git](../git/) — branches, targets, and conflict recovery.
+- [Prompt](../prompting/) — first-prompt controls and reuse.
+- [Rewind & Fork](../rewind-and-fork/) — history and code checkpoints.

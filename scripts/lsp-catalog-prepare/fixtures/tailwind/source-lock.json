@@ -1,0 +1,225 @@
+{
+  "schema_version": 2,
+  "id": "tailwind-fixture",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "node",
+  "entry": "node_modules/tailwindcss/dist/lib.js",
+  "target": "all",
+  "sources": [
+    {
+      "name": "tailwindcss",
+      "version": "4.3.4",
+      "url": "https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.3.4.tgz",
+      "sha256": "139d326a7d7e871f664ec941338622290a7d08c87cc7cb59b795634db6b8bb64",
+      "destination": "node_modules/tailwindcss",
+      "expanded_size": 786416,
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
+          "size": 1071,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "a7db79d5cd483c6f6d1a51f4042e32598ec39e2391a5dd5be62a71d59299cda8",
+          "size": 1838,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/chunk-3IIMCCN4.mjs",
+          "sha256": "cbd2c195fb7339b2e174f39853384092f8edaf15b08c549ce3aac2ba14ff6d62",
+          "size": 3657,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/chunk-DCG7AFIE.mjs",
+          "sha256": "b162bd2089f644e13bbd7138a5efe678f837b55e513b51bc9ed0002d64ddd85b",
+          "size": 9373,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/chunk-JYLR5UAN.mjs",
+          "sha256": "70d71c28bbb68ae906718ea014a4aed3094759135a9ce51981382952e5ccf2fa",
+          "size": 23690,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/colors-C__qRT83.d.ts",
+          "sha256": "dd0d82b8bd458da790d190a58fda615ce8afb4e015ccfafda27765c2639298d1",
+          "size": 7231,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/colors.d.mts",
+          "sha256": "ed6ef11fe4001f6089f47361e0574567857514703825ac05872bcaa752df02f1",
+          "size": 7237,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/colors.d.ts",
+          "sha256": "af45d2740e699977c3adbf47abb04ff45d3403021931599017b99258510bd567",
+          "size": 89,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/colors.js",
+          "sha256": "1bcf4a87977eb0dd5d97ebb3fa8f86a94960e04432b9bda11cc452680bb3a8a1",
+          "size": 9388,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/colors.mjs",
+          "sha256": "7d8ab04dd25d73a352046154acf703317511d870ff9303d3724e09919ef0fd8b",
+          "size": 58,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/default-theme.d.mts",
+          "sha256": "b04171c8fd7a517cb5e6b479b1ca889ea1fdef98c844e32e128407e73e52340e",
+          "size": 29441,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/default-theme.d.ts",
+          "sha256": "9804f3cc1f9a20e96f11e9bd08f8ba3b058169f258f9f58acc5d84698e626fe7",
+          "size": 29448,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/default-theme.js",
+          "sha256": "7ffaa0f22a9c96016ca320093d65a6983da498742e78be25e5d6c0be9b2f20f8",
+          "size": 27142,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/default-theme.mjs",
+          "sha256": "662cb04a7e038ebae0b9734d91420f641326856c2d68f21023bdbd5e9b8826ec",
+          "size": 92,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/flatten-color-palette.d.mts",
+          "sha256": "0cf62ae5406e942c2ec4d1c93c0388cebbbdc01812eb2fc69fd3f8a5fc328ed1",
+          "size": 186,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/flatten-color-palette.d.ts",
+          "sha256": "0cf62ae5406e942c2ec4d1c93c0388cebbbdc01812eb2fc69fd3f8a5fc328ed1",
+          "size": 186,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/flatten-color-palette.js",
+          "sha256": "fc677f08e9e4e7e1f24d580fa622aa11adabdc7a90e9322338ab56c5aabd8cb4",
+          "size": 346,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/flatten-color-palette.mjs",
+          "sha256": "5feb74073e19b86c50bfc8556ec4dfc27eb9ac661bf7fbe3510d37675cc46a4e",
+          "size": 366,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/lib.d.mts",
+          "sha256": "cd9a12144f9364eeed4c40b44e2d30cd884467aa7154ab8f379425943e5d39fc",
+          "size": 11119,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/lib.d.ts",
+          "sha256": "c3041279151dd9ae22f718f83cd52cbe069b8b994420444ef9fce1e4d0568be3",
+          "size": 92,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/lib.js",
+          "sha256": "8a0732240469fcdf7c128ce6f616b858de21e72403961aee3d4479ae0c27b5ba",
+          "size": 293483,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/lib.mjs",
+          "sha256": "55111a236c8ef59ec45e2cb64f3036c90ce0112eb3846a9f3f9e8d8ffbd26b67",
+          "size": 256800,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/plugin.d.mts",
+          "sha256": "423f604a78916e33620f20942748a28ed43c41a968871c4fe41f896ee7a6afaf",
+          "size": 660,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/plugin.d.ts",
+          "sha256": "f9c7de1181bddfe5b8796d22a025e44ca7d4ae069b26b953460aa19fb5d24ef6",
+          "size": 4353,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/plugin.js",
+          "sha256": "5564284a5af01cc76f2cfa4e32631ffd58368c167ecac60664b351f895732d19",
+          "size": 201,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/plugin.mjs",
+          "sha256": "3e62ce6dd41a0540dc04af03149fc30f65934c34dd10e3abc57eebc6e6acecb2",
+          "size": 192,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/resolve-config-B4yBzhca.d.ts",
+          "sha256": "171c8fc22d735433308be43d5a01887f3c07efa09b140867df1f331bca380b4d",
+          "size": 491,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/resolve-config-QUZ9b-Gn.d.mts",
+          "sha256": "397e0cbdbbdc4341e7841c3c63d8507c177119abf07532cf276f81fad1da7442",
+          "size": 3625,
+          "mode": "100644"
+        },
+        {
+          "path": "dist/types-DWdTiksJ.d.mts",
+          "sha256": "6a4f90e26876d82510869f5c55b6d24fd0fdb69a6b3fe6d53efa35f8f559dae6",
+          "size": 4189,
+          "mode": "100644"
+        },
+        {
+          "path": "index.css",
+          "sha256": "175f88737ecb7e033059eac4a3b22a3b5f971d5a05d9fd50811610a0714633b2",
+          "size": 29786,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "9aaf9b7cc666c8bc5df53a9fbbbcf39ac5f997f3fc92ae53918f72f03fed2cee",
+          "size": 2490,
+          "mode": "100644"
+        },
+        {
+          "path": "preflight.css",
+          "sha256": "ace8310eed6dc5568a56fc16e1d695cf58da7528d81d66d81649e93cce644df6",
+          "size": 8489,
+          "mode": "100644"
+        },
+        {
+          "path": "theme.css",
+          "sha256": "443d7af364200f8ec8352dc78e39485a118a1840d498c97967bf0ae402b39167",
+          "size": 19586,
+          "mode": "100644"
+        },
+        {
+          "path": "utilities.css",
+          "sha256": "0e5844ec75de2fb4a76097b26bb624bf8f9d9cf59f6d947855b743dd25f920fb",
+          "size": 21,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

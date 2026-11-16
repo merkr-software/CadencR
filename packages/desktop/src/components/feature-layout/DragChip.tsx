@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { FeatureTabIcon } from "./FeatureTabIcon";
 import type { FeatureTabs } from "./types";
 import type { TabKind } from "@/stores/feature-layout-schema";
 
@@ -15,9 +16,10 @@ interface DragChipProps {
  */
 export function DragChip({ tab, tabs }: DragChipProps): ReactNode {
   const def = tabs[tab];
+  if (!def) return null;
   return (
     <div className="pointer-events-none flex h-9 items-center gap-1.5 rounded border border-primary bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-lg">
-      <def.Icon className="size-4" />
+      <FeatureTabIcon def={def} />
       <span>{def.label}</span>
     </div>
   );

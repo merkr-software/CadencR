@@ -10,7 +10,6 @@ use super::service::{
     ManagedMutation, ManagedProviderInventoryEntry, ManagedProviderService,
     ManagedProvidersInventory,
 };
-use super::SignedManagedProviderIndex;
 use crate::app_state::AppState;
 use crate::error::AppError;
 
@@ -18,13 +17,11 @@ use crate::error::AppError;
 pub struct InstallManagedProviderRequest {
     pub provider_id: String,
     pub version: String,
-    pub index: SignedManagedProviderIndex,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct UpdateManagedProviderRequest {
     pub version: String,
-    pub index: SignedManagedProviderIndex,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
@@ -67,7 +64,7 @@ pub async fn install_handler(
     let Json(request) = payload.map_err(json_rejection)?;
     let service = ManagedProviderService::production()?;
     let mutation = service
-        .install(&request.provider_id, &request.version, request.index)
+        .install(&request.provider_id, &request.version)
         .await?;
     response(&service, &request.provider_id, mutation).await
 }
@@ -85,9 +82,7 @@ pub async fn update_handler(
 ) -> Result<Json<ManagedProviderInventoryEntry>, AppError> {
     let Json(request) = payload.map_err(json_rejection)?;
     let service = ManagedProviderService::production()?;
-    let mutation = service
-        .update(&provider_id, &request.version, request.index)
-        .await?;
+    let mutation = service.update(&provider_id, &request.version).await?;
     response(&service, &provider_id, mutation).await
 }
 
@@ -234,8 +229,8 @@ async fn response(
             .as_ref()
             .is_some_and(|receipt| receipt.agent.id != provider_id)
     {
-        return Err(AppError::Internal(
-            "managed mutation returned mismatched provider identity".into(),
+        return Err(AppError::internal(
+            "managed mutation returned mismatched provider identity",
         ));
     }
     let entry = service.inventory_entry(provider_id).await?;

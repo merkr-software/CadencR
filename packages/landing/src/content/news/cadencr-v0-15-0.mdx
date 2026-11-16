@@ -1,0 +1,124 @@
+---
+title: "CadencR v0.15.0 helps you find your next move"
+date: 2026-10-26
+summary: "A rebuilt Cmd+K, a clearer prompt composer, and inline charts and interactive visuals help you find your work, prepare the next step, and explore an agent's answer."
+author: "Raphaël - RLE - Le Minor"
+tags: ["release", "workflow", "search", "prompting", "visualization", "agents"]
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import announcement from "../../../../../docs/changelog/v0.15.0/find-it-faster.png";
+import commandsScreenshot from "@/assets/news/v0.15.0/command-palette-commands.webp";
+import filesScreenshot from "@/assets/news/v0.15.0/command-palette-files.webp";
+import composerScreenshot from "@/assets/news/v0.15.0/prompt-composer.webp";
+import compactComposerScreenshot from "@/assets/news/v0.15.0/prompt-composer-compact.webp";
+import visualizeScreenshot from "@/assets/news/v0.15.0/inline-release-visualization.webp";
+
+<DocScreenshot
+  src={announcement}
+  alt="CadencR v0.15.0 announcement with emerald Command and K keycaps above an abstract prompt field"
+  caption="Cmd+K, rebuilt. A clearer prompt."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+**CadencR v0.15.0 is available now, with a new command palette, a redesigned prompt composer, and interactive visuals inside the conversation.**
+
+Find the conversation you left yesterday, open the file an agent mentioned, or return to the message where a decision was made. Then prepare the next prompt with its context and controls in one place, and explore the answer as a chart or an interactive view. This release makes those steps easier to move through, whether you are following one conversation or switching between several projects.
+
+## One shortcut, more ways to find your work
+
+**Cmd+K** now brings navigation and search together. Open it to reach conversations that need attention, agents at work, and recent activity. As you type, results rank by word starts, initials, and the choices you have made before; an adjacent preview helps you decide what to open.
+
+The palette also gives you a direct route to the rest of the workspace. Start a conversation, change the model, open settings, switch tabs, or reach a Git action. Commands follow your current keyboard bindings and appear where they can run.
+
+<DocScreenshot
+  src={commandsScreenshot}
+  alt="The new command palette in Commands mode, with grouped creation, navigation, and conversation actions, their keyboard shortcuts, and a preview explaining the selected action"
+  caption="Browse commands by what you want to do, with shortcuts and an explanation beside the selected result."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Three prefixes take you straight to a particular kind of result:
+
+| Start with | Find                                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `@`        | Files in the current conversation's working folder, with a source preview.               |
+| `>`        | Commands for navigation, conversations, Git, agents, and settings.                       |
+| `#`        | Words inside your prompts and agent replies, with a direct jump to the matching message. |
+
+Conversations remain searchable after you archive them. The scope control lets you narrow conversation and message searches to the current project, and **Tab** opens the actions available for the selected result.
+
+<DocScreenshot
+  src={filesScreenshot}
+  alt="File search for prompt in the command palette, showing matching Rust, TypeScript, and documentation files with the selected file's source code in the preview"
+  caption="Find a file and inspect its contents before opening it, without leaving the palette."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## See what the next prompt carries
+
+The prompt composer is now a single card. Before the first turn, it tells you where the agent will work and how its branch will be created. A context tray keeps attachments, long pastes, editor and terminal selections, pull requests, and review comments visible beside the message they belong to.
+
+**Mode, model, thinking effort, access, and context controls** sit together, alongside history and the send controls. The mode menu explains the available choices. Search earlier prompts, save a draft for later, or inspect the context meter without leaving the conversation.
+
+<DocScreenshot
+  src={composerScreenshot}
+  alt="The redesigned prompt composer showing a new-worktree launch summary, an attached announcement image, a changelog file mention in an unsent review prompt, and model, effort, access, history, and send controls"
+  caption="An unsent release-review draft, with its file reference, attachment, worktree choice, and agent controls visible together."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+When the pane gets narrower, session controls move into their own row. The message and send controls keep their space, so the same composer works in split panes and at larger zoom levels.
+
+<DocScreenshot
+  src={compactComposerScreenshot}
+  alt="The same prompt draft in a narrower pane, with mode, model, effort, and access controls moved above the attachment and message, while the send controls stay at the bottom"
+  caption="A narrower pane gives the session controls their own row, keeping the prompt readable and Send within reach."
+  bordered={false}
+  rounded
+  elevated
+  maxWidthClass="mx-auto max-w-xl"
+/>
+
+Review comments stay in the Git pane until the prompt carrying them is sent. Stopping a running agent takes two presses of Escape, reducing accidental interruptions while you dismiss a menu or finish editing.
+
+## Turn an answer into something you can explore
+
+Ask an agent to compare results, explain a system, or help you explore a decision with **`/cadencr:visualize`**. The answer appears directly in the conversation as a chart, a diagram, or a small interactive tool. You can use it with a new request, or invoke it without arguments to visualize the most recent results.
+
+A chart can make a trend or an uneven distribution easier to see. Here, the release's Git diff becomes an interactive overview: switch between file counts and percentages inside the reply. Other views can let you adjust an assumption or compare scenarios without asking for a new answer at every step.
+
+<DocScreenshot
+  src={visualizeScreenshot}
+  alt="An agent reply in CadencR showing an interactive v0.15.0 release overview, with a total of 1,066 changed files, horizontal bars by area, and Files and Share controls"
+  caption="A real release overview generated with cadencr:visualize from the Git diff. Switch between file counts and their share of the release inside the conversation."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Charts and interactive visuals follow the current light or dark theme. Their source remains available to view and copy. Interactive views run in an isolated frame, with their data included in the answer, so they can respond to your input without connecting to external services or accessing the app.
+
+## Choose when to send, or ask on the side
+
+Some follow-ups should wait. The new **prompt queue** holds messages until the agent finishes its current turn. You can edit or remove a queued message, or send it immediately to steer the work already in progress. If delivery fails, the message stays visible with its explanation and controls to try again.
+
+Other questions should leave the current task alone. **`/cadencr:side`** opens a read-only side conversation, with its answer streaming above the composer. Close it when you have what you need, or choose **Keep as thread** to give it a place in the sidebar.
+
+## More improvements throughout the day
+
+The **Agents** view now brings waiting requests and failures forward, shows questions and permissions inside cards, and offers an explicit Re-sort action when the order changes.
+
+This release also preserves Claude's background work until it can resume, keeps pull-request statuses refreshing while you work in an integrated browser or custom tab, and makes the notification destination an explicit onboarding choice. Longer terminal selections copy in full, and opening a file in Neovim waits for initialization so highlighting and plugins are ready.
+
+Thanks to [@edjubert](https://github.com/edjubert) for the terminal selection, Neovim startup, and ACP naming improvements.
+
+[Download CadencR v0.15.0 or read the complete changelog](https://github.com/merkr-software/CadencR/releases/tag/v0.15.0).

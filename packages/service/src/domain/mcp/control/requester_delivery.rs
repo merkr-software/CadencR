@@ -61,9 +61,8 @@ async fn deliver(
         message_uuid,
     )
     .await?;
-    let message_uuid = uuid::Uuid::parse_str(&persisted.message_uuid).map_err(|_| {
-        AppError::Internal("persisted user message returned an invalid UUID".to_string())
-    })?;
+    let message_uuid = uuid::Uuid::parse_str(&persisted.message_uuid)
+        .map_err(|_| AppError::internal("persisted user message returned an invalid UUID"))?;
     dispatch_generated_prompt(
         state,
         requester.feature_id,

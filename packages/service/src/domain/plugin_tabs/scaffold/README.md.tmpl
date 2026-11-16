@@ -1,0 +1,24 @@
+# {{NAME}}
+
+A Cadencr custom tab: a small web app Cadencr shows as a tab on every
+conversation page of the projects you enable it for.
+
+## Develop
+
+```sh
+npm install
+npm run dev     # rebuilds dist/ on every save; Cadencr reloads the tab
+npm run build   # type-check, then a one-off build
+```
+
+Open any conversation, add the tab from the **+** menu, and keep `npm run dev`
+running while you edit `src/`.
+
+## Files
+
+- `tab.json` — the manifest: id, name, label, permissions. Cadencr validates
+  it on every change; problems show in **Settings → Custom tabs**.
+- `src/` — the React app. `src/App.tsx` is the place to start.
+- `dist/` — the build Cadencr loads (not committed).
+- `vendor/` — the Cadencr SDK and UI kit, until they are published to npm.
+- `INSTRUCTION.md` — the full contract, written for coding agents.

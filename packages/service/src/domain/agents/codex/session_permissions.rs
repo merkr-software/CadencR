@@ -67,6 +67,7 @@ mod tests {
         RuntimePermissionDecision, RuntimePermissionResponseKind,
     };
     use crate::domain::agents::codex::permissions::PendingCodexRequest;
+    use crate::domain::agents::codex::server_request_method::CodexServerRequestMethod;
 
     #[test]
     fn identifies_synthetic_plan_approval_requests() {
@@ -92,7 +93,7 @@ mod tests {
             "approval_1".to_string(),
             PendingCodexRequest {
                 id: json!("approval_1"),
-                method: "item/commandExecution/requestApproval".to_string(),
+                method: CodexServerRequestMethod::CommandExecutionApproval,
                 params: json!({}),
             },
         )])));
@@ -109,7 +110,7 @@ mod tests {
             "approval_1".to_string(),
             PendingCodexRequest {
                 id: json!("approval_1"),
-                method: "item/commandExecution/requestApproval".to_string(),
+                method: CodexServerRequestMethod::CommandExecutionApproval,
                 params: json!({}),
             },
         )])));
@@ -117,7 +118,10 @@ mod tests {
         let request = take_pending(&pending, "approval_1")
             .await
             .expect("pending request should resolve");
-        assert_eq!(request.method, "item/commandExecution/requestApproval");
+        assert_eq!(
+            request.method,
+            CodexServerRequestMethod::CommandExecutionApproval
+        );
         assert!(pending.lock().await.is_empty());
         assert!(take_pending(&pending, "approval_1").await.is_err());
     }

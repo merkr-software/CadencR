@@ -1,0 +1,128 @@
+---
+title: "CadencR v0.14.0 makes the everyday workflow smoother"
+date: 2026-10-20
+summary: "Bring your own tools into the workspace with custom tabs, alongside clearer next actions, document previews, more readable reviews, and small improvements throughout the day."
+author: "Raphaël - RLE - Le Minor"
+tags: ["release", "workflow", "custom-tabs", "documents", "git"]
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import releaseScreenshot from "../../../../../docs/changelog/v0.14.0/everyday-improvements.png";
+import customTabsScreenshot from "@/assets/news/v0.14.0/custom-tabs-files-graph.webp";
+import forMeScreenshot from "@/assets/news/v0.14.0/for-me-actions.webp";
+import documentScreenshot from "@/assets/news/v0.14.0/document-preview.webp";
+import commitsScreenshot from "@/assets/news/v0.14.0/commit-graph.webp";
+import pullRequestScreenshot from "@/assets/news/v0.14.0/pull-request-review.webp";
+
+<DocScreenshot
+  src={releaseScreenshot}
+  alt="CadencR v0.14.0 custom tabs announcement, with a large emerald plus and abstract overlapping tabs"
+  caption="Custom tabs. Make room for your tools."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+**CadencR v0.14.0 is available now, with improvements to the things you do throughout the day.**
+
+Find the next conversation that needs you. Read the report an agent just wrote. See what still needs pushing, follow a pull request, and return to the tab you were using. This release makes those everyday steps easier, while smoothing out the interruptions around them.
+
+## Make room for your own tools
+
+**Custom tabs** bring your own views and utilities into the conversation workspace, alongside Agent, Terminal, Git, and the other built-in tabs. Create a tab project or import one from a local folder, then choose whether it belongs across the workspace or only in selected projects.
+
+A tab can make changed files easier to explore, help you choose reviewers, or keep local development servers in view. The included examples cover those uses, and an SDK, design kit, and authoring guide give you a starting point for building the tool your workflow needs.
+
+<DocScreenshot
+  src={customTabsScreenshot}
+  alt="The Files graph custom tab showing a treemap of 15 changed files, grouped by directory and colored by change type, beside an agent conversation"
+  caption="Files graph, one of the included custom tab examples, turns changed files into a visual map beside the conversation."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+You can inspect each tab's requested access before enabling it. Access badges distinguish UI tabs, tabs that ask Cadencr to run commands, and tabs with native backends. The Activity view keeps commands and backend activity within reach; native code requires explicit trust because it runs with your computer's permissions.
+
+## Know what needs you next
+
+**For me** now names the next action for each conversation. It brings forward requests to answer, permissions to approve, failed turns to inspect, pull-request feedback to address, replies to review, and approved proposals ready to merge. Agents that are still working stay out of the list.
+
+Show your next three or five actions, or keep the full list visible. If you prefer to use it as a to-do list, choose **When done** so opening a conversation keeps its action in place until you mark it done. Unread replies and failed-turn markers also survive a reload.
+
+<DocScreenshot
+  src={forMeScreenshot}
+  alt="For me showing six conversations with actions to answer, approve, check an error, fix CI, review a reply, and merge a pull request"
+  caption="See the next action for each conversation, from answering a request to merging a ready proposal."
+  bordered={false}
+  rounded
+  elevated
+  maxWidthClass="mx-auto max-w-sm"
+/>
+
+You can now **reorder conversations by hand** within their sidebar group. Drag a conversation into place or use the row's keyboard shortcuts; the saved order carries across the tree, Pinned, and filtered views.
+
+## Read what your agents produce
+
+The new **Preview** tab opens PDF, Word, Excel, PowerPoint, CSV, and TSV documents inside the workspace. Follow a file link, open a document from the file tree, or inspect it from the editor. With auto layout enabled, a document an agent writes can appear beside the conversation as it works.
+
+Spreadsheet previews can fill in formula results that a script left uncalculated, and tell you when a formula could not be computed. CSV and TSV files gain a table view while keeping their text editing available.
+
+<DocScreenshot
+  src={documentScreenshot}
+  alt="The Preview tab displaying release-readiness.csv as a table, with workstream, owner, status, pull request, and updated columns"
+  caption="Inspect an agent's export inside the workspace. CSV and TSV files open as readable tables."
+  bordered={false}
+  rounded
+  elevated
+  maxWidthClass="mx-auto max-w-2xl"
+/>
+
+**Mermaid diagrams** are easier to read too. Supported diagrams follow your theme, wide diagrams keep a more readable size in messages, and a full-screen view gives you room to pan and zoom through the details.
+
+Images and screenshots posted by agents now appear in conversations over remote access, too.
+
+## Keep branches and reviews in view
+
+A conversation can work across several branches. CadencR now remembers them, shows the branch that is actually checked out, and lets you switch between their pull requests in the **Git** tab. Sidebar PR badges take you straight to the corresponding review.
+
+The **Commits** view puts commit messages first, distinguishes local branches, remote branches, and tags, and spells out which commits are **Not pushed**. The header shows what is ahead or behind the remote, and the graph updates after a push.
+
+<DocScreenshot
+  src={commitsScreenshot}
+  alt="The Commits view showing a branch graph, two local commits marked Not pushed, and distinct local and remote branch labels"
+  caption="Commit messages lead the history, and work still waiting to be pushed is explicit."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Pull requests gain clearer headings, more distinct review threads, and status colors that remain readable in both light and dark themes. Successful checks have quieter styling, so outstanding feedback is easier to find. File trees also get more compact rows and reliable filename truncation.
+
+<DocScreenshot
+  src={pullRequestScreenshot}
+  alt="A pull-request review with two branch tabs, one failing check, one unresolved thread selected for the agent, and a resolved thread below"
+  caption="Switch between a conversation's pull requests, find the failing check, and send selected feedback to the agent."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Let routine checks stay quiet
+
+Schedules can now run a command before deciding whether to send a prompt. A successful check stays quiet; a failed check sends the prompt with the command's output, giving the agent a useful starting point.
+
+You can ask an agent to set up a recurring check in its own conversation, then change, pause, or remove that schedule later. Checks are skipped while the conversation is already busy or needs your input.
+
+## Fewer interruptions between tasks
+
+- **Go back and forward** through conversations, workspace tabs, and pages with **Cmd+[ / Cmd+]** on macOS, or **Ctrl+[ / Ctrl+]** elsewhere.
+- **Keep providers current** from Settings, with installed and available versions, update notifications, and update controls for supported providers.
+- **Keep notifications out of the workspace**: they now sit above the sidebar footer, with a top-center position on mobile or when the sidebar is collapsed.
+- **Choose where the macOS notch appears**, including your primary display or both displays, and adjust its compact appearance on screens without a hardware notch.
+
+Thanks to [@baptou12](https://github.com/baptou12) for navigation history and [@edjubert](https://github.com/edjubert) for the notch display controls.
+
+The release also fixes prompts getting stuck in the Agents view, sidebar rows disappearing until you scroll, and status or timer differences between connected devices. Docking a split tab keeps your main tab focused, closing a terminal stops producing false reconnect messages, and dismissing a notch notification leaves your current application in front. On mobile, submitting a prompt dismisses the keyboard so you can read the reply.
+
+[Download CadencR v0.14.0 or read the complete changelog](https://github.com/merkr-software/CadencR/releases/tag/v0.14.0).

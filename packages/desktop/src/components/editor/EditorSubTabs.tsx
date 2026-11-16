@@ -1,8 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { ClipboardCopyIcon, EyeIcon, PanelRightCloseIcon, X } from "lucide-react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
-import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
-import { formatCombo } from "@/lib/shortcuts/format";
 import { cn } from "@/lib/utils";
 import { copyFilePath } from "./copyFilePath";
 import { FileSymbolIcon } from "./file-icons";
@@ -100,7 +98,6 @@ function useEditorSubTabsController({ featureId, paneId, projectId }: EditorSubT
   const [isSaving, setIsSaving] = useState(false);
   const tabs = pane?.tabs ?? [];
   const activeFilePath = pane?.activeFilePath ?? null;
-  const copyPathHint = formatCombo(useResolvedShortcut("editor-copy-path").keys).join("");
   const closeMany = useCallback(
     (filter: (path: string) => boolean): void => {
       for (const tab of tabs.filter((candidate) => filter(candidate.filePath))) {
@@ -146,7 +143,6 @@ function useEditorSubTabsController({ featureId, paneId, projectId }: EditorSubT
     () => ({
       activeFilePath,
       closeMany,
-      copyPathHint,
       handleDiscard,
       handleSaveAndClose,
       hoveredClose,
@@ -162,7 +158,6 @@ function useEditorSubTabsController({ featureId, paneId, projectId }: EditorSubT
     [
       activeFilePath,
       closeMany,
-      copyPathHint,
       handleDiscard,
       handleSaveAndClose,
       hoveredClose,
@@ -287,7 +282,7 @@ function EditorSubTabMenu({
       <ContextMenuSeparator />
       <ContextMenuActionItem
         icon={ClipboardCopyIcon}
-        shortcutLabel={controller.copyPathHint}
+        shortcutId="editor-copy-path"
         onSelect={() => copyFilePath(tab.filePath)}
       >
         Copy Path

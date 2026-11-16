@@ -1,0 +1,72 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "server"
+      ],
+      "description": "Markdown code intelligence using Marksman 2026-02-08.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-marksman-v0.1.0/lsp-marksman-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "marksman",
+            "entry_sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
+            "entry_size": 43856208,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "52c794ff3cc77f29205d4a1527f37106769e7e5e8da0ea12411e1d597fe6d790",
+            "size": 30278125
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-marksman-v0.1.0/lsp-marksman-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "marksman",
+            "entry_sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
+            "entry_size": 43856208,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "52c794ff3cc77f29205d4a1527f37106769e7e5e8da0ea12411e1d597fe6d790",
+            "size": 30278125
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-marksman-v0.1.0/lsp-marksman-0.1.0-linux-x86_64.tar.gz",
+            "entry": "marksman",
+            "entry_sha256": "be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087",
+            "entry_size": 22500875,
+            "runtime": "native",
+            "sha256": "f2889938a954b416919280c070cd6db3bcab389c50a29b6047d9c216eb003574",
+            "size": 15369977
+          }
+        }
+      },
+      "id": "marksman",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "md",
+            "markdown"
+          ],
+          "filenames": [],
+          "id": "markdown"
+        }
+      ],
+      "license": "MIT",
+      "name": "Marksman",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [
+        ".marksman.toml",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

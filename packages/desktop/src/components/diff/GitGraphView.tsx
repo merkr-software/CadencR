@@ -1,11 +1,12 @@
 import { memo, useCallback, useMemo, type ReactElement, type RefObject } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { Loader2Icon, GitBranchIcon, ArrowLeftIcon, ExternalLinkIcon } from "lucide-react";
+import { ExternalLinkIcon, GitCommitVerticalIcon, Loader2Icon } from "lucide-react";
 import type { BranchInfo } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { computeGraphLayout } from "@/lib/git-graph-layout";
 import { cn } from "@/lib/utils";
 import { GitRevisionDiffView } from "./GitRevisionDiffView";
+import { GitGraphHeader } from "./GitGraphHeader";
 import { GitGraphRow, ROW_HEIGHT, type GitGraphRowData } from "./GitGraphRow";
 import type { GitNavigationAdapterRegistrar } from "./gitNavigation";
 import { useGitGraphViewModel } from "./useGitGraphViewModel";
@@ -60,7 +61,8 @@ export const GitGraphView = memo(function GitGraphView({
     <GraphListFrame
       header={
         showHeader ? (
-          <GraphHeader
+          <GitGraphHeader
+            syncFeatureId={branchName ? null : featureId}
             currentBranch={branchName ?? data?.current_branch ?? null}
             targetBranch={branchName ? null : (data?.target_branch ?? null)}
             onBackToBranches={branchName ? onBackToBranches : undefined}
@@ -92,7 +94,9 @@ function GraphListFrame({
   body: ReactElement;
 }): ReactElement {
   return (
-    <div className="flex h-full flex-col">
+    // A size container, so rows shed their least useful meta in a narrow pane
+    // rather than truncating the message they exist to show.
+    <div className="@container flex h-full flex-col">
       {header}
       <div className="min-h-0 flex-1">{body}</div>
     </div>
@@ -217,7 +221,7 @@ const GraphBody = memo(function GraphBody({
     );
   }
   if (commits.length === 0) {
-    return <GraphMessage variant="empty">No commits to show.</GraphMessage>;
+    return <GraphMessage variant="empty">No commits on this branch yet.</GraphMessage>;
   }
   return (
     <div ref={viewportRef} className="h-full">
@@ -252,42 +256,9 @@ function GraphMessage({
       {variant === "loading" ? (
         <Loader2Icon className="size-4 animate-spin" />
       ) : variant === "empty" ? (
-        <GitBranchIcon className="size-5" />
+        <GitCommitVerticalIcon className="size-5" />
       ) : null}
       {children}
-    </div>
-  );
-}
-
-function GraphHeader({
-  currentBranch,
-  targetBranch,
-  onBackToBranches,
-}: {
-  currentBranch: string | null;
-  targetBranch: string | null;
-  onBackToBranches?: () => void;
-}): ReactElement {
-  return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
-      {onBackToBranches && (
-        <button
-          type="button"
-          onClick={onBackToBranches}
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ArrowLeftIcon className="size-3.5" />
-          Branches
-        </button>
-      )}
-      <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate font-mono text-foreground">{currentBranch ?? "HEAD"}</span>
-      {targetBranch && (
-        <>
-          <span className="shrink-0 text-muted-foreground">vs</span>
-          <span className="truncate font-mono text-muted-foreground">{targetBranch}</span>
-        </>
-      )}
     </div>
   );
 }

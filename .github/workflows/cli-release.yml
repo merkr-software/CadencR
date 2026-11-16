@@ -1,0 +1,166 @@
+name: Release CLI
+
+# Manual stable release of the `cadencr` CLI, on its own semver (independent of
+# the app version and of desktop-release.yml). Bump `version` in
+# packages/cli/Cargo.toml and packages/cli/package.json, and the cadencr-cli
+# entry of Cargo.lock, by hand in a normal PR first; once it is on main and its
+# CI is green, dispatch this from main with that exact main-tip SHA. It refuses
+# a version whose `cli/v<version>` tag or release already exists.
+#
+# The build job is read-only and secret-free: it re-checks the gate, tests,
+# builds and packages the Linux x86_64 asset. Leave `dry_run` on to stop there.
+# The publish job runs in the protected `cli-release` environment (required
+# reviewers), never checks out or executes code with its write token, and
+# publishes only the build job's artifact.
+#
+# The release is a normal (non-prerelease) release that is never marked
+# "Latest": the desktop auto-updater and the landing page resolve the app
+# through the repository's latest release, which must stay the app's.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full reviewed canonical main commit SHA (must still be main tip)
+        required: true
+        type: string
+      dry_run:
+        description: Test, build and package only, without tagging or publishing
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cli-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and package the CLI
+    if: github.repository == 'merkr-software/CadencR' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      tag: ${{ steps.gate.outputs.tag }}
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Fetch canonical main without checkout
+        run: git fetch --no-tags https://github.com/merkr-software/CadencR.git main:refs/remotes/origin/main
+      - name: Require reviewed main tip, successful canonical CI and a new version
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/cli-release.mts gate
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Test release helpers
+        run: node --test scripts/cli-dev-release.test.mts scripts/cli-release.test.mts
+      - name: Test CLI and supporting crates
+        run: |
+          node scripts/cargo-env.mjs cargo test --locked -p cadencr-cli -p cadencr-plugin-core -p cadencr-registry-core -p cadencr-registry-publisher
+      - name: Build and package Linux CLI only
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          node scripts/cargo-env.mjs cargo build --locked --release -p cadencr-cli --target x86_64-unknown-linux-gnu
+          bash scripts/package-cli-release.sh "v$VERSION" x86_64-unknown-linux-gnu target/x86_64-unknown-linux-gnu/release/cadencr dist-cli
+      - name: Record source-bound release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/cli-release.mts metadata
+      # actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cli-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist-cli/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish CLI ${{ needs.build.outputs.version }}
+    needs: build
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: cli-release
+    permissions:
+      contents: write
+    steps:
+      # actions/download-artifact@v8.0.2 — no checkout: neither source scripts
+      # nor the candidate binary execute with a write token.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: cli-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate
+      - name: Validate candidate without executing it
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+          p = pathlib.Path('candidate')
+          version, tag = os.environ['VERSION'], os.environ['TAG']
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version)
+          assert tag == 'cli/v' + version
+          asset = 'cadencr-v' + version + '-x86_64-unknown-linux-gnu'
+          sums = 'cadencr-v' + version + '-SHA256SUMS'
+          assert {f.name for f in p.iterdir()} == {asset, sums, 'released-cli.env', 'provenance.json'}
+          assert all(f.is_file() and not f.is_symlink() for f in p.iterdir())
+          assert 64 <= (p / asset).stat().st_size <= 128 * 1024 * 1024
+          binary = (p / asset).read_bytes()
+          assert binary[:6] == b'\x7fELF\x02\x01' and binary[18:20] == b'\x3e\x00'
+          digest = hashlib.sha256(binary).hexdigest()
+          assert (p / sums).read_text() == digest + '  ' + asset + '\n'
+          assert (p / 'released-cli.env').read_text() == f'CADENCR_RELEASE_VERSION={version}\nCADENCR_RELEASE_TAG={tag}\nCADENCR_RELEASE_SHA256={digest}\n'
+          data = json.loads((p / 'provenance.json').read_text())
+          assert data == dict(repository='merkr-software/CadencR', source_commit=os.environ['SOURCE_COMMIT'], version=version, tag=tag, run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'], workflow='.github/workflows/cli-release.yml', asset=asset, sha256=digest)
+          PY
+      - name: Publish new immutable CLI release, never latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: merkr-software/CadencR
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # An API error other than a definitive 404 must fail closed.
+          for endpoint in "git/ref/tags/$TAG" "releases/tags/$TAG"; do
+            status=$(gh api --include "repos/$GH_REPO/$endpoint" 2>&1) && { echo "Refusing existing tag or release"; exit 1; }
+            printf '%s\n' "$status" | grep -q 'HTTP 404' || { printf '%s\n' "$status"; exit 1; }
+          done
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$SOURCE_COMMIT"
+          gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SOURCE_COMMIT" > /dev/null
+          test "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object | select(.type == "commit") | .sha')" = "$SOURCE_COMMIT"
+          # A draft first, so the assets are verified before anyone can see it.
+          gh release create "$TAG" candidate/* --repo "$GH_REPO" --target "$SOURCE_COMMIT" --verify-tag \
+            --title "Cadencr CLI $VERSION" --draft --latest=false \
+            --notes "Cadencr CLI $VERSION for Linux x86_64 (cadencr-v$VERSION-x86_64-unknown-linux-gnu), with its SHA256SUMS, provenance.json and released-cli.env pin. Source: $SOURCE_COMMIT. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (attempt $GITHUB_RUN_ATTEMPT). Not a desktop app release."
+          test "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object | select(.type == "commit") | .sha')" = "$SOURCE_COMMIT"
+          gh release view "$TAG" --repo "$GH_REPO" --json isDraft,isPrerelease,targetCommitish \
+            --jq 'select(.isDraft == true and .isPrerelease == false) | .targetCommitish' | grep -Fx "$SOURCE_COMMIT"
+          gh release download "$TAG" --repo "$GH_REPO" --dir downloaded
+          test "$(ls -1 downloaded | wc -l)" -eq 4
+          for asset in candidate/*; do cmp "$asset" "downloaded/$(basename "$asset")"; done
+          gh release edit "$TAG" --repo "$GH_REPO" --draft=false --prerelease=false --latest=false
+          latest=$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)
+          test "$latest" != "$TAG" || { echo "::error::$TAG became the latest release; mark the app release latest again"; exit 1; }
+          echo "Published $TAG at $SOURCE_COMMIT; the latest release is still $latest"

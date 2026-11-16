@@ -1,0 +1,11 @@
+{
+  "entry": "node_modules/svelte-language-server/bin/server.js",
+  "args": [
+    "--stdio"
+  ],
+  "initialization_options": {
+    "typescript": {
+      "tsdk": "${bundle}/node_modules/typescript/lib"
+    }
+  }
+}

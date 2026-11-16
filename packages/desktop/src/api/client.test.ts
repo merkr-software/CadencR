@@ -4,15 +4,53 @@ import {
   clearDesktopBridgeOverrideForTests,
 } from "@/lib/desktop-bridge";
 import type { CadencrDesktopBridge } from "@/lib/desktop-bridge";
+import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
+import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
 import {
   __resetRuntimeConfigForTests,
+  customInstance,
   getAuthTokenSync,
   preloadRuntimeConfig,
+  publicationOperationTimeout,
+  managedProviderOperationTimeout,
   resolveApiBaseUrlSync,
   shouldAttachAbortSignal,
   strictModeStableReadRequestKey,
   workspaceSettingFromBulk,
 } from "./client";
+
+describe("publication release timeout policy", () => {
+  it.each([
+    "/api/projects/7/publication-release",
+    "/api/projects/42/publication-release/preview",
+    "/api/projects/9/publication-contribution",
+    "/api/projects/7/publication-registry",
+    "/api/projects/42/publication-registry/preview",
+  ])("allows the exact POST endpoint to finish its bounded backend work: %s", (url) => {
+    expect(publicationOperationTimeout({ method: "POST", url })).toBe(190000);
+  });
+
+  it.each([
+    { method: "GET", url: "/api/projects/7/publication-release" },
+    { method: "POST", url: "/api/projects/not-a-number/publication-release" },
+    { method: "POST", url: "/api/projects/7/publication-release/preview/extra" },
+    { method: "POST", url: "/api/projects/7/publication-contribution/extra" },
+    { method: "POST", url: "/api/projects/7/publication-registry/preview/extra" },
+    { method: "POST", url: "/api/projects/7/publication-package" },
+  ])("leaves unrelated requests on the Axios default: $method $url", (config) => {
+    expect(publicationOperationTimeout(config)).toBeUndefined();
+  });
+
+  it("preserves an explicit caller timeout", () => {
+    expect(
+      publicationOperationTimeout({
+        method: "POST",
+        timeout: 5000,
+        url: "/api/projects/7/publication-release/preview",
+      }),
+    ).toBe(5000);
+  });
+});
 
 function bridgeWithRuntime(
   runtimeConfig: CadencrDesktopBridge["runtimeConfig"],
@@ -39,6 +77,11 @@ function bridgeWithRuntime(
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     setZoom: vi.fn(),
     currentTheme: vi.fn(),
     onThemeChange: vi.fn(() => () => undefined),
@@ -46,10 +89,12 @@ function bridgeWithRuntime(
     setRemoteHostAwake: vi.fn(() => Promise.resolve()),
     onPowerSuspend: vi.fn(() => () => undefined),
     onPowerResume: vi.fn(() => () => undefined),
-    checkForUpdates: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
+    fetchChangelogImage: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
   };
 }
 
@@ -66,7 +111,7 @@ describe("runtime config client", () => {
     clearDesktopBridgeOverrideForTests();
   });
 
-  it("falls back to env base URL and token when runtime config is unavailable", async () => {
+  it("uses the fallback base URL without reading the build-time bearer", async () => {
     vi.stubEnv("VITE_API_URL", "http://127.0.0.1:6123/");
     vi.stubEnv("VITE_API_TOKEN", "dev-token");
     const runtimeConfig = vi.fn(() => Promise.reject(new Error("runtime config unavailable")));
@@ -75,20 +120,20 @@ describe("runtime config client", () => {
     await preloadRuntimeConfig();
 
     expect(resolveApiBaseUrlSync()).toBe("http://127.0.0.1:6123");
-    expect(getAuthTokenSync()).toBe("dev-token");
+    expect(getAuthTokenSync()).toBeNull();
   });
 
-  it("coalesces a missing runtime auth token with the env fallback", async () => {
+  it("never reads a sidecar bearer even if runtime data or env contains it", async () => {
     vi.stubEnv("VITE_API_TOKEN", "dev-token");
     const runtimeConfig = vi.fn(() =>
       Promise.resolve({ baseUrl: "http://127.0.0.1:5005", authToken: null }),
     );
     setDesktopBridgeOverrideForTests(bridgeWithRuntime(runtimeConfig));
 
-    await preloadRuntimeConfig();
+    expect(await preloadRuntimeConfig()).toEqual({ baseUrl: "http://127.0.0.1:5005" });
 
     expect(resolveApiBaseUrlSync()).toBe("http://127.0.0.1:5005");
-    expect(getAuthTokenSync()).toBe("dev-token");
+    expect(getAuthTokenSync()).toBeNull();
   });
 });
 
@@ -161,5 +206,83 @@ describe("workspace setting bulk adapter", () => {
       value: null,
     });
     expect(workspaceSettingFromBulk({ key: "known", value: "yes" }, "known")).toBeUndefined();
+  });
+});
+
+describe("managed provider timeout policy", () => {
+  it.each([
+    "/api/agents/managed-providers",
+    "/api/agents/managed-providers/example/update",
+    "/api/agents/managed-providers/example/rollback",
+  ])("allows bounded download and conformance: %s", (url) => {
+    expect(managedProviderOperationTimeout({ method: "POST", url })).toBe(180000);
+  });
+  it.each([
+    { method: "GET", url: "/api/agents/managed-providers" },
+    { method: "POST", url: "/api/agents/managed-providers/catalog/refresh" },
+    { method: "PUT", url: "/api/agents/managed-providers/example/enabled" },
+    { method: "POST", url: "/api/agents/managed-providers/example/update/extra" },
+  ])("does not change unrelated requests", (config) => {
+    expect(managedProviderOperationTimeout(config)).toBeUndefined();
+  });
+  it("preserves explicit timeout", () => {
+    expect(
+      managedProviderOperationTimeout({
+        method: "POST",
+        url: "/api/agents/managed-providers",
+        timeout: 5000,
+      }),
+    ).toBe(5000);
+  });
+});
+
+describe("workspace settings bulk cache", () => {
+  function respond(config: InternalAxiosRequestConfig, data: unknown) {
+    return { data, status: 200, statusText: "OK", headers: {}, config };
+  }
+
+  it("never caches a bulk read that raced a settings write", async () => {
+    let releaseStaleRead: () => void = () => undefined;
+    const staleRead: AxiosAdapter = (config) =>
+      new Promise((resolve) => {
+        releaseStaleRead = () =>
+          resolve(respond(config, [{ key: "sidebar_density", value: "compact" }]));
+      });
+    const bulk = customInstance({ url: "/api/workspace/settings", adapter: staleRead });
+    await customInstance({
+      url: "/api/workspace/settings",
+      method: "PUT",
+      adapter: async (config) => respond(config, []),
+    });
+    releaseStaleRead();
+    await bulk;
+
+    const fresh = vi.fn<AxiosAdapter>(async (config) => respond(config, { value: "spacious" }));
+    await expect(
+      customInstance({ url: "/api/workspace/settings/sidebar_density", adapter: fresh }),
+    ).resolves.toEqual({ value: "spacious" });
+    expect(fresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("blob error bodies", () => {
+  it("decodes a blob request's JSON error body so the service's reason survives", async () => {
+    const body = { error: "Not found: /tmp/qa/gone.png", code: "NOT_FOUND" };
+    const adapter: AxiosAdapter = async (config) => {
+      throw new AxiosError("Request failed with status code 404", "ERR_BAD_REQUEST", config, null, {
+        data: new Blob([JSON.stringify(body)], { type: "application/json" }),
+        status: 404,
+        statusText: "Not Found",
+        headers: {},
+        config,
+      });
+    };
+
+    const error = await customInstance({ url: "/api/x", responseType: "blob", adapter }).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(apiErrorMessage(error, "fallback")).toBe(body.error);
+    expect(apiErrorCode(error)).toBe("NOT_FOUND");
   });
 });

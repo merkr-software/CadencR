@@ -36,7 +36,7 @@ pub(super) fn resolve(
         .map_err(|error| RuntimeError::new(error.to_string()))?;
     let env = env.unwrap_or_default();
     let mut revision_parts = env.iter().collect::<Vec<_>>();
-    revision_parts.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    revision_parts.sort_unstable_by_key(|(left, _)| *left);
     let revision_source = revision_parts
         .into_iter()
         .map(|(key, value)| format!("{key}={value}"))

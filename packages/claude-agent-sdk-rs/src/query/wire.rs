@@ -54,10 +54,6 @@ use crate::permissions::PermissionRequest;
 /// CLI-reported `subtype: "error"` or a transport failure.
 pub(super) type ControlOutcome = Result<serde_json::Value, SdkError>;
 
-/// One interrupt request waits on this ack until the reader task has attempted
-/// to send SIGINT to the CLI process.
-pub(super) type InterruptAck = oneshot::Sender<Result<(), SdkError>>;
-
 /// In-flight `control_request` waiting on a `control_response`. Carries
 /// the outbound subtype so the reader loop can stamp it onto
 /// `SdkError::ControlRequestFailed` — the CLI's response only signals

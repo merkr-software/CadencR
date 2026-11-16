@@ -25,12 +25,12 @@ use crate::error::SdkError;
 use crate::messages::SdkMessage;
 use crate::permissions::{CanUseTool, PermissionRequest};
 
-use super::cancelled_control::CancelledControlRequests;
+use super::permission_requests::PermissionRequests;
 use super::turn_state::TurnState;
 use super::wire::write_to_stdin;
 
 /// Run the `can_use_tool` callback on a spawned task, write the response
-/// back to the CLI, and flip the turn state back to `AgentWorking`.
+/// back to the CLI, and release the turn state's wait on this request.
 ///
 /// Must be called via `tokio::spawn` from the reader loop so the reader
 /// stays free to deliver `control_response` messages for nested control
@@ -38,7 +38,28 @@ use super::wire::write_to_stdin;
 pub(super) async fn handle_can_use_tool_request(
     process_stdin: Arc<Mutex<Option<BufWriter<ChildStdin>>>>,
     turn_state: Arc<Mutex<TurnState>>,
-    cancelled_control_requests: CancelledControlRequests,
+    permission_requests: PermissionRequests,
+    tx: mpsc::Sender<Result<SdkMessage, SdkError>>,
+    can_use_tool: Option<Arc<dyn CanUseTool>>,
+    request: PermissionRequest,
+) {
+    let request_id = request.tool_use_id.clone();
+    answer_can_use_tool_request(
+        process_stdin,
+        turn_state,
+        &permission_requests,
+        tx,
+        can_use_tool,
+        request,
+    )
+    .await;
+    permission_requests.close(&request_id).await;
+}
+
+async fn answer_can_use_tool_request(
+    process_stdin: Arc<Mutex<Option<BufWriter<ChildStdin>>>>,
+    turn_state: Arc<Mutex<TurnState>>,
+    permission_requests: &PermissionRequests,
     tx: mpsc::Sender<Result<SdkMessage, SdkError>>,
     can_use_tool: Option<Arc<dyn CanUseTool>>,
     request: PermissionRequest,
@@ -46,8 +67,8 @@ pub(super) async fn handle_can_use_tool_request(
     let tool_name = request.tool_name.clone();
     let request_id = request.tool_use_id.clone();
 
-    if cancelled_control_requests.take(&request_id).await {
-        *turn_state.lock().await = TurnState::AgentWorking;
+    if permission_requests.take(&request_id).await {
+        release_permission_wait(&turn_state, &request_id).await;
         return;
     }
 
@@ -80,8 +101,8 @@ pub(super) async fn handle_can_use_tool_request(
         }
     };
 
-    if cancelled_control_requests.take(&request_id).await {
-        *turn_state.lock().await = TurnState::AgentWorking;
+    if permission_requests.take(&request_id).await {
+        release_permission_wait(&turn_state, &request_id).await;
         return;
     }
 
@@ -101,7 +122,7 @@ pub(super) async fn handle_can_use_tool_request(
         // failure. Reset the state first (`WaitingForPermission` would falsely
         // claim the turn is waiting on the user), then surface both the write
         // error and any deferred serialize error — neither may be dropped.
-        *turn_state.lock().await = TurnState::AgentWorking;
+        release_permission_wait(&turn_state, &request_id).await;
         let _ = tx.send(Err(e)).await;
         if let Some(e) = deferred_error {
             let _ = tx.send(Err(e)).await;
@@ -109,10 +130,10 @@ pub(super) async fn handle_can_use_tool_request(
         return;
     }
 
-    // Back to agent working — only safe to flip back once we've actually
-    // written the response, otherwise consumers might race a "still
-    // working" state on a turn that's actually waiting on us.
-    *turn_state.lock().await = TurnState::AgentWorking;
+    // Back to agent working — only safe once we've actually written the
+    // response, otherwise consumers might race a "still working" state on a
+    // turn that's actually waiting on us.
+    release_permission_wait(&turn_state, &request_id).await;
 
     // CLI answered and the state is reset; now it's safe to surface a deferred
     // serialize failure without holding the permission flow open on `tx`.
@@ -121,11 +142,26 @@ pub(super) async fn handle_can_use_tool_request(
     }
 }
 
+/// The CLI has this request's answer: the turn is no longer blocked on it.
+/// Only a state still waiting on this very request changes. Anything else is
+/// newer: the turn's `result` arrived meanwhile (a background sub-agent can
+/// ask after the turn that launched it ended, and a stopped turn can end
+/// before its open request is answered), or another request is now open.
+/// Flipping those to `AgentWorking` made `interrupt` wait for a `result` that
+/// never comes.
+pub(super) async fn release_permission_wait(turn_state: &Mutex<TurnState>, request_id: &str) {
+    let mut state = turn_state.lock().await;
+    if matches!(&*state, TurnState::WaitingForPermission { tool_use_id, .. } if tool_use_id == request_id)
+    {
+        *state = TurnState::AgentWorking;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use crate::query::cancelled_control::CancelledControlRequests;
+    use crate::query::permission_requests::PermissionRequests;
 
     use futures::StreamExt;
     use tempfile::TempDir;
@@ -151,13 +187,13 @@ mod tests {
             tool_name: "Write".to_string(),
             tool_use_id: "toolu_dead".to_string(),
         }));
-        let cancelled_control_requests = CancelledControlRequests::default();
+        let permission_requests = PermissionRequests::default();
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
 
         super::handle_can_use_tool_request(
             Arc::clone(&process_stdin),
             Arc::clone(&turn_state),
-            cancelled_control_requests,
+            permission_requests,
             tx,
             None, // no handler -> auto-allow path; the write is what fails
             PermissionRequest {

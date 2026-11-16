@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -18,6 +20,13 @@ pub struct ModelSettings {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetSettingRequest {
     pub value: String,
+}
+
+/// Several workspace keys written in one atomic pass. A `null` value removes the
+/// key, so its default applies again (the sidebar display options' reset).
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetSettingsBatchRequest {
+    pub values: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

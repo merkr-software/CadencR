@@ -37,6 +37,28 @@ pub(super) fn native_effective_config(config_read: &Value) -> NativeEffectiveCon
     }
 }
 
+pub(super) fn reasoning_summary(config_read: &Value) -> Option<&str> {
+    let config = config_read.get("config").unwrap_or(config_read);
+    if let Some(summary) = config
+        .get("model_reasoning_summary")
+        .and_then(Value::as_str)
+    {
+        return Some(summary);
+    }
+    // OpenAI's model catalog can default summaries to `none`. Cadencr displays
+    // them, so opt in without forcing model capabilities. Other inference
+    // providers (including Bedrock) may reject the summary parameter.
+    let provider = config.get("model_provider").and_then(Value::as_str);
+    let supports_summaries = config
+        .get("model_supports_reasoning_summaries")
+        .and_then(Value::as_bool);
+    if matches!(provider, None | Some("openai")) && supports_summaries != Some(false) {
+        Some("detailed")
+    } else {
+        None
+    }
+}
+
 pub(super) fn enrich_resume_config(
     config_read: &mut Value,
     models: &[CodexModel],
@@ -116,9 +138,48 @@ pub(super) fn catalog_with_effective_config(
 
 #[cfg(test)]
 mod tests {
-    use super::{catalog_with_effective_config, enrich_resume_config};
+    use super::{catalog_with_effective_config, enrich_resume_config, reasoning_summary};
     use codex_app_server_sdk_rs::CodexModel;
     use serde_json::json;
+
+    #[test]
+    fn openai_summaries_are_enabled_without_forcing_model_capabilities() {
+        for config in [
+            json!({}),
+            json!({"model_provider": null, "model_reasoning_summary": null}),
+            json!({"model_provider": "openai"}),
+        ] {
+            assert_eq!(reasoning_summary(&config), Some("detailed"));
+        }
+    }
+
+    #[test]
+    fn other_providers_and_explicitly_unsupported_models_keep_native_defaults() {
+        for config in [
+            json!({"model_provider": "amazon-bedrock"}),
+            json!({"model_provider": "custom"}),
+            json!({"model_provider": "ollama"}),
+            json!({"model_supports_reasoning_summaries": false}),
+            json!({"model_provider": "openai", "model_supports_reasoning_summaries": false}),
+        ] {
+            assert_eq!(reasoning_summary(&config), None);
+        }
+    }
+
+    #[test]
+    fn explicit_native_summary_choices_are_preserved_for_every_provider() {
+        for provider in ["openai", "amazon-bedrock", "custom"] {
+            for summary in ["none", "auto", "concise", "detailed"] {
+                assert_eq!(
+                    reasoning_summary(&json!({
+                        "model_provider": provider,
+                        "model_reasoning_summary": summary,
+                    })),
+                    Some(summary)
+                );
+            }
+        }
+    }
 
     #[test]
     fn configured_unknown_model_and_effort_become_catalog_default() {

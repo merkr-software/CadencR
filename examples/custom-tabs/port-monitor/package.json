@@ -1,0 +1,34 @@
+{
+  "name": "port-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "npm run build:ui && npm run build:backend",
+    "build:ui": "tsc --noEmit && vite build",
+    "build:backend": "node scripts/build-backend.mjs",
+    "test:backend": "cargo test --manifest-path backend/Cargo.toml",
+    "vendor": "node ../vendor.mjs"
+  },
+  "dependencies": {
+    "@cadencr/tab-kit": "file:vendor/cadencr-tab-kit.tgz",
+    "@cadencr/tab-sdk": "file:vendor/cadencr-tab-sdk.tgz",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "4.6.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "radix-ui": "^1.6.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.4.3"
+  }
+}

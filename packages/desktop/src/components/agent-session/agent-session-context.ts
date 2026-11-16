@@ -10,9 +10,24 @@ import { createContext, useContext } from "react";
 export interface AgentSessionContextValue {
   /** Store key for the session (`ws-feature-<id>`), or `null` outside a session. */
   wsSessionId: string | null;
+  /** Feature whose conversation this is; scopes its sub-agent registry. */
+  featureId: number | null;
+  /**
+   * Session actions for transcript affordances (Resume after a stop, an
+   * error's recovery buttons). Identity-stable; no-ops outside a session.
+   */
+  sendPrompt: (text: string) => void;
+  openModelPicker: () => void;
 }
 
-const AgentSessionContext = createContext<AgentSessionContextValue>({ wsSessionId: null });
+const noop = (): void => {};
+
+const AgentSessionContext = createContext<AgentSessionContextValue>({
+  wsSessionId: null,
+  featureId: null,
+  sendPrompt: noop,
+  openModelPicker: noop,
+});
 
 export const AgentSessionProvider = AgentSessionContext.Provider;
 

@@ -3,6 +3,7 @@ import { customInstance } from "./client";
 import { z } from "zod";
 import { getGetAgentSelectionQueryKey } from "./generated";
 import { PROVIDER_IDS } from "@/lib/providers";
+import { invalidateExtensionInventories } from "@/lib/agent-extensions";
 
 const summarySchema = z.object({
   id: z.string(),
@@ -92,6 +93,8 @@ async function invalidateProfileDependentQueries(
   ];
   if (affectsActiveProfile) {
     invalidations.push(queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() }));
+    // The active profile picks the Codex home, and with it its skills and servers.
+    invalidations.push(invalidateExtensionInventories(queryClient));
   }
   await Promise.all(invalidations);
 }

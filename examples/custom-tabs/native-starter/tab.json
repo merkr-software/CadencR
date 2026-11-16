@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "native-starter",
+  "name": "Native starter",
+  "version": "0.1.0",
+  "description": "A starting point for a custom tab with a native Rust backend: the page asks the backend, the backend answers what a page cannot read.",
+  "icon": "icon.svg",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "Starter" },
+  "permissions": [],
+  "backend": {
+    "reasoning": "Tells the page which folder this conversation works in and which system the backend runs on.",
+    "protocol": 1,
+    "binary": {
+      "darwin-aarch64": "bin/darwin-aarch64/native-starter",
+      "darwin-x86_64": "bin/darwin-x86_64/native-starter",
+      "linux-x86_64": "bin/linux-x86_64/native-starter"
+    }
+  }
+}

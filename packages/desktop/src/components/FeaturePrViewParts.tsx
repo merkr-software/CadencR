@@ -9,6 +9,8 @@ import { useMemo, useState, type ReactElement } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { type PrStatusSnapshot } from "@/api/generated";
 import { Markdown } from "@/components/Markdown";
+import { PR_MARKDOWN_CLASS } from "@/components/pr-markdown";
+import { EYEBROW_TEXT_CLASS } from "@/components/SidebarBlock";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -126,7 +128,7 @@ export function PrDescription({ status }: { status: PrStatusSnapshot }): ReactEl
   // happen again each time.
   const preview = useMemo(() => descriptionPreview(pr.body_markdown), [pr.body_markdown]);
   if (!pr.body_markdown.trim()) {
-    return <p className="text-[12px] text-muted-foreground">No description provided.</p>;
+    return <p className="text-[12.5px] text-muted-foreground">No description provided.</p>;
   }
   return (
     <section>
@@ -146,7 +148,7 @@ export function PrDescription({ status }: { status: PrStatusSnapshot }): ReactEl
           )}
           aria-hidden
         />
-        <span className="shrink-0 text-[12.5px] font-semibold tracking-tight">Description</span>
+        <span className={cn("shrink-0", EYEBROW_TEXT_CLASS)}>Description</span>
         {!open && (
           <span className="min-w-0 truncate text-[12px] text-muted-foreground">{preview}</span>
         )}
@@ -155,7 +157,11 @@ export function PrDescription({ status }: { status: PrStatusSnapshot }): ReactEl
         <Markdown
           content={pr.body_markdown}
           cacheKey={`${pr.url}:description`}
-          className="mt-1.5 max-w-none overflow-x-auto rounded-lg border border-border bg-card p-3 text-[13px] leading-relaxed"
+          className={cn(
+            PR_MARKDOWN_CLASS,
+            // Same inset as a review thread card, so the two surfaces line up.
+            "mt-1.5 max-w-none overflow-x-auto rounded-lg border border-border bg-card px-3.5 py-3",
+          )}
         />
       </CollapsibleSection>
     </section>

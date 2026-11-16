@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "id": "terraform-ls",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "terraform-ls",
+  "target": "darwin-x86_64",
+  "sources": [
+    {
+      "name": "terraform-ls",
+      "version": "0.39.1",
+      "url": "https://releases.hashicorp.com/terraform-ls/0.39.1/terraform-ls_0.39.1_darwin_amd64.zip",
+      "sha256": "25814afdbec9163de4ad8db58960195b9fc65ddc5405a5df7163bbdbd08b5325",
+      "destination": ".",
+      "expanded_size": 48028025,
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "aff4e69bd67075d771127826ddf1ffa929c064f48bdd7ed6f8c946598399f523",
+          "size": 16009,
+          "mode": "100644"
+        },
+        {
+          "path": "terraform-ls",
+          "sha256": "fbe8593aca2390b0e593c1e6d1e8f5a68ef06ed78ea0102110bac748b6443312",
+          "size": 48012016,
+          "mode": "100755"
+        }
+      ]
+    }
+  ]
+}

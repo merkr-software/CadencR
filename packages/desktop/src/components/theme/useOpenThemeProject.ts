@@ -12,6 +12,7 @@ import {
 import { useSystemAppearance } from "@/hooks/useSystemAppearance";
 import { useTheme } from "@/hooks/useTheme";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { userThemeId, userThemeLabel } from "@/lib/themes/user-theme";
 import { DEFAULT_PANE_ID } from "@/stores/editor-helpers";
@@ -61,6 +62,7 @@ export function useOpenThemeProject(): OpenThemeProject {
           if (opened.created) await arrangePanes(opened.feature_id);
           // Every open, not only the first: editor tabs live for the session,
           // and "edit this theme" has to put the theme in front of the user.
+          showBuiltinTab(opened.feature_id, "editor");
           useEditorStore.getState().openFile(opened.feature_id, DEFAULT_PANE_ID, THEME_FILE_NAME);
           // The project may have just been created; the sidebar is showing a
           // list that predates it.
@@ -90,8 +92,9 @@ export function useOpenThemeProject(): OpenThemeProject {
  * Written to the feature's settings rather than only into the store, because
  * layout persistence treats whatever it first observes as the saved baseline
  * and never writes it back — a store-only arrangement would be gone by the
- * next launch. Seeded into the store as well so this session doesn't wait for
- * a refetch to see it.
+ * next launch. No gesture to follow here, so the store takes the arrangement
+ * only once the backend has it: a failed save opens the workspace on its saved
+ * layout and says why.
  */
 function useArrangePanes(): (featureId: number) => Promise<void> {
   const queryClient = useQueryClient();
@@ -100,22 +103,23 @@ function useArrangePanes(): (featureId: number) => Promise<void> {
   return useCallback(
     async (featureId: number): Promise<void> => {
       const layout = themeLayoutState();
-      useFeatureLayoutStore.getState().setState(featureId, layout);
       try {
         await mutateAsync({
           id: featureId,
           data: { key: LAYOUT_STATE_KEY, value: serializeCurrentLayoutState(layout) },
         });
-        // The cached settings for this feature predate the layout; hydration
-        // reads them, and a stale copy would arrange the panes back.
-        void queryClient.invalidateQueries({ queryKey: getGetFeatureSettingsQueryKey(featureId) });
       } catch (error: unknown) {
-        // Not fatal — the arrangement is applied for this session either way,
-        // it just won't come back on the next launch.
-        toast.error(apiErrorMessage(error, "Could not save the theme's pane layout"));
+        toast.error(
+          `Could not save the theme's pane layout: ${apiErrorMessage(error, "Unknown error")}`,
+        );
+        return;
       }
+      useFeatureLayoutStore.getState().setState(featureId, layout);
+      // The cached settings for this feature predate the layout; hydration
+      // reads them, and a stale copy would arrange the panes back.
+      void queryClient.invalidateQueries({ queryKey: getGetFeatureSettingsQueryKey(featureId) });
     },
-    [mutateAsync],
+    [mutateAsync, queryClient],
   );
 }
 

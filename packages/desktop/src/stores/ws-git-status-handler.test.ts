@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 
 import { toast } from "sonner";
 import {
@@ -169,6 +172,24 @@ describe("handleGitEnvelope", () => {
 
     expect(useGitStatusStore.getState().byFeature[7]?.uncommitted_count).toBe(4);
     expect(spy).toHaveBeenCalledOnce();
+    // Working-tree churn cannot change history: the graph is left alone.
+    const predicate = getInvalidatePredicate(spy.mock.calls[0]?.[0]);
+    expect(predicate({ queryKey: ["/api/git/diff", { feature_id: 7 }] })).toBe(true);
+    expect(predicate({ queryKey: ["/api/git/commit-graph", { feature_id: 7 }] })).toBe(false);
+  });
+
+  it("refetches the commit graph when a push moves the remote counts", () => {
+    const spy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    useGitStatusStore.getState().setStatus({ ...validSnapshot, ahead_of_remote: 4 });
+
+    handleGitEnvelope("status", {
+      ...validSnapshot,
+      ahead_of_remote: 0,
+      computed_at: validSnapshot.computed_at + 1,
+    } as Record<string, unknown>);
+
+    const predicate = getInvalidatePredicate(spy.mock.calls[0]?.[0]);
+    expect(predicate({ queryKey: ["/api/git/commit-graph", { feature_id: 7 }] })).toBe(true);
   });
 
   it("invalidates stashes after a confirmed newer refresh with unchanged status", () => {
@@ -270,7 +291,10 @@ describe("handleGitEnvelope", () => {
     handleGitEnvelope("status_error", { feature_id: 7, error: "fatal: not a git repo" });
 
     expect(useGitStatusStore.getState().errorByFeature[7]).toBe("fatal: not a git repo");
-    expect(toast.error).toHaveBeenCalledWith("Git status error: fatal: not a git repo");
+    expect(toast.error).toHaveBeenCalledWith("Git status error", {
+      id: "git-status-error-7",
+      description: { scope: { featureId: 7 }, description: "fatal: not a git repo" },
+    });
   });
 
   it("clears any prior error when a fresh snapshot arrives", () => {
@@ -304,6 +328,23 @@ describe("handleGitEnvelope", () => {
     const state = usePushOutputStore.getState();
     expect(selectPushOutput(7)(state)).toBe("Counting objects\nremote: ok\n");
     expect(selectPushRunning(7)(state)).toBe(false);
+  });
+
+  it("refetches the commit graph once a push succeeds, and only then", () => {
+    const spy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+
+    handleGitEnvelope("push.complete", { feature_id: 7, success: false });
+    expect(spy).not.toHaveBeenCalled();
+
+    handleGitEnvelope("push.complete", { feature_id: 7, success: true });
+    expect(spy).toHaveBeenCalledOnce();
+    const predicate = getInvalidatePredicate(spy.mock.calls[0]?.[0]);
+    expect(predicate({ queryKey: ["/api/git/commit-graph", { feature_id: 7 }] })).toBe(true);
+    expect(predicate({ queryKey: ["/api/git/commit-log", { feature_id: 7 }] })).toBe(true);
+    expect(predicate({ queryKey: ["/api/git/commit-graph", { feature_id: 8 }] })).toBe(false);
+    expect(predicate({ queryKey: ["/api/git/diff", { feature_id: 7 }] })).toBe(false);
+    // The status broadcast before it may already be refetching: join, never restart.
+    expect(spy.mock.calls[0]?.[1]).toEqual({ cancelRefetch: false });
   });
 
   it("ignores a completion envelope without an explicit outcome", () => {

@@ -3,9 +3,10 @@ use axum::routing::{get, post, put};
 use axum::Router;
 use serde::Deserialize;
 
+use super::events::notify_changed;
 use super::models::{
-    CreateCustomActionRequest, CustomAction, CustomActionRun, CustomActionSchedule,
-    CustomActionVariable, ResolvedCommand, RunResponse, Scope, SetCustomActionScheduleRequest,
+    CreateCustomActionRequest, CustomAction, CustomActionRun, CustomActionVariable,
+    ReorderCustomActionsRequest, ResolvedCommand, RunResponse, Scope,
     SetCustomActionVariableRequest, SuccessResponse, TriggeredBy, UpdateCustomActionRequest,
 };
 use super::repository;
@@ -16,7 +17,8 @@ use crate::error::AppError;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct ListActionsQuery {
-    pub project_id: i64,
+    /// Omit to list only the global actions (the Settings page).
+    pub project_id: Option<i64>,
     /// Optional feature id to embed `last_run` summaries on each action.
     pub feature_id: Option<i64>,
 }
@@ -71,7 +73,8 @@ pub async fn create_action_handler(
     .await?;
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("inserted action vanished".into()))?;
+        .ok_or_else(|| AppError::internal("inserted action vanished"))?;
+    notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(row))
 }
 
@@ -94,29 +97,44 @@ pub async fn update_action_handler(
     service::validate_scope(next_scope, next_project_id)?;
     service::validate_icon(body.icon_data.as_deref())?;
 
-    repository::update(
-        &state.write_pool,
-        id,
-        body.name.as_deref(),
-        body.command.as_deref(),
-        body.icon_data
-            .as_ref()
-            .map(|s| if s.is_empty() { None } else { Some(s.as_str()) }),
-        body.scope,
-        match (body.scope, body.project_id) {
+    repository::update()
+        .pool(&state.write_pool)
+        .id(id)
+        .maybe_name(body.name.as_deref())
+        .maybe_command(body.command.as_deref())
+        .maybe_icon_data(body.icon_data.as_ref().map(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.as_str())
+            }
+        }))
+        .maybe_scope(body.scope)
+        .maybe_project_id(match (body.scope, body.project_id) {
             (Some(Scope::Global), _) => Some(None),
             (_, Some(pid)) => Some(Some(pid)),
             _ => None,
-        },
-        body.position,
-        body.run_in_terminal,
-    )
-    .await?;
+        })
+        .maybe_position(body.position)
+        .maybe_run_in_terminal(body.run_in_terminal)
+        .call()
+        .await?;
 
     let row = repository::get(&state.read_pool, id)
         .await?
-        .ok_or_else(|| AppError::Internal("updated action vanished".into()))?;
+        .ok_or_else(|| AppError::internal("updated action vanished"))?;
+    notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(row))
+}
+
+#[utoipa::path(put, path = "/api/custom-actions/order", request_body = ReorderCustomActionsRequest, responses((status = 200, body = SuccessResponse)))]
+pub async fn reorder_custom_actions_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ReorderCustomActionsRequest>,
+) -> Result<Json<SuccessResponse>, AppError> {
+    repository::reorder(&state.write_pool, &body.ids).await?;
+    notify_changed(&state.custom_action_events_tx, None);
+    Ok(Json(SuccessResponse { success: true }))
 }
 
 #[utoipa::path(delete, path = "/api/custom-actions/{id}", params(("id" = i64, Path,)), responses((status = 200, body = SuccessResponse)))]
@@ -124,8 +142,9 @@ pub async fn delete_action_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<SuccessResponse>, AppError> {
+    // Its schedules go with it (`schedules.custom_action_id` cascades).
     repository::delete(&state.write_pool, id).await?;
-    state.custom_action_scheduler.stop_for_action(id).await;
+    notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(SuccessResponse { success: true }))
 }
 
@@ -222,51 +241,15 @@ pub async fn cancel_run_handler(
     Ok(Json(SuccessResponse { success: true }))
 }
 
-// ---------------------------------------------------------------------------
-// Schedule
-// ---------------------------------------------------------------------------
-
-#[utoipa::path(get, path = "/api/custom-actions/{id}/schedule", params(("id" = i64, Path,), FeatureIdQuery), responses((status = 200, body = Option<CustomActionSchedule>)))]
-pub async fn get_schedule_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Query(q): Query<FeatureIdQuery>,
-) -> Result<Json<Option<CustomActionSchedule>>, AppError> {
-    Ok(Json(
-        repository::get_schedule(&state.read_pool, id, q.feature_id).await?,
-    ))
-}
-
-#[utoipa::path(put, path = "/api/custom-actions/{id}/schedule", params(("id" = i64, Path,), FeatureIdQuery), request_body = SetCustomActionScheduleRequest, responses((status = 200, body = SuccessResponse)))]
-pub async fn set_schedule_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Query(q): Query<FeatureIdQuery>,
-    Json(body): Json<SetCustomActionScheduleRequest>,
-) -> Result<Json<SuccessResponse>, AppError> {
-    match (body.interval_seconds, body.enabled.unwrap_or(true)) {
-        (None, _) | (_, false) => {
-            repository::delete_schedule(&state.write_pool, id, q.feature_id).await?;
-        }
-        (Some(secs), true) => {
-            if secs < 5 {
-                return Err(AppError::BadRequest("interval_seconds must be >= 5".into()));
-            }
-            repository::upsert_schedule(&state.write_pool, id, q.feature_id, secs, true).await?;
-        }
-    }
-    state
-        .custom_action_scheduler
-        .apply_change(&state, id, q.feature_id)
-        .await?;
-    Ok(Json(SuccessResponse { success: true }))
-}
-
 pub fn custom_actions_router() -> Router<AppState> {
     Router::new()
         .route(
             "/api/custom-actions",
             get(list_actions_handler).post(create_action_handler),
+        )
+        .route(
+            "/api/custom-actions/order",
+            put(reorder_custom_actions_handler),
         )
         .route(
             "/api/custom-actions/{id}",
@@ -285,9 +268,5 @@ pub fn custom_actions_router() -> Router<AppState> {
         .route(
             "/api/custom-actions/{id}/runs/{run_id}/cancel",
             post(cancel_run_handler),
-        )
-        .route(
-            "/api/custom-actions/{id}/schedule",
-            get(get_schedule_handler).put(set_schedule_handler),
         )
 }

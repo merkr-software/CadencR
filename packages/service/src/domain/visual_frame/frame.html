@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+    </style>
+    <script>
+      (function () {
+        "use strict";
+        // The parent posts one finished document, written over this shell.
+        // The CSP sandbox (opaque origin, no network) is what contains it.
+        function onMessage(event) {
+          var data = event.data;
+          if (event.source !== window.parent || !data || data.type !== "cadencr-visual:render") {
+            return;
+          }
+          if (typeof data.html !== "string") return;
+          window.removeEventListener("message", onMessage);
+          document.open();
+          document.write(data.html);
+          document.close();
+        }
+        window.addEventListener("message", onMessage);
+        window.parent.postMessage({ type: "cadencr-visual:ready" }, "*");
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

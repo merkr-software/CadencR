@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: Mermaid-to-Excalidraw conversion needs jsdom's SVG support.
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";

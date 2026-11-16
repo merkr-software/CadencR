@@ -11,7 +11,9 @@ const STEP_LABELS: Record<Exclude<OnboardingStep, "completed">, string> = {
   discover_cli: "Detect CLIs",
   choose_workspace: "Choose folder",
   pick_agent: "Agent & model",
+  notifications: "Notifications",
   preferences: "Preferences",
+  telemetry: "Privacy",
   first_prompt: "Get started",
 };
 

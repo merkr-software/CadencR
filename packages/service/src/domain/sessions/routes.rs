@@ -5,8 +5,13 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::app_state::AppState;
+use crate::domain::sessions::activity_digest::{
+    load_activity_digest, parse_feature_ids, ActivityDigestParams, AgentActivityDigestResponse,
+};
+use crate::domain::sessions::agent_images::get_agent_image_handler;
 use crate::domain::sessions::limits::normalize_agent_message_limit;
 use crate::domain::sessions::models::*;
+use crate::domain::sessions::prompt_index::{list_session_prompts, SessionPromptsResponse};
 use crate::domain::sessions::repository;
 use crate::domain::sessions::unified_agents::{list_unified_agents, UnifiedAgentsQuery};
 use crate::error::AppError;
@@ -123,6 +128,22 @@ pub async fn get_unified_agents_handler(
     ))
 }
 
+#[utoipa::path(get, path = "/api/agents/activity-digest",
+    params(ActivityDigestParams),
+    responses(
+        (status = 200, body = AgentActivityDigestResponse),
+        (status = 400, description = "Malformed or too many feature ids")
+    ))]
+pub async fn get_agent_activity_digest_handler(
+    State(state): State<AppState>,
+    Query(params): Query<ActivityDigestParams>,
+) -> Result<Json<AgentActivityDigestResponse>, AppError> {
+    let feature_ids = parse_feature_ids(&params.feature_ids)?;
+    Ok(Json(
+        load_activity_digest(&state.read_pool, &feature_ids).await?,
+    ))
+}
+
 #[utoipa::path(get, path = "/api/sessions/{session_id}/draft",
     params(("session_id" = i64, Path,)),
     responses((status = 200, body = DraftResponse)))]
@@ -197,6 +218,33 @@ pub async fn get_message_preview_handler(
     Ok(Json(MessagePreviewResponse { preview }))
 }
 
+#[utoipa::path(get, path = "/api/sessions/{session_id}/prompts",
+    params(("session_id" = i64, Path,)),
+    responses((status = 200, body = SessionPromptsResponse), (status = 404)))]
+pub async fn list_session_prompts_handler(
+    State(state): State<AppState>,
+    Path(session_id): Path<i64>,
+) -> Result<Json<SessionPromptsResponse>, AppError> {
+    Ok(Json(
+        list_session_prompts(&state.read_pool, session_id).await?,
+    ))
+}
+
+/// What the sidebar row previews: the last agent reply and the todo progress.
+#[utoipa::path(get, path = "/api/features/{feature_id}/row-summary",
+    params(("feature_id" = i64, Path,)),
+    responses((status = 200, body = FeatureRowSummaryResponse)))]
+pub async fn get_feature_row_summary_handler(
+    State(state): State<AppState>,
+    Path(feature_id): Path<i64>,
+) -> Result<Json<FeatureRowSummaryResponse>, AppError> {
+    let (preview, todos) = tokio::try_join!(
+        repository::latest_assistant_preview(&state.read_pool, feature_id),
+        repository::latest_todo_progress(&state.read_pool, feature_id),
+    )?;
+    Ok(Json(FeatureRowSummaryResponse { preview, todos }))
+}
+
 pub fn sessions_router() -> Router<AppState> {
     Router::new()
         .route(
@@ -208,13 +256,29 @@ pub fn sessions_router() -> Router<AppState> {
             get(get_message_preview_handler),
         )
         .route(
+            "/api/features/{feature_id}/row-summary",
+            get(get_feature_row_summary_handler),
+        )
+        .route(
+            "/api/features/{feature_id}/agent-image",
+            get(get_agent_image_handler),
+        )
+        .route(
             "/api/features/{feature_id}/agent-state",
             get(get_feature_agent_state_handler),
         )
         .route("/api/agents/unified", get(get_unified_agents_handler))
         .route(
+            "/api/agents/activity-digest",
+            get(get_agent_activity_digest_handler),
+        )
+        .route(
             "/api/sessions/conversation-references",
             get(list_conversation_references_handler),
+        )
+        .route(
+            "/api/sessions/{session_id}/prompts",
+            get(list_session_prompts_handler),
         )
         .route(
             "/api/sessions/{session_id}/draft",

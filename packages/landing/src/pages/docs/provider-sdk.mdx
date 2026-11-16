@@ -1,0 +1,146 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "cadencr-provider-sdk — agent provider harness"
+description: "Implement the command contract for a native Cadencr agent provider speaking ACP v1."
+lastReviewed: "2026-11-01"
+---
+
+`cadencr-provider-sdk` implements the command harness for native Cadencr agent providers. Implement `CadencrProvider` to discover models, run your ACP v1 adapter, optionally manage updates, and declare host integrations. The crate parses reserved command arguments and formats responses.
+
+[crates.io](https://crates.io/crates/cadencr-provider-sdk) · [Rust API reference](https://docs.rs/cadencr-provider-sdk) · [README and source](https://github.com/merkr-software/CadencR/tree/main/packages/provider-plugin-sdk-rs)
+
+## Install and compatibility
+
+In your connector's `Cargo.toml`:
+
+```toml
+[dependencies]
+cadencr-provider-sdk = "0.3"
+agent-client-protocol = "3.4"
+serde_json = "1"
+```
+
+The SDK's **0.3** series uses the ACP Rust SDK **3.4**, like 0.2, and adds the optional `host-integration` and `slash-commands` commands and `_meta.cadencr` helpers; 0.2 connectors compile unchanged. When migrating from `cadencr-provider-sdk` 0.1, align your `agent-client-protocol` dependency so the `SessionConfigOption` types match. The wire protocol remains **ACP v1**. The crate and the Cadencr app have independent versions.
+
+## Implement the trait
+
+This compilable harness example returns a sample model and explicitly refuses runtime requests until you implement the ACP adapter. Replace the sample model with real native discovery before using it as a provider.
+
+```rust
+use std::ffi::OsString;
+use std::path::Path;
+use std::process::ExitCode;
+
+use agent_client_protocol::schema::v1::SessionConfigOption;
+use cadencr_provider_sdk::{run_cli, CadencrProvider, ProviderError};
+use serde_json::json;
+
+struct MyProvider;
+
+impl CadencrProvider for MyProvider {
+    fn models(
+        &self,
+        _cwd: &Path,
+        _provider_args: &[OsString],
+    ) -> Result<Vec<SessionConfigOption>, ProviderError> {
+        Ok(serde_json::from_value(json!([{
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "example-model",
+            "options": [{ "value": "example-model", "name": "Example model" }]
+        }]))?)
+    }
+
+    fn run_acp(&self, _provider_args: &[OsString]) -> Result<ExitCode, ProviderError> {
+        Err(ProviderError::new("Implement the native agent's ACP v1 adapter here"))
+    }
+
+    fn version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+}
+
+fn main() -> ExitCode {
+    run_cli(&MyProvider)
+}
+```
+
+`run_cli()` reads process arguments and dispatches the command. Extra provider arguments reach `models` or `run_acp` as `OsString` values. `ProviderError` supports conversion from I/O and JSON errors with `?`; command failures produce a failing exit status.
+
+The harness does not implement ACP session handling or translate a native agent's events. Those belong in `run_acp`. It also does not supply credentials or install the agent CLI.
+
+## Command contract
+
+Cadencr executes the binary directly, without a shell. Arguments from the provider descriptor follow the reserved arguments.
+
+| Invocation                                                                | Trait method          | Output                                             |
+| ------------------------------------------------------------------------- | --------------------- | -------------------------------------------------- |
+| `models --format acp-config-options-v1 --cwd <absolute-path> [args…]`     | `models(cwd, args)`   | One JSON array of ACP model/configuration options. |
+| `run --protocol acp-v1 [args…]`                                           | `run_acp(args)`       | ACP v1 JSON-RPC over stdin/stdout.                 |
+| `version`                                                                 | `version()`           | Connector version string.                          |
+| `updates --format cadencr-updates-v1`                                     | `updates()`           | Update report, or `{"supported": false}`.          |
+| `update [--version <v>]`                                                  | `update(target)`      | Optional JSON message and an exit status.          |
+| `host-integration --format cadencr-host-integration-v1`                   | `host_integration()`  | Host conventions object, or `{}`.                  |
+| `slash-commands --format cadencr-slash-commands-v1 --cwd <absolute-path>` | `slash_commands(cwd)` | JSON array of `/` commands, or a non-zero exit.    |
+
+Diagnostics belong on stderr; stdout is reserved for the command's result or ACP messages. In the host, model discovery has a 10-second timeout and a 1 MiB stdout limit. Return an actionable failure when native configuration is missing.
+
+## Discover valid models
+
+The host needs a verified model selector **before** it starts an agent session. The array from `models` must include a non-empty `select` option with `category: "model"`:
+
+- `options` contains at least one model, with unique, non-empty values.
+- `currentValue` names an option from that list.
+- Model IDs are provider-owned, opaque strings. Preserve them when starting ACP sessions.
+- The live ACP session must advertise a compatible configuration option ID.
+
+The harness serializes your model list; it does not enforce all of the host's model-selection rules. Returning `Vec::new()` compiles, but cannot provide a usable model selector.
+
+See the [provider contract](https://github.com/merkr-software/CadencR/blob/main/docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md) for effort metadata, session configuration, resume behavior, and runtime requirements.
+
+## Optional updates
+
+The trait defaults report updates as unsupported. Override `updates()` to return `Ok(Some(UpdateReport))` and `update(target)` to install a requested native CLI version.
+
+| `UpdateReport` field      | Meaning                                                   |
+| ------------------------- | --------------------------------------------------------- |
+| `current_version`         | Installed version; `None` when the native CLI is missing. |
+| `latest_version`          | Newest installable version, if known.                     |
+| `available_versions`      | Installable versions, newest first.                       |
+| `supports_target_version` | Whether `update --version` can install a listed version.  |
+
+Use `UpdateReport::builder()` to construct a report. The update command must be noninteractive because stdin is closed. Native CLI updates are separate from updating the connector package itself.
+
+## Optional slash commands
+
+Override `slash_commands(cwd)` to return the commands and skills your agent accepts as `/name` in a prompt for that directory, so Cadencr's `/` menu is filled before a session starts. Build entries with `SlashCommand::builder()`: `name` (no leading `/`, no whitespace, at most 128 characters, unique), an optional `description` (at most 4096 characters) and a `kind` (`SlashCommandKind::Command` by default, or `Skill`). Return the same list your ACP server sends in `available_commands_update` for that directory; mark live skills with `meta::slash_command_kind_meta(SlashCommandKind::Skill)` on their `_meta` so both group alike.
+
+The default (`None`) exits non-zero, which Cadencr reads as "not supported": it then shows the list the last live session advertised for that directory. Returning `Err` prints `{"message": …}` and the `/` menu shows that error, as it does for a crash (a panic or a signal). The harness validates the list with the host's rules (at most 1000 entries) before printing. Cadencr caches a list for 30 seconds per directory, refreshes it when a live session sends `available_commands_update`, and appends live-only entries (commands your agent's backend knows but the filesystem does not). Do not start a live agent session from this command.
+
+## Optional host integration and `_meta.cadencr`
+
+Override `host_integration()` to return a `HostIntegration` (built with `HostIntegration::builder()`): `compact_command` (slash command the host sends to compact a session), `worktree_config_paths` (relative paths copied into new worktrees) and `resume_command` (`ResumeCommand { program, args }`, with `{session_id}` as the only placeholder). The harness validates it with the host's rules before printing. Declare only what the native agent supports over ACP.
+
+The `meta` module builds the `_meta.cadencr` objects Cadencr reads: `permission_mode_meta` on the values of a `category: "mode"` select (mode chip), `access_mode_role_meta` on an access select plus `access_mode_meta` on its values (access chip), and `subagent_background_meta` / `subagent_status_meta` on sub-agent tool calls. Emit the same selects from `models()` and from live `configOptions`.
+
+## Authentication and packaging
+
+Users install and authenticate the native agent CLI through its own commands. Cadencr does not collect or broker provider-account credentials. Keep provider-specific model parsing, command flags, and authentication instructions in the connector package.
+
+The SDK produces a command harness inside your executable. An installable provider also needs its descriptor, icon, and native distribution artifacts. Start from **Settings → Providers** for local authoring, and follow the [provider package contract](https://github.com/merkr-software/CadencR/blob/main/docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md) for those files. The existing [Providers guide](/docs/providers/) covers configuration in the app.
+
+## Validate a connector
+
+Exercise your binary's `version` and model-discovery commands, then test an actual ACP session after implementing `run_acp`. The absolute `--cwd` must refer to a real project that the native agent can inspect.
+
+Validate the package with a host descriptor using the Cadencr CLI:
+
+```bash
+cadencr plugin validate /absolute/path/to/provider --descriptor /absolute/path/to/descriptor.json
+```
+
+This command validates the package without executing the provider. It does not replace testing discovery and ACP behavior against the host. Build and test a native executable for each platform your package declares.
+
+For native functionality behind a **custom tab**, use [cadencr-tab-backend](/docs/tab-backend/) instead; it speaks the tab backend protocol rather than ACP.

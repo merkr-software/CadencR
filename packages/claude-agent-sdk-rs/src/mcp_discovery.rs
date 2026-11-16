@@ -10,11 +10,14 @@ use crate::types::McpServerStatus;
 pub fn configured_mcp_servers(
     cwd: &Path,
     explicit: Option<&HashMap<String, McpServerConfig>>,
+    user_config_file: Option<&Path>,
 ) -> Vec<McpServerStatus> {
     let mut servers = Vec::new();
     push_explicit_servers(&mut servers, explicit);
     push_project_servers(&mut servers, cwd);
-    push_claude_json_servers(&mut servers, cwd);
+    if let Some(user_config_file) = user_config_file {
+        push_claude_json_servers(&mut servers, cwd, user_config_file);
+    }
     servers
 }
 
@@ -40,12 +43,8 @@ fn push_project_servers(servers: &mut Vec<McpServerStatus>, cwd: &Path) {
     push_servers_from_value(servers, value.get("mcpServers"));
 }
 
-fn push_claude_json_servers(servers: &mut Vec<McpServerStatus>, cwd: &Path) {
-    let Some(home) = std::env::var_os("HOME") else {
-        return;
-    };
-    let path = Path::new(&home).join(".claude.json");
-    let Some(value) = read_json_file(&path) else {
+fn push_claude_json_servers(servers: &mut Vec<McpServerStatus>, cwd: &Path, path: &Path) {
+    let Some(value) = read_json_file(path) else {
         return;
     };
     push_servers_from_value(servers, value.get("mcpServers"));
@@ -119,7 +118,7 @@ mod tests {
             },
         );
 
-        let servers = configured_mcp_servers(dir.path(), Some(&explicit));
+        let servers = configured_mcp_servers(dir.path(), Some(&explicit), None);
 
         let server = servers
             .iter()
@@ -137,12 +136,34 @@ mod tests {
         )
         .unwrap();
 
-        let servers = configured_mcp_servers(dir.path(), None);
+        let servers = configured_mcp_servers(dir.path(), None, None);
 
         let server = servers
             .iter()
             .find(|server| server.name == "chrome-devtools")
             .expect("project server");
         assert_eq!(server.status, "configured");
+    }
+
+    #[test]
+    fn configured_servers_read_the_given_user_file() {
+        let dir = TempDir::new().unwrap();
+        let user_file = dir.path().join("profile").join(".claude.json");
+        std::fs::create_dir_all(user_file.parent().unwrap()).unwrap();
+        let project = dir.path().to_string_lossy().into_owned();
+        std::fs::write(
+            &user_file,
+            serde_json::json!({
+                "mcpServers": { "user-server": { "command": "a" } },
+                "projects": { project: { "mcpServers": { "project-server": { "command": "b" } } } }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let servers = configured_mcp_servers(dir.path(), None, Some(&user_file));
+
+        let names: Vec<_> = servers.iter().map(|server| server.name.as_str()).collect();
+        assert_eq!(names, ["user-server", "project-server"]);
     }
 }

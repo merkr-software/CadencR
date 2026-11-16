@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo } from "react";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 import { useGetFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
@@ -16,9 +16,9 @@ import {
   type PendingPlanApproval,
 } from "@/stores/ws-session-store";
 import type { RuntimeSelection } from "@/shared/models";
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
-import type { PermissionDecisionValue } from "@/components/ToolPermissionPrompt";
-import type { AgentQuestion, AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
+import type { PendingPermission } from "@/types/agent-permission";
+import type { PermissionDecisionValue } from "@/types/agent-permission";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 import type { GateCloseReason, PromptDispatchOptions, SessionConfig } from "@/lib/ws-envelope";
 import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
 import type { LiveAgentStatus } from "@/types/agent";
@@ -27,11 +27,11 @@ import {
   createIdleTurnLifecycle,
   persistedSessionToLifecycle,
 } from "@/stores/ws-turn-lifecycle";
-import { createTurnTiming, type TurnTimingState } from "@/stores/ws-turn-timing";
+import { turnClockFromStatus, type TurnClock } from "@/lib/turn-clock";
+import type { SessionStatusEntry } from "@/stores/session-status-store";
 import { useSessionStatus } from "@/stores/session-status-selectors";
-import { liveStatusFromLifecycle } from "@/lib/agent-status";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import { parseAccessMode, type AccessMode } from "@/types/access-mode";
 import { parsePermissionMode } from "@/types/permission-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
@@ -49,7 +49,8 @@ export interface UseWebSocketSessionReturn {
   /** Rendered Virtuoso row count prepended by older-history pagination. */
   historyPrependDisplayOffset: number;
   lifecycle: TurnLifecycle;
-  turnTiming: TurnTimingState;
+  /** The running turn's clock, from the backend status book. */
+  turnClock: TurnClock | null;
   status: LiveAgentStatus;
   /** True while any backend-confirmed compaction is in progress.
    *  Manual compaction is driven by `compact.started`; runtime/auto compaction
@@ -72,6 +73,8 @@ export interface UseWebSocketSessionReturn {
   /** Resolves with the number of older blocks that were prepended. `displayMode`
    *  sizes the prepend to the rows actually rendered under summary/compact. */
   loadOlderMessages: (displayMode?: DisplayRowMode) => Promise<number>;
+  /** Loads one unloaded prompt and the start of its turn (message navigator). */
+  loadPromptTurn: (messageDbId: number, displayMode?: DisplayRowMode) => Promise<boolean>;
 
   permissionMode: PermissionMode;
   accessMode: AccessMode;
@@ -112,6 +115,8 @@ export interface UseWebSocketSessionReturn {
   ) => Promise<void>;
   setProvider: (providerId: string, modelId?: string) => void;
   sendPrompt: (text: string, options?: PromptDispatchOptions) => void;
+  /** `sendPrompt` that settles once the prompt is on the wire (see the store action). */
+  deliverPrompt: (text: string, options?: PromptDispatchOptions) => Promise<void>;
   respondToPermission: (
     requestId: string,
     decision: PermissionDecisionValue,
@@ -119,7 +124,6 @@ export interface UseWebSocketSessionReturn {
     optionId?: string,
   ) => void;
   interrupt: () => void;
-  destroy: () => void;
   clearSession: () => void;
   compactSession: () => void;
   initSession: (config: SessionConfig) => void;
@@ -132,11 +136,12 @@ interface UseWebSocketSessionOptions {
 type SessionActions = Pick<
   UseWebSocketSessionReturn,
   | "loadOlderMessages"
+  | "loadPromptTurn"
   | "sendPrompt"
+  | "deliverPrompt"
   | "respondToPermission"
   | "respondToQuestion"
   | "interrupt"
-  | "destroy"
   | "clearSession"
   | "compactSession"
   | "initSession"
@@ -173,7 +178,7 @@ export function useWebSocketSession(
   // on the frontend). Keyed by the DB session id, which the WS handler
   // populates on `session.connected` / persistedLoaded.
   const sessionDbId = session?.sessionDbId ?? null;
-  const liveStatus = useSessionStatus(sessionDbId)?.status ?? null;
+  const liveEntry = useSessionStatus(sessionDbId);
 
   useEffect(() => {
     const release = retainWsSession(sessionId);
@@ -183,7 +188,7 @@ export function useWebSocketSession(
 
   usePersistedSessionLoader(session, sessionId, featureId, options);
   const actions = useSessionActions(sessionId);
-  return useSessionSnapshot(session, sessionId, actions, liveStatus);
+  return useSessionSnapshot(session, sessionId, actions, liveEntry);
 }
 
 function usePersistedSessionLoader(
@@ -273,8 +278,12 @@ function useSessionActions(sessionId: string): SessionActions {
       // aligned and the scroll from jumping.
       loadOlderMessages: (displayMode?: DisplayRowMode): Promise<number> =>
         s.loadOlderMessages(sessionId, displayMode),
+      loadPromptTurn: (messageDbId: number, displayMode?: DisplayRowMode): Promise<boolean> =>
+        s.loadPromptTurn(sessionId, messageDbId, displayMode),
       sendPrompt: (text: string, options?: PromptDispatchOptions): void =>
         s.sendPrompt(sessionId, text, options),
+      deliverPrompt: (text: string, options?: PromptDispatchOptions): Promise<void> =>
+        s.deliverPrompt(sessionId, text, options),
       respondToPermission: (
         requestId: string,
         decision: PermissionDecisionValue,
@@ -284,7 +293,6 @@ function useSessionActions(sessionId: string): SessionActions {
       respondToQuestion: (response: AgentQuestionAnswers): void =>
         s.respondToQuestion(sessionId, response),
       interrupt: (): void => s.interrupt(sessionId),
-      destroy: (): void => s.destroy(sessionId),
       clearSession: (): void => s.clearSession(sessionId),
       compactSession: (): void => s.compactSession(sessionId),
       initSession: (config: SessionConfig): void => s.initSession(sessionId, config),
@@ -313,27 +321,25 @@ function useSessionSnapshot(
   session: SessionEntry | undefined,
   sessionId: string,
   actions: SessionActions,
-  liveStatus: LiveAgentStatus | null,
+  liveEntry: SessionStatusEntry | null,
 ): UseWebSocketSessionReturn {
   return useMemo<UseWebSocketSessionReturn>(() => {
     const lifecycle = session?.lifecycle ?? createIdleTurnLifecycle();
-    // Status is the backend-pushed value when available. Until the
-    // first `session_status.update` arrives (race during initial WS
-    // connect, or before `sessionDbId` is known), fall back to deriving
-    // from the local lifecycle so the UI doesn't blink to Idle on
-    // mount. Once the WS snapshot arrives, `liveStatus` wins forever —
-    // see `lib/agent-status.ts` for the canonical mapping.
-    const status: LiveAgentStatus = liveStatus ?? liveStatusFromLifecycle(lifecycle);
+    // Status comes only from the backend status book. Snapshots omit idle
+    // sessions, so an absent entry is idle; the local lifecycle is never a
+    // fallback (a persisted `paused` resting state would read as a question).
+    const status: LiveAgentStatus = liveEntry?.status ?? "idle";
     return {
       blocks: session?.blocks ?? [],
       rootBlocks: session?.rootBlocks ?? [],
       toolResultMap: session?.toolResultMap ?? new Map(),
       historyPrependDisplayOffset: session?.historyPrependDisplayOffset ?? 0,
       lifecycle,
-      turnTiming: session?.turnTiming ?? createTurnTiming(),
+      turnClock: turnClockFromStatus(liveEntry),
       status,
-      isCompacting:
-        (session?.pendingManualCompact ?? false) || (session?.runtimeCompacting ?? false),
+      // Compaction is backend status: every device reads the same flag, and
+      // a turn going idle clears it even for one that missed its end.
+      isCompacting: (session?.pendingManualCompact ?? false) || (liveEntry?.compacting ?? false),
       isConnected: session?.isConnected ?? false,
       sessionId,
       sessionDbId: session?.sessionDbId ?? null,
@@ -367,5 +373,5 @@ function useSessionSnapshot(
       hasFileChanges: session?.hasFileChanges ?? false,
       ...actions,
     };
-  }, [session, sessionId, actions, liveStatus]);
+  }, [session, sessionId, actions, liveEntry]);
 }

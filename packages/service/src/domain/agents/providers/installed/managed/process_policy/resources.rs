@@ -86,19 +86,31 @@ fn unavailable_platform_control() -> ManagedProcessControlOutcome {
     }
 }
 
+/// Apply the managed ceilings: CPU time when `cpu`, memory where the
+/// platform allows it.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(super) fn configure_resource_limits(
     command: &mut Command,
+    cpu: bool,
 ) -> Result<(), ManagedProcessPolicyError> {
     use std::os::unix::process::CommandExt;
 
-    let cpu = bounded_rlimit(libc::RLIMIT_CPU, MANAGED_CPU_TIME_SECONDS)?;
+    let cpu = cpu
+        .then(|| bounded_rlimit(libc::RLIMIT_CPU, MANAGED_CPU_TIME_SECONDS))
+        .transpose()?;
     #[cfg(target_os = "linux")]
     let memory = bounded_rlimit(libc::RLIMIT_AS, MANAGED_MEMORY_BYTES)?;
+    #[cfg(target_os = "macos")]
+    if cpu.is_none() {
+        // macOS rejects a child's RLIMIT_AS: nothing is left to apply.
+        return Ok(());
+    }
     unsafe {
         command.as_std_mut().pre_exec(move || {
-            if libc::setrlimit(libc::RLIMIT_CPU, &raw_rlimit(cpu)) != 0 {
-                return Err(std::io::Error::last_os_error());
+            if let Some(cpu) = cpu {
+                if libc::setrlimit(libc::RLIMIT_CPU, &raw_rlimit(cpu)) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             #[cfg(target_os = "linux")]
             if libc::setrlimit(libc::RLIMIT_AS, &raw_rlimit(memory)) != 0 {
@@ -113,6 +125,7 @@ pub(super) fn configure_resource_limits(
 #[cfg(windows)]
 pub(super) fn configure_resource_limits(
     _command: &mut Command,
+    _cpu: bool,
 ) -> Result<(), ManagedProcessPolicyError> {
     // The Job Object is attached around spawn by the ACP and one-shot reapers.
     Ok(())
@@ -121,6 +134,7 @@ pub(super) fn configure_resource_limits(
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub(super) fn configure_resource_limits(
     _command: &mut Command,
+    _cpu: bool,
 ) -> Result<(), ManagedProcessPolicyError> {
     Err(ManagedProcessPolicyError::new(
         ManagedProcessPolicyErrorCode::ResourceLimitUnavailable,

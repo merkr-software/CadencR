@@ -11,6 +11,7 @@ import {
 } from "./browser-dom";
 
 interface MockWebContents {
+  getURL: () => string;
   debugger: {
     isAttached: () => boolean;
     attach: ReturnType<typeof vi.fn>;
@@ -22,6 +23,7 @@ interface MockWebContents {
 
 function mockWebContents(overrides: Partial<MockWebContents> = {}): MockWebContents {
   return {
+    getURL: () => "http://localhost:3000/",
     debugger: {
       isAttached: () => true,
       attach: vi.fn(),

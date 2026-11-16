@@ -10,8 +10,8 @@ describe("browser-policy", () => {
   it.each([
     "http://localhost:5173",
     "https://localhost:3000/path",
-    "http://127.0.0.1:5005",
-    "http://[::1]:1420",
+    "http://127.0.0.1:3001",
+    "http://[::1]:3002",
   ])("allows localhost automation for %s", (url: string) => {
     expect(isLocalhostAutomationUrl(url)).toBe(true);
     expect(browserAutomationAccess(url)).toBe("full");

@@ -33,8 +33,9 @@ export function RemoteLanSection({ status }: { status: RemoteStatus }): ReactEle
           <p className="flex items-start gap-1.5">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-green)]" aria-hidden />
             <span>
-              The first visit shows a certificate warning — that's expected for a self-signed
-              certificate. Before trusting it, confirm this fingerprint matches:
+              For LAN access, compare this SHA-256 fingerprint with the certificate shown by the
+              other device's browser before accepting its warning. The pairing section above
+              requires that comparison before showing a code:
             </span>
           </p>
           <div className="mt-1.5 flex items-center justify-between gap-2">

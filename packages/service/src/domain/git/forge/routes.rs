@@ -12,7 +12,7 @@ use super::poller::refresh_all;
 use super::provider::{
     FeaturePrParams, ForgeAuthContext, ForgeAuthSource, ForgeAuthStatus, ForgeCredentials,
     ForgeHostConfig, ForgeTokenDeleteParams, ForgeTokenDeleteResponse, ForgeTokenRequest,
-    PrCommentsResponse, PrStatusSnapshot,
+    PrCommentsParams, PrCommentsResponse, PrStatusSnapshot, PrSummary,
 };
 use super::repository::{detected_project_remotes, feature_forge_context};
 use super::{api_base_url, effective_kind, provider_for};
@@ -54,7 +54,7 @@ pub async fn put_forge_token_handler(
     State(state): State<AppState>,
     Json(body): Json<ForgeTokenRequest>,
 ) -> Result<Json<ForgeAuthStatus>, AppError> {
-    let hostname = normalize_hostname(&body.hostname).map_err(forge_to_app_error)?;
+    let hostname = normalize_hostname(&body.hostname).map_err(|error| forge_to_app_error(error))?;
     let config = ForgeHostConfig {
         kind: body.kind,
         api_base_url: normalized_optional(body.api_base_url),
@@ -62,7 +62,7 @@ pub async fn put_forge_token_handler(
         username: normalized_optional(body.username),
     };
     let api_base_url = api_base_url(&hostname, body.kind, Some(&config))
-        .map_err(forge_to_app_error)?
+        .map_err(|error| forge_to_app_error(error))?
         .ok_or_else(|| AppError::BadRequest("An API base URL is required for this forge".into()))?;
     let provider = provider_for(body.kind).ok_or_else(|| {
         AppError::BadRequest("Choose GitHub, GitLab, or Bitbucket as the forge kind".into())
@@ -76,7 +76,7 @@ pub async fn put_forge_token_handler(
     } else {
         resolve_credentials(&state.forge_auth, &hostname, body.kind, Some(&config))
             .await
-            .map_err(forge_to_app_error)?
+            .map_err(|error| forge_to_app_error(error))?
             .ok_or_else(|| {
                 AppError::BadRequest("Enter an API token or enable CLI token reuse".into())
             })?
@@ -89,13 +89,13 @@ pub async fn put_forge_token_handler(
     let user = provider
         .validate_token(&context)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     if credentials.source == ForgeAuthSource::Stored {
         state
             .forge_auth
             .save(&hostname, &credentials.token, credentials.username.clone())
             .await
-            .map_err(forge_to_app_error)?;
+            .map_err(|error| forge_to_app_error(error))?;
     }
     save_host_config(&hostname, config.clone()).await?;
     let refresh_error = refresh_all(&state)
@@ -123,12 +123,13 @@ pub async fn delete_forge_token_handler(
     State(state): State<AppState>,
     Query(params): Query<ForgeTokenDeleteParams>,
 ) -> Result<Json<ForgeTokenDeleteResponse>, AppError> {
-    let hostname = normalize_hostname(&params.hostname).map_err(forge_to_app_error)?;
+    let hostname =
+        normalize_hostname(&params.hostname).map_err(|error| forge_to_app_error(error))?;
     let deleted = state
         .forge_auth
         .delete(&hostname)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     let mut configs = host_configs()?;
     let cli_auth_disabled = disable_cli_auth(configs.get_mut(&hostname));
     if cli_auth_disabled {
@@ -168,10 +169,10 @@ pub async fn get_pr_handler(
         .ok_or_else(|| AppError::NotFound(format!("Feature not found: {}", params.feature_id)))
 }
 
-#[utoipa::path(get, path = "/api/git/pr/comments", params(FeaturePrParams), responses((status = 200, body = PrCommentsResponse)))]
+#[utoipa::path(get, path = "/api/git/pr/comments", params(PrCommentsParams), responses((status = 200, body = PrCommentsResponse)))]
 pub async fn get_pr_comments_handler(
     State(state): State<AppState>,
-    Query(params): Query<FeaturePrParams>,
+    Query(params): Query<PrCommentsParams>,
 ) -> Result<Json<PrCommentsResponse>, AppError> {
     refresh_if_stale(&state, params.feature_id).await?;
     let Some(status) = state.forge_status.get(params.feature_id).await else {
@@ -180,7 +181,7 @@ pub async fn get_pr_comments_handler(
             params.feature_id
         )));
     };
-    let Some(pr) = status.pr else {
+    let Some(pr_number) = requested_pr_number(&status, params.pr_number)? else {
         return Ok(Json(PrCommentsResponse {
             feature_id: params.feature_id,
             threads: Vec::new(),
@@ -190,14 +191,46 @@ pub async fn get_pr_comments_handler(
     let forge = feature_forge_context(&state, params.feature_id).await?;
     let threads = forge
         .provider
-        .comments(&forge.context, pr.number)
+        .comments(&forge.context, pr_number)
         .await
-        .map_err(forge_to_app_error)?;
+        .map_err(|error| forge_to_app_error(error))?;
     Ok(Json(PrCommentsResponse {
         feature_id: params.feature_id,
         threads,
         fetched_at: chrono::Utc::now().timestamp_millis(),
     }))
+}
+
+/// The proposal whose comments to read: the requested one when it belongs to
+/// the conversation, else the current branch's.
+fn requested_pr_number(
+    status: &PrStatusSnapshot,
+    requested: Option<u64>,
+) -> Result<Option<u64>, AppError> {
+    let Some(requested) = requested else {
+        return Ok(status.pr.as_ref().map(|pr| pr.number));
+    };
+    conversation_pr(status, requested).map(|pr| Some(pr.number))
+}
+
+/// One of the conversation's own proposals. The forge snapshot is what vouches
+/// for them, so a request can never read or act on an arbitrary number in the
+/// repository.
+pub(super) fn conversation_pr(
+    status: &PrStatusSnapshot,
+    pr_number: u64,
+) -> Result<PrSummary, AppError> {
+    status
+        .pr
+        .iter()
+        .chain(status.other_prs.iter().map(|other| &other.pr))
+        .find(|pr| pr.number == pr_number)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "#{pr_number} is not one of this conversation's pull requests"
+            ))
+        })
 }
 
 pub fn forge_router() -> Router<AppState> {
@@ -214,12 +247,17 @@ pub fn forge_router() -> Router<AppState> {
         .route("/api/git/pr", get(get_pr_handler))
         .route("/api/git/pr/comments", get(get_pr_comments_handler))
         .route(
+            "/api/git/pr/lookup",
+            get(super::pr_lookup::lookup_feature_repo_pr),
+        )
+        .merge(super::merge_routes::merge_router())
+        .route(
             "/api/git/forge/image",
             get(super::image_routes::get_forge_image_handler),
         )
 }
 
-async fn refresh_if_stale(state: &AppState, feature_id: i64) -> Result<(), AppError> {
+pub(super) async fn refresh_if_stale(state: &AppState, feature_id: i64) -> Result<(), AppError> {
     let stale = state
         .forge_status
         .get(feature_id)
@@ -323,11 +361,60 @@ fn disable_cli_auth(config: Option<&mut ForgeHostConfig>) -> bool {
     true
 }
 
+fn cli_auth_available(kind: GitHost) -> bool {
+    matches!(kind, GitHost::GitHub | GitHost::GitLab)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{disable_cli_auth, has_stored_credentials};
-    use crate::domain::git::forge::provider::{ForgeAuthSource, ForgeCredentials, ForgeHostConfig};
+    use super::{conversation_pr, disable_cli_auth, has_stored_credentials, requested_pr_number};
+    use crate::domain::git::forge::provider::{
+        ForgeAuthSource, ForgeCredentials, ForgeHostConfig, ForgeUser, PrState, PrStatusSnapshot,
+        PrSummary, ReviewState,
+    };
+    use crate::domain::git::forge::BranchPr;
     use crate::domain::git::host::GitHost;
+
+    fn summary(number: u64) -> PrSummary {
+        PrSummary {
+            author: ForgeUser {
+                username: "author".into(),
+                display_name: None,
+                avatar_url: None,
+            },
+            body_markdown: String::new(),
+            head_sha: "abc".into(),
+            number,
+            pr_label: "Pull request".into(),
+            review_state: ReviewState::None,
+            source_branch: "fix/b".into(),
+            state: PrState::Open,
+            target_branch: "main".into(),
+            title: "Proposal".into(),
+            updated_at: "2026-10-16T00:00:00Z".into(),
+            url: "https://example.test/pr".into(),
+        }
+    }
+
+    #[test]
+    fn comments_are_read_only_for_the_conversations_own_proposals() {
+        let mut status = PrStatusSnapshot::unpolled(1, None, false);
+        assert_eq!(requested_pr_number(&status, None).unwrap(), None);
+
+        status.pr = Some(summary(12));
+        status.other_prs = vec![BranchPr {
+            branch: "feature/a".into(),
+            pr: summary(10),
+            ci: None,
+            unresolved_threads: None,
+        }];
+        assert_eq!(requested_pr_number(&status, None).unwrap(), Some(12));
+        assert_eq!(requested_pr_number(&status, Some(10)).unwrap(), Some(10));
+        assert!(requested_pr_number(&status, Some(99)).is_err());
+        // The merge endpoints act through the same gate.
+        assert_eq!(conversation_pr(&status, 10).unwrap().number, 10);
+        assert!(conversation_pr(&status, 99).is_err());
+    }
 
     fn credentials(source: ForgeAuthSource) -> ForgeCredentials {
         ForgeCredentials {
@@ -361,8 +448,4 @@ mod tests {
         assert!(!disable_cli_auth(Some(&mut config)));
         assert!(!disable_cli_auth(None));
     }
-}
-
-fn cli_auth_available(kind: GitHost) -> bool {
-    matches!(kind, GitHost::GitHub | GitHost::GitLab)
 }

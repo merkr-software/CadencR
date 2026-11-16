@@ -57,10 +57,10 @@ describe("scrollbar CSS", () => {
     expect(cadencrMaterialCss).toContain('[data-has-floating-pane="true"]');
   });
 
-  it("reserves end padding on floating-pane tabs for the dock-close control", () => {
-    expect(chromeCss).toMatch(
-      /\[data-pane-frame="floating"\]\s*\[data-pane-tab-strip\]\s*\[data-slot="tabs-trigger"\]\s*{[^}]*padding-inline-end:\s*2rem;/s,
-    );
+  it("reserves end padding on floating-pane and closable tabs for their close control", () => {
+    const rule =
+      /\[data-pane-frame="floating"\]\s*\[data-pane-tab-strip\]\s*\[data-slot="tabs-trigger"\],\s*:root\[data-tabs="segmented"\]\s*\[data-pane-tab-strip\]\s*\[data-slot="tabs-trigger"\]\[data-tab-closable\]\s*{[^}]*padding-inline-end:\s*2rem;/s;
+    expect(chromeCss).toMatch(rule);
   });
 
   it("keys the chrome layer on the theme's declared shape, never on a theme id", () => {
@@ -104,7 +104,8 @@ describe("scrollbar CSS", () => {
     // an accent it never asked for. This is also the regression: an agent asked
     // to recolor one theme's tabs edited these fallbacks instead, which is a
     // change to every theme at once and one no installed Cadencr can receive.
-    for (const key of THEME_OPTIONAL_TOKEN_KEYS) {
+    // `--chart-6` is the optional palette slot, not chrome: the marketplace reads it.
+    for (const key of THEME_OPTIONAL_TOKEN_KEYS.filter((token) => token !== "--chart-6")) {
       expect(chromeCss, `${key} must be a token a theme can set`).toMatch(
         new RegExp(`var\\(\\s*${key}\\s*,`),
       );
@@ -115,6 +116,23 @@ describe("scrollbar CSS", () => {
       expect(fallback).toContain("var(--foreground)");
       expect(fallback).toContain("var(--background)");
       expect(fallback).not.toContain("var(--primary)");
+    }
+  });
+
+  it("never sets an optional token on bare :root, where every other theme would inherit it", () => {
+    // A theme that leaves an optional token out must reach its fallback, so
+    // first-party values sit on theme-specific selectors only.
+    const blocks = [themeCss, cadencrCss].flatMap((css) =>
+      [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, selector]) =>
+        // The capture starts after the previous rule, comments included.
+        selector.split(",").some((part) => part.trim().split(/\s+/).pop() === ":root"),
+      ),
+    );
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const [, , body] of blocks) {
+      for (const key of THEME_OPTIONAL_TOKEN_KEYS) {
+        expect(body, `${key} on bare :root`).not.toMatch(new RegExp(`${key}\\s*:`));
+      }
     }
   });
 

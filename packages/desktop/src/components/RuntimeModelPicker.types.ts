@@ -10,6 +10,8 @@ export interface RuntimeModelPickerProvider {
   disabled: boolean;
   status?: "available" | "unavailable" | "coming_soon";
   statusMessage?: string;
+  /** Set when `models` is the last known catalog because refreshing it failed; says why. */
+  refreshError?: string;
   models: RuntimeModelPickerModel[];
 }
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSidebarProjectOrderStore } from "./sidebar-project-order-store";
 
-function order(): number[] | null {
+function order(): readonly number[] | null {
   return useSidebarProjectOrderStore.getState().order;
 }
 

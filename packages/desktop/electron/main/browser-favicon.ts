@@ -1,5 +1,6 @@
 import type { Session } from "electron";
 import { isHttpBrowserUrl } from "../../src/shared/browser-url";
+import { declaredTooLarge, readBounded } from "./bounded-body";
 
 // Keeps the resulting base64 data URL below the renderer's 256 KiB limit.
 export const MAX_FAVICON_BYTES = 190 * 1024;
@@ -40,10 +41,10 @@ export async function faviconDataUrl(
     }
     const mimeType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
     if (!mimeType || !ALLOWED_MIME_TYPES.has(mimeType)) return cancelResponse(response);
-    if (declaredTooLarge(response.headers.get("content-length"))) {
+    if (declaredTooLarge(response.headers.get("content-length"), MAX_FAVICON_BYTES)) {
       return cancelResponse(response);
     }
-    const bytes = await readBounded(response.body);
+    const bytes = await readBounded(response.body, MAX_FAVICON_BYTES);
     if (!bytes || bytes.byteLength === 0) return null;
     if (mimeType === SVG_MIME_TYPE) {
       return rasterizeSvg ? await rasterizeSvg(bytes, controller.signal) : null;
@@ -58,36 +59,4 @@ export async function faviconDataUrl(
 async function cancelResponse(response: Response): Promise<null> {
   await response.body?.cancel();
   return null;
-}
-
-function declaredTooLarge(rawLength: string | null): boolean {
-  if (!rawLength) return false;
-  const length = Number(rawLength);
-  return Number.isFinite(length) && length > MAX_FAVICON_BYTES;
-}
-
-async function readBounded(
-  body: ReadableStream<Uint8Array<ArrayBuffer>> | null,
-): Promise<Uint8Array<ArrayBuffer> | null> {
-  if (!body) return null;
-  const reader = body.getReader();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_FAVICON_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
 }

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "legacy_source_commit": "60f3ae9e8bfe249ddec37a183f64e4f86b7ae716",
+  "capture": "One-time Node v22.19.0 invocations of unchanged legacy modules; not Rust-generated expectations. Snapshot signing used existing synthetic test seed 0x07 only in temporary capture process; no private key output persisted.",
+  "legacy_source_sha256": {
+    "tooling/marketplace-registry/scripts/publication/discovery-location.mjs": "cb85b59c93ca4348de8db2ca805a3a88351634533cb6e307cb68015eb686f0b3",
+    "tooling/marketplace-registry/scripts/publication/snapshot.mjs": "315f0b184a8ea63c3bed66fd3205d8a2376acd3eef1dde6582eeb68fb4a539cf",
+    "tooling/marketplace-registry/scripts/publication/signing.mjs": "7cd0db05182cd88a23f667ef6c1811e467dc6fafe6631da24218eaa3b39f21f7",
+    "tooling/marketplace-registry/scripts/lib.mjs": "77ade63a7e1fd43820385cca7143b670bb7a824bc650be31732560c67dd09f19"
+  },
+  "output_sha256": {
+    "discovery.json": "c2d3fbfb91bd7a46788ac2ad4ad045dfa77e038f5105c232ec2ee84356ea23ec",
+    "snapshot-candidate.json": "5abec1a8313b96c8c9071606f9a011d87ba0e710e045582becac98e05e294b41",
+    "snapshot-public.pem": "5cc558a6d81dbb983bb823d90d832fe06569c2cd75488b299986fc36b3d5306f",
+    "snapshot.json": "afb8fc42549b0e22f7162945f80ba117d91dfae80e3bf7a79d19886632bb42ba",
+    "snapshot-previous.base64": "e8530896432d1958def426d980935d38910f6d5f7f2c3e0d8e082bd619364193"
+  },
+  "cases": {
+    "discovery.json": {
+      "module": "publication/discovery-location.mjs",
+      "repository": "cadencr/registry",
+      "branch": "catalog",
+      "raw_digest_input": "{ \"z\": 1, \"a\": {\"y\":2,\"b\":3} }"
+    },
+    "snapshot.json": {
+      "module": "publication/snapshot.mjs",
+      "inputs": [
+        "snapshot-candidate.json",
+        "snapshot-previous.base64",
+        "snapshot-public.pem"
+      ],
+      "repository": "cadencr/registry",
+      "registry_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key_id": "release-2026",
+      "now": "2026-01-01T00:02:00Z",
+      "capture": "Legacy signIndexPayload with explicit now generated documents from existing example-provider fixture versions 0.0.1 and 0.1.0; previous has trailing newline plus one ASCII space. Candidate generated 2026-01-01T00:01:00Z; previous generated 2026-01-01T00:00:00Z; both expire 2026-01-02T00:00:00Z. Legacy prepareCatalogSnapshot output projection records exact envelope base64, digest, tag, release body, URL and raw previous SHA256. Rust verifies both signatures and continuity at explicit frozen clock before pure assembly; current-time freshness and negatives remain separate.",
+      "previous_input_encoding": {
+        "file": "snapshot-previous.base64",
+        "encoding": "base64 text with one final LF; decode without modifying resulting bytes",
+        "decoded_sha256": "502d63fad95ec4c208de74dae6643f62ed4acdc32ab227ebe7c00d084ebaee81",
+        "decoded_size": 920,
+        "decoded_suffix_hex": "0a20",
+        "note": "Original exact legacy previous-index bytes end in LF plus one ASCII space. Encoded to avoid intentional fixture padding triggering Git whitespace checks. Encoded-file SHA256 is listed in output_sha256."
+      }
+    }
+  }
+}

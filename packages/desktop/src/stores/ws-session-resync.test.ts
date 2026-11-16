@@ -1,5 +1,6 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { repairPersistedBlocksAfterTurn, resyncMessagesOnReconnect } from "./ws-session-resync";
 import type { StoreAccessors } from "./ws-envelope-handler";
@@ -10,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", () => ({
   getFeatureAgentState: apiMocks.getFeatureAgentState,
+  getListFeatureSubagentsQueryKey: (featureId: number) => [`/api/features/${featureId}/subagents`],
 }));
 
 vi.mock("@/hooks/useFeatureAgentState", () => ({
@@ -27,6 +29,7 @@ function createCtx(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>) => {
       state = { ...state, ...partial } as WsSessionStore;
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string) => state.sessions[sessionId],
   };
 }
@@ -73,6 +76,52 @@ describe("resyncMessagesOnReconnect", () => {
     expect(session.blocks.map((b) => b.id)).toEqual(["msg-10", "msg-11", "msg-12"]);
     expect(session.lastAppliedMessageId).toBe(12);
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, afterCursor(10, 7));
+  });
+
+  it("drops the stale reconnect notice once the server reports a restart", async () => {
+    const notice: AgentBlockData = {
+      id: "ws-err-close-1",
+      type: "error",
+      content: "Connection lost while streaming. Reconnecting…",
+      errorCode: "WS_RECONNECTING",
+    };
+    const ctx = createCtx(createSession([makeBlock("msg-10", "working"), notice], 10));
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 2586,
+          blocks: [{ id: "msg-11", type: "turn_interrupted", content: "restart" }],
+          maxMessageId: 11,
+        },
+      ],
+    });
+
+    await resyncMessagesOnReconnect(ctx, "s1");
+
+    expect(ctx.get().sessions.s1.blocks.map((b) => b.id)).toEqual(["msg-10", "msg-11"]);
+  });
+
+  it("keeps the reconnect notice when the catch-up says nothing about a restart", async () => {
+    const notice: AgentBlockData = {
+      id: "ws-err-close-1",
+      type: "error",
+      content: "Connection lost while streaming. Reconnecting…",
+      errorCode: "WS_RECONNECTING",
+    };
+    const ctx = createCtx(createSession([makeBlock("msg-10", "working"), notice], 10));
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 2586,
+          blocks: [{ id: "msg-11", type: "turn_interrupted", content: "" }],
+          maxMessageId: 11,
+        },
+      ],
+    });
+
+    await resyncMessagesOnReconnect(ctx, "s1");
+
+    expect(ctx.get().sessions.s1.blocks.map((b) => b.id)).toContain("ws-err-close-1");
   });
 
   it("de-dupes messages already received live while using the snapshot cursor", async () => {

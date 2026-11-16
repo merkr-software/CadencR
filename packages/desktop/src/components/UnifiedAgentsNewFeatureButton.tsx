@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 
 interface UnifiedAgentsNewFeatureButtonProps {
   projects: Project[];
@@ -35,6 +36,7 @@ export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatu
   projects,
 }: UnifiedAgentsNewFeatureButtonProps): ReactElement {
   const [open, setOpen] = useState(false);
+  const newFeatureKeys = useShortcutKeys("agents-new-feature");
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -75,13 +77,13 @@ export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatu
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <ShortcutTooltip label="New session" keys={["cmd", "shift", "N"]} alignRight disabled={open}>
+      <ShortcutTooltip label="New session" keys={newFeatureKeys} alignRight disabled={open}>
         <PopoverTrigger asChild>
           <Button
             type="button"
             variant="default"
             size="sm"
-            className="h-9 gap-1.5 rounded-lg border border-border/80 px-3 text-xs"
+            className="titlebar-no-drag h-9 gap-1.5 rounded-lg px-3 text-xs"
             aria-label="New session"
           >
             <PlusIcon className="size-3.5" />

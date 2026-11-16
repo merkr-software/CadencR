@@ -31,7 +31,8 @@ pub enum AcpServerRequest {
         id: Value,
         method: String,
         raw: Value,
-        typed: Option<AgentRequest>,
+        /// Boxed: the parsed schema type dwarfs the rest of the request.
+        typed: Option<Box<AgentRequest>>,
     },
     Extension {
         id: Value,
@@ -60,7 +61,9 @@ impl AcpServerRequest {
     pub fn from_parts(id: Value, method: String, params: Value) -> Self {
         match method.as_str() {
             "session/request_permission" | "fs/read_text_file" | "fs/write_text_file" => {
-                let typed = AgentRequest::parse_message(&method, &params).ok();
+                let typed = AgentRequest::parse_message(&method, &params)
+                    .ok()
+                    .map(Box::new);
                 Self::Known {
                     id,
                     method,
@@ -173,7 +176,7 @@ mod tests {
         };
         assert_eq!(raw["path"], "/tmp/file.txt");
         assert!(matches!(
-            typed.unwrap(),
+            *typed.unwrap(),
             AgentRequest::ReadTextFileRequest(_)
         ));
     }

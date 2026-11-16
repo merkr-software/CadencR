@@ -17,6 +17,10 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static TASKS: LazyLock<Mutex<HashMap<u64, JoinHandle<()>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+#[cfg(test)]
+// Every unit test registering or flushing pending writes must hold this lock.
+pub(super) static TEST_TASKS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn tasks() -> std::sync::MutexGuard<'static, HashMap<u64, JoinHandle<()>>> {
     TASKS
         .lock()
@@ -132,6 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_waits_for_a_detached_write() {
+        let _guard = TEST_TASKS_LOCK.lock().await;
         let pool = pool().await;
         let (started_tx, started_rx) = oneshot::channel();
         let (release_tx, release_rx) = oneshot::channel();
@@ -144,9 +149,16 @@ mod tests {
         }));
         started_rx.await.unwrap();
         caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        let flushing = flush(&pool);
+        tokio::pin!(flushing);
+        tokio::select! {
+            biased;
+            () = &mut flushing => panic!("flush finished while its write was blocked"),
+            () = tokio::task::yield_now() => {}
+        }
         release_tx.send(()).unwrap();
-
-        flush(&pool).await;
+        flushing.await;
 
         assert!(landed.load(Ordering::SeqCst));
         assert_eq!(persisted(&pool).await, 0);
@@ -154,6 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn timed_out_write_is_cancelled_before_loss_is_persisted() {
+        let _guard = TEST_TASKS_LOCK.lock().await;
         let pool = pool().await;
         let (started_tx, started_rx) = oneshot::channel();
         let landed = Arc::new(AtomicBool::new(false));
@@ -165,6 +178,7 @@ mod tests {
         }));
         started_rx.await.unwrap();
         caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
 
         flush_within(&pool, Duration::from_millis(1)).await;
 

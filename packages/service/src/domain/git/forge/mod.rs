@@ -7,16 +7,21 @@ mod github_repository;
 mod gitlab;
 mod http;
 pub mod image_routes;
+pub mod merge_routes;
+pub mod merging;
 mod poller;
+pub mod pr_lookup;
 mod provider;
 mod repository;
 pub mod routes;
+mod snapshot;
 
 pub use activity::ForgeActivityTracker;
+pub(crate) use auth::{forge_to_app_error, host_configs, resolve_credentials};
 pub use auth::{ForgeAuthStore, FORGE_HOSTS_SETTING};
 pub use cache::ForgeStatusCache;
 pub use http::ForgeHttp;
-pub use poller::spawn;
+pub use poller::{request_refresh, spawn};
 pub use provider::*;
 
 use crate::domain::git::host::GitHost;
@@ -184,16 +189,20 @@ pub(crate) mod test_support {
     use crate::domain::git::host::{GitHost, RemoteInfo};
 
     pub async fn json_fixture_server(routes: HashMap<String, Value>) -> String {
+        /// A route recorded as JSON `null` answers `404`, for lookups where
+        /// "not found" is itself the answer.
         async fn fixture(
             State(routes): State<Arc<HashMap<String, Value>>>,
             OriginalUri(uri): OriginalUri,
-        ) -> Json<Value> {
-            Json(
-                routes
-                    .get(uri.path())
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({ "error": "fixture route missing" })),
-            )
+        ) -> axum::response::Response {
+            use axum::response::IntoResponse;
+            match routes.get(uri.path()) {
+                Some(Value::Null) => axum::http::StatusCode::NOT_FOUND.into_response(),
+                Some(value) => Json(value.clone()).into_response(),
+                None => {
+                    Json(serde_json::json!({ "error": "fixture route missing" })).into_response()
+                }
+            }
         }
 
         let app = Router::new()

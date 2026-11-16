@@ -1,285 +1,170 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle2, Loader2, QrCode, RefreshCw } from "lucide-react";
-import { remotePairingCode, type PairingCodeResponse } from "@/api/generated";
-import { isPairingCodeResponse } from "@/lib/remote/validate";
-import { cn } from "@/lib/utils";
-import { useRemoteStore } from "@/stores/remote-store";
+import { useState, type FormEvent, type ReactElement } from "react";
+import type { RemoteStatus } from "@/api/generated";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CopyIconButton, SectionHeading } from "./remote-ui";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { RemotePairingCode } from "./RemotePairingCode";
 
-// While a live code is on screen, re-poll status so we notice the moment a
-// device pairs with it (the code is single-use, so the QR is then dead).
-const USED_POLL_MS = 3000;
+interface PairTarget {
+  origin: string;
+  tunnel: boolean;
+}
 
-/**
- * Mint a short-lived, single-use pairing code and present it as a QR + link.
- * The QR encodes the connect URL (which carries the code) — never a device
- * token. The host offers every reachable address (each LAN interface, plus the
- * tunnel host when configured); the user picks which one the QR points at. The
- * code is held only in this component's state and expires on a countdown, after
- * which the QR is cleared so it can't be scanned stale. Whether the paired
- * device stays signed in is decided on that device, not here.
- */
-export function RemotePairSection(): ReactElement {
-  const [code, setCode] = useState<PairingCodeResponse | null>(null);
-  const [minting, setMinting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [remaining, setRemaining] = useState(0);
-  const [selected, setSelected] = useState(0);
-  const [used, setUsed] = useState(false);
-  const autoMinted = useRef(false);
-  // Guards the consumed signal against a stale status snapshot left over from a
-  // *previous* code: we only trust "consumed" once we've seen this code reported
-  // "pending" at least once. Reset on every mint.
-  const sawPending = useRef(false);
-
-  const refresh = useRemoteStore((s) => s.refresh);
-  const pairingState = useRemoteStore((s) => s.status?.pairing_state);
-
-  const mint = async (): Promise<void> => {
-    setMinting(true);
-    setError(null);
-    setUsed(false);
-    sawPending.current = false;
+function pairingTargets(status: RemoteStatus): PairTarget[] {
+  const httpsOrigin = (value: string): string | null => {
     try {
-      const result = await remotePairingCode();
-      if (!isPairingCodeResponse(result)) throw new Error("Malformed pairing-code response.");
-      setCode(result);
-      setSelected(0);
-      setRemaining(result.expires_in_secs);
-      // Pull status now so the store reflects this fresh code as "pending"
-      // promptly (the 3s poll alone could otherwise miss it before a fast scan).
-      void refresh();
-    } catch (err) {
-      setError(apiErrorMessage(err, "Could not create a pairing code."));
-      setCode(null);
-    } finally {
-      setMinting(false);
+      const url = new URL(value);
+      return url.protocol === "https:" && !url.username && !url.password ? url.origin : null;
+    } catch {
+      return null;
     }
   };
+  const tunnelOrigin = status.tunnel_host ? httpsOrigin(`https://${status.tunnel_host}`) : null;
+  const lanOrigins = status.lan_urls
+    .map(httpsOrigin)
+    .filter((origin): origin is string => origin !== null);
+  const origins = [...(tunnelOrigin ? [tunnelOrigin] : []), ...lanOrigins];
+  return [...new Set(origins)].map((origin) => ({
+    origin,
+    // Naming an existing LAN endpoint as a tunnel must not bypass its comparison.
+    tunnel: origin === tunnelOrigin && !lanOrigins.includes(origin),
+  }));
+}
 
-  // Pairing is the dialog's primary action, so mint a code on mount and show
-  // the QR straight away — no extra click. The ref guards against React Strict
-  // Mode's double-invoke (which would otherwise burn a second single-use code).
-  useEffect(() => {
-    if (autoMinted.current) return;
-    autoMinted.current = true;
-    void mint();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
-  }, []);
-
-  // Tick the countdown; drop the code at zero so a stale QR can't be scanned.
-  useEffect(() => {
-    if (!code) return;
-    if (remaining <= 0) {
-      setCode(null);
-      return;
-    }
-    const timer = setTimeout(() => setRemaining((s) => s - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [code, remaining]);
-
-  // Poll status while a live code is shown so we can detect it being consumed.
-  useEffect(() => {
-    if (!code || used) return;
-    const id = setInterval(() => void refresh(), USED_POLL_MS);
-    return () => clearInterval(id);
-  }, [code, used, refresh]);
-
-  // The host reports the current code's lifecycle directly. Once we've observed
-  // it "pending" (so we're not reacting to a prior code's leftover state), a
-  // "consumed" report means this single-use code was just used: retire the QR.
-  useEffect(() => {
-    if (!code || used) return;
-    if (pairingState === "pending") sawPending.current = true;
-    else if (pairingState === "consumed" && sawPending.current) setUsed(true);
-  }, [code, used, pairingState]);
-
+/** Never create or display a LAN pairing secret before the browser certificate is compared. */
+export function RemotePairSection({ status }: { status: RemoteStatus }): ReactElement {
+  const targets = pairingTargets(status);
+  const [selected, setSelected] = useState("");
+  const target = targets.find((entry) => entry.origin === selected) ?? targets[0];
   return (
-    <section className="space-y-2">
+    <section className="space-y-3">
       <SectionHeading>Pair a new device</SectionHeading>
-      {used ? (
-        <UsedNotice minting={minting} onRegenerate={() => void mint()} />
-      ) : code ? (
-        <PairingCodeView
-          urls={code.urls}
-          selected={selected}
-          onSelect={setSelected}
-          remaining={remaining}
-          onRegenerate={() => void mint()}
-          minting={minting}
+      <p className="text-xs text-muted-foreground">
+        Recommended: use a private Tailscale connection with a browser-trusted certificate. For a
+        LAN connection, compare its certificate before sharing a pairing code.
+      </p>
+      {targets.length > 1 ? (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Connection address">
+          {targets.map((entry) => (
+            <Button
+              key={entry.origin}
+              type="button"
+              size="sm"
+              variant={entry === target ? "default" : "outline"}
+              aria-pressed={entry === target}
+              onClick={() => setSelected(entry.origin)}
+            >
+              {new URL(entry.origin).host}
+              {entry.tunnel ? " · Private tunnel" : " · LAN"}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      {target ? (
+        <PairTargetGate
+          key={`${target.origin}|${status.fingerprint ?? ""}`}
+          target={target}
+          fingerprint={status.fingerprint ?? null}
         />
       ) : (
-        <GeneratePrompt minting={minting} error={error} onGenerate={() => void mint()} />
+        <p className="text-xs text-muted-foreground">
+          Connect to a network or configure a private tunnel to pair a device.
+        </p>
       )}
     </section>
   );
 }
 
-/**
- * Shown after a code is consumed. The code is single-use by design, so rather
- * than silently leaving a dead QR up (which would just fail on the next device),
- * we say so and require an explicit click to mint a fresh one — no auto-regen.
- */
-function UsedNotice({
-  minting,
-  onRegenerate,
+function PairTargetGate({
+  target,
+  fingerprint,
 }: {
-  minting: boolean;
-  onRegenerate: () => void;
+  target: PairTarget;
+  fingerprint: string | null;
 }): ReactElement {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-start gap-1.5 rounded border border-border bg-card px-2.5 py-2 text-xs text-muted-foreground">
-        <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-green)]" aria-hidden />
-        <span>
-          This code paired a device and is now used up. Each code works once — generate a new one to
-          pair another device.
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={onRegenerate}
-        disabled={minting}
-        className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        {minting ? (
-          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        ) : (
-          <QrCode className="size-3.5" aria-hidden />
-        )}
-        Generate a new code
-      </button>
-    </div>
-  );
-}
-
-function GeneratePrompt({
-  minting,
-  error,
-  onGenerate,
-}: {
-  minting: boolean;
-  error: string | null;
-  onGenerate: () => void;
-}): ReactElement {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        Generate a code, then scan the QR or open the link on the other device. The code is
-        single-use and expires shortly.
-      </p>
-      <button
-        type="button"
-        onClick={onGenerate}
-        disabled={minting}
-        className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        {minting ? (
-          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        ) : (
-          <QrCode className="size-3.5" aria-hidden />
-        )}
-        Generate pairing code
-      </button>
-      {error ? <p className="text-xs text-[var(--acc-red)]">{error}</p> : null}
-    </div>
-  );
-}
-
-function PairingCodeView({
-  urls,
-  selected,
-  onSelect,
-  remaining,
-  onRegenerate,
-  minting,
-}: {
-  urls: string[];
-  selected: number;
-  onSelect: (index: number) => void;
-  remaining: number;
-  onRegenerate: () => void;
-  minting: boolean;
-}): ReactElement {
-  const url = urls[selected] ?? urls[0] ?? "";
-  if (!url) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        No reachable network address was detected. Connect this machine to a network — or set a
-        tunnel hostname below — then generate a new code.
-      </p>
-    );
+  const [verified, setVerified] = useState(false);
+  if (target.tunnel) {
+    return <RemotePairingCode origin={target.origin} fingerprint={null} />;
   }
+  if (verified) return <RemotePairingCode origin={target.origin} fingerprint={fingerprint} />;
   return (
-    <div className="flex flex-col items-center gap-3">
-      {/* The QR is the primary action — large and centered. White plate so it
-          scans on any theme (dark modules need a light field). */}
-      <div className="rounded-md bg-white p-3">
-        <QRCodeSVG value={url} size={200} marginSize={0} />
+    <CertificateComparison
+      origin={target.origin}
+      fingerprint={fingerprint}
+      onVerified={() => setVerified(true)}
+    />
+  );
+}
+
+function normalizeFingerprint(value: string): string {
+  return value.replace(/[\s:]/g, "").toUpperCase();
+}
+
+function CertificateComparison({
+  origin,
+  fingerprint,
+  onVerified,
+}: {
+  origin: string;
+  fingerprint: string | null;
+  onVerified: () => void;
+}): ReactElement {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const expected = normalizeFingerprint(fingerprint ?? "");
+  const compare = (event: FormEvent): void => {
+    event.preventDefault();
+    if (!/^[A-F0-9]{64}$/.test(expected) || normalizeFingerprint(input) !== expected) {
+      setError(
+        "The SHA-256 fingerprint does not match. Do not pair; check the certificate and host again.",
+      );
+      return;
+    }
+    onVerified();
+  };
+  return (
+    <form onSubmit={compare} className="space-y-3 rounded-lg border border-border bg-card p-3">
+      <p className="text-xs text-muted-foreground">
+        On the other device, open this address without a pairing code. In the browser's certificate
+        viewer, find the certificate's SHA-256 fingerprint. Compare it with this host before
+        accepting the certificate warning. Cadencr cannot inspect that browser's certificate.
+      </p>
+      <div className="flex items-center justify-between gap-2">
+        <code className="break-all text-xs">{origin}/</code>
+        <CopyIconButton value={`${origin}/`} successLabel="Certificate check URL copied" />
       </div>
-      {/* URL + copy sit below the QR as the secondary, type-it-in fallback. */}
-      <div className="flex w-full items-center justify-between gap-2 rounded border border-border bg-card px-2 py-1">
-        <code className="truncate font-mono text-[11px]">{url}</code>
-        <CopyIconButton value={url} successLabel="Pairing link copied" />
-      </div>
-      {urls.length > 1 ? (
-        <PairingTargets urls={urls} selected={selected} onSelect={onSelect} />
+      {fingerprint ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium">Expected host SHA-256 fingerprint</p>
+          <code className="block break-all font-mono text-[11px]">{fingerprint}</code>
+        </div>
+      ) : (
+        <p role="alert" className="text-xs text-destructive">
+          The host fingerprint is unavailable. Pairing is blocked.
+        </p>
+      )}
+      <label htmlFor="remote-browser-fingerprint" className="block text-xs font-medium">
+        SHA-256 fingerprint from the other device's browser
+      </label>
+      <Input
+        id="remote-browser-fingerprint"
+        value={input}
+        onChange={(event) => {
+          setInput(event.target.value);
+          setError(null);
+        }}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="Paste the complete SHA-256 fingerprint"
+      />
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
       ) : null}
-      <div className="flex w-full items-center justify-between text-[11px] text-muted-foreground">
-        <span className="tabular-nums">Expires in {remaining}s</span>
-        <button
-          type="button"
-          onClick={onRegenerate}
-          disabled={minting}
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={`size-3 ${minting ? "animate-spin" : ""}`} aria-hidden />
-          New code
-        </button>
-      </div>
-    </div>
+      <Button type="submit" size="sm" disabled={!fingerprint || !input.trim()}>
+        Compare and show pairing code
+      </Button>
+    </form>
   );
-}
-
-/** Address picker shown when more than one connect URL exists (multiple LAN
- * interfaces, or LAN + tunnel). Selecting one repoints the QR and link. */
-function PairingTargets({
-  urls,
-  selected,
-  onSelect,
-}: {
-  urls: string[];
-  selected: number;
-  onSelect: (index: number) => void;
-}): ReactElement {
-  return (
-    <div className="flex flex-wrap gap-1">
-      {urls.map((url, index) => (
-        <button
-          key={url}
-          type="button"
-          onClick={() => onSelect(index)}
-          className={cn(
-            "rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
-            index === selected
-              ? "border-primary bg-primary/10 text-foreground"
-              : "border-border text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {hostLabel(url)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** The host:port of a connect URL, for the address-picker chip label. */
-function hostLabel(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
 }

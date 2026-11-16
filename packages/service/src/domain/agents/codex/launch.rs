@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use super::instructions::{codex_developer_instructions, CODEX_MCP_INSTRUCTIONS};
 use super::mcp::thread_config;
+use super::native_config::reasoning_summary;
 use super::thread_params::{thread_resume_params, thread_start_params};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeSpawnConfig};
 
@@ -18,6 +19,9 @@ pub(super) fn effective_thread_config(config: &RuntimeSpawnConfig, effective: &V
         .map(|value| format!("{value}\n\n{CODEX_MCP_INSTRUCTIONS}"))
         .unwrap_or(cadencr_instructions);
     let mut result = thread_config(config.mcp_servers.as_ref(), Some(&instructions));
+    if let Some(summary) = reasoning_summary(native) {
+        result["model_reasoning_summary"] = Value::String(summary.to_string());
+    }
     if let Some(native_servers) = native.get("mcp_servers").and_then(Value::as_object) {
         if result.is_null() {
             result = serde_json::json!({});
@@ -108,8 +112,43 @@ pub(super) async fn start_or_resume_thread(
 mod tests {
     use super::effective_thread_config;
     use crate::domain::agents::adapter::{RuntimeMcpServerConfig, RuntimeSpawnConfig};
+    use crate::domain::agents::codex::thread_params::{thread_resume_params, thread_start_params};
     use serde_json::json;
     use std::collections::HashMap;
+
+    #[test]
+    fn start_and_resume_apply_provider_aware_summary_config() {
+        for resume_session_id in [None, Some("thread-1".to_string())] {
+            for (native, summary) in [
+                (json!({"model_provider": "openai"}), Some("detailed")),
+                (json!({"model_provider": "amazon-bedrock"}), None),
+                (json!({"model_provider": "custom"}), None),
+                (json!({"model_reasoning_summary": "none"}), Some("none")),
+                (
+                    json!({"model_reasoning_summary": "concise"}),
+                    Some("concise"),
+                ),
+                (json!({"model_supports_reasoning_summaries": false}), None),
+            ] {
+                let config = RuntimeSpawnConfig {
+                    resume_session_id: resume_session_id.clone(),
+                    ..RuntimeSpawnConfig::default()
+                };
+                let thread_config = effective_thread_config(&config, &json!({"config": native}));
+                let params = match resume_session_id.as_deref() {
+                    Some(thread_id) => thread_resume_params(thread_id, &config, &thread_config),
+                    None => thread_start_params(&config, &thread_config),
+                };
+                assert_eq!(
+                    params["config"].get("model_reasoning_summary"),
+                    summary.map(serde_json::Value::from).as_ref()
+                );
+                assert!(params["config"]
+                    .get("model_supports_reasoning_summaries")
+                    .is_none());
+            }
+        }
+    }
 
     #[test]
     fn native_instructions_and_mcp_are_preserved_while_cadencr_servers_override_collisions() {

@@ -1,0 +1,145 @@
+---
+title: "CadencR v0.16.0: a marketplace for your workspace"
+date: 2026-11-03
+summary: "Discover providers, themes, custom tabs, skills, and MCP servers in the marketplace. Keep tools close with pop tabs, and enjoy a clearer, more flexible workspace."
+author: "Raphaël - RLE - Le Minor"
+tags: ["release", "marketplace", "plugins", "workspace", "agents"]
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import announcement from "@/assets/news/v0.16.0/marketplace-minimal.svg";
+import marketplaceScreenshot from "@/assets/news/v0.16.0/marketplace.webp";
+import skillsScreenshot from "@/assets/news/v0.16.0/marketplace-skills-detail.webp";
+import popFoldedScreenshot from "@/assets/news/v0.16.0/pop-tabs-folded-detail.webp";
+import popOpenScreenshot from "@/assets/news/v0.16.0/pop-tabs-open-detail.webp";
+import runningAgentsScreenshot from "@/assets/news/v0.16.0/composer-agents-conversation.webp";
+import composerBlockScreenshot from "@/assets/news/v0.16.0/composer-skill-block.webp";
+
+<DocScreenshot
+  src={announcement}
+  preserveSource
+  alt="CadencR v0.16.0 marketplace announcement with four minimal tilted tiles, one emerald and three dark, over a subtle emerald gradient on graphite"
+  caption="Find your tools. Make them yours."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+**CadencR v0.16.0 is available now, with the marketplace, pop tabs, and improvements throughout the workspace.**
+
+Find a new provider, change the atmosphere with a theme, or bring another tool into your workspace as a custom tab. Then keep those tools close without giving every pane a permanent share of your screen. This release gives you more ways to shape Cadencr around the way you work.
+
+## Find your next tool in the marketplace
+
+The **Marketplace** is now open from the sidebar. Browse agent providers, themes, and custom tabs, inspect an extension's details and compatible versions, and install it without managing its files by hand. Theme previews help you see what you are choosing. **Installed** brings your extensions together, while **Updates** shows the newer compatible versions available to you.
+
+<DocScreenshot
+  src={marketplaceScreenshot}
+  preserveSource
+  alt="Cadencr's running marketplace showing Discover, the Ember theme showcase, three theme listings, and the Providers shelf"
+  caption="Browse the catalogue from your workspace, then open a listing to inspect its versions and installation details."
+/>
+
+An extension can also combine several tools: a **plugin** may include a provider, a theme, and custom tabs in one package. Its page lists what it includes, and Cadencr installs each component through its own installation flow. You can see which members are installed and whether a change needs a restart.
+
+Read the [Marketplace guide](/docs/marketplace/) for installation, updates, and permissions. Building an extension? Follow [Publish to the marketplace](/docs/marketplace-publishing/) from local packaging to the author release and registry review.
+
+### Skills and MCP servers, alongside your extensions
+
+The marketplace also brings **skills and MCP servers** into view. Skills come from your agent CLIs' existing plugin marketplaces; servers come from the official MCP Registry. Each listing shows the supported CLIs separately, so you can decide where it belongs.
+
+Cadencr uses each CLI's own commands and active profile to manage these extensions. What appears as installed is read back from that CLI. Where an update cannot preserve an existing server's configuration, the interface explains why it needs to be changed in the CLI's configuration instead.
+
+<DocScreenshot
+  src={skillsScreenshot}
+  preserveSource
+  alt="A real skill listing in the Cadencr marketplace with its description and separate installation controls for the supported agent CLIs"
+  caption="See where a skill is installed and manage it for the agent CLI you use."
+/>
+
+### Cursor joins the marketplace
+
+**Cursor is now an official provider plugin.** Install the Cursor connector from the marketplace's Providers section, then restart Cadencr when prompted. Your existing Cursor conversations keep their provider and can continue once the plugin is installed; the Cursor CLI still needs to be installed and authenticated on your machine.
+
+Access choices live in each conversation's session controls. The connector advertises the capabilities Cursor actually supports, including its commands and available sub-agent activity. [The provider guide](/docs/providers/#install-the-cursor-plugin) covers setup and current limits.
+
+## Pop tabs: nearby when you need them
+
+A terminal, editor, or review pane is useful to keep nearby. It does not always need to stay open.
+
+Enable **Pop pane** on a split pane to let it fold to its header or a slim side rail. Focus it to bring it back at its saved size; focus another pane and it folds away again. Your active pane gets the space, while the other tool remains one click away.
+
+<DocScreenshot
+  src={popFoldedScreenshot}
+  preserveSource
+  alt="Close-up of the bottom of Cadencr's workspace, with the Git pop pane folded into a single tab bar beneath the editor and its enabled Pop pane button at the right"
+  caption="Folded: Git takes only the bottom tab bar. Click its tab to open it; the green button on the right shows that Pop pane is enabled."
+/>
+
+<DocScreenshot
+  src={popOpenScreenshot}
+  preserveSource
+  alt="The same close-up after selecting Git, with its pop pane expanded beneath the editor to show the commit graph and the Pop pane button still enabled"
+  caption="Open: selecting Git expands the pane to its saved height. Focus the editor to fold it back to the bar, or click the green Pop pane button to keep it open."
+/>
+
+The transition slides the pane into place, and your layout stays saved. Pop panes work on the sides as well as above or below another pane, so you can arrange the tools around the space you need most.
+
+## Follow your agents without losing your place
+
+**The agent conversation has been reworked to make progress easier to follow.** Compact flow now groups consecutive tools and thinking into one line showing the latest step. Expand it to inspect the history, then return to a conversation with more room for the agent's answers.
+
+Sub-agent cards bring together live status, the latest action, and the run details the provider reports. A card follows an agent when it pauses or resumes. Conversations spawned inside Cadencr also appear as cards, with their provider and model; click one to open the conversation directly.
+
+### Everything above the prompt has its place
+
+The area above the composer now uses a **shared stack of blocks**. Work in progress, messages waiting to be sent, and the controls for your next request stay together, with a consistent layout and their own status and actions.
+
+| Block                       | What stays within reach                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Agents**                  | Running sub-agents whose cards have scrolled out of view. Select a row to jump back to the card.                     |
+| **Side questions**          | Answers from `/cadencr:side`, alongside the main conversation. Close a side question or keep it as its own thread.   |
+| **Schedules**               | Scheduled prompts for the conversation, visible next to the work they belong to.                                     |
+| **Prompt queue**            | Follow-ups waiting for the agent's current turn to finish, with controls to edit, remove, or send them immediately.  |
+| **Pending requests**        | Questions, permissions, and plan approvals you deferred while preparing a message.                                   |
+| **Skill setup and context** | The `/cadencr` skill wizard, referenced-worktree guidance, and composer help, close to the draft that calls them up. |
+
+<DocScreenshot
+  src={runningAgentsScreenshot}
+  preserveSource
+  alt="Demonstration conversation about search keyboard navigation, with Accessibility and Test coverage agents listed in the Running agents block directly above an unsent follow-up prompt"
+  caption="Demonstration conversation: keep both running agents in view while drafting a follow-up. Select an agent to jump back to its card in the conversation."
+/>
+
+<DocScreenshot
+  src={composerBlockScreenshot}
+  preserveSource
+  alt="Close-up of an unsent cadencr:review prompt with its skill-configuration block directly above the composer, showing the reviewer model, mode, thinking effort, and worktree controls"
+  caption="One example of the new blocks: configure the reviewer above your draft before sending it. The block's controls apply to the session the skill will spawn."
+/>
+
+When several blocks compete for space, they fold into short summaries. Open the one you need while the others stay compact; a block you are interacting with stays open. Running agents and schedules remain visible even when a question or approval replaces the composer.
+
+## Small improvements you meet all day
+
+- **Custom actions have one home in the header.** A searchable launcher brings commands, their live output, run history, and remembered variables together. Background actions can also run from the Schedules page.
+- **The next waiting conversation opens for you.** Mark the open **For me** entry done and move straight to the next one, with an “All caught up” message at the end.
+- **Pull requests can go further inside Cadencr.** Review approval and merge readiness, then confirm a supported merge action from the pull-request tab, including auto-merge or a merge queue where available.
+- **Interrupted work can resume after a restart.** Updates, restarts, and crashes no longer have to mean starting an agent's task over. The quit dialog lets you choose whether working agents resume next time, and Settings lets you disable automatic recovery.
+- **Your choices and progress stay more consistent.** Conversations keep their selected model when schedules or other connections send the next prompt. Turn timers, waiting time, and model changes remain available across reloads and devices, and question drafts survive switching conversations.
+
+On phones, the prompt stays above the keyboard, suggestions remain on-screen, and sidebar taps target the intended action. Terminal history replay no longer sends old query replies back into your shell.
+
+## Introducing telemetry, with privacy built in
+
+**v0.16.0 introduces telemetry to help us diagnose failures and understand how Cadencr is used.** It is designed around limited data, transparent controls, and the ability to turn every channel off. Cadencr continues to work normally with all telemetry disabled.
+
+**Your code, prompts, agent replies, terminal output, project names and paths, and credentials are excluded from remote payloads.** There is no automatic click capture or session replay. Settings shows examples of the data sent and the delivery status, so you can inspect what each option does.
+
+Diagnostics and detailed usage analytics are **off until you explicitly enable them**. On first launch after the update, you can enable them, customize your choice, or decline. They have separate switches, and you can change your decision later.
+
+A separate minimal monthly counter estimates active installations. It is **on when configured**, runs independently of the detailed-telemetry choice, and uses a fresh identifier for each monthly signal. You can disable it with its own switch in **Settings → About → Privacy and telemetry**, alongside the other two options.
+
+Disabling a channel stops future delivery; disabling all three turns telemetry off completely. You can also reset the random installation identifier used for detailed telemetry. [Read the telemetry and privacy details](/docs/settings/#privacy-and-telemetry) for the exact defaults and data sent.
+
+[Download CadencR v0.16.0 or read the complete changelog](https://github.com/merkr-software/CadencR/releases/tag/v0.16.0).

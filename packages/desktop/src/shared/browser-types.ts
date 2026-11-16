@@ -68,9 +68,10 @@ export interface BrowserTabMetadata {
   responsive: BrowserResponsiveState;
   /**
    * The feature-layout scope that owns this tab. Tabs are isolated per scope so
-   * a tab opened in one feature's Browser never leaks into another's. `null` is
-   * a scopeless tab — created by agent/MCP automation, which has no UI feature
-   * context, so it isn't shown in any feature's tab strip.
+   * a tab opened in one feature's Browser never leaks into another's. Agent/MCP
+   * tabs are scoped too: the browser MCP is pinned to its feature, so they show
+   * in that feature's tab strip. `null` (scopeless) only remains for automation
+   * calls that carry no feature.
    */
   scopeId: number | null;
 }
@@ -153,6 +154,8 @@ export interface BrowserGuestShortcutBindings {
   responsive: BrowserShortcutBinding;
   devtools: BrowserShortcutBinding;
   zoomReset: BrowserShortcutBinding;
+  navigateBack: BrowserShortcutBinding;
+  navigateForward: BrowserShortcutBinding;
 }
 
 export interface BrowserOpenUrlOptions {
@@ -208,6 +211,20 @@ export interface BrowserNetworkEntry {
   failureReason?: string;
 }
 
+/**
+ * Pushed on `browser:agent-activity` after an agent's browser MCP tool call
+ * succeeds, so the renderer can follow the agent (auto layout, activity dot).
+ */
+export interface BrowserAgentActivity {
+  /** The calling feature (the MCP's pinned feature id). */
+  scopeId: number;
+  /**
+   * `open`: the agent opened a page, which earns it a reveal. `interact`: it
+   * clicked, typed or inspected a page it already had open.
+   */
+  action: "open" | "interact";
+}
+
 export interface BrowserStateSnapshot {
   /**
    * The scope this snapshot describes, or `null`/`undefined` for the unscoped
@@ -217,23 +234,27 @@ export interface BrowserStateSnapshot {
   scopeId?: number | null;
   tabs: BrowserTabMetadata[];
   activeTabId: string | null;
+  error: string | null;
+}
+
+/**
+ * Main-process view for agent automation: the snapshot plus the active tab's
+ * console and network logs. Those change on every log line and request, so
+ * they never ride the renderer's `browser:state` broadcast; automation reads
+ * them on demand.
+ */
+export interface BrowserAutomationState extends BrowserStateSnapshot {
   consoleEntries: BrowserConsoleEntry[];
   networkEntries: BrowserNetworkEntry[];
-  /**
-   * Origins the user has previously navigated to (e.g. `http://localhost:1420`,
-   * `https://example.com`), ranked most-pertinent first. Feeds the address-bar
-   * autocomplete so previously opened sites can be reopened with a few keys.
-   */
-  knownOrigins: string[];
-  error: string | null;
 }
 
 /**
  * Chords forwarded from a focused guest page (a native `WebContentsView`
  * swallows keydown before the renderer can see it, so the main process
  * intercepts these via `before-input-event` and relays them). Covers both
- * browser-chrome chords and the feature-pane switches (⌘⇧A/T/G/E/B), which
- * must still work while the guest page holds keyboard focus.
+ * browser-chrome chords, the feature-pane switches (⌘⇧A/T/G/E/B) and the
+ * ⌘[ / ⌘] history jumps, which must still work while the guest page holds
+ * keyboard focus.
  */
 export type BrowserShortcut =
   | "new-tab"
@@ -255,7 +276,19 @@ export type BrowserShortcut =
   | "pane-terminal"
   | "pane-git"
   | "pane-editor"
-  | "pane-browser";
+  | "pane-browser"
+  | "navigate-back"
+  | "navigate-forward";
+
+/** The feature-pane switches (⌘⇧A/T/G/E/B): the only chords a custom-tab guest relays. */
+export const PANE_SHORTCUTS = [
+  "pane-agent",
+  "pane-terminal",
+  "pane-git",
+  "pane-editor",
+  "pane-browser",
+] as const satisfies readonly BrowserShortcut[];
+export type PaneShortcut = (typeof PANE_SHORTCUTS)[number];
 
 export interface BrowserBounds {
   x: number;

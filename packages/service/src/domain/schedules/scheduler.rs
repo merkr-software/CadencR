@@ -3,17 +3,18 @@
 //! One loop for every schedule, not a timer per rule. Creating, editing,
 //! pausing or deleting a schedule is just a write to `schedules` — the next
 //! tick picks the change up, so there is no in-memory timer set to drift out of
-//! sync with the database (the failure mode the custom-action scheduler has to
-//! work around with explicit `apply_change` calls).
+//! sync with the database. Custom actions are scheduled here too (a
+//! `custom_action` target), not on timers of their own.
 
 use std::time::Duration;
 
 use chrono::Utc;
 use tracing::{info, warn};
 
+use super::fire::{self, FireOutcome};
+use super::models::{Schedule, ScheduleRanEvent, TargetKind};
 use super::planner::{self, DueAction};
 use super::repository::{self, ClaimedSchedule, RunOutcome};
-use super::{dispatch, models::Schedule, models::ScheduleRanEvent};
 use crate::app_state::AppState;
 use crate::error::AppError;
 
@@ -47,15 +48,27 @@ async fn tick(state: &AppState) -> Result<(), AppError> {
         let Some(claimed) = repository::claim_due(&state.write_pool).await? else {
             return Ok(());
         };
-        run_claimed(state, claimed).await;
+        if claimed.schedule.condition.is_some()
+            || claimed.schedule.target.kind == TargetKind::CustomAction
+        {
+            // A condition command or a custom action can run for minutes;
+            // evaluated inline it would hold every other schedule behind it.
+            // The claim already keeps the row exclusive, so it can finish on
+            // its own task.
+            let state = state.clone();
+            tokio::spawn(async move { run_claimed(&state, claimed).await });
+        } else {
+            run_claimed(state, claimed).await;
+        }
     }
     Ok(())
 }
 
 /// Dispatch one claimed schedule and record what happened.
 ///
-/// Every path ends in a `finish_run`, including failure: a rule that can never
-/// succeed must still roll forward, or it would re-fire on every tick forever.
+/// Every path ends by releasing the claim, including failure: a rule that can
+/// never succeed must still roll forward, or it would re-fire on every tick
+/// forever.
 async fn run_claimed(state: &AppState, claimed: ClaimedSchedule) {
     let ClaimedSchedule {
         schedule,
@@ -72,55 +85,65 @@ async fn run_claimed(state: &AppState, claimed: ClaimedSchedule) {
         .clone()
         .unwrap_or_else(|| now.to_rfc3339());
 
-    let outcome = match planner::due_action(scheduled_for, now) {
+    let recorded = match planner::due_action(scheduled_for, now) {
         DueAction::Skip => {
             info!(
                 schedule_id = schedule.id,
                 scheduled_for = schedule.next_run_at.as_deref().unwrap_or("?"),
                 "skipping a schedule that came due while Cadencr was closed"
             );
-            skipped(next_run_at.clone())
+            let outcome = skipped(next_run_at);
+            repository::finish_run(&state.write_pool, schedule.id, &claim_token, outcome).await
         }
-        DueAction::Run => deliver(state, &schedule, &occurrence, next_run_at.clone()).await,
+        DueAction::Run => {
+            let outcome = fire::fire(state, &schedule, &occurrence, true).await;
+            record(state, &schedule, &claim_token, outcome, next_run_at).await
+        }
     };
 
-    if let Err(error) =
-        repository::finish_run(&state.write_pool, schedule.id, &claim_token, outcome).await
-    {
+    if let Err(error) = recorded {
         warn!(error = %error, schedule_id = schedule.id, "failed to record schedule run");
         return;
     }
     // Announced only after the row is durable, so a client refetching on this
     // cue can't read back the pre-run state. Every outcome is broadcast, not
-    // just `sent`: a failed or skipped run still advanced the rule.
+    // just `sent`: a failed, skipped or held run still advanced the rule.
     let _ = state.schedule_events_tx.send(ScheduleRanEvent {
         schedule_id: schedule.id,
     });
 }
 
-async fn deliver(
+async fn record(
     state: &AppState,
     schedule: &Schedule,
-    occurrence: &str,
+    claim_token: &str,
+    outcome: FireOutcome,
     next_run_at: Option<String>,
-) -> RunOutcome {
-    match dispatch::run(state, schedule, occurrence).await {
-        Ok(feature_id) => RunOutcome {
+) -> Result<(), AppError> {
+    let outcome = match outcome {
+        FireOutcome::Passed | FireOutcome::Busy => {
+            return repository::release_claim(
+                &state.write_pool,
+                schedule.id,
+                claim_token,
+                next_run_at.as_deref(),
+            )
+            .await;
+        }
+        FireOutcome::Delivered { feature_id } => RunOutcome {
             status: "sent",
             error: None,
             feature_id: Some(feature_id),
             next_run_at,
         },
-        Err(error) => {
-            warn!(error = %error, schedule_id = schedule.id, "schedule dispatch failed");
-            RunOutcome {
-                status: "failed",
-                error: Some(error.to_string()),
-                feature_id: None,
-                next_run_at,
-            }
-        }
-    }
+        FireOutcome::Failed { error } => RunOutcome {
+            status: "failed",
+            error: Some(error),
+            feature_id: None,
+            next_run_at,
+        },
+    };
+    repository::finish_run(&state.write_pool, schedule.id, claim_token, outcome).await
 }
 
 fn skipped(next_run_at: Option<String>) -> RunOutcome {

@@ -13,7 +13,7 @@ use crate::error::SdkError;
 use crate::options::Options;
 use crate::transport::{find_cli, CliProcess};
 
-use super::cancelled_control::CancelledControlRequests;
+use super::permission_requests::PermissionRequests;
 use super::query_struct::Query;
 use super::reader::reader_loop;
 use super::turn_state::TurnState;
@@ -52,8 +52,11 @@ use super::wire::{build_control_request, write_to_stdin, PendingControl};
 /// ```
 pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Query, SdkError> {
     let cli_path = find_cli(options.path_to_cli.as_deref()).await?;
-    let configured_mcp_servers =
-        crate::mcp_discovery::configured_mcp_servers(&options.cwd, options.mcp_servers.as_ref());
+    let configured_mcp_servers = crate::mcp_discovery::configured_mcp_servers(
+        &options.cwd,
+        options.mcp_servers.as_ref(),
+        options.user_config_file.as_deref(),
+    );
     let configured_mcp_names = configured_mcp_servers
         .iter()
         .map(|server| format!("{}:{}", server.name, server.status))
@@ -69,6 +72,7 @@ pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Q
 
     // Capture PID before moving process into reader loop.
     let pid = process.pid();
+    let process_ended = process.ended();
     info!(pid = ?pid, cli = %cli_path.display(), "CLI process spawned");
 
     // Take stdin out of the process — Query and the reader loop share it
@@ -83,13 +87,12 @@ pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Q
 
     // Set up channel and shared state
     let (tx, rx) = mpsc::channel(256);
-    let (interrupt_tx, interrupt_rx) = mpsc::channel(4);
     let (kill_tx, kill_rx) = mpsc::channel(1);
     let session_id = Arc::new(Mutex::new(None));
     let mcp_servers = Arc::new(Mutex::new(Vec::new()));
     let turn_state = Arc::new(Mutex::new(TurnState::AgentWorking));
     let pending_control: PendingControl = Arc::new(Mutex::new(HashMap::new()));
-    let cancelled_control_requests = CancelledControlRequests::default();
+    let permission_requests = PermissionRequests::default();
     let control_request_counter = Arc::new(AtomicU64::new(0));
 
     // Spawn background reader
@@ -102,9 +105,8 @@ pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Q
         Arc::clone(&mcp_servers),
         Arc::clone(&turn_state),
         Arc::clone(&pending_control),
-        cancelled_control_requests.clone(),
+        permission_requests.clone(),
         cancel_token.clone(),
-        interrupt_rx,
         kill_rx,
     ));
 
@@ -118,10 +120,10 @@ pub async fn query(content: serde_json::Value, mut options: Options) -> Result<Q
         pending_control,
         control_request_counter,
         reader_task: Some(reader_task),
-        interrupt_tx,
         kill_tx,
         _cancel_token: cancel_token,
         pid,
+        process_ended,
     };
 
     send_initialize_and_first_prompt(&query, &options, content).await?;

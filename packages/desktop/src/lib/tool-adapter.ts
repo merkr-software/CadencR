@@ -4,6 +4,7 @@ import {
   isApplyPatchToolName,
 } from "@/lib/apply-patch";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
+import { toRelativePath } from "@/lib/utils";
 
 export interface InlineDiffPreview {
   filePath: string;
@@ -85,6 +86,35 @@ export function extractBashCommandFromArgs(args: Record<string, unknown>): strin
   return commandValue(args.command) ?? commandValue(args.cmd);
 }
 
+/** `/bin/zsh -lc '<command>'`: how some runtimes report the command they ran. */
+const LOGIN_SHELL_WRAPPER = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z|da)?sh\s+-l?c\s+'((?:[^']|'\\'')*)'$/s;
+
+/**
+ * The command as the agent wrote it, for one-line summaries: a login-shell
+ * wrapper around it is dropped. The full Bash block keeps the raw command.
+ */
+export function displayShellCommand(command: string): string {
+  const wrapped = LOGIN_SHELL_WRAPPER.exec(command.trim());
+  return wrapped ? wrapped[1].replace(/'\\''/g, "'") : command;
+}
+
+/** A detail (path, pattern, …) for a one-line summary: workspace-relative, on one line. */
+export function oneLineDetail(
+  detail: string | undefined,
+  basePath: string | undefined,
+): string | undefined {
+  if (!detail) return undefined;
+  return toRelativePath(detail, basePath).replace(/\s+/g, " ").trim();
+}
+
+/** A shell command for a one-line summary: unwrapped, workspace-relative, on one line. */
+export function oneLineShellCommand(
+  command: string | undefined,
+  basePath: string | undefined,
+): string | undefined {
+  return command ? oneLineDetail(displayShellCommand(command), basePath) : undefined;
+}
+
 export function isStructuredBashPayload(toolArgs?: string): boolean {
   const args = parseToolArgsObject(toolArgs);
   if (!args) return false;
@@ -135,7 +165,11 @@ export function extractTaskOutput(toolArgs?: string): string | undefined {
 
 export function extractToolStatus(toolArgs?: string): string | undefined {
   const args = parseToolArgsObject(toolArgs);
-  if (!args) return undefined;
+  return args ? toolStatusOf(args) : undefined;
+}
+
+/** The lower-cased `status` of already parsed tool arguments. */
+export function toolStatusOf(args: Record<string, unknown>): string | undefined {
   const status = args.status ?? args[LEGACY_OPENCODE_STATUS_KEY];
   return typeof status === "string" ? status.toLowerCase() : undefined;
 }
@@ -164,7 +198,10 @@ export function isToolCallRunning(toolArgs?: string): boolean {
 }
 
 export function isToolCallError(toolArgs?: string): boolean {
-  const status = extractToolStatus(toolArgs);
+  return isFailedToolStatus(extractToolStatus(toolArgs));
+}
+
+export function isFailedToolStatus(status: string | undefined): boolean {
   return status === "failed" || status === "error";
 }
 

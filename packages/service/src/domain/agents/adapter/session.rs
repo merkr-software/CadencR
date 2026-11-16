@@ -25,9 +25,22 @@ pub trait RuntimeToolPermissionHandler: Send + Sync {
     ) -> RuntimeToolPermissionResult;
 }
 
+/// What [`AgentRuntimeSession::withdraw_pending_inputs`] withdrew.
+#[derive(Debug, Default)]
+pub struct WithdrawnInputs {
+    pub withdrawn: Vec<String>,
+    /// Why it could not withdraw the rest; those in `withdrawn` are gone anyway.
+    pub error: Option<RuntimeError>,
+}
+
 #[async_trait]
 pub trait AgentRuntimeSession: Send + Sync {
     fn take_message_rx(&mut self) -> RuntimeMessageRx;
+    /// Sub-agents earlier runtimes of the conversation launched. Called at
+    /// most once, before `take_message_rx`, so a provider that can resume one of them
+    /// reports the resumed run under its carrier. Ignored by runtimes that
+    /// cannot resume a sub-agent they did not launch.
+    fn seed_known_subagents(&mut self, _known: Vec<super::subagent::KnownSubagent>) {}
     fn context_window(&self) -> Option<u64> {
         None
     }
@@ -48,6 +61,11 @@ pub trait AgentRuntimeSession: Send + Sync {
         self.available_mcp_servers().await
     }
     async fn stream_input(&self, content: Value) -> Result<(), RuntimeError>;
+    /// The live runtime is temporarily unable to accept steering input.
+    /// The host keeps user prompts in its durable queue until the turn ends.
+    fn requires_prompt_queue(&self) -> bool {
+        false
+    }
     async fn stream_input_with_client_message_id(
         &self,
         content: Value,
@@ -63,13 +81,40 @@ pub trait AgentRuntimeSession: Send + Sync {
             "provider-native user shell commands are not supported by this runtime",
         ))
     }
+    /// Optional barrier for runtimes whose prompt method returns after input
+    /// acceptance. Held by dispatch through input delivery, and by cancellation
+    /// through readiness publication. Runtimes that await the entire turn must
+    /// leave this unset so controls can run concurrently with their prompt.
+    async fn turn_control_guard(&self) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+        None
+    }
     async fn interrupt(&self) -> Result<(), RuntimeError>;
+    /// Before a user Stop: withdraw the follow-ups (`client_message_ids`, as
+    /// given to `stream_input_with_client_message_id`) the runtime holds but
+    /// has not taken into a turn, so none starts a turn after the stop.
+    /// Returns those withdrawn; the others were taken in and stop with the
+    /// turn. A runtime that never keeps a follow-up past a stop (it fails it
+    /// with [`RuntimeError::InputWithdrawn`]) withdraws nothing here.
+    async fn withdraw_pending_inputs(&self, _client_message_ids: &[String]) -> WithdrawnInputs {
+        WithdrawnInputs::default()
+    }
+    /// Stop the running turn because the machine is about to sleep. The OS
+    /// does not wait long, so a runtime whose `interrupt` can take more than a
+    /// few seconds (waiting out an agent that ignores the stop) overrides this
+    /// with a shorter bound; the stop's contract is otherwise `interrupt`'s.
+    async fn interrupt_before_sleep(&self) -> Result<(), RuntimeError> {
+        self.interrupt().await
+    }
     async fn compact(&self) -> Result<(), RuntimeError> {
         Err(RuntimeError::new(
             "compaction is not supported by this runtime",
         ))
     }
-    async fn close(&mut self);
+    /// Release local resources even when graceful provider shutdown fails.
+    /// The message stream should end once the runtime is closed. Callers may
+    /// close a runtime twice (the shutdown, then its idle reader): a second
+    /// close should not ask the stopped provider again.
+    async fn close(&mut self) -> Result<(), RuntimeError>;
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError>;
     async fn set_permission_mode(&self, mode: RuntimePermissionMode) -> Result<(), RuntimeError>;
     /// Optional provider runtime hook for access/autonomy controls that can be
@@ -119,6 +164,13 @@ pub trait AgentRuntimeSession: Send + Sync {
     fn permission_response_kind(&self, _request_id: &str) -> RuntimePermissionResponseKind {
         RuntimePermissionResponseKind::Normal
     }
+    /// The user closed `request_id` without answering. `Ok(true)` when the
+    /// agent never waited on it (a question asked without blocking): the
+    /// runtime dropped it and the turn goes on. `Ok(false)`, the default, means
+    /// the agent is blocked on it, so the caller denies it and stops the turn.
+    async fn dismiss_nonblocking_request(&self, _request_id: &str) -> Result<bool, RuntimeError> {
+        Ok(false)
+    }
     /// Pid of the runtime's own process, when it has one. Port attribution
     /// walks process ancestry from it to find servers the agent started.
     fn pid(&self) -> Option<u32>;
@@ -153,7 +205,9 @@ pub(crate) mod test_support {
             Ok(())
         }
 
-        async fn close(&mut self) {}
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
 
         async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
             Ok(())
@@ -246,7 +300,9 @@ mod tests {
             Ok(())
         }
 
-        async fn close(&mut self) {}
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
 
         async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
             Ok(())

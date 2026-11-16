@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: asserts inline layout styles as jsdom serializes them.
 import {
   forwardRef,
   useEffect,

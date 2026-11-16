@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
@@ -104,5 +105,14 @@ describe("rich syntax highlighting", () => {
 
   it("highlights YAML keys", () => {
     expect(highlightClassesFor("file.yaml", "name: test\n")).toContain("tok-propertyName");
+  });
+
+  it.each([
+    ["file.scss", "$size: 0.5;\n.box { width: $size; }\n", "tok-number"],
+    ["file.toml", "ratio = 0.5\n", "tok-number"],
+    ["file.md", "# heading\n", "tok-heading"],
+    ["file.html", '<section title="qa">text</section>\n', "tok-typeName"],
+  ])("preserves token classes for %s", (filePath, doc, expectedClass) => {
+    expect(highlightClassesFor(filePath, doc)).toContain(expectedClass);
   });
 });

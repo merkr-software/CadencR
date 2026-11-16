@@ -10,18 +10,20 @@ use crate::domain::projects::models::ProjectSetting;
 use crate::error::AppError;
 
 use super::super::{dir, lock, paths, Scope, SettingWarning};
-use super::{load, read_for_edit, set_value, write_content};
+use super::{load, read_for_edit, set_value, set_values, write_content};
 
 pub async fn project_path(pool: &SqlitePool, project_id: i64) -> Result<PathBuf, AppError> {
     paths::project_file(&dir::global_dir(), pool, project_id).await
 }
 
+/// The project document's path and validated scalar values (plus warnings).
 pub async fn project_map(
     pool: &SqlitePool,
     project_id: i64,
-) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
+) -> Result<(PathBuf, BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
     let path = project_path(pool, project_id).await?;
-    Ok(load(&path, Scope::Project))
+    let (map, warnings) = load(&path, Scope::Project);
+    Ok((path, map, warnings))
 }
 
 pub async fn project_get(
@@ -29,14 +31,14 @@ pub async fn project_get(
     project_id: i64,
     key: &str,
 ) -> Result<Option<String>, AppError> {
-    Ok(project_map(pool, project_id).await?.0.remove(key))
+    Ok(project_map(pool, project_id).await?.1.remove(key))
 }
 
 pub async fn project_list(
     pool: &SqlitePool,
     project_id: i64,
 ) -> Result<Vec<ProjectSetting>, AppError> {
-    let (map, _warnings) = project_map(pool, project_id).await?;
+    let (_path, map, _warnings) = project_map(pool, project_id).await?;
     Ok(map
         .into_iter()
         .map(|(key, value)| ProjectSetting {
@@ -54,6 +56,17 @@ pub async fn project_set(
 ) -> Result<(), AppError> {
     let path = project_path(pool, project_id).await?;
     set_value(&path, key, value).await
+}
+
+/// Set or remove (`None`) several project keys in one atomic write, returning
+/// each key's previous stored value.
+pub async fn project_set_many(
+    pool: &SqlitePool,
+    project_id: i64,
+    entries: &BTreeMap<String, Option<String>>,
+) -> Result<BTreeMap<String, Option<String>>, AppError> {
+    let path = project_path(pool, project_id).await?;
+    set_values(&path, entries).await
 }
 
 pub async fn project_write_content(
@@ -98,7 +111,7 @@ pub async fn project_rename(
         std::fs::rename(&from, &to)
     };
     moved.map_err(|e| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "failed to move project settings from {} to {}: {e}",
             from.display(),
             to.display()

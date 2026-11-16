@@ -76,7 +76,6 @@ export function WelcomeStep({ isPersisting, onAdvance, onBack }: OnboardingStepP
 
         <OnboardingFooter
           primaryLabel="Get started"
-          onPrimary={onAdvance}
           primaryDisabled={isPersisting}
           onBack={onBack}
         />

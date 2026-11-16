@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "6d02684a07ef75f0255458232479ac1d0e93e164548f7eb4de22b33849213b02",
+  "source_lock_sha256": "b5a1427abfc34a7b0c878c377daeb4293e6451d91bbede09db053c3171a7f280",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "pyright",
+      "version": "1.1.414",
+      "destination": "node_modules/pyright",
+      "integrity": "sha512-FPZZb51jepDX4eP7TEYDeNFtmE3WgwkkEcJpvH3/QmUSsj0EAy3LXu+xB4T/FWDejtsXlCfFr/rbWFjwuwuXww==",
+      "compressed_size": 4226827,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/pyright",
+        "directory": "packages/pyright"
+      },
+      "engines": {
+        "node": ">=14.0.0"
+      },
+      "scripts": {
+        "build": "rspack build -c rspack.config.js --mode production",
+        "clean": "shx rm -rf ./dist ./out README.md LICENSE.txt",
+        "webpack": "rspack build -c rspack.config.js --mode development"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [
+    {
+      "path": "node_modules/fsevents",
+      "version": "2.3.3",
+      "os": [
+        "darwin"
+      ],
+      "cpu": null
+    }
+  ],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

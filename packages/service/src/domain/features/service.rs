@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use super::models::{
-    ArchivePreview, ArchiveRequest, ArchiveResponse, CreateFeatureResponse, Feature,
+    ArchivePreview, ArchiveProjectSessionsResponse, CreateFeatureResponse, Feature,
     FeatureActivity, FeatureModelSettings, FeatureProviderSettings, FeatureSetting, FeatureStatus,
     IsEmptyResponse, WorkingDirResponse,
 };
@@ -20,6 +20,14 @@ pub async fn list_by_project(
 
 pub async fn list_pinned(pool: &SqlitePool) -> Result<Vec<Feature>, AppError> {
     repository::list_pinned(pool).await
+}
+
+pub async fn list_recent(pool: &SqlitePool, limit: i64) -> Result<Vec<Feature>, AppError> {
+    repository::list_recent(pool, limit).await
+}
+
+pub async fn list_active(pool: &SqlitePool) -> Result<Vec<Feature>, AppError> {
+    repository::list_active(pool).await
 }
 
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Feature>, AppError> {
@@ -145,12 +153,11 @@ pub async fn archive_preview(pool: &SqlitePool, id: i64) -> Result<ArchivePrevie
     super::archive::preview(pool, id).await
 }
 
-pub async fn archive(
+pub async fn archive_project_sessions(
     pool: &SqlitePool,
-    id: i64,
-    request: ArchiveRequest,
-) -> Result<ArchiveResponse, AppError> {
-    super::archive::archive(pool, id, request).await
+    project_id: i64,
+) -> Result<ArchiveProjectSessionsResponse, AppError> {
+    super::archive::archive_project_sessions(pool, project_id).await
 }
 
 pub async fn update_label(pool: &SqlitePool, id: i64, label: Option<&str>) -> Result<(), AppError> {
@@ -219,8 +226,22 @@ pub async fn resolve_working_dir(
     feature_id: i64,
     project_id: i64,
 ) -> Result<WorkingDirResponse, AppError> {
-    let path = repository::resolve_working_dir(pool, feature_id, project_id).await?;
-    Ok(WorkingDirResponse { path })
+    let project_path: Option<String> = sqlx::query_scalar("SELECT path FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some(project_path) = project_path else {
+        return Ok(WorkingDirResponse { path: None });
+    };
+    let dir = crate::domain::git::feature_dir::resolve_feature_dir_in_project(
+        pool,
+        feature_id,
+        &project_path,
+    )
+    .await?;
+    Ok(WorkingDirResponse {
+        path: Some(dir.cwd),
+    })
 }
 
 /// Delete a feature.
@@ -233,17 +254,12 @@ pub async fn delete_feature(
 }
 
 /// Resolve the working directory for a feature without requiring the caller to
-/// know the `project_id`. Falls back to the project root if no worktree is set.
+/// know the `project_id`: its live worktree, else the project root.
 pub async fn get_feature_cwd(pool: &SqlitePool, feature_id: i64) -> Result<String, AppError> {
-    let row: Option<(i64,)> = sqlx::query_as("SELECT project_id FROM features WHERE id = ?")
-        .bind(feature_id)
-        .fetch_optional(pool)
-        .await?;
-    let project_id = row
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))?
-        .0;
-    let path = repository::resolve_working_dir(pool, feature_id, project_id).await?;
-    path.ok_or_else(|| AppError::NotFound(format!("no working dir for feature {feature_id}")))
+    crate::domain::git::feature_dir::resolve_feature_dir(pool, feature_id)
+        .await?
+        .map(|dir| dir.cwd)
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))
 }
 
 #[cfg(test)]

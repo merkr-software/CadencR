@@ -1,13 +1,24 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGetUnifiedAgents, type UnifiedAgentEntry } from "@/api/generated";
 import {
   toUnifiedAgentsQueryParams,
   type UnifiedAgentsSortOrder,
 } from "@/components/UnifiedAgentsFilterState";
 import type { UnifiedAgentsFilterMode } from "@/components/UnifiedAgentsFilters";
+import {
+  orderUnifiedAgentsForDisplay,
+  pruneRedundantExcludedTitles,
+} from "@/components/unified-agents-order";
+import { useAttentionIndex } from "@/hooks/useAttentionIndex";
+import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { apiErrorMessage } from "@/lib/api-errors";
-import { parseUTCDateTime } from "@/lib/date-utils";
+import type { AttentionEntry } from "@/lib/attention-index";
+import type { AttentionState } from "@/lib/sidebar-attention";
 import { useLiveActiveSessionIds } from "@/stores/session-status-selectors";
+import { useSessionStatusStore } from "@/stores/session-status-store";
+
+/** Coalesces a burst of turn ends and starts into one reload of the grid. */
+const ATTENTION_REFETCH_DELAY_MS = 800;
 
 interface UseUnifiedAgentsDataArgs {
   mode: UnifiedAgentsFilterMode;
@@ -21,6 +32,8 @@ interface UseUnifiedAgentsDataArgs {
 
 export interface UnifiedAgentsData {
   agents: UnifiedAgentEntry[];
+  /** Each feature's attention state; a feature missing from it is idle. */
+  attentionByFeature: ReadonlyMap<number, AttentionState>;
   isLoading: boolean;
   isFetching: boolean;
   isError: boolean;
@@ -60,12 +73,10 @@ export function useUnifiedAgentsData({
     error,
     refetch: refetchAgents,
   } = useGetUnifiedAgents(baseQueryParams, { query: UNIFIED_AGENTS_QUERY_OPTIONS });
+  const rawAgents = useMemo(() => agentsData?.agents ?? [], [agentsData]);
+  const attentionByFeature = useLiveAttention(rawAgents, refetchAgents);
   const queryText = query.trim().toLowerCase();
-  const rawAgents = agentsData?.agents ?? [];
-  // Live "non-idle" sessions from the canonical WS store keep the "Recent"
-  // filter honest while an agent is mid-run but stale by `last_activity_at`.
-  const liveActiveIdsList = useLiveActiveSessionIds();
-  const liveActiveSessionIds = useMemo(() => new Set(liveActiveIdsList), [liveActiveIdsList]);
+  const liveActiveSessionIds = useRecentModeLiveIds(mode);
   const agents = useMemo(
     () =>
       orderUnifiedAgentsForDisplay(rawAgents, {
@@ -77,8 +88,10 @@ export function useUnifiedAgentsData({
         queryText,
         sortOrder,
         liveActiveSessionIds,
+        attentionByFeature,
       }),
     [
+      attentionByFeature,
       freshMinutes,
       mode,
       projectIds,
@@ -119,6 +132,7 @@ export function useUnifiedAgentsData({
   return useMemo<UnifiedAgentsData>(
     () => ({
       agents,
+      attentionByFeature,
       isLoading,
       isFetching: agentsFetching,
       isError,
@@ -126,231 +140,100 @@ export function useUnifiedAgentsData({
       refresh,
       pruneExcludedTitles,
     }),
-    [agents, agentsFetching, error, isError, isLoading, refresh, pruneExcludedTitles],
+    [
+      agents,
+      attentionByFeature,
+      agentsFetching,
+      error,
+      isError,
+      isLoading,
+      refresh,
+      pruneExcludedTitles,
+    ],
   );
 }
 
-export interface UnifiedAgentMatchFilters {
-  mode: UnifiedAgentsFilterMode;
-  freshMinutes: number;
-  projectIds: number[];
-  /** Feature-title substrings to hide entirely (the `/exclude:` filter).
-   *  Case-insensitive; an excluded agent is dropped even if pinned. */
-  excludedTitles: string[];
-  /** When true (the `/pin:` filter) the candidate set is restricted to pinned
-   *  features before any other filter runs. */
-  pinnedOnly: boolean;
-  queryText: string;
-  /** Live `sessionDbId`s with non-idle status — fed by the WS store.
-   *  Optional so call sites that don't care about the "Recent" mode (e.g.
-   *  the sidebar link's matching-count) can omit it. */
-  liveActiveSessionIds?: ReadonlySet<number>;
-}
-
-export interface UnifiedAgentFilterArgs extends UnifiedAgentMatchFilters {
-  sortOrder: UnifiedAgentsSortOrder;
-}
-
-export function orderUnifiedAgentsForDisplay(
-  entries: UnifiedAgentEntry[],
-  filters: UnifiedAgentFilterArgs,
-): UnifiedAgentEntry[] {
-  // Excluded agents are hidden entirely — pre-filter before the pin/sort
-  // logic so the `/exclude:` filter wins over the pinned-extras fallback.
-  // `/pin:` then narrows the candidate set to pinned features only.
-  const included = scopeToPinned(
-    dropExcludedAgents(entries, filters.excludedTitles),
-    filters.pinnedOnly,
-  );
-  if (hasNoActiveFilter(filters)) {
-    return pinFirst(included.filter(isVisibleAgent), filters.sortOrder);
-  }
-  const { matching, pinnedExtras } = splitAgentsByFilterVisibility(included, filters);
-  const orderedMatches =
-    filters.queryText.length === 0
-      ? pinFirst(matching, filters.sortOrder)
-      : sortAgentsForDisplay(matching, filters.sortOrder);
-  return [...orderedMatches, ...sortAgentsForDisplay(pinnedExtras, filters.sortOrder)];
-}
-
-export function getUnifiedAgentsMatchingFilters(
-  entries: UnifiedAgentEntry[],
-  filters: UnifiedAgentMatchFilters,
-): UnifiedAgentEntry[] {
-  const included = scopeToPinned(
-    dropExcludedAgents(entries, filters.excludedTitles),
-    filters.pinnedOnly,
-  );
-  const { matching, pinnedExtras } = splitAgentsByFilterVisibility(included, filters);
-  return [...matching, ...pinnedExtras];
-}
-
-/** Recompute the `/exclude:` titles, keeping only those that still hide an
- *  agent which would otherwise be visible under the current filters. A title
- *  whose matches have aged out of the `/last` window is dropped so the filter
- *  shrinks over time. */
-export function pruneRedundantExcludedTitles(
-  entries: UnifiedAgentEntry[],
-  filters: UnifiedAgentMatchFilters,
-): string[] {
-  if (filters.excludedTitles.length === 0) return filters.excludedTitles;
-  const visibleTitles = getUnifiedAgentsMatchingFilters(entries, {
-    ...filters,
-    excludedTitles: [],
-  }).map((entry: UnifiedAgentEntry): string => entry.feature.title.toLowerCase());
-  const survivors = filters.excludedTitles.filter((title: string): boolean => {
-    const needle = title.toLowerCase();
-    return visibleTitles.some((visible: string): boolean => visible.includes(needle));
-  });
-  return survivors.length === filters.excludedTitles.length ? filters.excludedTitles : survivors;
-}
-
-function scopeToPinned(entries: UnifiedAgentEntry[], pinnedOnly: boolean): UnifiedAgentEntry[] {
-  if (!pinnedOnly) return entries;
-  return entries.filter((entry: UnifiedAgentEntry): boolean => entry.is_pinned);
-}
-
-function dropExcludedAgents(
-  entries: UnifiedAgentEntry[],
-  excludedTitles: string[],
-): UnifiedAgentEntry[] {
-  if (excludedTitles.length === 0) return entries;
-  const needles = excludedTitles.map((title: string): string => title.toLowerCase());
-  return entries.filter((entry: UnifiedAgentEntry): boolean => !isExcluded(entry, needles));
-}
-
-function isExcluded(entry: UnifiedAgentEntry, lowercaseNeedles: string[]): boolean {
-  const title = entry.feature.title.toLowerCase();
-  return lowercaseNeedles.some((needle: string): boolean => title.includes(needle));
-}
-
-function hasNoActiveFilter(filters: UnifiedAgentMatchFilters): boolean {
-  return (
-    filters.mode === "all" && filters.projectIds.length === 0 && filters.queryText.length === 0
+// Live "non-idle" sessions from the canonical WS store keep the "Recent"
+// filter honest while an agent is mid-run but stale by `last_activity_at`.
+// Every other mode ignores them, so it gets one empty set.
+const NO_SESSION_IDS: ReadonlySet<number> = new Set();
+function useRecentModeLiveIds(mode: UnifiedAgentsFilterMode): ReadonlySet<number> {
+  const liveActiveIdsList = useLiveActiveSessionIds();
+  return useMemo(
+    () => (mode === "recent" ? new Set(liveActiveIdsList) : NO_SESSION_IDS),
+    [liveActiveIdsList, mode],
   );
 }
 
-function matchesCurrentFilters(
-  entry: UnifiedAgentEntry,
-  filters: UnifiedAgentMatchFilters,
-): boolean {
-  if (!isVisibleAgent(entry)) return false;
-  if (filters.projectIds.length > 0 && !filters.projectIds.includes(entry.project.id)) return false;
-  if (filters.queryText && !matchesAgentQuery(entry, filters.queryText)) return false;
-  if (filters.mode === "recent") {
-    return isFreshOrActive(entry, filters.freshMinutes, filters.liveActiveSessionIds);
-  }
-  return true;
+interface RefetchAgents {
+  (options?: { cancelRefetch?: boolean }): Promise<unknown>;
 }
 
-function splitAgentsByFilterVisibility(
-  entries: UnifiedAgentEntry[],
-  filters: UnifiedAgentMatchFilters,
-): { matching: UnifiedAgentEntry[]; pinnedExtras: UnifiedAgentEntry[] } {
-  const matching: UnifiedAgentEntry[] = [];
-  const pinnedExtras: UnifiedAgentEntry[] = [];
+/** Each feature's attention state, reloading the list when an agent's
+ *  activity makes it stale. */
+function useLiveAttention(
+  rawAgents: readonly UnifiedAgentEntry[],
+  refetch: RefetchAgents,
+): ReadonlyMap<number, AttentionState> {
+  const entries = useAttentionIndex();
+  useRefetchOnAgentActivity(entries, rawAgents, refetch);
+  return useMemo(
+    () => new Map(entries.map((entry) => [entry.featureId, entry.state] as const)),
+    [entries],
+  );
+}
+
+export interface LiveFeatures {
+  /** Features with an agent working or waiting. */
+  live: ReadonlySet<number>;
+  /** The live ones the fetched list does not hold yet. */
+  unknown: ReadonlySet<number>;
+}
+
+export function liveFeatures(
+  entries: readonly AttentionEntry[],
+  rawAgents: readonly UnifiedAgentEntry[],
+): LiveFeatures {
+  const known = new Set(rawAgents.map((entry) => entry.feature.id));
+  const live = new Set<number>();
   for (const entry of entries) {
-    if (matchesCurrentFilters(entry, filters)) matching.push(entry);
-    else if (entry.is_pinned && isVisibleAgent(entry)) pinnedExtras.push(entry);
+    if (entry.state === "working" || entry.state === "waiting") live.add(entry.featureId);
   }
-  return { matching, pinnedExtras };
+  return { live, unknown: new Set([...live].filter((id) => !known.has(id))) };
 }
 
-function isVisibleAgent(_entry: UnifiedAgentEntry): boolean {
-  return true;
+/** A turn ended (its activity time moved) or an unknown agent started. */
+export function agentsWentStale(previous: LiveFeatures, current: LiveFeatures): boolean {
+  return (
+    [...previous.live].some((id) => !current.live.has(id)) ||
+    [...current.unknown].some((id) => !previous.unknown.has(id))
+  );
 }
 
-function isFreshOrActive(
-  entry: UnifiedAgentEntry,
-  freshMinutes: number,
-  liveActiveSessionIds: ReadonlySet<number> | undefined,
-): boolean {
-  // Primary signal: live WS store. Bootstrap fallback: REST flags
-  // (`status === "running"`, pending question/permission). REST can lag
-  // a few hundred ms behind the truth, but during the cold-start window
-  // before `session_status.snapshot` arrives it's the only thing
-  // keeping a long-running but stale-by-timestamp agent visible — and
-  // the live store overwrites once the snapshot lands.
-  if (liveActiveSessionIds?.has(entry.session.sessionDbId)) return true;
-  if (entry.session.status === "running") return true;
-  if (entry.session.pendingQuestions || entry.session.pendingPermission) return true;
-  const activityTime = entry.last_activity_at
-    ? parseUTCDateTime(entry.last_activity_at).getTime()
-    : NaN;
-  if (!Number.isFinite(activityTime)) return false;
-  return Date.now() - activityTime <= Math.max(1, freshMinutes) * 60_000;
-}
-
-function pinFirst(
-  entries: UnifiedAgentEntry[],
-  sortOrder: UnifiedAgentsSortOrder,
-): UnifiedAgentEntry[] {
-  const pinned: UnifiedAgentEntry[] = [];
-  const unpinned: UnifiedAgentEntry[] = [];
-  for (const entry of sortAgentsForDisplay(entries, sortOrder)) {
-    if (entry.is_pinned) pinned.push(entry);
-    else unpinned.push(entry);
-  }
-  return [...pinned, ...unpinned];
-}
-
-interface SortableAgentEntry {
-  entry: UnifiedAgentEntry;
-  createdTime: number;
-  activityTime: number;
-}
-
-function sortAgentsForDisplay(
-  entries: UnifiedAgentEntry[],
-  sortOrder: UnifiedAgentsSortOrder,
-): UnifiedAgentEntry[] {
-  return entries
-    .map(toSortableAgentEntry)
-    .sort((a, b) => compareSortableAgents(a, b, sortOrder))
-    .map((item: SortableAgentEntry): UnifiedAgentEntry => item.entry);
-}
-
-function toSortableAgentEntry(entry: UnifiedAgentEntry): SortableAgentEntry {
-  const createdTime = agentCreatedTime(entry);
-  return {
-    entry,
-    createdTime,
-    activityTime: agentActivityTime(entry, createdTime),
-  };
-}
-
-function compareSortableAgents(
-  a: SortableAgentEntry,
-  b: SortableAgentEntry,
-  sortOrder: UnifiedAgentsSortOrder,
-): number {
-  const direction = sortOrder.endsWith("_asc") ? 1 : -1;
-  const timeDiff = sortTime(a, sortOrder) - sortTime(b, sortOrder);
-  if (timeDiff !== 0) return timeDiff * direction;
-  return (a.entry.session.sessionDbId - b.entry.session.sessionDbId) * direction;
-}
-
-function sortTime(entry: SortableAgentEntry, sortOrder: UnifiedAgentsSortOrder): number {
-  return sortOrder === "activity_asc" || sortOrder === "activity_desc"
-    ? entry.activityTime
-    : entry.createdTime;
-}
-
-function agentActivityTime(entry: UnifiedAgentEntry, fallbackTime: number): number {
-  if (!entry.last_activity_at) return fallbackTime;
-  const time = parseUTCDateTime(entry.last_activity_at).getTime();
-  return Number.isFinite(time) ? time : fallbackTime;
-}
-
-function agentCreatedTime(entry: UnifiedAgentEntry): number {
-  const time = parseUTCDateTime(entry.agent_created_at).getTime();
-  return Number.isFinite(time) ? time : 0;
-}
-
-// `countRunningAgents` (REST-based) has been removed in favour of
-// `useLiveWorkingCount(sessionIds)` exported from `session-status-store`.
-// Consumers should pass the list of `sessionDbId`s they want counted.
-
-function matchesAgentQuery(entry: UnifiedAgentEntry, query: string): boolean {
-  return entry.feature.title.toLowerCase().includes(query);
+/**
+ * The grid's list is fetched once and kept (`staleTime: Infinity`): it
+ * carries each agent's recent transcript, so reloading it is not cheap, and
+ * a card's own transcript already streams over the socket. The list goes
+ * stale in two ways only: an agent the grid does not know starts, or a turn
+ * ends and moves its `last_activity_at`. Reload on those, never on a read or
+ * failure mark, and only once the live statuses are in.
+ */
+function useRefetchOnAgentActivity(
+  entries: readonly AttentionEntry[],
+  rawAgents: readonly UnifiedAgentEntry[],
+  refetch: RefetchAgents,
+): void {
+  const hasSnapshot = useSessionStatusStore((state) => state.hasSnapshot);
+  const current = useMemo(() => liveFeatures(entries, rawAgents), [entries, rawAgents]);
+  const reload = useDebouncedCallback(
+    () => void refetch({ cancelRefetch: false }),
+    ATTENTION_REFETCH_DELAY_MS,
+  );
+  const previousRef = useRef<LiveFeatures | null>(null);
+  useEffect(() => {
+    if (!hasSnapshot) return;
+    const previous = previousRef.current;
+    previousRef.current = current;
+    if (previous && agentsWentStale(previous, current)) reload();
+  }, [current, hasSnapshot, reload]);
 }

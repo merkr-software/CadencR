@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: sanitization must run against a spec-faithful DOM (DOMPurify behaves differently in happy-dom).
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

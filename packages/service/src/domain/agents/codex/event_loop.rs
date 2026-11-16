@@ -1,111 +1,95 @@
-mod buffer;
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use codex_app_server_sdk_rs::{AppServerEvent, CodexAppServerClient};
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use codex_app_server_sdk_rs::{AppServerEvent, AppServerEventReceiver, CodexAppServerClient};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
-use buffer::EventBuffer;
-
+use super::async_questions::{request_id as async_question_id, PendingAsyncQuestions};
 use super::event_lifecycle::SessionLifecycle;
 use super::event_state::IndexState;
 use super::event_subagent_recovery::recover_interacted_routes;
-use super::event_system::{permission_request_event, request_key};
+use super::event_system::request_key;
 use super::event_turn_state::{update_turn_state, RootTurnTracker};
-use super::events::notification_events;
+use super::events::{notification_events, rerouted_model};
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
-use super::responses::response_value;
-use super::trusted_mcp::trusted_cadencr_browser_permission_response;
-use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
+use crate::domain::agents::adapter::{KnownSubagent, RuntimeError, RuntimeEvent};
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
+mod server_requests;
+
+#[bon::builder]
 pub(super) fn spawn_event_loop(
     client: CodexAppServerClient,
-    source_rx: broadcast::Receiver<AppServerEvent>,
+    source_rx: AppServerEventReceiver,
     tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     pending_requests: Arc<Mutex<HashMap<String, PendingCodexRequest>>>,
+    async_questions: Arc<Mutex<PendingAsyncQuestions>>,
     pending_prompt_receipts: Arc<PendingPromptReceipts>,
     turns: RootTurnTracker,
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
+    compaction: Arc<super::session::compaction::CompactionState>,
+    /// Sub-agents earlier runtimes spawned: a rehydrated child keeps its carrier.
+    known_subagents: Vec<KnownSubagent>,
+    browser_trust: CadencrBrowserTrust,
 ) {
     let event_loop = EventLoop {
         client,
         tx,
         pending_requests,
+        async_questions,
         pending_prompt_receipts,
         turns,
         model,
         closing,
+        compaction,
+        browser_trust,
     };
-    tokio::spawn(async move { event_loop.run(source_rx).await });
+    tokio::spawn(async move { event_loop.run(source_rx, known_subagents).await });
 }
 
 struct EventLoop {
     client: CodexAppServerClient,
     tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     pending_requests: Arc<Mutex<HashMap<String, PendingCodexRequest>>>,
+    async_questions: Arc<Mutex<PendingAsyncQuestions>>,
     pending_prompt_receipts: Arc<PendingPromptReceipts>,
     turns: RootTurnTracker,
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
+    compaction: Arc<super::session::compaction::CompactionState>,
+    browser_trust: CadencrBrowserTrust,
 }
 
 struct NotificationState {
-    command_outputs: HashMap<String, String>,
     index_state: IndexState,
     lifecycle: SessionLifecycle,
 }
 
 impl EventLoop {
-    async fn run(&self, source_rx: broadcast::Receiver<AppServerEvent>) {
-        let mut source = EventBuffer::new(source_rx);
+    async fn run(&self, mut source: AppServerEventReceiver, known_subagents: Vec<KnownSubagent>) {
+        let mut index_state = IndexState::for_root_thread(&self.turns.root_thread_id);
+        index_state.seed_known_subagents(known_subagents);
         let mut state = NotificationState {
-            command_outputs: HashMap::new(),
-            index_state: IndexState::for_root_thread(&self.turns.root_thread_id),
+            index_state,
             lifecycle: SessionLifecycle::default(),
         };
         loop {
             match source.recv().await {
-                Ok(AppServerEvent::Notification { method, params }) => {
-                    if !self
-                        .notification(method, params, &mut state, &mut source)
-                        .await
-                    {
+                Some(AppServerEvent::Notification { method, params }) => {
+                    if !self.notification(method, params, &mut state).await {
                         return;
                     }
                 }
-                Ok(AppServerEvent::ServerRequest { id, method, params }) => {
-                    if let Some(response) =
-                        trusted_cadencr_browser_permission_response(&id, &method, &params)
-                    {
-                        let result = response_value(&method, &params, &response);
-                        match self.client.respond_server_request(id.clone(), result).await {
-                            Ok(()) => continue,
-                            Err(error) => {
-                                tracing::warn!(
-                                    %error,
-                                    "failed to auto-allow trusted Cadencr browser MCP permission"
-                                );
-                            }
-                        }
-                    }
-                    self.pending_requests.lock().await.insert(
-                        request_key(&id),
-                        PendingCodexRequest {
-                            id: id.clone(),
-                            method: method.clone(),
-                            params: params.clone(),
-                        },
-                    );
-                    let event = permission_request_event(&id, &method, &params);
-                    if self.tx.send(Ok(event)).await.is_err() {
+                Some(AppServerEvent::ServerRequest { id, method, params }) => {
+                    if !self.server_request(id, &method, params).await {
                         return;
                     }
                 }
-                Ok(AppServerEvent::TransportError { message }) => {
+                Some(AppServerEvent::TransportError { message }) => {
+                    self.pending_prompt_receipts.clear();
                     if self.closing.load(Ordering::SeqCst) {
                         return;
                     }
@@ -118,7 +102,7 @@ impl EventLoop {
                         .await;
                     return;
                 }
-                Ok(AppServerEvent::ProcessExited { status, signal }) => {
+                Some(AppServerEvent::ProcessExited { status, signal }) => {
                     if self.closing.load(Ordering::SeqCst) {
                         return;
                     }
@@ -129,7 +113,7 @@ impl EventLoop {
                         .await;
                     return;
                 }
-                Err(broadcast::error::RecvError::Closed) => {
+                None => {
                     if self.closing.load(Ordering::SeqCst) {
                         return;
                     }
@@ -141,16 +125,6 @@ impl EventLoop {
                         .await;
                     return;
                 }
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    self.pending_prompt_receipts.clear();
-                    let _ = self
-                        .tx
-                        .send(Err(RuntimeError::new(format!(
-                            "Codex event stream lost {skipped} events"
-                        ))))
-                        .await;
-                    return;
-                }
             }
         }
     }
@@ -159,20 +133,20 @@ impl EventLoop {
         method: String,
         mut params: serde_json::Value,
         state: &mut NotificationState,
-        source: &mut EventBuffer,
     ) -> bool {
+        if super::event_turn_state::belongs_to_root_thread(&params, &self.turns.root_thread_id) {
+            self.compaction.observe(&method, &params);
+        }
+        // Codex multiplexes every thread (root + each sub-agent) onto one
+        // stream; item caches are kept per thread so a root turn/started
+        // never clobbers a sub-agent the lifecycle still counts as live.
+        state.index_state.enter_notification(&params);
         if method == "turn/started" {
-            let thread_id = params
-                .get("threadId")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("");
-            // Codex multiplexes every thread (root + each
-            // sub-agent) onto one stream; sub-agent turn/starteds
-            // must not clobber the root's per-turn caches.
-            if state.index_state.should_reset_for_turn_started(thread_id) {
-                state.index_state.reset();
-                state.command_outputs.clear();
-            }
+            let thread = params["threadId"].as_str().unwrap_or_default();
+            let live = &state.lifecycle.children;
+            state
+                .index_state
+                .observe_turn_started(thread, |child| live.contains_key(child));
         }
         update_turn_state(
             &method,
@@ -183,13 +157,37 @@ impl EventLoop {
         )
         .await;
         clear_resolved_request(&method, &params, &self.pending_requests).await;
-        enrich_command_output(&method, &mut params, &mut state.command_outputs);
+        if matches!(
+            method.as_str(),
+            "item/commandExecution/outputDelta" | "command/exec/outputDelta" | "item/completed"
+        ) {
+            enrich_command_output(
+                &method,
+                &mut params,
+                state.index_state.command_outputs_mut(),
+            );
+        }
         if let Some(receipt_event) = self
             .pending_prompt_receipts
             .acknowledge_completed_user_message(&method, &params, &self.turns.root_thread_id)
         {
             if self.tx.send(Ok(receipt_event)).await.is_err() {
                 return false;
+            }
+        }
+        for dropped in self.pending_prompt_receipts.drop_after_interrupted_turn(
+            &method,
+            &params,
+            &self.turns.root_thread_id,
+        ) {
+            if self.tx.send(Ok(dropped)).await.is_err() {
+                return false;
+            }
+        }
+        // A reroute of the root turn moves the model the rest of it runs on.
+        if method == "model/rerouted" && params["threadId"] == self.turns.root_thread_id.as_str() {
+            if let Some(model) = rerouted_model(&params) {
+                *self.model.write().await = Some(model.to_string());
             }
         }
         let current_model = self.model.read().await.clone();
@@ -215,13 +213,7 @@ impl EventLoop {
             &mut state.index_state,
             &mut state.lifecycle,
         );
-        let mut events = match source.during(recovery).await {
-            Ok(events) => events,
-            Err(error) => {
-                let _ = self.tx.send(Err(error)).await;
-                return false;
-            }
-        };
+        let mut events = recovery.await;
         events.extend(notification_events(
             &method,
             params,
@@ -243,6 +235,11 @@ impl EventLoop {
                 .clone_from(&state.lifecycle.children);
         }
         for event in events {
+            if async_question_id(&event).is_some()
+                && !self.async_questions.lock().await.enqueue(&event)
+            {
+                continue;
+            }
             if self.tx.send(Ok(event)).await.is_err() {
                 return false;
             }
@@ -283,13 +280,9 @@ fn enrich_command_output(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("");
             let output = command_outputs.entry(item_id.to_string()).or_default();
+            // Keep the completion fallback, but do not clone the growing output
+            // into every delta: that makes large command streams quadratic.
             output.push_str(delta);
-            if let Some(object) = params.as_object_mut() {
-                object.insert(
-                    "aggregatedOutput".to_string(),
-                    serde_json::Value::String(output.clone()),
-                );
-            }
         }
         "item/completed" => enrich_completed_command(params, command_outputs),
         _ => {}
@@ -337,6 +330,7 @@ mod tests {
 
     use super::super::event_system::request_key;
     use super::super::permissions::PendingCodexRequest;
+    use super::super::server_request_method::CodexServerRequestMethod;
     use super::{clear_resolved_request, enrich_command_output};
 
     #[tokio::test]
@@ -346,7 +340,7 @@ mod tests {
             request_key(&request_id),
             PendingCodexRequest {
                 id: request_id.clone(),
-                method: "item/commandExecution/requestApproval".to_string(),
+                method: CodexServerRequestMethod::CommandExecutionApproval,
                 params: json!({}),
             },
         )])));
@@ -377,7 +371,8 @@ mod tests {
             &mut outputs,
         );
 
-        assert_eq!(second["aggregatedOutput"], json!("hello world"));
+        assert!(first.get("aggregatedOutput").is_none());
+        assert!(second.get("aggregatedOutput").is_none());
 
         let mut completed = json!({
             "item": {

@@ -107,7 +107,7 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
     .await
     .unwrap();
     assert!(result, "initial prompt should complete");
-    session.close().await;
+    session.close().await.unwrap();
 
     let log = fs::read_to_string(log).unwrap();
     assert!(log.contains("initialize"));
@@ -167,7 +167,8 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
 
     tokio::time::timeout(std::time::Duration::from_secs(2), session.close())
         .await
-        .expect("runtime close exceeded the process-wide shutdown deadline");
+        .expect("runtime close exceeded the process-wide shutdown deadline")
+        .unwrap();
     tokio::time::timeout(std::time::Duration::from_millis(100), async {
         while runtime_rx.recv().await.is_some() {}
     })
@@ -187,7 +188,7 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
 
 #[tokio::test]
 async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
-    let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+    let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
     spawn_event_barrier_acker(&client);
     let negotiated = NegotiatedSession {
         session_id: "s-steer".to_string(),
@@ -200,16 +201,15 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx,
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx)
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
     let active_turn = prompt_turn_lock.lock().await;
@@ -240,6 +240,12 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
     session.interrupt().await.unwrap();
     let cancel = read_request(&mut agent_stdin).await;
     assert_eq!(cancel["method"], "session/cancel");
+    send_response(
+        &mut agent_stdout,
+        prompt["id"].clone(),
+        json!({"stopReason": "cancelled"}),
+    )
+    .await;
     tokio::time::timeout(std::time::Duration::from_millis(500), steer)
         .await
         .expect("cancel should unblock steering prompt")
@@ -252,86 +258,6 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
         .expect("ok");
     assert!(result.is_result());
     assert_eq!(result.raw_json()["stop_reason"], "cancelled");
-}
-
-#[tokio::test]
-async fn provider_followup_waits_for_current_prompt_completion() {
-    let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
-    let negotiated = NegotiatedSession {
-        session_id: "s-followup".to_string(),
-        model: None,
-        mcp_servers: Vec::new(),
-        context_window: None,
-        current_mode: Some("build".to_string()),
-        session_config: Default::default(),
-        supports_session_close: false,
-        may_replay_history: false,
-    };
-    let (tx, rx) = mpsc::channel(8);
-    let session = Arc::new(AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx.clone(),
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    ));
-    let event_rx = client.subscribe();
-    let _event_loop = spawn_event_loop(
-        client.clone(),
-        event_rx,
-        tx,
-        EventLoopConfig {
-            session_id: Arc::clone(&session.session_id),
-            current_model: Arc::clone(&session.current_model),
-            current_effort: Arc::clone(&session.current_effort),
-            current_mode: Arc::clone(&session.current_mode),
-            session_config: session.session_config.clone(),
-            cwd: std::env::temp_dir(),
-            closing: Arc::new(AtomicBool::new(false)),
-            pending_permissions: PendingPermissions::default(),
-            session_permissions: SessionPermissions::new(),
-            terminals: Arc::new(TerminalRegistry::default()),
-            hooks: Arc::new(SpawnHooks),
-            replay_suppression: Arc::clone(&session.replay_suppression),
-            pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
-            indexer: Arc::clone(&session.indexer),
-        },
-    );
-    session
-        .pending_followups
-        .write()
-        .await
-        .push_back(("plan-1".to_string(), json!("execute approved plan")));
-
-    let turn = tokio::spawn({
-        let session = Arc::clone(&session);
-        async move { session.stream_input(json!("create plan")).await }
-    });
-    let first = read_request(&mut agent_stdin).await;
-    assert_eq!(first["method"], "session/prompt");
-    assert!(first["params"].to_string().contains("create plan"));
-    send_response(
-        &mut agent_stdout,
-        first["id"].clone(),
-        json!({ "stopReason": "end_turn" }),
-    )
-    .await;
-
-    let followup = read_request(&mut agent_stdin).await;
-    assert_eq!(followup["method"], "session/prompt");
-    assert!(followup["params"]
-        .to_string()
-        .contains("execute approved plan"));
-    send_response(
-        &mut agent_stdout,
-        followup["id"].clone(),
-        json!({ "stopReason": "end_turn" }),
-    )
-    .await;
-    turn.await.unwrap().unwrap();
 }
 
 #[tokio::test]
@@ -348,17 +274,16 @@ async fn prompt_receipt_waits_for_user_message_echo() {
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx.clone(),
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    );
-    let event_rx = client.subscribe();
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx.clone())
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
+    let event_rx = client.subscribe_reliable();
     let _event_loop = spawn_event_loop(
         client.clone(),
         event_rx,
@@ -377,6 +302,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
             hooks: Arc::new(SpawnHooks),
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
+            browser_trust: Default::default(),
             indexer: Arc::clone(&session.indexer),
         },
     );
@@ -442,6 +368,12 @@ async fn prompt_receipt_waits_for_user_message_echo() {
     session.interrupt().await.unwrap();
     let cancel = read_request(&mut agent_stdin).await;
     assert_eq!(cancel["method"], "session/cancel");
+    send_response(
+        &mut agent_stdout,
+        prompt["id"].clone(),
+        json!({"stopReason": "cancelled"}),
+    )
+    .await;
     tokio::time::timeout(std::time::Duration::from_millis(500), steer)
         .await
         .expect("cancel should unblock steering prompt")
@@ -464,16 +396,15 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx,
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx)
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
     let active_turn = prompt_turn_lock.lock().await;

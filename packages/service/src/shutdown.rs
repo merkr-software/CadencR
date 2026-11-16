@@ -6,8 +6,9 @@
 //!    future resolves, so that future does nothing but wait for the signal —
 //!    anything it did first would be time spent still accepting new requests
 //!    against services we are in the middle of tearing down.
-//! 2. Tear down what is already running (remote listener, PTYs, agent runtimes)
-//!    while axum drains the requests it had already accepted. Concurrently: the
+//! 2. Tear down what is already running (remote listener, PTYs, agent runtimes,
+//!    custom tab backends) while axum drains the requests it had already
+//!    accepted. Concurrently: the
 //!    teardown is what lets a live agent stream end, so serialising them would
 //!    guarantee the drain runs out its grace period on every quit.
 //! 3. Flush tracked provider-usage writes after the drain and teardown have
@@ -17,6 +18,10 @@ use std::future::Future;
 use std::time::Duration;
 
 use tokio::sync::oneshot;
+
+mod parent;
+
+pub use parent::{watch_parent, ParentWatch};
 
 /// How long the requests axum already accepted get to finish once the listener
 /// is closed. A connection that never closes on its own — an idle WebSocket —
@@ -28,8 +33,22 @@ const DRAIN_GRACE: Duration = Duration::from_secs(3);
 /// so every extra await here is another moment spent accepting requests we have
 /// already decided not to serve. `drain_started` fires at that same instant,
 /// which is what tells the caller the HTTP drain has begun.
-pub async fn stop_admitting_on_signal(drain_started: oneshot::Sender<()>) {
-    wait_for_signal().await;
+///
+/// With a [`ParentWatch`] (the desktop shell passes `--exit-with-parent`),
+/// the shell's exit is a signal too.
+pub async fn stop_admitting_on_signal(
+    drain_started: oneshot::Sender<()>,
+    parent: Option<ParentWatch>,
+) {
+    match parent {
+        Some(parent) => tokio::select! {
+            _ = wait_for_signal() => {},
+            _ = parent.exited() => {
+                tracing::info!("The desktop shell exited (stdin closed)");
+            },
+        },
+        None => wait_for_signal().await,
+    }
     tracing::info!("Shutdown signal received, shutting down gracefully...");
     let _ = drain_started.send(());
 }
@@ -41,6 +60,7 @@ pub async fn serve_then_shutdown<S>(
     drain_started: oneshot::Receiver<()>,
     pty_manager: crate::domain::terminal::service::PtyManager,
     remote: std::sync::Arc<crate::remote::RemoteController>,
+    plugin_tab_backends: crate::domain::plugin_tabs::backend::BackendSupervisor,
     write_pool: sqlx::SqlitePool,
 ) -> std::io::Result<()>
 where
@@ -49,7 +69,7 @@ where
     let served = serve_then_shutdown_within(
         server,
         drain_started,
-        stop_background_work(pty_manager, remote),
+        stop_background_work(pty_manager, remote, plugin_tab_backends, write_pool.clone()),
         DRAIN_GRACE,
     )
     .await;
@@ -58,7 +78,29 @@ where
     // final provider events; only then is the pending-write set complete.
     crate::domain::ws_session::stream_readers::shutdown(&write_pool).await;
     crate::domain::usage_stats::flush_pending_writes(&write_pool).await;
-    served
+    with_cleanup_result(
+        served,
+        crate::shared::private_temp::remove_process_private_dir(),
+    )
+}
+
+/// Reports a failed scratch cleanup through the shutdown result, keeping the
+/// serve error first when both failed.
+fn with_cleanup_result(
+    served: std::io::Result<()>,
+    cleanup: std::io::Result<()>,
+) -> std::io::Result<()> {
+    match (served, cleanup) {
+        (served, Ok(())) => served,
+        (Ok(()), Err(cleanup)) => Err(std::io::Error::new(
+            cleanup.kind(),
+            format!("remove private temp directory: {cleanup}"),
+        )),
+        (Err(served), Err(cleanup)) => Err(std::io::Error::new(
+            served.kind(),
+            format!("{served}; also could not remove private temp directory: {cleanup}"),
+        )),
+    }
 }
 
 /// Everything that keeps running after the listener closes. Nothing here is
@@ -67,7 +109,12 @@ where
 async fn stop_background_work(
     pty_manager: crate::domain::terminal::service::PtyManager,
     remote: std::sync::Arc<crate::remote::RemoteController>,
+    plugin_tab_backends: crate::domain::plugin_tabs::backend::BackendSupervisor,
+    write_pool: sqlx::SqlitePool,
 ) {
+    // Record the turns this shutdown is about to cut off before anything can
+    // end them: the next start resumes them (`restart_continuations`).
+    crate::domain::restart_continuations::begin_shutdown(&write_pool).await;
     // Drop the remote listener first: it has its own admission path, so it is
     // the one thing that could still start new work. Bounded internally so a
     // hung remote WS can't block quit.
@@ -75,6 +122,8 @@ async fn stop_background_work(
 
     pty_manager.kill_all();
     crate::domain::agents::shutdown_runtime_servers().await;
+    // Their process trees, not just their main processes (bounded).
+    plugin_tab_backends.shutdown().await;
     tracing::info!("Runtime servers stopped.");
 }
 
@@ -147,7 +196,39 @@ async fn wait_for_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::serve_then_shutdown_within;
+    use super::{serve_then_shutdown_within, with_cleanup_result};
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn cleanup_failures_reach_the_shutdown_result() {
+        assert!(with_cleanup_result(Ok(()), Ok(())).is_ok());
+
+        let cleanup_only = with_cleanup_result(
+            Ok(()),
+            Err(Error::new(ErrorKind::PermissionDenied, "denied")),
+        )
+        .unwrap_err();
+        assert_eq!(cleanup_only.kind(), ErrorKind::PermissionDenied);
+        assert!(cleanup_only
+            .to_string()
+            .contains("private temp directory: denied"));
+
+        let both = with_cleanup_result(
+            Err(Error::new(ErrorKind::AddrInUse, "listener failed")),
+            Err(Error::new(ErrorKind::PermissionDenied, "denied")),
+        )
+        .unwrap_err();
+        assert_eq!(both.kind(), ErrorKind::AddrInUse);
+        assert!(both.to_string().starts_with("listener failed"));
+        assert!(both.to_string().contains("denied"));
+
+        let serve_only = with_cleanup_result(
+            Err(Error::new(ErrorKind::AddrInUse, "listener failed")),
+            Ok(()),
+        )
+        .unwrap_err();
+        assert_eq!(serve_only.to_string(), "listener failed");
+    }
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;

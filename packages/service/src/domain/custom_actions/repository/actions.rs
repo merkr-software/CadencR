@@ -45,20 +45,22 @@ fn hydrate(row: ActionRow, last_run: Option<LastRunSummary>) -> CustomAction {
     }
 }
 
-/// Returns global actions plus any actions scoped to `project_id`. When
-/// `feature_id` is provided, each action's latest run for that feature is
-/// embedded so the header bar can paint status dots without N additional HTTP
-/// calls.
+/// Returns the project's own actions, then the global ones, each group in its
+/// user-chosen `position` order. Without a `project_id` only the global actions
+/// are listed (the Settings page). When `feature_id` is provided, each action's
+/// latest run for that feature is embedded so the header can paint status
+/// without N additional HTTP calls.
 pub async fn list_for_project(
     pool: &SqlitePool,
-    project_id: i64,
+    project_id: Option<i64>,
     feature_id: Option<i64>,
 ) -> Result<Vec<CustomAction>, AppError> {
+    // `project_id = NULL` is never true, so a missing project lists globals only.
     let rows = sqlx::query_as::<_, ActionRow>(
         r#"SELECT id, name, command, icon_data, scope, project_id, position, run_in_terminal, created_at, updated_at
            FROM custom_actions
            WHERE scope = 'global' OR project_id = ?
-           ORDER BY position ASC, id ASC"#,
+           ORDER BY CASE scope WHEN 'project' THEN 0 ELSE 1 END, position ASC, id ASC"#,
     )
     .bind(project_id)
     .fetch_all(pool)
@@ -98,9 +100,12 @@ pub async fn insert(
     project_id: Option<i64>,
     run_in_terminal: bool,
 ) -> Result<i64, AppError> {
+    // New actions go last in their own list (the project's, or the globals).
     let result = sqlx::query(
-        r#"INSERT INTO custom_actions (name, command, icon_data, scope, project_id, run_in_terminal)
-           VALUES (?, ?, ?, ?, ?, ?)"#,
+        r#"INSERT INTO custom_actions (name, command, icon_data, scope, project_id, run_in_terminal, position)
+           VALUES (?, ?, ?, ?, ?, ?,
+                   (SELECT COALESCE(MAX(position) + 1, 0) FROM custom_actions
+                    WHERE scope = ? AND project_id IS ?))"#,
     )
     .bind(name)
     .bind(command)
@@ -108,6 +113,8 @@ pub async fn insert(
     .bind(scope)
     .bind(project_id)
     .bind(run_in_terminal)
+    .bind(scope)
+    .bind(project_id)
     .execute(pool)
     .await?;
     Ok(result.last_insert_rowid())
@@ -177,11 +184,56 @@ mod tests {
         .await
         .unwrap();
 
-        let rows = list_for_project(&pool, project_id, None).await.unwrap();
+        let rows = list_for_project(&pool, Some(project_id), None)
+            .await
+            .unwrap();
         let names: Vec<_> = rows.iter().map(|r| r.name.clone()).collect();
         assert!(names.contains(&"global".to_string()));
         assert!(names.contains(&"mine".to_string()));
         assert!(!names.contains(&"other".to_string()));
+    }
+
+    #[tokio::test]
+    async fn list_puts_project_actions_before_globals_and_appends_new_ones() {
+        let (pool, project_id, _) = pool_with_project_and_feature().await;
+        insert(&pool, "g1", "echo", None, Scope::Global, None, false)
+            .await
+            .unwrap();
+        insert(
+            &pool,
+            "p1",
+            "echo",
+            None,
+            Scope::Project,
+            Some(project_id),
+            false,
+        )
+        .await
+        .unwrap();
+        insert(&pool, "g2", "echo", None, Scope::Global, None, false)
+            .await
+            .unwrap();
+        insert(
+            &pool,
+            "p2",
+            "echo",
+            None,
+            Scope::Project,
+            Some(project_id),
+            false,
+        )
+        .await
+        .unwrap();
+
+        let rows = list_for_project(&pool, Some(project_id), None)
+            .await
+            .unwrap();
+        let order: Vec<_> = rows.iter().map(|r| (r.name.as_str(), r.position)).collect();
+        assert_eq!(order, vec![("p1", 0), ("p2", 1), ("g1", 0), ("g2", 1)]);
+
+        let globals = list_for_project(&pool, None, None).await.unwrap();
+        let names: Vec<_> = globals.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["g1", "g2"]);
     }
 
     #[tokio::test]
@@ -205,7 +257,7 @@ mod tests {
             .await
             .unwrap();
 
-        let rows = list_for_project(&pool, project_id, Some(feature_id))
+        let rows = list_for_project(&pool, Some(project_id), Some(feature_id))
             .await
             .unwrap();
         let action = rows.iter().find(|a| a.id == action_id).unwrap();

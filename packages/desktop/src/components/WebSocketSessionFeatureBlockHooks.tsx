@@ -10,6 +10,7 @@ import {
 import { useGitStatusSubscription } from "@/hooks/useGitStatusSubscription";
 import { useAgentLetterFocus } from "@/hooks/useAgentLetterFocus";
 import { useScopedShortcut } from "@/hooks/useShortcut";
+import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import { nextThinkingEffort } from "@/shared/thinking-effort";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
@@ -34,6 +35,9 @@ interface SessionRefs {
 }
 interface SessionFeatureData {
   projectPath: string;
+  projectName: string | undefined;
+  /** Git-verified feature worktree; `null` in the project root, `undefined` while unresolved. */
+  worktreePath: string | null | undefined;
   gitBranch: string | undefined;
   defaultBranch: string | undefined;
   featureSettings: Record<string, string>;
@@ -64,7 +68,9 @@ export function useSessionFeatureData(
   const projectsQuery = useListProjects({
     query: { enabled: projectLookupEnabled },
   });
-  const projectPath = projectsQuery.data?.find((p) => p.id === projectId)?.path;
+  const project = projectsQuery.data?.find((p) => p.id === projectId);
+  const projectPath = project?.path;
+  const projectName = project?.name;
   const worktreePath = useFeatureWorktreePath(featureId, projectId);
   useGitStatusSubscription(gitMetadataEnabled ? featureId : null);
   const { data: initialGitStatus } = useGetGitStatus(
@@ -113,6 +119,8 @@ export function useSessionFeatureData(
   return useMemo<SessionFeatureData>(
     () => ({
       projectPath: projectPath ?? cwd,
+      projectName,
+      worktreePath,
       gitBranch,
       defaultBranch,
       featureSettings,
@@ -130,10 +138,12 @@ export function useSessionFeatureData(
       featureSettings,
       gitBranch,
       handleRetryWorktreeSetup,
+      projectName,
       projectPath,
       requestSlashCommands,
       session,
       worktreeBranch,
+      worktreePath,
       worktreeStatus,
     ],
   );
@@ -175,16 +185,25 @@ function useSessionInitialization({
   const { initSession, isConnected } = controls.ws;
   const serverSessionId = data.session?.serverSessionId;
   const persistedLoaded = data.session?.persistedLoaded ?? false;
+  // Embedded cards skip init on mount, but a prompt sent from one is only
+  // queued until `session.initialized` — so init on demand (issue #251). The
+  // in-flight guard also lets a refused or socket-dropped init be retried by
+  // the next queued prompt instead of looping on mount.
+  const needsOnDemandInit =
+    (data.session?.queuedPrompts.length ?? 0) > 0 && data.session?.initRequestId === null;
   useEffect(() => {
-    if (!autoInitSession) return;
-    if (!isConnected || controls.initializedRef.current === sessionId) return;
-    if (serverSessionId !== "" || !persistedLoaded) return;
+    if (!isConnected || serverSessionId !== "" || !persistedLoaded) return;
+    const initOnMount = autoInitSession && controls.initializedRef.current !== sessionId;
+    if (!initOnMount && !needsOnDemandInit) return;
+    // A card and the full view can share this session; read the live entry so
+    // two effects in one commit don't both send an init.
+    if (useWsSessionStore.getState().sessions[sessionId]?.initRequestId) return;
     controls.initializedRef.current = sessionId;
-    // No provider/model/effort: this effect only runs for a brand-new session,
-    // and the frontend resolvers return catalog fallbacks until the selection
-    // query settles. The backend treats any pair we send as pinned, so it must
-    // resolve this one itself — it reads the same settings, with the live
-    // catalog we do not have here.
+    // No provider/model/effort: the frontend resolvers return catalog
+    // fallbacks until the selection query settles. The backend treats any
+    // pair we send as pinned, so it must resolve this one itself — it reads
+    // the persisted session row and settings, with the live catalog we do
+    // not have here.
     initSession({
       cwd,
       featureId,
@@ -198,6 +217,7 @@ function useSessionInitialization({
     featureId,
     initSession,
     isConnected,
+    needsOnDemandInit,
     persistedLoaded,
     serverSessionId,
     sessionId,
@@ -258,9 +278,9 @@ export function useWsSessionShortcuts(args: {
     "agent-thinking",
     (e) => {
       const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || !active.closest("[data-agent-prompt-bar='true']")) {
-        return;
-      }
+      const promptBar =
+        active instanceof HTMLElement ? active.closest("[data-agent-prompt-bar='true']") : null;
+      if (!promptBar || focusInSkillWizard(promptBar)) return;
       if (controls.supportedThinkingEfforts.length === 0) return;
       e.preventDefault();
       const next = nextThinkingEffort(

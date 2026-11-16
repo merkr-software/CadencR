@@ -1,0 +1,170 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "@cadencr/tab-kit — custom tab UI"
+description: "Build theme-aware custom tabs with React components, bundled fonts, and a Tailwind CSS v4 preset."
+lastReviewed: "2026-10-31"
+---
+
+`@cadencr/tab-kit` gives custom tabs Cadencr's React components, theme tokens, bundled Inter font, and a Tailwind CSS v4 preset. The [tab SDK](/docs/tab-sdk/) applies the live host theme; the kit supplies the styles and components that use it.
+
+[npm package](https://www.npmjs.com/package/@cadencr/tab-kit) · [README and source](https://github.com/merkr-software/CadencR/tree/main/packages/tab-kit) · [Create a tab](/docs/libraries/#create-your-first-custom-tab)
+
+## Install
+
+For a Vite + React project:
+
+```bash
+npm install @cadencr/tab-kit @cadencr/tab-sdk react@^19 react-dom@^19
+npm install -D tailwindcss@^4 @tailwindcss/vite@^4
+```
+
+The kit's only runtime peer dependencies are React 19 and React DOM 19. For TypeScript projects, also install the types referenced by its declarations:
+
+```bash
+npm install -D @types/react@^19 @types/react-dom@^19 radix-ui class-variance-authority clsx
+```
+
+## Configure Tailwind and Vite
+
+Keep the React plugin in your Vite configuration and add Tailwind:
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  base: "./",
+  plugins: [react(), tailwindcss()],
+});
+```
+
+Import the preset after Tailwind in your main stylesheet:
+
+```css
+/* src/styles.css */
+@import "tailwindcss";
+@import "@cadencr/tab-kit/preset.css";
+```
+
+The preset registers the compiled components as a Tailwind source, imports bundled fonts and animations, and maps utilities to Cadencr's CSS variables. No Tailwind v3 configuration file or extra content glob is needed for kit components.
+
+`base: "./"` makes the production bundle work under the custom tab's origin. Use `vite build --watch` while authoring; Cadencr loads the static bundle rather than the Vite development server.
+
+## Build a themed panel
+
+```tsx
+import { CadencrProvider, useTabContext } from "@cadencr/tab-sdk/react";
+import { Badge, Card, CardContent, CardHeader, CardTitle } from "@cadencr/tab-kit";
+import "./styles.css";
+
+export function App() {
+  return (
+    <CadencrProvider
+      fallback={<p className="p-4">Connecting…</p>}
+      errorFallback={(error) => (
+        <p role="alert" className="p-4">
+          {error.message}
+        </p>
+      )}
+    >
+      <FeaturePanel />
+    </CadencrProvider>
+  );
+}
+
+function FeaturePanel() {
+  const context = useTabContext();
+  return (
+    <main className="bg-background p-4 text-foreground">
+      <Card>
+        <CardHeader>
+          <CardTitle>{context.feature.name}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-2">
+          <Badge variant="secondary">{context.project.name}</Badge>
+          <span className="text-muted-foreground">Ready to inspect</span>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+```
+
+The SDK provider applies `--cadencr-*` variables, `data-appearance`, and `color-scheme` on the document. Theme changes update the UI automatically. The kit's `dark:` variant follows Cadencr's appearance, including custom themes.
+
+## CSS entry points
+
+| Import                        | Contents                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `@cadencr/tab-kit/preset.css` | Tokens, fonts, animations, base styles, component source registration, and Tailwind v4 mappings. |
+| `@cadencr/tab-kit/tokens.css` | Default dark/light `--cadencr-*` values; usable without React or Tailwind.                       |
+| `@cadencr/tab-kit/fonts.css`  | Locally bundled Inter Variable, weights 100–900.                                                 |
+
+For plain CSS, import `tokens.css` and use variables directly:
+
+```css
+@import "@cadencr/tab-kit/tokens.css";
+
+.panel {
+  background: var(--cadencr-background);
+  color: var(--cadencr-foreground);
+  border: 1px solid var(--cadencr-border);
+}
+```
+
+Without a host connection, the default tokens let you preview the UI. A live SDK connection replaces them with the user's current theme. If you set `applyTheme: false`, your application must apply tokens itself, for example with the SDK's `applyTheme` helper.
+
+## Components and utilities
+
+| Family             | Exports                                                             |
+| ------------------ | ------------------------------------------------------------------- |
+| Actions and forms  | `Button`, `Input`, `Textarea`, `Checkbox`, `Switch`, `Label`.       |
+| Menus and overlays | `ContextMenu*`, `DropdownMenu*`, `Popover*`, `Select*`, `Tooltip*`. |
+| Structure          | `Tabs*`, `ScrollArea`, `Separator`, `Card*`.                        |
+| Feedback           | `Badge`, `Progress`, `Skeleton`, `EmptyState`.                      |
+| Class composition  | `cn()`.                                                             |
+
+The `*` families include their compound parts, such as `SelectTrigger`, `SelectContent`, and `SelectItem`. Import these by name from `@cadencr/tab-kit`. Wrap tooltips in `TooltipProvider` and give icon-only buttons an accessible label.
+
+Most components are compiled directly from the desktop's own UI modules. `Card*`, `Label`, and `EmptyState` are kit-specific primitives. Use `EmptyState` with `title`, optional `description`, `icon`, and `action`.
+
+Common utilities include `bg-background`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-surface-sunken`, `text-acc-green`, and `text-numstat-add-fg`. `font-sans` uses Inter; `font-mono` uses the system monospace stack. The [README](https://github.com/merkr-software/CadencR/tree/main/packages/tab-kit) lists more token mappings.
+
+### Icons
+
+Install Lucide when your tab needs icons:
+
+```bash
+npm install lucide-react
+```
+
+```tsx
+import { Search } from "lucide-react";
+import { Button } from "@cadencr/tab-kit";
+
+export function SearchButton() {
+  return (
+    <Button variant="ghost" size="icon-xs" aria-label="Search">
+      <Search />
+    </Button>
+  );
+}
+```
+
+Lucide is not re-exported by the kit. Kit components size child SVG icons and icons inherit the current text color.
+
+## Troubleshooting
+
+| Symptom                                         | Check                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| Components have no layout or colors             | Import the preset after Tailwind and enable a Tailwind v4 build integration.    |
+| Theme stays at the default                      | Connect the SDK or mount `CadencrProvider`; keep `applyTheme` enabled.          |
+| Styles or fonts fail only inside Cadencr        | Use relative build URLs and bundle all assets locally.                          |
+| Type declarations cannot resolve Radix/CVA/clsx | Install the declaration dependencies listed above.                              |
+| Browser preview cannot connect                  | Preview defaults locally or use the SDK fake host; host APIs need a custom tab. |
+
+## License
+
+Apache-2.0. The package includes `dist/THIRD_PARTY_LICENSES.txt` for bundled code and `dist/fonts/OFL.txt` for Inter's SIL Open Font License. Fonts and styles ship locally, without runtime CDN requests.

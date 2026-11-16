@@ -56,6 +56,21 @@
   padding-top: calc(4px + 0.375rem / 2);
   padding-bottom: calc(4px + 0.375rem / 2);
 }
+/* Floating frames pad their top here, so stacked panes stand a full gutter +
+ * handle + gutter apart: the grid's bottom edge gets the same (its sides
+ * already do, feature-panes.css). */
+:root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-feature-layout-shell][data-has-floating-pane="true"] {
+  padding-bottom: calc(0.375rem + 1px);
+}
+/* That bottom inset is the gutter the composer otherwise takes to bottom out
+ * with the floating cards (feature-panes.css): don't double it. */
+:root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-feature-layout-shell][data-has-floating-pane="true"]
+  [data-pane-root]
+  [data-agent-prompt-bar] {
+  padding-bottom: 0;
+}
 
 /* ── Pane elevation ──────────────────────────────────────────────────────
  * Split panes (terminal / git / editor / browser) become raised instrument
@@ -84,9 +99,9 @@
 
 /* ── Prompt bar — the instrument the user actually plays ─────────────────
  * A raised card with a real hairline and a soft cast, instead of the
- * borderless muted wash. Focus keeps the same chrome (no emerald border or
- * glow). (The default `bg-muted/40` + `focus-within:bg-muted/55` classes lose
- * to these theme-scoped declarations.) */
+ * borderless muted wash. Focus tints the hairline with the whisper of emerald
+ * a focused pane gets — never a glow. (The default `bg-muted/40` +
+ * `focus-within:bg-muted/55` classes lose to these theme-scoped declarations.) */
 :root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
   [data-agent-prompt-bar]
   > .glass-surface {
@@ -95,15 +110,25 @@
   box-shadow: var(--prompt-shadow);
   transition:
     background-color 150ms ease,
+    border-color 150ms ease,
     box-shadow 200ms ease;
+}
+:root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-agent-prompt-bar]
+  > .glass-surface:focus-within {
+  border-color: var(--pane-border-focused);
 }
 
 /* ── Floating overlays ───────────────────────────────────────────────────
  * The hand-rolled popovers (slash-command, @-file mention, filter
  * suggestions) share the `.glass-surface` utility; in the CadencR pair they
- * get a real overlay lift instead of the flat hairline-only look. */
+ * and the toasts get a real overlay lift instead of the flat hairline-only
+ * look. */
 :root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
-  .glass-surface.absolute {
+  .glass-surface.absolute,
+:root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"] {
   box-shadow: var(--glass-shadow-overlay);
 }
 

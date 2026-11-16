@@ -1,5 +1,12 @@
 import type { ReactElement } from "react";
-import { BotIcon, CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
+import {
+  BotIcon,
+  CodeIcon,
+  GitCompareArrowsIcon,
+  FileTextIcon,
+  GlobeIcon,
+  TerminalIcon,
+} from "lucide-react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 
@@ -27,6 +34,7 @@ vi.mock("@/hooks/useFeatureLayoutPersistence", () => ({
   useFeatureLayoutPersistence: (): void => {},
 }));
 vi.mock("@/hooks/useFeatureLayoutHotkeys", () => ({ useFeatureLayoutHotkeys: (): void => {} }));
+vi.mock("@/lib/auto-layout/useAutoLayoutTarget", () => ({ useAutoLayoutTarget: (): void => {} }));
 
 const FEATURE_ID = 11;
 
@@ -36,6 +44,7 @@ const tabs: FeatureTabs = {
   git: { label: "Git", Icon: GitCompareArrowsIcon, content: null },
   editor: { label: "Editor", Icon: CodeIcon, content: null },
   browser: { label: "Browser", Icon: GlobeIcon, content: null },
+  preview: { label: "Preview", Icon: FileTextIcon, content: null },
 };
 
 describe("FeatureLayoutShell", () => {
@@ -87,5 +96,20 @@ describe("FeatureLayoutShell", () => {
     const after = seenLayoutStates.at(-1);
     expect(after).not.toBe(before);
     expect(after?.splitRoot).toMatchObject({ type: "leaf", activeTabId: "terminal" });
+  });
+
+  it("hides placed tabs that have no definition, stably and without touching the store", () => {
+    const stored = flatLayoutState("plugin:graph", ["plugin:graph"]);
+    useFeatureLayoutStore.setState({ features: { [FEATURE_ID]: stored } });
+    const shell = (): ReactElement => (
+      <FeatureLayoutShell featureId={FEATURE_ID} tabs={{ ...tabs }} />
+    );
+    const view = render(shell());
+    view.rerender(shell());
+
+    const [first, ...rest] = seenLayoutStates;
+    expect(first?.splitRoot).toEqual(flatLayoutState().splitRoot);
+    for (const seen of rest) expect(seen).toBe(first);
+    expect(useFeatureLayoutStore.getState().features[FEATURE_ID]).toBe(stored);
   });
 });

@@ -7,7 +7,9 @@ use tokio::sync::Mutex;
 
 use crate::domain::agents::adapter::RuntimeError;
 use crate::domain::agents::runtime::ProviderModeCatalogEntry;
+use crate::shared::cli_stderr;
 
+const AGENT_LIST_COMMAND: &str = "opencode agent list";
 const AGENT_LIST_TIMEOUT: Duration = Duration::from_secs(10);
 const AGENT_LIST_CACHE_TTL: Duration = Duration::from_secs(30);
 const MODE_PREFIX: &str = "opencodeAgent:";
@@ -81,18 +83,25 @@ async fn list_agents_output(cwd: &Path) -> Result<String, RuntimeError> {
     command.current_dir(cwd).kill_on_drop(true);
     let output = tokio::time::timeout(AGENT_LIST_TIMEOUT, command.output())
         .await
-        .map_err(|_| RuntimeError::new("opencode agent list timed out"))?
-        .map_err(|error| RuntimeError::new(format!("opencode agent list failed: {error}")))?;
+        .map_err(|_| RuntimeError::new(format!("{AGENT_LIST_COMMAND} timed out")))?
+        .map_err(|error| RuntimeError::new(format!("{AGENT_LIST_COMMAND} failed: {error}")))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(RuntimeError::new(format!(
-            "opencode agent list exited with status {}: {stderr}",
-            output.status,
-        )));
+        return Err(agent_list_failure(&output));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Why `opencode agent list` failed, from the end of its stderr (bounded,
+/// known secrets masked).
+fn agent_list_failure(output: &std::process::Output) -> RuntimeError {
+    RuntimeError::new(cli_stderr::command_failure(
+        AGENT_LIST_COMMAND,
+        &output.status,
+        &String::from_utf8_lossy(&output.stderr),
+        &cli_stderr::secret_values([]),
+    ))
 }
 
 fn parse_primary_agent_modes(raw: &str) -> Vec<ProviderModeCatalogEntry> {
@@ -139,7 +148,33 @@ fn parse_agent_header(line: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_name_from_mode_id, parse_primary_agent_modes};
+    use super::{agent_list_failure, agent_name_from_mode_id, parse_primary_agent_modes};
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_agent_list_says_why_without_raw_stderr() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let secret = "sk-simulated-opencode-secret";
+        let _lock = crate::shared::test_env::env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _token =
+            crate::shared::test_env::EnvVarGuard::set("CADENCR_TEST_OPENCODE_AGENTS_TOKEN", secret);
+        let stderr = format!(
+            "{}\n\u{1b}[31mError:\u{1b}[0m token {secret} rejected\n",
+            "noise ".repeat(200)
+        );
+        let error = agent_list_failure(&std::process::Output {
+            status: std::process::ExitStatus::from_raw(1 << 8),
+            stdout: Vec::new(),
+            stderr: stderr.into_bytes(),
+        });
+        assert_eq!(
+            error.to_string(),
+            "opencode agent list exited with status 1: Error: token ••• rejected"
+        );
+    }
 
     #[test]
     fn parses_custom_primary_agents_from_cli_output() {

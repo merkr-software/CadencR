@@ -2,7 +2,6 @@ import { useGetAgentSelection } from "./generated";
 import type { AgentSelectionResponse, ResolvedSelection } from "./generated";
 
 interface SelectionScope {
-  projectId?: number;
   featureId?: number;
   cwd?: string;
   profile?: string;
@@ -11,14 +10,13 @@ interface SelectionScope {
 
 /**
  * Query the backend-resolved provider/model pair, including origin information
- * (why this pair won: feature override, project override, global, or provider default).
+ * (why this pair won: feature override, the workspace's last-used pair, or provider default).
  * The backend owns the precedence cascade; this hook just fetches the result.
  */
 export function useResolvedSelection(scope: SelectionScope) {
-  const { projectId, featureId, cwd, profile, enabled = true } = scope;
+  const { featureId, cwd, profile, enabled = true } = scope;
   return useGetAgentSelection(
     {
-      ...(projectId != null ? { project_id: projectId } : {}),
       ...(featureId != null ? { feature_id: featureId } : {}),
       ...(cwd ? { cwd } : {}),
       ...(profile ? { profile } : {}),

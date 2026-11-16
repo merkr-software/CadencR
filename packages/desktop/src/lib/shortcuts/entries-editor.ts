@@ -60,7 +60,7 @@ export const EDITOR_SHORTCUTS = [
     scope: "editor",
   },
   {
-    // Generic preview toggle — fires for markdown, HTML, and SVG files.
+    // Generic preview toggle — fires for markdown, HTML, SVG, and CSV / TSV files.
     // The editor decides per-file whether the chord is enabled and what
     // the preview surface renders (see `getPreviewKind`).
     id: "editor-toggle-preview",
@@ -232,5 +232,14 @@ export const EDITOR_SHORTCUTS = [
     keys: ["mod", "shift", "i"],
     description: "Format document",
     scope: "editor-buffer",
+  },
+  {
+    // Same chord as the Terminal's: "hand this to the agent". Lands in the
+    // conversation composer's context tray, not sent.
+    id: "editor-add-selection-to-prompt",
+    keys: ["mod", "shift", "enter"],
+    description: "Add selection to the agent prompt",
+    scope: "editor",
+    aliases: ["context", "agent", "prompt"],
   },
 ] as const satisfies readonly Shortcut[];

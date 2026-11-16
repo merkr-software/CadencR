@@ -1,0 +1,76 @@
+name: Qualify three-kind distributed CLI offline
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: Exact reviewed QA workflow and fixtures commit
+        required: true
+        type: string
+      pins_sha256:
+        description: Exact reviewed offline-cli-pin.env SHA-256
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    if: github.repository == 'merkr-software/cadencr-registry-qa' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify reviewed QA context and exact binary pins
+        env:
+          REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+          PINS_SHA256: ${{ inputs.pins_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re
+          expected = 'merkr-software/cadencr-registry-qa'
+          assert os.environ['GITHUB_REPOSITORY'] == expected
+          assert os.environ['GITHUB_REPOSITORY_ID'] == '1420296872'
+          assert os.environ['GITHUB_REF'] == 'refs/heads/main'
+          assert os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+          assert os.environ['GITHUB_WORKFLOW_REF'] == expected + '/.github/workflows/offline.yml@refs/heads/main'
+          assert re.fullmatch('[a-f0-9]{40}', os.environ['REVIEWED_COMMIT'])
+          assert os.environ['GITHUB_SHA'] == os.environ['REVIEWED_COMMIT']
+          assert re.fullmatch('[a-f0-9]{64}', os.environ['PINS_SHA256'])
+          pins = pathlib.Path('offline-cli-pin.env')
+          assert not pins.is_symlink() and pins.is_file() and pins.stat().st_size <= 1024
+          raw = pins.read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == os.environ['PINS_SHA256']
+          lines = raw.decode().splitlines()
+          assert len(lines) == 2
+          assert re.fullmatch(r'CADENCR_RELEASE_VERSION=(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-dev\.[1-9][0-9]*\.[1-9][0-9]*)?', lines[0])
+          assert re.fullmatch('CADENCR_RELEASE_SHA256=[a-f0-9]{64}', lines[1])
+          fetch = pathlib.Path('offline-fetch-pin.env')
+          assert not fetch.is_symlink() and fetch.is_file() and fetch.stat().st_size <= 2048
+          version = lines[0].split('=', 1)[1]
+          assert fetch.read_text() == raw.decode() + 'CADENCR_RELEASE_TAG=cli/v' + version + '\n'
+          PY
+      - name: Fetch exact public ELF without source fallback
+        run: sh scripts/fetch-released-cli.sh offline-fetch-pin.env "$RUNNER_TEMP/offline-cli"
+      - name: Exercise all package kinds without credentials or network
+        run: |
+          sudo unshare --net -- setpriv \
+            --reuid "$(id -u)" --regid "$(id -g)" --clear-groups \
+            --bounding-set=-all --no-new-privs \
+            env -i PATH=/usr/bin:/bin \
+            CLI="$RUNNER_TEMP/offline-cli/cadencr" \
+            CLI_WORK_ROOT="$RUNNER_TEMP/three-kind-offline" \
+            CLI_QUALIFICATION_PINS="$GITHUB_WORKSPACE/offline-cli-pin.env" \
+            sh scripts/qualify-released-cli.sh
+      - name: Preserve key-free public evidence only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: three-kind-offline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/three-kind-offline/evidence/evidence.json
+          if-no-files-found: warn
+          retention-days: 14

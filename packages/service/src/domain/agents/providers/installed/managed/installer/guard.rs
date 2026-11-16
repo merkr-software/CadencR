@@ -193,9 +193,6 @@ fn check_cached_blocklist(
         chrono::Utc::now(),
     )
     .map_err(|error| guard(ManagedLaunchGuardCode::BlocklistInvalid, error.message))?;
-    let Some(blocklist) = blocklist else {
-        return Ok(());
-    };
     let blocked = blocklist
         .blocked_reason(
             &receipt.agent.id,
@@ -212,7 +209,7 @@ fn check_cached_blocklist(
     Ok(())
 }
 
-fn parse_managed_executable(
+pub(super) fn parse_managed_executable(
     storage: &ManagedStorage,
     executable: &Path,
 ) -> Result<Option<(String, ManagedRevision, PathBuf)>, ManagedLaunchGuardError> {

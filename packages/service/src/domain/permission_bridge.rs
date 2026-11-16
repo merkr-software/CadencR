@@ -4,18 +4,15 @@
 //! Used by both the workflow engine (`WorkflowPermissionBridge`) and
 //! the session handler (`WsBridgeCanUseTool`).
 
-use std::sync::Arc;
-
 use crate::domain::agents::adapter::{
     RuntimePermissionResponseKind, RuntimePermissionUpdate, RuntimeToolPermissionRequest,
     RuntimeToolPermissionResult,
 };
 use crate::domain::session_status::AgentStatus;
-use crate::domain::ws_session::handler::session_prompt::PermissionResponse;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{PermissionDecision, PermissionOptionPayload};
+use crate::domain::ws_session::runtime::application::mark_agent_resumed;
+use crate::domain::ws_session::runtime::prompt::PermissionWaiter;
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex};
 
 pub fn build_provider_permission_options(
     permission_updates: &[RuntimePermissionUpdate],
@@ -149,23 +146,25 @@ fn preview_value(value: Option<&Value>) -> Option<String> {
     }
 }
 
-/// Wait for a user response on the permission channel, clear the DB gate +
+/// Wait for the user's response to this request, clear the DB gate +
 /// broadcast the next turn, and apply the decision.
 ///
 /// Preconditions: the caller has already
+/// - registered `waiter` under the request id it shows the user, so only the
+///   response naming that id can resolve this request, and
 /// - persisted the pending-input row via
-///   [`WsSessionPersistence::mark_awaiting_user_static`] (which both wrote the
+///   [`crate::domain::ws_session::runtime::application::mark_awaiting_user`] (which both wrote the
 ///   `pending_*` column and broadcast `"askUser"`), and
 /// - sent the matching `permission.request` WS envelope to the client.
 ///
 /// On response this function calls
-/// [`WsSessionPersistence::mark_agent_resumed_static`] which NULLs the given
+/// [`mark_agent_resumed`] which NULLs the given
 /// column *before* broadcasting the terminal turn (`"agent"` / `"none"`),
 /// closing the lag-recovery race where a snapshot re-read resurrected
 /// `"askUser"` from a row that had already been answered.
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub async fn wait_and_apply_decision(
-    response_rx: &Arc<Mutex<mpsc::Receiver<PermissionResponse>>>,
+    waiter: PermissionWaiter,
     tool_use_id: &str,
     original_input: serde_json::Value,
     permission_updates: &[RuntimePermissionUpdate],
@@ -175,14 +174,13 @@ pub async fn wait_and_apply_decision(
     db_session_id: i64,
     clear_kind: crate::domain::ws_session::persistence::PendingUserInputKind,
 ) -> RuntimeToolPermissionResult {
-    let mut rx = response_rx.lock().await;
-    match rx.recv().await {
+    match waiter.recv().await {
         Some(response) => {
             // Claude Code keeps streaming after `can_use_tool` returns Deny
             // with `interrupt: false`, so the turn stays on the agent until a
             // real Result arrives. Broadcasting Idle here would flip the
             // sidebar while the CLI is still working.
-            WsSessionPersistence::mark_agent_resumed_static(
+            mark_agent_resumed(
                 write_pool,
                 session_status_tx,
                 db_session_id,
@@ -205,7 +203,7 @@ pub async fn wait_and_apply_decision(
             // broadcast Idle so any connected client still showing Question
             // drops back to idle — otherwise the sidebar stays stuck even
             // after the gate is gone from the DB.
-            WsSessionPersistence::mark_agent_resumed_static(
+            mark_agent_resumed(
                 write_pool,
                 session_status_tx,
                 db_session_id,
@@ -273,6 +271,41 @@ pub fn runtime_permission_denial_completes_session(
     matches!(decision, PermissionDecision::Deny)
         && !matches!(kind, RuntimePermissionResponseKind::PlanApproval)
         && status_after_runtime_permission(kind, decision, feedback) == AgentStatus::Idle
+}
+
+/// Apply a provider-native permission decision. Persistent approvals are only
+/// sent back when the provider supplied explicit permission updates.
+fn apply_decision(
+    tool_use_id: &str,
+    decision: PermissionDecision,
+    feedback: Option<String>,
+    input: serde_json::Value,
+    permission_updates: &[RuntimePermissionUpdate],
+) -> RuntimeToolPermissionResult {
+    match decision {
+        PermissionDecision::AllowOnce | PermissionDecision::AllowFuture => {
+            let updated_permissions = if matches!(decision, PermissionDecision::AllowFuture)
+                && !permission_updates.is_empty()
+            {
+                Some(permission_updates.to_vec())
+            } else {
+                None
+            };
+            RuntimeToolPermissionResult::Allow {
+                updated_input: input,
+                updated_permissions,
+                tool_use_id: Some(tool_use_id.to_string()),
+            }
+        }
+        PermissionDecision::Deny => {
+            let message = feedback.unwrap_or_else(|| "User denied permission".to_string());
+            RuntimeToolPermissionResult::Deny {
+                message,
+                interrupt: Some(false),
+                tool_use_id: Some(tool_use_id.to_string()),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -395,79 +428,5 @@ mod tests {
         assert!(with_persistent_updates
             .iter()
             .any(|option| option.decision == PermissionDecision::AllowFuture));
-    }
-}
-
-/// Apply a provider-native permission decision. Persistent approvals are only
-/// sent back when the provider supplied explicit permission updates.
-fn apply_decision(
-    tool_use_id: &str,
-    decision: PermissionDecision,
-    feedback: Option<String>,
-    input: serde_json::Value,
-    permission_updates: &[RuntimePermissionUpdate],
-) -> RuntimeToolPermissionResult {
-    match decision {
-        PermissionDecision::AllowOnce | PermissionDecision::AllowFuture => {
-            let updated_permissions = if matches!(decision, PermissionDecision::AllowFuture)
-                && !permission_updates.is_empty()
-            {
-                Some(permission_updates.to_vec())
-            } else {
-                None
-            };
-            RuntimeToolPermissionResult::Allow {
-                updated_input: input,
-                updated_permissions,
-                tool_use_id: Some(tool_use_id.to_string()),
-            }
-        }
-        PermissionDecision::Deny => {
-            let message = feedback.unwrap_or_else(|| "User denied permission".to_string());
-            RuntimeToolPermissionResult::Deny {
-                message,
-                interrupt: Some(false),
-                tool_use_id: Some(tool_use_id.to_string()),
-            }
-        }
-    }
-}
-
-/// Wait for a user response on the permission channel and convert an
-/// allow/deny into a `PermissionResult`. Used for approval gates such as
-/// `ExitPlanMode` that bypass normal resolution.
-#[allow(dead_code)]
-pub async fn wait_for_approval(
-    response_rx: &Arc<Mutex<mpsc::Receiver<PermissionResponse>>>,
-    tool_use_id: &str,
-    input: serde_json::Value,
-    deny_message: &str,
-) -> RuntimeToolPermissionResult {
-    let mut rx = response_rx.lock().await;
-    match rx.recv().await {
-        Some(response) => match response.decision {
-            PermissionDecision::AllowOnce | PermissionDecision::AllowFuture => {
-                RuntimeToolPermissionResult::Allow {
-                    updated_input: input,
-                    updated_permissions: None,
-                    tool_use_id: Some(tool_use_id.to_string()),
-                }
-            }
-            PermissionDecision::Deny => {
-                let feedback = response
-                    .feedback
-                    .unwrap_or_else(|| deny_message.to_string());
-                RuntimeToolPermissionResult::Deny {
-                    message: feedback,
-                    interrupt: Some(false),
-                    tool_use_id: Some(tool_use_id.to_string()),
-                }
-            }
-        },
-        None => RuntimeToolPermissionResult::Deny {
-            message: "Approval channel closed".to_string(),
-            interrupt: Some(false),
-            tool_use_id: Some(tool_use_id.to_string()),
-        },
     }
 }

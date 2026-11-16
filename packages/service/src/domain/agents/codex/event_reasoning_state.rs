@@ -21,10 +21,6 @@ pub(super) struct ReasoningState {
 }
 
 impl ReasoningState {
-    pub(super) fn reset(&mut self) {
-        self.streams.clear();
-    }
-
     pub(super) fn announce_section(&mut self, item_id: &str, section: ReasoningSection) {
         if let Some(stream) = self.streams.get_mut(item_id) {
             stream.pending_section = Some(section);

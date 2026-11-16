@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { CommentThread } from "@/api/generated";
 import { Markdown } from "@/components/Markdown";
+import { PR_MARKDOWN_CLASS } from "@/components/pr-markdown";
 import { relativeTime } from "@/components/FeaturePrViewParts";
 import { ForgeAvatar } from "@/components/ForgeImage";
 import { Button } from "@/components/ui/button";
@@ -112,7 +113,11 @@ function RemoteThread({
               content={comment.body_markdown}
               cacheKey={`${thread.id}:${index}`}
               className={cn(
-                "max-w-prose text-[13px] leading-relaxed !text-[var(--editor-fg)]",
+                PR_MARKDOWN_CLASS,
+                // On the editor surface: its palette, not the app's, for the
+                // body and for the shared prose's muted quote.
+                "max-w-prose !text-[var(--editor-fg)]",
+                "[&_blockquote]:border-[var(--editor-border)] [&_blockquote]:text-[var(--editor-comment)]",
                 !expanded && bodyLength > 420 && "max-h-24 overflow-hidden",
               )}
             />

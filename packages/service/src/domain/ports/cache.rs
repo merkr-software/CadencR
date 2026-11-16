@@ -83,7 +83,7 @@ mod tests {
         let cache = PortScanCache::default();
 
         let failed = cache
-            .get_or_refresh(|| async { Err(AppError::Internal("lsof exploded".into())) })
+            .get_or_refresh(|| async { Err(AppError::internal("lsof exploded")) })
             .await;
         assert!(failed.is_err());
 

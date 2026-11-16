@@ -24,12 +24,15 @@ use serde_json::Value;
 
 use super::provider_hooks::AcpProviderHooks;
 use super::session_config::snapshot_from_options;
+use super::session_task::session_meta;
+use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::runtime::mcp::build_stdio_mcp_payload;
 use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimeMcpServerConfig, RuntimeMcpServerStatus, RuntimeSessionConfigSnapshot,
     RuntimeSpawnConfig,
 };
+use crate::domain::agents::runtime::ProviderPromptCapabilities;
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(15);
 const SESSION_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -79,21 +82,56 @@ impl AgentCapabilities {
 ///
 /// `context_window` is provider-resolved: the caller (an adapter) maps the
 /// model id → window using its provider catalog before invoking us.
+///
+/// `replay_events` is the runtime's queue: a legacy `session/load` switches it
+/// to drop notifications on arrival, because the transcript replay it streams
+/// has no consumer yet. The caller resumes queueing them once its event loop
+/// is about to start (see `may_replay_history`).
 pub async fn negotiate_session(
     client: &AcpClient,
     config: &RuntimeSpawnConfig,
     context_window: Option<u64>,
     hooks: &dyn AcpProviderHooks,
+    replay_events: Option<&AcpReliableEventReceiver>,
+) -> Result<NegotiatedSession, RuntimeError> {
+    // MCP statuses only describe the session; they don't feed the handshake.
+    // Discovering them can shell out to the provider CLI (OpenCode: ~0.5 s),
+    // so overlap it with the agent round trips instead of serializing it
+    // before the first prompt.
+    let mcp_statuses = async {
+        Ok::<_, RuntimeError>(
+            hooks
+                .available_mcp_servers(&config.cwd, mcp_status_list(config.mcp_servers.as_ref()))
+                .await,
+        )
+    };
+    let (mut session, mcp_statuses) = tokio::try_join!(
+        handshake(client, config, context_window, hooks, replay_events),
+        mcp_statuses
+    )?;
+    session.mcp_servers = mcp_statuses;
+    Ok(session)
+}
+
+async fn handshake(
+    client: &AcpClient,
+    config: &RuntimeSpawnConfig,
+    context_window: Option<u64>,
+    hooks: &dyn AcpProviderHooks,
+    replay_events: Option<&AcpReliableEventReceiver>,
 ) -> Result<NegotiatedSession, RuntimeError> {
     let init_result = client
-        .send_request_typed(initialize_request(client, hooks), INIT_TIMEOUT)
+        .send_request_typed(initialize_request(client), INIT_TIMEOUT)
         .await
         .map_err(|e| RuntimeError::new(format!("ACP initialize failed: {e}")))?;
     let capabilities = AgentCapabilities::from_protocol(&init_result.agent_capabilities);
-    let init_value = serde_json::to_value(init_result)
-        .map_err(|e| RuntimeError::new(format!("ACP initialize response invalid: {e}")))?;
-    hooks.authenticate(client, &init_value).await?;
     hooks.observe_durable_resume_capability(capabilities.supports_resume());
+    let prompt = &init_result.agent_capabilities.prompt_capabilities;
+    hooks.observe_prompt_capabilities(ProviderPromptCapabilities {
+        image: prompt.image,
+        audio: prompt.audio,
+        embedded_context: prompt.embedded_context,
+    });
 
     let resume_id = config.resume_session_id.as_deref();
     if let Some(resume_id) = resume_id {
@@ -119,15 +157,15 @@ pub async fn negotiate_session(
 
     let model_id = config.model.clone();
     let mcp_servers = build_stdio_mcp_payload(config.mcp_servers.as_ref());
-    let mcp_statuses = hooks
-        .available_mcp_servers(&config.cwd, mcp_status_list(config.mcp_servers.as_ref()))
-        .await;
     if let Some(resume_id) = resume_id {
         let (current_mode, session_config, may_replay_history) = if capabilities.resume_session {
             let (current_mode, session_config) =
                 resume_session(client, resume_id, &config.cwd, &mcp_servers, hooks).await?;
             (current_mode, session_config, false)
         } else {
+            if let Some(events) = replay_events {
+                events.begin_discarding_notifications();
+            }
             let (current_mode, session_config) =
                 load_session(client, resume_id, &config.cwd, &mcp_servers, hooks).await?;
             (current_mode, session_config, true)
@@ -135,7 +173,7 @@ pub async fn negotiate_session(
         return Ok(NegotiatedSession {
             session_id: resume_id.to_string(),
             model: model_id,
-            mcp_servers: mcp_statuses,
+            mcp_servers: Vec::new(),
             context_window,
             current_mode,
             session_config,
@@ -144,12 +182,12 @@ pub async fn negotiate_session(
         });
     }
     let (session_id, current_mode, session_config) =
-        start_new_session(client, &config.cwd, &mcp_servers, hooks).await?;
+        start_new_session(client, config, &mcp_servers, hooks).await?;
 
     Ok(NegotiatedSession {
         session_id,
         model: model_id,
-        mcp_servers: mcp_statuses,
+        mcp_servers: Vec::new(),
         context_window,
         current_mode,
         session_config,
@@ -206,9 +244,8 @@ async fn load_session(
     Ok((current_mode, snapshot_from_options(&options)))
 }
 
-fn initialize_request(client: &AcpClient, hooks: &dyn AcpProviderHooks) -> InitializeRequest {
+fn initialize_request(client: &AcpClient) -> InitializeRequest {
     let info = client.client_info();
-    let meta = hooks.client_capabilities_meta();
     let capabilities = ClientCapabilities::new()
         .fs(FileSystemCapabilities::new()
             .read_text_file(true)
@@ -217,11 +254,6 @@ fn initialize_request(client: &AcpClient, hooks: &dyn AcpProviderHooks) -> Initi
         .session(ClientSessionCapabilities::new().config_options(
             SessionConfigOptionsCapabilities::new().boolean(BooleanConfigOptionCapabilities::new()),
         ));
-    let capabilities = if meta.is_empty() {
-        capabilities
-    } else {
-        capabilities.meta(meta)
-    };
     InitializeRequest::new(ProtocolVersion::V1)
         .client_capabilities(capabilities)
         .client_info(
@@ -232,14 +264,16 @@ fn initialize_request(client: &AcpClient, hooks: &dyn AcpProviderHooks) -> Initi
 
 async fn start_new_session(
     client: &AcpClient,
-    cwd: &Path,
+    config: &RuntimeSpawnConfig,
     mcp_servers: &Value,
     hooks: &dyn AcpProviderHooks,
 ) -> Result<(String, Option<String>, RuntimeSessionConfigSnapshot), RuntimeError> {
-    let request = NewSessionRequest::new(cwd.to_path_buf()).mcp_servers(
-        serde_json::from_value::<Vec<McpServer>>(mcp_servers.clone())
-            .map_err(|e| RuntimeError::new(format!("ACP MCP server config invalid: {e}")))?,
-    );
+    let request = NewSessionRequest::new(config.cwd.clone())
+        .mcp_servers(
+            serde_json::from_value::<Vec<McpServer>>(mcp_servers.clone())
+                .map_err(|e| RuntimeError::new(format!("ACP MCP server config invalid: {e}")))?,
+        )
+        .meta(session_meta(config));
     let result = client
         .send_request_typed(request, SESSION_SETUP_TIMEOUT)
         .await
@@ -298,10 +332,12 @@ mod tests {
     };
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::acp::runtime::test_support::{
-        build_in_memory_client, read_request, send_response,
+        build_in_memory_client, read_request, send_response, write_json_frame,
     };
+    use crate::domain::agents::acp::AcpEvent;
     use crate::domain::agents::adapter::{
-        RuntimeError, RuntimeMcpServerConfig, RuntimePermissionMode, RuntimeSpawnConfig,
+        RuntimeError, RuntimeMcpServerConfig, RuntimePermissionMode, RuntimePurpose,
+        RuntimeSpawnConfig,
     };
     use agent_client_protocol::schema::v1::AgentCapabilities as ProtocolAgentCapabilities;
     use serde_json::{json, Value};
@@ -354,20 +390,66 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resume_without_agent_lifecycle_capability_errors_instead_of_starting_fresh() {
+    async fn new_session_handshake_sends_auto_name_metadata() {
         let (client, mut stdout, mut stdin) = build_in_memory_client().await;
-        let config = resume_config();
-        let mut task =
-            tokio::spawn(
-                async move { negotiate_session(&client, &config, None, &ResumeHooks).await },
-            );
+        let config = RuntimeSpawnConfig {
+            cwd: std::env::temp_dir().join("cadencr-acp-auto-name-test"),
+            system_prompt: Some("Return a concise session title.".to_string()),
+            purpose: Some(RuntimePurpose::AutoName),
+            ..RuntimeSpawnConfig::default()
+        };
+        let expected_cwd = config.cwd.to_string_lossy().into_owned();
+        let mut task = tokio::spawn(async move {
+            negotiate_session(&client, &config, None, &ResumeHooks, None).await
+        });
 
         let init = read_request(&mut stdin).await;
         assert_eq!(init["method"], "initialize");
-        // Generic ACP hooks omit Cursor-only clientCapabilities meta.
-        assert!(
-            init["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"].is_null()
+        send_response(
+            &mut stdout,
+            init["id"].clone(),
+            json!({ "protocolVersion": 1, "agentCapabilities": {} }),
+        )
+        .await;
+
+        let new_session = read_request(&mut stdin).await;
+        assert_eq!(new_session["method"], "session/new");
+        assert_eq!(
+            new_session["params"],
+            json!({
+                "cwd": expected_cwd,
+                "mcpServers": [],
+                "_meta": {
+                    "com.cadencr": {
+                        "purpose": "auto_name",
+                        "systemPrompt": "Return a concise session title."
+                    }
+                }
+            })
         );
+        send_response(
+            &mut stdout,
+            new_session["id"].clone(),
+            json!({ "sessionId": "ses_auto_name" }),
+        )
+        .await;
+
+        let negotiated = await_negotiation(&mut task).await.unwrap();
+        assert_eq!(negotiated.session_id, "ses_auto_name");
+    }
+
+    #[tokio::test]
+    async fn resume_without_agent_lifecycle_capability_errors_instead_of_starting_fresh() {
+        let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+        let config = resume_config();
+        let mut task = tokio::spawn(async move {
+            negotiate_session(&client, &config, None, &ResumeHooks, None).await
+        });
+
+        let init = read_request(&mut stdin).await;
+        assert_eq!(init["method"], "initialize");
+        // The host advertises only standard client capabilities.
+        assert!(init["params"]["clientCapabilities"]["_meta"].is_null());
         assert_eq!(
             init["params"]["clientCapabilities"]["session"]["configOptions"]["boolean"],
             json!({})
@@ -390,10 +472,9 @@ mod tests {
         let (client, mut stdout, mut stdin) = build_in_memory_client().await;
         let config = resume_config();
         let expected_cwd = config.cwd.to_string_lossy().into_owned();
-        let mut task =
-            tokio::spawn(
-                async move { negotiate_session(&client, &config, None, &ResumeHooks).await },
-            );
+        let mut task = tokio::spawn(async move {
+            negotiate_session(&client, &config, None, &ResumeHooks, None).await
+        });
 
         let init = read_request(&mut stdin).await;
         send_response(
@@ -439,10 +520,12 @@ mod tests {
     async fn legacy_load_remains_a_resume_fallback() {
         let (client, mut stdout, mut stdin) = build_in_memory_client().await;
         let config = resume_config();
-        let mut task =
-            tokio::spawn(
-                async move { negotiate_session(&client, &config, None, &ResumeHooks).await },
-            );
+        let events = client.subscribe_reliable();
+        let task = tokio::spawn(async move {
+            let negotiated =
+                negotiate_session(&client, &config, None, &ResumeHooks, Some(&events)).await;
+            (negotiated, events)
+        });
 
         let init = read_request(&mut stdin).await;
         send_response(
@@ -454,6 +537,27 @@ mod tests {
         let load = read_request(&mut stdin).await;
         assert_eq!(load["method"], "session/load");
         assert_eq!(load["params"]["sessionId"], RESUME_ID);
+        // Transcript replay is dropped on arrival; a server request sent in
+        // the middle of it must still reach the runtime queue.
+        for n in 0..3 {
+            write_json_frame(
+                &mut stdout,
+                json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+                    "sessionId": RESUME_ID,
+                    "update": {"sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": format!("replay {n}")}}
+                }}),
+            )
+            .await;
+            if n == 1 {
+                write_json_frame(
+                    &mut stdout,
+                    json!({"jsonrpc": "2.0", "id": "perm-replay",
+                        "method": "session/request_permission", "params": {}}),
+                )
+                .await;
+            }
+        }
         send_response(
             &mut stdout,
             load["id"].clone(),
@@ -469,12 +573,27 @@ mod tests {
         )
         .await;
 
-        let negotiated = await_negotiation(&mut task).await.unwrap();
+        let (negotiated, mut events) = tokio::time::timeout(RESUME_TEST_TIMEOUT, task)
+            .await
+            .expect("legacy load negotiation timed out")
+            .expect("negotiation task should not panic");
+        let negotiated = negotiated.unwrap();
         assert_eq!(negotiated.session_id, RESUME_ID);
         assert_eq!(negotiated.current_mode.as_deref(), Some("build"));
         assert_eq!(negotiated.session_config.options[0].id, "safe_mode");
         assert!(!negotiated.supports_session_close);
         assert!(negotiated.may_replay_history);
+        assert_eq!(
+            events.finish_discarding_notifications(),
+            0,
+            "replay must never be queued"
+        );
+        let request = tokio::time::timeout(RESUME_TEST_TIMEOUT, events.recv())
+            .await
+            .expect("server request must stay queued");
+        assert!(
+            matches!(request, Some(AcpEvent::ServerRequest(r)) if r.id() == &json!("perm-replay"))
+        );
     }
 
     #[test]

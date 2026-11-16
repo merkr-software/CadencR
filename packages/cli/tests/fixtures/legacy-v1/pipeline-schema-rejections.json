@@ -1,0 +1,68 @@
+{
+  "base_request": {
+    "schema_version": 1,
+    "repository": "cadencr/registry",
+    "key_id": "test-key",
+    "discovery_branch": "main",
+    "generated_at": "2026-10-17T12:00:00Z",
+    "expires_at": "2026-10-18T12:00:00Z",
+    "previous_index": "bootstrap",
+    "public_key": "public.pem",
+    "publications": [
+      {
+        "submission": "submission.json"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "path": "/publications/0/registry_commit",
+      "value": null,
+      "legacy_error": "request.publications[0].registry_commit is invalid",
+      "network_calls": 0,
+      "state_created": false
+    },
+    {
+      "path": "/publications/0/registry_commit",
+      "value": false,
+      "legacy_error": "request.publications[0].registry_commit is invalid",
+      "network_calls": 0,
+      "state_created": false
+    },
+    {
+      "path": "/publications/0/registry_commit",
+      "value": 40,
+      "legacy_error": "request.publications[0].registry_commit is invalid",
+      "network_calls": 0,
+      "state_created": false
+    },
+    {
+      "path": "/publications/0/registry_commit",
+      "value": [],
+      "legacy_error": "request.publications[0].registry_commit is invalid",
+      "network_calls": 0,
+      "state_created": false
+    },
+    {
+      "path": "/publications/0/registry_commit",
+      "value": {},
+      "legacy_error": "request.publications[0].registry_commit is invalid",
+      "network_calls": 0,
+      "state_created": false
+    },
+    {
+      "path": "/publications/0/unknown",
+      "value": true,
+      "legacy_error": "request.publications[0].unknown is not allowed",
+      "network_calls": 0,
+      "state_created": false
+    },
+    {
+      "path": "/unknown",
+      "value": true,
+      "legacy_error": "request.unknown is not allowed",
+      "network_calls": 0,
+      "state_created": false
+    }
+  ]
+}

@@ -33,3 +33,14 @@ export function useSuppressBrowserView(active = true): void {
     };
   }, [active]);
 }
+
+/**
+ * Render inside an overlay's Radix `Content` (a dropdown menu; not a Select,
+ * which keeps its content mounted while closed): Radix mounts that subtree
+ * only while open, so the native view is hidden for exactly that window. Putting the hook in the overlay's own wrapper instead
+ * would suppress forever — a controlled `open={x}` root stays mounted.
+ */
+export function SuppressBrowserViewWhileOpen(): null {
+  useSuppressBrowserView();
+  return null;
+}

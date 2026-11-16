@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// One bucket of the usage timeline: everything the user exchanged with a
-/// single provider / model / thinking-effort combination on one UTC day.
+/// single provider / model / thinking-effort combination on one UTC day — the
+/// tokens and the prompts sent.
 ///
 /// `model_id` and `thinking_effort` are empty strings — never null — when the
 /// provider reported none; see the migration for why.
@@ -17,6 +18,8 @@ pub struct UsageStatsEntry {
     pub input_tokens: i64,
     /// Provider-reported output and thought/reasoning tokens.
     pub output_tokens: i64,
+    /// Prompts the user sent, filed under the model selected when sending.
+    pub user_messages: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -69,6 +72,7 @@ mod tests {
                 thinking_effort: String::new(),
                 input_tokens: 12,
                 output_tokens: 345,
+                user_messages: 3,
             }],
         };
 
@@ -78,6 +82,7 @@ mod tests {
         assert!(json.contains("\"model_id\":\"\""));
         assert!(json.contains("\"thinking_effort\":\"\""));
         assert!(json.contains("\"output_tokens\":345"));
+        assert!(json.contains("\"user_messages\":3"));
         assert!(
             !json.contains("recording_issue"),
             "a healthy response stays quiet"

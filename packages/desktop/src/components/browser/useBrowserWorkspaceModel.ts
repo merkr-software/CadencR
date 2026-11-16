@@ -19,9 +19,6 @@ import {
 const EMPTY_STATE: BrowserStateSnapshot = {
   tabs: [],
   activeTabId: null,
-  consoleEntries: [],
-  networkEntries: [],
-  knownOrigins: [],
   error: null,
 };
 
@@ -33,7 +30,6 @@ export interface BrowserWorkspaceModel extends BrowserPageActions, BrowserTabOrg
   loading: boolean;
   pending: boolean;
   activeTab: BrowserTabMetadata | null;
-  knownOrigins: string[];
   urlInputRef: React.RefObject<HTMLInputElement | null>;
   viewportRef: (node: HTMLDivElement | null) => void;
   find: BrowserFindModel;
@@ -227,7 +223,6 @@ export function useBrowserWorkspaceModel(
     urlInput,
     urlInputRef,
     viewportRef,
-    knownOrigins: state.knownOrigins,
   });
 }
 
@@ -249,7 +244,6 @@ function useBrowserModelValue(model: BrowserWorkspaceModel): BrowserWorkspaceMod
       model.focusUrlBar,
       model.find,
       model.forward,
-      model.knownOrigins,
       model.loading,
       model.navigate,
       model.newTab,

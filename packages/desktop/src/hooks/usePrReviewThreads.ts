@@ -34,9 +34,17 @@ export interface PrReviewThreads {
   retry: () => void;
 }
 
-export function usePrReviewThreads(featureId: number, enabled: boolean): PrReviewThreads {
+/**
+ * `prNumber` picks another of the conversation's proposals; leave it unset for
+ * the current branch's, so the PR tab and the branch diff share one entry.
+ */
+export function usePrReviewThreads(
+  featureId: number,
+  enabled: boolean,
+  prNumber?: number,
+): PrReviewThreads {
   const query = useGetPrComments(
-    { feature_id: featureId },
+    prNumber == null ? { feature_id: featureId } : { feature_id: featureId, pr_number: prNumber },
     { query: { enabled, retry: false, staleTime: REVIEW_THREADS_STALE_MS } },
   );
   const { refetch } = query;

@@ -71,3 +71,27 @@ export function useFeaturePromptDraftRestore({
     textRef,
   ]);
 }
+
+interface ComposerDraftTarget {
+  restoringDraftRef: MutableRefObject<boolean>;
+  setText: (text: string) => void;
+  editorRef: RefObject<PromptEditorHandle | null>;
+  interactedRef: MutableRefObject<boolean>;
+  saveDraft: (text: string | null) => void;
+}
+
+/**
+ * Replace the draft programmatically (history recall, a "retry" affordance):
+ * saved once, here — the editor's own change event is muted meanwhile so it
+ * neither saves it again nor drops out of history navigation.
+ */
+export function setComposerDraft(target: ComposerDraftTarget, value: string): void {
+  target.restoringDraftRef.current = true;
+  target.setText(value);
+  target.editorRef.current?.setText(value, true);
+  target.interactedRef.current = true;
+  target.saveDraft(value);
+  queueMicrotask(() => {
+    target.restoringDraftRef.current = false;
+  });
+}

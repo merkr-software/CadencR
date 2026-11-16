@@ -1,0 +1,107 @@
+name: Publish qualified Cursor connector
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Reviewed source commit, already on main (40 lowercase hex)
+        required: true
+        type: string
+      build_run:
+        description: Successful native Cursor build run for that exact commit
+        required: true
+        type: string
+      request_sha256:
+        description: Inspected request SHA-256 (64 zeros for inspection only)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: official-plugin-author
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.repository == 'merkr-software/CadencR' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      confirmed: ${{ steps.stage.outputs.confirmed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind native artifacts and inspect exact author request
+        id: stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: ${{ inputs.source_commit }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: |
+          python3 trusted/scripts/cursor-release-stage.py \
+            --source-repo "$GITHUB_WORKSPACE/trusted" --source-commit "$SOURCE" \
+            --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" --output "$RUNNER_TEMP/cursor-author"
+          if [ "$DIGEST" != 0000000000000000000000000000000000000000000000000000000000000000 ]; then
+            echo 'confirmed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Validate the assembled release request without author credentials
+        run: |
+          sh trusted/tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
+            trusted/scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null
+          "$RUNNER_TEMP/cursor-cli/cadencr" plugin inspect-release \
+            --request "$RUNNER_TEMP/cursor-author/request.json" --directory "$RUNNER_TEMP/cursor-author" > /dev/null
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cursor-author-inspection-${{ github.run_id }}
+          path: ${{ runner.temp }}/cursor-author/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: inspect
+    if: needs.inspect.outputs.confirmed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: official-plugin-publication
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently reconstruct exact approved request (inert artifacts only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: ${{ inputs.source_commit }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: |
+          python3 trusted/scripts/cursor-release-stage.py \
+            --source-repo "$GITHUB_WORKSPACE/trusted" --source-commit "$SOURCE" \
+            --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" --output "$RUNNER_TEMP/cursor-author"
+          sh trusted/tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
+            trusted/scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null
+          "$RUNNER_TEMP/cursor-cli/cadencr" plugin inspect-release \
+            --request "$RUNNER_TEMP/cursor-author/request.json" --directory "$RUNNER_TEMP/cursor-author" > /dev/null
+      - name: Publish with the separately scoped author credential
+        env:
+          CADENCR_AUTHOR_GITHUB_TOKEN: ${{ secrets.CADENCR_AUTHOR_GITHUB_TOKEN }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: |
+          if "$RUNNER_TEMP/cursor-cli/cadencr" plugin publish-release \
+            --request "$RUNNER_TEMP/cursor-author/request.json" --directory "$RUNNER_TEMP/cursor-author" \
+            --confirm-request-sha256 "$DIGEST" > /dev/null 2>&1; then
+            echo CURSOR_AUTHOR_PUBLICATION_CONFIRMED
+          else
+            echo CURSOR_AUTHOR_PUBLICATION_FAILED >&2
+            exit 1
+          fi

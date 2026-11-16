@@ -1,10 +1,12 @@
 import { useEffect } from "react";
+import { toastError } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { useUpdateStore } from "@/stores/update-store";
 
 /**
- * Wire the main process's auto-updater events into the renderer-side update
- * store. Mount once from the root layout.
+ * Mirror the main process's auto-updater state into the renderer store: read
+ * the current state on mount (so a reload or a new window picks up a pending
+ * or ready update), then follow every change. Mount once from the root layout.
  *
  * UI surfacing (a sidebar button + dialog) lives in `SidebarUpdateButton` —
  * we deliberately do NOT show a toast here, since updates are persistent
@@ -12,7 +14,14 @@ import { useUpdateStore } from "@/stores/update-store";
  */
 export function useAutoUpdateBridge(): void {
   useEffect(() => {
-    const applyEvent = useUpdateStore.getState().applyEvent;
-    return desktopBridge.onUpdateEvent(applyEvent);
+    const { receive } = useUpdateStore.getState();
+    // Subscribe before reading so no change slips between the two; `receive`
+    // keeps whichever snapshot is newer.
+    const unsubscribe = desktopBridge.onUpdateState(receive);
+    desktopBridge
+      .getUpdateState()
+      .then(receive)
+      .catch((error: unknown) => toastError(error, "Could not read the update status."));
+    return unsubscribe;
   }, []);
 }

@@ -1,6 +1,10 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: asserts computed colors (happy-dom does not normalize them to rgb()) and the icon's blob-URL load.
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@/test-utils";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { SidebarSampleContext, type SidebarSampleData } from "@/lib/sidebar-sample-context";
+import { SAMPLE_PROJECT_ICONS } from "@/lib/sidebar-sample-data";
 
 const mocks = vi.hoisted(() => ({
   settings: vi.fn(),
@@ -74,5 +78,21 @@ describe("ProjectBadge", () => {
     // No toast: a broken icon renders in many places at once, so it degrades
     // quietly to the accent dot.
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("draws a sample project's made-up logo in the preview, without fetching", () => {
+    withSettings([{ key: "icon_path", value: "public/logo.svg" }]);
+    const sample = {
+      projectColors: new Map(),
+      projectIcons: SAMPLE_PROJECT_ICONS,
+    } as unknown as SidebarSampleData;
+    const { container } = render(
+      <SidebarSampleContext.Provider value={sample}>
+        <ProjectBadge projectId={-1} />
+      </SidebarSampleContext.Provider>,
+    );
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(SAMPLE_PROJECT_ICONS.get(-1));
+    expect(mocks.iconBlob).not.toHaveBeenCalled();
   });
 });

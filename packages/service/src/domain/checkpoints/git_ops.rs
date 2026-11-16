@@ -9,6 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use tracing::debug;
+
 use crate::error::AppError;
 use crate::shared::git_cli::{run_git, run_git_with_env};
 
@@ -22,12 +24,15 @@ const IDENTITY_ENV: [(&str, &str); 4] = [
 ];
 
 /// Unique scratch path for the isolated index. Git creates the file (and its
-/// `.lock` sibling) here; we remove it afterwards.
-fn temp_index_path() -> PathBuf {
+/// `.lock` sibling) here; we remove it afterwards. The parent is private to the
+/// current user so the predictable name can't be planted ahead of time.
+fn temp_index_path() -> Result<PathBuf, AppError> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
-    std::env::temp_dir().join(format!("cadencr-checkpoint-index-{pid}-{n}"))
+    let parent = crate::shared::private_temp::private_temp_dir()
+        .map_err(|e| AppError::internal(format!("checkpoint scratch dir: {e}")))?;
+    Ok(parent.join(format!("cadencr-checkpoint-index-{pid}-{n}")))
 }
 
 /// Snapshot tracked worktree paths into a fresh orphan commit and return its sha,
@@ -42,14 +47,13 @@ pub(super) async fn snapshot_commit(
     ref_name: &str,
     label: &str,
 ) -> Result<String, AppError> {
-    let index_path = temp_index_path();
+    let index_path = temp_index_path()?;
     let index_str = index_path.to_string_lossy().to_string();
 
     let mut env: Vec<(&str, &str)> = IDENTITY_ENV.to_vec();
     env.push(("GIT_INDEX_FILE", index_str.as_str()));
 
-    // Seed the isolated index from HEAD, then stage tracked worktree changes.
-    let result = snapshot_inner(cwd, ref_name, label, &env).await;
+    let result = snapshot_inner(cwd, &index_path, ref_name, label, &env).await;
 
     // Best-effort cleanup of the scratch index; a leftover is harmless.
     let _ = std::fs::remove_file(&index_path);
@@ -60,11 +64,16 @@ pub(super) async fn snapshot_commit(
 
 async fn snapshot_inner(
     cwd: &Path,
+    index_path: &Path,
     ref_name: &str,
     label: &str,
     env: &[(&str, &str)],
 ) -> Result<String, AppError> {
-    run_git_with_env(&["read-tree", "HEAD"], cwd, env).await?;
+    if let Err(error) = copy_real_index(cwd, index_path, env).await {
+        // No index yet.
+        debug!(%error, "checkpoint: real index unavailable as a seed, using HEAD");
+        run_git_with_env(&["read-tree", "HEAD"], cwd, env).await?;
+    }
     run_git_with_env(&["add", "-u", "--", "."], cwd, env).await?;
     let tree = run_git_with_env(&["write-tree"], cwd, env).await?;
     let tree = tree.trim();
@@ -79,6 +88,66 @@ async fn snapshot_inner(
 
     run_git(&["update-ref", ref_name, &commit], cwd).await?;
     Ok(commit)
+}
+
+/// Seed the isolated index with a copy of the user's real index. The copy keeps
+/// git's stat cache, so `add -u` only re-hashes files that actually changed; a
+/// `read-tree HEAD` index has no stat data and re-hashes every tracked file
+/// (~0.4 s per turn on a few-thousand-file repo, paid before the prompt is
+/// delivered). Paths the user staged for addition are therefore captured too.
+///
+/// Two things in a copied index would make `add -u` trust stale stat data, and
+/// both are undone here:
+/// - **The index file's mtime.** Git treats an entry as "racily clean" (and
+///   re-reads the file) when its mtime is not older than the index file's. A
+///   fresh copy is newer than every entry, so a same-size edit made in the same
+///   timestamp tick as the user's last index write would pass as unchanged.
+/// - **`assume-unchanged` bits.** `add -u` skips those paths outright, so a
+///   snapshot would hold the index blob instead of the user's local edit — and
+///   a rewind would then overwrite that edit.
+async fn copy_real_index(
+    cwd: &Path,
+    index_path: &Path,
+    env: &[(&str, &str)],
+) -> Result<(), AppError> {
+    // Relative to `cwd` unless absolute (linked worktrees); joining covers
+    // both without `--path-format=absolute`, which needs Git 2.31.
+    let real_index = run_git(&["rev-parse", "--git-path", "index"], cwd).await?;
+    let real_index = cwd.join(real_index.trim_end_matches('\n'));
+    let real_index = real_index.as_path();
+    tokio::fs::copy(real_index, index_path)
+        .await
+        .and_then(|_| copy_mtime(real_index, index_path))
+        .map_err(|error| AppError::git_command(format!("failed to copy git index: {error}")))?;
+    clear_assume_unchanged(cwd, env).await
+}
+
+fn copy_mtime(from: &Path, to: &Path) -> std::io::Result<()> {
+    let modified = std::fs::metadata(from)?.modified()?;
+    std::fs::File::options()
+        .write(true)
+        .open(to)?
+        .set_modified(modified)
+}
+
+/// Paths per `update-index` call, keeping argv well under `ARG_MAX`.
+const UPDATE_INDEX_BATCH: usize = 256;
+
+async fn clear_assume_unchanged(cwd: &Path, env: &[(&str, &str)]) -> Result<(), AppError> {
+    let listing = run_git_with_env(&["ls-files", "-v", "-z"], cwd, env).await?;
+    // `ls-files -v` tags assume-unchanged entries with a lowercase status letter.
+    let assumed: Vec<&str> = listing
+        .split('\0')
+        .filter_map(|entry| entry.split_once(' '))
+        .filter(|(tag, _)| tag.chars().all(|c| c.is_ascii_lowercase()))
+        .map(|(_, path)| path)
+        .collect();
+    for batch in assumed.chunks(UPDATE_INDEX_BATCH) {
+        let mut args = vec!["update-index", "--no-assume-unchanged", "--"];
+        args.extend_from_slice(batch);
+        run_git_with_env(&args, cwd, env).await?;
+    }
+    Ok(())
 }
 
 /// Roll tracked paths in the worktree back to the snapshot at `commit_sha`
@@ -215,6 +284,120 @@ mod tests {
             "TOKEN=after",
             "rewind must not overwrite or delete untracked local files"
         );
+    }
+
+    #[tokio::test]
+    async fn snapshot_captures_paths_staged_for_addition() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        fs::write(p.join("staged-new.txt"), "fresh").unwrap();
+        run_git(&["add", "staged-new.txt"], p).await.unwrap();
+        fs::write(p.join("staged-new.txt"), "fresh-then-edited").unwrap();
+
+        let sha = snapshot_commit(p, "refs/cadencr/checkpoints/1/staged", "1/staged")
+            .await
+            .unwrap();
+
+        let content = run_git_background(&["show", &format!("{sha}:staged-new.txt")], p)
+            .await
+            .unwrap();
+        assert_eq!(
+            content, "fresh-then-edited",
+            "worktree content, not the staged blob"
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_captures_edits_to_assume_unchanged_paths() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        run_git(&["update-index", "--assume-unchanged", "tracked.txt"], p)
+            .await
+            .unwrap();
+        fs::write(p.join("tracked.txt"), "local-override").unwrap();
+
+        let sha = snapshot_commit(p, "refs/cadencr/checkpoints/1/assumed", "1/assumed")
+            .await
+            .unwrap();
+
+        let content = run_git_background(&["show", &format!("{sha}:tracked.txt")], p)
+            .await
+            .unwrap();
+        assert_eq!(content, "local-override");
+        let real = run_git_background(&["ls-files", "-v", "tracked.txt"], p)
+            .await
+            .unwrap();
+        assert!(
+            real.starts_with("h "),
+            "the user's own assume-unchanged bit stays set: {real:?}"
+        );
+    }
+
+    // macOS's clonefile-backed `fs::copy` already keeps the mtime; this guards
+    // platforms (Linux) where a copy gets a fresh one.
+    #[tokio::test]
+    async fn copied_index_keeps_the_real_index_mtime() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        let real_index = p.join(".git").join("index");
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        fs::File::options()
+            .write(true)
+            .open(&real_index)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let index_path = scratch.path().join("index");
+        let index_str = index_path.to_string_lossy().to_string();
+
+        copy_real_index(p, &index_path, &[("GIT_INDEX_FILE", index_str.as_str())])
+            .await
+            .unwrap();
+
+        assert_eq!(fs::metadata(&index_path).unwrap().modified().unwrap(), old);
+    }
+
+    #[tokio::test]
+    async fn snapshot_succeeds_in_the_middle_of_a_merge_conflict() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        run_git(&["checkout", "-qb", "other"], p).await.unwrap();
+        fs::write(p.join("tracked.txt"), "other").unwrap();
+        run_git(&["commit", "-qam", "other"], p).await.unwrap();
+        run_git(&["checkout", "-q", "-"], p).await.unwrap();
+        fs::write(p.join("tracked.txt"), "main").unwrap();
+        run_git(&["commit", "-qam", "main"], p).await.unwrap();
+        assert!(
+            run_git(&["merge", "-q", "other"], p).await.is_err(),
+            "merge must conflict"
+        );
+
+        let sha = snapshot_commit(p, "refs/cadencr/checkpoints/1/conflict", "1/conflict")
+            .await
+            .unwrap();
+
+        let tree = run_git_background(&["ls-tree", "-r", "--name-only", &sha], p)
+            .await
+            .unwrap();
+        assert!(tree.lines().any(|line| line == "tracked.txt"));
+    }
+
+    #[tokio::test]
+    async fn snapshot_stages_from_head_without_a_real_index() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        fs::remove_file(p.join(".git").join("index")).unwrap();
+        fs::write(p.join("tracked.txt"), "v2").unwrap();
+
+        let sha = snapshot_commit(p, "refs/cadencr/checkpoints/1/no-index", "1/no-index")
+            .await
+            .unwrap();
+
+        let content = run_git_background(&["show", &format!("{sha}:tracked.txt")], p)
+            .await
+            .unwrap();
+        assert_eq!(content, "v2");
     }
 
     #[tokio::test]

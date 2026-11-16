@@ -1,7 +1,7 @@
 import { memo, type ComponentType, type ReactElement, type ReactNode, type RefObject } from "react";
 import type { LucideProps } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { LiveAgentStatus } from "@/types/agent";
 import type { AgentSessionProps } from "./types";
 import { CollapsibleHeader } from "./CollapsibleHeader";
@@ -73,8 +73,10 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
           // inner `min-h-full` wrapper keeps the card centred when there IS room
           // while letting it scroll from the top when there isn't (centring
           // directly on a scroll container clips the overflow out of reach).
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-8">
-            <div className="flex min-h-full items-center justify-center">
+          // The padding sits on that inner wrapper so the scroller can collapse
+          // to 0px: on the outer box it was 48px the composer could never have.
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center px-4 pt-4 pb-8">
               <SessionHint />
             </div>
           </div>

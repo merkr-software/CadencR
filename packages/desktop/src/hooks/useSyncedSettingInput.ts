@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 export interface SyncedSettingInput {
   value: string;
   setValue: (value: string) => void;
+  /** Drops the local edit for the remote value, e.g. after its save failed. */
+  revert: () => void;
 }
 
 /**
@@ -21,6 +23,8 @@ export function useSyncedSettingInput(
   const [value, setStoredValue] = useState(remoteValue ?? "");
   const dirtyRef = useRef(false);
   const resetKeyRef = useRef(resetKey);
+  const remoteRef = useRef(remoteValue);
+  remoteRef.current = remoteValue;
 
   useEffect((): void => {
     if (resetKeyRef.current !== resetKey) {
@@ -40,5 +44,10 @@ export function useSyncedSettingInput(
     setStoredValue(next);
   }, []);
 
-  return useMemo(() => ({ value, setValue }), [value, setValue]);
+  const revert = useCallback((): void => {
+    dirtyRef.current = false;
+    setStoredValue(remoteRef.current ?? "");
+  }, []);
+
+  return useMemo(() => ({ value, setValue, revert }), [value, setValue, revert]);
 }

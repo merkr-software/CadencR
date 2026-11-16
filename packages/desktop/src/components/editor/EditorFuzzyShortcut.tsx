@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 
 import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
+import { useReplacementShownTabs } from "@/lib/plugin-tabs/builtin-fallback";
 import {
   getFocusedTab,
   selectFeatureLayout,
@@ -38,11 +39,13 @@ export function EditorFuzzyShortcut({
   const isEditorFocused = useFeatureLayoutStore(
     (s) => getFocusedTab(selectFeatureLayout(layoutFeatureId)(s)) === "editor",
   );
+  // A custom tab in the Editor's place (docs/CUSTOM_TABS.md §10) has no file search.
+  const editorReplaced = useReplacementShownTabs(layoutFeatureId).includes("editor");
 
   useGlobalShortcutById(
     "editor-fuzzy",
     (e) => {
-      if (!isEditorFocused) return;
+      if (!isEditorFocused || editorReplaced) return;
       e.preventDefault();
       setOpen(true);
     },

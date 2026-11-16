@@ -71,7 +71,7 @@ export const MobileTerminalKeyBar = memo(function MobileTerminalKeyBar({
     // owns its own home-indicator clearance: its terminal-colored fill extends to
     // the screen edge while the tappable keys stay above the inset (`pb-[max(...)]`).
     <div
-      className="flex shrink-0 items-center justify-center gap-1 overflow-x-auto border-t border-[var(--terminal-panel-handle-bg)] bg-[var(--terminal-bg)] px-2 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+      className="flex shrink-0 items-center justify-center gap-1 overflow-x-auto border-t border-[var(--terminal-panel-handle-bg)] bg-[var(--terminal-bg)] px-2 pt-1.5 pb-[max(0.375rem,var(--app-inset-bottom))]"
       data-mobile-terminal-keybar
     >
       {TEXT_KEYS.map(renderKey)}

@@ -1,5 +1,6 @@
 import type { DownloadItem } from "electron";
 import {
+  releaseBrowserDownloadReservation,
   removeEmptyBrowserDownloadReservation,
   type BrowserDownloadReservation,
 } from "./browser-download-path";
@@ -117,8 +118,11 @@ export class BrowserDownloadRecord {
     this.finalizing = true;
     let completionError: unknown;
     try {
-      this.captureTerminal(state, now, cause);
-      this.cleanupReservation(state);
+      try {
+        this.captureTerminal(state, now, cause);
+      } finally {
+        this.cleanupReservation(state);
+      }
     } catch (error) {
       const combined =
         cause && error !== cause ? new AggregateError([cause, error]) : (cause ?? error);
@@ -165,7 +169,10 @@ export class BrowserDownloadRecord {
   }
 
   private cleanupReservation(state: BrowserDownload["state"]): void {
-    if (state !== "completed" && this.reservation) {
+    if (!this.reservation) return;
+    if (state === "completed") {
+      releaseBrowserDownloadReservation(this.reservation);
+    } else {
       removeEmptyBrowserDownloadReservation(this.reservation);
     }
   }

@@ -3,6 +3,7 @@ import { CalendarClock } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useScheduleList } from "@/hooks/useSchedules";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import { formatRelative } from "@/lib/schedules/format";
 import { isActive, nextRunAcross } from "@/lib/schedules/status";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactE
   // no extra request and the badge updates from the same poll. A badge only
   // reads, so it takes the query without the mutation half.
   const { schedules } = useScheduleList();
+  const openKeys = useShortcutKeys("open-schedules");
   const { count, nextRun } = useMemo(
     () => ({
       count: schedules.filter(isActive).length,
@@ -31,7 +33,7 @@ export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactE
   );
 
   return (
-    <ShortcutTooltip label="Open schedules" keys={["cmd", "shift", "Y"]} className="w-full">
+    <ShortcutTooltip label="Open schedules" keys={openKeys} className="w-full">
       <Link
         to="/schedules"
         data-nav-item

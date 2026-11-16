@@ -3,7 +3,7 @@ use std::future::Future;
 use codex_app_server_sdk_rs::CodexAppServerClient;
 use futures::{stream, StreamExt};
 
-use super::super::timeouts::with_probe_timeout;
+use super::super::timeouts::with_control_timeout;
 use crate::domain::agents::adapter::RuntimeError;
 
 pub(super) struct InterruptTarget {
@@ -37,7 +37,7 @@ async fn interrupt_target(
         None => {
             // Status-only/reloaded children may never send turn/started on this
             // connection. Read only on Stop, not on the streaming hot path.
-            let snapshot = with_probe_timeout(
+            let snapshot = with_control_timeout(
                 "Codex thread/read (interrupt)",
                 client.thread_read(&target.thread, true),
             )
@@ -45,7 +45,7 @@ async fn interrupt_target(
             last_turn_id(&snapshot)?
         }
     };
-    with_probe_timeout(
+    with_control_timeout(
         "Codex turn/interrupt",
         client.turn_interrupt(&target.thread, &turn),
     )

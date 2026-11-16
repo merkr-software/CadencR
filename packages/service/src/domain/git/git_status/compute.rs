@@ -40,6 +40,7 @@ fn empty_snapshot(feature_id: i64, target_branch: &str) -> GitStatusSnapshot {
         compare_url: None,
         action_label: None,
         shared_with: Vec::<SharedFeatureRef>::new(),
+        thread_branches: Vec::new(),
         computed_at: chrono::Utc::now().timestamp_millis(),
     }
 }
@@ -134,6 +135,7 @@ async fn compute_status(
         compare_url,
         action_label,
         shared_with: Vec::new(),
+        thread_branches: Vec::new(),
         computed_at: chrono::Utc::now().timestamp_millis(),
     })
 }
@@ -203,6 +205,7 @@ async fn resolve_remote_info(repo: &Path) -> Option<RemoteInfo> {
 /// Bundle the provider-derived fields. `compare_url` is `None` when:
 ///   * there's no remote at all, OR
 ///   * the remote's host is `Other` (`host::compare_url` refuses to guess).
+///
 /// `action_label` is set whenever we have *any* remote so the frontend has a
 /// label to render even when the action itself is disabled.
 fn derive_provider_fields(
@@ -214,7 +217,7 @@ fn derive_provider_fields(
         Some(info) => {
             let url = host::compare_url(info, target, head);
             let label = host::pr_label(&info.host).to_string();
-            (Some(info.host.clone()), url, Some(label))
+            (Some(info.host), url, Some(label))
         }
         None => (None, None, None),
     }
@@ -222,7 +225,17 @@ fn derive_provider_fields(
 
 #[cfg(test)]
 mod tests {
+    use super::super::DETACHED_HEAD;
     use super::*;
+
+    #[test]
+    fn a_detached_head_has_no_checked_out_branch() {
+        let mut snapshot = empty_snapshot(1, "main");
+        snapshot.current_branch = DETACHED_HEAD.to_string();
+        assert_eq!(snapshot.checked_out_branch(), None);
+        snapshot.current_branch = "feature/a".to_string();
+        assert_eq!(snapshot.checked_out_branch().as_deref(), Some("feature/a"));
+    }
 
     #[test]
     fn provider_fields_none_when_no_remote() {

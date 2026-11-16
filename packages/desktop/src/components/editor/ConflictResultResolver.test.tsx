@@ -5,8 +5,8 @@ import { useEditorStore } from "@/stores/editor-store";
 
 const mocks = vi.hoisted(() => ({ save: vi.fn(), saveQuiet: vi.fn() }));
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: () => ({ value: "false", setValue: vi.fn(), isLoading: false }),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: () => ({ value: "false", setValue: vi.fn(), isLoading: false }),
 }));
 vi.mock("@/hooks/useEditorLanguage", () => ({
   useEditorLanguage: () => ({ languageId: "typescript" }),

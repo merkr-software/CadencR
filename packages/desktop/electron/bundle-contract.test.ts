@@ -44,4 +44,45 @@ describe("assertElectronBundleContract", () => {
       "Electron main bundle did not keep electron-updater external",
     );
   });
+
+  describe("sandboxed preload entries", () => {
+    const preloadContract: ElectronBundleContract = {
+      processName: "preload",
+      entryFileName: "index.js",
+      externalizationSentinels: ["electron"],
+      sandboxedEntryFileNames: ["plugin-tab.js"],
+    };
+
+    function preloadBundle(guestImports: string[]) {
+      return {
+        "index.js": { type: "chunk", isEntry: true, imports: ["electron", "chunk-shared.js"] },
+        "plugin-tab.js": { type: "chunk", isEntry: true, imports: guestImports },
+      };
+    }
+
+    it("accepts a sandboxed entry that only requires electron", () => {
+      expect(() =>
+        assertElectronBundleContract(preloadContract, "cjs", preloadBundle(["electron"])),
+      ).not.toThrow();
+    });
+
+    it("rejects a sandboxed entry that imports a shared chunk", () => {
+      expect(() =>
+        assertElectronBundleContract(
+          preloadContract,
+          "cjs",
+          preloadBundle(["electron", "chunk-shared.js"]),
+        ),
+      ).toThrow("Sandboxed preload entry plugin-tab.js imports chunk-shared.js");
+    });
+
+    it("rejects a missing sandboxed entry", () => {
+      const bundle: Record<string, { type: string; isEntry?: boolean; imports?: string[] }> =
+        preloadBundle(["electron"]);
+      delete bundle["plugin-tab.js"];
+      expect(() => assertElectronBundleContract(preloadContract, "cjs", bundle)).toThrow(
+        "did not produce the required entry: plugin-tab.js",
+      );
+    });
+  });
 });

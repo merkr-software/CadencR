@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 pub(super) fn collect_filesystem_commands(
     collector: &mut CommandCollector,
     cwd: &str,
-    home: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> Result<(), SdkError> {
-    if let Some(home) = home {
-        scan_claude_root(collector, &home.join(".claude"), None)?;
-        plugins::scan_installed_plugins(collector, home)?;
+    if let Some(config_dir) = config_dir {
+        scan_claude_root(collector, config_dir, None)?;
+        plugins::scan_installed_plugins(collector, config_dir)?;
     }
     scan_claude_root(collector, &PathBuf::from(cwd).join(".claude"), None)?;
     Ok(())

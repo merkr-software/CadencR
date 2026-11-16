@@ -3,89 +3,38 @@ import { render, screen } from "@/test-utils";
 import { FileMentionPopover } from "./FileMentionPopover";
 
 describe("FileMentionPopover", () => {
-  it("renders children", () => {
+  it("renders files and folders as listbox options, name first", () => {
     render(
       <FileMentionPopover
-        open={false}
-        items={[]}
-        selectedIndex={0}
-        onSelect={vi.fn()}
-        onClose={vi.fn()}
-      >
-        <input placeholder="Type here" />
-      </FileMentionPopover>,
-    );
-    expect(screen.getByPlaceholderText("Type here")).toBeInTheDocument();
-  });
-
-  it("does not show items when closed", () => {
-    render(
-      <FileMentionPopover
-        open={false}
-        items={[{ path: "src/index.ts", isDir: false }]}
-        selectedIndex={0}
-        onSelect={vi.fn()}
-        onClose={vi.fn()}
-      >
-        <input />
-      </FileMentionPopover>,
-    );
-    expect(screen.queryByText("src/index.ts")).not.toBeInTheDocument();
-  });
-
-  it("shows file items when open", () => {
-    render(
-      <FileMentionPopover
-        open={true}
+        listId="files"
         items={[
           { path: "src/app.ts", isDir: false },
           { path: "src/components", isDir: true },
         ]}
         selectedIndex={0}
         onSelect={vi.fn()}
-        onClose={vi.fn()}
-      >
-        <input />
-      </FileMentionPopover>,
+      />,
     );
-    expect(screen.getByText("src/app.ts")).toBeInTheDocument();
-    expect(screen.getByText("src/components")).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Files" })).toBeInTheDocument();
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(options[0]).toHaveAttribute("id", "files-opt-0");
+    expect(screen.getByText("app.ts")).toBeInTheDocument();
+    expect(screen.getByText("components/")).toBeInTheDocument();
   });
 
-  it("calls onSelect with path when item is clicked", async () => {
+  it("calls onSelect with the full path on mouse down", async () => {
     const onSelect = vi.fn();
     const { user } = render(
       <FileMentionPopover
-        open={true}
+        listId="files"
         items={[{ path: "src/utils.ts", isDir: false }]}
         selectedIndex={0}
         onSelect={onSelect}
-        onClose={vi.fn()}
-      >
-        <input />
-      </FileMentionPopover>,
+      />,
     );
-    // Use pointer down since onMouseDown is used instead of onClick
-    await user.pointer({ keys: "[MouseLeft>]", target: screen.getByText("src/utils.ts") });
+    await user.pointer({ keys: "[MouseLeft>]", target: screen.getByRole("option") });
     expect(onSelect).toHaveBeenCalledWith("src/utils.ts");
-  });
-
-  it("highlights the selected item", () => {
-    render(
-      <FileMentionPopover
-        open={true}
-        items={[
-          { path: "file1.ts", isDir: false },
-          { path: "file2.ts", isDir: false },
-        ]}
-        selectedIndex={1}
-        onSelect={vi.fn()}
-        onClose={vi.fn()}
-      >
-        <input />
-      </FileMentionPopover>,
-    );
-    const buttons = screen.getAllByRole("button");
-    expect(buttons[1]).toHaveAttribute("data-selected", "true");
   });
 });

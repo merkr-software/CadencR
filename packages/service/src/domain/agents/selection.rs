@@ -12,8 +12,11 @@ use sqlx::SqlitePool;
 use utoipa::ToSchema;
 
 use super::providers::{canonical_provider_or_error, provider_model_catalog_entry};
-use super::runtime::runtime_setting_key;
+use super::runtime::{model_setting_key, runtime_setting_key};
 use crate::domain::settings::{self, SettingOrigin};
+
+mod last_used;
+pub use last_used::remember_session_selection;
 
 /// Where each half of the selection came from. `ProviderDefault` means no level
 /// set it and the provider's own default applies — the frontend renders that as
@@ -54,27 +57,24 @@ pub enum SelectionError {
     NoModelAvailable { provider_id: String },
 }
 
-fn model_setting_key(agent_type: &str) -> String {
-    format!("model_{agent_type}")
-}
-
+/// Cascade: feature override → workspace (the pair the user last prompted
+/// with, see [`remember_session_selection`]) → provider default. There is no
+/// project level: the last-used pair follows the user across projects.
 pub async fn resolve_selection(
     read_pool: &SqlitePool,
     cwd: Option<&Path>,
     agent_type: &str,
     feature_id: Option<i64>,
-    project_id: Option<i64>,
     profile: Option<&str>,
 ) -> Result<ResolvedSelection, SelectionError> {
     let (provider_id, provider_origin) =
-        resolve_provider(read_pool, agent_type, feature_id, project_id, cwd, profile).await;
+        resolve_provider(read_pool, agent_type, feature_id, cwd, profile).await;
     let (model_id, model_origin) = resolve_model(
         read_pool,
         cwd,
         agent_type,
         &provider_id,
         feature_id,
-        project_id,
         profile,
     )
     .await?;
@@ -93,13 +93,11 @@ async fn resolve_provider(
     read_pool: &SqlitePool,
     agent_type: &str,
     feature_id: Option<i64>,
-    project_id: Option<i64>,
     cwd: Option<&Path>,
     profile: Option<&str>,
 ) -> (String, SelectionOrigin) {
     let key = runtime_setting_key(agent_type);
-    let stored =
-        settings::resolve_setting_with_origin(read_pool, &key, feature_id, project_id).await;
+    let stored = settings::resolve_setting_with_origin(read_pool, &key, feature_id, None).await;
 
     match stored {
         Some((raw, origin)) => match canonical_provider_or_error(&raw) {
@@ -186,12 +184,10 @@ async fn resolve_model(
     agent_type: &str,
     provider_id: &str,
     feature_id: Option<i64>,
-    project_id: Option<i64>,
     profile: Option<&str>,
 ) -> Result<(String, SelectionOrigin), SelectionError> {
     let key = model_setting_key(agent_type);
-    let stored =
-        settings::resolve_setting_with_origin(read_pool, &key, feature_id, project_id).await;
+    let stored = settings::resolve_setting_with_origin(read_pool, &key, feature_id, None).await;
 
     if let Some((model_id, origin)) = stored {
         if provider_model_catalog_entry(read_pool, cwd, provider_id, Some(&model_id), profile)
@@ -284,7 +280,7 @@ mod tests {
     async fn feature_override_wins_and_reports_feature_origin() {
         let pool = pool_with_feature(None, Some("claude_code")).await;
 
-        let selection = resolve_selection(&pool, None, "session", Some(7), Some(1), None)
+        let selection = resolve_selection(&pool, None, "session", Some(7), None)
             .await
             .expect("resolvable");
 
@@ -309,8 +305,7 @@ mod tests {
     async fn stored_provider_is_honored_only_when_its_cli_is_available() {
         let pool = pool_with_feature(None, Some("claude_code")).await;
 
-        let (provider_id, origin) =
-            resolve_provider(&pool, "session", Some(7), Some(1), None, None).await;
+        let (provider_id, origin) = resolve_provider(&pool, "session", Some(7), None, None).await;
 
         let catalog =
             crate::domain::agents::providers::provider_catalog_live_for_cwd(&pool, None, None)
@@ -329,7 +324,7 @@ mod tests {
     async fn unset_provider_falls_back_to_the_default_provider() {
         let pool = pool_with_feature(None, None).await;
 
-        let selection = resolve_selection(&pool, None, "session", Some(7), Some(1), None)
+        let selection = resolve_selection(&pool, None, "session", Some(7), None)
             .await
             .expect("resolvable");
 
@@ -346,8 +341,7 @@ mod tests {
     async fn unset_provider_falls_back_to_an_available_provider() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 
-        let (provider_id, origin) =
-            resolve_provider(&pool, "session", None, None, None, None).await;
+        let (provider_id, origin) = resolve_provider(&pool, "session", None, None, None).await;
 
         let catalog =
             crate::domain::agents::providers::provider_catalog_live_for_cwd(&pool, None, None)
@@ -364,7 +358,7 @@ mod tests {
     async fn model_outside_the_resolved_provider_catalog_falls_back_to_its_default() {
         let pool = pool_with_feature(Some("lmstudio/qwen-3.6:35b-a3b"), Some("claude_code")).await;
 
-        let selection = resolve_selection(&pool, None, "session", Some(7), Some(1), None)
+        let selection = resolve_selection(&pool, None, "session", Some(7), None)
             .await
             .expect("resolvable");
 
@@ -377,7 +371,7 @@ mod tests {
     async fn unknown_provider_id_falls_back_to_the_default_provider() {
         let pool = pool_with_feature(None, Some("not_a_provider")).await;
 
-        let selection = resolve_selection(&pool, None, "session", Some(7), Some(1), None)
+        let selection = resolve_selection(&pool, None, "session", Some(7), None)
             .await
             .expect("resolvable");
 

@@ -26,7 +26,7 @@ async fn validate_provider_set(
         return Err(ProviderSetError::new(
             "UNSUPPORTED_PROVIDER",
             format!(
-                "Runtime provider '{}' is not implemented yet",
+                "Runtime provider '{}' is not available; install or enable it to use it",
                 payload.provider
             ),
         ));
@@ -94,8 +94,10 @@ async fn apply_provider_set(
     if snapshot.unchanged(payload) {
         let reply = WsEnvelope::session_reply(
             &envelope.id,
-            WsSessionAction::ProviderSetOk,
-            selection::reply(&payload.provider, &snapshot.into_runtime()),
+            &WsSessionEvent::ProviderSetOk(selection::reply(
+                &payload.provider,
+                &snapshot.into_runtime(),
+            )),
         )
         .expect("provider selection serializes");
         let _ = sender.send(Message::Text(String::from(reply).into()));
@@ -113,8 +115,7 @@ async fn apply_provider_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::ProviderSetOk,
-        reply,
+        &WsSessionEvent::ProviderSetOk(reply),
     )
     .await;
     if let Some(mode) = mode {
@@ -123,8 +124,7 @@ async fn apply_provider_set(
             sender,
             &envelope.id,
             feature_id,
-            WsSessionAction::ModeChanged,
-            ModeChangedPayload { mode },
+            &WsSessionEvent::ModeChanged(ModeChangedPayload { mode }),
         )
         .await;
     }

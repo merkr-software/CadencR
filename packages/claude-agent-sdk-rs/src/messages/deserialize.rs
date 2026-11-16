@@ -1,415 +1,56 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::warn;
 
-use crate::types::{PermissionDenial, Usage};
-
-use super::events::{AssistantMessageBody, ModelUsageInfo, StreamEventData, SystemMessage};
+use super::malformed::MalformedMessage;
 use super::sdk_message::SdkMessage;
+use super::task_lifecycle::TaskLifecycleEvent;
+
+mod convert;
+mod inner;
+mod lenient;
+
+use inner::{SdkMessageInner, KNOWN_SYSTEM_SUBTYPES, KNOWN_TYPES};
 
 // ── Custom Deserialize for SdkMessage ────────────────────────────────────────
-
-/// Internal mirror of `SdkMessage` used by the derived deserializer.
-/// We keep this private and convert into the public enum, adding the
-/// `Unknown` fallback path.
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum SdkMessageInner {
-    #[serde(rename = "stream_event")]
-    StreamEvent {
-        event: StreamEventData,
-        parent_tool_use_id: Option<String>,
-        uuid: String,
-        session_id: String,
-    },
-    #[serde(rename = "result")]
-    Result {
-        subtype: String,
-        uuid: String,
-        session_id: String,
-        duration_ms: u64,
-        duration_api_ms: u64,
-        is_error: bool,
-        num_turns: u64,
-        result: Option<String>,
-        errors: Option<Vec<String>>,
-        stop_reason: Option<String>,
-        total_cost_usd: f64,
-        usage: Usage,
-        #[serde(default)]
-        permission_denials: Vec<PermissionDenial>,
-        structured_output: Option<Value>,
-        #[serde(default, rename = "modelUsage")]
-        model_usage: HashMap<String, ModelUsageInfo>,
-        #[serde(flatten)]
-        extra: HashMap<String, Value>,
-    },
-    #[serde(rename = "system")]
-    System(SystemMessage),
-    #[serde(rename = "assistant")]
-    Assistant {
-        uuid: String,
-        session_id: String,
-        message: AssistantMessageBody,
-        parent_tool_use_id: Option<String>,
-        error: Option<String>,
-        #[serde(default, rename = "isApiErrorMessage")]
-        is_api_error_message: bool,
-        #[serde(default, rename = "apiErrorStatus")]
-        api_error_status: Option<u16>,
-    },
-    #[serde(rename = "user")]
-    User {
-        uuid: Option<String>,
-        session_id: String,
-        message: Value,
-        parent_tool_use_id: Option<String>,
-        #[serde(default)]
-        is_synthetic: Option<bool>,
-        tool_use_result: Option<Value>,
-        #[serde(default)]
-        is_replay: Option<bool>,
-    },
-    #[serde(rename = "status")]
-    Status {
-        uuid: String,
-        session_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "hook_started")]
-    HookStarted {
-        uuid: String,
-        session_id: String,
-        hook_event: String,
-        hook_id: String,
-        matcher: Option<String>,
-    },
-    #[serde(rename = "hook_progress")]
-    HookProgress {
-        uuid: String,
-        session_id: String,
-        hook_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "hook_response")]
-    HookResponse {
-        uuid: String,
-        session_id: String,
-        hook_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "tool_progress")]
-    ToolProgress {
-        uuid: String,
-        session_id: String,
-        tool_use_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "auth_status")]
-    AuthStatus {
-        uuid: String,
-        session_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "task_notification")]
-    TaskNotification {
-        uuid: String,
-        session_id: String,
-        task_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "task_started")]
-    TaskStarted {
-        uuid: String,
-        session_id: String,
-        task_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "task_progress")]
-    TaskProgress {
-        uuid: String,
-        session_id: String,
-        task_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "files_persisted")]
-    FilesPersisted {
-        uuid: String,
-        session_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "tool_use_summary")]
-    ToolUseSummary {
-        uuid: String,
-        session_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "rate_limit", alias = "rate_limit_event")]
-    RateLimit {
-        uuid: String,
-        session_id: String,
-        #[serde(flatten)]
-        data: Value,
-    },
-    #[serde(rename = "prompt_suggestion")]
-    PromptSuggestion {
-        uuid: String,
-        session_id: String,
-        suggestion: String,
-    },
-}
-
-impl From<SdkMessageInner> for SdkMessage {
-    fn from(inner: SdkMessageInner) -> Self {
-        match inner {
-            SdkMessageInner::StreamEvent {
-                event,
-                parent_tool_use_id,
-                uuid,
-                session_id,
-            } => SdkMessage::StreamEvent {
-                event,
-                parent_tool_use_id,
-                uuid,
-                session_id,
-            },
-            SdkMessageInner::Result {
-                subtype,
-                uuid,
-                session_id,
-                duration_ms,
-                duration_api_ms,
-                is_error,
-                num_turns,
-                result,
-                errors,
-                stop_reason,
-                total_cost_usd,
-                usage,
-                permission_denials,
-                structured_output,
-                model_usage,
-                extra,
-            } => SdkMessage::Result {
-                subtype,
-                uuid,
-                session_id,
-                duration_ms,
-                duration_api_ms,
-                is_error,
-                num_turns,
-                result,
-                errors,
-                stop_reason,
-                total_cost_usd,
-                usage,
-                permission_denials,
-                structured_output,
-                model_usage,
-                extra,
-            },
-            SdkMessageInner::System(s) => SdkMessage::System(s),
-            SdkMessageInner::Assistant {
-                uuid,
-                session_id,
-                message,
-                parent_tool_use_id,
-                error,
-                is_api_error_message,
-                api_error_status,
-            } => SdkMessage::Assistant {
-                uuid,
-                session_id,
-                message,
-                parent_tool_use_id,
-                error,
-                is_api_error_message,
-                api_error_status,
-            },
-            SdkMessageInner::User {
-                uuid,
-                session_id,
-                message,
-                parent_tool_use_id,
-                is_synthetic,
-                tool_use_result,
-                is_replay,
-            } => SdkMessage::User {
-                uuid,
-                session_id,
-                message,
-                parent_tool_use_id,
-                is_synthetic,
-                tool_use_result,
-                is_replay,
-            },
-            SdkMessageInner::Status {
-                uuid,
-                session_id,
-                data,
-            } => SdkMessage::Status {
-                uuid,
-                session_id,
-                data,
-            },
-            SdkMessageInner::HookStarted {
-                uuid,
-                session_id,
-                hook_event,
-                hook_id,
-                matcher,
-            } => SdkMessage::HookStarted {
-                uuid,
-                session_id,
-                hook_event,
-                hook_id,
-                matcher,
-            },
-            SdkMessageInner::HookProgress {
-                uuid,
-                session_id,
-                hook_id,
-                data,
-            } => SdkMessage::HookProgress {
-                uuid,
-                session_id,
-                hook_id,
-                data,
-            },
-            SdkMessageInner::HookResponse {
-                uuid,
-                session_id,
-                hook_id,
-                data,
-            } => SdkMessage::HookResponse {
-                uuid,
-                session_id,
-                hook_id,
-                data,
-            },
-            SdkMessageInner::ToolProgress {
-                uuid,
-                session_id,
-                tool_use_id,
-                data,
-            } => SdkMessage::ToolProgress {
-                uuid,
-                session_id,
-                tool_use_id,
-                data,
-            },
-            SdkMessageInner::AuthStatus {
-                uuid,
-                session_id,
-                data,
-            } => SdkMessage::AuthStatus {
-                uuid,
-                session_id,
-                data,
-            },
-            SdkMessageInner::TaskNotification {
-                uuid,
-                session_id,
-                task_id,
-                data,
-            } => SdkMessage::TaskNotification {
-                uuid,
-                session_id,
-                task_id,
-                data,
-            },
-            SdkMessageInner::TaskStarted {
-                uuid,
-                session_id,
-                task_id,
-                data,
-            } => SdkMessage::TaskStarted {
-                uuid,
-                session_id,
-                task_id,
-                data,
-            },
-            SdkMessageInner::TaskProgress {
-                uuid,
-                session_id,
-                task_id,
-                data,
-            } => SdkMessage::TaskProgress {
-                uuid,
-                session_id,
-                task_id,
-                data,
-            },
-            SdkMessageInner::FilesPersisted {
-                uuid,
-                session_id,
-                data,
-            } => SdkMessage::FilesPersisted {
-                uuid,
-                session_id,
-                data,
-            },
-            SdkMessageInner::ToolUseSummary {
-                uuid,
-                session_id,
-                data,
-            } => SdkMessage::ToolUseSummary {
-                uuid,
-                session_id,
-                data,
-            },
-            SdkMessageInner::RateLimit {
-                uuid,
-                session_id,
-                data,
-            } => SdkMessage::RateLimit {
-                uuid,
-                session_id,
-                data,
-            },
-            SdkMessageInner::PromptSuggestion {
-                uuid,
-                session_id,
-                suggestion,
-            } => SdkMessage::PromptSuggestion {
-                uuid,
-                session_id,
-                suggestion,
-            },
-        }
-    }
-}
 
 impl SdkMessage {
     /// Convert a raw CLI wire message into an `SdkMessage`, infallibly.
     ///
-    /// Never silently drops: a message that fails to match any known schema
-    /// becomes `Unknown(raw)` (so the stream survives) with a log of exactly
-    /// what and why, so a CLI wire-format drift is diagnosable instead of
-    /// presenting as an agent that "just stopped".
+    /// Never silently drops, and every outcome keeps the wire payload:
+    /// - a background-task lifecycle frame becomes `TaskLifecycle`;
+    /// - a message matching its typed schema becomes that variant;
+    /// - a known message kind that fails to decode becomes `Malformed`, which
+    ///   keeps its `type` so a drifted `result` still ends the turn;
+    /// - a message kind the SDK has never seen becomes `Unknown`.
+    ///
+    /// The last two log exactly what and why, so a CLI wire-format drift is
+    /// diagnosable instead of presenting as an agent that "just stopped".
     pub fn from_raw(raw: Value) -> Self {
-        match SdkMessageInner::deserialize(&raw) {
-            Ok(inner) => SdkMessage::from(inner),
-            Err(error) => {
-                let message_type = raw
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("<missing>");
-                let subtype = raw.get("subtype").and_then(|v| v.as_str());
+        let raw = match TaskLifecycleEvent::recognize(raw) {
+            Ok(event) => return SdkMessage::TaskLifecycle(event),
+            Err(raw) => raw,
+        };
+        let error = match SdkMessageInner::deserialize(&raw) {
+            Ok(inner) => return SdkMessage::from(inner),
+            Err(error) => error.to_string(),
+        };
+        let message_type = raw.get("type").and_then(Value::as_str);
+        let subtype = raw.get("subtype").and_then(Value::as_str);
+        match message_type.filter(|kind| is_known_kind(kind, subtype)) {
+            Some(message_type) => {
+                let message_type = message_type.to_owned();
                 warn!(
-                    message_type,
+                    message_type = message_type.as_str(),
+                    ?subtype,
+                    %error,
+                    "claude SDK: known message failed to match its schema; forwarding as Malformed"
+                );
+                SdkMessage::Malformed(MalformedMessage::new(message_type, error, raw))
+            }
+            None => {
+                warn!(
+                    message_type = message_type.unwrap_or("<missing>"),
                     ?subtype,
                     %error,
                     "claude SDK: message did not match any known schema; forwarding as Unknown (it will not render in the conversation)"
@@ -418,6 +59,14 @@ impl SdkMessage {
             }
         }
     }
+}
+
+/// Whether the SDK models this `type` (and, for `system`, this `subtype`).
+fn is_known_kind(message_type: &str, subtype: Option<&str>) -> bool {
+    if message_type == "system" {
+        return subtype.is_some_and(|subtype| KNOWN_SYSTEM_SUBTYPES.contains(&subtype));
+    }
+    KNOWN_TYPES.contains(&message_type)
 }
 
 impl<'de> Deserialize<'de> for SdkMessage {
@@ -432,6 +81,203 @@ impl<'de> Deserialize<'de> for SdkMessage {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    use crate::messages::TaskLifecycleKind;
+
+    #[test]
+    fn known_type_list_matches_the_typed_schema() {
+        // Every listed tag is one serde recognizes (its failure is about the
+        // payload, not the variant); an unlisted tag is an unknown variant.
+        for message_type in KNOWN_TYPES {
+            let error = SdkMessageInner::deserialize(&json!({ "type": message_type }))
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_default();
+            assert!(
+                !error.contains("unknown variant"),
+                "{message_type}: {error}"
+            );
+        }
+        for subtype in KNOWN_SYSTEM_SUBTYPES {
+            let error =
+                SdkMessageInner::deserialize(&json!({ "type": "system", "subtype": subtype }))
+                    .err()
+                    .map(|error| error.to_string())
+                    .unwrap_or_default();
+            assert!(
+                !error.contains("unknown variant"),
+                "system/{subtype}: {error}"
+            );
+        }
+        let error = SdkMessageInner::deserialize(&json!({ "type": "never_seen" }))
+            .err()
+            .expect("unknown tag fails");
+        assert!(error.to_string().contains("unknown variant"), "{error}");
+    }
+
+    #[test]
+    fn result_tolerates_missing_null_and_drifted_fields() {
+        let msg = SdkMessage::from_raw(json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "session_id": "s",
+            "duration_ms": null,
+            "duration_api_ms": "fast",
+            "num_turns": -1,
+            "is_error": true,
+            "result": { "text": "moved" },
+            "usage": { "input_tokens": 3, "server_tool_use": {} },
+            "permission_denials": [{ "tool_name": "Bash" }],
+            "modelUsage": { "m": { "contextWindow": 200000 } },
+            "new_field": 1
+        }));
+        let SdkMessage::Result {
+            subtype,
+            uuid,
+            duration_ms,
+            duration_api_ms,
+            num_turns,
+            is_error,
+            result,
+            total_cost_usd,
+            usage,
+            permission_denials,
+            extra,
+            ..
+        } = &msg
+        else {
+            panic!("a drifted result must stay a Result, got {msg:?}");
+        };
+        assert_eq!(subtype, "error_during_execution");
+        assert_eq!(uuid, "");
+        assert_eq!((*duration_ms, *duration_api_ms, *num_turns), (0, 0, 0));
+        assert!(*is_error);
+        assert_eq!(result, &None);
+        assert_eq!(*total_cost_usd, 0.0);
+        assert_eq!((usage.input_tokens, usage.output_tokens), (3, 0));
+        assert_eq!(permission_denials.len(), 1);
+        assert_eq!(permission_denials[0].tool_name, "Bash");
+        assert_eq!(permission_denials[0].tool_use_id, "");
+        assert_eq!(extra["new_field"], 1);
+        assert_eq!(msg.result_context_window(), Some(200_000));
+        assert!(msg.is_turn_complete());
+        assert_eq!(msg.session_id(), Some("s"));
+    }
+
+    #[test]
+    fn unusable_is_error_is_derived_from_the_subtype() {
+        let is_error = |raw: Value| match SdkMessage::from_raw(raw) {
+            SdkMessage::Result { is_error, .. } => is_error,
+            other => panic!("expected Result, got {other:?}"),
+        };
+        for (subtype, flag, expected) in [
+            ("error_during_execution", json!("true"), true),
+            ("error_max_turns", Value::Null, true),
+            ("success", json!(1), false),
+            ("success", Value::Null, false),
+            // A usable flag always wins over the subtype.
+            ("error_during_execution", json!(false), false),
+            ("success", json!(true), true),
+        ] {
+            let raw = json!({ "type": "result", "subtype": subtype, "is_error": flag });
+            assert_eq!(is_error(raw), expected, "{subtype} / {flag}");
+        }
+        assert!(is_error(
+            json!({ "type": "result", "subtype": "error_during_execution" })
+        ));
+    }
+
+    #[test]
+    fn minimal_result_is_typed_without_a_session_id() {
+        let msg = SdkMessage::from_raw(json!({ "type": "result", "subtype": "success" }));
+        assert!(matches!(msg, SdkMessage::Result { .. }), "got {msg:?}");
+        assert_eq!(
+            msg.session_id(),
+            None,
+            "an absent session id is not captured as \"\""
+        );
+    }
+
+    #[test]
+    fn result_without_a_subtype_is_malformed_but_ends_the_turn() {
+        let raw = json!({ "type": "result", "session_id": "s", "is_error": false });
+        let msg = SdkMessage::from_raw(raw.clone());
+        let SdkMessage::Malformed(malformed) = &msg else {
+            panic!("expected Malformed, got {msg:?}");
+        };
+        assert!(malformed.is_result());
+        assert!(
+            malformed.error().contains("subtype"),
+            "{}",
+            malformed.error()
+        );
+        assert!(msg.is_turn_complete());
+        assert_eq!(msg.session_id(), Some("s"));
+        assert_eq!(serde_json::to_value(&msg).unwrap(), raw);
+    }
+
+    #[test]
+    fn known_types_failing_their_schema_are_malformed_not_unknown() {
+        for raw in [
+            json!({ "type": "assistant", "session_id": "s" }),
+            json!({ "type": "stream_event", "session_id": "s", "event": 3 }),
+            json!({ "type": "system", "subtype": "init", "model": "m" }),
+        ] {
+            let msg = SdkMessage::from_raw(raw.clone());
+            let SdkMessage::Malformed(malformed) = &msg else {
+                panic!("expected Malformed for {raw}, got {msg:?}");
+            };
+            assert_eq!(Some(malformed.message_type()), raw["type"].as_str());
+            assert!(!msg.is_turn_complete());
+            assert_eq!(serde_json::to_value(&msg).unwrap(), raw);
+        }
+    }
+
+    #[test]
+    fn unseen_kinds_stay_unknown_and_serialize_as_raw() {
+        for raw in [
+            json!({ "type": "some_future_type", "session_id": "s" }),
+            json!({ "type": "system", "subtype": "api_retry", "attempt": 2 }),
+            json!({ "no_type": true }),
+        ] {
+            let msg = SdkMessage::from_raw(raw.clone());
+            assert!(matches!(msg, SdkMessage::Unknown(_)), "got {msg:?}");
+            assert_eq!(
+                serde_json::to_value(&msg).unwrap(),
+                raw,
+                "raw is never null"
+            );
+        }
+    }
+
+    #[test]
+    fn task_lifecycle_frames_are_typed_with_their_raw() {
+        let raw = json!({
+            "type": "system", "subtype": "task_notification", "uuid": "u",
+            "session_id": "s", "task_id": "t", "status": "completed"
+        });
+        let msg: SdkMessage = serde_json::from_value(raw.clone()).unwrap();
+        let SdkMessage::TaskLifecycle(event) = &msg else {
+            panic!("expected TaskLifecycle, got {msg:?}");
+        };
+        assert_eq!(event.kind(), TaskLifecycleKind::Notification);
+        assert_eq!(msg.session_id(), Some("s"));
+        assert_eq!(serde_json::to_value(&msg).unwrap(), raw);
+    }
+
+    #[test]
+    fn rate_limit_event_round_trips_with_its_wire_tag() {
+        for tag in ["rate_limit_event", "rate_limit"] {
+            let msg = SdkMessage::from_raw(json!({
+                "type": tag, "uuid": "u", "session_id": "s",
+                "rate_limit_info": { "status": "allowed" }
+            }));
+            assert!(matches!(msg, SdkMessage::RateLimit { .. }), "got {msg:?}");
+            let raw = serde_json::to_value(&msg).unwrap();
+            assert_eq!(raw["type"], "rate_limit_event");
+            assert_eq!(raw["rate_limit_info"]["status"], "allowed");
+        }
+    }
 
     #[test]
     fn deserializes_api_error_markers_on_assistant() {

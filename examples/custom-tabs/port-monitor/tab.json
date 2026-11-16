@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "port-monitor",
+  "name": "Port monitor",
+  "version": "0.1.0",
+  "description": "The local servers listening on TCP ports, the process behind each, and which ones run in this conversation's folder — with a Stop button for those.",
+  "icon": "icon.svg",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "Ports" },
+  "permissions": ["features:read"],
+  "backend": {
+    "reasoning": "Lists the TCP ports listening on this computer and the process behind each (lsof on macOS, /proc on Linux), and stops a process started in this conversation's folder when you ask.",
+    "protocol": 1,
+    "binary": {
+      "darwin-aarch64": "bin/darwin-aarch64/port-monitor",
+      "darwin-x86_64": "bin/darwin-x86_64/port-monitor",
+      "linux-x86_64": "bin/linux-x86_64/port-monitor"
+    }
+  }
+}

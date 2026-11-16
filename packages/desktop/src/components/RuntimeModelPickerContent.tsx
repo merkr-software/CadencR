@@ -12,9 +12,15 @@ import { ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { useShortcut } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { revealPickerItem } from "./RuntimeModelPickerChrome";
-import { ModelGroup, ProviderStateGroup, SelectionGroup } from "./RuntimeModelPickerSections";
+import {
+  CatalogRefreshNotices,
+  ModelGroup,
+  ProviderStateGroup,
+  SelectionGroup,
+} from "./RuntimeModelPickerSections";
 import type { RuntimeModelPickerAction } from "./RuntimeModelPickerSections";
 import {
+  type CatalogRefreshNotice,
   isProviderCollapsed,
   modelPickerFilter,
   type ModelEntry,
@@ -29,6 +35,7 @@ interface FavoriteShortcutProps {
 interface RuntimeModelPickerContentProps {
   action?: RuntimeModelPickerAction;
   align: "start" | "center" | "end";
+  catalogNotices: CatalogRefreshNotice[];
   contentClassName?: string;
   emptyText: string;
   expandedGroupIds: ReadonlySet<string>;
@@ -95,6 +102,7 @@ function FavoriteShortcut({ onToggleHighlighted }: FavoriteShortcutProps): React
 export function RuntimeModelPickerContent({
   action,
   align,
+  catalogNotices,
   contentClassName,
   emptyText,
   expandedGroupIds,
@@ -153,6 +161,7 @@ export function RuntimeModelPickerContent({
           onValueChange={setSearch}
           className="h-9 text-xs"
         />
+        {catalogNotices.length > 0 ? <CatalogRefreshNotices notices={catalogNotices} /> : null}
         <CommandList ref={listRef} className="h-[320px] max-h-[320px]">
           <CommandEmpty className="py-3 text-center text-xs">{emptyText}</CommandEmpty>
           {action ? <SelectionGroup action={action} onSelect={onActionSelect} /> : null}

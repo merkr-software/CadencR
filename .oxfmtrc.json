@@ -8,6 +8,9 @@
     "packages/landing/dist/",
     "packages/landing/.astro/",
     "packages/landing/design/",
+    "packages/tab-sdk/dist/",
+    "packages/tab-kit/dist/",
+    "packages/tab-kit/example/dist/",
     "**/*.min.{js,css}"
   ]
 }

@@ -8,6 +8,8 @@ interface ThinkingEffortBarsProps {
   onChange?: (value?: ThinkingEffortLevel) => void;
   className?: string;
   compact?: boolean;
+  /** `neutral`: ink-colored bars for the composer's instrument row. */
+  tone?: "violet" | "neutral";
 }
 
 export const ThinkingEffortBars = memo(function ThinkingEffortBars({
@@ -16,6 +18,7 @@ export const ThinkingEffortBars = memo(function ThinkingEffortBars({
   onChange,
   className,
   compact = false,
+  tone = "violet",
 }: ThinkingEffortBarsProps): ReactNode {
   if (levels.length === 0) return null;
 
@@ -36,9 +39,16 @@ export const ThinkingEffortBars = memo(function ThinkingEffortBars({
           <span
             className={cn(
               "block w-1.5 rounded-full transition-colors",
-              selected ? "bg-violet-300" : "bg-violet-200/20",
+              tone === "neutral"
+                ? selected
+                  ? "bg-foreground/75"
+                  : "bg-foreground/15"
+                : selected
+                  ? "bg-violet-300"
+                  : "bg-violet-200/20",
+              tone === "neutral" && "w-1",
             )}
-            style={{ height }}
+            style={{ height: tone === "neutral" ? height - 4 : height }}
           />
         );
 

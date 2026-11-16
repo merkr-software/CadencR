@@ -13,7 +13,9 @@
 mod keys;
 
 use keys::WORKSPACE_MODEL_PREFIXES;
-pub use keys::{FEATURE_ALLOWED_KEYS, PROJECT_ALLOWED_KEYS, WORKSPACE_ALLOWED_KEYS};
+pub use keys::{
+    FEATURE_ALLOWED_KEYS, PROJECT_ALLOWED_KEYS, SIDEBAR_DISPLAY_KEYS, WORKSPACE_ALLOWED_KEYS,
+};
 
 /// Whether `suffix` is a plausible `<provider>_<model-id>` identifier: non-empty
 /// and free of whitespace and control characters.
@@ -29,8 +31,26 @@ pub fn is_project_key_allowed(key: &str) -> bool {
     PROJECT_ALLOWED_KEYS.contains(&key)
 }
 
+/// Workspace default access mode of an installed provider:
+/// `provider_access_mode.<provider_id>`, value `default | fullAccess | autoReview`.
+pub const PROVIDER_ACCESS_MODE_PREFIX: &str = "provider_access_mode.";
+
+pub fn provider_access_mode_setting_key(provider_id: &str) -> String {
+    format!("{PROVIDER_ACCESS_MODE_PREFIX}{provider_id}")
+}
+
+/// Whether `key` names a provider access-mode default for a well-formed
+/// provider id (the ACP registry pattern installed providers must match).
+pub fn is_provider_access_mode_key(key: &str) -> bool {
+    key.strip_prefix(PROVIDER_ACCESS_MODE_PREFIX)
+        .is_some_and(|id| cadencr_plugin_core::validate_provider_id(id).is_ok())
+}
+
 pub fn is_workspace_key_allowed(key: &str) -> bool {
-    if WORKSPACE_ALLOWED_KEYS.contains(&key) {
+    if WORKSPACE_ALLOWED_KEYS.contains(&key) || SIDEBAR_DISPLAY_KEYS.contains(&key) {
+        return true;
+    }
+    if is_provider_access_mode_key(key) {
         return true;
     }
     WORKSPACE_MODEL_PREFIXES
@@ -41,6 +61,24 @@ pub fn is_workspace_key_allowed(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_access_mode_keys_follow_the_provider_id_pattern() {
+        assert_eq!(
+            provider_access_mode_setting_key("cursor"),
+            "provider_access_mode.cursor"
+        );
+        assert!(is_workspace_key_allowed("provider_access_mode.cursor"));
+        assert!(is_workspace_key_allowed("provider_access_mode.acme-agent"));
+        for key in [
+            "provider_access_mode.",
+            "provider_access_mode.Cursor",
+            "provider_access_mode.a b",
+            "provider_access_mode.../x",
+        ] {
+            assert!(!is_workspace_key_allowed(key), "{key}");
+            assert!(!is_feature_key_allowed(key) && !is_project_key_allowed(key));
+        }
+    }
     #[test]
     fn rejects_unknown_feature_key() {
         assert!(!is_feature_key_allowed("setup_worktree"));
@@ -246,7 +284,7 @@ mod tests {
     fn workspace_accepts_notification_mode() {
         // Wired to packages/desktop/src/lib/notification-mode.ts —
         // the Settings → Notifications picker writes "native" / "in_app" / "off".
-        // Without this, useDebouncedSetting toasts "Could not save setting".
+        // Without this, useSetting toasts "Could not save setting".
         assert!(is_workspace_key_allowed("notification_mode"));
         assert!(!is_feature_key_allowed("notification_mode"));
         assert!(!is_project_key_allowed("notification_mode"));
@@ -270,6 +308,16 @@ mod tests {
         assert!(!is_project_key_allowed("git_diff_tree_display_mode"));
     }
     #[test]
+    fn workspace_accepts_sidebar_expansion_keys() {
+        // The sidebar remembers what the user expanded; without these the FE
+        // gets a BAD_REQUEST and every reload collapses the tree again.
+        assert!(is_workspace_key_allowed("sidebar_expanded_projects"));
+        assert!(is_workspace_key_allowed("sidebar_collapsed_subtrees"));
+        assert!(is_workspace_key_allowed("sidebar_archived_open_projects"));
+        assert!(is_workspace_key_allowed("sidebar_views"));
+        assert!(is_workspace_key_allowed("sidebar_active_view"));
+    }
+    #[test]
     fn workspace_accepts_favorite_models() {
         // Starred models in the model pickers; without this the FE gets a
         // BAD_REQUEST and starring silently fails.
@@ -284,7 +332,7 @@ mod tests {
     }
     #[test]
     fn workspace_accepts_dangerous_mode_toggles() {
-        // DangerousModeToggle persists these via useDebouncedSetting → PUT
+        // DangerousModeToggle persists these via useSetting → PUT
         // /api/workspace/settings/{key}. Without these, the FE gets a
         // BAD_REQUEST and the toggle silently fails to enable.
         assert!(is_workspace_key_allowed(
@@ -305,7 +353,7 @@ mod tests {
     #[test]
     fn workspace_accepts_agent_stream_verbosity_mode() {
         // Persisted by the global Settings page → "Agent output verbosity"
-        // picker via useDebouncedSetting. Without this, switching modes
+        // picker via useSetting. Without this, switching modes
         // returns 400 and the FE toast "Could not save setting".
         assert!(is_workspace_key_allowed("agent_stream_verbosity_mode"));
         assert!(!is_feature_key_allowed("agent_stream_verbosity_mode"));
@@ -314,12 +362,38 @@ mod tests {
     #[test]
     fn workspace_accepts_agent_stream_summary_mode() {
         // Persisted by the global Settings page → "Agent output verbosity" →
-        // "Summary mode" toggle via useDebouncedSetting. Stored as "true" /
+        // "Summary mode" toggle via useSetting. Stored as "true" /
         // "false"; without this the toggle 400s and the FE toasts a save error.
         assert!(is_workspace_key_allowed("agent_stream_summary_mode"));
         assert!(!is_feature_key_allowed("agent_stream_summary_mode"));
         assert!(!is_project_key_allowed("agent_stream_summary_mode"));
     }
+    #[test]
+    fn workspace_accepts_composer_context_meter_display() {
+        // Persisted by clicking the composer's context meter; without this the
+        // click 400s and the meter never changes.
+        assert!(is_workspace_key_allowed("composer_context_meter_display"));
+        assert!(!is_feature_key_allowed("composer_context_meter_display"));
+        assert!(!is_project_key_allowed("composer_context_meter_display"));
+    }
+    #[test]
+    fn workspace_accepts_agent_message_navigator_enabled() {
+        // Persisted by Settings → Appearance → "Message navigator" toggle via
+        // useSetting; without this the toggle 400s.
+        assert!(is_workspace_key_allowed("agent_message_navigator_enabled"));
+        assert!(!is_feature_key_allowed("agent_message_navigator_enabled"));
+        assert!(!is_project_key_allowed("agent_message_navigator_enabled"));
+    }
+    #[test]
+    fn auto_layout_keys_are_scoped() {
+        // Workspace default from Settings → Browser; per-feature override
+        // from the auto layout toggle beside the layout menu.
+        assert!(is_workspace_key_allowed("layout_auto_mode_default"));
+        assert!(!is_feature_key_allowed("layout_auto_mode_default"));
+        assert!(is_feature_key_allowed("layout_auto_mode"));
+        assert!(!is_workspace_key_allowed("layout_auto_mode"));
+    }
+
     #[test]
     fn workspace_accepts_animations_enabled() {
         // Master switch for fluid UI animations, persisted from the Welcome
@@ -332,14 +406,14 @@ mod tests {
     #[test]
     fn workspace_accepts_mono_font_family() {
         // Settings → Appearance mono font selector persists the chosen family
-        // via useDebouncedSetting → PUT /api/workspace/settings/{key}.
+        // via useSetting → PUT /api/workspace/settings/{key}.
         assert!(is_workspace_key_allowed("mono_font_family"));
     }
 
     #[test]
     fn workspace_accepts_editor_file_tree_icon_set() {
         // The Settings → Appearance picker writes "minimal" / "standard" /
-        // "complete" via useDebouncedSetting → PUT /api/workspace/settings/{key}.
+        // "complete" via useSetting → PUT /api/workspace/settings/{key}.
         assert!(is_workspace_key_allowed("editor_file_tree_icon_set"));
         assert!(!is_feature_key_allowed("editor_file_tree_icon_set"));
         assert!(!is_project_key_allowed("editor_file_tree_icon_set"));
@@ -363,15 +437,23 @@ mod tests {
 
     #[test]
     fn workspace_accepts_agent_defaults() {
-        // These flow through the global Settings page + useDebouncedSetting.
+        // These flow through the global Settings page + useSetting.
         for k in [
             "model_session",
             "model_auto_name",
             "agent_runtime_session",
             "agent_runtime_auto_name",
+            "auto_name_system_prompt",
             "sidebar_right_collapsed",
         ] {
             assert!(is_workspace_key_allowed(k), "{k} should be allowed");
+        }
+    }
+
+    #[test]
+    fn project_rejects_session_selection_keys() {
+        for k in ["model_session", "agent_runtime_session"] {
+            assert!(!is_project_key_allowed(k), "{k} is no longer per-project");
         }
     }
 }

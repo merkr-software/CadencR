@@ -10,7 +10,7 @@ import {
   selectFeatureLayout,
   useFeatureLayoutStore,
 } from "./feature-layout-store";
-import { ROOT_LEAF_ID } from "./feature-layout-schema";
+import { BUILTIN_TAB_KINDS, flatLayoutState, ROOT_LEAF_ID } from "./feature-layout-schema";
 
 const FEATURE = 42;
 
@@ -25,12 +25,19 @@ function getState() {
 describe("feature-layout-store", () => {
   beforeEach(reset);
 
-  it("starts in flat state with all five tabs in the root pane", () => {
+  it("starts in flat state with all six tabs in the root pane", () => {
     const state = getState();
     expect(state.splitRoot.type).toBe("leaf");
     if (state.splitRoot.type === "leaf") {
       expect(state.splitRoot.id).toBe(ROOT_LEAF_ID);
-      expect(state.splitRoot.tabIds).toEqual(["agent", "terminal", "git", "editor", "browser"]);
+      expect(state.splitRoot.tabIds).toEqual([
+        "agent",
+        "terminal",
+        "git",
+        "editor",
+        "browser",
+        "preview",
+      ]);
       expect(state.splitRoot.activeTabId).toBe("agent");
     }
   });
@@ -42,7 +49,7 @@ describe("feature-layout-store", () => {
     const leaves = getLeaves(state.splitRoot);
     expect(leaves).toHaveLength(2);
     const root = findLeafById(state.splitRoot, ROOT_LEAF_ID);
-    expect(root?.tabIds).toEqual(["agent", "git", "editor", "browser"]);
+    expect(root?.tabIds).toEqual(["agent", "git", "editor", "browser", "preview"]);
     const newLeaf = leaves.find((l) => l.id !== ROOT_LEAF_ID);
     expect(newLeaf?.tabIds).toEqual(["terminal"]);
   });
@@ -55,7 +62,7 @@ describe("feature-layout-store", () => {
     const state = getState();
     expect(getLeaves(state.splitRoot)).toHaveLength(3);
     const root = findLeafById(state.splitRoot, ROOT_LEAF_ID);
-    expect(root?.tabIds).toEqual(["agent", "editor", "browser"]);
+    expect(root?.tabIds).toEqual(["agent", "editor", "browser", "preview"]);
   });
 
   it("dockTab returns a tab to the root pane and collapses empty source", () => {
@@ -66,12 +73,35 @@ describe("feature-layout-store", () => {
     expect(state.splitRoot.type).toBe("leaf"); // back to flat
     const root = findLeafById(state.splitRoot, ROOT_LEAF_ID);
     expect(root?.tabIds).toContain("terminal");
+  });
+
+  it("dockTab keeps the root's main tab active and focused", () => {
+    const store = useFeatureLayoutStore.getState();
+    store.splitTabAt(FEATURE, "terminal", ROOT_LEAF_ID, "right");
+    store.splitTabAt(FEATURE, "git", ROOT_LEAF_ID, "bottom");
+    expect(getState().focusedPaneId).not.toBe(ROOT_LEAF_ID);
+    store.dockTab(FEATURE, "terminal");
+    const state = getState();
+    const root = findLeafById(state.splitRoot, ROOT_LEAF_ID);
+    expect(root?.tabIds.at(-1)).toBe("terminal");
+    expect(root?.activeTabId).toBe("agent");
+    expect(state.focusedPaneId).toBe(ROOT_LEAF_ID);
+  });
+
+  it("dockTab activates the tab when the root strip was empty", () => {
+    const store = useFeatureLayoutStore.getState();
+    for (const tab of ["agent", "terminal", "git", "editor", "browser", "preview"] as const) {
+      store.splitTabAt(FEATURE, tab, ROOT_LEAF_ID, "right");
+    }
+    store.dockTab(FEATURE, "terminal");
+    const root = findLeafById(getState().splitRoot, ROOT_LEAF_ID);
+    expect(root?.tabIds).toEqual(["terminal"]);
     expect(root?.activeTabId).toBe("terminal");
   });
 
   it("root leaf survives even when emptied", () => {
     const store = useFeatureLayoutStore.getState();
-    for (const tab of ["agent", "terminal", "git", "editor", "browser"] as const) {
+    for (const tab of ["agent", "terminal", "git", "editor", "browser", "preview"] as const) {
       store.splitTabAt(FEATURE, tab, ROOT_LEAF_ID, "right");
     }
     const state = getState();
@@ -91,7 +121,7 @@ describe("feature-layout-store", () => {
     expect(pane!.tabIds).toEqual(["terminal", "git"]);
     expect(pane!.activeTabId).toBe("git");
     const root = findLeafById(state.splitRoot, ROOT_LEAF_ID);
-    expect(root?.tabIds).toEqual(["agent", "editor", "browser"]);
+    expect(root?.tabIds).toEqual(["agent", "editor", "browser", "preview"]);
   });
 
   it("setPaneActiveTab only switches when the tab lives in the pane", () => {
@@ -145,8 +175,23 @@ describe("feature-layout-store", () => {
     const state = getState();
     expect(state.splitRoot.type).toBe("leaf");
     if (state.splitRoot.type === "leaf") {
-      expect(state.splitRoot.tabIds).toEqual(["agent", "terminal", "git", "editor", "browser"]);
+      expect(state.splitRoot.tabIds).toEqual([
+        "agent",
+        "terminal",
+        "git",
+        "editor",
+        "browser",
+        "preview",
+      ]);
     }
+  });
+
+  it("resetToFlat keeps auto layout's size memory", () => {
+    const store = useFeatureLayoutStore.getState();
+    store.setState(FEATURE, { ...flatLayoutState(), autoShares: { browser: 35 } });
+    store.splitTabAt(FEATURE, "browser", ROOT_LEAF_ID, "right");
+    store.resetToFlat(FEATURE);
+    expect(getState().autoShares).toEqual({ browser: 35 });
   });
 
   it("setFocusedPane is a no-op when the pane is already focused", () => {
@@ -215,5 +260,79 @@ describe("feature-layout-store", () => {
     expect(activateFeatureTab(FEATURE, "git")).toBe(true);
     const gitLeaf = getLeaves(getState().splitRoot).find((l) => l.tabIds.includes("git"))!;
     expect(gitLeaf.activeTabId).toBe("git");
+  });
+
+  describe("addTab / removeTab", () => {
+    const GRAPH = "plugin:graph" as const;
+
+    function store() {
+      return useFeatureLayoutStore.getState();
+    }
+
+    it("appends a new tab to the focused pane and activates it", () => {
+      store().splitTabAt(FEATURE, "terminal", ROOT_LEAF_ID, "right");
+      const pane = findPaneContaining(getState().splitRoot, "terminal");
+      store().addTab(FEATURE, GRAPH);
+      const state = getState();
+      const host = findPaneContaining(state.splitRoot, GRAPH);
+      expect(host?.id).toBe(pane?.id);
+      expect(host?.tabIds).toEqual(["terminal", GRAPH]);
+      expect(host?.activeTabId).toBe(GRAPH);
+      expect(state.focusedPaneId).toBe(pane?.id);
+    });
+
+    it("honors an existing paneId and falls back to root when it is unknown", () => {
+      store().splitTabAt(FEATURE, "terminal", ROOT_LEAF_ID, "right");
+      store().addTab(FEATURE, GRAPH, { paneId: ROOT_LEAF_ID });
+      expect(findHostFor(getState(), GRAPH)).toBe(ROOT_LEAF_ID);
+
+      reset();
+      store().addTab(FEATURE, GRAPH, { paneId: "missing" });
+      expect(findHostFor(getState(), GRAPH)).toBe(ROOT_LEAF_ID);
+    });
+
+    it("can place without activating", () => {
+      store().addTab(FEATURE, GRAPH, { activate: false });
+      const root = findLeafById(getState().splitRoot, ROOT_LEAF_ID);
+      expect(root?.tabIds.at(-1)).toBe(GRAPH);
+      expect(root?.activeTabId).toBe("agent");
+    });
+
+    it("only activates a tab that is already placed, without duplicating it", () => {
+      store().addTab(FEATURE, GRAPH);
+      store().splitTabAt(FEATURE, GRAPH, ROOT_LEAF_ID, "bottom");
+      const hostId = findHostFor(getState(), GRAPH);
+      store().setPaneActiveTab(FEATURE, ROOT_LEAF_ID, "git");
+
+      store().addTab(FEATURE, GRAPH, { paneId: ROOT_LEAF_ID });
+      const state = getState();
+      // The built-ins plus the graph, once.
+      expect(getLeaves(state.splitRoot).flatMap((l) => l.tabIds)).toHaveLength(
+        BUILTIN_TAB_KINDS.length + 1,
+      );
+      expect(findHostFor(state, GRAPH)).toBe(hostId);
+      expect(state.focusedPaneId).toBe(hostId);
+      expect(isTabVisible(state, GRAPH)).toBe(true);
+
+      const before = useFeatureLayoutStore.getState().features;
+      store().addTab(FEATURE, GRAPH);
+      // Already active and focused: no-op keeps the features map identity.
+      expect(useFeatureLayoutStore.getState().features).toBe(before);
+    });
+
+    it("removes a plugin tab, collapsing its pane, and ignores built-ins", () => {
+      store().addTab(FEATURE, GRAPH);
+      store().splitTabAt(FEATURE, GRAPH, ROOT_LEAF_ID, "right");
+      store().removeTab(FEATURE, GRAPH);
+      const state = getState();
+      expect(state.splitRoot).toMatchObject({ type: "leaf", id: ROOT_LEAF_ID });
+      expect(findHostFor(state, GRAPH)).toBeNull();
+      expect(state.focusedPaneId).toBe(ROOT_LEAF_ID);
+
+      const before = useFeatureLayoutStore.getState().features;
+      store().removeTab(FEATURE, "terminal");
+      store().removeTab(FEATURE, GRAPH);
+      expect(useFeatureLayoutStore.getState().features).toBe(before);
+    });
   });
 });

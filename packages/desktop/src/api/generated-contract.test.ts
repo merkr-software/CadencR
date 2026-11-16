@@ -10,6 +10,7 @@ vi.mock("./client", () => ({ customInstance }));
 
 import {
   createFeature,
+  getCreateFeatureMutationKey,
   getCreateFeatureMutationOptions,
   getGetAgentCatalogQueryKey,
   getHealthQueryOptions,
@@ -60,6 +61,8 @@ describe("generated API contract", () => {
   it("classifies feature creation as a mutation whose variables drive the POST", async () => {
     const body = { project_id: 42, title: "Mutation contract" };
     const options = getCreateFeatureMutationOptions();
+    expect(options.mutationKey).toEqual(getCreateFeatureMutationKey());
+    expect(options.mutationKey).toEqual(["createFeature"]);
     if (typeof options.mutationFn !== "function")
       throw new Error("expected a generated mutation function");
 
@@ -98,5 +101,13 @@ describe("generated API contract", () => {
       method: "GET",
       signal,
     });
+  });
+
+  it("preserves a caller's mutation key when the generator supplies a key helper", () => {
+    const mutationKey = ["createFeature", { projectId: 42 }] as const;
+    const options = getCreateFeatureMutationOptions({ mutation: { mutationKey } });
+
+    expect(options.mutationKey).toBe(mutationKey);
+    expect(getCreateFeatureMutationKey()).toEqual(["createFeature"]);
   });
 });

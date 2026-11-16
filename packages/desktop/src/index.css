@@ -1,4 +1,8 @@
 @import "./sidebar-rows.css";
+@import "./sidebar-row-height.css";
+@import "./sidebar-row-colors.css";
+@import "./mobile-status-bar.css";
+@import "./app-viewport.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 /*
@@ -16,8 +20,16 @@
 @import "./theme-cadencr-material.css";
 @import "./theme-frost.css";
 @import "./theme-square.css";
+@import "./toast.css";
 @import "./pierre-tree.css";
 @import "./agent-stream-perf.css";
+@import "./auto-layout.css";
+@import "./marketplace.css";
+@import "./unified-agents.css";
+@import "./command-palette.css";
+@import "./composer.css";
+@import "./feature-panes.css";
+@import "./command-palette-panels.css";
 
 /* Reveal-on-hover only where hover actually exists. On touch devices (no hover)
  * `can-hover:` rules never apply, so hover-gated affordances stay fully visible
@@ -88,10 +100,33 @@
 :root {
   --scrollbar-thumb: color-mix(in oklab, var(--foreground) 34%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 48%, transparent);
+  --app-window-controls-safe-area: 0px;
   /* Shared code font-size for the editor and git-diff buffers so they match
    * (DESIGN.md specs both at 11.5px). rem (not px) so it scales with the mobile
    * UI-zoom, which scales the root font-size. 0.71875rem = 11.5px at 16px root. */
   --code-font-size: 0.71875rem;
+}
+
+:root[data-window-controls="linux"] {
+  --app-window-controls-safe-area: 148px;
+}
+
+/* Every draggable page header runs under the app-owned window controls, so it
+ * reserves their width; other top-right rows opt in with the data attribute. */
+:root[data-window-controls="linux"] [data-window-control-safe],
+:root[data-window-controls="linux"] header.titlebar-drag {
+  padding-right: calc(var(--app-window-controls-safe-area) + 12px);
+}
+
+[data-app-window-controls],
+[data-app-window-control-button] {
+  -webkit-app-region: no-drag;
+}
+
+[data-app-window-controls] {
+  z-index: 10000;
+  width: var(--app-window-controls-safe-area);
+  pointer-events: auto;
 }
 
 /*
@@ -106,55 +141,23 @@ html {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-/*
- * `--app-vh` is the height the app shell fills. `100dvh` (the dynamic viewport)
- * is right in a mobile browser, where it tracks the show/hide of the URL bar.
- * But an iOS "Add to Home Screen" standalone app reports `dvh`/`%`/`fixed` as
- * the screen height MINUS the status-bar inset, anchored to the top — leaving a
- * dead strip at the bottom. There, only `lvh` spans the full screen, so
- * `main.tsx` adds `.is-standalone` and we switch the unit. One variable feeds
- * the whole chain (root elements + shell + drawer) so nothing clips.
- *
- * Mobile UI zoom (see `useZoom`) scales the root font-size rather than using CSS
- * `zoom`: it resizes rem-based text without touching these viewport units, so the
- * shell never under/overflows the screen the way a `zoom`-scaled box would.
- */
-html {
-  --app-vh: 100dvh;
-}
-html.is-standalone {
-  --app-vh: 100lvh;
-}
-
-/*
- * Lock the document to the viewport so the app never page-scrolls — scrolling
- * belongs to the inner surfaces (agent stream, terminal, diff, editor). On
- * mobile this is what keeps the feature header and prompt bar pinned while only
- * the active tab's content scrolls. `overscroll-behavior: none` also kills the
- * iOS rubber-band bounce that would otherwise reveal a blank strip.
- */
-html,
-body,
-#root {
-  height: var(--app-vh);
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
 /* Programmatic app-sidebar collapse/expand updates both panel flex weights.
  * Animate those weights as a pair, but not during pointer drags or while the
  * resize handle has keyboard focus, so manual resizing tracks every input.
- * The global `data-animations="off"` rule makes this instant when fluid
- * animations are disabled. */
+ * A pop pane sliding in or out of its split (`usePopPanel`) gets the same
+ * animation, set only for the slide; keep the duration in sync with
+ * `POP_MOTION_MS`. The global `data-animations="off"` rule makes both instant
+ * when fluid animations are disabled. */
 [data-app-shell-resize="fluid"]:not(:has(> [data-app-shell-handle]:focus-visible))
-  > [data-slot="resizable-panel"] {
+  > [data-slot="resizable-panel"],
+[data-pop-motion] > [data-slot="resizable-panel"] {
   transition: flex-grow 220ms var(--ease-fluid);
 }
 
-/* The collapsed titlebar chrome stays mounted so its actions and brand can
- * animate in both directions. Its hidden negative margin cancels the parent
- * header's 12px flex gap; `interpolate-size` lets Chromium transition between
- * zero and the lockup's intrinsic width. */
+/* The collapsed titlebar chrome stays mounted so it can animate in both
+ * directions. Its hidden negative margin cancels the parent header's 12px flex
+ * gap; `interpolate-size` lets Chromium transition between zero and the
+ * chrome's intrinsic width. */
 [data-sidebar-collapsed-chrome] {
   display: flex;
   width: 0;
@@ -215,8 +218,9 @@ body,
  * call consumes the AppKit event before the native window menu code can
  * run, which is what stops the crash.
  *
- * The carve-out below also marks common interactive children `no-drag`
- * so their click and right-click keep working inside drag regions.
+ * The carve-out further down marks interactive children and every floating
+ * layer (toasts, menus, popovers, dialogs) `no-drag` so their click and
+ * right-click keep working over drag regions.
  */
 @utility titlebar-drag {
   -webkit-app-region: drag;
@@ -260,9 +264,9 @@ body,
 
 /* One-shot confirmation when a referenced (or picker) reuse selection lands on
  * the MetaBar worktree chip. Outline isn't clipped by the chip's overflow. */
-@keyframes worktree-reuse-flash {
+@keyframes outline-flash {
   0% {
-    outline-color: color-mix(in oklab, var(--chip-worktree-fg) 70%, transparent);
+    outline-color: var(--flash-color);
   }
   100% {
     outline-color: transparent;
@@ -270,14 +274,58 @@ body,
 }
 
 @utility worktree-reuse-flash {
+  --flash-color: color-mix(in oklab, var(--chip-worktree-fg) 70%, transparent);
   outline: 2px solid transparent;
   outline-offset: 1px;
-  animation: worktree-reuse-flash 420ms ease-out 1;
+  animation: outline-flash 420ms ease-out 1;
 }
 
 html[data-animations="off"] .worktree-reuse-flash {
   animation-name: none;
   outline: none;
+}
+
+/* The prompt the message navigator just scrolled to: one soft primary halo so
+ * the eye lands on it. Same outline-fade keyframes as the worktree flash. */
+@utility user-message-arrival-flash {
+  --flash-color: color-mix(in oklab, var(--primary) 65%, transparent);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  animation: outline-flash 900ms ease-out 1;
+}
+
+html[data-animations="off"] .user-message-arrival-flash {
+  animation-name: none;
+  outline: none;
+}
+
+/* The settings group a search result or deep link landed on
+ * (`reveal-settings-anchor.ts`): one primary outline around its name and card
+ * that fades out, so the eye finds the setting, not just the scrolled page.
+ * With motion off the outline holds still until the attribute is removed. */
+[data-settings-flash] {
+  --flash-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  border-radius: calc(var(--radius) + 6px);
+  outline: 1.5px solid transparent;
+  outline-offset: 6px;
+  animation: outline-flash 1.6s cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+html[data-animations="off"] [data-settings-flash] {
+  animation-name: none;
+  outline-color: var(--flash-color);
+}
+
+/* A far message-navigator jump: Virtuoso reaches an unmeasured row through a
+ * few estimate corrections, so the list hides (instantly) while the jump
+ * settles and fades back in on landing. */
+[data-testid="agent-stream-scroller"] [data-testid="virtuoso-item-list"] {
+  transition: opacity 140ms var(--ease-fluid);
+}
+
+[data-testid="agent-stream-scroller"][data-nav-jumping] [data-testid="virtuoso-item-list"] {
+  opacity: 0;
+  transition-duration: 0ms;
 }
 
 /* Sidebar pull/merge-request chip whose checks are still running: a breathing
@@ -314,6 +362,15 @@ html[data-animations="off"] .worktree-reuse-flash {
   }
 }
 
+/* Beside the title (uniform rows, or fixed rows without a preview), a chip
+ * that doesn't fit wraps onto the
+ * fold's clipped second line, 24px down; a halo bleeding 9px out of it would
+ * glow under the title from a chip nobody can see. The fold breathes the halo
+ * inside the chip's own box instead, so the clip hides it with the chip. */
+[data-feature-title-fold] .pr-chip-checks-running::after {
+  box-shadow: inset 0 0 5px 0 color-mix(in oklab, var(--acc-orange) 60%, transparent);
+}
+
 /* Motion off: drop the halo entirely rather than letting the global
  * `animation-duration: 0.001ms` kill-switch freeze it on a random frame. The
  * chip's orange tone already says "checks running" without any motion. */
@@ -346,18 +403,29 @@ html[data-animations="off"] .pr-chip-checks-running::after {
   mask-position: center;
 }
 
+/*
+ * Electron builds the window's drag area from each element's OWN box, in
+ * document order: `drag` boxes are added, `no-drag` boxes are cut out. The
+ * property is not inherited and stacking is ignored, so a box only escapes a
+ * drag band by declaring `no-drag` itself. Floating layers (portals on
+ * <body>, toasts, in-place dialogs/menus) paint over the bands without being
+ * inside them, so they opt out here; otherwise their clicks drag the window.
+ */
 .titlebar-drag button,
 .titlebar-drag input,
 .titlebar-drag a,
 .titlebar-drag textarea,
 .titlebar-drag select,
 .titlebar-drag [role="button"],
-.titlebar-drag [role="dialog"],
-.titlebar-drag [role="alertdialog"],
-.titlebar-drag [role="menu"],
-.titlebar-drag [role="listbox"],
-.titlebar-drag [role="tooltip"],
-.titlebar-drag [data-slot="context-menu-trigger"] {
+.titlebar-drag [data-slot="context-menu-trigger"],
+body > :not(#root),
+body > :not(#root) > *,
+[data-sonner-toast],
+[role="dialog"],
+[role="alertdialog"],
+[role="menu"],
+[role="listbox"],
+[role="tooltip"] {
   -webkit-app-region: no-drag;
 }
 
@@ -371,6 +439,30 @@ html[data-animations="off"] .pr-chip-checks-running::after {
 @media (hover: none), (max-width: 767px) {
   [class*="hover"][class*=":opacity-100"] {
     opacity: 1 !important;
+  }
+}
+
+/* The complement of the rule above. Where hover reveals the stream's hover
+ * actions (Copy, Retry… under a prompt or a reply), they float over the gap
+ * below their row instead of holding an invisible line in the layout — that
+ * line used to sit under every reply and every prompt, so the gap after each
+ * read far wider than the gap before it. Where the rule above forces them
+ * visible they stay in flow: they are real content there, and so do rows
+ * nested in a clipping card (`data-stream-nested`) and every row of Compact
+ * flow (`data-stream-actions-in-flow`), whose one-line steps sit too close
+ * under a message for the line to float. The row must be `position: relative`;
+ * its gap below must fit the 20px line. Above the next stream row, under the
+ * stream's own overlays (loading spinner: z-20). */
+@media (hover: hover) and (min-width: 768px) {
+  .stream-hover-actions:not([data-stream-nested] *):not([data-stream-actions-in-flow] *) {
+    position: absolute;
+    top: 100%;
+    z-index: 10;
+    margin: 0;
+    pointer-events: none;
+  }
+  :hover > .stream-hover-actions:not([data-stream-nested] *):not([data-stream-actions-in-flow] *) {
+    pointer-events: auto;
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import { latestValidJsonSnapshot, mergeToolContent } from "./ws-tool-content";
 

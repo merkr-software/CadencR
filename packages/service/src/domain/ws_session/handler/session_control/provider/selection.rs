@@ -1,9 +1,10 @@
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{access_mode_wire, RuntimeSpawnConfig};
-use crate::domain::agents::permission_modes::permission_mode_wire;
+use crate::domain::agents::permission_modes::{effective_permission_mode, permission_mode_wire};
 use crate::domain::agents::providers::{
-    resolve_requested_model_or_provider_default, runtime_adapter,
+    resolve_requested_model_entry_or_provider_default, runtime_adapter,
 };
+use crate::domain::settings::target_thinking_effort;
 use crate::domain::ws_session::protocol::{ProviderSetOkPayload, ProviderSetPayload};
 
 use super::switch::{ProviderSetError, SwitchSnapshot};
@@ -44,6 +45,7 @@ pub(super) async fn resolve(
         ProviderSetError::new("UNSUPPORTED_PROVIDER", "Runtime provider is unavailable")
     })?;
     let provider_changed = snapshot.provider != payload.provider;
+    let previous_model = snapshot.model.clone();
     let mut runtime = snapshot.into_runtime();
     if provider_changed {
         let profile = adapter
@@ -64,7 +66,9 @@ pub(super) async fn resolve(
         runtime.overrides = Default::default();
         runtime.thinking_effort = None;
         runtime.fast_mode = false;
-        runtime.permission_mode = None;
+        // Spawn in the mode the chip is about to show (`permission_mode_wire`
+        // below), exactly as `session.init` resolves it.
+        runtime.permission_mode = effective_permission_mode(&payload.provider, None);
         runtime.access_mode = adapter.configured_access_mode(&state.read_pool).await;
         runtime.allow_bypass_permissions = false;
     }
@@ -73,7 +77,7 @@ pub(super) async fn resolve(
             .then_some(runtime.model.as_deref())
             .flatten()
     });
-    runtime.model = resolve_requested_model_or_provider_default(
+    let entry = resolve_requested_model_entry_or_provider_default(
         &state.read_pool,
         Some(&runtime.cwd),
         &payload.provider,
@@ -81,6 +85,17 @@ pub(super) async fn resolve(
         runtime.profile.as_deref(),
     )
     .await;
+    runtime.model = entry.as_ref().map(|entry| entry.id.clone());
+    if provider_changed || runtime.model != previous_model {
+        // A new provider/model resumes its last-used level, else its default,
+        // exactly like a spawn without an explicit level.
+        let effort = match entry.as_ref() {
+            Some(entry) => target_thinking_effort(&state.read_pool, &payload.provider, entry).await,
+            None => None,
+        };
+        runtime.thinking_effort = effort.clone();
+        runtime.overrides.thinking_effort = effort;
+    }
     if adapter.supports_profile_config_inheritance() {
         record_explicit_model(&mut runtime, payload.model.as_deref());
         // An unavailable CLI must not make a provider impossible to select.

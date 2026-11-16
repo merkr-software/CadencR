@@ -1,15 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
-import type { AllocatedPort, Feature, PrStatusSnapshot } from "@/api/generated";
-import { FeatureRowMetaLine, FeatureRowTitleLine } from "./ProjectFeatureRowParts";
+import type {
+  AllocatedPort,
+  Feature,
+  FeatureWorktreeInfo,
+  GitStats,
+  PrStatusSnapshot,
+  TodoProgress,
+} from "@/api/generated";
+import { DEFAULT_SIDEBAR_CONFIG, type SidebarConfig } from "@/lib/sidebar-config";
+import type { RowSummary } from "@/lib/sidebar-row-summary";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
+import { FeatureRowMetaLine } from "./ProjectFeatureRowParts";
 
 vi.mock("@/components/ShortcutTooltip", () => ({
   ShortcutTooltip: ({ children }: { children: unknown }) => children,
 }));
 
-vi.mock("@/components/SidebarPendingGatePopover", () => ({
-  SidebarPendingGatePopover: () => <div data-testid="pending-gate">default-gate</div>,
-}));
+function configure(overrides: Partial<SidebarConfig>): void {
+  useSidebarConfigStore.setState({ config: { ...DEFAULT_SIDEBAR_CONFIG, ...overrides } });
+}
+
+beforeEach(() => configure({}));
 
 function feature(overrides: Partial<Feature> = {}): Feature {
   return {
@@ -48,30 +60,39 @@ function port(overrides: Partial<AllocatedPort> = {}): AllocatedPort {
   };
 }
 
-function renderLine(
+function lineElement(
   prStatus: PrStatusSnapshot | undefined,
   ports: readonly AllocatedPort[] = [],
   downloadCount = 0,
+  extra: {
+    feature?: Feature;
+    worktree?: FeatureWorktreeInfo;
+    gitStats?: GitStats;
+    summary?: RowSummary;
+  } = {},
 ) {
-  return render(
+  return (
     <FeatureRowMetaLine
-      feature={feature()}
+      feature={extra.feature ?? feature()}
+      worktree={extra.worktree}
       prStatus={prStatus}
-      gitStats={undefined}
+      gitStats={extra.gitStats}
       shellCount={0}
       browserCount={0}
       downloadCount={downloadCount}
       ports={ports}
-      isEditingLabel={false}
-      labelDraft=""
-      labelSuggestions={[]}
-      isSavingLabel={false}
-      onLabelDraftChange={vi.fn()}
-      onSaveLabel={vi.fn()}
-      onCancelLabelEdit={vi.fn()}
       onOpenPort={vi.fn()}
-    />,
+      summary={extra.summary}
+    />
   );
+}
+
+function renderLine(...args: Parameters<typeof lineElement>) {
+  return render(lineElement(...args));
+}
+
+function withTodos(todos: TodoProgress | null, error: string | null = null) {
+  return lineElement(undefined, [], 0, { summary: { preview: null, todos, error } });
 }
 
 describe("FeatureRowMetaLine", () => {
@@ -116,52 +137,72 @@ describe("FeatureRowMetaLine", () => {
   });
 });
 
-describe("FeatureRowTitleLine", () => {
-  const row = (status: "idle" | "agent" | "question", unread = false) =>
-    render(
-      <FeatureRowTitleLine
-        feature={feature({ runtime_provider: "codex_cli" })}
-        liveTitle={undefined}
-        isAutoNaming={false}
-        isArchived={false}
-        hasWorktree={false}
-        liveStatus={status}
-        isActive={false}
-        isUnread={unread}
-        onOpenConversation={vi.fn()}
-      />,
-    );
+describe("FeatureRowMetaLine todo progress", () => {
+  it("counts todos only when asked to, and only while some are left", () => {
+    const { rerender } = render(withTodos({ done: 3, total: 7 }));
+    expect(document.querySelector("[data-feature-todos]")).toBeNull();
 
-  it("puts the quiet logo at the very end of the title line", () => {
-    row("idle");
-    const line = document.querySelector("[data-feature-title-line]");
-    expect(line).toHaveClass("min-h-6");
-    expect(line?.firstElementChild).toHaveAttribute("data-sidebar-status", "idle");
-    expect(line?.lastElementChild).toHaveAttribute("data-sidebar-identity-slot");
-    expect(line?.lastElementChild?.querySelector("[data-provider-mark]")).toHaveAttribute(
-      "data-provider-mark",
-      "mono",
-    );
-    expect(screen.getByText("A feature")).toHaveClass("truncate", "flex-1");
+    configure({ todos: true });
+    rerender(withTodos({ done: 3, total: 7 }));
+    expect(screen.getByLabelText("3 of 7 todos done")).toHaveTextContent("3/7");
+
+    rerender(withTodos({ done: 7, total: 7 }));
+    expect(document.querySelector("[data-feature-meta-line]")).toBeNull();
   });
 
-  it("shows working separately without tinting the logo", () => {
-    row("agent", true);
-    expect(screen.getByLabelText("Agent working")).toHaveClass("sidebar-status-working");
-    expect(screen.getByRole("img", { name: /Codex/ })).toHaveClass("text-muted-foreground");
-    expect(screen.queryByLabelText("Unread agent messages")).not.toBeInTheDocument();
+  it("says when the todo progress couldn't load", () => {
+    configure({ todos: true });
+    render(withTodos(null, "Service unreachable"));
+
+    expect(
+      screen.getByLabelText("Todo progress unavailable: Service unreachable"),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("FeatureRowMetaLine display options", () => {
+  const worktree = {
+    feature_id: 5,
+    worktree_path: "/repo/.worktrees/fix-login",
+    worktree_branch: "fix/login",
+    directory_exists: true,
+    is_default_branch: false,
+    is_main_worktree: false,
+    live: true,
+  } satisfies FeatureWorktreeInfo;
+  const stats: GitStats = { insertions: 4, deletions: 2, files_changed: 1 };
+
+  it("shows the branch only when asked to", () => {
+    renderLine(undefined, [], 0, { worktree });
+    expect(document.querySelector("[data-feature-meta-line]")).toBeNull();
+
+    configure({ branch: true });
+    renderLine(undefined, [], 0, { worktree });
+    expect(document.querySelector("[data-feature-branch]")).toHaveTextContent("fix/login");
   });
 
-  it("keeps unread distinct from working", () => {
-    row("idle", true);
-    expect(screen.getByLabelText("Unread agent messages")).toHaveClass("sidebar-status-unread");
-    expect(screen.queryByLabelText("Agent working")).not.toBeInTheDocument();
+  it("drops each hidden element, and the line once nothing is left", () => {
+    configure({ diff: false, ports: false, activity: false, pr: false });
+    renderLine(snapshot({ error: "Bad credentials" }), [port()], 2, { gitStats: stats });
+    expect(document.querySelector("[data-feature-meta-line]")).toBeNull();
   });
 
-  it("keeps the pending gate independent of the provider", () => {
-    row("question");
-    expect(screen.getByTestId("pending-gate")).toHaveTextContent("default-gate");
-    expect(screen.getByTestId("pending-gate").querySelector("[data-provider-mark]")).toBeNull();
-    expect(screen.getByRole("img", { name: /Codex/ })).toBeInTheDocument();
+  it("renders the label as a dot or not at all", () => {
+    configure({ label: "dot" });
+    const { unmount } = renderLine(undefined, [], 0, { feature: feature({ label: "bug" }) });
+    expect(screen.getByRole("img", { name: "Label: bug" })).toHaveAttribute("title", "bug");
+    unmount();
+
+    configure({ label: "hidden" });
+    renderLine(undefined, [], 0, { feature: feature({ label: "bug" }) });
+    expect(document.querySelector("[data-feature-meta-line]")).toBeNull();
+  });
+
+  it("names the model on this line when the provider shows logo + model", () => {
+    configure({ provider: "logo_model" });
+    renderLine(undefined, [], 0, {
+      feature: feature({ runtime_provider: "codex_cli", model_session: "gpt-5.4" }),
+    });
+    expect(document.querySelector("[data-feature-model]")).toHaveTextContent("gpt-5.4");
   });
 });

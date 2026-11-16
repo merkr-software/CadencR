@@ -118,7 +118,7 @@ impl GateRegistry {
             return Ok(());
         };
         let tool_name = payload.tool_name.as_str();
-        self.register(
+        self.register_loaded(
             session_id,
             PendingGate {
                 request_id: payload.request_id.clone(),
@@ -129,6 +129,26 @@ impl GateRegistry {
         )
         .await;
         Ok(())
+    }
+
+    // A resolved in-memory tombstone must win over stale persistent state.
+    // Provider acceptance can precede a failed database cleanup; hydration
+    // must never make that same request claimable again in this process.
+    async fn register_loaded(&self, session_id: i64, gate: PendingGate) {
+        let mut gates = self.gates.lock().await;
+        let entries = gates.entry(session_id).or_default();
+        if entries
+            .iter()
+            .any(|entry| entry.request_id == gate.request_id)
+        {
+            return;
+        }
+        entries.push(GateEntry {
+            request_id: gate.request_id.clone(),
+            gate: Some(gate),
+            state: GateState::Pending,
+        });
+        trim_entries(entries);
     }
 
     pub async fn pending_all(&self, session_id: i64) -> Vec<PendingGate> {
@@ -173,7 +193,12 @@ impl GateRegistry {
             .and_then(|entry| entry.gate.clone())
     }
 
-    pub async fn claim(&self, session_id: i64, request_id: &str) -> Result<(), GateClaimError> {
+    /// Claim an open gate for answering. Returns its kind, when known.
+    pub async fn claim(
+        &self,
+        session_id: i64,
+        request_id: &str,
+    ) -> Result<Option<GateKind>, GateClaimError> {
         let mut gates = self.gates.lock().await;
         let entries = gates.get_mut(&session_id).ok_or(GateClaimError::Missing)?;
         let entry = entries
@@ -184,7 +209,7 @@ impl GateRegistry {
             return Err(GateClaimError::AlreadyClaimed);
         }
         entry.state = GateState::Claimed;
-        Ok(())
+        Ok(entry.gate.as_ref().map(|gate| gate.kind))
     }
 
     pub async fn release(&self, session_id: i64, request_id: &str) {
@@ -299,5 +324,19 @@ mod tests {
             registry.claim(7, "r1").await,
             Err(GateClaimError::AlreadyClaimed)
         );
+    }
+    #[tokio::test]
+    async fn stale_hydration_cannot_reopen_resolved_but_live_registration_can() {
+        let registry = GateRegistry::new();
+        registry.register(7, gate("same-id")).await;
+        registry.claim(7, "same-id").await.unwrap();
+        registry.complete(7, "same-id").await;
+        registry.register_loaded(7, gate("same-id")).await;
+        assert_eq!(
+            registry.claim(7, "same-id").await,
+            Err(GateClaimError::AlreadyClaimed)
+        );
+        registry.register(7, gate("same-id")).await;
+        assert!(registry.claim(7, "same-id").await.is_ok());
     }
 }

@@ -1,7 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": ["src/pages/**/*.{astro,mdx,ts,tsx}"],
-  "project": ["src/**/*"],
-  "ignoreBinaries": ["astro", "oxlint", "oxfmt", "vitest", "tsc", "knip"],
-  "ignoreDependencies": ["oxlint", "oxfmt", "vitest"]
+  "project": ["src/**/*"]
 }

@@ -1,0 +1,3 @@
+# Built by `npm run build:backend` (scripts/build-backend.mjs).
+/bin/
+/backend/target/

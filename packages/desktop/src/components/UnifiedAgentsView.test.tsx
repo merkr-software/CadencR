@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Ref } from "react";
-import { fireEvent, render, screen } from "@/test-utils";
+import { fireEvent, render, screen, waitFor } from "@/test-utils";
 import { UnifiedAgentsView } from "@/components/UnifiedAgentsView";
 import { UNIFIED_AGENTS_PER_ROW_SETTING_KEY } from "@/components/UnifiedAgentsPerRowSetting";
 
@@ -55,11 +55,10 @@ vi.mock("@/api/generated", async (importOriginal) => {
       isError: false,
       isLoading: false,
     }),
-    useSetWorkspaceSetting: () => ({
-      isPending: false,
-      mutate: setWorkspaceSettingMutate,
-      mutateAsync: setWorkspaceSettingMutate,
-    }),
+    setWorkspaceSetting: (key: string, data: { value: string }) => {
+      setWorkspaceSettingMutate({ key, data });
+      return Promise.resolve({ value: data.value });
+    },
     getGetWorkspaceSettingQueryKey: (key: string) => [`/api/workspace/settings/${key}`],
   };
 });
@@ -136,8 +135,8 @@ describe("UnifiedAgentsView filter prompt", () => {
     const { user } = render(<UnifiedAgentsView />);
 
     const filter = screen.getByTestId("filter-value");
-    const stepper = screen.getByLabelText("Agents per row");
-    const refresh = screen.getByRole("button", { name: "Refresh" });
+    const stepper = screen.getByLabelText("Maximum agents per row");
+    const refresh = screen.getByRole("button", { name: "Reload agents" });
 
     expect(filter.compareDocumentPosition(stepper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
@@ -147,9 +146,11 @@ describe("UnifiedAgentsView filter prompt", () => {
 
     await user.click(screen.getByRole("button", { name: "Increase agents per row" }));
 
-    expect(setWorkspaceSettingMutate).toHaveBeenCalledWith({
-      key: UNIFIED_AGENTS_PER_ROW_SETTING_KEY,
-      data: { value: "5" },
-    });
+    await waitFor(() =>
+      expect(setWorkspaceSettingMutate).toHaveBeenCalledWith({
+        key: UNIFIED_AGENTS_PER_ROW_SETTING_KEY,
+        data: { value: "5" },
+      }),
+    );
   });
 });

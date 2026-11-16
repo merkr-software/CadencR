@@ -1,79 +1,57 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Unified agent list"
-description: "Find, filter, pin, and scan agent sessions without losing track of them."
+description: "Supervise several conversations in a searchable, adjustable live grid."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import DocCallout from "@/components/docs/DocCallout.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
-import unifiedAgentsImage from "@/assets/unified-agents.png";
+import pageImage from "@/assets/docs/v0.13.0/unified-agent-list.png";
 
-## What this page is for
-
-The unified agent list is the **see-everything-at-once** view for your agent sessions.
-
-If you only have one session open, life is simple. If you have eight, fifteen, or one suspiciously large pile of them, this view helps you stay oriented without opening each session one by one.
-
-Use it when you want to:
-
-- find a session quickly
-- compare several sessions at a glance
-- keep important work easy to reach
-- scan a busy workspace before deciding what to open next
+Open **Agents** in the sidebar to see conversations in a live grid. Use it to read several agents without opening and closing each conversation in turn.
 
 <DocScreenshot
-  src={unifiedAgentsImage}
-  alt="CadencR agent cockpit showing a live grid of agent sessions with filter bar, status indicators, and resizable panels"
-  caption="Multiple agent sessions visible at once — stream, edit, and review without switching tabs."
+  src={pageImage}
+  alt="The Agents cockpit with conversations from two example projects."
+  caption="The Agents cockpit with conversations from two example projects."
   bordered={false}
+  rounded
+  elevated
 />
 
-## How to find the right agent fast
+## Find the right conversations
 
-Start with the filter text box. Type any word you remember from the session name, task, or feature. You do **not** need to remember the exact title. This is a docs page, not an escape room.
+Search by words from the conversation title or task, then use filters to narrow the grid. Adjust the per-row control for larger reading panes or more conversations on screen. The filter input can collapse when you want more room for the conversations themselves.
 
-Then use the available filters to narrow things down further when the list gets crowded.
+| Filter or action         | Use it for                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| Free text                | Find a title or task you remember                                                |
+| Project/provider filters | Narrow a large workspace                                                         |
+| `/pin:true`              | Keep pinned conversations in view                                                |
+| `/exclude`               | Remove selected conversations from the current view; stale exclusions are pruned |
+| Pin                      | Keep a conversation easy to reach from the sidebar as well                       |
 
-| If you want to...                   | Try this                                              |
-| ----------------------------------- | ----------------------------------------------------- |
-| Browse visually                     | Stay on the default grid                              |
-| Pack more sessions on screen        | Use the **per-row stepper** to raise the grid density |
-| Keep today's important work nearby  | **Pin** those sessions (<kbd>⌘<ShiftIcon />P</kbd>)   |
-| Move faster with less mouse mileage | Use **keyboard navigation** (<kbd>⌘⌥</kbd> + arrows)  |
+The filter suggestions in the app are the reference for supported values. Use [Sidebar saved views](../sidebar/) when you want to return to a saved sidebar filter and presentation.
 
-A few practical tips:
+## Read status before opening everything
 
-- Start broad, then add another word if needed.
-- Raise the per-row count when you want dense, fast scanning; lower it when you want larger preview tiles.
-- If you find a session you will revisit, pin it right away.
-- Use <kbd>⌘<ShiftIcon />F</kbd> to jump straight into the search box without reaching for the mouse.
+Provider branding is distinct from activity. A blue activity ring identifies a working agent; a green check marks a finished response with unread messages. Permission and question indicators give direct access to pending requests.
 
-## How pinning and scanning help
+Linked conversations remain traceable through their parent/child relationships. A completed child and a completed parent are separate events; inspect the specific conversation that owns the result.
 
-Pinning is for the sessions you care about **right now**: active features, review work, or anything you keep bouncing back to. Pinned conversations also appear in a global **Pinned** section above the project list in the sidebar, so important work stays reachable even when it belongs to a different project.
+## Work from the grid
 
-Scanning is different from reading every session in full. In this view, your job is to recognize the right item quickly, not study everything like it will be on a quiz. Skim the list, spot the session you need, then open it when you are ready to work.
+Each pane can show its conversation's stream and composer. You can read, answer a request, send a follow-up, or open the full workspace for files and Git. Keep the number of visible panes low enough that their content remains readable.
 
-<DocCallout title="Small but useful tip" variant="tip">
-  If your pinned section starts looking like a second full list, it is time for a quick cleanup.
-  “Pinned” should mean **important now**.
-</DocCallout>
+Pin only the conversations you expect to revisit. Pins are workspace-wide, so a pinned task remains available even when it belongs to another project.
 
-## Good habits when you have many sessions
+## Keyboard navigation
 
-You do not need a complicated system. A few boring habits work surprisingly well:
+Use the **Unified agent list** section of [Shortcuts](../shortcuts/) for grid navigation, pinning, filtering, and focus controls. The same key can perform a different action when a composer, editor, or Git pane has focus.
 
-- Keep session names clear and human-readable when possible.
-- Use **pins sparingly** so the sidebar Pinned section and unified list both stay useful.
-- Bump the per-row count up for quick morning or end-of-day check-ins, then drop it back down when you settle into a session.
-- Unpin sessions when they stop being active.
-- Scan the unified list first when you feel lost instead of opening random tabs one by one.
+## Related guides
 
-If you are managing lots of sessions, the goal is not perfect organization. The goal is being able to answer one simple question fast: **which session needs me next?**
-
-## Related docs
-
-- [Session view](../session-view/) — what to do after you open the session you were looking for
-- [Feature workspace](../feature-workspace/) — how sessions fit into the rest of your workspace
-- [Shortcuts](../shortcuts/) — faster navigation when your mouse deserves a break
+- [Sidebar](../sidebar/) — attention views and saved filters.
+- [Session view](../session-view/) — read one conversation in detail.
+- [Feature workspace](../feature-workspace/) — inspect the task's files and Git.

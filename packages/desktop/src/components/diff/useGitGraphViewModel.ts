@@ -28,7 +28,7 @@ function toGraphRows(commits: CommitGraphEntry[]): GitGraphRowData[] {
     date: commit.date,
     isPushed: commit.is_pushed,
     parents: commit.parents,
-    refs: commit.refs,
+    decorations: commit.decorations,
     filesChanged: commit.files_changed,
     additions: commit.additions,
     deletions: commit.deletions,

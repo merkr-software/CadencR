@@ -1,0 +1,88 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [],
+      "description": "Go code intelligence using source-built gopls 0.23.0; requires Go on PATH.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-gopls-v0.1.0/lsp-gopls-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "gopls",
+            "entry_sha256": "1d9f3276a768989576293e1f5a64665881f84e1722b49e7813837c21e7a24e91",
+            "entry_size": 29002210,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "45f9d9ee4973c0e91a9b837a66ec93d9f6e8206f1e8830ca9ea5417b204d31d8",
+            "size": 10649107
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-gopls-v0.1.0/lsp-gopls-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "gopls",
+            "entry_sha256": "0d59ebdf93fd139b65510042ab1f08012290e88d23677addf233a220b4ee5f72",
+            "entry_size": 31141088,
+            "macos_min_version": "12.0.0",
+            "runtime": "native",
+            "sha256": "4e561528942986f91835915fa386e3fe79c3a079a8adb13aef460700db5150d3",
+            "size": 11579614
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-gopls-v0.1.0/lsp-gopls-0.1.0-linux-x86_64.tar.gz",
+            "entry": "gopls",
+            "entry_sha256": "04794048937ada4f032e52a5ebb49e7d8acac9421c9150e4a7049ca0cf620cb6",
+            "entry_size": 30167202,
+            "runtime": "native",
+            "sha256": "fa091aa611c97b4bdd1e940a94bada9be5c02c5a40a419465a1dd6c366e7a746",
+            "size": 11321623
+          }
+        }
+      },
+      "id": "gopls",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "go"
+          ],
+          "filenames": [],
+          "id": "go"
+        },
+        {
+          "extensions": [
+            "mod"
+          ],
+          "filenames": [
+            "go.mod"
+          ],
+          "id": "gomod"
+        },
+        {
+          "extensions": [
+            "work"
+          ],
+          "filenames": [
+            "go.work"
+          ],
+          "id": "gowork"
+        }
+      ],
+      "license": "BSD-3-Clause",
+      "name": "Gopls",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "go.work",
+        "go.mod",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

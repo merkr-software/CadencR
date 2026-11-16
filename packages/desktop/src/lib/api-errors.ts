@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 interface ApiErrorBody {
   error?: unknown;
+  code?: unknown;
 }
 
 export function apiErrorMessage(err: unknown, fallback: string): string {
@@ -29,6 +30,14 @@ function backendErrorMessage(err: unknown): string | null {
   return typeof error === "string" && error.trim().length > 0 ? error : null;
 }
 
-function isApiErrorBody(value: unknown): value is ApiErrorBody {
+/** The stable `code` of a service error body (`{error, code}`), if there is one. */
+export function apiErrorCode(err: unknown): string | null {
+  if (!isAxiosError(err)) return null;
+  const data: unknown = err.response?.data;
+  if (!isApiErrorBody(data)) return null;
+  return typeof data.code === "string" ? data.code : null;
+}
+
+export function isApiErrorBody(value: unknown): value is ApiErrorBody {
   return typeof value === "object" && value !== null;
 }

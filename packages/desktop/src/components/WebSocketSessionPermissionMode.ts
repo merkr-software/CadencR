@@ -31,3 +31,15 @@ export function usePermissionModeToggle(
     if (next !== session.permissionMode) store.setPermissionMode(sessionId, next);
   }, [activeProviderId, enabledOptInModes, providerModes, sessionId]);
 }
+
+/** Returns a handler that sets the session's permission mode directly. */
+export function usePermissionModeSet(sessionId: string): (mode: PermissionMode) => void {
+  return useCallback(
+    (mode: PermissionMode): void => {
+      const store = useWsSessionStore.getState();
+      const session = store.sessions[sessionId];
+      if (session && session.permissionMode !== mode) store.setPermissionMode(sessionId, mode);
+    },
+    [sessionId],
+  );
+}

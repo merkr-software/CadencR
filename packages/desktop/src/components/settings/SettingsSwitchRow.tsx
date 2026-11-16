@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from "react";
+import { LoaderCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { SettingsRow } from "./SettingsRow";
 import { IconTile, type IconTileTint } from "./IconTile";
@@ -15,9 +16,11 @@ export function SettingsSwitchRow({
   checked,
   onCheckedChange,
   disabled,
+  saving = false,
   icon,
   iconTint = "muted",
   divided,
+  className,
 }: {
   id?: string;
   label: ReactNode;
@@ -25,9 +28,12 @@ export function SettingsSwitchRow({
   checked: boolean;
   onCheckedChange: (next: boolean) => void;
   disabled?: boolean;
+  /** A write is on its way: the switch keeps the confirmed state, locked, beside a spinner. */
+  saving?: boolean;
   icon?: ReactNode;
   iconTint?: IconTileTint;
   divided?: boolean;
+  className?: string;
 }): React.JSX.Element {
   const fallbackId = useId();
   const switchId = id ?? fallbackId;
@@ -40,13 +46,18 @@ export function SettingsSwitchRow({
       description={description}
       divided={divided}
       align="start"
+      className={className}
       control={
-        <Switch
-          id={switchId}
-          checked={checked}
-          onCheckedChange={onCheckedChange}
-          disabled={disabled}
-        />
+        <span className="inline-flex items-center gap-2">
+          {saving && <LoaderCircle aria-label="Saving" className="size-3.5 animate-spin" />}
+          <Switch
+            id={switchId}
+            checked={checked}
+            onCheckedChange={onCheckedChange}
+            disabled={disabled || saving}
+            aria-busy={saving}
+          />
+        </span>
       }
     />
   );

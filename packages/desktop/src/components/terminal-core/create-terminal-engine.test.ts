@@ -1,6 +1,6 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TerminalOptions } from "celeritty";
-import { createTerminalEngine } from "./create-terminal-engine";
 const mocks = vi.hoisted(() => ({
   primary: { ready: Promise.resolve(), dispose: vi.fn() },
   fallback: { ready: Promise.resolve(), dispose: vi.fn() },
@@ -27,7 +27,11 @@ vi.mock("./xterm-compatibility", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { warning: mocks.warning } }));
 const options = {} as TerminalOptions;
-beforeEach(() => {
+let createTerminalEngine: typeof import("./create-terminal-engine").createTerminalEngine;
+beforeEach(async () => {
+  // Fresh module per test: the fallback notice is once per session.
+  vi.resetModules();
+  ({ createTerminalEngine } = await import("./create-terminal-engine"));
   mocks.primaryCount = 0;
   mocks.fallbackCount = 0;
   mocks.primary.ready = Promise.resolve();
@@ -58,6 +62,15 @@ describe("terminal engine selection", () => {
     );
     lifetime.dispose();
     expect(mocks.fallback.dispose).toHaveBeenCalledTimes(1);
+  });
+  it("reports the fallback once per session, not for every new pane", async () => {
+    mocks.primary.ready = Promise.reject(new Error("No WebGPU adapter"));
+    for (let pane = 0; pane < 3; pane++) {
+      const host = document.createElement("div");
+      expect(await createTerminalEngine(host, options).ready).toBe(mocks.fallback);
+      expect(host.dataset.terminalRenderer).toBe("xterm");
+    }
+    expect(mocks.warning).toHaveBeenCalledTimes(1);
   });
   it("does not create a fallback or report an error after unmount", async () => {
     let reject!: (reason: Error) => void;

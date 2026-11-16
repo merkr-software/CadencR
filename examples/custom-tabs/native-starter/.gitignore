@@ -1,0 +1,10 @@
+node_modules/
+dist/
+# Built by `npm run build:backend` (scripts/build-backend.mjs).
+/bin/
+/backend/target/
+# Written by the release workflow.
+/out/
+# Keep the lockfile: the release workflow installs with `npm ci`. (Inside the
+# Cadencr checkout, this also overrides examples/custom-tabs/.gitignore.)
+!package-lock.json

@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "legacy_source_commit": "60f3ae9e8bfe249ddec37a183f64e4f86b7ae716",
+  "capture": "One-time Node v22.19.0 invocation of the unchanged legacy modules; not a Rust-generated expectation. No private keys used.",
+  "legacy_source_sha256": {
+    "tooling/marketplace-registry/scripts/publication/binding.mjs": "e16f51d739832b1e7ba4019cbd85de2f2dbd85baea0b2fabcf622f38e3f4a616",
+    "tooling/marketplace-registry/scripts/publication/mirror.mjs": "48af98f8f768bb4fb39398583efd9f4d1fa8d053467923b5c3c6790990774992",
+    "tooling/marketplace-registry/scripts/publication/recover-publication.mjs": "9e3f7054f66882d6d60fe33912a59333a054f7a6cf71ec59398c65e4db8220eb",
+    "tooling/marketplace-registry/scripts/publication/stage.mjs": "088722c915833a5a107586e3a37fc7658d75fb0e5030900567e4647bb0c32fbb",
+    "tooling/marketplace-registry/scripts/publication/catalog.mjs": "9bd023714031de0e990913393216c8e4bfcbf5e3462be5aa2fef1c29c3b11d5b",
+    "tooling/marketplace-registry/scripts/lib.mjs": "77ade63a7e1fd43820385cca7143b670bb7a824bc650be31732560c67dd09f19"
+  },
+  "output_sha256": {
+    "binding-input.json": "2f1cb61a83e7e9bf06f592a668872b9a7e7b349492d80cbdd6f689707898b0af",
+    "binding.json": "fe0cb7617f64861e1a6e60494d8e1eed28fc29d3bdc9d3b41de2f7a6edcfb2eb",
+    "catalog-input.json": "42df13d7b3f0c0aee112ae40cedab44c7683c08f62cddbaea37a731619091f6c",
+    "catalog-payload.json": "d781410a2dc2a2641f9bf62846218c3d03a81f7b1d22291a945369af47a384a5",
+    "recovery-input.json": "347685a24d75ca13e6b23966d6eb57dfac5900c527a3867a08ff08137756e143",
+    "recovery-receipt.json": "92016bb71edc2a473815163dd1f7913c6ab5b41371ea75dadb93347c3dfe4445",
+    "stage-receipt.json": "4df54f2c7e51a440b3190e6a0fd539cd00e5caa3ee226c6996e7e95d7a31b23c",
+    "stage-submission.json": "7b27e517c5f31fd01e7c36ac153ba44847618f62242c217d7befe82e8fd54df2"
+  },
+  "cases": {
+    "binding.json": {
+      "module": "publication/binding.mjs",
+      "input": "StageReceipt literal in binding_matches_javascript_oracle_including_newline_hashes; repository cadencr/registry; registry commit 40 lowercase b characters; temp directory affects only omitted source paths",
+      "projection": [
+        "tag",
+        "planSha256",
+        "body",
+        "expected.name",
+        "expected.sha256",
+        "expected.size",
+        "expected.expectedUrl"
+      ],
+      "input_fixture": "binding-input.json"
+    },
+    "stage-receipt.json": {
+      "module": "publication/stage.mjs",
+      "input": "fixture(&[b\"one\", b\"two\"]) in stages_replays_and_matches_javascript_receipt_bytes; repository cadencr/registry",
+      "capture": "Exact staging-receipt.json bytes, including final newline; downloader returned the literal UTF-8 bodies one and two",
+      "input_fixture": "stage-submission.json"
+    },
+    "recovery-receipt.json": {
+      "module": "publication/recover-publication.mjs",
+      "input_fixture": "recovery-input.json",
+      "capture": "Exact mirror-receipt.json bytes written by legacy recoverPublishedMirror(requirePublished:true). Input remote populated by legacy stagePublication and mirrorPublication, with deterministic FakeClient equivalents: release id 7; asset ids in upload order starting 1; uploaded state; registry b repeated 40; release draft switched to false before recovery. Archive bytes are literal UTF-8 archive. No Rust output used.",
+      "verification": "Current submission and entire projected remote (release, asset metadata and full body hex) must equal recovery-input.json before exposing captured receipt. Legacy oracle filesystem side effect is retained for exact-byte and raw-replay tests."
+    },
+    "catalog-payload.json": {
+      "module": "publication/catalog.mjs",
+      "input_fixture": "catalog-input.json",
+      "generated_at": "2026-01-01T00:01:00Z",
+      "expires_at": "2026-01-02T00:00:00Z",
+      "now": "2026-01-01T00:02:00Z",
+      "capture": "Legacy stagePublication and buildPublicationBinding/buildPublicationReceipt constructed fixture(2) metadata and remote bytes, then preparePublishedCatalog executed at explicit now; canonicalJson returned exact payload bytes without final newline. All manifest, submission, staging/mirror/publication receipt projections and complete remote byte-map are stored in input fixture and asserted against current Rust fixture. Rust fresh prepared payload normalizes only generated_at/expires_at to these explicit frozen dates. Fresh signing separately compares Node built-in Ed25519 signature over exact Rust canonical bytes and asserts complete envelope schema/canonical bytes/newline."
+    }
+  }
+}

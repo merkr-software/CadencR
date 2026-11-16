@@ -1,28 +1,30 @@
-import { memo, useRef, useEffect } from "react";
-import { TerminalIcon, Loader2Icon } from "lucide-react";
+import { memo, useRef, useEffect, type ReactNode } from "react";
+import { CircleAlertIcon, TerminalIcon, Loader2Icon, SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { SlidingText } from "@/components/SlidingText";
-import type { SlashCommand } from "@/lib/slash-command";
-
-export const SLASH_COMMAND_POPOVER_MAX_HEIGHT = 300;
-export const SLASH_COMMAND_POPOVER_MIN_HEIGHT = 120;
-
-/** Cap the list to available space above the prompt (with a usable floor). */
-export function slashCommandPopoverMaxHeight(spaceAbovePx: number): number {
-  return Math.max(
-    SLASH_COMMAND_POPOVER_MIN_HEIGHT,
-    Math.min(SLASH_COMMAND_POPOVER_MAX_HEIGHT, spaceAbovePx - 8),
-  );
-}
+import {
+  isSlashCommandDisabled,
+  type SlashCommand,
+  type SlashCommandKind,
+} from "@/lib/slash-command";
+import {
+  ComposerPopover,
+  ComposerPopoverGroup,
+  ComposerPopoverOption,
+} from "./composer/ComposerPopover";
 
 interface SlashCommandPopoverProps {
+  /** Listbox id shared with the editor's combobox ARIA. */
+  listId: string;
   open: boolean;
   items: SlashCommand[];
   selectedIndex: number;
   onSelect: (commandName: string) => void;
   /** Whether the commands query is loading */
   isLoading: boolean;
+  /** Why the provider's own commands could not be listed, if they could not. */
+  error?: string | null;
   triggerChar?: string;
   /** When true, Cadencr virtual skills (`kind === "cadencr"`) are shown but
    * disabled because a required MCP dependency (project or workspace) is off. */
@@ -35,6 +37,8 @@ const CADENCR_DISABLED_HINT =
   "Enable the project and workspace MCP (Settings → MCP) to use Cadencr orchestration skills.";
 
 interface SlashCommandItemProps {
+  listId: string;
+  index: number;
   item: SlashCommand;
   selected: boolean;
   disabled: boolean;
@@ -42,96 +46,108 @@ interface SlashCommandItemProps {
   onSelect: (commandName: string) => void;
 }
 
+function SlashCommandIcon({ kind, selected }: { kind: SlashCommandKind; selected: boolean }) {
+  if (kind === "cadencr") return <CadencrLogo className="size-3.5 shrink-0" />;
+  const Icon = kind === "skill" ? SparklesIcon : TerminalIcon;
+  return (
+    <Icon
+      className={cn(
+        "size-3.5 shrink-0",
+        selected ? "text-accent-foreground/80" : "text-muted-foreground",
+      )}
+    />
+  );
+}
+
 const SlashCommandItem = memo(function SlashCommandItem({
+  listId,
+  index,
   item,
   selected,
   disabled,
   triggerChar,
   onSelect,
 }: SlashCommandItemProps) {
-  const isCadencr = item.kind === "cadencr";
-  const selectedDescriptionColor = isCadencr
-    ? "text-popover-foreground/80"
-    : "text-accent-foreground/80";
-  const selectedHintColor = isCadencr ? "text-popover-foreground/70" : "text-accent-foreground/70";
   return (
-    <button
-      type="button"
-      data-selected={selected}
-      aria-disabled={disabled}
-      title={disabled ? CADENCR_DISABLED_HINT : undefined}
-      className={cn(
-        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-        selected
-          ? isCadencr
-            ? "bg-primary/20 text-popover-foreground"
-            : "bg-accent text-accent-foreground"
-          : isCadencr
-            ? // Cadencr virtual skills get a persistent brand-tinted background,
-              // with a stronger hover step so pointer and keyboard states remain clear.
-              "bg-primary/[0.08] text-popover-foreground hover:bg-primary/20"
-            : "text-popover-foreground hover:bg-muted",
-        // `disabled` only ever applies to a Cadencr skill, so hold the brand tint
-        // static instead of reacting to hover.
-        disabled && "cursor-not-allowed opacity-50 hover:bg-primary/[0.08]",
-      )}
-      onMouseDown={(e) => {
-        e.preventDefault(); // prevent textarea blur
-        if (disabled) return;
-        onSelect(item.name);
-      }}
+    <ComposerPopoverOption
+      listId={listId}
+      index={index}
+      selected={selected}
+      disabled={disabled}
+      title={disabled ? CADENCR_DISABLED_HINT : item.description || undefined}
+      onSelect={() => onSelect(item.name)}
     >
-      {isCadencr ? (
-        <CadencrLogo className="size-3.5 shrink-0" />
-      ) : (
-        <TerminalIcon
-          className={cn(
-            "size-3.5 shrink-0",
-            selected ? "text-accent-foreground/80" : "text-muted-foreground",
-          )}
-        />
-      )}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="shrink-0 font-medium">
-          {triggerChar}
-          {item.name}
-        </span>
-        {item.description && (
+      <SlashCommandIcon kind={item.kind} selected={selected} />
+      <span className="shrink-0 font-medium">
+        {triggerChar}
+        {item.name}
+      </span>
+      {item.description &&
+        (selected ? (
+          // Only the highlighted row slides its long description; the rest stay
+          // still so the list reads as a list, not a ticker.
           <SlidingText
             text={item.description}
-            // Slower than the app default — skill descriptions run long and
-            // should stay comfortably readable as they slide.
             pxPerSec={24}
-            className={cn(
-              "min-w-0 flex-1 text-xs",
-              selected ? selectedDescriptionColor : "text-muted-foreground",
-            )}
+            className="min-w-0 flex-1 text-xs text-accent-foreground/80"
           />
-        )}
-      </div>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {item.description}
+          </span>
+        ))}
       {item.argumentHint && (
         <span
           className={cn(
-            "shrink-0 text-xs italic",
-            selected ? selectedHintColor : "text-muted-foreground/60",
+            "shrink-0 font-mono text-[11px]",
+            selected ? "text-accent-foreground/70" : "text-muted-foreground/70",
           )}
         >
           {item.argumentHint}
         </span>
       )}
-    </button>
+    </ComposerPopoverOption>
   );
 });
 
+const GROUP_LABEL: Record<SlashCommandKind, string> = {
+  cadencr: "Cadencr orchestration",
+  skill: "Skills",
+  command: "Commands",
+};
+
+/** Display order of the groups when the list is unfiltered. */
+export const SLASH_COMMAND_GROUP_ORDER: readonly SlashCommandKind[] = [
+  "cadencr",
+  "skill",
+  "command",
+];
+
+/** Consecutive runs of the same kind; null when a kind appears in two runs. */
+function groupRuns(
+  items: SlashCommand[],
+): { kind: SlashCommandKind; start: number; end: number }[] | null {
+  const runs: { kind: SlashCommandKind; start: number; end: number }[] = [];
+  for (const [index, item] of items.entries()) {
+    const last = runs.at(-1);
+    if (last?.kind === item.kind) last.end = index + 1;
+    else if (runs.some((run) => run.kind === item.kind)) return null;
+    else runs.push({ kind: item.kind, start: index, end: index + 1 });
+  }
+  return runs;
+}
+
 export function SlashCommandPopover({
+  listId,
   open,
   items,
   selectedIndex,
   onSelect,
   isLoading,
+  error,
   triggerChar = "/",
   cadencrDisabled = false,
-  maxHeight = SLASH_COMMAND_POPOVER_MAX_HEIGHT,
+  maxHeight,
 }: SlashCommandPopoverProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -144,31 +160,53 @@ export function SlashCommandPopover({
 
   if (!open) return null;
 
+  const renderItem = (item: SlashCommand, index: number): ReactNode => (
+    <SlashCommandItem
+      key={item.name}
+      listId={listId}
+      index={index}
+      item={item}
+      selected={index === selectedIndex}
+      disabled={isSlashCommandDisabled(item, !cadencrDisabled)}
+      triggerChar={triggerChar}
+      onSelect={onSelect}
+    />
+  );
+  const runs = groupRuns(items);
+  const status = isLoading ? (
+    <>
+      <Loader2Icon className="size-3 animate-spin" />
+      Loading commands…
+    </>
+  ) : items.length === 0 && !error ? (
+    "No matching commands"
+  ) : null;
+  const notice =
+    error && !isLoading ? (
+      <>
+        <CircleAlertIcon className="mt-px size-3.5 shrink-0" />
+        <span className="min-w-0 break-words">{error}</span>
+      </>
+    ) : null;
+
   return (
-    <div
+    <ComposerPopover
       ref={listRef}
-      className="glass-surface w-full overflow-y-auto rounded-md border border-border bg-popover py-0 shadow-lg"
-      style={{ maxHeight }}
+      listId={listId}
+      label={triggerChar === "$" ? "Skills" : "Commands"}
+      maxHeight={maxHeight}
+      status={status}
+      notice={notice}
     >
-      {isLoading ? (
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-          <Loader2Icon className="size-3 animate-spin" />
-          Loading commands…
-        </div>
-      ) : items.length > 0 ? (
-        items.map((item, i) => (
-          <SlashCommandItem
-            key={item.name}
-            item={item}
-            selected={i === selectedIndex}
-            disabled={item.kind === "cadencr" && cadencrDisabled}
-            triggerChar={triggerChar}
-            onSelect={onSelect}
-          />
-        ))
-      ) : (
-        <div className="px-3 py-2 text-xs text-muted-foreground">No matching commands</div>
-      )}
-    </div>
+      {runs && runs.length > 1
+        ? runs.map((run) => (
+            <ComposerPopoverGroup key={run.kind} label={GROUP_LABEL[run.kind]}>
+              {items
+                .slice(run.start, run.end)
+                .map((item, offset) => renderItem(item, run.start + offset))}
+            </ComposerPopoverGroup>
+          ))
+        : items.map(renderItem)}
+    </ComposerPopover>
   );
 }

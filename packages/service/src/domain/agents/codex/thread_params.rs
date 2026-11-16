@@ -19,6 +19,9 @@ pub(super) fn thread_resume_params(
 ) -> Value {
     let mut params = base_thread_params(config);
     params["threadId"] = Value::String(thread_id.to_string());
+    // Cadencr already stores the transcript and only consumes the resumed id.
+    // Returning every turn can exceed the SDK's bounded JSONL frame size.
+    params["excludeTurns"] = json!(true);
     if !mcp_config.is_null() {
         params["config"] = mcp_config.clone();
     }
@@ -158,6 +161,7 @@ mod tests {
         );
 
         assert_eq!(params["threadId"], json!("thread-1"));
+        assert_eq!(params["excludeTurns"], json!(true));
         assert_eq!(params["cwd"], json!("/tmp/project"));
         assert_eq!(params["model"], json!("gpt-5.5"));
         assert_eq!(params["experimentalRawEvents"], json!(true));

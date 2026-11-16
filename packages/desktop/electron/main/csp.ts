@@ -1,3 +1,5 @@
+import { SIDECAR_BASE_URL } from "./sidecar-port";
+
 export interface RendererCspDevelopmentEndpoints {
   apiUrl: string;
   rendererUrl: string;
@@ -15,7 +17,6 @@ interface ResolvedRendererCspDevelopment extends RendererCspDevelopmentEndpoints
 
 const DEFAULT_DEVELOPMENT_API_URL = "http://127.0.0.1:5005";
 const DEFAULT_DEVELOPMENT_FRONTEND_PORT = 1420;
-const SIDECAR_URL = "http://127.0.0.1:5004";
 
 export function resolveRendererCspDevelopment(
   environment: RendererCspDevelopmentEnvironment,
@@ -49,7 +50,7 @@ export function rendererCsp(
   const scriptSrc = isPackaged
     ? "script-src 'self' 'wasm-unsafe-eval'"
     : "script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval'";
-  const connectUrls = connectSources(SIDECAR_URL);
+  const connectUrls = connectSources(SIDECAR_BASE_URL);
   if (!isPackaged) {
     connectUrls.push(
       ...connectSources(developmentEndpoints.apiUrl),
@@ -57,16 +58,35 @@ export function rendererCsp(
     );
   }
   const connectSrc = `connect-src 'self' data: ${[...new Set(connectUrls)].join(" ")}`;
+  // The service's sandboxed visual shell (`/visual-frame`) is the only frame
+  // the renderer embeds; its own CSP sandboxes whatever it renders, and this
+  // directive also refuses any navigation of the frame to another origin.
+  const frameUrls = connectUrls.filter((url) => url.startsWith("http"));
+  const frameSrc = `frame-src ${[...new Set(frameUrls)].join(" ")}`;
   return [
     "default-src 'self'",
     scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
+    // The Office preview's parser workers are inline module scripts started
+    // from `blob:` URLs the library mints itself; `script-src` stays strict.
+    "worker-src 'self' blob:",
     connectSrc,
+    frameSrc,
     "object-src 'none'",
     "base-uri 'none'",
     "frame-ancestors 'none'",
     "form-action 'none'",
   ].join("; ");
+}
+
+/** Vite must send this as a response header: frame-ancestors is ignored in HTML meta tags. */
+export function rendererDevelopmentHeaders(
+  developmentEndpoints: RendererCspDevelopmentEndpoints,
+): Record<string, string> {
+  return {
+    "Content-Security-Policy": rendererCsp(false, developmentEndpoints),
+    "X-Frame-Options": "DENY",
+  };
 }

@@ -1,0 +1,71 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Usage Stats"
+description: "Inspect durable token and message activity by day, provider, model, and thinking level."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import messagesImage from "@/assets/docs/v0.13.0/usage-messages.png";
+import pageImage from "@/assets/docs/v0.13.0/usage-stats.png";
+
+Open **Settings → Usage** to inspect recorded activity across conversations. A new conversation also shows a daily grid for the last **30 days** before its first prompt.
+
+<DocScreenshot
+  src={pageImage}
+  alt="The current daily usage view with synthetic activity for the documentation example."
+  caption="The current daily usage view with synthetic activity for the documentation example."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Messages or tokens
+
+Switch between **Messages** and **Tokens**. The choice is remembered. Daily cells show activity at a glance; open a day for provider/model detail.
+
+| Measure                         | Meaning                                                             |
+| ------------------------------- | ------------------------------------------------------------------- |
+| Messages                        | Recorded user-message activity, including totals and daily averages |
+| Input tokens                    | Provider-native input usage when reported                           |
+| Output tokens                   | Provider-native output usage when reported                          |
+| Provider/model/effort breakdown | Attribution for the recorded activity                               |
+
+These are recorded usage counts, not an invoice or a provider-independent price estimate. Models and providers can report different details.
+
+## Message activity
+
+<DocScreenshot
+  src={messagesImage}
+  alt="Usage Stats in Messages mode with example counts by provider."
+  caption="Messages mode shows sent prompts, a daily average, and provider activity. These counts are example data."
+  rounded
+  elevated
+/>
+
+## Durable totals
+
+Usage records are stored separately from the conversation transcript. Archiving or deleting a conversation does not erase already recorded totals.
+
+The initial history import covers the previous 30 days from supported local **Claude Code, Codex, and OpenCode** histories. Providers without equivalent local history support do not automatically gain an imported history from another provider.
+
+New records use the provider's accounting and deduplication rules. Codex completed responses are recorded once across resume/replay; fixes to new recording do not rewrite previously stored totals.
+
+## Read warnings and missing data
+
+Shutdown or recording failures can leave activity incomplete. CadencR surfaces that risk visibly. A missing report is not evidence of zero provider usage, and historical records may not contain every metric added in a later version.
+
+## Context usage is a different view
+
+The conversation's context indicator measures its current context from provider-reported information. It can show known token counts while waiting for the window size. Usage Stats aggregates durable activity across time and conversations.
+
+## Use the view in a workflow
+
+Check the last month before starting a new task, inspect a busy day for its provider/model mix, or compare message counts and tokens when understanding how your work changed. Use the filters and details actually available in the view rather than treating unlike provider metrics as identical.
+
+## Related guides
+
+- [Session view](../session-view/) — context counts and compaction.
+- [Providers](../providers/) — model and effort controls.
+- [Settings](../settings/) — where Stats lives.

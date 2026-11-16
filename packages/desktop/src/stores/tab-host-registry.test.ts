@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useTabHostRegistry } from "./tab-host-registry";

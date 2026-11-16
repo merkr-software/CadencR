@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -7,11 +7,14 @@ use std::sync::{Arc, Mutex};
 ///
 /// `AppState` owns one shared instance. Every later index, stash, and
 /// update-branch handler must acquire a permit after resolving the feature's
-/// worktree and before spawning Git. Canonical paths make linked aliases share
-/// one key; background read commands remain outside this guard.
+/// worktree and before spawning Git. Slots are keyed by the canonical root of
+/// the worktree that owns the path, so linked aliases and the subdirectory a
+/// monorepo project lives in all contend for the one index they share;
+/// background read commands remain outside this guard.
 #[derive(Debug, Default)]
 pub struct GitMutationGuard {
-    active_worktrees: Mutex<HashSet<PathBuf>>,
+    /// Owning worktree root → the canonical path the holder asked for.
+    active_worktrees: Mutex<HashMap<PathBuf, PathBuf>>,
 }
 
 impl GitMutationGuard {
@@ -31,32 +34,60 @@ impl GitMutationGuard {
                 source,
             }
         })?;
+        let key = owning_worktree_root(&canonical_path);
         let mut active = self
             .active_worktrees
             .lock()
             .map_err(|_| GitMutationGuardError::RegistryUnavailable)?;
-        if !active.insert(canonical_path.clone()) {
-            return Err(GitMutationGuardError::Busy {
-                worktree_path: canonical_path,
-            });
+        if active.contains_key(&key) {
+            return Err(GitMutationGuardError::Busy { worktree_path: key });
         }
+        active.insert(key.clone(), canonical_path.clone());
         drop(active);
 
         Ok(GitMutationPermit {
             guard: Arc::clone(self),
+            key,
             worktree_path: canonical_path,
         })
     }
 
-    /// Whether Cadencr owns a foreground mutation for this canonical worktree.
-    /// Watcher registry keys are already canonical, so this stays a lock-only
-    /// hot-path lookup without synchronous filesystem I/O.
+    /// Whether Cadencr owns a foreground mutation for this canonical path:
+    /// the worktree root a permit holds, or the exact path it was taken for.
+    /// Exact matches only — a prefix would also silence sibling projects and
+    /// nested worktrees that the post-mutation refresh never revisits. Watcher
+    /// registry keys are already canonical, so this stays a lock-only hot-path
+    /// lookup without synchronous filesystem I/O.
     pub fn is_active_canonical(&self, canonical_path: &Path) -> bool {
+        let covers = |active: &HashMap<PathBuf, PathBuf>| {
+            active
+                .iter()
+                .any(|(key, requested)| key == canonical_path || requested == canonical_path)
+        };
         match self.active_worktrees.lock() {
-            Ok(active) => active.contains(canonical_path),
-            Err(poisoned) => poisoned.into_inner().contains(canonical_path),
+            Ok(active) => covers(&active),
+            Err(poisoned) => covers(&poisoned.into_inner()),
         }
     }
+}
+
+/// The nearest ancestor holding Git metadata (`.git` is a directory in the
+/// main checkout and a file in a linked worktree), else the path itself. A Git
+/// directory (such as the common dir stash commands also lock) is its own key:
+/// it is the repository-global slot, distinct from any worktree's.
+fn owning_worktree_root(canonical_path: &Path) -> PathBuf {
+    if is_git_dir(canonical_path) {
+        return canonical_path.to_path_buf();
+    }
+    canonical_path
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(canonical_path)
+        .to_path_buf()
+}
+
+fn is_git_dir(path: &Path) -> bool {
+    path.join("HEAD").is_file() && path.join("objects").is_dir()
 }
 
 /// RAII permit held for the full foreground Git command. Dropping it releases
@@ -64,6 +95,9 @@ impl GitMutationGuard {
 #[derive(Debug)]
 pub struct GitMutationPermit {
     guard: Arc<GitMutationGuard>,
+    /// Registry slot: the owning worktree root.
+    key: PathBuf,
+    /// The canonical path the caller asked for, where its Git commands run.
     worktree_path: PathBuf,
 }
 
@@ -77,10 +111,10 @@ impl Drop for GitMutationPermit {
     fn drop(&mut self) {
         match self.guard.active_worktrees.lock() {
             Ok(mut active) => {
-                active.remove(&self.worktree_path);
+                active.remove(&self.key);
             }
             Err(poisoned) => {
-                poisoned.into_inner().remove(&self.worktree_path);
+                poisoned.into_inner().remove(&self.key);
             }
         }
     }
@@ -166,6 +200,44 @@ mod tests {
             second_permit.worktree_path(),
             second.path().canonicalize().unwrap()
         );
+    }
+
+    #[test]
+    fn a_monorepo_subdirectory_shares_its_worktree_slot() {
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::create_dir(repo.path().join(".git")).unwrap();
+        let project = repo.path().join("packages/app");
+        std::fs::create_dir_all(&project).unwrap();
+        let guard = Arc::new(GitMutationGuard::new());
+
+        let permit = guard.try_acquire(&project).unwrap();
+        assert_eq!(permit.worktree_path(), project.canonicalize().unwrap());
+        assert!(guard.is_active_canonical(&repo.path().canonicalize().unwrap()));
+        assert!(matches!(
+            guard.try_acquire(repo.path()).unwrap_err(),
+            GitMutationGuardError::Busy { .. }
+        ));
+
+        drop(permit);
+        let root_permit = guard.try_acquire(repo.path()).unwrap();
+        assert!(guard.try_acquire(&project).is_err());
+        // Watchers of other directories keep refreshing: only the slot's root
+        // and the requested path are suppressed.
+        assert!(!guard.is_active_canonical(&project.canonicalize().unwrap()));
+        drop(root_permit);
+    }
+
+    #[test]
+    fn a_git_directory_keeps_its_own_slot() {
+        let repo = tempfile::tempdir().unwrap();
+        let git_dir = repo.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("objects")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let guard = Arc::new(GitMutationGuard::new());
+
+        let _worktree = guard.try_acquire(repo.path()).unwrap();
+        // Stash locks the worktree and the repository-global common dir.
+        let _common = guard.try_acquire(&git_dir).unwrap();
     }
 
     #[test]

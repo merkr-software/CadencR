@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { AgentCatalog } from "@/api/agentRuntime";
+import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
 import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
 import { availableCatalogProviders, DEFAULT_PROVIDER } from "@/shared/models";
 import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
@@ -27,13 +28,7 @@ export function useAgentSessionModelState(params: UseAgentSessionModelStateParam
   } = params;
 
   const providerOptions = useMemo(
-    () =>
-      availableCatalogProviders(agentCatalog?.providers).map((provider) => ({
-        id: provider.id,
-        label: provider.label,
-        disabled: false,
-        models: provider.models,
-      })),
+    () => availableCatalogProviders(agentCatalog?.providers).map(pickerProviderFromCatalog),
     [agentCatalog?.providers],
   );
   const isCatalogLoading = agentCatalog === undefined;
@@ -91,20 +86,34 @@ export function useAgentSessionModelState(params: UseAgentSessionModelStateParam
   // as 'paused' (session_bootstrap::find_or_create_session), so reading
   // status === "idle" here would lock the picker on ~20-25% of new sessions.
   const canChangeProvider = !!onProviderChange && !hasConversation;
-  const supportedThinkingEfforts = supportedThinkingEffortLevels(
-    modelSelectionStatus === "ready" ? selectedModel : undefined,
+  const readyModel = modelSelectionStatus === "ready" ? selectedModel : undefined;
+  const supportedThinkingEfforts = useMemo(
+    () => supportedThinkingEffortLevels(readyModel),
+    [readyModel],
   );
-  const supportsFastMode =
-    modelSelectionStatus === "ready" && selectedModel?.supports_fast_mode === true;
+  const supportsFastMode = readyModel?.supports_fast_mode === true;
 
-  return {
-    modelSelectionStatus,
-    providerOptions,
-    activeProviderId,
-    visibleModels,
-    currentModelLabel,
-    canChangeProvider,
-    supportedThinkingEfforts,
-    supportsFastMode,
-  };
+  // Stable while nothing changed: the composer is memoized on these values.
+  return useMemo(
+    () => ({
+      modelSelectionStatus,
+      providerOptions,
+      activeProviderId,
+      visibleModels,
+      currentModelLabel,
+      canChangeProvider,
+      supportedThinkingEfforts,
+      supportsFastMode,
+    }),
+    [
+      modelSelectionStatus,
+      providerOptions,
+      activeProviderId,
+      visibleModels,
+      currentModelLabel,
+      canChangeProvider,
+      supportedThinkingEfforts,
+      supportsFastMode,
+    ],
+  );
 }

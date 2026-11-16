@@ -13,11 +13,13 @@ pub mod events_config_option;
 pub mod events_plan;
 pub mod events_stream_blocks;
 pub mod events_tool_call;
+mod events_tool_call_background;
 mod events_tool_call_input;
 mod events_tool_call_metadata;
 mod events_tool_call_name;
 mod events_tool_call_parent;
 mod events_tool_call_result;
+pub(crate) mod events_tool_call_subagent;
 pub mod events_tool_call_update;
 mod events_tool_call_update_result;
 pub mod fs;
@@ -36,7 +38,7 @@ pub mod provider_hooks;
 pub mod schema_bridge;
 #[cfg(test)]
 mod server_request_event_loop_tests;
-mod server_request_extensions;
+mod server_request_permission;
 mod server_request_response;
 pub mod server_requests;
 pub mod session;
@@ -45,6 +47,7 @@ pub mod session_permissions;
 pub mod session_spawn;
 #[cfg(test)]
 mod session_spawn_integration_tests;
+mod session_task;
 pub(crate) mod slash_command_snapshots;
 mod spawn_initial_config;
 mod spawn_initial_mode;
@@ -52,17 +55,26 @@ mod spawn_initial_mode;
 pub mod standard_hooks;
 pub mod stream_events;
 mod terminal_enrich;
+mod terminal_group;
 mod terminal_io;
+mod terminal_process;
 pub mod terminal_registry;
 mod terminal_sandbox;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub(crate) mod thought_level;
 pub(crate) mod tool_input;
+mod tool_result_flatten;
 mod trusted_mcp_permissions;
 pub mod turn_lifecycle;
 pub mod turn_result;
 
 pub use session_spawn::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
+
+/// Service shutdown: stop the process group of every ACP terminal still
+/// running, or left running by a command that exited.
+pub(crate) async fn stop_all_terminals() {
+    terminal_group::stop_all_live_groups(terminal_process::KILL_GRACE).await;
+}
 #[cfg(test)]
 pub use standard_hooks::StandardAcpHooks;

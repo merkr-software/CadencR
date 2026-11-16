@@ -3,18 +3,19 @@ import { AGENT_ICONS } from "@/components/agent-icons";
 import { ModelSelectorRow } from "@/components/ModelSelectorRow";
 import { useModelSelectorState } from "@/hooks/useModelSelectorState";
 import { MODEL_SELECTOR_AGENT_LABELS, type ModelSelectorLevel } from "@/hooks/modelSelectorShared";
+import type { AgentTypeSetting } from "@/shared/models";
 
 interface ModelSelectorProps {
   level: ModelSelectorLevel;
-  projectId?: number;
   featureId?: number;
+  agentTypes?: readonly AgentTypeSetting[];
 }
 
-export function ModelSelector({ level, projectId, featureId }: ModelSelectorProps) {
+export function ModelSelector({ level, featureId, agentTypes }: ModelSelectorProps) {
   const { isLoading, hasCatalogError, hasSelectionError, rows } = useModelSelectorState({
     level,
-    projectId,
     featureId,
+    agentTypes,
   });
 
   if (isLoading) {

@@ -1,0 +1,124 @@
+name: Protected official plugin author release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Reviewed full source commit (40 lowercase hex)
+        required: true
+        type: string
+      tag:
+        description: Existing source-bound allowlisted provider/theme/tab/LSP tag
+        required: true
+        type: string
+      request_sha256:
+        description: Exact inspected request digest (64 zeros for inspection only)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: official-plugin-author
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: >-
+      github.repository == 'merkr-software/CadencR' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      confirmed: ${{ steps.stage.outputs.confirmed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+      - name: Check reviewed policy before candidate checkout
+        env:
+          SOURCE: ${{ inputs.source_commit }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: sh trusted/scripts/official-plugin-author-gate.sh "$SOURCE" "$DIGEST"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reconstruct exact request without publication credentials
+        id: stage
+        env:
+          SOURCE: ${{ inputs.source_commit }}
+          AUTHOR_READ_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: |
+          SHA=$(sh trusted/scripts/official-plugin-author-stage.sh "$GITHUB_WORKSPACE/candidate" "$SOURCE" "$TAG" "$DIGEST" "$RUNNER_TEMP/author-stage")
+          printf 'Request SHA-256: `%s`\n' "$SHA" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DIGEST" != 0000000000000000000000000000000000000000000000000000000000000000 ]; then
+            echo 'confirmed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Export public inspection inputs only (never consumed by publish)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: official-plugin-inspection-${{ github.run_id }}
+          path: ${{ runner.temp }}/author-stage/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: inspect
+    if: needs.inspect.outputs.confirmed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Must be provisioned separately: required reviewers, no self-approval,
+    # prevent bypass, deployment branch main only. Never auto-create this env.
+    environment: official-plugin-publication
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+      - name: Independently recheck trusted policy
+        env:
+          SOURCE: ${{ inputs.source_commit }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: sh trusted/scripts/official-plugin-author-gate.sh "$SOURCE" "$DIGEST"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_commit }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently reconstruct and verify (no downloaded run artifacts)
+        env:
+          SOURCE: ${{ inputs.source_commit }}
+          AUTHOR_READ_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: |
+          sh trusted/scripts/official-plugin-author-stage.sh "$GITHUB_WORKSPACE/candidate" "$SOURCE" "$TAG" "$DIGEST" "$RUNNER_TEMP/author-stage" > /dev/null
+          sh trusted/tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh trusted/scripts/official-plugin-author-cli.env "$RUNNER_TEMP/author-cli" > /dev/null
+          "$RUNNER_TEMP/author-cli/cadencr" plugin inspect-release --request "$RUNNER_TEMP/author-stage/request.json" --directory "$RUNNER_TEMP/author-stage" > /dev/null 2>&1
+      - name: Publish exact confirmed request with separately scoped author credential
+        env:
+          CADENCR_AUTHOR_GITHUB_TOKEN: ${{ secrets.CADENCR_AUTHOR_GITHUB_TOKEN }}
+          DIGEST: ${{ inputs.request_sha256 }}
+        run: |
+          # Token must belong to the policy-pinned user/bot; github.token is not a user token.
+          if "$RUNNER_TEMP/author-cli/cadencr" plugin publish-release --request "$RUNNER_TEMP/author-stage/request.json" --directory "$RUNNER_TEMP/author-stage" --confirm-request-sha256 "$DIGEST" > /dev/null 2>&1; then
+            echo AUTHOR_PUBLICATION_CONFIRMED
+          else
+            echo AUTHOR_PUBLICATION_FAILED >&2
+            exit 1
+          fi

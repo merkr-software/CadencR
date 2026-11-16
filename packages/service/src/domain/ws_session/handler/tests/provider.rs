@@ -37,6 +37,54 @@ async fn test_init_rejects_unsupported_provider() {
     }
 }
 
+/// Rows written while Cursor was a built-in keep `runtime_provider =
+/// 'cursor'`. Without an installed `cursor` plugin they must still load and
+/// fail visibly with a stable code rather than panic or be rewritten.
+#[tokio::test]
+async fn init_of_a_session_from_a_removed_builtin_fails_visibly() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    sqlx::query(
+        "INSERT INTO agent_sessions (feature_id, agent_type, status, runtime_provider, runtime_session_id, model) VALUES (1, 'session', 'paused', 'cursor', 'chat-legacy', 'auto')"
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+
+    let envelope = make_envelope(
+        "session",
+        "init",
+        serde_json::json!({ "cwd": "/tmp/test", "feature_id": 1 }),
+    );
+    dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+    let Message::Text(text) = rx.recv().await.unwrap() else {
+        panic!("expected text message");
+    };
+    let env: WsEnvelope = serde_json::from_str(&text).unwrap();
+    assert_eq!(env.action, "error");
+    let payload: SessionErrorPayload = serde_json::from_value(env.payload).unwrap();
+    assert_eq!(payload.code, "UNSUPPORTED_PROVIDER");
+    assert!(payload.message.contains("'cursor'"), "{}", payload.message);
+    let row: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT runtime_provider, runtime_session_id FROM agent_sessions WHERE feature_id = 1",
+    )
+    .fetch_one(&app_state.read_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row.0.as_deref(),
+        Some("cursor"),
+        "provider row is preserved"
+    );
+    assert_eq!(
+        row.1.as_deref(),
+        Some("chat-legacy"),
+        "resume id is preserved"
+    );
+}
+
 #[tokio::test]
 async fn test_init_accepts_opencode_provider() {
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -259,8 +307,7 @@ async fn test_provider_set_is_locked_once_session_is_active() {
     {
         let mut sessions = sdk_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(ClaudeCodeSession::from_query(
                 Query::new_test_stub(Some("active-runtime-session".to_string())),
@@ -396,8 +443,7 @@ async fn provider_set_leaves_the_row_untouched_when_the_session_is_locked() {
     {
         let mut sessions = sdk_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(ClaudeCodeSession::from_query(
                 Query::new_test_stub(Some("locked-before-switch".to_string())),
@@ -496,8 +542,7 @@ async fn failed_selection_restoration_reports_database_error() {
 
     let error = restore_persisted_selection(&app_state.write_pool, db_id, &previous)
         .await
-        .err()
-        .expect("failed compensation must surface");
+        .expect_err("failed compensation must surface");
     assert_eq!(error.code, "DB_ERROR");
     assert!(error.message.contains("could not be restored"));
 }
@@ -521,12 +566,21 @@ async fn same_provider_model_switch_preserves_profile_and_other_controls() {
         handle.desired_permission_mode =
             Some(crate::domain::agents::adapter::RuntimePermissionMode::Plan);
     }
+    // The target model's own last-used level is what a switch resumes: not the
+    // outgoing "high", and not the model's catalog default ("high" as well).
+    add_claude_custom_model(&state, "effort-test-model", &["low", "high"], Some("high")).await;
+    crate::domain::settings_store::global_set(
+        &crate::domain::settings::thinking_effort_model_key("claude_code", "effort-test-model"),
+        "low",
+    )
+    .await
+    .unwrap();
     dispatch_envelope(
         make_envelope(
             "session",
             "provider.set",
             serde_json::json!({
-                "session_id": id, "provider": "claude_code", "model": "sonnet",
+                "session_id": id, "provider": "claude_code", "model": "effort-test-model",
             }),
         ),
         &tx,
@@ -544,12 +598,13 @@ async fn same_provider_model_switch_preserves_profile_and_other_controls() {
     let QueryState::Pending(config) = &handle.state else {
         panic!("pending expected")
     };
-    assert_eq!(config.model.as_deref(), Some("sonnet"));
+    assert_eq!(config.model.as_deref(), Some("effort-test-model"));
     assert_eq!(config.env.as_ref().unwrap()["TOKEN"], "kept");
     assert_eq!(config.env_unset, ["UNSET_ME"]);
     assert_eq!(config.profile_revision.as_deref(), Some("kept-revision"));
     assert_eq!(config.profile_state_identity.as_deref(), Some("kept-home"));
-    assert_eq!(config.overrides.thinking_effort.as_deref(), Some("high"));
+    assert_eq!(config.overrides.thinking_effort.as_deref(), Some("low"));
+    assert_eq!(config.thinking_effort.as_deref(), Some("low"));
     assert_eq!(config.overrides.fast_mode, Some(false));
     assert_eq!(
         config.permission_mode,

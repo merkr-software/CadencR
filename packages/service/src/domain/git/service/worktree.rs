@@ -9,6 +9,7 @@ use crate::domain::git::repository;
 use crate::domain::git::worktree_context::{
     build_worktree_context, resolve_source_git_root, WorktreeContext,
 };
+use crate::domain::workflow::worktree::cancel_setups;
 use crate::error::AppError;
 
 use super::{
@@ -34,7 +35,8 @@ pub async fn get_worktree_info(
     if !crate::shared::git_context::has_git_metadata(Path::new(&project_path)).await? {
         return Ok(None);
     }
-    commands::get_worktree_info(Path::new(&project_path), Path::new(&wt_path)).await
+    commands::registered_worktree_for_feature_path(Path::new(&project_path), Path::new(&wt_path))
+        .await
 }
 
 pub async fn create_worktree(
@@ -92,6 +94,7 @@ pub async fn remove_worktree(
         return Ok(default_worktree_blocked());
     }
 
+    cancel_setups(&state.worktree_setup_runs, &[params.feature_id]).await;
     commands::remove_worktree(Path::new(&project_path), Path::new(&wt_path), true).await?;
     repository::delete_feature_settings(
         &state.write_pool,
@@ -131,6 +134,8 @@ pub async fn delete_worktree(
     if let Err(error) = state.neovim_manager.stop(params.feature_id).await {
         debug!(%error, feature_id = params.feature_id, "no neovim to stop before worktree removal");
     }
+    // Same for a setup script still running in it.
+    cancel_setups(&state.worktree_setup_runs, &[params.feature_id]).await;
 
     match commands::remove_worktree(Path::new(&project_path), Path::new(&wt_path), params.force)
         .await
@@ -262,7 +267,7 @@ async fn create_and_migrate_worktree(
     let selected_project_path = Path::new(project_path);
     let source_root = resolve_source_git_root(selected_project_path)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     let (worktree_root, branch) =
         commands::create_worktree(&source_root, branch_name, project_name).await?;
     let context = build_worktree_context(
@@ -270,7 +275,7 @@ async fn create_and_migrate_worktree(
         selected_project_path,
         Path::new(&worktree_root),
     )
-    .map_err(AppError::Internal)?;
+    .map_err(|error| AppError::internal(error))?;
     migrate_provider_config_for_context(&context).await?;
     Ok((context, branch))
 }

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStaggeredTabReadiness, type NonAgentTabReadiness } from "./useAgentFirstNonAgentWork";
@@ -11,6 +12,7 @@ const NONE: NonAgentTabReadiness = {
   git: false,
   terminal: false,
   browser: false,
+  preview: false,
 };
 
 describe("useStaggeredTabReadiness", () => {
@@ -35,12 +37,13 @@ describe("useStaggeredTabReadiness", () => {
     expect(result.current).toMatchObject({ editor: true, git: false });
     act(() => void vi.advanceTimersByTime(STEP_MS));
     expect(result.current).toMatchObject({ editor: true, git: true, terminal: false });
-    act(() => void vi.advanceTimersByTime(STEP_MS * 2));
+    act(() => void vi.advanceTimersByTime(STEP_MS * 3));
     expect(result.current).toEqual({
       editor: true,
       git: true,
       terminal: true,
       browser: true,
+      preview: true,
     });
   });
 

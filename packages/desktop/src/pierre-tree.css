@@ -36,8 +36,9 @@
   --trees-selected-fg-override: var(--sidebar-accent-foreground);
   --trees-selected-focused-border-color-override: var(--ring);
 
-  /* Focus ring — match the standard shadcn focus ring. */
-  --trees-focus-ring-color-override: var(--ring);
+  /* Focus ring — the shadcn ring, softened: it outlines the keyboard cursor
+   * row after every click, so at full strength it out-shouts the selection. */
+  --trees-focus-ring-color-override: color-mix(in oklab, var(--ring) 55%, transparent);
   --trees-focus-ring-width-override: 1px;
   --trees-focus-ring-offset-override: -1px;
 
@@ -46,15 +47,17 @@
   --trees-search-bg-override: var(--input);
   --trees-search-fg-override: var(--foreground);
 
-  /* Typography — pull from the app font stack so the tree matches the
-   * rest of the chrome. Sizes stay at pierre defaults; density-aware
-   * vars below scale them. */
+  /* Typography — the app font stack at the sidebar feature-row size
+   * (DESIGN.md `feature_row`: 12.5px) so the tree matches the rest of the
+   * chrome. Row height and density come from the `density` option in
+   * `useCadencrFileTree`: pierre writes `--trees-density-override` inline on
+   * its host, so a value set here would never apply. */
   --trees-font-family-override: var(--font-sans);
-  --trees-font-size-override: 13px;
+  --trees-font-size-override: 12.5px;
 
-  /* Layout density. 0.9 is slightly tighter than pierre's default of 1.0
-   * to match the rest of our chrome (sidebar items, tabs). */
-  --trees-density-override: 0.9;
+  /* Inset rows 8px from the panel edge, aligned with the `px-2` headers
+   * above both trees. Pierre's 16px default wastes a narrow column. */
+  --trees-padding-inline-override: 8px;
 
   /* Git-status colors map to our accent palette so the dimming/badging
    * is theme-aware. */

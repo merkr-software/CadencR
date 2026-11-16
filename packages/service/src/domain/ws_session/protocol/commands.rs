@@ -68,6 +68,10 @@ pub struct CommandsListPayload {
     /// is set so the user knows the picker is being refreshed.
     #[serde(default)]
     pub refreshing: bool,
+    /// Why the provider's own commands are missing from `commands` (its
+    /// discovery failed or timed out). Shown in the `/` menu.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Server → Client: live slash-command catalog the agent advertised
@@ -79,4 +83,7 @@ pub struct CommandsListPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CommandsUpdatedPayload {
     pub commands: Vec<SlashCommandPayload>,
+    /// Same as the `error` of `CommandsListPayload`; absent on live pushes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }

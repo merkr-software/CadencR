@@ -1,0 +1,2050 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "8d21f4ae5b99a874b00ddcc7d9ff2cdf2fc85d17fe96a374e9293c56abc85b2a",
+  "source_lock_sha256": "f7c2f6eabeafc11f6cca3af7213f03b0d3760b196e7faeb27146960586aae67b",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "@babel/helper-string-parser",
+      "version": "7.29.13",
+      "destination": "node_modules/@babel/helper-string-parser",
+      "integrity": "sha512-fWegr+WsEsiMVW4KUNdIIzzMTZSzNiqhy0//6+2MRi2d5NFNsL/AYwBQW8eBnRbTBVRnDVzjaJEUqKaCWjMMdQ==",
+      "compressed_size": 8307,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/babel/babel.git",
+        "directory": "packages/babel-helper-string-parser"
+      },
+      "engines": {
+        "node": ">=6.9.0"
+      },
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@babel/helper-validator-identifier",
+      "version": "7.29.7",
+      "destination": "node_modules/@babel/helper-validator-identifier",
+      "integrity": "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg==",
+      "compressed_size": 14245,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/babel/babel.git",
+        "directory": "packages/babel-helper-validator-identifier"
+      },
+      "engines": {
+        "node": ">=6.9.0"
+      },
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@babel/parser",
+      "version": "7.29.13",
+      "destination": "node_modules/@babel/parser",
+      "integrity": "sha512-fJM50YYjlTiBhgdkGmC1tBpv+FMAyo4annf2X6Aks+0yRlaiVkYW/3f07xAfVVkYIoZ9fFZp+mEThUFnuybhkQ==",
+      "compressed_size": 446702,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/babel/babel.git",
+        "directory": "packages/babel-parser"
+      },
+      "engines": {
+        "node": ">=6.0.0"
+      },
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@babel/types",
+      "version": "7.29.11",
+      "destination": "node_modules/@babel/types",
+      "integrity": "sha512-WCsemW40Cpc6gouC1SrY6PBaZ+oLRlEVY9XBvZBI7il/HyUrb2nJ505wE1MHEFyDZNnrWDEuy4jL50WVHfTTSQ==",
+      "compressed_size": 301906,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/babel/babel.git",
+        "directory": "packages/babel-types"
+      },
+      "engines": {
+        "node": ">=6.9.0"
+      },
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/abbreviation",
+      "version": "2.3.3",
+      "destination": "node_modules/@emmetio/abbreviation",
+      "integrity": "sha512-mgv58UrU3rh4YgbE/TzgLQwJ3pFsHHhCLqY20aJq+9comytTXUDNGG/SMtSeMJdkpxgXSXunBGLD8Boka3JyVA==",
+      "compressed_size": 34643,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/emmet.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "clean": "rimraf ./dist",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/css-abbreviation",
+      "version": "2.1.8",
+      "destination": "node_modules/@emmetio/css-abbreviation",
+      "integrity": "sha512-s9yjhJ6saOO/uk1V74eifykk2CBYi01STTK3WlXWGOepyKa23ymJ053+DNQjpFcy1ingpaO7AxCcwLvHFY9tuw==",
+      "compressed_size": 13545,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/emmet.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "watch": "rollup -wc",
+        "clean": "rimraf ./dist",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/css-parser",
+      "version": "0.4.1",
+      "destination": "node_modules/@emmetio/css-parser",
+      "integrity": "sha512-2bC6m0MV/voF4CTZiAbG5MWKbq5EBmDPKu9Sb7s7nVcEzNQlrZP6mFFFlIaISM8X6514H9shWMme1fCm8cWAfQ==",
+      "compressed_size": 17742,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/css-parser.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "watch": "rollup -wc",
+        "prepublish": "npm run test && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/html-matcher",
+      "version": "1.3.0",
+      "destination": "node_modules/@emmetio/html-matcher",
+      "integrity": "sha512-NTbsvppE5eVyBMuyGfVu2CRrLvo7J4YHb6t9sBFLyY03WYhXET37qA4zOYUjBWFCRHO7pS1B9khERtY0f5JXPQ==",
+      "compressed_size": 25264,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/html-matcher.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "lint": "tslint ./src/*.ts",
+        "build": "rollup -c",
+        "clean": "rm -rf ./dist",
+        "prepare": "npm run lint && npm test && npm run clean && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/scanner",
+      "version": "1.0.4",
+      "destination": "node_modules/@emmetio/scanner",
+      "integrity": "sha512-IqRuJtQff7YHHBk4G8YZ45uB9BaAGcwQeVzgj/zj8/UdOhtQpEIupUhSk8dys6spFIWVZVeK20CzGEnqR5SbqA==",
+      "compressed_size": 5702,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/stream-reader.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "clean": "rimraf ./scanner.* ./*.d.ts",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/stream-reader",
+      "version": "2.2.0",
+      "destination": "node_modules/@emmetio/stream-reader",
+      "integrity": "sha512-fXVXEyFA5Yv3M3n8sUGT7+fvecGrZP4k6FnWWMSZVQf69kAq0LLpaBQLGcPR30m3zMmKYhECP4k/ZkzvhEW5kw==",
+      "compressed_size": 2382,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/stream-reader.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "prepublish": "npm run test && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/stream-reader-utils",
+      "version": "0.1.0",
+      "destination": "node_modules/@emmetio/stream-reader-utils",
+      "integrity": "sha512-ZsZ2I9Vzso3Ho/pjZFsmmZ++FWeEd/txqybHTm4OgaZzdS8V9V/YYWQwg5TC38Z7uLWUV1vavpLLbjJtKubR1A==",
+      "compressed_size": 2642,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/stream-reader-utils.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "watch": "rollup -wc"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@johnsoncodehk/pug-beautify",
+      "version": "0.2.2",
+      "destination": "node_modules/@johnsoncodehk/pug-beautify",
+      "integrity": "sha512-qqNS/YD0Nck5wtQLCPHAfGVgWbbGafxSPjNh0ekYPFSNNqnDH2kamnduzYly8IiADmeVx/MfAE1njMEjVeHTMA==",
+      "compressed_size": 3716,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/johnsoncodehk/pug-beautify.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "./node_modules/.bin/mocha ./test/test.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@volar/language-core",
+      "version": "2.4.30",
+      "destination": "node_modules/@volar/language-core",
+      "integrity": "sha512-73fjwEV8wat6aOZ6U/y/hqtE30ocrIWECg67b0txGczOMNw+MffLmvJ5fnFfN9drVUEYZzLdaNo6VAy6G6avMw==",
+      "compressed_size": 7783,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/volar.js.git",
+        "directory": "packages/language-core"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@volar/language-server",
+      "version": "2.4.30",
+      "destination": "node_modules/@volar/language-server",
+      "integrity": "sha512-tcP9fzzUBbsLIFHhgnRU4ncQjMn9G9Vax0ffkQmdCrXVEYqRroUepmyC5AVgiju5bCiLD6a55qen5iOTQHkb3g==",
+      "compressed_size": 25319,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/volar.js.git",
+        "directory": "packages/language-server"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@volar/language-service",
+      "version": "2.4.30",
+      "destination": "node_modules/@volar/language-service",
+      "integrity": "sha512-w/xDsASiqC71ggCOm7sTDXDNk/l72XEptodeRC68tgZ0e5QM4hM3zAqBGC7mBctvhrpYwKfMG+t9xcUo2hEFtA==",
+      "compressed_size": 32969,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/volar.js.git",
+        "directory": "packages/language-service"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@volar/source-map",
+      "version": "2.4.30",
+      "destination": "node_modules/@volar/source-map",
+      "integrity": "sha512-zym1ob/KwDDyN+0jGVtxwbxJSRRnUvv5HspCtz3yEfVVdCG4/dzxJktMGPAgemqRuVs81O0o/y0q3qOUErR8kg==",
+      "compressed_size": 4333,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/volar.js.git",
+        "directory": "packages/source-map"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@volar/typescript",
+      "version": "2.4.30",
+      "destination": "node_modules/@volar/typescript",
+      "integrity": "sha512-/DgA5tgYFPfrLFuSjIMXMGHk1LQv2+P8eny6+BhGNzFJELWIW7UZlc56ZLIRFhLsPpMfIFxM8/HvOPBggrjTZg==",
+      "compressed_size": 45213,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/volar.js.git",
+        "directory": "packages/typescript"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vscode/emmet-helper",
+      "version": "2.11.0",
+      "destination": "node_modules/@vscode/emmet-helper",
+      "integrity": "sha512-QLxjQR3imPZPQltfbWRnHU6JecWTF1QSWhx3GAKQpslx7y3Dp6sIIXhKjiUJ/BR9FX8PVthjr9PD6pNwOJfAzw==",
+      "compressed_size": 48532,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-emmet-helper"
+      },
+      "engines": {},
+      "scripts": {
+        "watch": "tsc -watch -p ./",
+        "compile": "tsc -p ./",
+        "compile-esm": "tsc -p ./tsconfig.esm.json",
+        "test": "mocha lib/cjs/test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vscode/l10n",
+      "version": "0.0.18",
+      "destination": "node_modules/@vscode/l10n",
+      "integrity": "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ==",
+      "compressed_size": 4548,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-l10n.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf dist && rimraf lib",
+        "compile": "npm run clean && tsc --emitDeclarationOnly --outDir lib && node .esbuild.config.js",
+        "lint": "eslint src --ext ts",
+        "watch": "node .esbuild.config.js --watch",
+        "test": "jest --preset ts-jest",
+        "prepublishOnly": "npm run lint && npm run compile && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/compiler-core",
+      "version": "3.5.44",
+      "destination": "node_modules/@vue/compiler-core",
+      "integrity": "sha512-k34nCytbK8PQ1gR2mGROYOw6Pnv/mumqIdrZ3x2tbyXZDWm7ViKGLTfdB+DRrWqEQsLgGJvn0WN9jBif5zCTLQ==",
+      "compressed_size": 145903,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/vuejs/core.git",
+        "directory": "packages/compiler-core"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/compiler-dom",
+      "version": "3.5.44",
+      "destination": "node_modules/@vue/compiler-dom",
+      "integrity": "sha512-W5AoBFWdw1lQAKiHowkfgFKFab82oSRT6sGsPfw/q1GRjsy/ZJFLHGhJyBRIFN9APLTUduDH9U2JAiPOIyKuYg==",
+      "compressed_size": 168604,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/vuejs/core.git",
+        "directory": "packages/compiler-dom"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/language-core",
+      "version": "3.3.14",
+      "destination": "node_modules/@vue/language-core",
+      "integrity": "sha512-kRB+3hHg0c+BdD1XLAvwjVMQd5pC05zijSlPDRI3ERvC/s04JlRs5upy2KjeMg/9m9oD5zuMVh9yVvkKfZqoJg==",
+      "compressed_size": 86328,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/vuejs/language-tools.git",
+        "directory": "packages/language-core"
+      },
+      "engines": {},
+      "scripts": {
+        "generate-names": "node scripts/generate-names.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/language-plugin-pug",
+      "version": "3.2.9",
+      "destination": "node_modules/@vue/language-plugin-pug",
+      "integrity": "sha512-EaRtg3/1TQo9D20nBex1G3NtWElJbSgiiisZe6TwiNKpSCRwFmmvuAkz+AfMmsQc53si3zbkApU8RF0o6ULQag==",
+      "compressed_size": 6250,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/vuejs/language-tools.git",
+        "directory": "packages/language-plugin-pug"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@volar/source-map",
+      "version": "2.4.28",
+      "destination": "node_modules/@vue/language-plugin-pug/node_modules/@volar/source-map",
+      "integrity": "sha512-yX2BDBqJkRXfKw8my8VarTyjv48QwxdJtvRgUpNE5erCsgEUdI2DsLbpa+rOQVAJYshY99szEcRDmyHbF10ggQ==",
+      "compressed_size": 4390,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/volar.js.git",
+        "directory": "packages/source-map"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/language-server",
+      "version": "3.3.14",
+      "destination": "node_modules/@vue/language-server",
+      "integrity": "sha512-sB/Ie3mP8J+ua7ECipTPtiov7bOtpMtJVj3rEcrxpkns1MxQN5k6pL08oTOQHFS5Ol+U7cEzO6mOu2llASdRNA==",
+      "compressed_size": 4567,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/vuejs/language-tools.git",
+        "directory": "packages/language-server"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/language-service",
+      "version": "3.3.14",
+      "destination": "node_modules/@vue/language-service",
+      "integrity": "sha512-KJKIcuDJcLWpRTbm2N3Lc+Ri+/9mp7OnWwEBWJit7at8ultnYV09pvTTzh8rpDniEAoTIBt+Blli/b4n07HqDA==",
+      "compressed_size": 201017,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/vuejs/language-tools.git",
+        "directory": "packages/language-service"
+      },
+      "engines": {},
+      "scripts": {
+        "update-html-data": "node ./scripts/update-html-data.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/shared",
+      "version": "3.5.44",
+      "destination": "node_modules/@vue/shared",
+      "integrity": "sha512-H82XLH0DjmSOdbEwO15x3QTo1f5PWEtv237eLpYKc0mqLu+B8hnq16lFWmuBmNurkeiG3wr+oM1FhOll/YVFRg==",
+      "compressed_size": 16103,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/vuejs/core.git",
+        "directory": "packages/shared"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vue/typescript-plugin",
+      "version": "3.3.14",
+      "destination": "node_modules/@vue/typescript-plugin",
+      "integrity": "sha512-+PUukA0VmMDWqNcuGEhoW6aoc1vgMHGkOMVVdYjgDV1jdJJPqqMIPHy23GHM1Lb+VHZqiGIrchvhqg6kDjQpqw==",
+      "compressed_size": 15112,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/vuejs/language-tools.git",
+        "directory": "packages/typescript-plugin"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "acorn",
+      "version": "7.4.1",
+      "destination": "node_modules/acorn",
+      "integrity": "sha512-nQyp0o1/mNdbTO1PO6kHkwSrmgZ0MT/jCCpNiwbUjGoRN4dlBhqJtoQuCnEOKzgTVwg0ZWiCoQy6SxMebQVh8A==",
+      "compressed_size": 261243,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/acornjs/acorn.git"
+      },
+      "engines": {
+        "node": ">=0.4.0"
+      },
+      "scripts": {
+        "prepare": "cd ..; npm run build:main && npm run build:bin"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "alien-signals",
+      "version": "3.2.1",
+      "destination": "node_modules/alien-signals",
+      "integrity": "sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==",
+      "compressed_size": 8546,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/stackblitz/alien-signals.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run check && npm run test",
+        "check": "tsslint --project tsconfig.json",
+        "size": "node ./size.js",
+        "build": "node ./build.js",
+        "test": "npm run build && vitest run",
+        "bench": "npm run build && node --jitless --expose-gc benchs/propagate.mjs",
+        "memory": "npm run build && node --expose-gc benchs/memoryUsage.mjs"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "destination": "node_modules/call-bind-apply-helpers",
+      "integrity": "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==",
+      "compressed_size": 6067,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/call-bind-apply-helpers.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=auto",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=.js,.mjs .",
+        "postlint": "tsc -p . && attw -P",
+        "pretest": "npm run lint",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>=10.2' audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "call-bound",
+      "version": "1.0.4",
+      "destination": "node_modules/call-bound",
+      "integrity": "sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==",
+      "compressed_size": 6382,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/call-bound.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=auto",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=.js,.mjs .",
+        "postlint": "tsc -p . && attw -P",
+        "pretest": "npm run lint",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>=10.2' audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "character-parser",
+      "version": "2.2.0",
+      "destination": "node_modules/character-parser",
+      "integrity": "sha512-+UqJQjFEFaTAs3bNsF2j2kEN1baG/zghZbdqoYEDxGZtJo9LBzl1A+m0D4n3qKx8N2FNv8/Xp6yV9mQmBuptaw==",
+      "compressed_size": 6582,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/ForbesLindesay/character-parser.git"
+      },
+      "engines": {},
+      "scripts": {
+        "coverage": "istanbul cover test/index.js",
+        "test": "node test/index.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "destination": "node_modules/dunder-proto",
+      "integrity": "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==",
+      "compressed_size": 5049,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/es-shims/dunder-proto.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=.js,.mjs .",
+        "postlint": "tsc -p . && attw -P",
+        "pretest": "npm run lint",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>= 10.2' audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "emmet",
+      "version": "2.4.11",
+      "destination": "node_modules/emmet",
+      "integrity": "sha512-23QPJB3moh/U9sT4rQzGgeyyGIrcM+GH5uVYg2C6wZIxAIJq7Ng3QLT79tl8FUwDXhyq9SusfknOrofAKqvgyQ==",
+      "compressed_size": 200556,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/emmet.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "rollup -c",
+        "watch": "rollup -wc",
+        "test": "tsx --test ./test/*.ts",
+        "clean": "rimraf ./dist",
+        "prepare": "npm run clean && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "entities",
+      "version": "7.0.1",
+      "destination": "node_modules/entities",
+      "integrity": "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==",
+      "compressed_size": 113587,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/fb55/entities.git"
+      },
+      "engines": {
+        "node": ">=0.12"
+      },
+      "scripts": {
+        "build:docs": "typedoc --hideGenerator src/index.ts",
+        "build:encode-trie": "node --import=tsx scripts/write-encode-map.ts",
+        "build:trie": "node --import=tsx scripts/write-decode-map.ts",
+        "benchmark": "node --import=tsx scripts/benchmark.ts",
+        "format": "npm run format:es && npm run format:biome",
+        "format:es": "npm run lint:es -- --fix",
+        "format:biome": "biome check --fix .",
+        "lint": "npm run lint:es && npm run lint:ts && npm run lint:biome",
+        "lint:es": "eslint . --ignore-path .gitignore",
+        "lint:biome": "biome check .",
+        "lint:ts": "tsc --noEmit",
+        "prepublishOnly": "tshy",
+        "test": "npm run test:vi && npm run lint",
+        "test:vi": "vitest run"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "destination": "node_modules/es-define-property",
+      "integrity": "sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g==",
+      "compressed_size": 4431,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/es-define-property.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc -p .",
+        "pretest": "npm run lint",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>= 10.2' audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "es-errors",
+      "version": "1.3.0",
+      "destination": "node_modules/es-errors",
+      "integrity": "sha512-Zf5H2Kxt2xjTvbJvP2ZWLEICxA6j+hAmMzIlypy4xcBg1vKVnx89Wy0GbS+kf5cwCVFFzdCFh2XSCFNULS6csw==",
+      "compressed_size": 5338,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/es-errors.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "pretest": "npm run lint",
+        "test": "npm run tests-only",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "posttest": "aud --production",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc -p . && eclint check $(git ls-files | xargs find 2> /dev/null | grep -vE 'node_modules|\\.git' | grep -v dist/)",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "destination": "node_modules/es-object-atoms",
+      "integrity": "sha512-HWcBoN6NileqtSydK2FqHbS/LoDd2pqrnQHLyJzBj4kOp/ky2MWMN694xOfkK8/SnUsW2DH7EfyVlydKCsm1Zw==",
+      "compressed_size": 4820,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/es-object-atoms.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "pretest": "npm run lint",
+        "test": "npm run tests-only",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "posttest": "npx npm@\">= 10.2\" audit --production",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc -p . && eclint check $(git ls-files | xargs find 2> /dev/null | grep -vE 'node_modules|\\.git' | grep -v dist/)",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "estree-walker",
+      "version": "2.0.2",
+      "destination": "node_modules/estree-walker",
+      "integrity": "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==",
+      "compressed_size": 8353,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Rich-Harris/estree-walker"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run build && npm test",
+        "build": "tsc && rollup -c",
+        "test": "uvu test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "function-bind",
+      "version": "1.1.2",
+      "destination": "node_modules/function-bind",
+      "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==",
+      "compressed_size": 9799,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Raynos/function-bind.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "pretest": "npm run lint",
+        "test": "npm run tests-only",
+        "posttest": "aud --production",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "lint": "eslint --ext=js,mjs .",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "destination": "node_modules/get-intrinsic",
+      "integrity": "sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==",
+      "compressed_size": 13800,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/get-intrinsic.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=.js,.mjs .",
+        "pretest": "npm run lint",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>= 10.2' audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "get-proto",
+      "version": "1.0.1",
+      "destination": "node_modules/get-proto",
+      "integrity": "sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g==",
+      "compressed_size": 4474,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/get-proto.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "pretest": "npm run --silent lint",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@\">=10.2\" audit --production",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "prelint": "evalmd README.md",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc && attw -P",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "gopd",
+      "version": "1.2.0",
+      "destination": "node_modules/gopd",
+      "integrity": "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==",
+      "compressed_size": 4584,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/gopd.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prelint": "tsc -p . && attw -P",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "evalmd README.md",
+        "pretest": "npm run lint",
+        "tests-only": "tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>=10.2' audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "destination": "node_modules/has-symbols",
+      "integrity": "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ==",
+      "compressed_size": 8059,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/inspect-js/has-symbols.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "pretest": "npm run --silent lint",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@'>=10.2' audit --production",
+        "tests-only": "npm run test:stock && npm run test:shams",
+        "test:stock": "nyc node test",
+        "test:staging": "nyc node --harmony --es-staging test",
+        "test:shams": "npm run --silent test:shams:getownpropertysymbols && npm run --silent test:shams:corejs",
+        "test:shams:corejs": "nyc node test/shams/core-js.js",
+        "test:shams:getownpropertysymbols": "nyc node test/shams/get-own-property-symbols.js",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc -p . && attw -P",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "has-tostringtag",
+      "version": "1.0.2",
+      "destination": "node_modules/has-tostringtag",
+      "integrity": "sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==",
+      "compressed_size": 6465,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/inspect-js/has-tostringtag.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "pretest": "npm run --silent lint",
+        "test": "npm run tests-only",
+        "posttest": "aud --production",
+        "tests-only": "npm run test:stock && npm run test:shams",
+        "test:stock": "nyc node test",
+        "test:staging": "nyc node --harmony --es-staging test",
+        "test:shams": "npm run --silent test:shams:getownpropertysymbols && npm run --silent test:shams:corejs",
+        "test:shams:corejs": "nyc node test/shams/core-js.js",
+        "test:shams:getownpropertysymbols": "nyc node test/shams/get-own-property-symbols.js",
+        "lint": "eslint --ext=js,mjs .",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "hasown",
+      "version": "2.0.4",
+      "destination": "node_modules/hasown",
+      "integrity": "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==",
+      "compressed_size": 4608,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/inspect-js/hasOwn.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "prepublishOnly": "safe-publish-latest",
+        "prelint": "evalmd README.md",
+        "lint": "eslint .",
+        "postlint": "npm run tsc",
+        "pretest": "npm run lint",
+        "tsc": "tsc -p .",
+        "posttsc": "attw -P",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npx npm@\">= 10.2\" audit --production",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "is-expression",
+      "version": "4.0.0",
+      "destination": "node_modules/is-expression",
+      "integrity": "sha512-zMIXX63sxzG3XrkHkrAPvm/OVZVSCPNkwMHU8oTX7/U3AL78I0QXCEICXUM13BIa8TYGZ68PiTKfQz3yaTNr4A==",
+      "compressed_size": 2844,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pugjs/is-expression.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node test && npm run coverage",
+        "coverage": "nyc node test.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "is-regex",
+      "version": "1.2.1",
+      "destination": "node_modules/is-regex",
+      "integrity": "sha512-MjYsKHO5O7mCsmRGxWcLWheFqN9DJ/2TmngvjKXihe6efViPqc274+Fx/4fYj/r03+ESvBdTXK0V6tA3rgez1g==",
+      "compressed_size": 12196,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/inspect-js/is-regex.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "pretest": "npm run lint",
+        "test": "npm run tests-only && npm run test:harmony",
+        "tests-only": "nyc node test",
+        "test:harmony": "nyc node --harmony --es-staging test",
+        "test:corejs": "nyc tape test-corejs.js",
+        "posttest": "npx npm@'>=10.2' audit --production",
+        "prelint": "eclint check $(git ls-files | xargs find 2> /dev/null | grep -vE 'node_modules|\\.git')",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc -p . && attw -P",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "jsonc-parser",
+      "version": "2.3.1",
+      "destination": "node_modules/jsonc-parser",
+      "integrity": "sha512-H8jvkz1O50L3dMZCsLqiuB2tA7muqbSg1AtGEkN0leAqGjsUzDJir3Zwr02BhqdcITPg3ei3mZ+HjMocAknhhg==",
+      "compressed_size": 30794,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/node-jsonc-parser"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "postpublish": "node ./build/post-publish.js",
+        "compile": "tsc -p ./src && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "clean": "rimraf lib",
+        "watch": "tsc -w -p ./src",
+        "test": "npm run compile && mocha ./lib/umd/test",
+        "lint": "eslint src/**/*.ts",
+        "preversion": "npm test",
+        "postversion": "git push && git push --tags"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "destination": "node_modules/math-intrinsics",
+      "integrity": "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==",
+      "compressed_size": 6355,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/es-shims/math-intrinsics.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npmignore --auto --commentLines=autogenerated",
+        "prepublishOnly": "safe-publish-latest",
+        "prepublish": "not-in-publish || npm run prepublishOnly",
+        "pretest": "npm run lint",
+        "test": "npm run tests-only",
+        "tests-only": "nyc tape 'test/**/*.js'",
+        "posttest": "npx npm@'>= 10.2' audit --production",
+        "prelint": "evalmd README.md && eclint check $(git ls-files | xargs find 2> /dev/null | grep -vE 'node_modules|\\.git' | grep -v dist/)",
+        "lint": "eslint --ext=js,mjs .",
+        "postlint": "tsc && attw -P",
+        "version": "auto-changelog && git add CHANGELOG.md",
+        "postversion": "auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f \"v$(node -e \"console.log(require('./package.json').version)\")\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "muggle-string",
+      "version": "0.4.1",
+      "destination": "node_modules/muggle-string",
+      "integrity": "sha512-VNTrAak/KhO2i8dqqnqnAHOa3cYBwXEZe9h+D5h/1ZqFSTEFHdM65lR7RoIqq3tBBYavsOXV84NoHXZ0AkPyqQ==",
+      "compressed_size": 7359,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/johnsoncodehk/muggle-string.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "vitest run"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "object-assign",
+      "version": "4.1.1",
+      "destination": "node_modules/object-assign",
+      "integrity": "sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==",
+      "compressed_size": 2675,
+      "license": "MIT",
+      "repository": "sindresorhus/object-assign",
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "xo && ava",
+        "bench": "matcha bench.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "path-browserify",
+      "version": "1.0.1",
+      "destination": "node_modules/path-browserify",
+      "integrity": "sha512-b7uo2UCUOYZcnF/3ID0lulOJi/bafxa1xPe7ZPsammBSpjSWQkjNxlt635YGS2MiR9GjvuXCtz2emr3jbsz98g==",
+      "compressed_size": 12477,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/browserify/path-browserify.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "picomatch",
+      "version": "4.0.7",
+      "destination": "node_modules/picomatch",
+      "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+      "compressed_size": 24326,
+      "license": "MIT",
+      "repository": "micromatch/picomatch",
+      "engines": {
+        "node": ">=12"
+      },
+      "scripts": {
+        "lint": "eslint --cache --cache-location node_modules/.cache/.eslintcache --report-unused-disable-directives --ignore-path .gitignore .",
+        "mocha": "mocha --reporter dot",
+        "test": "npm run lint && npm run mocha",
+        "test:ci": "npm run test:cover",
+        "test:cover": "nyc npm run mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "pug-error",
+      "version": "2.1.0",
+      "destination": "node_modules/pug-error",
+      "integrity": "sha512-lv7sU9e5Jk8IeUheHata6/UThZ7RK2jnaaNztxfPYUY+VxZyk/ePVaNZ/vwmH8WqGvDz3LrNYt/+gA55NDg6Pg==",
+      "compressed_size": 9060,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pugjs/pug/tree/master/packages/pug-error"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "pug-lexer",
+      "version": "5.0.1",
+      "destination": "node_modules/pug-lexer",
+      "integrity": "sha512-0I6C62+keXlZPZkOJeVam9aBLVP2EnbeDw3An+k0/QlqdwH6rv8284nko14Na7c0TtqtogfWXcRoFE4O4Ff20w==",
+      "compressed_size": 13704,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pugjs/pug/tree/master/packages/pug-lexer"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "pug-parser",
+      "version": "6.0.0",
+      "destination": "node_modules/pug-parser",
+      "integrity": "sha512-ukiYM/9cH6Cml+AOl5kETtM9NR3WulyVP2y4HOU45DyMim1IeP/OOiyEWRr6qk5I5klpsBnbuHpwKmTx6WURnw==",
+      "compressed_size": 7937,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pugjs/pug/tree/master/packages/pug-parser"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "request-light",
+      "version": "0.7.0",
+      "destination": "node_modules/request-light",
+      "integrity": "sha512-lMbBMrDoxgsyO+yB3sDcrDuX85yYt7sS8BfQd11jtbW/z5ZWgLZRcEGLsLoYw7I0WSUGQBs8CC8ScIxkTX1+6Q==",
+      "compressed_size": 12422,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/node-request-light"
+      },
+      "engines": {},
+      "scripts": {
+        "compile": "webpack",
+        "watch": "webpack --watch",
+        "bundle": "webpack --mode production --devtool hidden-source-map",
+        "prepack": "npm run clean && npm run bundle && tsc -p ./src/test/ && ava ./lib/test/test.js",
+        "clean": "rimraf lib",
+        "test": "npm run compile && tsc -p ./src/test/ && ava ./lib/test/test.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "semver",
+      "version": "7.8.6",
+      "destination": "node_modules/semver",
+      "integrity": "sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==",
+      "compressed_size": 33566,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/npm/node-semver.git"
+      },
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "tap",
+        "snap": "tap",
+        "lint": "npm run eslint",
+        "postlint": "template-oss-check",
+        "lintfix": "npm run eslint -- --fix",
+        "posttest": "npm run lint",
+        "template-oss-apply": "template-oss-apply --force",
+        "eslint": "eslint \"**/*.{js,cjs,ts,mjs,jsx,tsx}\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "source-map-js",
+      "version": "1.2.2",
+      "destination": "node_modules/source-map-js",
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
+      "compressed_size": 36349,
+      "license": "BSD-3-Clause",
+      "repository": "7rulnik/source-map-js",
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "npm run build && node test/run-tests.js",
+        "build": "webpack --color",
+        "toc": "doctoc --title '## Table of Contents' README.md && doctoc --title '## Table of Contents' CONTRIBUTING.md"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "token-stream",
+      "version": "1.0.0",
+      "destination": "node_modules/token-stream",
+      "integrity": "sha512-VSsyNPPW74RpHwR8Fc21uubwHY7wMDeJLys2IX5zJNih+OnAnaifKHo+1LHT7DAdloQ7apeaaWg8l7qnf/TnEg==",
+      "compressed_size": 2310,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pugjs/token-stream.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node test && npm run coverage",
+        "coverage": "istanbul cover test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "typescript",
+      "version": "6.0.3",
+      "destination": "node_modules/typescript",
+      "integrity": "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==",
+      "compressed_size": 4515854,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/TypeScript.git"
+      },
+      "engines": {
+        "node": ">=14.17"
+      },
+      "scripts": {
+        "test": "hereby runtests-parallel --light=false",
+        "test:eslint-rules": "hereby run-eslint-rules-tests",
+        "build": "npm run build:compiler && npm run build:tests",
+        "build:compiler": "hereby local",
+        "build:tests": "hereby tests",
+        "build:tests:notypecheck": "hereby tests --no-typecheck",
+        "clean": "hereby clean",
+        "gulp": "hereby",
+        "lint": "hereby lint",
+        "knip": "hereby knip",
+        "format": "dprint fmt",
+        "setup-hooks": "node scripts/link-hooks.mjs"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "typescript-auto-import-cache",
+      "version": "0.3.6",
+      "destination": "node_modules/typescript-auto-import-cache",
+      "integrity": "sha512-RpuHXrknHdVdK7wv/8ug3Fr0WNsNi5l5aB8MYYuXhq2UH5lnEB1htJ1smhtD5VeCsGr2p8mUDtd83LCQDFVgjQ==",
+      "compressed_size": 15672,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/typescript-auto-import-cache.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "tsc"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-css",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-css",
+      "integrity": "sha512-wRRFt9BpjMKCazcgOh67MSjUjiWUCAh99DyYSDIOTuxaRjEtDC7PpB0k1Y1wbJIW/pVtMUSVbpPo3UGSm0Byxw==",
+      "compressed_size": 5181,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/css"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-emmet",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-emmet",
+      "integrity": "sha512-zqjzt6bN95e3CUstBm0PBFAJnrfz0ZAARka87fart46/gNCLLuP3Vujy8V/J8HEziTFLnfkgIASLFYPUhonJcA==",
+      "compressed_size": 13767,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/emmet"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-html",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-html",
+      "integrity": "sha512-e8tHPhgQ7ooLfudAEIku+kgd9pWkq3SSz8RbnQDI1+Eb8wbenkLGHqoirLqz5ORLV6wIMr2Iv08RWBG5eOcgpw==",
+      "compressed_size": 5667,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/html"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-json",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-json",
+      "integrity": "sha512-behyNhAG5UEXfvbIOWdE62XsPkp/e5W0V3sz3AW6zy7vgWLzgvElR77YSlcu708GwKu7OOFl5m9sUGVfqLIriQ==",
+      "compressed_size": 4066,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/json"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-pug",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-pug",
+      "integrity": "sha512-vG4nkQxRfRTCwJsA1CbQ2hSsZjzsrsLDBGeJTDjIaymtOBfML5UMOROTB3ClVuEZVrtg1rquVzVlGTjhvc2ysg==",
+      "compressed_size": 6406,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/pug"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-pug-beautify",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-pug-beautify",
+      "integrity": "sha512-4oxv7xGwT6TxxuFZdXj9EdqUUUWSd1oz9H47z4s/shT9YVLKwrty+9ACbdQsjyWZTp6ES/EtcuSqKuPhz3Uhaw==",
+      "compressed_size": 2269,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/pug-beautify"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "volar-service-typescript",
+      "version": "0.0.71",
+      "destination": "node_modules/volar-service-typescript",
+      "integrity": "sha512-yTtM/BVT6hoyEYnDtaCyAtNhdNeS/mhTTABlBOdw3NNiRBUin3IznFJpgfjer4c6RYopiPjjQjc9VFhxVl1mLw==",
+      "compressed_size": 31979,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/services.git",
+        "directory": "packages/typescript"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-css-languageservice",
+      "version": "6.3.10",
+      "destination": "node_modules/vscode-css-languageservice",
+      "integrity": "sha512-eq5N9Er3fC4vA9zd9EFhyBG90wtCCuXgRSpAndaOgXMh1Wgep5lBgRIeDgjZBW9pa+332yC9+49cZMW8jcL3MA==",
+      "compressed_size": 451792,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-css-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run copy-jsbeautify && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "watch": "npm run copy-jsbeautify && tsc -w -p ./src",
+        "test": "npm run compile && npm run mocha",
+        "mocha": "mocha --require source-map-support/register",
+        "coverage": "npm run compile && npx nyc --reporter=html --reporter=text  mocha",
+        "lint": "eslint src/**/*.ts",
+        "update-data": "npm install @vscode/web-custom-data -D && node ./build/generateData.js",
+        "install-types-next": "npm install vscode-languageserver-types@next -f -S && npm install vscode-languageserver-textdocument@next -f -S",
+        "copy-jsbeautify": "node ./build/copy-jsbeautify.js",
+        "update-jsbeautify": "npm install js-beautify && node ./build/update-jsbeautify.js",
+        "update-jsbeautify-next": "npm install js-beautify@next && node ./build/update-jsbeautify.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-css-languageservice/node_modules/vscode-languageserver-types",
+      "integrity": "sha512-Ld1VelNuX9pdF39h2Hgaeb5hEZM2Z3jUrrMgWQAu82jMtZp7p3vJT3BzToKtZI7NgQssZje5o0zryOrhQvzQAg==",
+      "compressed_size": 71382,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "clean": "node ../node_modules/.bin/rimraf lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "node ../build/bin/tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-html-languageservice",
+      "version": "5.6.2",
+      "destination": "node_modules/vscode-html-languageservice",
+      "integrity": "sha512-ulCrSnFnfQ16YzvwnYUgEbUEl/ZG7u2eV27YhvLObSHKkb8fw1Z9cgsnUwjTEeDIdJDoTDTDpxuhQwoenoLNMg==",
+      "compressed_size": 279402,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-html-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run copy-jsbeautify",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "watch": "tsc -w -p ./src && npm run copy-jsbeautify",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "test": "npm run compile && mocha --timeout 5000 ./lib/umd/test/*.js && npm run lint",
+        "lint": "eslint src/**/*.ts",
+        "install-types-next": "npm i vscode-languageserver-types@next -f -S && npm i vscode-languageserver-textdocument@next -f -S",
+        "copy-jsbeautify": "node ./build/copy-jsbeautify.js",
+        "update-jsbeautify": "npm i js-beautify && node ./build/update-jsbeautify.js",
+        "update-jsbeautify-next": "npm i js-beautify@next && node ./build/update-jsbeautify.js",
+        "update-data": "npm i @vscode/web-custom-data -D && node ./build/generateData.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-json-languageservice",
+      "version": "5.7.2",
+      "destination": "node_modules/vscode-json-languageservice",
+      "integrity": "sha512-WtKRDtJfFEmLrgtu+ODexOHm/6/krRF0k6t+uvkKIKW1Jh9ZIyxZQwJJwB3qhrEgvAxa37zbUg+vn+UyUK/U2w==",
+      "compressed_size": 84771,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-json-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "watch": "tsc -w -p ./src",
+        "pretest": "npm run compile",
+        "test": "mocha",
+        "posttest": "npm run lint",
+        "coverage": "npx nyc -r lcov npm run test",
+        "lint": "eslint src/**/*.ts",
+        "install-types-next": "npm install vscode-languageserver-types@next -f -S && npm install vscode-languageserver-textdocument@next -f -S",
+        "sample": "npm run compile && node ./lib/umd/example/sample.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "jsonc-parser",
+      "version": "3.3.1",
+      "destination": "node_modules/vscode-json-languageservice/node_modules/jsonc-parser",
+      "integrity": "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==",
+      "compressed_size": 27354,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/node-jsonc-parser"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "clean": "rimraf lib",
+        "watch": "tsc -w -p ./src",
+        "test": "npm run compile && mocha ./lib/umd/test",
+        "lint": "eslint src/**/*.ts"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "10.0.0",
+      "destination": "node_modules/vscode-jsonrpc",
+      "integrity": "sha512-USSfxg0vDIpTQqlQBGxF3mBARyoS8cU7LHLpbYNh6dOJt32dlskxPWB0Irrh5TllTmyf7oNLAvqDqzklbwwnpA==",
+      "compressed_size": 38220,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "jsonrpc"
+      },
+      "engines": {
+        "node": ">=14.17.0"
+      },
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "preversion": "npm test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "clean": "rimraf lib && rimraf dist",
+        "lint": "eslint src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/jsonrpc/src/browser/test/",
+        "webpack": "node ../build/bin/webpack  --mode none --config ./webpack.config.js",
+        "webpack:test": "node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:publish": "tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "9.0.1",
+      "destination": "node_modules/vscode-languageserver",
+      "integrity": "sha512-woByF3PDpkHFUreUa7Hos7+pUWdeWMXRd26+ZX2A8cFx6v/JPTtd4/uN0/jB6XQHYaOlHbio03NTHCqrgG5n7g==",
+      "compressed_size": 32720,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "server"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "clean": "node ../node_modules/.bin/rimraf lib",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm test",
+        "compile:publish": "node ../build/bin/tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.18.5",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "integrity": "sha512-FW4fBMzZ99N8xeob4py0l050wgCoRgTpEq5Xcsb9lM1bc29UKGR/wSV+4knaqFxssFHajy7OzNiKP/m3U1ZEuA==",
+      "compressed_size": 64372,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "protocol"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "preversion": "npm test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "clean": "rimraf lib && rimraf dist",
+        "lint": "eslint src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/protocol/src/browser/test/",
+        "webpack:test": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "compile:metaModelTool": "cd ../tools && npm run compile && cd ../protocol",
+        "generate:metaModel": "node ../tools/lib/generator-main.js -p ./src/common/tsconfig.json > ./metaModel.json",
+        "generate:metaModelSchema": "ts-json-schema-generator --tsconfig ../tools/tsconfig.json --path ../tools/src/metaModel.ts > ./metaModel.schema.json",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema",
+        "compile:publish": "tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "integrity": "sha512-qeNEuOi9a3qkqRf7Gfez2WL2VwlBTLCNekHBGO9kxPVUp9XuY15yfTJ9jwvOwKI0I2MhUUfZq95NSp+LK1CLQg==",
+      "compressed_size": 8576,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "textDocument"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.18.5",
+      "destination": "node_modules/vscode-languageserver-types",
+      "integrity": "sha512-kPd6+JQNz3HMJvjKlqUxERSlZHAntl/aGpsk7ImwIh0ewDKDcjgAEyVSYciPiOJD3ftbK9IrfiqUeTZLSbCizw==",
+      "compressed_size": 79442,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "8.2.0",
+      "destination": "node_modules/vscode-languageserver/node_modules/vscode-jsonrpc",
+      "integrity": "sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA==",
+      "compressed_size": 35427,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "jsonrpc"
+      },
+      "engines": {
+        "node": ">=14.0.0"
+      },
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "preversion": "npm test",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "clean": "node ../node_modules/.bin/rimraf lib && node ../node_modules/.bin/rimraf dist",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/jsonrpc/src/browser/test/",
+        "webpack": "node ../build/bin/webpack  --mode none --config ./webpack.config.js",
+        "webpack:test": "node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:publish": "node ../build/bin/tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-languageserver/node_modules/vscode-languageserver-protocol",
+      "integrity": "sha512-mb1bvRJN8SVznADSGWM9u/b07H7Ecg0I3OgXDuLdn307rl/J3A9YD6/eYOssqhecL27hK1IPZAsaqh00i/Jljg==",
+      "compressed_size": 59008,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "protocol"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "preversion": "npm test",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "clean": "node ../node_modules/.bin/rimraf lib && node ../node_modules/.bin/rimraf dist",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/protocol/src/browser/test/",
+        "webpack:test": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "compile:metaModelTool": "cd ../tools && npm run compile && cd ../protocol",
+        "generate:metaModel": "node ../tools/lib/generator-main.js -p ./src/common/tsconfig.json > ./metaModel.json",
+        "generate:metaModelSchema": "ts-json-schema-generator --tsconfig ../tools/tsconfig.json --path ../tools/src/metaModel.ts > ./metaModel.schema.json",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema",
+        "compile:publish": "node ../build/bin/tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-languageserver/node_modules/vscode-languageserver-types",
+      "integrity": "sha512-Ld1VelNuX9pdF39h2Hgaeb5hEZM2Z3jUrrMgWQAu82jMtZp7p3vJT3BzToKtZI7NgQssZje5o0zryOrhQvzQAg==",
+      "compressed_size": 71382,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "clean": "node ../node_modules/.bin/rimraf lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "node ../build/bin/tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-nls",
+      "version": "5.2.0",
+      "destination": "node_modules/vscode-nls",
+      "integrity": "sha512-RAaHx7B14ZU04EU31pT+rKz2/zSl7xMsfIZuo8pd+KZO6PXtQmpevpq3vxvWNcrGbdmhM/rr5Uw5Mz+NBfhVng==",
+      "compressed_size": 20283,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-nls.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.json -w",
+        "clean": "rimraf lib",
+        "test": "mocha",
+        "lint": "eslint --config .eslintrc.json ./**/*.ts"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-uri",
+      "version": "3.2.0",
+      "destination": "node_modules/vscode-uri",
+      "integrity": "sha512-m2gXo3bn0G1kT9InzMf07fTbqMbGtyckj3bH5ktLO+1Ssv+yiATZ4dhwaQv9UZWxJh6E9IFGnQyjgWVDWVBDrg==",
+      "compressed_size": 59281,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/microsoft/vscode-uri.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf lib",
+        "pack-production": "webpack --mode=production",
+        "pack-dev": "webpack",
+        "compile": "tsc -p ./src",
+        "prepublish": "npm run pack-production",
+        "test": "tsc -p ./src && npm run pack-dev && mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vue-component-meta",
+      "version": "3.3.14",
+      "destination": "node_modules/vue-component-meta",
+      "integrity": "sha512-OQT0AVGbFjmo/aIsyrNN8M3zR3D7U3SNyQPzVlotl89dxIdhhy95wYALiiFrHkBWyvTLRxMRQ3cqkbOMHEh8DQ==",
+      "compressed_size": 11459,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/vuejs/language-tools.git",
+        "directory": "packages/component-meta"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

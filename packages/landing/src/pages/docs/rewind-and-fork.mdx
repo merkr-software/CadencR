@@ -1,0 +1,64 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Rewind & Fork"
+description: "Return to an earlier turn or branch a conversation while understanding what happens to code."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/rewind-and-fork.png";
+
+Use the hover actions or context menu on an eligible, persisted **user message** to rewind or fork from that point. Availability depends on the provider's conversation-branching capability and the task's stored history/checkpoints.
+
+<DocScreenshot
+  src={pageImage}
+  alt="Fork and Rewind actions on a user message in an example conversation. Provider support determines availability."
+  caption="Fork and Rewind actions on a user message in an example conversation. Provider support determines availability."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Choose the operation
+
+| Action         | Conversation history                                                   | Code and working folder                                               |
+| -------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Rewind to here | Return the current conversation to the selected earlier point          | Restore its pre-turn code checkpoint when available and confirmed     |
+| Fork from here | Create a new feature/conversation continuing from that earlier context | Keep the source worktree's current code and share that working folder |
+
+**Fork does not create an independent Git worktree and does not roll code back.** The source and fork can both see and edit the same files. Use a separate-worktree workflow when you need isolated implementations.
+
+## Rewind step by step
+
+1. Choose the user message before the work you want to revisit.
+2. Hover the message or open its context menu, then choose **Rewind**.
+3. Review the selected checkpoint and any warning about local changes.
+4. Confirm only when the code restore and conversation cut match your intent.
+5. Review the resulting files before sending a replacement prompt.
+
+Checkpoints are captured before turns. They cover tracked/staged code as supported by the checkpoint implementation; existing untracked local files are preserved. They are not a complete backup of every file on the machine.
+
+If transcript branching or the required code restore cannot complete, CadencR reports the failure and aborts rather than silently presenting a successful rewind. Older messages or capture failures can lack a usable checkpoint. In that case, conversation context can be rewound while code stays unchanged; inspect whether the result actually restored code.
+
+## Fork step by step
+
+Choose **Fork** on the selected user message. CadencR creates a new feature, opens it, and restores that message as a draft to continue from. The source conversation remains available.
+
+Both conversations share the source checkout. Coordinate edits or move to an isolated worktree before having both agents implement different changes.
+
+## Provider support
+
+The built-in branching implementations cover **Claude Code, Codex, and OpenCode**. The Cursor plugin and local connectors need their own advertised branching capability. Do not assume a native CLI's similarly named command is available through CadencR.
+
+Codex branches at safe turn boundaries. A selected message inside a turn containing multiple user messages can be refused because it cannot be cut safely. CadencR reports that limitation rather than branching at another prompt.
+
+## Continued the conversation in a CLI?
+
+Use **Sync from CLI** in Session Info on supported provider conversations to append missing events from that same provider history. This imports missing conversation events; it is separate from rewinding code or creating a fork.
+
+## Related guides
+
+- [Session view](../session-view/) — locate and read earlier prompts.
+- [Worktrees](../worktrees/) — shared versus separate checkouts.
+- [Git](../git/) — inspect files before and after an operation.

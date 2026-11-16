@@ -105,7 +105,7 @@ pub async fn get_commit_log(
     head_rev: &str,
 ) -> Result<Vec<CommitLogEntry>, AppError> {
     let range = format!("{base_branch}..{head_rev}");
-    let format_arg = format!("\x1e%H%n%h%n%s%n%an%n%ai%n%b");
+    let format_arg = "\x1e%H%n%h%n%s%n%an%n%ai%n%b".to_string();
     let stdout = run_git_quiet(
         &[
             "log",
@@ -130,7 +130,7 @@ pub async fn get_recent_commits(
     limit: i64,
     rev: &str,
 ) -> Result<Vec<CommitLogEntry>, AppError> {
-    let format_arg = format!("\x1e%H%n%h%n%s%n%an%n%ai%n%b");
+    let format_arg = "\x1e%H%n%h%n%s%n%an%n%ai%n%b".to_string();
     let limit_arg = format!("-{limit}");
     let stdout = run_git_quiet(
         &["log", rev, &format!("--format={format_arg}"), &limit_arg],

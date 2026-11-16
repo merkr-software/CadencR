@@ -12,6 +12,12 @@ use tracing::{debug, warn};
 use crate::domain::editor::service::{
     build_gitignore, clear_gitignore_cache, is_gitignored_or_ancestor,
 };
+use crate::shared::watch_limits::describe_watch_error;
+
+mod changed_documents;
+mod subscriptions;
+use changed_documents::ChangedDocuments;
+pub use subscriptions::EditorWatchers;
 
 /// Minimum gap between successive change emissions under sustained churn.
 /// Mirrors the git watcher's `MIN_RECOMPUTE_GAP_MS` so an agent (or a build)
@@ -23,9 +29,27 @@ const MIN_EMIT_GAP_MS: i64 = 1000;
 #[derive(Clone, Debug)]
 pub struct FileChangeEvent {
     pub project_path: String,
+    /// Feature whose editor root is watched (`None` for a project root).
+    pub feature_id: Option<i64>,
+    /// Previewable documents (PDF / Office) written since the last event,
+    /// relative to `project_path`, most recent last.
+    pub documents: Vec<String>,
 }
 
-/// Manages a single file-system watcher for the active project.
+impl FileChangeEvent {
+    /// The `editor/file_tree.changed` WS payload.
+    pub fn payload(&self) -> serde_json::Value {
+        serde_json::json!({
+            "project_path": self.project_path,
+            "feature_id": self.feature_id,
+            "documents": self.documents,
+        })
+    }
+}
+
+/// One recursive file-system watcher over an editor root. Dropping it stops
+/// the watch.
+#[derive(Default)]
 pub struct FileWatcher {
     debouncer: Option<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>,
     watched_path: Option<PathBuf>,
@@ -36,15 +60,6 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn new() -> Self {
-        Self {
-            debouncer: None,
-            watched_path: None,
-            ping_tx: None,
-            emit_task: None,
-        }
-    }
-
     /// Start watching `project_path` recursively. Events are sent to `tx`.
     /// Any previous watcher is stopped first.
     ///
@@ -55,6 +70,7 @@ impl FileWatcher {
     pub fn start(
         &mut self,
         project_path: &str,
+        feature_id: Option<i64>,
         tx: broadcast::Sender<FileChangeEvent>,
     ) -> Result<(), String> {
         self.stop();
@@ -64,10 +80,16 @@ impl FileWatcher {
         let project_str = canonical.to_string_lossy().to_string();
 
         let (ping_tx, ping_rx) = mpsc::unbounded_channel::<()>();
-        let emit_task = spawn_emit_task(tx, project_str, ping_rx);
+        let documents = Arc::new(ChangedDocuments::new(canonical.clone()));
+        let source = EventSource {
+            project_path: project_str,
+            feature_id,
+            documents: documents.clone(),
+        };
+        let emit_task = spawn_emit_task(tx, source, ping_rx);
 
         let gitignore = Arc::new(Mutex::new(build_gitignore(&canonical)));
-        let debouncer = build_debouncer(canonical.clone(), gitignore, ping_tx.clone())?;
+        let debouncer = build_debouncer(canonical.clone(), gitignore, documents, ping_tx.clone())?;
 
         debug!(path = %canonical.display(), "file watcher started");
         self.debouncer = Some(debouncer);
@@ -93,12 +115,38 @@ impl FileWatcher {
     }
 }
 
+/// [`FileWatcher::start`] off the async runtime: starting walks the tree for
+/// `.gitignore`s and registers the recursive watch, which can take seconds on
+/// a large repository.
+pub async fn start_off_runtime(
+    root: &Path,
+    feature_id: Option<i64>,
+    tx: broadcast::Sender<FileChangeEvent>,
+) -> Result<FileWatcher, String> {
+    let root = root.to_string_lossy().into_owned();
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        let _runtime = runtime.enter();
+        let mut watcher = FileWatcher::default();
+        watcher.start(&root, feature_id, tx).map(|()| watcher)
+    })
+    .await
+    .map_err(|error| format!("file watcher start failed: {error}"))?
+}
+
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// Build the `notify-debouncer-mini` and start the recursive watch. The
 /// callback filters `.git` internals and gitignored paths, then pings the
 /// emit task for any remaining relevant change.
 fn build_debouncer(
     canonical: PathBuf,
     gitignore: Arc<Mutex<Option<Gitignore>>>,
+    documents: Arc<ChangedDocuments>,
     ping_tx: mpsc::UnboundedSender<()>,
 ) -> Result<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>, String> {
     let project_root = Arc::new(canonical.clone());
@@ -113,21 +161,24 @@ fn build_debouncer(
                 }
             };
             let mut relevant_gitignore_changed = false;
-            let has_relevant = match gitignore.lock() {
-                Ok(matcher) => events.iter().any(|e| {
-                    if e.kind != DebouncedEventKind::Any {
-                        return false;
-                    }
-                    let is_relevant = !is_noise(matcher.as_ref(), &e.path);
-                    if is_relevant && is_gitignore_file(&e.path) {
-                        relevant_gitignore_changed = true;
-                    }
-                    is_relevant
-                }),
+            let relevant: Vec<&Path> = match gitignore.lock() {
+                Ok(matcher) => events
+                    .iter()
+                    .filter(|e| e.kind == DebouncedEventKind::Any)
+                    .filter(|e| !is_noise(matcher.as_ref(), &e.path))
+                    .map(|e| e.path.as_path())
+                    .collect(),
                 Err(_) => events
                     .iter()
-                    .any(|e| e.kind == DebouncedEventKind::Any && !is_git_path(&e.path)),
+                    .filter(|e| e.kind == DebouncedEventKind::Any && !is_git_path(&e.path))
+                    .map(|e| e.path.as_path())
+                    .collect(),
             };
+            for path in &relevant {
+                relevant_gitignore_changed |= is_gitignore_file(path);
+                documents.record(path);
+            }
+            let has_relevant = !relevant.is_empty();
             if relevant_gitignore_changed {
                 refresh_gitignore_cache(project_root.clone(), gitignore.clone());
             }
@@ -136,12 +187,12 @@ fn build_debouncer(
             }
         },
     )
-    .map_err(|e| format!("Failed to create watcher: {e}"))?;
+    .map_err(|e| describe_watch_error("Failed to create watcher", &e))?;
 
     debouncer
         .watcher()
         .watch(&canonical, RecursiveMode::Recursive)
-        .map_err(|e| format!("Failed to watch directory: {e}"))?;
+        .map_err(|e| describe_watch_error("Failed to watch directory", &e))?;
 
     Ok(debouncer)
 }
@@ -156,13 +207,20 @@ fn refresh_gitignore_cache(project_root: Arc<PathBuf>, gitignore: Arc<Mutex<Opti
     });
 }
 
+/// What every emission of one watcher carries besides the change itself.
+struct EventSource {
+    project_path: String,
+    feature_id: Option<i64>,
+    documents: Arc<ChangedDocuments>,
+}
+
 /// The churn-cap emit task: mirrors the git watcher's `MIN_RECOMPUTE_GAP_MS`
 /// pacing. The first change after a quiet period emits immediately; sustained
 /// churn is paced to one emission per `MIN_EMIT_GAP_MS`, and the final change
 /// after a burst still emits (so the tree never settles stale).
 fn spawn_emit_task(
     tx: broadcast::Sender<FileChangeEvent>,
-    project_path: String,
+    source: EventSource,
     mut ping_rx: mpsc::UnboundedReceiver<()>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -176,7 +234,9 @@ fn spawn_emit_task(
             }
             last_emit_ms = now_ms();
             let _ = tx.send(FileChangeEvent {
-                project_path: project_path.clone(),
+                project_path: source.project_path.clone(),
+                feature_id: source.feature_id,
+                documents: source.documents.drain(),
             });
         }
     })
@@ -206,13 +266,6 @@ fn is_git_path(path: &Path) -> bool {
 
 fn is_gitignore_file(path: &Path) -> bool {
     path.file_name().is_some_and(|name| name == ".gitignore")
-}
-
-/// Shared watcher handle stored in AppState.
-pub type SharedFileWatcher = Arc<Mutex<FileWatcher>>;
-
-pub fn new_shared() -> SharedFileWatcher {
-    Arc::new(Mutex::new(FileWatcher::new()))
 }
 
 #[cfg(test)]
@@ -295,9 +348,11 @@ mod tests {
     async fn watcher_starts_and_stops() {
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = tokio::sync::broadcast::channel(16);
-        let mut watcher = FileWatcher::new();
+        let mut watcher = FileWatcher::default();
 
-        assert!(watcher.start(dir.path().to_str().unwrap(), tx).is_ok());
+        assert!(watcher
+            .start(dir.path().to_str().unwrap(), None, tx)
+            .is_ok());
         assert!(watcher.watched_path.is_some());
 
         watcher.stop();
@@ -311,14 +366,16 @@ mod tests {
         let dir1 = tempfile::tempdir().unwrap();
         let dir2 = tempfile::tempdir().unwrap();
         let (tx, _rx) = tokio::sync::broadcast::channel(16);
-        let mut watcher = FileWatcher::new();
+        let mut watcher = FileWatcher::default();
 
         watcher
-            .start(dir1.path().to_str().unwrap(), tx.clone())
+            .start(dir1.path().to_str().unwrap(), None, tx.clone())
             .unwrap();
         let first_path = watcher.watched_path.clone();
 
-        watcher.start(dir2.path().to_str().unwrap(), tx).unwrap();
+        watcher
+            .start(dir2.path().to_str().unwrap(), Some(7), tx)
+            .unwrap();
         assert_ne!(first_path, watcher.watched_path);
 
         watcher.stop();
@@ -344,7 +401,16 @@ mod tests {
     async fn emit_task_delivers_leading_change() {
         let (tx, mut rx) = broadcast::channel::<FileChangeEvent>(64);
         let (ping_tx, ping_rx) = mpsc::unbounded_channel::<()>();
-        let task = spawn_emit_task(tx, "/proj".to_string(), ping_rx);
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("report.pdf"), b"%PDF").unwrap();
+        let documents = Arc::new(ChangedDocuments::new(tmp.path().to_path_buf()));
+        documents.record(&tmp.path().join("report.pdf"));
+        let source = EventSource {
+            project_path: "/proj".to_string(),
+            feature_id: Some(3),
+            documents,
+        };
+        let task = spawn_emit_task(tx, source, ping_rx);
 
         ping_tx.send(()).unwrap();
         let received = tokio::time::timeout(Duration::from_secs(2), rx.recv())
@@ -352,6 +418,8 @@ mod tests {
             .expect("leading change should be emitted")
             .expect("channel open");
         assert_eq!(received.project_path, "/proj");
+        assert_eq!(received.feature_id, Some(3));
+        assert_eq!(received.documents, vec!["report.pdf"]);
 
         drop(ping_tx);
         let _ = task.await;

@@ -13,6 +13,7 @@ import {
   trimTailPromptTurnBoundary,
 } from "./ws-pending-prompts";
 import { repairPersistedBlocksAfterTurn } from "./ws-session-resync";
+import { repairRecoveredPersistence } from "./ws-persistence-resync";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
 import { toast } from "sonner";
@@ -20,9 +21,9 @@ import { toast } from "sonner";
 /**
  * `session.stream_status` envelope handler. The backend emits this when
  * the underlying transport for an agent stream goes degraded or recovers
- * (today only OpenCode emits transitions away from `"ok"`). The shape is
- * provider-neutral. PR-A wires the store flag; PR-C will render an
- * inline "Reconnecting…" banner under the loader.
+ * (OpenCode on reconnect, Codex while it retries a stream error). The
+ * shape is provider-neutral; `AgentSessionStreamNotice` renders it above
+ * the composer, and the turn's `session.ended` clears it.
  *
  * This is the user-visible counterpart to plan finding #1: the smoking-
  * gun fix in the SDK now drops subscriber senders on reconnect, the
@@ -120,26 +121,33 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
   const receivedBlocks = markPromptsReceived(session.blocks, ended.receivedPromptMessageUuids);
   const terminalBlocks = markPendingPromptsUnknown(receivedBlocks);
   const tailPromptBoundary = trimTailPromptTurnBoundary(terminalBlocks);
-  const blocks = tailPromptBoundary.blocks;
+  // The backend persisted a "stopped by you" marker for this turn; show it now
+  // (a reload reads the persisted row instead).
+  const blocks =
+    ended.reason === "turn_interrupted"
+      ? [
+          ...tailPromptBoundary.blocks,
+          { id: `interrupted-${Date.now()}`, type: "turn_interrupted" as const, content: "" },
+        ]
+      : tailPromptBoundary.blocks;
   const lifecycle = transitionTurn(session.lifecycle, {
     type: "turn_ended",
     reason: mapTerminalReason(ended.reason),
   });
-  const shouldClearRuntimeCompacting = session.runtimeCompacting;
-  if (
-    blocks === session.blocks &&
-    lifecycle === session.lifecycle &&
-    !shouldClearRuntimeCompacting
-  ) {
+  // A retry the provider never reported recovering from ends with the turn.
+  const streamRecovered = session.streamHealth.state === "degraded";
+  if (blocks === session.blocks && lifecycle === session.lifecycle && !streamRecovered) {
+    repairRecoveredPersistence(ctx, sessionId);
     return;
   }
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       ...(blocks === session.blocks ? {} : blocksPatchWithDerived(state, blocks)),
       lifecycle,
-      ...(shouldClearRuntimeCompacting ? { runtimeCompacting: false } : {}),
+      ...(streamRecovered ? { streamHealth: { state: "ok", since: Date.now() } } : {}),
     }),
   );
+  repairRecoveredPersistence(ctx, sessionId);
 }
 
 function mapTerminalReason(reason: string | undefined): TurnTerminalReason {

@@ -8,7 +8,9 @@ use super::{
     ManagedContractError, ManagedContractErrorCode, ManagedProviderIndex, ManagedProviderPackage,
     ResolvedManagedProviderPackage, SignedManagedProviderIndex, MANAGED_INDEX_SCHEMA_VERSION,
 };
-use crate::domain::agents::providers::installed::descriptor::current_binary_target;
+use crate::domain::agents::providers::installed::descriptor::{
+    current_binary_target, AcpBinaryTarget,
+};
 
 mod host_policy;
 use host_policy::{
@@ -110,7 +112,9 @@ pub(super) fn validate_publication_window(
     Ok(())
 }
 
-fn validate_package(package: &ManagedProviderPackage) -> Result<Version, ManagedContractError> {
+pub(super) fn validate_package(
+    package: &ManagedProviderPackage,
+) -> Result<Version, ManagedContractError> {
     package.agent.validate_registry_entry().map_err(|error| {
         ManagedContractError::new(
             ManagedContractErrorCode::InvalidPortableEntry,
@@ -164,14 +168,22 @@ pub(super) fn resolve_current_platform(
     app_version: &str,
 ) -> Result<ResolvedManagedProviderPackage, ManagedContractError> {
     validate_signed_index(envelope)?;
+    resolve_verified_provider_view(&envelope.signed, provider_id, provider_version, app_version)
+}
+
+pub(super) fn resolve_verified_provider_view(
+    index: &ManagedProviderIndex,
+    provider_id: &str,
+    provider_version: &str,
+    app_version: &str,
+) -> Result<ResolvedManagedProviderPackage, ManagedContractError> {
     Version::parse(provider_version).map_err(|error| {
         ManagedContractError::new(
             ManagedContractErrorCode::InvalidPackageVersion,
             format!("requested provider version must be exact semantic version: {error}"),
         )
     })?;
-    let package = envelope
-        .signed
+    let package = index
         .packages
         .iter()
         .find(|package| {
@@ -194,6 +206,24 @@ pub(super) fn resolve_current_platform(
     resolve_platform(package, current_binary_target())
 }
 
+fn binary_for<'a>(
+    package: &'a ManagedProviderPackage,
+    platform: &str,
+) -> Option<&'a AcpBinaryTarget> {
+    package
+        .agent
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.binary.as_ref())
+        .and_then(|binary| binary.get(platform))
+}
+
+/// Whether the installer can resolve `package` for `platform` (`None`: this
+/// OS/architecture has no registry target name, so nothing installs).
+pub(super) fn ships_for_platform(package: &ManagedProviderPackage, platform: Option<&str>) -> bool {
+    platform.is_some_and(|platform| binary_for(package, platform).is_some())
+}
+
 fn resolve_platform(
     package: &ManagedProviderPackage,
     platform: Option<&str>,
@@ -204,21 +234,15 @@ fn resolve_platform(
             "this OS/architecture has no ACP Registry binary target name",
         )
     })?;
-    let target = package
-        .agent
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.binary.as_ref())
-        .and_then(|binary| binary.get(platform))
-        .ok_or_else(|| {
-            ManagedContractError::new(
-                ManagedContractErrorCode::UnsupportedPlatform,
-                format!(
-                    "managed package {}@{} has no binary for {platform}",
-                    package.agent.id, package.agent.version
-                ),
-            )
-        })?;
+    let target = binary_for(package, platform).ok_or_else(|| {
+        ManagedContractError::new(
+            ManagedContractErrorCode::UnsupportedPlatform,
+            format!(
+                "managed package {}@{} has no binary for {platform}",
+                package.agent.id, package.agent.version
+            ),
+        )
+    })?;
     Ok(ResolvedManagedProviderPackage {
         provider_id: package.agent.id.clone(),
         provider_version: package.agent.version.clone(),

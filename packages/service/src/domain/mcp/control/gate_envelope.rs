@@ -1,4 +1,4 @@
-use super::reply_envelope::escape_xml_attribute;
+use crate::shared::markup::escape_attribute;
 
 pub(super) struct GateEnvelopeMetadata<'a> {
     pub child_session_id: i64,
@@ -18,10 +18,10 @@ pub(super) fn build_gate_envelope(
         "<cadencr-gate from-session=\"{}\" from-feature=\"{}\" from-feature-title=\"{}\" from-project=\"{}\" kind=\"{}\" request-id=\"{}\">\n{}\n</cadencr-gate>",
         metadata.child_session_id,
         metadata.child_feature_id,
-        escape_xml_attribute(metadata.child_feature_title),
+        escape_attribute(metadata.child_feature_title),
         metadata.child_project_id,
         metadata.kind,
-        escape_xml_attribute(metadata.request_id),
+        escape_attribute(metadata.request_id),
         body,
     ))
 }

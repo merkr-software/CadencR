@@ -70,4 +70,30 @@ describe("Dialog", () => {
     );
     expect(screen.queryByText("Hidden content")).not.toBeInTheDocument();
   });
+
+  it("caps every dialog to the visible viewport, unless it brings its own cap", () => {
+    const { rerender } = render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Capped</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    // Without a cap a tall dialog ran off a phone screen, footer and all.
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-(--dialog-max-h)", "overflow-y-auto");
+
+    rerender(
+      <Dialog open>
+        <DialogContent className="max-h-[min(85vh,var(--dialog-max-h))] overflow-hidden p-0">
+          <DialogTitle>Own cap</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("max-h-[min(85vh,var(--dialog-max-h))]", "overflow-hidden", "p-0");
+    // `not.toHaveClass` with several names only fails when all are present.
+    for (const replaced of ["max-h-(--dialog-max-h)", "overflow-y-auto", "p-6"]) {
+      expect(dialog).not.toHaveClass(replaced);
+    }
+  });
 });

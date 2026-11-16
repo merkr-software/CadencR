@@ -1,5 +1,8 @@
 //! Deterministic subprocess -> adapter -> WS -> persistence regression replay.
 //! No real Codex/model/subagents and no existing database are used.
+//!
+//! Own test binary: it calls `settings_store::init` (a first-call-wins
+//! `OnceLock`) and installs a process-global Codex binary override.
 mod common;
 
 use std::path::Path;
@@ -84,6 +87,7 @@ async fn codex_conversation_routing_and_completion_survive_messaging() {
 
     for mode in [
         "legacy",
+        "large-history",
         "upward",
         "sibling",
         "resumed",
@@ -95,6 +99,8 @@ async fn codex_conversation_routing_and_completion_survive_messaging() {
         "read-timeout",
         "missing-parent",
         "conflicting-parent",
+        "close-error",
+        "close-timeout",
     ] {
         let feature: Value = server
             .client
@@ -108,6 +114,18 @@ async fn codex_conversation_routing_and_completion_survive_messaging() {
             .json()
             .await
             .unwrap();
+        if mode == "large-history" {
+            let session_id: i64 = sqlx::query_scalar(
+                "INSERT INTO agent_sessions (feature_id,agent_type,status,runtime_provider,runtime_session_id,model) \
+                 VALUES (?,'session','paused','codex_cli','11111111-1111-4111-8111-111111111111','qa-model') RETURNING id",
+            )
+            .bind(feature["id"].as_i64().unwrap())
+            .fetch_one(&server.pool)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO agent_messages (session_id,role,message_type,content) VALUES (?,'assistant','text','PERSISTED_BEFORE_RESUME')")
+                .bind(session_id).execute(&server.pool).await.unwrap();
+        }
         let mut socket = connect(&server.base_url).await;
         send(&mut socket, "app", "subscribe.session_status", json!({})).await;
         send(
@@ -258,6 +276,16 @@ async fn codex_conversation_routing_and_completion_survive_messaging() {
         assert!(hydration
             .to_string()
             .contains(&format!("ROOT_FINAL_{mode}")));
+        if mode == "large-history" {
+            assert!(hydration.to_string().contains("PERSISTED_BEFORE_RESUME"));
+            let runtime_id: String =
+                sqlx::query_scalar("SELECT runtime_session_id FROM agent_sessions WHERE id=?")
+                    .bind(session.parse::<i64>().unwrap())
+                    .fetch_one(&server.pool)
+                    .await
+                    .unwrap();
+            assert_eq!(runtime_id, "11111111-1111-4111-8111-111111111111");
+        }
         if mode == "upward" {
             send(
                 &mut socket,
@@ -276,6 +304,50 @@ async fn codex_conversation_routing_and_completion_survive_messaging() {
                 "SELECT parent_tool_use_id FROM agent_messages WHERE session_id=? AND content='ROOT_FINAL_legacy_2'",
             ).bind(session.parse::<i64>().unwrap()).fetch_one(&server.pool).await.unwrap();
             assert!(parent.is_none(), "later root turns stay at the root");
+        }
+        if matches!(mode, "close-error" | "close-timeout") {
+            let started = tokio::time::Instant::now();
+            send(
+                &mut socket,
+                "session",
+                "destroy",
+                json!({"session_id":session}),
+            )
+            .await;
+            let mut reported = false;
+            let mut destroyed = false;
+            while !reported || !destroyed {
+                let event = next(&mut socket).await;
+                if event["action"] == "error" {
+                    let message = event["payload"]["message"].as_str().unwrap();
+                    assert!(message.contains("thread/unsubscribe failed"), "{event}");
+                    assert!(
+                        message.contains(if mode == "close-error" {
+                            "UNSUBSCRIBE_FAILED"
+                        } else {
+                            "timed out"
+                        }),
+                        "{event}"
+                    );
+                    reported = true;
+                }
+                destroyed |=
+                    event["action"] == "ended" && event["payload"]["reason"] == "destroyed";
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "close remains bounded"
+            );
+            let messages: Vec<String> = sqlx::query_scalar(
+                "SELECT content FROM agent_messages WHERE session_id=? AND message_type='error'",
+            )
+            .bind(session.parse::<i64>().unwrap())
+            .fetch_all(&server.pool)
+            .await
+            .unwrap();
+            assert!(messages
+                .iter()
+                .any(|text| text.contains("thread/unsubscribe failed")));
         }
         socket.close(None).await.unwrap();
     }

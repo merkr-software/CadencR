@@ -111,15 +111,15 @@ async fn run_formatter(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| AppError::Internal(format!("failed to spawn {formatter_id}: {e}")))?;
+        .map_err(|e| AppError::internal(format!("failed to spawn {formatter_id}: {e}")))?;
 
     let mut stdin = child
         .stdin
         .take()
-        .ok_or_else(|| AppError::Internal("formatter stdin unavailable".into()))?;
+        .ok_or_else(|| AppError::internal("formatter stdin unavailable"))?;
     if let Err(error) = stdin.write_all(content.as_bytes()).await {
         if error.kind() != ErrorKind::BrokenPipe {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "failed writing to {formatter_id}: {error}"
             )));
         }
@@ -129,7 +129,7 @@ async fn run_formatter(
     let output = child
         .wait_with_output()
         .await
-        .map_err(|e| AppError::Internal(format!("{formatter_id} did not complete: {e}")))?;
+        .map_err(|e| AppError::internal(format!("{formatter_id} did not complete: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -143,7 +143,7 @@ async fn run_formatter(
     }
 
     String::from_utf8(output.stdout)
-        .map_err(|e| AppError::Internal(format!("{formatter_id} produced invalid UTF-8: {e}")))
+        .map_err(|e| AppError::internal(format!("{formatter_id} produced invalid UTF-8: {e}")))
 }
 
 #[cfg(test)]

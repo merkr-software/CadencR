@@ -4,13 +4,11 @@
 //! choices (model id mapping, permission decisions, tool name aliases) to
 //! `AcpProviderHooks`.
 
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 
-use agent_client_protocol::schema::v1::{CancelNotification, CloseSessionRequest};
+use agent_client_protocol::schema::v1::CancelNotification;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, RwLock};
@@ -27,21 +25,20 @@ use super::super::apply_model_config::apply_model_config;
 use super::super::config_options::set_config_option_thinking_effort;
 use super::super::events_config_option::mirror_config_snapshot;
 use super::super::events_stream_blocks::EventIndexer;
-use super::super::mode_switch::set_session_mode;
-use super::super::permissions::{reject_all_pending, take_pending, PendingPermissions};
+use super::super::permissions::{
+    pending_permission_response_kind, pending_permission_response_payload, reject_all_pending,
+    take_pending, PendingPermissions,
+};
 use super::super::prompt_receipts::PendingPromptReceipts;
 use super::super::provider_hooks::{AcpProviderHooks, PermissionFallbackOutcome};
 use super::super::session_config::AcpSessionConfigState;
 use super::super::session_permissions::{PermissionKey, SessionPermissions};
+use super::super::terminal_registry::TerminalRegistry;
 use super::super::turn_lifecycle::{PromptCancel, PromptTurnLock};
 
 /// Channel buffer for the per-session runtime stream. Matches the size used
 /// by other adapters; deltas are coalesced upstream so even noisy turns fit.
 pub const MESSAGE_CHANNEL_CAPACITY: usize = 1024;
-// Must stay below the process-wide stream-reader shutdown deadline (2s): a
-// peer that advertises `session/close` but never replies must still leave time
-// to close the local runtime channel before the reader is joined.
-const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Provider-neutral ACP session.
 pub struct AcpRuntimeSession {
@@ -79,6 +76,9 @@ pub struct AcpRuntimeSession {
     /// ACP transport silently drops can be injected into the runtime
     /// channel). Aborted on `close()`.
     pub(in crate::domain::agents::acp::runtime) side_channel_task: Option<JoinHandle<()>>,
+    /// The session's terminals (shared with the event loop that serves
+    /// `terminal/*`). Their process groups are stopped on `close()`.
+    pub(in crate::domain::agents::acp::runtime) terminals: Arc<TerminalRegistry>,
     pub(in crate::domain::agents::acp::runtime) local_tx:
         Option<mpsc::Sender<Result<RuntimeEvent, RuntimeError>>>,
     pub(in crate::domain::agents::acp::runtime) hooks: Arc<dyn AcpProviderHooks>,
@@ -91,11 +91,6 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) replay_suppression: Arc<AtomicBool>,
     /// Client prompt ids waiting for provider-side receipt confirmation.
     pub(in crate::domain::agents::acp::runtime) pending_prompt_receipts: Arc<PendingPromptReceipts>,
-    /// Provider-requested prompts that must start only after the current ACP
-    /// turn has returned. Stored in the runtime rather than the frontend so a
-    /// browser reconnect cannot lose an approved continuation.
-    pub(in crate::domain::agents::acp::runtime) pending_followups:
-        Arc<RwLock<VecDeque<(String, Value)>>>,
     /// Serialises prompt turns so a second `stream_input` waits for the
     /// in-flight turn (request + post-response drain) to finish before
     /// sending its own `session/prompt` (W4).
@@ -169,7 +164,14 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         // agents may reject or merge it. Serialise turns at the host boundary so
         // every accepted user message gets one authoritative turn result and the
         // frontend cannot remain stuck in `agent` after a queued follow-up.
+        let cancels = self.prompt_cancel.cancels();
         let _guard = self.prompt_turn_lock.lock().await;
+        // It waited for a turn a Stop then ended: it must not start its own.
+        if self.prompt_cancel.cancelled_since(cancels) {
+            return Err(RuntimeError::input_withdrawn(
+                "the turn was stopped before this follow-up reached the agent",
+            ));
+        }
         self.prompt_input(content, client_message_id, true).await
     }
 
@@ -197,37 +199,20 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         Ok(())
     }
 
-    async fn close(&mut self) {
-        self.closing.store(true, Ordering::SeqCst);
-        // Prefer the stable lifecycle request when advertised. A connector
-        // that accepts it must cancel ongoing work and release the session's
-        // resources. Fall back to the baseline cancel notification if the
-        // optional request fails so teardown remains bounded and best-effort.
-        if let Some(session_id) = self.current_session_id().await {
-            let should_cancel = if self.supports_session_close {
-                match self
-                    .client
-                    .send_request_typed(
-                        CloseSessionRequest::new(session_id.clone()),
-                        SESSION_CLOSE_TIMEOUT,
-                    )
-                    .await
-                {
-                    Ok(_) => false,
-                    Err(error) => {
-                        tracing::warn!(%error, "ACP session/close failed; falling back to session/cancel");
-                        true
-                    }
-                }
-            } else {
-                true
-            };
-            if should_cancel {
-                let _ = self
-                    .client
-                    .send_notification_typed(CancelNotification::new(session_id))
-                    .await;
-            }
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        // Only the first close tells the agent. A later one (an idle reader
+        // retiring the runtime the shutdown already closed, or a retry of a
+        // close the shutdown deadline cut short) finishes the local teardown,
+        // which is safe to repeat, without asking the agent again.
+        let first_close = !self.closing.swap(true, Ordering::SeqCst);
+        self.client.begin_close();
+        let session_id = if first_close {
+            self.current_session_id().await
+        } else {
+            None
+        };
+        if let Some(session_id) = session_id {
+            super::close::tell_agent(self, session_id).await;
         }
         reject_all_pending(&self.client, &self.pending_permissions).await;
         // Drop session-scoped permission grants on close.
@@ -238,11 +223,16 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         if let Some(task) = self.side_channel_task.take() {
             task.abort();
         }
+        // After the event loop: no `terminal/create` can race the stop. The
+        // terminals lead their own process groups, so nothing else ends what
+        // they left running.
+        self.terminals.shutdown().await;
         // The stream receiver is owned outside the runtime. Drop our last
         // steady-state sender after stopping producer tasks so it observes EOF
         // even while the closed runtime remains registered for resume metadata.
         self.local_tx.take();
         self.client.shutdown().await;
+        Ok(())
     }
 
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError> {
@@ -254,7 +244,6 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             &self.client,
             &session_id,
             &self.current_model,
-            &self.current_effort,
             &self.supports_set_config_option,
             &self.session_config,
             self.hooks.as_ref(),
@@ -306,40 +295,16 @@ impl AgentRuntimeSession for AcpRuntimeSession {
                 value,
             )
             .await?;
-        mirror_config_snapshot(
-            &snapshot,
-            self.hooks.as_ref(),
-            &self.current_model,
-            &self.current_effort,
-        )
-        .await;
+        mirror_config_snapshot(&snapshot, &self.current_model, &self.current_effort).await;
         Ok(snapshot)
     }
 
     async fn set_permission_mode(&self, mode: RuntimePermissionMode) -> Result<(), RuntimeError> {
-        let mode_id = self
-            .hooks
-            .mode_for_permission_mode(mode)
-            .or_else(|| self.hooks.default_mode_id().map(ToOwned::to_owned))
-            .ok_or_else(|| RuntimeError::new("ACP provider does not support permission modes"))?;
-        let session_id = self.require_session_id().await?;
-        set_session_mode(
-            &self.client,
-            &session_id,
-            &self.current_mode,
-            &self.supports_set_mode,
-            &mode_id,
-        )
-        .await
+        self.switch_permission_mode(mode).await
     }
 
     async fn set_access_mode(&self, mode: RuntimeAccessMode) -> Result<(), RuntimeError> {
-        // Apply the change to the provider's in-memory access state so any
-        // host-side permission decision (Cursor's Auto Review preflight) takes
-        // effect on the current turn. Launch-flag-encoded parts of the access
-        // mode still ride the runtime respawn path.
-        self.hooks.update_access_mode(mode);
-        Ok(())
+        self.apply_access_mode(&mode).await
     }
 
     async fn respond_permission(
@@ -351,32 +316,24 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         // through to the provider-specific hook (e.g. OpenCode's question
         // sidecar) before surfacing a "no pending" error.
         if let Some(pending) = take_pending(&self.pending_permissions, &response.request_id).await {
-            // Cache session/always grants; one-shot variants are no-ops.
-            let key = PermissionKey::new(&pending.request.tool_name, &pending.request.tool_input);
-            self.session_permissions
-                .record(key, response.decision)
-                .await;
-            let resolution =
-                self.hooks
-                    .resolve_server_request(&pending.method, &pending.params, &response);
-            if let Some(followup) = resolution.followup {
-                self.pending_followups
-                    .write()
-                    .await
-                    .push_back((response.request_id.clone(), followup));
+            // Cache session/always grants; one-shot variants are no-ops. An
+            // answer carrying `updated_input` is specific to this request, so
+            // replaying its bare decision later would drop the answer.
+            if response.updated_input.is_none() {
+                let key =
+                    PermissionKey::new(&pending.request.tool_name, &pending.request.tool_input);
+                self.session_permissions
+                    .record(key, response.decision)
+                    .await;
             }
-            let result = self
+            return self
                 .client
-                .respond_server_request(pending.server_id, resolution.response)
+                .respond_server_request(
+                    pending.server_id.clone(),
+                    pending_permission_response_payload(&pending, &response),
+                )
                 .await
                 .map_err(|e| RuntimeError::new(format!("respond_permission write failed: {e}")));
-            if result.is_err() {
-                self.pending_followups
-                    .write()
-                    .await
-                    .retain(|(request_id, _)| request_id != &response.request_id);
-            }
-            return result;
         }
         let request_id = response.request_id.clone();
         let decision = response.decision;
@@ -398,7 +355,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     fn permission_response_kind(&self, request_id: &str) -> RuntimePermissionResponseKind {
-        self.hooks.permission_response_kind(request_id)
+        pending_permission_response_kind(&self.pending_permissions, request_id)
     }
 
     fn pid(&self) -> Option<u32> {

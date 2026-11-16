@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "tailwindcss-language-server",
+  "status": "available-upstream-notices-preserved; metadata-only-cases-explicit",
+  "packages": [
+    {
+      "name": "@tailwindcss/language-server",
+      "version": "0.16.0",
+      "destination": "node_modules/@tailwindcss/language-server",
+      "license_declaration": "MIT",
+      "original_notice_paths": [
+        "LICENSE",
+        "ThirdPartyNotices.txt"
+      ],
+      "npm_tarball_url": "https://registry.npmjs.org/@tailwindcss/language-server/-/language-server-0.16.0.tgz",
+      "npm_sha256": "89de5ef780d14e54a11cdb0832682cf937d37a1a1c35e17eb2a552272d7aa1ad",
+      "notice_status": "original-notices-preserved"
+    }
+  ]
+}

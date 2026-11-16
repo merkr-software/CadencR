@@ -180,6 +180,21 @@ export function selectGitCurrentBranch(
   return (state) => (featureId == null ? undefined : state.byFeature[featureId]?.current_branch);
 }
 
+/** Narrow selectors for the branch's standing against its remote; `undefined`
+ *  before the first snapshot. (`has_remote` is not consulted: it means "a
+ *  forge host was recognized", and a push works without one.) */
+export function selectGitAheadOfRemote(
+  featureId: number | null | undefined,
+): (state: GitStatusState) => number | undefined {
+  return (state) => (featureId == null ? undefined : state.byFeature[featureId]?.ahead_of_remote);
+}
+
+export function selectGitBehindRemote(
+  featureId: number | null | undefined,
+): (state: GitStatusState) => number | undefined {
+  return (state) => (featureId == null ? undefined : state.byFeature[featureId]?.behind_remote);
+}
+
 /** Narrow selector: latest error for one feature (cleared on next success). */
 export function selectGitStatusError(
   featureId: number | null | undefined,

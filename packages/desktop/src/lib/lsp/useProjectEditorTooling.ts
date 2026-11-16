@@ -10,13 +10,8 @@
 import { useMemo } from "react";
 import { useGetProjectSettings } from "@/api/generated";
 import { settingsArrayToMap, useGetWorkspaceSettings } from "@/api/settings";
-import type { EditorToolingSettings } from "./active-servers";
 
-export interface ProjectEditorTooling extends EditorToolingSettings {
-  /** Always resolved (project → global → default), never null. */
-  typescriptServer: string;
-  /** Always resolved, never null. */
-  linter: string;
+export interface ProjectEditorTooling {
   /** `editor_formatter`: `off` | `biome` | `oxfmt` | `prettier`. */
   formatter: string;
   /** `editor_format_on_save`: whether to format the buffer on save. */
@@ -24,8 +19,6 @@ export interface ProjectEditorTooling extends EditorToolingSettings {
 }
 
 const KEYS = {
-  typescriptServer: "editor_typescript_server",
-  linter: "editor_linter",
   formatter: "editor_formatter",
   formatOnSave: "editor_format_on_save",
 } as const;
@@ -60,20 +53,13 @@ export function useProjectEditorTooling(projectId: number | undefined): ProjectE
 
   const globalMap = useMemo(() => settingsArrayToMap(workspaceSettings), [workspaceSettings]);
 
-  const typescriptServer = resolve(
-    projectMap,
-    globalMap[KEYS.typescriptServer] ?? null,
-    KEYS.typescriptServer,
-    "typescript-language-server",
-  );
-  const linter = resolve(projectMap, globalMap[KEYS.linter] ?? null, KEYS.linter, "off");
   const formatter = resolve(projectMap, globalMap[KEYS.formatter] ?? null, KEYS.formatter, "off");
   const formatOnSave =
     resolve(projectMap, globalMap[KEYS.formatOnSave] ?? null, KEYS.formatOnSave, "false") ===
     "true";
 
   return useMemo<ProjectEditorTooling>(
-    () => ({ typescriptServer, linter, formatter, formatOnSave }),
-    [typescriptServer, linter, formatter, formatOnSave],
+    () => ({ formatter, formatOnSave }),
+    [formatter, formatOnSave],
   );
 }

@@ -50,9 +50,10 @@ function variantMatchesInput(
   variant: CompiledVariant,
   platform: "mac" | "windows" | "linux",
 ): boolean {
+  // Match the renderer's explicit Shift variants, not TanStack's implicit Shift.
+  if (Boolean(input.shift) !== variant.parsed.shift) return false;
   if (variant.exactKeys && !variant.exactKeys.includes(input.key)) return false;
-  // TanStack consumes only these six KeyboardEvent fields. Electron's Input
-  // has the same values under modifier names without the `Key` suffix.
+  // Adapt Electron's modifier names to the KeyboardEvent names used by TanStack.
   const event = {
     key: input.key,
     code: input.code,

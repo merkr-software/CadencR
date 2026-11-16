@@ -160,6 +160,12 @@ pub(super) fn file_patch_updated_event(
 }
 
 fn text_item(params: Value, completed: bool, index_state: &mut IndexState) -> Vec<RuntimeEvent> {
+    if params["item"]["questions"]
+        .as_array()
+        .is_some_and(|questions| !questions.is_empty())
+    {
+        return super::async_questions::question_events(&params, completed, index_state);
+    }
     content_item(
         params,
         RuntimeContentBlock::Text {
@@ -265,8 +271,15 @@ pub(super) fn stream_start_event(
 }
 
 fn tool_result_event(params: &Value, id: String, input: Value) -> RuntimeEvent {
-    let is_error = input.get("error").is_some_and(|error| !error.is_null());
+    let is_error = item_failed(&input);
     tool_result_event_with_error(params, id, input, is_error)
+}
+
+/// Whether a completed item failed: it carries an `error`, or its status says
+/// so (a command that exited non-zero, a collab call, which has no `error`).
+pub(super) fn item_failed(item: &Value) -> bool {
+    item.get("status").and_then(Value::as_str) == Some("failed")
+        || item.get("error").is_some_and(|error| !error.is_null())
 }
 
 pub(super) fn tool_result_event_with_error(

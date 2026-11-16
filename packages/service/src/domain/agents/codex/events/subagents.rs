@@ -187,7 +187,10 @@ mod tests {
             &mut indexes,
         );
 
-        assert!(events.is_empty());
+        // Only the child's own sub-agent fact, never a root result.
+        assert!(events
+            .iter()
+            .all(crate::domain::agents::adapter::RuntimeEvent::is_subagent_signal_only));
     }
 
     #[test]

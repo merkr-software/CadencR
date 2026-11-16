@@ -27,13 +27,15 @@ const GLYPHS: Record<string, string> = {
   comma: ",",
   slash: "/",
   backtick: "`",
+  backspace: "⌫",
+  question: "?",
   lbracket: "[",
   rbracket: "]",
 };
 
 export function formatKey(key: ShortcutKey): string {
   if (key in GLYPHS) return GLYPHS[key];
-  if (key.length === 1) return key.toUpperCase();
+  if (key.length === 1 || /^f\d{1,2}$/.test(key)) return key.toUpperCase();
   // Tokens like "1-9" pass through verbatim.
   return key;
 }

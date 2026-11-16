@@ -16,32 +16,35 @@
  * agents". It is NOT the live status — only this store is.
  *
  * Wire-format contract with the backend (`domain::session_status`):
+ * - The backend keeps one live status book; every update is a transition of
+ *   it and every snapshot a read of it, so the snapshot a device receives is
+ *   exactly what connected devices were sent.
  * - `session_status.update` carries a monotonic global `seq`. We reject
  *   any update whose seq is <= the seq we already applied for that
- *   session — that closes the "old event arrives after new one" race.
+ *   session, or <= the last snapshot's seq (already folded in) — that
+ *   closes the "old event arrives after new one" race.
  * - `session_status.snapshot` carries the global counter at the moment
  *   the backend built it. We merge per-session: an entry is only
  *   overwritten if its current seq is <= the snapshot's seq, so a fresh
  *   live update can't be wiped by a lag-recovery snapshot.
- * Reducers and validators live in `./session-status-handlers` to keep
+ * - A snapshot carries the server process `epoch`. `seq` restarts with every
+ *   process, so a snapshot from a new epoch replaces everything instead of
+ *   being merged against the old process's seqs.
+ * - Both carry `server_now_ms`, from which `server-clock` estimates this
+ *   device's skew: the turn clock (`turnStartedAtMs`, `waitingSinceMs`) stays
+ *   on the server clock here, and is converted where a timer reads it.
+ * - Compaction rides the entry too, so a device that missed its end reads
+ *   the truth from the next event or snapshot, and idle always clears it.
+ * Reducers and validators live in `./session-status-reducers` to keep
  * this file focused on the WS lifecycle and Zustand wiring.
  *
  * Every consumer reads via a narrow selector.
  */
 import { create, type StoreApi } from "zustand";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
-import { useWsSessionStore } from "@/stores/ws-session-store";
-import { updateSession, type SessionEntry, type WsSessionStore } from "@/stores/ws-session-types";
-import { transitionTurn, type TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import { startTurnTiming } from "@/stores/ws-turn-timing";
-import { buildClearedGatePatch } from "@/stores/ws-gate-state";
-import {
-  applySnapshot,
-  applyUpdate,
-  handleAppEnvelope,
-  notifyTransition,
-} from "@/stores/session-status-handlers";
-import { createAppWsConnect, createAppWsDisconnect } from "@/stores/session-status-connection";
+import { observeServerClock } from "@/lib/server-clock";
+import { applySnapshot, applyUpdate, snapshotCursor } from "./session-status-reducers";
+import { createAppWsConnection } from "./session-status-connection";
 
 export type { LiveAgentStatus, PendingKind };
 
@@ -54,21 +57,36 @@ export interface SessionStatusEntry {
   featureId: number;
   seq: number;
   /**
-   * Server-stamped turn start (epoch ms) for a running turn, the single
-   * source of truth the elapsed timer is anchored to so every device renders
-   * the same value. `null`/absent when not running or not provided (the timer
-   * then falls back to local time).
+   * Server-stamped turn start (epoch ms, server clock) of the running turn,
+   * kept through gates and server restarts: the single source of truth every
+   * device derives its timer from. `null` only for a gate persisted before
+   * turns had a clock.
    */
   turnStartedAtMs?: number | null;
+  /** Time the turn already spent waiting on its user, gates answered so far. */
+  waitingMs?: number;
+  /** When the open gate opened (server clock); `null` while the agent works. */
+  waitingSinceMs?: number | null;
+  /** The model the CLI reports running the conversation's root agent. */
+  model?: string | null;
+  /** The provider is compacting the conversation's context. */
+  compacting?: boolean;
 }
 export interface SessionStatusState {
-  ws: WebSocket | null;
+  /** Changes on every confirmed connection, including a batched drop/reconnect. */
+  connectionEpoch: number;
   isConnected: boolean;
   hasSnapshot: boolean;
+  /** Server process of the last snapshot; `seq`s only compare within one. */
+  epoch: number | null;
+  /** Seq of the last snapshot: every update up to it is already folded in. */
+  snapshotSeq: number;
   /** Per-session entries keyed by `session_id` (the DB primary key). */
   bySession: Record<number, SessionStatusEntry>;
   connect: () => void;
   disconnect: () => void;
+  subscribeFileWatcher: (projectId: number, featureId?: number) => void;
+  subscribeGitStatus: (featureId: number) => () => void;
 }
 
 type SessionStatusSet = StoreApi<SessionStatusState>["setState"];
@@ -79,183 +97,78 @@ export type EnvelopeDispatcher = (
   payload: Record<string, unknown>,
 ) => void;
 
+/** Required app composition, invoked only for confirmed backend envelopes. */
+export interface SessionStatusEffects {
+  handleEnvelope: EnvelopeDispatcher;
+  snapshotApplied: (
+    previous: Record<number, SessionStatusEntry>,
+    next: Record<number, SessionStatusEntry>,
+    previousEpoch: number | null,
+    epoch: number | null,
+  ) => void;
+  updateApplied: (
+    previous: Record<number, SessionStatusEntry>,
+    result: ReturnType<typeof applyUpdate>,
+  ) => void;
+}
+
+let installedEffects: { effects: SessionStatusEffects } | null = null;
+
+export function installSessionStatusEffects(effects: SessionStatusEffects): () => void {
+  if (installedEffects) throw new Error("Session status integration is already installed");
+  const registration = { effects };
+  installedEffects = registration;
+  return () => {
+    if (installedEffects === registration) installedEffects = null;
+  };
+}
+
+function requireEffects(): SessionStatusEffects {
+  if (!installedEffects)
+    throw new Error("Session status integration must be installed before connecting");
+  return installedEffects.effects;
+}
+
 function createEnvelopeDispatcher(
   set: SessionStatusSet,
   get: SessionStatusGet,
 ): EnvelopeDispatcher {
   return (domain, action, payload): void => {
-    if (handleAppEnvelope(domain, action, payload)) return;
-    if (domain !== "app") return;
-    if (action === "session_status.snapshot") {
-      const previous = get().bySession;
-      const bySession = applySnapshot(previous, payload);
-      set({ bySession, hasSnapshot: true });
-      syncWsLifecycles(previous, bySession);
+    if (domain !== "app" || !action.startsWith("session_status.")) {
+      requireEffects().handleEnvelope(domain, action, payload);
       return;
     }
-    if (action === "session_status.update") {
-      const result = applyUpdate(get().bySession, payload);
+    if (action === "session_status.snapshot") {
+      observeServerClock(payload.server_now_ms);
+      const { bySession: previous, epoch: previousEpoch } = get();
+      const bySession = applySnapshot(previous, payload, previousEpoch);
+      const { seq: snapshotSeq, epoch } = snapshotCursor(payload);
+      set({ bySession, hasSnapshot: true, epoch, snapshotSeq });
+      requireEffects().snapshotApplied(previous, bySession, previousEpoch, epoch);
+    } else if (action === "session_status.update") {
+      observeServerClock(payload.server_now_ms);
+      const previous = get().bySession;
+      const result = applyUpdate(previous, payload, get().snapshotSeq);
       if (result.next) set({ bySession: result.next });
-      if (
-        result.entry &&
-        result.sessionId != null &&
-        (result.next || result.entry.status !== "idle")
-      ) {
-        syncWsLifecycle(result.sessionId, result.entry, result.prevStatus);
-      }
-      if (result.featureId != null && result.nextStatus) {
-        notifyTransition(result.featureId, result.prevStatus, result.nextStatus);
-      }
+      requireEffects().updateApplied(previous, result);
     }
   };
 }
 
 export const useSessionStatusStore = create<SessionStatusState>((set, get) => {
   const dispatchEnvelope = createEnvelopeDispatcher(set, get);
+  const connection = createAppWsConnection(set, get, dispatchEnvelope);
   return {
-    ws: null,
+    ...connection,
+    connectionEpoch: 0,
     isConnected: false,
     hasSnapshot: false,
+    epoch: null,
+    snapshotSeq: 0,
     bySession: {},
-    connect: createAppWsConnect(set, get, dispatchEnvelope),
-    disconnect: createAppWsDisconnect(set, get),
+    connect: () => {
+      requireEffects();
+      connection.connect();
+    },
   };
 });
-
-function syncWsLifecycles(
-  previous: Record<number, SessionStatusEntry>,
-  next: Record<number, SessionStatusEntry>,
-): void {
-  const store = useWsSessionStore.getState();
-  const sessionIdsByDbId = new Map<number, string>();
-  for (const [sessionId, session] of Object.entries(store.sessions)) {
-    if (session.sessionDbId != null) sessionIdsByDbId.set(session.sessionDbId, sessionId);
-  }
-
-  let updated: WsSessionStore = store;
-  let changed = false;
-  for (const [rawId, entry] of Object.entries(next)) {
-    const sessionDbId = Number(rawId);
-    const sessionId = sessionIdsByDbId.get(sessionDbId);
-    if (!sessionId) continue;
-    const session = updated.sessions[sessionId];
-    if (!session) continue;
-    const patch = statusSyncPatch(session, entry, previous[sessionDbId]?.status);
-    if (!patch) continue;
-    updated = { ...updated, ...updateSession(updated, sessionId, patch) };
-    changed = true;
-  }
-  if (changed) useWsSessionStore.setState(updated);
-}
-
-function syncWsLifecycle(
-  sessionDbId: number,
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "turnStartedAtMs">,
-  previousStatus?: LiveAgentStatus,
-): void {
-  const store = useWsSessionStore.getState();
-  const match = Object.entries(store.sessions).find(
-    ([, session]) => session.sessionDbId === sessionDbId,
-  );
-  if (!match) return;
-  const [sessionId, session] = match;
-  const patch = statusSyncPatch(session, entry, previousStatus);
-  if (!patch) return;
-  useWsSessionStore.setState(updateSession(store, sessionId, patch));
-}
-
-/**
- * Build the full ws-session patch for a status change: the lifecycle/timing
- * patch plus a gate clear when the session leaves the "question" state.
- *
- * A gate (permission/plan/question) is answered on whichever device the user
- * is holding; the backend then broadcasts the session out of "question" to
- * every client. Clearing the gate here makes it disappear on the *other*
- * devices too (the answering device already cleared its own). Keyed on the
- * app-socket's own prev→next transition, so it never races a freshly-arrived
- * gate on the per-feature socket.
- */
-function statusSyncPatch(
-  session: SessionEntry,
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "turnStartedAtMs">,
-  previousStatus?: LiveAgentStatus,
-): Partial<SessionEntry> | null {
-  const lifecyclePatch = lifecyclePatchFromStatus(session, entry, previousStatus);
-  const gatePatch =
-    previousStatus === "question" && entry.status !== "question"
-      ? buildClearedGatePatch(session)
-      : null;
-  if (!lifecyclePatch && !gatePatch) return null;
-  return { ...gatePatch, ...lifecyclePatch };
-}
-
-type LifecyclePatch =
-  | Pick<SessionEntry, "lifecycle">
-  | Pick<SessionEntry, "lifecycle" | "turnTiming">;
-
-function lifecyclePatchFromStatus(
-  session: SessionEntry,
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "turnStartedAtMs">,
-  previousStatus?: LiveAgentStatus,
-): LifecyclePatch | null {
-  const lifecycle = lifecycleFromStatus(session.lifecycle, entry.status, entry.kind);
-  const lifecycleChanged = lifecycle !== session.lifecycle;
-
-  // A second device observing a turn start via the global status: the
-  // lifecycle flips idle→active here. Anchor the timer to the server-stamped
-  // start so every device shows the same elapsed time. (When the server
-  // didn't supply one we fall through to `updateSession`'s local-clock
-  // default, preserving prior behavior for pre-field turns.)
-  const startsFreshTurn =
-    lifecycleChanged &&
-    !isInProgressLifecycle(session.lifecycle) &&
-    isInProgressLifecycle(lifecycle) &&
-    entry.turnStartedAtMs != null;
-
-  // Lifecycle unchanged but timing went stale (e.g. mid-turn snapshot): start
-  // it, anchored to the server start when available.
-  const resetStaleActiveTiming =
-    !lifecycleChanged &&
-    (session.turnTiming.startedAt == null || session.blocks.length === 0) &&
-    enteredAgentFromIdle(previousStatus, entry.status);
-
-  if (!lifecycleChanged && !resetStaleActiveTiming) return null;
-  if (startsFreshTurn) {
-    return { lifecycle, turnTiming: startTurnTiming(entry.turnStartedAtMs as number) };
-  }
-  if (resetStaleActiveTiming) {
-    return { lifecycle, turnTiming: startTurnTiming(entry.turnStartedAtMs ?? Date.now()) };
-  }
-  return { lifecycle };
-}
-
-function isInProgressLifecycle(lifecycle: TurnLifecycle): boolean {
-  return lifecycle.phase === "active" || lifecycle.phase === "paused";
-}
-
-function enteredAgentFromIdle(
-  previousStatus: LiveAgentStatus | undefined,
-  nextStatus: LiveAgentStatus,
-): boolean {
-  return nextStatus === "agent" && (previousStatus == null || previousStatus === "idle");
-}
-
-function lifecycleFromStatus(
-  lifecycle: TurnLifecycle,
-  status: LiveAgentStatus,
-  kind: PendingKind | null,
-): TurnLifecycle {
-  if (status === "agent") return transitionTurn(lifecycle, { type: "stream_activity" });
-  if (status === "question") {
-    return transitionTurn(lifecycle, {
-      type: kind === "question" ? "question_requested" : "permission_requested",
-    });
-  }
-  if (status === "idle" && (lifecycle.phase === "active" || lifecycle.phase === "paused")) {
-    return transitionTurn(lifecycle, {
-      type: "turn_ended",
-      reason: "completed",
-    });
-  }
-  return lifecycle;
-}

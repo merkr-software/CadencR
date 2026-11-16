@@ -7,7 +7,7 @@ use super::AgentStatus;
 /// Stream events emitted directly from the runtime carry only Agent/Idle
 /// information (turn started / turn ended). User-input gates are detected
 /// out-of-band via the adapter's `parse_permission_request` and routed
-/// through `mark_awaiting_user_static`, which sets the DB pending column
+/// through application `mark_awaiting_user`, which sets the DB pending column
 /// AND broadcasts Question — they don't flow through this enum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderSignal {
@@ -45,7 +45,7 @@ pub fn provider_signal_for_stream_event(event: &RuntimeStreamEvent) -> Option<Pr
 ///
 /// Permission / question gates are NOT derived here — they go through
 /// `parse_permission_request` on the adapter, then call
-/// `mark_awaiting_user_static` which calls `broadcaster.signal` directly
+/// application `mark_awaiting_user` which calls `broadcaster.broadcast_gate`
 /// with the right pending kind.
 pub fn provider_signal_for_event(event: &RuntimeEvent) -> Option<ProviderSignal> {
     if event.is_result() {

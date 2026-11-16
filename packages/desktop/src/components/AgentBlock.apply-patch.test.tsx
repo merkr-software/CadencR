@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import { AgentBlock } from "./AgentBlock";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 vi.mock("./InlineDiffBlock", () => ({
   InlineDiffBlock: ({ filePath }: { filePath: string }) => (

@@ -1,5 +1,6 @@
 /**
- * Standalone flush scheduler for the stream-delta coalescer.
+ * Standalone flush scheduler for the stream-delta coalescer: the next
+ * animation frame, or a timer when no frame comes (hidden window).
  *
  * Kept dependency-free (no store/handler imports) so tests can import
  * `setDeltaFlushScheduler` from here without dragging the whole session-handler
@@ -11,32 +12,32 @@
 export type FlushScheduler = (flush: () => void) => void;
 
 /**
- * Upper bound on how long a buffered delta may wait for a frame.
- *
- * `requestAnimationFrame` stops entirely while the window is occluded,
- * minimized or backgrounded, and the main window keeps Electron's default
- * `backgroundThrottling`. A frame-only scheduler then leaves a whole turn's
- * deltas buffered until the next non-delta envelope flushes them, which reads
- * as a frozen transcript that only catches up when the turn ends or the user
- * stops it. The timer keeps the one-commit-per-frame win on the normal path
- * and bounds the stall on the throttled one.
+ * How long a scheduled flush waits for an animation frame before it runs
+ * anyway. A painting page flushes on the next frame (~16 ms) and the timer is
+ * cancelled; a hidden or occluded window gets no frames at all, so without it
+ * the deltas would pile up until the window shows again. Browsers throttle
+ * hidden-page timers to about one per second, which is fine: nothing paints.
  */
-const FALLBACK_FLUSH_MS = 250;
+export const DELTA_FLUSH_FALLBACK_MS = 100;
 
+/** First of the next animation frame and the fallback timer; never both. */
 const defaultScheduler: FlushScheduler = (flush) => {
   if (typeof requestAnimationFrame !== "function") {
     queueMicrotask(flush);
     return;
   }
-  let settled = false;
+  let frame = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let ran = false;
   const run = (): void => {
-    if (settled) return;
-    settled = true;
+    if (ran) return;
+    ran = true;
+    cancelAnimationFrame(frame);
     clearTimeout(timer);
     flush();
   };
-  const timer = setTimeout(run, FALLBACK_FLUSH_MS);
-  requestAnimationFrame(run);
+  frame = requestAnimationFrame(run);
+  timer = setTimeout(run, DELTA_FLUSH_FALLBACK_MS);
 };
 
 let current: FlushScheduler = defaultScheduler;
@@ -44,7 +45,7 @@ let current: FlushScheduler = defaultScheduler;
 /**
  * Override the flush scheduler. Tests install a synchronous scheduler (apply
  * immediately) or a manual one (capture the callback, fire it on demand to
- * assert one-commit-per-burst). Pass `null` to restore the rAF default.
+ * assert one-commit-per-burst). Pass `null` to restore the default.
  */
 export function setDeltaFlushScheduler(scheduler: FlushScheduler | null): void {
   current = scheduler ?? defaultScheduler;

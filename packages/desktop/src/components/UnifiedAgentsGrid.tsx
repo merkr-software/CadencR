@@ -38,23 +38,27 @@ export {
   parseUnifiedAgentsRowWidths,
 } from "./unified-agents-grid-persistence";
 
-const ROW_HEIGHT = 640;
 // Override react-resizable-panels' inline `overflow: hidden`/`auto` so the
 // active card's drop shadow isn't clipped at the panel bounds.
 const SHADOW_FRIENDLY_OVERFLOW: CSSProperties = { overflow: "visible" };
+const ROW_FILLER_PANEL_ID = "unified-agents-row-filler";
 
 interface UnifiedAgentsGridProps {
   agents: UnifiedAgentEntry[];
+  /** Cards per row, already fitted to the grid width. */
   columns: number;
+  /** Height of a row the user hasn't resized. */
+  defaultRowHeight: number;
   activeIndex: number;
   focusVersion: number;
-  onActivate: (index: number) => void;
+  onActivate: (sessionId: number) => void;
   onExcludeAgent: (title: string) => void;
 }
 
 export const UnifiedAgentsGrid = memo(function UnifiedAgentsGrid({
   agents,
   columns,
+  defaultRowHeight,
   activeIndex,
   focusVersion,
   onActivate,
@@ -81,7 +85,8 @@ export const UnifiedAgentsGrid = memo(function UnifiedAgentsGrid({
             rowLayoutKey={rowLayoutKey}
             rowStartIndex={rowIndex * columns}
             rowIndex={rowIndex}
-            rowHeight={rowHeights[rowLayoutKey] ?? ROW_HEIGHT}
+            columns={columns}
+            rowHeight={rowHeights[rowLayoutKey] ?? defaultRowHeight}
             rowWidthLayout={getStoredRowWidthLayout(rowAgents, rowWidths[rowLayoutKey])}
             activeIndex={activeIndex}
             onRowHeightChange={setRowHeight}
@@ -100,6 +105,7 @@ function UnifiedAgentsRow({
   rowLayoutKey,
   rowStartIndex,
   rowIndex,
+  columns,
   rowHeight,
   rowWidthLayout,
   activeIndex,
@@ -112,12 +118,13 @@ function UnifiedAgentsRow({
   rowLayoutKey: RowLayoutKey;
   rowStartIndex: number;
   rowIndex: number;
+  columns: number;
   rowHeight: number;
   rowWidthLayout: PanelLayout | undefined;
   activeIndex: number;
   onRowHeightChange: (rowLayoutKey: RowLayoutKey, height: number, persist: boolean) => void;
   onRowWidthLayoutChange: (rowLayoutKey: RowLayoutKey, layout: PanelLayout) => void;
-  onActivate: (index: number) => void;
+  onActivate: (sessionId: number) => void;
   onExcludeAgent: (title: string) => void;
 }): ReactElement {
   const onLayoutChanged = useCallback(
@@ -125,13 +132,21 @@ function UnifiedAgentsRow({
     [onRowWidthLayoutChange, rowLayoutKey],
   );
 
+  // A short last row keeps one column's width per card rather than
+  // stretching an orphan across the whole grid: a locked filler panel takes
+  // the missing columns. Same panel tree either way, so a row filling up (or
+  // losing a card) never remounts the cards it keeps.
+  const missingColumns = columns - rowAgents.length;
+  const isPartialRow = missingColumns > 0;
+  const columnSize = 100 / columns;
   return (
     <div className={cn("px-1.5", rowIndex === 0 && "pt-2")}>
       <div style={{ height: rowHeight }} className="min-h-[420px]">
         <ResizablePanelGroup
           orientation="horizontal"
           className="h-full"
-          onLayoutChanged={onLayoutChanged}
+          disabled={isPartialRow}
+          onLayoutChanged={isPartialRow ? undefined : onLayoutChanged}
           style={SHADOW_FRIENDLY_OVERFLOW}
         >
           {rowAgents.map((entry, offset) => {
@@ -142,15 +157,18 @@ function UnifiedAgentsRow({
                 key={panelId}
                 entry={entry}
                 panelId={panelId}
-                defaultSize={rowWidthLayout?.[panelId]}
+                defaultSize={isPartialRow ? columnSize : rowWidthLayout?.[panelId]}
                 index={index}
                 isActive={index === activeIndex}
-                isLast={offset === rowAgents.length - 1}
+                hasHandle={!isPartialRow && offset < rowAgents.length - 1}
                 onActivate={onActivate}
                 onExcludeAgent={onExcludeAgent}
               />
             );
           })}
+          {isPartialRow && (
+            <ResizablePanel id={ROW_FILLER_PANEL_ID} defaultSize={missingColumns * columnSize} />
+          )}
         </ResizablePanelGroup>
       </div>
       <RowResizeHandle
@@ -234,7 +252,7 @@ function RowPanel({
   defaultSize,
   index,
   isActive,
-  isLast,
+  hasHandle,
   onActivate,
   onExcludeAgent,
 }: {
@@ -243,8 +261,8 @@ function RowPanel({
   defaultSize: number | undefined;
   index: number;
   isActive: boolean;
-  isLast: boolean;
-  onActivate: (index: number) => void;
+  hasHandle: boolean;
+  onActivate: (sessionId: number) => void;
   onExcludeAgent: (title: string) => void;
 }): ReactElement {
   return (
@@ -264,7 +282,7 @@ function RowPanel({
           onExcludeAgent={onExcludeAgent}
         />
       </ResizablePanel>
-      {!isLast && <ResizableHandle className="bg-transparent" />}
+      {hasHandle && <ResizableHandle className="bg-transparent" />}
     </>
   );
 }

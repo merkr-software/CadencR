@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,14 +7,15 @@ use serde_json::Value;
 #[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::Command;
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::{broadcast, oneshot};
 
 #[cfg(test)]
 use crate::domain::agents::acp::client_spawn::spawn_acp_with_streams;
 use crate::domain::agents::acp::client_spawn::{spawn_acp_subprocess, Inner};
 use crate::domain::agents::acp::error::AcpError;
+use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::process_tree::AcpProcessTreePolicy;
-use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
+use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent, AcpEventBarrier};
 
 /// Generic ACP subprocess client backed by the official ACP Rust SDK.
 #[derive(Clone)]
@@ -78,17 +80,34 @@ impl AcpClient {
         Self { inner }
     }
 
+    /// Best-effort observer: lags (and skips) under load and never sees
+    /// barriers. Only for short-lived probes; the runtime uses
+    /// [`Self::subscribe_reliable`].
     pub fn subscribe(&self) -> broadcast::Receiver<AcpEvent> {
         self.inner.events.subscribe()
     }
 
-    pub(crate) fn enqueue_event_barrier(&self) -> Result<Arc<Notify>, AcpError> {
-        let barrier = Arc::new(Notify::new());
-        self.inner
+    /// Ordered, lossless subscription; overflow ends it with a visible
+    /// `AcpEvent::TransportError` instead of skipping events.
+    pub fn subscribe_reliable(&self) -> AcpReliableEventReceiver {
+        self.inner.events.subscribe_reliable()
+    }
+
+    /// Queue a fence behind every event received so far. The receiver
+    /// resolves once the event loop reaches it, or errors if the loop's
+    /// queue is gone — it never waits on a fence that was skipped.
+    pub(crate) fn enqueue_event_barrier(&self) -> Result<oneshot::Receiver<()>, AcpError> {
+        let (barrier, released) = AcpEventBarrier::new();
+        if !self
+            .inner
             .events
-            .send(AcpEvent::EventBarrier(Arc::clone(&barrier)))
-            .map_err(|_| AcpError::Protocol("ACP runtime event loop is unavailable".to_string()))?;
-        Ok(barrier)
+            .send_reliable(AcpEvent::EventBarrier(barrier))
+        {
+            return Err(AcpError::Protocol(
+                "ACP runtime event loop is unavailable".to_string(),
+            ));
+        }
+        Ok(released)
     }
 
     pub fn client_info(&self) -> &AcpClientInfo {
@@ -119,15 +138,41 @@ impl AcpClient {
         Req::Response: Send,
     {
         let label = static_method_label(request.method());
+        tokio::time::timeout(timeout, self.send_request_until_closed(request))
+            .await
+            .map_err(|_| AcpError::Timeout(label))?
+    }
+
+    /// Request without a deadline, for long-running agent work such as
+    /// `session/prompt`. It still settles when the transport closes: on EOF,
+    /// on `shutdown()`, or once the process has exited and its pipe drain
+    /// grace elapsed — never on wall-clock time alone.
+    pub async fn request_until_closed(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, AcpError> {
+        let request = UntypedMessage::new(method, params).map_err(AcpError::from_acp)?;
+        self.send_request_until_closed(request).await
+    }
+
+    async fn send_request_until_closed<Req>(&self, request: Req) -> Result<Req::Response, AcpError>
+    where
+        Req: JsonRpcRequest,
+        Req::Response: Send,
+    {
+        let label = static_method_label(request.method());
+        let mut closed = self.inner.closed.subscribe();
         let pending = self
             .inner
             .connection
             .send_request_to(Agent, request)
             .block_task();
-        tokio::time::timeout(timeout, pending)
-            .await
-            .map_err(|_| AcpError::Timeout(label))?
-            .map_err(AcpError::from_acp)
+        tokio::select! {
+            biased;
+            result = pending => result.map_err(AcpError::from_acp),
+            _ = closed.wait_for(|closed| *closed) => Err(AcpError::ConnectionClosed(label)),
+        }
     }
 
     pub async fn send_notification_typed<N>(&self, notification: N) -> Result<(), AcpError>
@@ -159,6 +204,13 @@ impl AcpClient {
 
     pub async fn shutdown(&self) {
         self.inner.shutdown().await;
+    }
+
+    /// The caller starts stopping the agent (its last requests, then
+    /// [`Self::shutdown`]): a transport that breaks from now on, the agent
+    /// having exited first, is the expected end and is not reported.
+    pub fn begin_close(&self) {
+        self.inner.stopping.store(true, Ordering::SeqCst);
     }
 
     fn take_server_responder(
@@ -274,6 +326,7 @@ mod tests {
         .await
         .expect("spawn isolated ACP process");
         let pid = wait_for_test_pid(&pid_file).await;
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
 
         client.shutdown().await;
 
@@ -396,9 +449,64 @@ mod tests {
         assert_eq!(parsed["method"], "session/cancel");
     }
 
+    /// The WARN lines logged on this thread, so by every task of a
+    /// current-thread runtime, while the returned guard lives.
+    fn capture_warnings() -> (tracing::subscriber::DefaultGuard, impl Fn() -> String) {
+        #[derive(Clone, Default)]
+        struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        (guard, move || {
+            String::from_utf8(captured.0.lock().unwrap().clone()).unwrap()
+        })
+    }
+
+    /// An agent that exits while it is being stopped breaks the pipe under
+    /// the last notification: the expected end of a deliberate stop. The same
+    /// break with no stop under way is still reported.
     #[tokio::test]
-    async fn server_request_is_broadcast_to_subscribers() {
-        let (client, mut agent_stdout, _agent_stdin) = build_in_memory_client().await;
+    async fn a_pipe_the_agent_breaks_while_stopped_is_not_a_warning() {
+        for deliberate in [false, true] {
+            let (_guard, warnings) = capture_warnings();
+            let (client, _agent_stdout, agent_stdin) = build_in_memory_client().await;
+            if deliberate {
+                client.begin_close();
+            }
+            drop(agent_stdin);
+            let notification = UntypedMessage::new("session/cancel", json!({"sessionId": "s1"}))
+                .expect("test notification method is valid");
+            let _ = client.send_notification_typed(notification).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            assert_eq!(
+                warnings().contains("ACP connection closed"),
+                !deliberate,
+                "deliberate stop: {deliberate}: {}",
+                warnings()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn server_request_seen_only_by_an_observer_is_rejected() {
+        // Observers are best-effort and never answer: counting them as a
+        // receiver used to leave the agent waiting forever.
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let mut subscriber = client.subscribe();
         write_frame(
             &mut agent_stdout,
@@ -420,11 +528,15 @@ mod tests {
         assert_eq!(request.id(), &json!("perm-7"));
         assert_eq!(request.method(), "session/request_permission");
         assert_eq!(request.params()["ok"], true);
+        let rejection = read_frame(&mut agent_stdin).await;
+        assert_eq!(rejection["id"], "perm-7");
+        assert_eq!(rejection["error"]["code"], -32603);
     }
 
     #[tokio::test]
     async fn responding_server_request_uses_crate_responder() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut subscriber = client.subscribe_reliable();
         write_frame(
             &mut agent_stdout,
             json!({
@@ -435,7 +547,6 @@ mod tests {
             }),
         )
         .await;
-        let mut subscriber = client.subscribe();
         let _ = tokio::time::timeout(Duration::from_secs(1), subscriber.recv())
             .await
             .unwrap()
@@ -452,9 +563,319 @@ mod tests {
         assert_eq!(parsed["result"]["outcome"], "selected");
     }
 
+    #[tokio::test]
+    async fn server_request_ids_preserve_json_types_and_route_out_of_order() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut subscriber = client.subscribe_reliable();
+        let ids = [
+            json!(17),
+            json!("17"),
+            json!(null),
+            json!(i64::MIN),
+            json!(i64::MAX),
+        ];
+        for id in &ids {
+            write_frame(
+                &mut agent_stdout,
+                json!({
+                    "jsonrpc": "2.0", "id": id, "method": "fs/read_text_file",
+                    "params": {"sessionId": "s1", "path": "/tmp/acp-id-test"}
+                }),
+            )
+            .await;
+            let event = tokio::time::timeout(Duration::from_secs(1), subscriber.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let AcpEvent::ServerRequest(request) = event else {
+                panic!("expected a server request");
+            };
+            assert_eq!(request.id(), id);
+        }
+        for id in ids.iter().rev() {
+            client
+                .respond_server_request(id.clone(), json!({"echo": id}))
+                .await
+                .unwrap();
+            let response = read_frame(&mut agent_stdin).await;
+            assert_eq!(&response["id"], id);
+            assert_eq!(&response["result"]["echo"], id);
+            assert!(client
+                .respond_server_request(id.clone(), json!({}))
+                .await
+                .is_err());
+        }
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn server_request_without_subscriber_gets_an_error_response() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        write_frame(
+            &mut agent_stdout,
+            json!({
+                "jsonrpc": "2.0", "id": 23, "method": "session/request_permission", "params": {}
+            }),
+        )
+        .await;
+        let response = read_frame(&mut agent_stdin).await;
+        assert_eq!(response["id"], 23);
+        assert_eq!(response["error"]["code"], -32603);
+        assert!(response["error"]["data"]
+            .as_str()
+            .unwrap()
+            .contains("no active receiver"));
+        assert!(client
+            .respond_server_request(json!(23), json!({}))
+            .await
+            .is_err());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn responses_route_to_their_request_when_received_in_reverse_order() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let first = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_with_timeout("first", json!({}), Duration::from_secs(2))
+                    .await
+            }
+        });
+        let first_frame = read_frame(&mut agent_stdin).await;
+        let second = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_with_timeout("second", json!({}), Duration::from_secs(2))
+                    .await
+            }
+        });
+        let second_frame = read_frame(&mut agent_stdin).await;
+        assert_ne!(first_frame["id"], second_frame["id"]);
+        for request in [&second_frame, &first_frame] {
+            write_frame(
+                &mut agent_stdout,
+                json!({
+                    "jsonrpc": "2.0", "id": request["id"], "result": {"method": request["method"]}
+                }),
+            )
+            .await;
+        }
+        assert_eq!(first.await.unwrap().unwrap(), json!({"method": "first"}));
+        assert_eq!(second.await.unwrap().unwrap(), json!({"method": "second"}));
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn agent_eof_settles_pending_request_without_waiting_for_rpc_timeout() {
+        let (client, agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let pending = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_with_timeout("session/prompt", json!({}), Duration::from_secs(30))
+                    .await
+            }
+        });
+        read_frame(&mut agent_stdin).await;
+        drop(agent_stdout);
+        let error = tokio::time::timeout(Duration::from_secs(1), pending)
+            .await
+            .expect("EOF must fail the request promptly")
+            .unwrap()
+            .unwrap_err();
+        assert!(!matches!(error, AcpError::Timeout(_)));
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn untimed_request_settles_when_the_client_shuts_down() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let pending = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_until_closed("session/prompt", json!({}))
+                    .await
+            }
+        });
+        read_frame(&mut agent_stdin).await;
+        client.shutdown().await;
+        let error = tokio::time::timeout(Duration::from_secs(1), pending)
+            .await
+            .expect("shutdown must settle an untimed request")
+            .unwrap()
+            .unwrap_err();
+        assert!(!matches!(error, AcpError::Timeout(_)), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn untimed_request_settles_after_exit_even_if_a_descendant_holds_the_pipes() {
+        // Without the old one-hour cap, a descendant that inherited stdout
+        // (so EOF never arrives) must not keep `session/prompt` pending.
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command.args(["-c", "exec 3<&0; sleep 6 <&3 & exit 0"]);
+        let client = AcpClient::spawn(
+            AcpSpawnOptions::builder()
+                .command(command)
+                .client_info(AcpClientInfo::default())
+                .build(),
+        )
+        .await
+        .expect("spawn ACP stand-in");
+        let mut events = client.subscribe_reliable();
+        let pending = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_until_closed("session/prompt", json!({}))
+                    .await
+            }
+        });
+        let error = tokio::time::timeout(Duration::from_secs(5), pending)
+            .await
+            .expect("a dead agent must not leave the prompt pending")
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            matches!(error, AcpError::ConnectionClosed("session/prompt")),
+            "{error}"
+        );
+        assert!(matches!(
+            events.recv().await,
+            Some(AcpEvent::ProcessExited {
+                status: Some(0),
+                ..
+            })
+        ));
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_flushes_queued_notification_with_agent_output_still_open() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let notification =
+            UntypedMessage::new("session/cancel", json!({"sessionId": "flush"})).unwrap();
+        client.send_notification_typed(notification).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), client.shutdown())
+            .await
+            .expect("shutdown must not wait for remote EOF");
+        let frame = read_frame(&mut agent_stdin).await;
+        assert_eq!(frame["method"], "session/cancel");
+        assert_eq!(frame["params"]["sessionId"], "flush");
+        let mut after = String::new();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), agent_stdin.read_line(&mut after))
+                .await
+                .expect("shutdown must close the write half")
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn incoming_batch_preserves_notifications_and_groups_request_responses() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut subscriber = client.subscribe_reliable();
+        write_frame(
+            &mut agent_stdout,
+            json!([
+                {"jsonrpc": "2.0", "id": 7, "method": "_qa/first", "params": {}},
+                {"jsonrpc": "2.0", "method": "session/update", "params": {
+                    "sessionId": "s1", "update": {"sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "batch"}, "_extension": true}
+                }},
+                {"jsonrpc": "2.0", "id": "7", "method": "_qa/second", "params": {}}
+            ]),
+        )
+        .await;
+        for expected in ["first", "notification", "second"] {
+            let event = tokio::time::timeout(Duration::from_secs(1), subscriber.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match (expected, event) {
+                ("notification", AcpEvent::Notification(notification)) => {
+                    assert_eq!(notification.params()["update"]["_extension"], true);
+                    assert_eq!(notification.params()["update"]["content"]["text"], "batch");
+                }
+                (method, AcpEvent::ServerRequest(request)) => {
+                    assert_eq!(request.method(), format!("_qa/{method}"));
+                }
+                _ => panic!("batch dispatch order changed"),
+            }
+        }
+        client
+            .reject_server_request(json!("7"), -32601, "unsupported extension")
+            .await
+            .unwrap();
+        client
+            .respond_server_request(json!(7), json!({"ok": true}))
+            .await
+            .unwrap();
+        let response = read_frame(&mut agent_stdin).await;
+        let responses = response.as_array().expect("batch replies remain grouped");
+        assert_eq!(
+            responses.len(),
+            2,
+            "notifications must not produce a response"
+        );
+        assert!(responses
+            .iter()
+            .any(|r| r["id"] == json!(7) && r["result"]["ok"] == true));
+        assert!(responses
+            .iter()
+            .any(|r| r["id"] == json!("7") && r["error"]["code"] == -32601));
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn initialize_rejects_an_incompatible_protocol_version() {
+        use agent_client_protocol::schema::{v1::InitializeRequest, ProtocolVersion};
+
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let initialize = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .send_request_typed(
+                        InitializeRequest::new(ProtocolVersion::V1),
+                        Duration::from_secs(2),
+                    )
+                    .await
+            }
+        });
+        let request = read_frame(&mut agent_stdin).await;
+        assert_eq!(request["params"]["protocolVersion"], 1);
+        write_frame(
+            &mut agent_stdout,
+            json!({
+                "jsonrpc": "2.0", "id": request["id"],
+                "result": {"protocolVersion": 99, "agentCapabilities": {}}
+            }),
+        )
+        .await;
+        let error = initialize
+            .await
+            .unwrap()
+            .expect_err("v1 client must reject a different wire protocol");
+        assert!(!matches!(error, AcpError::Timeout(_)), "{error}");
+        assert!(
+            error.to_string().to_lowercase().contains("protocol"),
+            "{error}"
+        );
+        client.shutdown().await;
+    }
+
     async fn read_frame(reader: &mut BufReader<tokio::io::DuplexStream>) -> serde_json::Value {
         let mut line = String::new();
-        reader.read_line(&mut line).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+            .await
+            .expect("agent must receive a frame")
+            .unwrap();
         serde_json::from_str(line.trim()).unwrap()
     }
 

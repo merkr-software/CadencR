@@ -1,19 +1,15 @@
-mod api;
-mod app_state;
-mod config;
-mod dev_env;
-mod domain;
-mod error;
-mod remote;
-mod shared;
-mod shutdown;
+//! Thin binary entry point. Every module lives in the `cadencr_service` lib so
+//! the crate compiles (and its unit tests run) once; declaring them again here
+//! with `mod` would build a second full copy of the service.
 
-use axum::http::header::{HeaderName, CONTENT_TYPE};
-use axum::http::Method;
+use cadencr_service::{
+    api, app_state, config, dev_clone, dev_env, domain, remote, shared, shutdown,
+};
+
+use anyhow::Context;
 use axum::serve::ListenerExt;
 use clap::Parser;
 use std::path::PathBuf;
-use tower_http::cors::CorsLayer;
 use tracing::info;
 
 use app_state::AppState;
@@ -36,6 +32,9 @@ async fn main() -> anyhow::Result<()> {
 
     let is_mcp = config.command.is_some();
     init_tracing(is_mcp);
+    // Before anything can spawn a child: the watch also hands fd 0 back to
+    // `/dev/null`, so children never inherit the shell's open pipe.
+    let parent_watch = (!is_mcp && config.exit_with_parent).then(shutdown::watch_parent);
 
     match &config.command {
         Some(Command::McpServe {
@@ -51,7 +50,11 @@ async fn main() -> anyhow::Result<()> {
                 config.settings_dir.as_deref(),
                 &db_path,
             );
+            domain::settings_store::dir::secure(&settings_dir)?;
             domain::settings_store::init(settings_dir);
+            domain::agents::providers::installed::managed::trust::initialize_pinned_registry_trust(
+            )
+            .await?;
 
             domain::mcp::stdio::run_mcp_stdio(&db_path, agent_type, *feature_id, *session_id)
                 .await?;
@@ -78,14 +81,16 @@ async fn main() -> anyhow::Result<()> {
                 info!("Loaded env from {}", dotenv_path.display());
             }
 
-            // Hydrate process env from the user's login shell BEFORE any
-            // subprocesses (git, gpg, ssh, agent CLIs, PTY shells) get
-            // spawned. Without this, a Electron/launchd-launched binary
-            // inherits a stripped-down env (`PATH=/usr/bin:/bin:...`, no
-            // `GPG_TTY`, no `SSH_AUTH_SOCK`) and `git commit -S` fails for
-            // anyone who configured signing or agent sockets in their
-            // `.zshrc` / `.zprofile`. Best-effort: warns on failure,
-            // never blocks startup.
+            let addr = format!("127.0.0.1:{}", config.port);
+            let listener = tokio::net::TcpListener::bind(&addr)
+                .await
+                .with_context(|| format!("failed to bind Cadencr service listener on {addr}"))?;
+
+            // Freeze the data roots from Electron's launch env, then hydrate the
+            // login-shell env before any git, agent or PTY subprocess spawns.
+            shared::app_paths::pin_roots()
+                .map_err(anyhow::Error::msg)
+                .context("could not resolve Cadencr's data directories")?;
             shared::login_env::hydrate_from_login_shell().await;
 
             let db_path = config
@@ -96,10 +101,13 @@ async fn main() -> anyhow::Result<()> {
             let write_pool = db::create_write_pool(&db_path).await?;
             shared::migrate::run_migrations(&shared::migrate::MigrationContext {
                 pool: &write_pool,
-                db_path: Some(std::path::Path::new(&db_path)),
+                db_path: dev_env::migration_backup_path(std::path::Path::new(&db_path)),
                 app_version: config.app_version.as_deref(),
             })
             .await?;
+            // A fresh worktree clone first forgets the main checkout's live
+            // agents, turns, schedules and queues, before recovery reads them.
+            dev_clone::adopt_database(&write_pool, std::path::Path::new(&db_path)).await?;
             // The one-time image backfill needs its destination before it can
             // run. Production uses `~/.cadencr/blobs`; an ad-hoc/dev database
             // gets an isolated directory named after that exact database.
@@ -152,15 +160,17 @@ async fn main() -> anyhow::Result<()> {
                 config.settings_dir.as_deref(),
                 &db_path,
             );
-            if let Err(e) = std::fs::create_dir_all(&settings_dir) {
-                tracing::warn!(dir = %settings_dir.display(), "failed to create settings dir: {e}");
-            }
+            domain::settings_store::dir::secure(&settings_dir)?;
             // Resolve to an absolute path so the "Edit JSON" / "Copy path" UI
             // shows a usable location. In dev the dir derives from a relative
             // `--db-path`, which would otherwise surface as a confusing
             // CWD-relative `./cadencr-settings/settings.json`.
             let settings_dir = std::fs::canonicalize(&settings_dir).unwrap_or(settings_dir);
             domain::settings_store::init(settings_dir.clone());
+            domain::telemetry::initialize(config.app_version.as_deref());
+            domain::agents::providers::installed::managed::trust::initialize_pinned_registry_trust(
+            )
+            .await?;
             // Bind the provider registry to that settings dir immediately: it
             // scans `<settings-dir>/providers` exactly once, and a lazy first
             // lookup before this point would cache an empty scan of the
@@ -172,20 +182,13 @@ async fn main() -> anyhow::Result<()> {
             // table. Needs `write_pool` for the DROP and must run after the dir is
             // initialized so the JSON write lands in the right place.
             domain::agents::claude_code::profiles::migrate_from_sqlite(&write_pool).await;
-            // Strip per-device UI state (active tab, sidebar visibility,
-            // last-opened feature) that older versions wrote into the global
-            // file — it now lives in the frontend's localStorage.
-            match domain::settings_store::prune_ephemeral_global().await {
-                Ok(true) => info!("pruned legacy per-device UI keys from settings.json"),
-                Ok(false) => {}
-                Err(e) => tracing::warn!("failed to prune ephemeral settings keys: {e}"),
-            }
+            // Strip per-device UI state older versions wrote into the global
+            // file and carry renamed workspace keys over.
+            domain::settings_store::tidy_global_at_startup().await;
 
-            // Mark any sessions left as 'running' from a previous crash as 'paused'
-            domain::ws_session::persistence::WsSessionPersistence::cleanup_stale_sessions(
-                &write_pool,
-            )
-            .await;
+            // Turns a crash left 'running' are captured for resume, then paused.
+            let app_version = config.app_version.as_deref();
+            domain::restart_continuations::recover_at_startup(&write_pool, app_version).await;
             let recovered_shell_context =
                 domain::ws_session::handler::recover_user_shell_context(&write_pool)
                     .await
@@ -200,6 +203,14 @@ async fn main() -> anyhow::Result<()> {
                 domain::sessions::message_dispatch::recover_orphaned_claims(&write_pool).await?;
             if recovered > 0 {
                 info!(recovered, "recovered orphaned message delivery claims");
+            }
+            let interrupted_prompts =
+                domain::prompt_queue::store::recover_interrupted_deliveries(&write_pool).await?;
+            if interrupted_prompts > 0 {
+                info!(
+                    interrupted_prompts,
+                    "marked interrupted queued prompts as failed"
+                );
             }
 
             let auth_token = config.auth_token.ok_or_else(|| {
@@ -224,16 +235,23 @@ async fn main() -> anyhow::Result<()> {
                     data_dir: remote_data_dir.clone(),
                 }));
 
-            let state = AppState::for_server(
-                read_pool,
-                write_pool,
-                db_path.clone(),
-                auth_token,
-                config.frontend_port,
-                config.port,
-                remote_controller,
-                &remote_data_dir,
-            );
+            let state = AppState::for_server()
+                .read_pool(read_pool)
+                .write_pool(write_pool)
+                .db_path(db_path.clone())
+                .auth_token(auth_token)
+                .frontend_port(config.frontend_port)
+                .port(config.port)
+                .remote(remote_controller)
+                .remote_data_dir(&remote_data_dir)
+                .build();
+            // AppState now owns the Browser bridge credentials too (read from
+            // the env at construction): no child may inherit them.
+            shared::security::remove_service_only_env();
+
+            // Stale `running` rows were reset above; restore the status book
+            // every client reads before any of them can connect.
+            domain::session_status::restore_at_boot(&state).await?;
 
             // Watch the settings dir so external edits to the JSON files push a
             // live refresh to connected clients.
@@ -245,6 +263,20 @@ async fn main() -> anyhow::Result<()> {
                 &domain::themes::paths::themes_dir(),
                 state.theme_events_tx.clone(),
             );
+
+            domain::plugin_tabs::watcher::start(
+                &domain::plugin_tabs::paths::tabs_dir(),
+                state.plugin_tab_events_tx.clone(),
+            );
+            // Permission changes and revocations revoke live grants (blocked: backends stop first).
+            tokio::spawn(domain::plugin_tabs::grants::revoke_on_manifest_change(
+                state.plugin_tab_grants.clone(),
+                state.plugin_tab_backends.clone(),
+                state.plugin_tab_events_tx.subscribe(),
+            ));
+            state
+                .plugin_tab_backends
+                .spawn_reaper(&state.plugin_tab_presence);
 
             // A theme is built in a project named after it, and renaming a theme
             // is editing its file — so the same event that reloads the theme
@@ -271,6 +303,7 @@ async fn main() -> anyhow::Result<()> {
             // process, which needs to honor the override on first launch.
             domain::agents::apply_binary_overrides_from_settings(&state.read_pool).await;
             domain::agents::spawn_runtime_startup_warmups();
+            state.provider_updates.spawn_periodic_checks();
             domain::agents::providers::installed::managed::service::spawn_startup_blocklist_refresh(
             );
 
@@ -282,15 +315,20 @@ async fn main() -> anyhow::Result<()> {
                 Ok(_) => {}
                 Err(e) => tracing::warn!("failed to reconcile orphaned custom action runs: {e}"),
             }
-
-            // Resume periodic custom-action schedules from a previous launch.
-            state.custom_action_scheduler.bootstrap(&state).await;
+            // Same for sub-agents: none outlives the service that ran it.
+            domain::subagents::stop_runs_orphaned_by_restart(&state.write_pool).await;
 
             // Background dispatcher for user schedules (one poll loop for the
             // process lifetime; survives client disconnects).
             domain::schedules::scheduler::spawn(state.clone());
+            domain::restart_continuations::spawn_startup_pass(state.clone());
+            domain::features::archive_cleanup::runner::recover_at_startup(&state).await?;
             domain::mcp::control::message_queue::spawn(state.clone());
+            // Detect Git once, off the runtime: version-gated Git flows read
+            // the cached result, and an old Git is logged here once.
+            tokio::task::spawn_blocking(shared::git_cli::version::detect);
             domain::git::forge::spawn(state.clone());
+            domain::git::linked_branches::spawn(state.clone());
 
             // Auto-start remote access if the user left it enabled (persisted
             // setting). Failures are non-fatal — the loopback server must come
@@ -304,15 +342,14 @@ async fn main() -> anyhow::Result<()> {
 
             let pty_manager = state.pty_manager.clone();
             let remote_for_shutdown = state.remote.clone();
+            let backends_for_shutdown = state.plugin_tab_backends.clone();
             let write_pool_for_shutdown = state.write_pool.clone();
             let maintenance_pool = state.write_pool.clone();
             let maintenance_events = state.storage_maintenance_events_tx.clone();
-            let app = api::build_router(state).layer(build_cors_layer(config.frontend_port));
+            let app =
+                api::build_router(state).layer(api::cors::build_cors_layer(config.frontend_port));
 
-            let addr = format!("127.0.0.1:{}", config.port);
             info!("Cadencr service listening on {addr}");
-
-            let listener = tokio::net::TcpListener::bind(&addr).await?;
             // Disable Nagle's algorithm on every accepted connection. Nagle is
             // the default on `tokio::net::TcpStream` and silently coalesces
             // small frames for ~200 ms, which destroys real-time WS streaming.
@@ -332,12 +369,13 @@ async fn main() -> anyhow::Result<()> {
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
-            .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx));
+            .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx, parent_watch));
             shutdown::serve_then_shutdown(
                 server,
                 drain_rx,
                 pty_manager,
                 remote_for_shutdown,
+                backends_for_shutdown,
                 write_pool_for_shutdown,
             )
             .await?;
@@ -345,36 +383,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn build_cors_layer(frontend_port: u16) -> CorsLayer {
-    let mut origins = vec!["null".parse().expect("static origin")];
-    if cfg!(debug_assertions) {
-        origins.push(
-            format!("http://localhost:{frontend_port}")
-                .parse()
-                .expect("frontend origin"),
-        );
-        origins.push(
-            format!("http://127.0.0.1:{frontend_port}")
-                .parse()
-                .expect("frontend origin"),
-        );
-    }
-
-    CorsLayer::new()
-        .allow_origin(origins)
-        .allow_headers([
-            HeaderName::from_static(api::middleware::AUTH_HEADER),
-            CONTENT_TYPE,
-        ])
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::PATCH,
-        ])
 }
 
 /// MCP subprocess mode writes to stderr to keep stdout clean for JSON-RPC.

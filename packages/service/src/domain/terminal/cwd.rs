@@ -15,7 +15,7 @@ pub async fn resolve_cwd(
     resolve_live_worktree(pool, feature_id, &project_path)
         .await
         .map(|worktree| worktree.unwrap_or(project_path))
-        .map_err(AppError::Internal)
+        .map_err(|error| AppError::internal(error))
 }
 
 /// Same as [`resolve_cwd`] but honours `requested_cwd` when it matches the
@@ -35,7 +35,7 @@ pub async fn resolve_pty_cwd(
     let project_path = get_project_path(pool, project_id).await?;
     let worktree_path = resolve_live_worktree(pool, feature_id, &project_path)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|error| AppError::internal(error))?;
     if req == project_path || worktree_path.as_deref() == Some(req) {
         return Ok(req.to_string());
     }

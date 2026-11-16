@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "plugin": {
+    "kind": "provider",
+    "id": "cursor",
+    "version": "0.1.0"
+  },
+  "source_license": {
+    "declared_spdx": "Apache-2.0",
+    "file": "LICENSE",
+    "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5",
+    "review": "declared-license-file-present-not-legal-attestation"
+  },
+  "artwork": {
+    "file": "icon.svg",
+    "sha256": "84bd31fae23ae64fbea5688e7a2ad5ff060fee609f2e5cb580bf1faa47341951",
+    "observed_content": "original-local-svg-rect-two-paths-and-three-circles-no-external-references",
+    "authorship": "created-during-cadencr-source-maintenance-2026-11-01",
+    "declared_spdx": "Apache-2.0",
+    "creation_record": "README.md#connector-artwork",
+    "review": "source-creation-record-not-legal-attestation"
+  },
+  "runtime": {
+    "kind": "native-rust-connector-external-cursor-agent-cli",
+    "connector": "compiled-per-target-not-bundling-cursor",
+    "cursor_agent_cli": "2026.10.22-27dcf5f",
+    "bundled": false
+  },
+  "targets": {
+    "darwin-aarch64": {
+      "preparation": "native-rust-build-not-prepared",
+      "evidence": "not-qualified",
+      "managed_installation": "not-qualified"
+    },
+    "darwin-x86_64": {
+      "preparation": "native-rust-build-not-prepared",
+      "evidence": "not-qualified",
+      "managed_installation": "not-qualified"
+    },
+    "linux-aarch64": {
+      "preparation": "native-rust-build-not-prepared",
+      "evidence": "not-qualified",
+      "managed_installation": "not-qualified"
+    },
+    "linux-x86_64": {
+      "preparation": "native-rust-build-not-prepared",
+      "evidence": "not-qualified",
+      "managed_installation": "not-qualified"
+    }
+  },
+  "not_prepared_targets": [
+    "windows-aarch64",
+    "windows-x86_64"
+  ],
+  "working_tree_protocol_evidence": {
+    "date": "2026-11-01",
+    "target": "darwin-aarch64",
+    "source_identity": "uncommitted-working-tree-not-release-qualified",
+    "method": "cargo-test-fake-agent-end-to-end-plus-real-cli-models-version-updates-smoke",
+    "real_cli": {
+      "cursor_agent_cli": "2026.10.22-27dcf5f",
+      "commands": [
+        "models",
+        "version",
+        "updates"
+      ],
+      "prompts_sent": false
+    },
+    "managed_installation": "not-qualified",
+    "exact_committed_candidate": "pending"
+  }
+}

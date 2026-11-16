@@ -1,3 +1,4 @@
+import { executeBrowserScript } from "./browser-document-security";
 import {
   addCommentBadgeScript,
   clearCommentBadgesScript,
@@ -10,6 +11,14 @@ import { browserScreenshotClipScale } from "./browser-screenshot";
 import type { ManagedTab } from "./browser-tab-events";
 import type { BrowserElementContext } from "./browser-types";
 
+// Anchors whose badge we pinned, per tab. Any page can print the badge-click
+// sentinel, so only a click on one of these is trusted to pull keyboard focus.
+const pinnedBadges = new WeakMap<ManagedTab, Set<string>>();
+
+export function isPinnedCommentBadge(tab: ManagedTab, anchorId: string): boolean {
+  return pinnedBadges.get(tab)?.has(anchorId) ?? false;
+}
+
 type SelectionAttempt =
   | { kind: "selected"; context: BrowserElementContext }
   | { kind: "navigated" };
@@ -17,6 +26,7 @@ type SelectionAttempt =
 function captureUntilNavigation(
   tab: ManagedTab,
   anchorId: string | null,
+  authorize: () => void,
 ): Promise<SelectionAttempt> {
   const contents = tab.webContents;
   return new Promise((resolve, reject) => {
@@ -37,13 +47,8 @@ function captureUntilNavigation(
       cleanup();
       reject(error);
     };
-    const onNavigation = (
-      _event: Electron.Event,
-      _url: string,
-      isInPlace: boolean,
-      isMainFrame: boolean,
-    ): void => {
-      if (isMainFrame && !isInPlace) finish({ kind: "navigated" });
+    const onNavigation = (details: Electron.WebContentsDidStartNavigationEventParams): void => {
+      if (details.isMainFrame && !details.isSameDocument) finish({ kind: "navigated" });
     };
     const onDestroyed = (): void => fail(new Error("Browser tab closed during element selection."));
 
@@ -60,6 +65,7 @@ function captureUntilNavigation(
       tabDiagnostics(tab.consoleEntries, tab.networkEntries),
       anchorId,
       () => browserScreenshotClipScale(tab),
+      authorize,
     ).then((context) => finish({ kind: "selected", context }), fail);
   });
 }
@@ -67,30 +73,38 @@ function captureUntilNavigation(
 export async function selectElementContext(
   tab: ManagedTab,
   anchorId?: string,
+  authorize: () => void = () => undefined,
 ): Promise<BrowserElementContext> {
   const resolvedAnchorId = anchorId ?? null;
   while (true) {
-    const attempt = await captureUntilNavigation(tab, resolvedAnchorId);
+    authorize();
+    const attempt = await captureUntilNavigation(tab, resolvedAnchorId, authorize);
     if (attempt.kind === "navigated") {
+      authorize();
       // A navigation destroys the page world that owns the picker promise.
       // Wait for the replacement document, then arm the picker there while the
       // renderer keeps showing the existing visible "picking" state.
       await waitForLoad(tab.webContents);
+      authorize();
       continue;
     }
     // Pin a numbered badge to the element the user just picked. The agent/MCP
     // path passes no anchor and gets context without a badge.
     if (anchorId) {
-      await tab.webContents.executeJavaScript(addCommentBadgeScript(anchorId), true);
+      await executeBrowserScript(tab.webContents, addCommentBadgeScript(anchorId));
+      const anchors = pinnedBadges.get(tab) ?? new Set<string>();
+      pinnedBadges.set(tab, anchors.add(anchorId));
     }
     return attempt.context;
   }
 }
 
 export async function removeCommentBadge(tab: ManagedTab, anchorId: string): Promise<void> {
-  await tab.webContents.executeJavaScript(removeCommentBadgeScript(anchorId), true);
+  pinnedBadges.get(tab)?.delete(anchorId);
+  await executeBrowserScript(tab.webContents, removeCommentBadgeScript(anchorId));
 }
 
 export async function clearCommentBadges(tab: ManagedTab): Promise<void> {
-  await tab.webContents.executeJavaScript(clearCommentBadgesScript(), true);
+  pinnedBadges.delete(tab);
+  await executeBrowserScript(tab.webContents, clearCommentBadgesScript());
 }

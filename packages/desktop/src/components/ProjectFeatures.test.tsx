@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@/test-utils";
+import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { useListFeatures } from "@/api/generated";
 import { ProjectFeatures } from "./ProjectFeatures";
@@ -8,6 +8,21 @@ import { resetMockIds } from "@/test-fixtures";
 import { ROOT_LEAF_ID } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { useBrowserStore } from "@/stores/browser-store";
+import { useSessionStatusStore } from "@/stores/session-status-store";
+import { resetPersistedIdSets } from "@/test/persisted-id-set-mock";
+import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
+
+const mockMoveConversation = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+vi.mock("@/hooks/useManualConversationOrder", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  moveConversation: mockMoveConversation,
+}));
+
+vi.mock("@/hooks/usePersistedIdSet", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("@/test/persisted-id-set-mock")),
+}));
 
 type UserEvent = ReturnType<typeof userEvent.setup>;
 
@@ -210,6 +225,11 @@ vi.mock("@/stores/ws-session-store", () => ({
 
 describe("ProjectFeatures", () => {
   beforeEach(() => {
+    // Fixture dates are fixed in the past: keep every conversation out of "Dormant".
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never" },
+    });
+    resetPersistedIdSets();
     resetMockIds();
     mockNavigate.mockClear();
     mockUpdateLabel.mockClear();
@@ -243,12 +263,19 @@ describe("ProjectFeatures", () => {
   });
 
   it("nests an active child and toggles its subtree without navigating", () => {
-    vi.mocked(useListFeatures).mockReturnValueOnce({
+    // Every render must see the hierarchy: toggling re-renders the list.
+    const hierarchy = {
       data: [
         mockFeatures[0],
         { ...mockFeatures[1], spawned_by_feature_id: 1, spawn_link_type: "spawned" },
       ],
-    } as ReturnType<typeof useListFeatures>);
+    } as ReturnType<typeof useListFeatures>;
+    vi.mocked(useListFeatures).mockReturnValue(hierarchy);
+    onTestFinished(() => {
+      vi.mocked(useListFeatures).mockImplementation(
+        () => ({ data: mockFeatures }) as ReturnType<typeof useListFeatures>,
+      );
+    });
 
     render(
       <ProjectFeatures
@@ -288,7 +315,56 @@ describe("ProjectFeatures", () => {
     expect(childRow).toHaveClass("bg-sidebar-accent");
   });
 
-  it("reserves the hierarchy gutter for every root feature", () => {
+  it("shows a collapsed child's activity on its parent row", () => {
+    const hierarchy = {
+      data: [
+        mockFeatures[0],
+        { ...mockFeatures[1], spawned_by_feature_id: 1, spawn_link_type: "spawned" },
+      ],
+    } as ReturnType<typeof useListFeatures>;
+    vi.mocked(useListFeatures).mockReturnValue(hierarchy);
+    useSessionStatusStore.setState({
+      bySession: { 50: { featureId: 2, status: "agent", kind: null, seq: 1 } },
+    });
+    onTestFinished(() => {
+      useSessionStatusStore.setState({ bySession: {} });
+      vi.mocked(useListFeatures).mockImplementation(
+        () => ({ data: mockFeatures }) as ReturnType<typeof useListFeatures>,
+      );
+    });
+
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    const parentRow = screen.getByText("Feature One").closest("[role=button]") as HTMLElement;
+    expect(within(parentRow).queryByLabelText("Agent working")).not.toBeInTheDocument();
+
+    fireEvent.click(within(parentRow).getByRole("button", { name: "Collapse child sessions" }));
+    expect(within(parentRow).getByLabelText("Agent working")).toBeInTheDocument();
+  });
+
+  it("narrows to the filter's matches and leaves archives out", () => {
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+        filterMatch={new Set([2])}
+      />,
+    );
+    expect(screen.getByText("Feature Two")).toBeInTheDocument();
+    expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Archived \(/)).not.toBeInTheDocument();
+  });
+
+  // jsdom has no layout: real spacing (including an empty leaf gutter) needs the running app.
+  it("keeps the hierarchy control before the content of every root feature", () => {
     vi.mocked(useListFeatures).mockReturnValueOnce({
       data: [
         mockFeatures[0],
@@ -311,8 +387,8 @@ describe("ProjectFeatures", () => {
     const parentGutter = parentRow?.querySelector("[data-feature-hierarchy-gutter]");
     const leafGutter = leafRow?.querySelector("[data-feature-hierarchy-gutter]");
 
-    expect(parentGutter).toHaveClass("w-2");
-    expect(leafGutter).toHaveClass("w-2");
+    expect(parentRow?.firstElementChild).toBe(parentGutter);
+    expect(leafRow?.firstElementChild).toBe(leafGutter);
     expect(
       within(parentGutter as HTMLElement).getByRole("button", {
         name: "Collapse child sessions",
@@ -881,5 +957,86 @@ describe("ProjectFeatures", () => {
     expect(shouldIgnoreFeatureRowKeyDown(input)).toBe(true);
     expect(shouldIgnoreFeatureRowKeyDown(textbox)).toBe(true);
     expect(shouldIgnoreFeatureRowKeyDown(plainRowTarget)).toBe(false);
+  });
+});
+
+describe("ProjectFeatures manual reordering", () => {
+  const rowOf = (title: string): HTMLElement => {
+    const row = screen.getByText(title).closest<HTMLElement>("[role=button]");
+    if (!row) throw new Error(`Row not found: ${title}`);
+    return row;
+  };
+  const dataTransfer = () =>
+    ({
+      setData: vi.fn(),
+      setDragImage: vi.fn(),
+      effectAllowed: "",
+      dropEffect: "",
+    }) as unknown as DataTransfer;
+  /** Over the lower half of a 20px row; happy-dom drops `clientY` from the init. */
+  const dragOver = (row: HTMLElement, transfer: DataTransfer): boolean => {
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue({ top: 0, height: 20 } as DOMRect);
+    const event = createEvent.dragOver(row, { dataTransfer: transfer });
+    Object.defineProperty(event, "clientY", { value: 15 });
+    return fireEvent(row, event);
+  };
+
+  beforeEach(() => {
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never" },
+    });
+    resetPersistedIdSets();
+    mockMoveConversation.mockClear();
+    mockListFeatureWorktrees.mockReturnValue({ data: [] });
+    const hierarchy = {
+      data: [
+        mockFeatures[0],
+        { ...mockFeatures[1], spawned_by_feature_id: 1, spawn_link_type: "spawned" },
+        { ...mockFeatures[2], spawned_by_feature_id: 1, spawn_link_type: "spawned" },
+        { ...mockFeatures[3], status: "active", title: "Other Root" },
+      ],
+    } as ReturnType<typeof useListFeatures>;
+    vi.mocked(useListFeatures).mockReturnValue(hierarchy);
+    onTestFinished(() => {
+      vi.mocked(useListFeatures).mockImplementation(
+        () => ({ data: mockFeatures }) as ReturnType<typeof useListFeatures>,
+      );
+    });
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+  });
+
+  it("drops a root among the project's roots", () => {
+    const transfer = dataTransfer();
+    fireEvent.dragStart(rowOf("Feature One"), { dataTransfer: transfer });
+    expect(dragOver(rowOf("Other Root"), transfer)).toBe(false);
+    fireEvent.drop(rowOf("Other Root"), { dataTransfer: transfer });
+    expect(mockMoveConversation).toHaveBeenCalledWith([1, 4], 1, {
+      targetId: 4,
+      position: "after",
+    });
+  });
+
+  it("keeps a child among its parent's children", () => {
+    const transfer = dataTransfer();
+    fireEvent.dragStart(rowOf("Feature Two"), { dataTransfer: transfer });
+    // Another root refuses it: a child never leaves its parent.
+    expect(dragOver(rowOf("Other Root"), transfer)).toBe(true);
+    fireEvent.drop(rowOf("Other Root"), { dataTransfer: transfer });
+    expect(mockMoveConversation).not.toHaveBeenCalled();
+
+    fireEvent.dragStart(rowOf("Feature Two"), { dataTransfer: transfer });
+    expect(dragOver(rowOf("Session One"), transfer)).toBe(false);
+    fireEvent.drop(rowOf("Session One"), { dataTransfer: transfer });
+    expect(mockMoveConversation).toHaveBeenCalledWith([2, 3], 2, {
+      targetId: 3,
+      position: "after",
+    });
   });
 });

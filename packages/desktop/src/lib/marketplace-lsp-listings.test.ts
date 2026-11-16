@@ -1,0 +1,265 @@
+import { describe, expect, it } from "vitest";
+import { lspListings } from "./marketplace-lsp-listings";
+import { lspPackageSchema } from "./marketplace-lsp-package";
+import { lspCatalogSchema, type LspInventory } from "./lsp/marketplace";
+import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
+import { auroraPlugin, auroraTheme, signedCatalog } from "./marketplace-plugin-fixtures";
+import { versionProblem } from "./marketplace-listing-base";
+import { browsableListings } from "./marketplace-platform";
+import {
+  installedPluginMembers,
+  listingIndex,
+  pluginListings,
+  pluginMembers,
+  pluginSteps,
+} from "./marketplace-plugin-listings";
+
+const entry = (protocol = 1, runtime = "node") => ({
+  kind: "lsp" as const,
+  package: {
+    lsp: {
+      id: "custom-server",
+      name: "Custom server",
+      description: "Custom language tooling",
+      version: "1.0.0",
+      repository: "https://github.com/acme/custom",
+      license: "MIT",
+      protocol_version: protocol,
+      languages: [{ id: "custom", extensions: ["custom"], filenames: ["Customfile"] }],
+      root_markers: ["Customfile"],
+      role: "general" as const,
+      args: ["--stdio"],
+      initialization_options: { custom: true },
+      distribution: {
+        binary: {
+          "linux-x86_64": {
+            archive: "https://github.com/acme/custom/releases/download/v1.0.0/server.tgz",
+            sha256: "a".repeat(64),
+            size: 200,
+            entry: "server.js",
+            entry_sha256: "b".repeat(64),
+            entry_size: 100,
+            runtime,
+          },
+        },
+      },
+    },
+    host: { publisher: "acme", compatibility: { min_app_version: "0.15.0" } },
+  },
+});
+const catalog = (overrides: object = {}, packages: unknown[] = [entry()]) =>
+  lspCatalogSchema.parse({
+    verified: true,
+    index: signedCatalog(packages),
+    recommended_versions: { "custom-server": "1.0.0" },
+    ...overrides,
+  });
+const inventory: LspInventory = {
+  servers: [
+    {
+      lsp_id: "custom-server",
+      name: "Custom server",
+      description: "",
+      language_ids: ["custom"],
+      languages: [],
+      role: "general",
+      status: "legacy",
+      version: "1.0.0",
+    },
+  ],
+};
+
+describe("marketplace LSP listings", () => {
+  it("retains signed Node requirements and rejects malformed or native requirements", () => {
+    const value = entry().package;
+    const target = value.lsp.distribution.binary["linux-x86_64"];
+    const withTarget = (replacement: unknown) => ({
+      ...value,
+      lsp: { ...value.lsp, distribution: { binary: { "linux-x86_64": replacement } } },
+    });
+    expect(
+      lspPackageSchema.parse(withTarget({ ...target, node_min_version: "22.18.0" })).lsp
+        .distribution.binary["linux-x86_64"].node_min_version,
+    ).toBe("22.18.0");
+    for (const minimum of [
+      null,
+      true,
+      22,
+      "22",
+      ">=22.18.0",
+      "22.18.0-rc.1",
+      "22.18.0+build",
+      "022.18.0",
+      "22.18.0\n",
+    ]) {
+      expect(
+        lspPackageSchema.safeParse(withTarget({ ...target, node_min_version: minimum })).success,
+      ).toBe(false);
+    }
+    expect(
+      lspPackageSchema.safeParse(
+        withTarget({ ...target, runtime: "native", node_min_version: "22.18.0" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      lspPackageSchema.parse(value).lsp.distribution.binary["linux-x86_64"].node_min_version,
+    ).toBeUndefined();
+  });
+
+  it("binds signed macOS requirements to native Darwin targets and host-selected listings", () => {
+    const value = entry().package;
+    const target = value.lsp.distribution.binary["linux-x86_64"];
+    const withTarget = (platform: string, minimum: unknown, runtime = "native") => ({
+      ...value,
+      lsp: {
+        ...value.lsp,
+        distribution: {
+          binary: {
+            [platform]: { ...target, runtime, macos_min_version: minimum },
+          },
+        },
+      },
+    });
+    for (const platform of ["darwin-aarch64", "darwin-x86_64"]) {
+      expect(lspPackageSchema.safeParse(withTarget(platform, "15.0.0")).success).toBe(true);
+      for (const minimum of [
+        null,
+        true,
+        15,
+        "15",
+        "v15.0.0",
+        "15.0.0-rc.1",
+        "15.0.0+build",
+        "015.0.0",
+        "15.0.0\n",
+        "1".repeat(65),
+      ]) {
+        expect(lspPackageSchema.safeParse(withTarget(platform, minimum)).success).toBe(false);
+      }
+      expect(lspPackageSchema.safeParse(withTarget(platform, "15.0.0", "node")).success).toBe(
+        false,
+      );
+    }
+    expect(lspPackageSchema.safeParse(withTarget("linux-x86_64", "15.0.0")).success).toBe(false);
+    const plugin = auroraPlugin("1.0.0", [
+      { kind: "lsp", package: withTarget("darwin-aarch64", "15.0.0") },
+    ]);
+    const source = catalog(
+      {
+        host_platform: "darwin-aarch64",
+        unavailable_versions: { "custom-server": { "1.0.0": "operating_system" } },
+        recommended_versions: {},
+      },
+      [plugin],
+    );
+    const members = lspListings(source);
+    expect(members[0].versions[0].macosMinVersion).toBe("15.0.0");
+    const bundle = pluginListings([source.index?.signed.packages], members)[0];
+    expect(bundle.versions[0]).toMatchObject({
+      macosMinVersion: "15.0.0",
+      unavailable: "operating_system",
+    });
+    const otherHost = lspListings({ ...source, host_platform: "linux-x86_64" });
+    expect(otherHost[0].versions[0].macosMinVersion).toBeUndefined();
+  });
+
+  it.each(["darwin-aarch64", "linux-x86_64"])(
+    "uses host verdicts on %s without guessing from the browser OS",
+    (host) => {
+      const [listing] = lspListings(
+        catalog({
+          host_platform: host,
+          unavailable_versions: { "custom-server": { "1.0.0": "platform" } },
+          recommended_versions: {},
+        }),
+      );
+      expect(listing.availableHere).toBe(false);
+      expect(browsableListings([listing])).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["protocol", "outdated"],
+    ["node", "runtime"],
+    ["policy", "policy"],
+    ["compatibility", "compatibility"],
+    ["operating_system", "operating_system"],
+  ])("preserves the %s install restriction", (reason, problem) => {
+    const [listing] = lspListings(
+      catalog({
+        unavailable_versions: { "custom-server": { "1.0.0": reason } },
+        recommended_versions: {},
+      }),
+    );
+    expect(versionProblem(listing.versions[0])).toBe(problem);
+    expect(listing.availableHere).toBe(false);
+  });
+
+  it("blocks revoked versions and propagates every member restriction to a plugin", () => {
+    const plugin = auroraPlugin("1.0.0", [entry()]);
+    const source = catalog(
+      { blocked_versions: { "custom-server": { "1.0.0": "Unsafe release" } } },
+      [plugin],
+    );
+    const members = lspListings(source);
+    const [bundle] = pluginListings([source.index?.signed.packages], members);
+    expect(bundle.versions[0].blocked).toContain("Unsafe release");
+    expect(bundle.availableHere).toBe(false);
+    const nodeSource = catalog({ unavailable_versions: { "custom-server": { "1.0.0": "node" } } }, [
+      plugin,
+    ]);
+    expect(
+      pluginListings([nodeSource.index?.signed.packages], lspListings(nodeSource))[0].versions[0]
+        .unavailable,
+    ).toBe("node");
+  });
+
+  it("retains installed tools offline and distinguishes managed from external installations", () => {
+    const [listing] = lspListings(undefined, inventory);
+    expect(listing.installed).toMatchObject({ version: "1.0.0", managed: false, usable: true });
+    expect(listing.inCatalog).toBe(false);
+  });
+
+  it("keeps invalid managed installations manageable without trusting their metadata", () => {
+    const [listing] = lspListings(undefined, {
+      servers: [
+        {
+          ...inventory.servers[0],
+          status: "invalid",
+          version: null,
+          error: "Revocation policy expired",
+        },
+      ],
+    });
+    expect(listing.installed).toMatchObject({
+      managed: true,
+      usable: false,
+      version: null,
+      error: "Revocation policy expired",
+    });
+  });
+
+  it("still installs a managed plugin member when an external server has the same version", () => {
+    const source = catalog({}, [auroraPlugin("1.0.0", [entry()])]);
+    const [member] = lspListings(source, inventory);
+    member.partOf = { id: "aurora", name: "Aurora" };
+    const [bundle] = pluginListings([source.index?.signed.packages], [member]);
+    const steps = pluginSteps(pluginMembers(bundle, "1.0.0", listingIndex([member])), "1.0.0");
+    expect(steps).toHaveLength(1);
+    expect(bundle.installed?.partial).toBe(true);
+    expect(installedPluginMembers(bundle, [member])).toEqual([]);
+  });
+
+  it("keeps themes and supported tools visible beside future protocol/runtime declarations", () => {
+    const supported = entry();
+    const future = entry(2, "future-runtime");
+    future.package.lsp.id = "future-server";
+    const signed = signedCatalog([auroraTheme("1.0.0"), supported, future]);
+    expect(signedMixedCatalogSchema.safeParse(signed).success).toBe(true);
+    expect(catalogMembers(signed.signed.packages).map((member) => member.kind)).toEqual([
+      "theme",
+      "lsp",
+      "lsp",
+    ]);
+  });
+});

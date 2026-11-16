@@ -12,14 +12,18 @@ import { stringArraysEqual } from "@/lib/utils";
 interface UnifiedAgentsFilterTextState {
   filterText: string;
   commitFilterText: (nextText: string) => void;
+  /** Commit `nextText` and show it in the search box, even after an edit. */
+  replaceFilterText: (nextText: string) => void;
   excludeAgent: (title: string) => void;
+  /** Undo `excludeAgent`. */
+  includeAgent: (title: string) => void;
   setExcludedTitles: (titles: string[]) => void;
 }
 
 /** Keeps the search-box text and the parsed filter in sync, and exposes the
  *  per-card exclude action. The box freezes external re-syncs after the first
- *  manual edit, so the exclude action updates state via `commitFilterText` and
- *  also pushes the text straight into the editor via the input handle. */
+ *  manual edit, so every programmatic change goes through `replaceFilterText`,
+ *  which also pushes the text straight into the editor. */
 export function useUnifiedAgentsFilterText(
   filters: PersistedUnifiedAgentsFilters,
   setFilters: (update: PersistedUnifiedAgentsFilters) => void,
@@ -44,6 +48,16 @@ export function useUnifiedAgentsFilterText(
     },
     [projects, setFilters],
   );
+  // Force the search box to show the new text too: its external-value sync
+  // ignores updates once the box has been edited, so the parsed filter alone
+  // wouldn't reach it.
+  const replaceFilterText = useCallback(
+    (nextText: string): void => {
+      commitFilterText(nextText);
+      inputRef.current?.setValue(nextText);
+    },
+    [commitFilterText, inputRef],
+  );
   const setExcludedTitles = useCallback(
     (titles: string[]): void => {
       const nextExcluded = dedupeTitles(titles);
@@ -54,20 +68,37 @@ export function useUnifiedAgentsFilterText(
         { ...filters, excludedTitles: nextExcluded },
         projects,
       );
-      // Update the filter state, then force the (unfocused) search box to
-      // show the new token — its external-value sync ignores updates once the
-      // box has been edited, so the parsed filter alone wouldn't reach it.
-      commitFilterText(nextText);
-      inputRef.current?.setValue(nextText);
+      replaceFilterText(nextText);
     },
-    [commitFilterText, filters, inputRef, projects],
+    [filters, projects, replaceFilterText],
   );
   const excludeAgent = useCallback(
     (title: string): void => setExcludedTitles([...filters.excludedTitles, title]),
     [filters.excludedTitles, setExcludedTitles],
   );
+  const includeAgent = useCallback(
+    (title: string): void => {
+      const key = title.trim().toLowerCase();
+      setExcludedTitles(filters.excludedTitles.filter((hidden) => hidden.toLowerCase() !== key));
+    },
+    [filters.excludedTitles, setExcludedTitles],
+  );
   return useMemo(
-    () => ({ filterText, commitFilterText, excludeAgent, setExcludedTitles }),
-    [filterText, commitFilterText, excludeAgent, setExcludedTitles],
+    () => ({
+      filterText,
+      commitFilterText,
+      replaceFilterText,
+      excludeAgent,
+      includeAgent,
+      setExcludedTitles,
+    }),
+    [
+      filterText,
+      commitFilterText,
+      replaceFilterText,
+      excludeAgent,
+      includeAgent,
+      setExcludedTitles,
+    ],
   );
 }

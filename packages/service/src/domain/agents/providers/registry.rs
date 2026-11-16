@@ -1,15 +1,7 @@
-//! Runtime provider registry.
-//!
-//! The set of runtime providers used to be a compile-time
-//! `&[(&str, &dyn AgentRuntimeAdapter)]` slice, which forced every entry to be
-//! a `'static` literal. This module keeps the exact same built-in providers, in
-//! the exact same order, behind a registry that is *constructed* at runtime, so
-//! a later increment can add installed (marketplace) providers without changing
-//! the shape of any lookup site.
-//!
-//! See `docs/PROVIDER_SPEC/BOUNDARIES.md` (Phase 1). Built-ins supply factories
-//! and host metadata here; validated local ACP descriptors append owned adapters
-//! during startup.
+//! Runtime provider registry, constructed at startup: built-ins supply
+//! factories and host metadata here, in catalog order, and validated local ACP
+//! descriptors append owned adapters after them. See
+//! `docs/PROVIDER_SPEC/BOUNDARIES.md` (Phase 1).
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -20,10 +12,12 @@ use std::sync::{Arc, OnceLock};
 use cli_discovery::DiscoverySpec;
 
 use crate::domain::agents::adapter::AgentRuntimeAdapter;
+use crate::domain::agents::extensions::ExtensionCli;
 use crate::domain::agents::runtime::ProviderOrigin;
+use crate::domain::agents::updates::ProviderUpdater;
 
 mod builtin_metadata;
-use builtin_metadata::{claude_metadata, codex_metadata, cursor_metadata, opencode_metadata};
+use builtin_metadata::{claude_metadata, codex_metadata, opencode_metadata};
 
 /// A cloneable, `'static` handle to a registered adapter.
 ///
@@ -125,6 +119,10 @@ pub struct ProviderRegistrationMetadata {
     aliases: Vec<Cow<'static, str>>,
     model_guidance: Option<Cow<'static, str>>,
     discovery: Option<ProviderDiscoveryMetadata>,
+    /// Version detection and self-update, when the provider manages it.
+    updater: Option<Arc<dyn ProviderUpdater>>,
+    /// Skills and MCP servers managed through the provider's own CLI.
+    extensions: Option<Arc<dyn ExtensionCli>>,
 }
 
 impl ProviderRegistrationMetadata {
@@ -138,6 +136,14 @@ impl ProviderRegistrationMetadata {
 
     pub fn discovery(&self) -> Option<&ProviderDiscoveryMetadata> {
         self.discovery.as_ref()
+    }
+
+    pub fn updater(&self) -> Option<&Arc<dyn ProviderUpdater>> {
+        self.updater.as_ref()
+    }
+
+    pub fn extensions(&self) -> Option<&Arc<dyn ExtensionCli>> {
+        self.extensions.as_ref()
     }
 }
 
@@ -167,6 +173,11 @@ impl RegisteredProvider {
 
     fn with_metadata(mut self, metadata: ProviderRegistrationMetadata) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    pub fn with_updater(mut self, updater: Arc<dyn ProviderUpdater>) -> Self {
+        self.metadata.updater = Some(updater);
         self
     }
 
@@ -215,11 +226,6 @@ static BUILTIN_PROVIDERS: &[BuiltinProvider] = &[
         id: super::super::codex::PROVIDER_ID,
         adapter: || ProviderAdapterHandle::owned(super::super::codex::CodexAdapter),
         metadata: codex_metadata,
-    },
-    BuiltinProvider {
-        id: super::super::cursor::PROVIDER_ID,
-        adapter: || ProviderAdapterHandle::owned(super::super::cursor::CursorAdapter),
-        metadata: cursor_metadata,
     },
     BuiltinProvider {
         id: super::super::opencode::PROVIDER_ID,
@@ -372,7 +378,7 @@ pub fn builtin_provider_identifiers() -> &'static [String] {
 /// Provider references are compared the same way throughout resolution and
 /// descriptor reservation: punctuation, spacing, and ASCII case do not create
 /// distinct public names.
-pub(super) fn provider_identifier_key(value: &str) -> String {
+pub(crate) fn provider_identifier_key(value: &str) -> String {
     value
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric())
@@ -408,7 +414,7 @@ mod tests {
     fn registry_preserves_builtin_provider_order() {
         assert_eq!(
             provider_registry().provider_ids(),
-            vec!["claude_code", "codex_cli", "cursor", "opencode"]
+            vec!["claude_code", "codex_cli", "opencode"]
         );
     }
 
@@ -419,8 +425,8 @@ mod tests {
             .all(|provider| provider.origin() == ProviderOrigin::BuiltIn));
 
         let installed = RegisteredProvider::new(
-            "cursor",
-            ProviderAdapterHandle::owned(crate::domain::agents::cursor::CursorAdapter),
+            "opencode",
+            ProviderAdapterHandle::owned(crate::domain::agents::opencode::OpenCodeAdapter),
         )
         .installed_local();
         assert_eq!(installed.origin(), ProviderOrigin::InstalledLocal);
@@ -504,7 +510,7 @@ mod tests {
         let expected: &[(&str, &str, Option<&str>, &[&str])] = &[
             (
                 "claude_code",
-                "acceptEdits",
+                "auto",
                 None,
                 &[
                     ".claude/settings.local.json",
@@ -525,18 +531,6 @@ mod tests {
                     ".codex/rules",
                     ".codex/agents",
                     ".codex/skills",
-                ],
-            ),
-            (
-                "cursor",
-                "default",
-                Some("cursor_access_mode"),
-                &[
-                    ".cursor/rules",
-                    ".cursor/commands",
-                    ".cursor/skills",
-                    ".cursor/mcp.json",
-                    ".cursor/cli.json",
                 ],
             ),
             (
@@ -575,16 +569,16 @@ mod tests {
 
     #[test]
     fn duplicate_registrations_keep_the_first_entry() {
-        let cursor = ProviderAdapterHandle::owned(crate::domain::agents::cursor::CursorAdapter);
+        let codex = ProviderAdapterHandle::owned(crate::domain::agents::codex::CodexAdapter);
         let registry = ProviderRegistry::from_providers([
-            RegisteredProvider::new("cursor", cursor.clone()),
-            RegisteredProvider::new("cursor", cursor),
+            RegisteredProvider::new("codex_cli", codex.clone()),
+            RegisteredProvider::new("codex_cli", codex),
             RegisteredProvider::new(
                 "opencode",
                 ProviderAdapterHandle::owned(crate::domain::agents::opencode::OpenCodeAdapter),
             ),
         ]);
-        assert_eq!(registry.provider_ids(), vec!["cursor", "opencode"]);
+        assert_eq!(registry.provider_ids(), vec!["codex_cli", "opencode"]);
     }
 
     /// A dynamically owned id resolves and dispatches the same way a borrowed
@@ -592,20 +586,20 @@ mod tests {
     #[test]
     fn runtime_registered_providers_join_the_ordered_registry() {
         let installed = RegisteredProvider::new(
-            String::from("cursor"),
-            ProviderAdapterHandle::owned(crate::domain::agents::cursor::CursorAdapter),
+            String::from("opencode"),
+            ProviderAdapterHandle::owned(crate::domain::agents::opencode::OpenCodeAdapter),
         );
         let registry = ProviderRegistry::from_providers([installed]);
 
-        assert_eq!(registry.provider_ids(), vec!["cursor"]);
-        assert!(registry.contains("cursor"));
+        assert_eq!(registry.provider_ids(), vec!["opencode"]);
+        assert!(registry.contains("opencode"));
         assert_eq!(
             registry
-                .adapter("cursor")
+                .adapter("opencode")
                 .expect("installed adapter")
                 .catalog_entry()
                 .id,
-            "cursor"
+            "opencode"
         );
     }
 
@@ -613,7 +607,7 @@ mod tests {
     fn mismatched_registry_and_catalog_ids_are_rejected() {
         let registry = ProviderRegistry::from_providers([RegisteredProvider::new(
             "installed_example",
-            ProviderAdapterHandle::owned(crate::domain::agents::cursor::CursorAdapter),
+            ProviderAdapterHandle::owned(crate::domain::agents::opencode::OpenCodeAdapter),
         )]);
 
         assert!(registry.provider_ids().is_empty());
@@ -641,25 +635,25 @@ mod tests {
     fn a_builtin_id_always_wins_over_a_later_registration() {
         use crate::domain::agents::adapter::AgentRuntimeAdapter;
         let impostor = crate::domain::agents::providers::installed::GenericAcpAdapter::new(
-            std::sync::Arc::new(installed_impostor("cursor")),
+            std::sync::Arc::new(installed_impostor("opencode")),
         );
         assert_eq!(impostor.catalog_entry().label, "Impostor");
 
         let registry = ProviderRegistry::from_providers(super::builtin_registrations().chain([
-            RegisteredProvider::new("cursor", ProviderAdapterHandle::owned(impostor)),
+            RegisteredProvider::new("opencode", ProviderAdapterHandle::owned(impostor)),
         ]));
 
         assert_eq!(
             registry.provider_ids(),
-            vec!["claude_code", "codex_cli", "cursor", "opencode"]
+            vec!["claude_code", "codex_cli", "opencode"]
         );
         assert_eq!(
             registry
-                .adapter("cursor")
-                .expect("cursor")
+                .adapter("opencode")
+                .expect("opencode")
                 .catalog_entry()
                 .label,
-            crate::domain::agents::cursor::CursorAdapter
+            crate::domain::agents::opencode::OpenCodeAdapter
                 .catalog_entry()
                 .label,
             "the built-in registration must keep ownership of its id"
@@ -680,7 +674,7 @@ mod tests {
 
         assert_eq!(
             registry.provider_ids(),
-            vec!["claude_code", "codex_cli", "cursor", "opencode"]
+            vec!["claude_code", "codex_cli", "opencode"]
         );
         assert!(registry.adapter("claude").is_none());
     }
@@ -713,7 +707,7 @@ mod tests {
     fn builtin_provider_ids_match_the_registered_order() {
         assert_eq!(
             super::builtin_provider_ids(),
-            vec!["claude_code", "codex_cli", "cursor", "opencode"]
+            vec!["claude_code", "codex_cli", "opencode"]
         );
     }
 
@@ -726,6 +720,10 @@ mod tests {
                 "{expected}"
             );
         }
+        // Cursor ships as an installed plugin, so its id must stay claimable.
+        assert!(!identifiers
+            .iter()
+            .any(|value| provider_identifier_key(value) == "cursor"));
         assert_eq!(provider_identifier_key("Claude Code"), "claudecode");
         assert_eq!(provider_identifier_key("claude-code"), "claudecode");
     }

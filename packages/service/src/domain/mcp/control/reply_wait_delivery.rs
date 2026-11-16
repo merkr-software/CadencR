@@ -67,7 +67,7 @@ async fn fail_claim(
     )
     .await
     {
-        return Err(AppError::Internal(format!(
+        return Err(AppError::internal(format!(
             "reply delivery failed ({message}) and its claim could not be finalized ({finalize_error})"
         )));
     }
@@ -100,7 +100,7 @@ async fn claim(pool: &sqlx::SqlitePool, wait_id: i64) -> Result<Option<DeliveryC
             Ok(DeliveryClaim {
                 token,
                 message_uuid: uuid::Uuid::parse_str(&message_uuid).map_err(|_| {
-                    AppError::Internal(format!(
+                    AppError::internal(format!(
                         "reply wait {wait_id} has an invalid delivery message UUID"
                     ))
                 })?,

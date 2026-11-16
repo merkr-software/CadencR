@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "@cadencr/tab-kit/preset.css";
+
+/* Run outcome dots read the theme's status accents. */
+.run-dot[data-tone="success"] {
+  background-color: var(--cadencr-acc-green);
+}
+.run-dot[data-tone="failure"] {
+  background-color: var(--cadencr-acc-red);
+}
+.run-dot[data-tone="running"] {
+  background-color: var(--cadencr-acc-orange);
+}
+.run-dot[data-tone="neutral"] {
+  background-color: var(--cadencr-muted-foreground);
+}

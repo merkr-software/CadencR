@@ -6,7 +6,7 @@ import type { AccessMode } from "@/types/access-mode";
 import type { RuntimeProviderAccessModeOption } from "@/api/agentRuntime";
 import { getAccessModeDefinition } from "./meta-bar-codex-modes";
 import { META_BAR_CHIP } from "./meta-bar-chip-styles";
-import { providerAccessModeConfig } from "@/lib/provider-access-modes";
+import { useProviderAccessModeConfig } from "@/hooks/useAccessModeSetting";
 
 interface AccessModePopoverProps {
   mode: AccessMode;
@@ -21,6 +21,8 @@ interface AccessModePopoverProps {
   description?: string;
   /** Badge beside the current mode, for the same reason. */
   selectedHint?: string;
+  /** `instrument`: the composer card's instrument row — neutral ink, colored icon. */
+  variant?: "chip" | "instrument";
 }
 
 export function AccessModePopover({
@@ -32,9 +34,10 @@ export function AccessModePopover({
   options,
   description,
   selectedHint = "New default",
+  variant = "chip",
 }: AccessModePopoverProps): React.JSX.Element | null {
   const [open, setOpen] = useState(false);
-  const providerConfig = providerAccessModeConfig(providerId);
+  const providerConfig = useProviderAccessModeConfig(providerId);
   const activeMode = getAccessModeDefinition(mode);
   const selectedAccessMode = getAccessModeDefinition(selectedMode);
   if (!activeMode || !selectedAccessMode || !providerConfig) return null;
@@ -47,9 +50,15 @@ export function AccessModePopover({
           type="button"
           title={activeCopy?.description ?? activeMode.description}
           aria-label={`${providerConfig.providerLabel} access mode: ${activeCopy?.label ?? activeMode.label}. ${activeCopy?.description ?? activeMode.description}`}
-          className={cn(META_BAR_CHIP, activeMode.chipClass)}
+          className={
+            variant === "instrument"
+              ? "composer-instrument gap-1.5 text-foreground/85"
+              : cn(META_BAR_CHIP, activeMode.chipClass)
+          }
         >
-          <activeMode.icon className="size-3" />
+          <activeMode.icon
+            className={variant === "instrument" ? cn("size-3.5", activeMode.textClass) : "size-3"}
+          />
           {activeCopy?.label ?? activeMode.label}
         </button>
       </PopoverTrigger>

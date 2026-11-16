@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 
 interface ShortcutTooltipProps {
   label: string;
+  /** Richer bubble body than `label`, which still names the tooltip for assistive tech. */
+  content?: ReactNode;
   keys?: string[];
   children: ReactNode;
   /** Align tooltip to the right edge instead of centering */
@@ -23,6 +25,8 @@ interface ShortcutTooltipProps {
    * `above`/`alignLeft`/`alignRight`.
    */
   toRight?: boolean;
+  /** Render the bubble to the left of the trigger (a rail on the right edge). */
+  toLeft?: boolean;
   /** Additional class name for the wrapper div */
   className?: string;
   /**
@@ -41,12 +45,14 @@ interface ShortcutTooltipProps {
  */
 export function ShortcutTooltip({
   label,
+  content,
   keys,
   children,
   alignRight,
   alignLeft,
   above,
   toRight,
+  toLeft,
   className,
   disabled,
 }: ShortcutTooltipProps) {
@@ -80,7 +86,7 @@ export function ShortcutTooltip({
     handleMouseEnter();
   }
 
-  const side = toRight ? "right" : above ? "top" : "bottom";
+  const side = toRight ? "right" : toLeft ? "left" : above ? "top" : "bottom";
   const align = alignRight ? "end" : alignLeft ? "start" : "center";
 
   return (
@@ -97,8 +103,15 @@ export function ShortcutTooltip({
             {children}
           </div>
         </TooltipTrigger>
-        <TooltipContent side={side} align={align} aria-label={`${label} tooltip`}>
-          <span>{label}</span>
+        <TooltipContent
+          side={side}
+          align={align}
+          aria-label={`${label} tooltip`}
+          // `open` is controlled: Radix's Esc dismissal must close it here, or a
+          // keyboard-opened tooltip would swallow every Esc while focus stays put.
+          onEscapeKeyDown={handleMouseLeave}
+        >
+          {content ?? <span>{label}</span>}
           {keys?.length ? <KbdShortcut keys={keys} size="sm" /> : null}
         </TooltipContent>
       </Tooltip>

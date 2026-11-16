@@ -86,6 +86,24 @@ pub async fn set_setting_handler(
     }))
 }
 
+#[utoipa::path(put, path = "/api/workspace/settings", request_body = SetSettingsBatchRequest, responses((status = 200, body = Vec<Setting>)))]
+pub async fn set_workspace_settings_batch_handler(
+    Json(body): Json<SetSettingsBatchRequest>,
+) -> Result<Json<Vec<Setting>>, AppError> {
+    // Reject the whole batch on one unknown key rather than write part of it.
+    if let Some(key) = body
+        .values
+        .keys()
+        .find(|key| !settings_allowlist::is_workspace_key_allowed(key))
+    {
+        return Err(AppError::BadRequest(format!(
+            "unknown workspace settings key: {key}"
+        )));
+    }
+    settings_store::global_set_many(&body.values).await?;
+    Ok(Json(settings_store::global_list()))
+}
+
 #[utoipa::path(get, path = "/api/workspace/model-settings", responses((status = 200, body = ModelSettings)))]
 pub async fn get_model_settings_handler(
     State(state): State<AppState>,
@@ -124,9 +142,27 @@ pub async fn set_provider_setting_handler(
     }))
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct AutoNamePromptResponse {
+    /// The built-in auto-naming system prompt, used whenever the workspace
+    /// `auto_name_system_prompt` setting is empty.
+    pub default_prompt: String,
+}
+
+#[utoipa::path(get, path = "/api/workspace/auto-name-prompt", responses((status = 200, body = AutoNamePromptResponse)))]
+pub async fn get_auto_name_prompt_handler() -> Json<AutoNamePromptResponse> {
+    Json(AutoNamePromptResponse {
+        default_prompt: crate::domain::ws_session::auto_name::DEFAULT_AUTO_NAME_SYSTEM_PROMPT
+            .to_string(),
+    })
+}
+
 pub fn workspace_router() -> Router<AppState> {
     Router::new()
-        .route("/api/workspace/settings", get(list_settings_handler))
+        .route(
+            "/api/workspace/settings",
+            get(list_settings_handler).put(set_workspace_settings_batch_handler),
+        )
         .route(
             "/api/workspace/settings-file",
             get(get_settings_file_handler).put(put_settings_file_handler),
@@ -142,5 +178,9 @@ pub fn workspace_router() -> Router<AppState> {
         .route(
             "/api/workspace/provider-settings",
             get(get_provider_settings_handler).put(set_provider_setting_handler),
+        )
+        .route(
+            "/api/workspace/auto-name-prompt",
+            get(get_auto_name_prompt_handler),
         )
 }

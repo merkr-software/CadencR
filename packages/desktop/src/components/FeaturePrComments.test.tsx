@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import type { CommentThread } from "@/api/generated";
-import { CommentsHeader, PrCommentThread } from "./FeaturePrComments";
+import { PrCommentThread } from "./FeaturePrComments";
+import { CommentsHeader } from "./PrCommentsHeader";
 
 function thread(overrides: Partial<CommentThread> = {}): CommentThread {
   return {
@@ -40,7 +41,7 @@ describe("PrCommentThread actions", () => {
     expect(container.querySelector("article")).toHaveAttribute("data-selected", "true");
   });
 
-  it("keeps the pick control on the first author's meta row", () => {
+  it("keeps the pick control in the thread header, beside the location", () => {
     const value = thread({
       comments: [
         {
@@ -62,9 +63,13 @@ describe("PrCommentThread actions", () => {
     const checkbox = screen.getByRole("checkbox", {
       name: /pick src\/app\.ts:12 for the agent/i,
     });
-    const authorRow = checkbox.closest("div");
-    expect(authorRow).toHaveTextContent("Alice");
-    expect(authorRow).toHaveTextContent("src/app.ts:12");
+    // The header row is the box's label: location, status, then the box.
+    const header = checkbox.closest("label");
+    expect(header).toHaveTextContent("src/app.ts:12");
+    expect(header).not.toHaveTextContent("Alice");
+    // The author line stays about the comment: who, and when.
+    const authorRow = screen.getByText("Alice").closest("div");
+    expect(authorRow).not.toContainElement(checkbox);
     // Replies stay author-only — one picker for the thread.
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   });

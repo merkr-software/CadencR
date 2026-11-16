@@ -199,6 +199,8 @@ function useBrowserGuestShortcutPublication(): void {
   const responsive = useResolvedShortcut("browser-responsive");
   const devtools = useResolvedShortcut("browser-devtools");
   const zoomReset = useResolvedShortcut("zoom-reset");
+  const navigateBack = useResolvedShortcut("navigate-back");
+  const navigateForward = useResolvedShortcut("navigate-forward");
   useEffect(() => {
     void desktopBridge
       .setBrowserGuestShortcuts({
@@ -207,11 +209,13 @@ function useBrowserGuestShortcutPublication(): void {
         responsive: { keys: responsive.keys, altKeys: responsive.altKeys },
         devtools: { keys: devtools.keys, altKeys: devtools.altKeys },
         zoomReset: { keys: zoomReset.keys, altKeys: zoomReset.altKeys },
+        navigateBack: { keys: navigateBack.keys, altKeys: navigateBack.altKeys },
+        navigateForward: { keys: navigateForward.keys, altKeys: navigateForward.altKeys },
       })
       .catch((error: unknown) => {
         showBrowserError(error, "Could not configure Browser shortcuts");
       });
-  }, [devtools, downloads, find, responsive, zoomReset]);
+  }, [devtools, downloads, find, navigateBack, navigateForward, responsive, zoomReset]);
 }
 
 /**

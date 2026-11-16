@@ -1,4 +1,5 @@
 use crate::app_state::AppState;
+use crate::domain::mcp::settings_tool::SettingsTool;
 use crate::error::AppError;
 use axum::{
     extract::{Query, State},
@@ -7,26 +8,38 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-mod audit;
+mod agent_providers;
+mod archive_session;
+pub(crate) mod audit;
+mod create_schedule;
 mod gate_envelope;
 pub(crate) mod gate_notify;
 pub(crate) mod gate_policy;
 pub(crate) mod gate_respond;
 mod generated_message;
+mod link_sessions;
+mod manage_schedule;
 pub mod message_queue;
+mod read_audit;
 mod reply_audit;
 mod reply_envelope;
 pub(crate) mod reply_wait;
 mod reply_wait_delivery;
 mod requester_delivery;
+mod schedule_scope;
 mod scope;
 mod send_message;
 mod send_message_modes;
+mod settings;
+mod settings_policy;
+pub mod side_question;
 mod spawn_follow;
 mod spawn_persist;
 mod spawn_resolve;
 mod spawn_session;
 mod spawn_thinking;
+
+pub(crate) use scope::is_active_db_state;
 
 /// Trim a borrowed optional string, treating whitespace-only values as absent.
 /// Shared by the spawn submodules (`spawn_session`, `spawn_resolve`, `spawn_persist`).
@@ -99,7 +112,46 @@ pub fn control_router() -> Router<AppState> {
             "/internal/mcp/project/spawn-session",
             post(spawn_session::spawn_session_handler),
         )
+        .route(
+            "/internal/mcp/project/create-schedule",
+            post(create_schedule::create_schedule_handler),
+        )
+        .route(
+            "/internal/mcp/project/update-schedule",
+            post(manage_schedule::update_schedule_handler),
+        )
+        .route(
+            "/internal/mcp/project/delete-schedule",
+            post(manage_schedule::delete_schedule_handler),
+        )
+        .route(
+            "/internal/mcp/project/agent-providers",
+            post(agent_providers::agent_providers_handler),
+        )
+        .route(
+            "/internal/mcp/project/archive-session",
+            post(archive_session::archive_session_handler),
+        )
+        .route(
+            "/internal/mcp/project/link-sessions",
+            post(link_sessions::link_sessions_handler),
+        )
+        .merge(read_audit::routes())
+        .merge(settings_routes(SettingsTool::Project))
+        .merge(settings_routes(SettingsTool::Workspace))
         .merge(gate_respond::routes())
+}
+
+fn settings_routes(tool: SettingsTool) -> Router<AppState> {
+    Router::new()
+        .route(
+            tool.read_endpoint(),
+            post(move |state, body| settings::read_handler(state, body, tool)),
+        )
+        .route(
+            tool.update_endpoint(),
+            post(move |state, body| settings::update_handler(state, body, tool)),
+        )
 }
 
 async fn project_context_handler(

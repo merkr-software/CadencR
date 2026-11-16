@@ -38,7 +38,7 @@ function main() {
     CSC_NAME: ELECTRON_BUILDER_SIGN_IDENTITY,
   };
 
-  run("pnpm", ["--filter", "@cadencr/service", "build"], { cwd: desktopDir, env });
+  run("pnpm", ["--filter", "@cadencr/service", "build:macos-sidecars"], { cwd: desktopDir, env });
   run("node", ["scripts/electron-vite.mjs", "build"], { cwd: desktopDir, env });
   run("pnpm", ["exec", "electron-builder", "--config", "electron-builder.yml"], {
     cwd: desktopDir,

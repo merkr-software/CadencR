@@ -52,6 +52,7 @@ fn push_block(
 /// "merge into preceding sibling of the same type, else push" behavior.
 /// `include_model` is true only for text (the streaming text path tracks the
 /// model used for each turn; thinking deltas don't).
+#[bon::builder]
 fn push_or_merge_streaming(
     block_type: &str,
     msg: &AgentMessageRow,
@@ -158,26 +159,26 @@ pub(super) fn build_blocks(messages: &[AgentMessageRow]) -> Vec<AgentBlock> {
         let parent_idx = parent_id.and_then(|pid| tool_use_id_map.get(pid).copied());
 
         match msg.message_type.as_str() {
-            "text" | "text_delta" => push_or_merge_streaming(
-                "text",
-                msg,
-                id,
-                parent_id,
-                parent_idx,
-                true,
-                &mut all,
-                &mut root_indices,
-            ),
-            "thinking" | "thinking_delta" => push_or_merge_streaming(
-                "thinking",
-                msg,
-                id,
-                parent_id,
-                parent_idx,
-                false,
-                &mut all,
-                &mut root_indices,
-            ),
+            "text" | "text_delta" => push_or_merge_streaming()
+                .block_type("text")
+                .msg(msg)
+                .id(id)
+                .maybe_parent_id(parent_id)
+                .maybe_parent_idx(parent_idx)
+                .include_model(true)
+                .all(&mut all)
+                .root_indices(&mut root_indices)
+                .call(),
+            "thinking" | "thinking_delta" => push_or_merge_streaming()
+                .block_type("thinking")
+                .msg(msg)
+                .id(id)
+                .maybe_parent_id(parent_id)
+                .maybe_parent_idx(parent_idx)
+                .include_model(false)
+                .all(&mut all)
+                .root_indices(&mut root_indices)
+                .call(),
             "tool_call" => handle_tool_call(
                 msg,
                 id,
@@ -218,6 +219,27 @@ pub(super) fn build_blocks(messages: &[AgentMessageRow]) -> Vec<AgentBlock> {
                     &mut root_indices,
                 );
             }
+            "turn_interrupted" => {
+                push_block(
+                    // Its cause: empty for a user stop (a sleep included), `restart` or
+                    // `quit` when Cadencr cut the turn off, `compact` for a
+                    // compaction stopped before it began.
+                    make_simple_block("turn_interrupted", msg.content.clone(), msg, id, None, true),
+                    parent_idx,
+                    &mut all,
+                    &mut root_indices,
+                );
+            }
+            // Rows Cadencr writes itself: a turn's closing line and a model
+            // switch the CLI reported. Content is their JSON detail.
+            "turn_summary" | "model_switch" => {
+                push_block(
+                    make_simple_block(&msg.message_type, msg.content.clone(), msg, id, None, true),
+                    parent_idx,
+                    &mut all,
+                    &mut root_indices,
+                );
+            }
             "clear_divider" => {
                 push_block(
                     make_simple_block("clear_divider", String::new(), msg, id, None, false),
@@ -245,6 +267,20 @@ mod tests {
     fn test_build_blocks_empty() {
         let blocks = build_blocks(&[]);
         assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn turn_summaries_and_model_switches_are_returned_as_their_own_rows() {
+        let msgs = vec![
+            make_message(1, 1, "model_switch", r#"{"from":"a","to":"b"}"#),
+            make_message(2, 1, "text", "hello"),
+            make_message(3, 1, "turn_summary", r#"{"totalMs":1000}"#),
+        ];
+        let blocks = build_blocks(&msgs);
+        let types: Vec<&str> = blocks.iter().map(|block| block.type_.as_str()).collect();
+        assert_eq!(types, ["model_switch", "text", "turn_summary"]);
+        assert_eq!(blocks[2].id, "msg-3");
+        assert_eq!(blocks[2].content, r#"{"totalMs":1000}"#);
     }
 
     #[test]

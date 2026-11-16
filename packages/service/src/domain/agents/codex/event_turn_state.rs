@@ -74,14 +74,11 @@ pub(super) async fn update_turn_state(
         }
     }
     if method == "turn/completed" {
-        *active_turn_id.write().await = None;
-    }
-    if method == "item/completed" && is_context_compaction_item(params) {
-        let Some(turn_id) = params.get("turnId").and_then(serde_json::Value::as_str) else {
-            return;
-        };
         let mut active_turn = active_turn_id.write().await;
-        if active_turn.as_deref() == Some(turn_id) {
+        let completed = params
+            .pointer("/turn/id")
+            .and_then(serde_json::Value::as_str);
+        if completed.is_none() || active_turn.as_deref() == completed {
             *active_turn = None;
         }
     }
@@ -210,6 +207,16 @@ mod tests {
                 "turnId": "compact_turn",
                 "item": { "type": "contextCompaction", "id": "compact_1" }
             }),
+            &active_turn_id,
+            &last_root_turn_id,
+            "thread_root",
+        )
+        .await;
+        // An item boundary is not a turn boundary (also true for auto-compaction).
+        assert_eq!(active_turn_id.read().await.as_deref(), Some("compact_turn"));
+        update_turn_state(
+            "turn/completed",
+            &json!({"threadId":"thread_root", "turn":{"id":"compact_turn"}}),
             &active_turn_id,
             &last_root_turn_id,
             "thread_root",

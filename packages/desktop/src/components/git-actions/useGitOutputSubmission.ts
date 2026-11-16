@@ -10,6 +10,7 @@ import { useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import type { StoreApi, UseBoundStore } from "zustand";
 
+import { scopedToastDescription } from "@/components/ToastScope";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type {
   GitOutputOutcome,
@@ -110,7 +111,7 @@ export function useGitOutputSubmission<TArgs>({
         useStore.getState().fail(featureId, detail);
         if (openRef.current) return;
         toast.error(text.failure, {
-          description: text.failureHint,
+          description: scopedToastDescription({ featureId }, text.failureHint),
           action: { label: "View output", onClick: () => onDialogOpenChange(true) },
         });
       };
@@ -126,11 +127,18 @@ export function useGitOutputSubmission<TArgs>({
         // open with the previous run's output.
         useStore.getState().reset(featureId);
         succeeded?.();
-        toast.success(openRef.current ? text.success : text.backgroundSuccess);
-        // Close *this* dialog only. There is a single `activeDialog` slot,
-        // so a backgrounded run resolving must not slam shut whatever the
-        // user opened in the meantime.
-        if (openRef.current) onDialogOpenChange(false);
+        if (openRef.current) {
+          toast.success(text.success);
+          // Close *this* dialog only. There is a single `activeDialog` slot,
+          // so a backgrounded run resolving must not slam shut whatever the
+          // user opened in the meantime.
+          onDialogOpenChange(false);
+        } else {
+          // A backgrounded run can land while the user is in another project.
+          toast.success(text.backgroundSuccess, {
+            description: scopedToastDescription({ featureId }),
+          });
+        }
       } catch (error) {
         fail(apiErrorMessage(error, `${text.failure}.`));
       }

@@ -1,10 +1,9 @@
 import { memo, useMemo, type ReactElement } from "react";
 import { MessageSquarePlus, MessagesSquare } from "lucide-react";
 import type { Project, ScheduleTarget } from "@/api/generated";
-import { ProjectBadge } from "@/components/ProjectBadge";
 import { cn } from "@/lib/utils";
 import { ConversationPicker } from "./ConversationPicker";
-import { PickerPlaceholder, SchedulePicker } from "./SchedulePicker";
+import { ProjectPicker } from "./ProjectPicker";
 
 export interface ScheduleTargetEditorProps {
   value: ScheduleTarget;
@@ -34,18 +33,6 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
   lockedToConversation,
   targetedConversationTitle,
 }: ScheduleTargetEditorProps): ReactElement {
-  const projectOptions = useMemo(
-    () =>
-      projects.map((project) => ({
-        value: project.id,
-        label: project.name,
-        // The same badge the sidebar uses — a project is recognized by its
-        // logo long before its name is read.
-        icon: <ProjectBadge projectId={project.id} size="sm" />,
-      })),
-    [projects],
-  );
-
   if (lockedToConversation) {
     return (
       <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
@@ -88,26 +75,18 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
       </div>
 
       <Field label="Project">
-        {projects.length === 0 ? (
-          <PickerPlaceholder>No projects yet — add one first.</PickerPlaceholder>
-        ) : (
-          <SchedulePicker
-            ariaLabel="Project"
-            options={projectOptions}
-            value={value.project_id}
-            placeholder="Pick a project…"
-            searchPlaceholder="Search projects…"
-            emptyLabel="No matching projects."
-            onChange={(projectId) =>
-              onChange({
-                ...value,
-                project_id: projectId,
-                // The picked conversation lived in the project we just left.
-                feature_id: undefined,
-              })
-            }
-          />
-        )}
+        <ProjectPicker
+          projects={projects}
+          value={value.project_id}
+          onChange={(projectId) =>
+            onChange({
+              ...value,
+              project_id: projectId,
+              // The picked conversation lived in the project we just left.
+              feature_id: undefined,
+            })
+          }
+        />
       </Field>
 
       {value.kind === "conversation" && (
@@ -124,7 +103,7 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
   );
 });
 
-function TargetKindCard({
+export function TargetKindCard({
   selected,
   icon,
   title,

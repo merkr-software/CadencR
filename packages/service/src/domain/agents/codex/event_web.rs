@@ -9,8 +9,8 @@ pub(super) use references::WebEventState;
 
 pub(super) fn record_raw_web_item(item_type: &str, item: &Value, index_state: &mut IndexState) {
     match item_type {
-        "custom_tool_call" => index_state.web.record_call(item),
-        "custom_tool_call_output" => index_state.web.record_output(item),
+        "custom_tool_call" => index_state.web_mut().record_call(item),
+        "custom_tool_call_output" => index_state.web_mut().record_output(item),
         _ => {}
     }
 }
@@ -34,11 +34,11 @@ pub(super) fn web_search_item(
     let mut input = web_search_input(item);
     let is_search = name == "WebSearch";
     if !is_search && input.get("url").is_none_or(Value::is_null) {
-        if let Some(url) = index_state.web.take_url(false) {
+        if let Some(url) = index_state.web_mut().take_url(false) {
             input["url"] = Value::String(url);
         }
     } else {
-        index_state.web.take_url(is_search);
+        index_state.web_mut().take_url(is_search);
     }
     tool_item_with_input(params, name, input, completed, index_state)
 }

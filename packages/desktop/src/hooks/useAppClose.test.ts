@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { shouldBypassAppClose } from "@/hooks/useAppClose";
+import {
+  setReplacedTabs,
+  showBuiltinTab,
+  useBuiltinTabFallbacks,
+} from "@/lib/plugin-tabs/builtin-fallback";
 import { useEditorStore } from "@/stores/editor-store";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
@@ -111,6 +116,16 @@ describe("shouldBypassAppClose", () => {
     setEditorBuffers(true);
     setTerminalPanes(true);
     expect(shouldBypassAppClose(FEATURE_ID)).toBe(false);
+  });
+
+  it("does NOT bypass (false) when a custom tab holds the focused built-in's place", () => {
+    setLayout("terminal");
+    setTerminalPanes(true);
+    setReplacedTabs(FEATURE_ID, { terminal: "sh" }, { terminal: "sh" });
+    expect(shouldBypassAppClose(FEATURE_ID)).toBe(false);
+    showBuiltinTab(FEATURE_ID, "terminal");
+    expect(shouldBypassAppClose(FEATURE_ID)).toBe(true);
+    useBuiltinTabFallbacks.setState({ replaced: {}, shown: {} });
   });
 
   it("does NOT bypass (false) when feature is not hydrated in the layout store", () => {

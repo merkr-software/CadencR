@@ -1,16 +1,13 @@
 import type { KeyboardEvent, ReactElement } from "react";
 import type { Feature } from "@/api/generated";
-import { apiErrorMessage } from "@/lib/api-errors";
 import { Button } from "@/components/ui/button";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { ArchiveCleanupOptions } from "@/components/ArchiveCleanupOptions";
 import { KillTerminalsOption } from "@/components/KillTerminalsOption";
 import { useKillTerminalsState } from "@/components/use-kill-terminals-state";
 import { useArchiveCleanupState } from "@/components/archive-cleanup-state";
-import {
-  useArchiveRelativeOptions,
-  type ArchiveRelativeSelection,
-} from "@/components/ArchiveRelativeOptions";
+import { useArchiveRelativeOptions } from "@/components/ArchiveRelativeOptions";
+import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +33,7 @@ interface ArchiveFeatureDialogProps {
   showWorktreeRemoval: boolean;
   showBranchRemoval: boolean;
   onOpenChange: (open: boolean) => void;
-  onArchive: (featureId: number, options: ArchiveRelativeSelection) => Promise<unknown>;
+  onArchive: (featureId: number, options: ArchiveFeatureOptions) => void;
 }
 
 export function ArchiveFeatureDialog({
@@ -51,7 +48,7 @@ export function ArchiveFeatureDialog({
   onArchive,
 }: ArchiveFeatureDialogProps): ReactElement {
   const confirmationLock = useConfirmSubmissionLock(open);
-  const killState = useKillTerminalsState(open, feature);
+  const killState = useKillTerminalsState(open, feature, { includeBrowserTabs: true });
   const cleanupState = useArchiveCleanupState({
     open,
     feature,
@@ -67,9 +64,7 @@ export function ArchiveFeatureDialog({
     disabled: confirmationLock.isConfirming,
   });
   const submission = useArchiveSubmission({
-    open,
     feature,
-    projectId,
     onArchive,
     onOpenChange,
     cleanupState,
@@ -112,11 +107,6 @@ export function ArchiveFeatureDialog({
           hasLiveWorktree={hasLiveWorktree}
           hasResidualWorktreeDirectory={hasResidualWorktreeDirectory}
         />
-        {submission.archiveError != null && (
-          <p role="alert" className="text-xs text-destructive">
-            {apiErrorMessage(submission.archiveError, "Could not archive session")}
-          </p>
-        )}
         <ArchiveDialogFooter
           forceDelete={cleanupState.forceBranchDelete || cleanupState.forceWorktreeDelete}
           disabled={
@@ -125,7 +115,6 @@ export function ArchiveFeatureDialog({
             relativeState.isPending ||
             submission.isConfirming
           }
-          isConfirming={submission.isConfirming}
           onCancel={() => requestOpenChange(false)}
           onConfirm={submission.confirm}
         />
@@ -143,9 +132,10 @@ function ArchiveOptionsList(props: {
 }): ReactElement {
   return (
     <div className="space-y-3">
-      {props.killState.liveTerminalCount > 0 && (
+      {props.killState.liveTerminalCount + props.killState.liveBrowserCount > 0 && (
         <KillTerminalsOption
           count={props.killState.liveTerminalCount}
+          browserCount={props.killState.liveBrowserCount}
           checked={props.killState.killTerminals}
           onToggle={props.killState.toggleKillTerminals}
         />
@@ -165,7 +155,8 @@ function ArchiveDialogHeader(): ReactElement {
     <DialogHeader>
       <DialogTitle>Archive session?</DialogTitle>
       <DialogDescription>
-        Archive now, optionally cleaning up the related Git worktree or branch in the background.
+        Archive now, optionally cleaning up its terminals, worktree or branch. An interrupted
+        cleanup can be resumed later.
       </DialogDescription>
     </DialogHeader>
   );
@@ -195,7 +186,6 @@ function handleCleanupShortcut(
 
 interface ArchiveDialogFooterProps {
   disabled: boolean;
-  isConfirming: boolean;
   forceDelete: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -204,7 +194,7 @@ interface ArchiveDialogFooterProps {
 function ArchiveDialogFooter(props: ArchiveDialogFooterProps): ReactElement {
   return (
     <DialogFooter>
-      <Button variant="outline" disabled={props.isConfirming} onClick={props.onCancel}>
+      <Button variant="outline" onClick={props.onCancel}>
         Cancel
       </Button>
       <Button
@@ -212,14 +202,8 @@ function ArchiveDialogFooter(props: ArchiveDialogFooterProps): ReactElement {
         disabled={props.disabled}
         onClick={props.onConfirm}
       >
-        <span>
-          {props.isConfirming
-            ? "Archiving…"
-            : props.forceDelete
-              ? "Archive & force delete"
-              : "Archive"}
-        </span>
-        {!props.isConfirming && <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />}
+        <span>{props.forceDelete ? "Archive & force delete" : "Archive"}</span>
+        <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
       </Button>
     </DialogFooter>
   );

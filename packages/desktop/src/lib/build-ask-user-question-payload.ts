@@ -18,7 +18,7 @@
  *      → `AskUserQuestionOutput`.
  */
 
-import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
+import type { AgentQuestionAnswers } from "@/types/agent-question";
 
 /** Extract the ordered list of question texts from the tool's original input. */
 function extractQuestionLabels(toolInput: Record<string, unknown>): string[] {

@@ -11,11 +11,15 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(),
   },
   stage: vi.fn(),
+  fileContent: vi.fn(),
 }));
 
 vi.mock("@/api/generated", () => ({
   ConflictKind: { dd: "dd", du: "du", ud: "ud", uu: "uu" },
-  useGetFileContent: () => mocks.query,
+  useGetFileContent: (params: unknown) => {
+    mocks.fileContent(params);
+    return mocks.query;
+  },
 }));
 vi.mock("@/components/diff/useGitFileIndexActions", () => ({
   useGitFileIndexActions: () => ({
@@ -44,6 +48,7 @@ function renderResolver(kind: "uu" | "dd" | "du" | "ud" = "uu") {
       paneId="main"
       projectId={2}
       filePath="conflict.ts"
+      gitFilePath="packages/app/conflict.ts"
       conflictKind={kind}
     />,
   );
@@ -70,6 +75,12 @@ describe("ConflictResolverEditor", () => {
     };
     renderResolver();
     expect(screen.getByText("Writable resolver for conflict.ts: result")).toBeInTheDocument();
+    // Git reads the checkout-root path; the editor keeps its own path.
+    expect(mocks.fileContent).toHaveBeenCalledWith({
+      feature_id: 1,
+      file_path: "packages/app/conflict.ts",
+      mode: "uncommitted",
+    });
   });
 
   it("opens a large text Result because the marker resolver does not run a comparison diff", () => {
@@ -98,7 +109,7 @@ describe("ConflictResolverEditor", () => {
     const { user } = renderResolver();
     expect(screen.getByText(/Binary content cannot be resolved safely/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Stage" }));
-    expect(mocks.stage).toHaveBeenCalledWith("conflict.ts", { conflicted: true });
+    expect(mocks.stage).toHaveBeenCalledWith("packages/app/conflict.ts", { conflicted: true });
   });
 
   it.each(["dd", "du", "ud"] as const)(
@@ -115,7 +126,7 @@ describe("ConflictResolverEditor", () => {
       const { user } = renderResolver(kind);
       expect(screen.getByText(/worktree result is deleted/i)).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Stage deletion" }));
-      expect(mocks.stage).toHaveBeenCalledWith("conflict.ts", { conflicted: true });
+      expect(mocks.stage).toHaveBeenCalledWith("packages/app/conflict.ts", { conflicted: true });
     },
   );
 

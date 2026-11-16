@@ -11,18 +11,13 @@ export function createCargoEnv(baseEnv, options = {}) {
   const env = { ...baseEnv };
   const root = options.repoRoot ?? repoRoot;
 
-  // Cargo artifacts are intentionally isolated per Git worktree. Let Cargo's
-  // own incremental compilation optimize repeated builds inside that worktree.
+  // Keep artifacts isolated per worktree without accumulating incremental caches.
   env.CARGO_TARGET_DIR = join(root, "target");
+  env.CARGO_INCREMENTAL = "0";
 
-  let removedSccache = false;
   for (const key of ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"]) {
     if (!usesSccache(env[key])) continue;
     delete env[key];
-    removedSccache = true;
-  }
-  if (removedSccache) {
-    delete env.CARGO_INCREMENTAL;
   }
   for (const key of Object.keys(env)) {
     if (key.startsWith("SCCACHE_")) delete env[key];

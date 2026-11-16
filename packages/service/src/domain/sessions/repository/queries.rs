@@ -9,6 +9,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 
 use super::super::models::*;
+use super::reply_preview::plain_text;
 use crate::error::AppError;
 
 pub async fn get_sessions(
@@ -59,7 +60,11 @@ pub async fn get_session_status_snapshot(
                                THEN pending_permission ELSE '{}' END,
                           '$.request_id'
                       )
-                  ) AS request_id
+                  ) AS request_id,
+                  turn_started_at_ms,
+                  turn_waiting_ms,
+                  turn_waiting_since_ms,
+                  turn_models
            FROM agent_sessions
            WHERE status = 'running'
               OR pending_questions IS NOT NULL
@@ -92,24 +97,41 @@ pub async fn get_session_status_snapshot(
                 status: derived.status,
                 kind: derived.kind,
                 request_id: row.request_id,
-                // Filled by the WS handler from the active-turn registry; the
-                // DB has no per-turn start column.
-                turn_started_at_ms: None,
+                clock: crate::domain::session_status::TurnClock::restored(
+                    row.turn_started_at_ms,
+                    row.turn_waiting_ms,
+                    row.turn_waiting_since_ms,
+                    parse_turn_models(row.turn_models.as_deref()),
+                ),
+                compacting: false,
             },
         );
     }
     Ok(result)
 }
 
-/// Max characters of an agent reply surfaced in a notification preview.
-const PREVIEW_MAX_CHARS: usize = 120;
+/// `agent_sessions.turn_models`: a JSON array of model ids. A malformed value
+/// only loses the model names of a turn, never its status or timer.
+pub(crate) fn parse_turn_models(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    serde_json::from_str(raw).unwrap_or_else(|error| {
+        tracing::warn!(%error, raw, "ignoring malformed agent_sessions.turn_models");
+        Vec::new()
+    })
+}
+
+/// Max characters of an agent reply surfaced in a preview.
+pub(super) const PREVIEW_MAX_CHARS: usize = 120;
 
 /// The start of the agent's most recent text reply for a feature, cleaned for a
-/// single-line notification body (whitespace collapsed, truncated with an
-/// ellipsis). Thinking blocks, tool calls and tool results are excluded — only
-/// `role = 'assistant'` / `message_type = 'text'` rows. `None` when the feature
-/// has no assistant text yet. Shared by the desktop notification endpoint and
-/// the Web Push dispatcher so both render the same body.
+/// single-line preview (markdown syntax stripped, whitespace collapsed,
+/// truncated with an ellipsis). Thinking blocks, tool calls and tool results
+/// are excluded — only `role = 'assistant'` / `message_type = 'text'` rows.
+/// `None` when the feature has no assistant prose yet. Shared by the desktop
+/// notification endpoint, the Web Push dispatcher and the sidebar row summary
+/// so all three render the same text.
 pub async fn latest_assistant_preview(
     pool: &SqlitePool,
     feature_id: i64,
@@ -123,16 +145,20 @@ pub async fn latest_assistant_preview(
     .bind(feature_id)
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(|(content,)| preview_snippet(&content)))
+    Ok(row
+        .map(|(content,)| {
+            preview_snippet(&plain_text(&content, PREVIEW_MAX_CHARS), PREVIEW_MAX_CHARS)
+        })
+        .filter(|preview| !preview.is_empty()))
 }
 
-/// Collapse whitespace and truncate to [`PREVIEW_MAX_CHARS`] on a char boundary.
-fn preview_snippet(content: &str) -> String {
+/// Collapse whitespace and truncate to `max_chars` on a char boundary.
+pub(crate) fn preview_snippet(content: &str, max_chars: usize) -> String {
     let collapsed = content.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.chars().count() <= PREVIEW_MAX_CHARS {
+    if collapsed.chars().count() <= max_chars {
         return collapsed;
     }
-    let truncated: String = collapsed.chars().take(PREVIEW_MAX_CHARS).collect();
+    let truncated: String = collapsed.chars().take(max_chars).collect();
     format!("{}…", truncated.trim_end())
 }
 
@@ -143,11 +169,45 @@ mod tests {
 
     #[test]
     fn preview_snippet_collapses_whitespace_and_truncates() {
-        assert_eq!(preview_snippet("  hello\n\n  world  "), "hello world");
-        let snippet = preview_snippet(&"a".repeat(200));
+        assert_eq!(
+            preview_snippet("  hello\n\n  world  ", PREVIEW_MAX_CHARS),
+            "hello world"
+        );
+        let snippet = preview_snippet(&"a".repeat(200), PREVIEW_MAX_CHARS);
         assert!(snippet.ends_with('…'));
         // 120 kept chars + the ellipsis.
         assert_eq!(snippet.chars().count(), PREVIEW_MAX_CHARS + 1);
+    }
+
+    #[tokio::test]
+    async fn previews_the_latest_reply_as_plain_text() {
+        let pool = setup_test_db().await;
+        let session_id = insert_session(&pool, 3, "idle").await;
+        for content in ["Old reply", "## Done\n\nAll **green**."] {
+            insert_message(&pool, session_id, "text", content, None, None, None).await;
+        }
+
+        let preview = latest_assistant_preview(&pool, 3).await.unwrap();
+
+        assert_eq!(preview.as_deref(), Some("Done All green."));
+    }
+
+    #[tokio::test]
+    async fn a_code_only_reply_has_no_preview() {
+        let pool = setup_test_db().await;
+        let session_id = insert_session(&pool, 3, "idle").await;
+        insert_message(
+            &pool,
+            session_id,
+            "text",
+            "```sh\nls\n```",
+            None,
+            None,
+            None,
+        )
+        .await;
+
+        assert_eq!(latest_assistant_preview(&pool, 3).await.unwrap(), None);
     }
 
     #[tokio::test]
@@ -244,6 +304,6 @@ mod tests {
         assert_eq!(s3.request_id.as_deref(), Some("r"));
 
         // Plain-paused must NOT appear (no pending → idle → filtered out).
-        assert!(states.get(&sid5.to_string()).is_none());
+        assert!(!states.contains_key(&sid5.to_string()));
     }
 }

@@ -20,10 +20,10 @@ use crate::permissions::CanUseTool;
 use crate::transport::CliProcess;
 use crate::types::McpServerStatus;
 
-use super::cancelled_control::CancelledControlRequests;
+use super::permission_requests::PermissionRequests;
 use super::reader_task::ReaderTask;
 use super::turn_state::TurnState;
-use super::wire::{InterruptAck, PendingControl};
+use super::wire::PendingControl;
 
 /// Core background loop that reads from CLI stdout, handles permission
 /// requests, and forwards messages to the channel.
@@ -37,9 +37,8 @@ pub(super) async fn reader_loop(
     mcp_servers: Arc<Mutex<Vec<McpServerStatus>>>,
     turn_state: Arc<Mutex<TurnState>>,
     pending_control: PendingControl,
-    cancelled_control_requests: CancelledControlRequests,
+    permission_requests: PermissionRequests,
     cancel_token: Option<CancellationToken>,
-    interrupt_rx: mpsc::Receiver<InterruptAck>,
     kill_rx: mpsc::Receiver<()>,
 ) {
     ReaderTask {
@@ -51,10 +50,10 @@ pub(super) async fn reader_loop(
         mcp_servers,
         turn_state,
         pending_control,
-        cancelled_control_requests,
+        permission_requests,
         cancel_token,
-        interrupt_rx,
         kill_rx,
+        stale_task_turns: Default::default(),
     }
     .run()
     .await;
@@ -83,7 +82,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         // Mock CLI: drain the SDK init handshake and initial user prompt,
-        // emit system init, then sleep forever (simulates a long-running process).
+        // emit system init, then sleep forever (simulates a long-running process;
+        // `exec`, so the kill reaches the sleep instead of orphaning it).
         let script = r#"#!/bin/sh
 read -r INIT_REQ
 read -r MCP_REQ
@@ -91,7 +91,7 @@ MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"mcpServers":[]}}}\n' "$MCP_ID"
 read -r USER_PROMPT
 echo '{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_close","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}'
-sleep 300
+exec sleep 300
 "#;
         let script_path = write_mock_cli(dir.path(), script);
 
@@ -157,58 +157,6 @@ exit 0
             }
             other => panic!("expected ProcessExit carrying stderr, got {other:?}"),
         }
-    }
-
-    #[tokio::test]
-    async fn interrupt_returns_after_interrupted_turn_completes() {
-        let dir = TempDir::new().unwrap();
-        let script = r#"#!/usr/bin/env python3
-import json
-import signal
-import sys
-import time
-
-interrupted = False
-
-def send(value):
-    print(json.dumps(value), flush=True)
-
-def handle_int(_signum, _frame):
-    global interrupted
-    interrupted = True
-
-signal.signal(signal.SIGINT, handle_int)
-
-init_req = json.loads(sys.stdin.readline())
-send({"type":"control_response","response":{"subtype":"success","request_id":init_req["request_id"],"response":{}}})
-sys.stdin.readline()
-send({"type":"system","subtype":"init","uuid":"u1","session_id":"sess_interrupt_wait","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]})
-
-while True:
-    if interrupted:
-        time.sleep(0.05)
-        send({"type":"result","subtype":"success","uuid":"u2","session_id":"sess_interrupt_wait","duration_ms":10,"duration_api_ms":5,"is_error":False,"num_turns":1,"result":"interrupted","errors":None,"stop_reason":"interrupt","total_cost_usd":0.0,"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"permission_denials":[],"structured_output":None})
-        interrupted = False
-    time.sleep(0.01)
-"#;
-        let script_path = write_mock_cli(dir.path(), &script);
-        let options = Options {
-            path_to_cli: Some(script_path),
-            mcp_servers: None,
-            ..Options::default()
-        };
-
-        let mut q = query(serde_json::Value::String("initial".into()), options)
-            .await
-            .unwrap();
-        q.next().await.expect("init message").unwrap();
-
-        q.interrupt().await.unwrap();
-        assert!(matches!(
-            q.turn_state().await,
-            super::super::turn_state::TurnState::TurnComplete { .. }
-        ));
-        q.close().await;
     }
 
     #[tokio::test]

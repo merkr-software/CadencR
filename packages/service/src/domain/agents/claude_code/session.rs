@@ -2,18 +2,35 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use super::events::normalize_event;
+use super::background_agents::starts_shell_command;
+use super::cli_processes::CliProcesses;
 use super::prompt_receipts::ClaudePromptReceipts;
+use super::subagents::ClaudeSubagentState;
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
+    AgentRuntimeSession, KnownSubagent, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionUpdate,
     RuntimeStreamEvent, RuntimeToolPermissionHandler, RuntimeToolPermissionRequest,
-    RuntimeToolPermissionResult,
+    RuntimeToolPermissionResult, WithdrawnInputs,
 };
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 pub struct ClaudeCodeSession {
     pub(super) query: claude_agent_sdk_rs::Query,
+    pub(super) turn_control: std::sync::Arc<tokio::sync::Mutex<()>>,
     pub(super) prompt_receipts: std::sync::Arc<ClaudePromptReceipts>,
+    /// Working directory the CLI runs in; custom agent definitions resolve
+    /// from it.
+    pub(super) cwd: std::path::PathBuf,
+    /// Claude config dir of the session's profile; user-level agent
+    /// definitions resolve from it.
+    pub(super) config_dir: Option<std::path::PathBuf>,
+    /// Sub-agents earlier runtimes launched, handed to the message pump.
+    pub(super) known_subagents: Vec<KnownSubagent>,
+    /// The message pump's output, where an escalated Stop reports itself.
+    /// Weak, so the stream still ends when the pump does.
+    pub(super) stop_escalation: Option<super::stop_escalation::RuntimeEventSender>,
+    /// What the CLI starts, stopped once it is gone.
+    pub(super) processes: CliProcesses,
 }
 
 impl ClaudeCodeSession {
@@ -21,13 +38,36 @@ impl ClaudeCodeSession {
     pub(crate) fn from_query(query: claude_agent_sdk_rs::Query) -> Self {
         Self {
             query,
+            turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
+            cwd: std::path::PathBuf::new(),
+            config_dir: None,
+            known_subagents: Vec::new(),
+            stop_escalation: None,
+            processes: CliProcesses::untracked(),
         }
     }
 }
 
 pub(super) struct ClaudeCanUseToolAdapter {
     pub(super) inner: std::sync::Arc<dyn RuntimeToolPermissionHandler>,
+    /// Cadencr's browser tools skip the prompt only when Cadencr attached its
+    /// browser server. Claude Code gives `--mcp-config` precedence over a
+    /// same-named project (`.mcp.json`) or user server, so the canonical
+    /// `mcp__cadencr-browser__*` name then reaches Cadencr's server.
+    pub(super) browser_trust: CadencrBrowserTrust,
+}
+
+impl ClaudeCanUseToolAdapter {
+    pub(super) fn shared(
+        inner: std::sync::Arc<dyn RuntimeToolPermissionHandler>,
+        mcp_servers: Option<&std::collections::HashMap<String, RuntimeMcpServerConfig>>,
+    ) -> std::sync::Arc<dyn claude_agent_sdk_rs::CanUseTool> {
+        std::sync::Arc::new(Self {
+            inner,
+            browser_trust: CadencrBrowserTrust::injected_in(mcp_servers),
+        })
+    }
 }
 
 #[async_trait]
@@ -36,7 +76,15 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
         &self,
         request: claude_agent_sdk_rs::PermissionRequest,
     ) -> claude_agent_sdk_rs::PermissionResult {
-        match self
+        if self.browser_trust.allows_tool_name(&request.tool_name) {
+            return claude_agent_sdk_rs::PermissionResult::Allow {
+                updated_input: request.input,
+                updated_permissions: None,
+                tool_use_id: Some(request.tool_use_id),
+            };
+        }
+        let is_question = request.tool_name == "AskUserQuestion";
+        let result = self
             .inner
             .can_use_tool(RuntimeToolPermissionRequest {
                 tool_name: request.tool_name,
@@ -51,8 +99,13 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
                 decision_reason: request.decision_reason,
                 input: request.input,
             })
-            .await
-        {
+            .await;
+        let result = if is_question {
+            super::question_answers::normalize_result(result)
+        } else {
+            result
+        };
+        match result {
             RuntimeToolPermissionResult::Allow {
                 updated_input,
                 updated_permissions,
@@ -112,24 +165,37 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     fn take_message_rx(&mut self) -> RuntimeMessageRx {
         let mut source_rx = self.query.take_message_rx();
         let (tx, rx) = mpsc::channel(64);
+        self.stop_escalation = Some(tx.downgrade());
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
+        let mut subagents = ClaudeSubagentState::new(
+            &self.cwd,
+            self.config_dir.as_deref(),
+            std::mem::take(&mut self.known_subagents),
+        );
+        let processes = self.processes.clone();
 
         tokio::spawn(async move {
             'messages: while let Some(msg) = source_rx.recv().await {
                 match msg {
                     Ok(sdk_msg) => {
-                        if let Some(event) =
-                            acknowledge_user_prompt_receipt(&sdk_msg, &prompt_receipts)
-                        {
-                            if tx.send(Ok(event)).await.is_err() {
-                                break;
+                        let receipts = acknowledge_user_prompt_receipt(&sdk_msg, &prompt_receipts);
+                        if !receipts.is_empty() {
+                            // The message is only our own prompt echoed back.
+                            for event in receipts {
+                                if tx.send(Ok(event)).await.is_err() {
+                                    break 'messages;
+                                }
                             }
                             continue;
                         }
                         if is_unmatched_replay_user_message(&sdk_msg) {
                             continue;
                         }
-                        let mapped = normalize_event(sdk_msg);
+                        let starts_shell = starts_shell_command(&sdk_msg);
+                        let mapped = subagents.normalize(sdk_msg).await;
+                        if starts_shell || mapped.background_task_count().is_some() {
+                            processes.note_commands();
+                        }
                         for event in
                             acknowledge_response_start_prompt_receipts(&mapped, &prompt_receipts)
                         {
@@ -151,6 +217,10 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         });
 
         rx
+    }
+
+    fn seed_known_subagents(&mut self, known: Vec<KnownSubagent>) {
+        self.known_subagents = known;
     }
 
     async fn session_id(&self) -> Option<String> {
@@ -201,11 +271,12 @@ impl AgentRuntimeSession for ClaudeCodeSession {
             return self.stream_input(content).await;
         };
 
-        self.prompt_receipts
+        let wire_uuid = self
+            .prompt_receipts
             .enqueue(client_message_id.clone(), &content);
         let result = self
             .query
-            .stream_input(content)
+            .stream_input_with_uuid(content, Some(&wire_uuid))
             .await
             .map_err(RuntimeError::from);
         if result.is_err() {
@@ -214,12 +285,53 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         result
     }
 
-    async fn interrupt(&self) -> Result<(), RuntimeError> {
-        self.query.interrupt().await.map_err(RuntimeError::from)
+    async fn turn_control_guard(&self) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+        Some(self.turn_control.clone().lock_owned().await)
     }
 
-    async fn close(&mut self) {
+    async fn interrupt(&self) -> Result<(), RuntimeError> {
+        super::stop_escalation::interrupt_or_terminate(
+            &self.query,
+            claude_agent_sdk_rs::InterruptTimeouts::default(),
+            self.stop_escalation.as_ref(),
+        )
+        .await
+    }
+
+    /// A follow-up the CLI still queues would start a turn of its own once
+    /// the stop ends this one: withdraw it by its CLI `uuid`. One the CLI has
+    /// echoed (taken in) stays with the turn, as does one it no longer holds.
+    async fn withdraw_pending_inputs(&self, client_message_ids: &[String]) -> WithdrawnInputs {
+        let mut outcome = WithdrawnInputs::default();
+        for client_message_id in client_message_ids {
+            let Some(wire_uuid) = self.prompt_receipts.waiting_wire_uuid(client_message_id) else {
+                continue;
+            };
+            match self.query.cancel_async_message(&wire_uuid).await {
+                Ok(true) => {
+                    self.prompt_receipts.discard(client_message_id);
+                    outcome.withdrawn.push(client_message_id.clone());
+                }
+                Ok(false) => {}
+                // Keep going: the others may still be withdrawn.
+                Err(error) => outcome.error = Some(RuntimeError::from(error)),
+            }
+        }
+        outcome
+    }
+
+    async fn interrupt_before_sleep(&self) -> Result<(), RuntimeError> {
+        super::stop_escalation::interrupt_or_terminate(
+            &self.query,
+            super::stop_escalation::SLEEP_TIMEOUTS,
+            self.stop_escalation.as_ref(),
+        )
+        .await
+    }
+
+    async fn close(&mut self) -> Result<(), RuntimeError> {
         self.query.close().await;
+        Ok(())
     }
 
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError> {
@@ -241,14 +353,24 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     }
 }
 
+/// Receipts for the pending prompts `msg` echoes. Only a root, non-synthetic
+/// user message without tool output can be an echo of a prompt Cadencr sent;
+/// sub-agent traffic and tool results always flow through untouched.
 pub(super) fn acknowledge_user_prompt_receipt(
     msg: &claude_agent_sdk_rs::SdkMessage,
     prompt_receipts: &ClaudePromptReceipts,
-) -> Option<RuntimeEvent> {
-    let claude_agent_sdk_rs::SdkMessage::User { message, .. } = msg else {
-        return None;
+) -> Vec<RuntimeEvent> {
+    let claude_agent_sdk_rs::SdkMessage::User {
+        message,
+        parent_tool_use_id: None,
+        is_synthetic: None | Some(false),
+        tool_use_result: None,
+        ..
+    } = msg
+    else {
+        return Vec::new();
     };
-    prompt_receipts.acknowledge_replay(message)
+    prompt_receipts.acknowledge_echo(message)
 }
 
 /// Drain outstanding prompt receipts when Claude starts its next response.
@@ -308,10 +430,60 @@ mod tests {
             is_replay: None,
         };
 
-        let event = acknowledge_user_prompt_receipt(&msg, &receipts).expect("receipt");
+        let events = acknowledge_user_prompt_receipt(&msg, &receipts);
 
-        assert_eq!(event.prompt_received_client_message_id(), Some("client-1"));
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].prompt_received_client_message_id(),
+            Some("client-1")
+        );
         assert!(!is_unmatched_replay_user_message(&msg));
+    }
+
+    fn user_message(
+        content: serde_json::Value,
+        parent_tool_use_id: Option<&str>,
+        is_synthetic: Option<bool>,
+    ) -> claude_agent_sdk_rs::SdkMessage {
+        claude_agent_sdk_rs::SdkMessage::User {
+            uuid: None,
+            session_id: "session-1".to_string(),
+            message: json!({ "role": "user", "content": content }),
+            parent_tool_use_id: parent_tool_use_id.map(ToOwned::to_owned),
+            is_synthetic,
+            tool_use_result: None,
+            is_replay: None,
+        }
+    }
+
+    #[test]
+    fn steer_never_swallows_tool_results_or_sub_agent_messages() {
+        let receipts = ClaudePromptReceipts::default();
+        receipts.enqueue("steer".to_string(), &json!("go"));
+
+        let tool_result = user_message(
+            json!([{ "type": "tool_result", "tool_use_id": "toolu_1", "content": "good" }]),
+            None,
+            None,
+        );
+        assert!(acknowledge_user_prompt_receipt(&tool_result, &receipts).is_empty());
+        assert!(!is_unmatched_replay_user_message(&tool_result));
+
+        let sub_agent = user_message(json!("go"), Some("toolu_task"), None);
+        assert!(acknowledge_user_prompt_receipt(&sub_agent, &receipts).is_empty());
+        let synthetic = user_message(json!("go"), None, Some(true));
+        assert!(acknowledge_user_prompt_receipt(&synthetic, &receipts).is_empty());
+        let mut with_result = user_message(json!("go"), None, None);
+        if let claude_agent_sdk_rs::SdkMessage::User {
+            tool_use_result, ..
+        } = &mut with_result
+        {
+            *tool_use_result = Some(json!({ "stdout": "go" }));
+        }
+        assert!(acknowledge_user_prompt_receipt(&with_result, &receipts).is_empty());
+
+        let echo = user_message(json!("go"), None, None);
+        assert_eq!(acknowledge_user_prompt_receipt(&echo, &receipts).len(), 1);
     }
 
     #[test]
@@ -417,5 +589,102 @@ mod tests {
             map_permission_mode(RuntimePermissionMode::DontAsk),
             claude_agent_sdk_rs::PermissionMode::DontAsk
         );
+    }
+    struct EchoPermission;
+    #[async_trait::async_trait]
+    impl crate::domain::agents::adapter::RuntimeToolPermissionHandler for EchoPermission {
+        async fn can_use_tool(
+            &self,
+            request: crate::domain::agents::adapter::RuntimeToolPermissionRequest,
+        ) -> crate::domain::agents::adapter::RuntimeToolPermissionResult {
+            crate::domain::agents::adapter::RuntimeToolPermissionResult::Allow {
+                updated_input: request.input,
+                updated_permissions: None,
+                tool_use_id: Some(request.tool_use_id),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn sdk_callback_normalizes_only_question_answers_at_provider_boundary() {
+        let adapter = super::ClaudeCanUseToolAdapter {
+            inner: std::sync::Arc::new(EchoPermission),
+            browser_trust: Default::default(),
+        };
+        for (tool_name, expected_answers) in [
+            ("AskUserQuestion", json!({"Color?": "Blue, Green"})),
+            ("AnotherTool", json!([["Blue", "Green"]])),
+        ] {
+            let result = claude_agent_sdk_rs::CanUseTool::can_use_tool(&adapter, claude_agent_sdk_rs::PermissionRequest {
+                tool_name: tool_name.into(), input: json!({"questions":[{"question":"Color?"}],"answers":[["Blue","Green"]]}),
+                tool_use_id: "tool-1".into(), agent_id: None, suggestions: None, blocked_path: None, decision_reason: None,
+            }).await;
+            let claude_agent_sdk_rs::PermissionResult::Allow {
+                updated_input,
+                tool_use_id,
+                ..
+            } = result
+            else {
+                panic!("accepted")
+            };
+            assert_eq!(updated_input["answers"], expected_answers);
+            assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
+        }
+    }
+
+    struct DenyPermission;
+
+    #[async_trait::async_trait]
+    impl crate::domain::agents::adapter::RuntimeToolPermissionHandler for DenyPermission {
+        async fn can_use_tool(
+            &self,
+            request: crate::domain::agents::adapter::RuntimeToolPermissionRequest,
+        ) -> crate::domain::agents::adapter::RuntimeToolPermissionResult {
+            crate::domain::agents::adapter::RuntimeToolPermissionResult::Deny {
+                message: "asked the user".into(),
+                interrupt: None,
+                tool_use_id: Some(request.tool_use_id),
+            }
+        }
+    }
+
+    async fn browser_tool_decision(
+        mcp_servers: Option<
+            &std::collections::HashMap<
+                String,
+                crate::domain::agents::adapter::RuntimeMcpServerConfig,
+            >,
+        >,
+    ) -> claude_agent_sdk_rs::PermissionResult {
+        let adapter = super::ClaudeCanUseToolAdapter::shared(
+            std::sync::Arc::new(DenyPermission),
+            mcp_servers,
+        );
+        adapter
+            .can_use_tool(claude_agent_sdk_rs::PermissionRequest {
+                tool_name: "mcp__cadencr-browser__browser_open_url".into(),
+                input: json!({ "url": "http://localhost:1420" }),
+                tool_use_id: "tool-browser".into(),
+                agent_id: None,
+                suggestions: None,
+                blocked_path: None,
+                decision_reason: None,
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn browser_tools_skip_the_prompt_only_when_cadencr_attached_its_server() {
+        let injected = crate::domain::mcp::trusted::test_support::injected_browser_servers();
+        assert!(matches!(
+            browser_tool_decision(Some(&injected)).await,
+            claude_agent_sdk_rs::PermissionResult::Allow { .. }
+        ));
+        // A `cadencr-browser` from `.mcp.json` or the user's config, while
+        // Cadencr's browser MCP is off, goes through the normal prompt.
+        assert!(matches!(
+            browser_tool_decision(None).await,
+            claude_agent_sdk_rs::PermissionResult::Deny { .. }
+        ));
     }
 }

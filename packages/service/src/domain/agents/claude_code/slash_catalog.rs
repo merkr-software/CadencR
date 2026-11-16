@@ -1,8 +1,40 @@
-use crate::domain::agents::adapter::{RuntimeSlashCommand, RuntimeSlashCommandKind};
+use crate::domain::agents::adapter::{RuntimeError, RuntimeSlashCommand, RuntimeSlashCommandKind};
 
 use super::ClaudeCodeAdapter;
 
 impl ClaudeCodeAdapter {
+    /// Commands of `cwd` under `profile` (none: the active one), whose config
+    /// dir holds the user-level commands, skills and plugins.
+    pub(super) async fn discover_runtime_slash_commands(
+        &self,
+        cwd: &str,
+        profile: Option<&str>,
+    ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
+        let config_dir = super::config_dir::for_profile(profile)
+            .map_err(|error| RuntimeError::new(error.to_string()))?;
+        // Filesystem entries are cwd-specific and re-scanned per call;
+        // built-ins are cwd-invariant and cached. The two probes are
+        // independent, so run them concurrently. Filesystem entries come
+        // first so `resolve_commands`'s downstream first-seen dedup keeps
+        // user-defined commands over identically-named built-ins.
+        let (filesystem, builtins) = tokio::join!(
+            claude_agent_sdk_rs::list_filesystem_commands(cwd, Some(&config_dir)),
+            self.load_builtin_slash_commands(),
+        );
+        let filesystem = filesystem.map_err(RuntimeError::from)?;
+
+        let mut commands: Vec<RuntimeSlashCommand> = filesystem
+            .into_iter()
+            .map(|command| RuntimeSlashCommand {
+                name: command.name,
+                description: command.description,
+                kind: RuntimeSlashCommandKind::Command,
+            })
+            .collect();
+        commands.extend(builtins);
+        Ok(commands)
+    }
+
     pub(super) fn slash_commands_cell(&self) -> &std::sync::RwLock<Vec<RuntimeSlashCommand>> {
         self.cached_slash_commands
             .get_or_init(|| std::sync::RwLock::new(Vec::new()))

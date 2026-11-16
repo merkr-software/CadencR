@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Settings, PanelLeftClose, Search, Maximize, Minimize, Share } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,13 +10,22 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { KbdShortcut } from "@/components/KbdShortcut";
-import { ProjectTree } from "@/components/ProjectTree";
+import { KbdShortcut, ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { SidebarRowActionsProvider } from "@/components/SidebarRowActionsProvider";
 import { ShortcutHintsProvider } from "@/hooks/useNavShortcutHints";
-import { SidebarPreferences } from "@/components/SidebarPreferences";
-import { SidebarPinnedConversations } from "@/components/SidebarPinnedConversations";
+import { SidebarConfigProvider } from "@/components/SidebarConfigProvider";
+import { useSidebarOption } from "@/stores/sidebar-config-store";
+import {
+  SidebarAttentionShortcuts,
+  SidebarRenameDialog,
+  useSidebarRowShortcuts,
+} from "@/components/SidebarShortcuts";
+import { PendingGateHost } from "@/components/sidebar-gate-popover/PendingGateHost";
+import { handleSidebarTypeToFilter, SidebarFilterInput } from "@/components/SidebarFilterInput";
 import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
+import { MarketplaceSidebarLink } from "@/components/MarketplaceSidebarLink";
 import { SchedulesSidebarLink } from "@/components/SchedulesSidebarLink";
 import { UnifiedAgentsSidebarLink } from "@/components/UnifiedAgentsSidebarLink";
 import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
@@ -32,9 +41,22 @@ import { SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
 import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useRouteFeatureIds } from "@/hooks/useRouteFeatureIds";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import { useSidebarKeyboardNavigation } from "@/hooks/useSidebarKeyboardNavigation";
+import { useBrowserActivityBridge } from "@/hooks/useFeatureActivityCounts";
+import { useToastAnchor } from "@/hooks/useToastAnchor";
+import {
+  useSidebarDisplayAttributes,
+  useSidebarHighlightAttribute,
+} from "@/hooks/useSidebarDisplayAttributes";
+import { SidebarSampleBanner } from "@/components/SidebarSampleBanner";
+import { SidebarSections } from "@/components/SidebarSections";
+import { SidebarSampleProvider } from "@/components/SidebarSampleProvider";
+import { SidebarDisplayOptionsHost } from "@/components/SidebarDisplayOptionsPopover";
+import { useSidebarShowsSamples } from "@/stores/sidebar-preview-store";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
+import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 
 export function Sidebar({ onSearch }: { onSearch: () => void }) {
   const { collapsed, setCollapsed } = useSidebarCollapsed();
@@ -42,15 +64,24 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   const isMobile = useIsMobile();
   const sidebarRef = useRef<HTMLElement>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
-  const { activeProjectId, effectiveFeatureId } = useSidebarActiveIds(selectedFeatureId);
+  const { activeProjectId, routeFeatureId, effectiveFeatureId } =
+    useSidebarActiveIds(selectedFeatureId);
   useSidebarKeyboardNavigation(sidebarRef, navigate, effectiveFeatureId);
+  useSidebarRowShortcuts();
+  useBrowserActivityBridge();
+  const displayAttributes = useSidebarDisplayAttributes();
+  useSidebarHighlightAttribute(sidebarRef);
+  const typeToFilter = useSidebarOption("typeToFilter");
+  const showsSamples = useSidebarShowsSamples();
 
   return (
-    <SidebarPreferences>
+    <SidebarConfigProvider>
       <ShortcutHintsProvider enabled={!collapsed}>
         <aside
           data-app-sidebar
+          {...displayAttributes}
           ref={sidebarRef}
+          onKeyDown={typeToFilter ? handleSidebarTypeToFilter : undefined}
           aria-hidden={!isMobile && collapsed ? true : undefined}
           inert={!isMobile && collapsed ? true : undefined}
           // Safe-area insets pad the content here (not the mobile drawer wrapper) so
@@ -64,62 +95,77 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
           )}
         >
           <SidebarHeader onCollapse={() => setCollapsed(true)} />
-          {/* Flex column so the tree gets the *remaining* height (not 100%, which
+          {/* Flex column so the scroller gets the *remaining* height (not 100%, which
           overflows past the search bar and clips the scroll area's bottom). */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
-            <div className="mb-2 shrink-0 px-1">
-              <SidebarSearchButton onSearch={onSearch} />
-            </div>
-            {/* The unified agents grid is desktop-only — hide its entry on phones.
+          <SidebarDisplayOptionsHost collapsed={!isMobile && collapsed}>
+            <SidebarSampleProvider enabled={showsSamples}>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
+                <div className="mb-2 shrink-0 px-1">
+                  <SidebarSearchButton onSearch={onSearch} />
+                </div>
+                {/* The unified agents grid is desktop-only — hide its entry on phones.
             Schedules is a plain list, so it works everywhere. */}
-            <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
-              {!isMobile && <UnifiedAgentsSidebarLink />}
-              <SchedulesSidebarLink />
-            </div>
-            <SidebarPinnedConversations
-              activeFeatureId={effectiveFeatureId}
-              onSelectFeature={setSelectedFeatureId}
-            />
-            <div className="min-h-0 flex-1">
-              <ProjectTree
-                activeProjectId={activeProjectId}
-                activeFeatureId={effectiveFeatureId}
-                onSelectFeature={setSelectedFeatureId}
-              />
-            </div>
-          </div>
-          <SidebarFooter />
+                <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
+                  <MarketplaceSidebarLink />
+                  {!isMobile && <UnifiedAgentsSidebarLink />}
+                  <SchedulesSidebarLink />
+                </div>
+                <SidebarSampleBanner />
+                {!showsSamples && <SidebarFilterInput />}
+                <SidebarAttentionShortcuts
+                  activeFeatureId={effectiveFeatureId}
+                  openFeatureId={routeFeatureId}
+                  onSelectFeature={setSelectedFeatureId}
+                >
+                  <SidebarRowActionsProvider>
+                    {/* One scroller for the blocks and the projects, so every block stays
+                  reachable however many are open, on a phone as on desktop. */}
+                    <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-col pb-2">
+                        <SidebarSections
+                          showsSamples={showsSamples}
+                          activeProjectId={activeProjectId}
+                          activeFeatureId={effectiveFeatureId}
+                          onSelectFeature={setSelectedFeatureId}
+                        />
+                      </div>
+                    </ScrollArea>
+                  </SidebarRowActionsProvider>
+                </SidebarAttentionShortcuts>
+              </div>
+            </SidebarSampleProvider>
+          </SidebarDisplayOptionsHost>
+          <SidebarFooter anchorsToasts={!isMobile && !collapsed} />
+          <SidebarRenameDialog />
+          <PendingGateHost
+            activeFeatureId={effectiveFeatureId}
+            onSelectFeature={setSelectedFeatureId}
+          />
         </aside>
       </ShortcutHintsProvider>
-    </SidebarPreferences>
+    </SidebarConfigProvider>
   );
 }
 
 function useSidebarActiveIds(selectedFeatureId: number | null): {
   activeProjectId: number | null;
+  routeFeatureId: number | null;
   effectiveFeatureId: number | null;
 } {
-  const routerState = useRouterState();
-  const routeParams = (routerState.location.pathname.match(
-    /\/projects\/(\d+)(?:\/features\/(\d+))?/,
-  ) ?? []) as string[];
-  const activeProjectId = routeParams[1]
-    ? Number(routeParams[1])
-    : routerState.location.search?.projectId
-      ? Number(routerState.location.search.projectId)
-      : null;
-  const activeFeatureId = routeParams[2]
-    ? Number(routeParams[2])
-    : routerState.location.search?.featureId
-      ? Number(routerState.location.search.featureId)
-      : null;
-
-  return { activeProjectId, effectiveFeatureId: activeFeatureId ?? selectedFeatureId };
+  const { projectId, featureId } = useRouteFeatureIds();
+  return {
+    activeProjectId: projectId,
+    routeFeatureId: featureId,
+    effectiveFeatureId: featureId ?? selectedFeatureId,
+  };
 }
 
 function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactElement {
   const terminalFocused = useIsTerminalFocusActive();
-  const title = terminalFocused ? "Search unavailable while terminal is focused" : "Search (⌘K)";
+  const searchCombo = useShortcutLabel("command-palette");
+  const title = terminalFocused
+    ? "Search unavailable while terminal is focused"
+    : `Search (${searchCombo})`;
   return (
     <button
       type="button"
@@ -136,7 +182,7 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
       {terminalFocused ? (
         <InactiveShortcutHint />
       ) : (
-        <KbdShortcut keys={["cmd", "K"]} variant="hint" />
+        <ResolvedShortcutHint shortcutId="command-palette" />
       )}
     </button>
   );
@@ -167,13 +213,14 @@ function useIsTerminalFocusActive(): boolean {
 
 function InactiveShortcutHint(): ReactElement {
   return (
-    <kbd className="inline-flex items-center justify-center gap-px rounded border border-current/25 bg-transparent px-1 py-0.5 text-[10px] font-mono font-medium leading-none text-current opacity-50">
-      <span className="leading-none">--</span>
-    </kbd>
+    <span aria-hidden="true" className="shrink-0">
+      <KbdShortcut keys={[]} variant="hint" disabled />
+    </span>
   );
 }
 
 function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement {
+  const toggleSidebarCombo = useShortcutLabel("toggle-sidebar");
   // Reserve a dedicated strip for the macOS traffic-light buttons (they sit
   // at ~y=12 inside `titleBarStyle: "hiddenInset"`) so the lockup below can
   // never overlap them. Browsers and other platforms have no window controls
@@ -194,7 +241,7 @@ function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement
             variant="ghost"
             size="icon"
             className="size-7"
-            title="Collapse sidebar (⌘B)"
+            title={`Collapse sidebar (${toggleSidebarCombo})`}
             onClick={onCollapse}
           >
             <PanelLeftClose className="size-4" />
@@ -294,14 +341,16 @@ function AddToHomeScreenDialog(): ReactElement {
   );
 }
 
-function SidebarFooter(): ReactElement {
+function SidebarFooter({ anchorsToasts }: { anchorsToasts: boolean }): ReactElement {
+  const settingsRowRef = useRef<HTMLDivElement>(null);
+  useToastAnchor(settingsRowRef, anchorsToasts);
   return (
     <div className="flex flex-col items-center gap-1 py-2">
       <SidebarFullscreenButton />
       <SidebarPushButton />
       <SidebarUpdateButton />
       <StorageMaintenanceProgress />
-      <div className="flex w-[90%] items-center gap-1.5">
+      <div ref={settingsRowRef} className="flex w-[90%] items-center gap-1.5">
         <Link
           to="/settings"
           data-nav-item

@@ -17,6 +17,14 @@
   color: var(--acc-green);
 }
 
+/* A failed turn asks for a look, like a pending request: strong red glyph with
+ * the same soft halo as the pending indicators. */
+.sidebar-status-failed {
+  display: inline-flex;
+  color: var(--acc-red);
+  filter: drop-shadow(0 0 4px color-mix(in oklab, currentColor 45%, transparent));
+}
+
 @keyframes sidebar-status-spin {
   to {
     transform: rotate(360deg);
@@ -42,17 +50,400 @@
   display: inline-flex;
 }
 
+/* Touch: the actions stay out (no reflow under the finger, see below). Hit areas
+ * grow up over the row padding and over half the gap, never onto the next line. */
 @media (hover: none) {
   .sidebar-row-actions {
     display: inline-flex;
+    gap: 0.5rem;
+  }
+  .sidebar-row-actions > button {
+    position: relative;
+  }
+  .sidebar-row-actions > button::after {
+    content: "";
+    position: absolute;
+    inset: calc(-1 * var(--sidebar-row-pad, 6px)) -0.25rem 0;
+  }
+}
+
+/* The "dot" status style: color only, working still breathes so it reads as live. */
+.sidebar-status-dot-working {
+  animation: sidebar-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sidebar-status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Display options are attributes on the sidebar root (see Sidebar.tsx), so
+ * changing the density, text size or title mode restyles every row without
+ * re-rendering it. Comfortable is 36px per single-line row: 24px title line
+ * plus 6px above and below; compact is 28px, spacious 44px. */
+.sidebar-row {
+  padding-block: var(--sidebar-row-pad, 6px);
+  font-size: var(--sidebar-row-font, 0.78125rem); /* 12.5px */
+}
+/* The hover actions (24px buttons) are taller than the project name, so the
+ * row reserves their height: revealing them must not push the list down. */
+.sidebar-project-row {
+  padding-block: var(--sidebar-row-pad, 6px);
+  min-height: calc(1.5rem + 2 * var(--sidebar-row-pad, 6px));
+}
+[data-sidebar-density="compact"] {
+  --sidebar-row-pad: 2px;
+}
+[data-sidebar-density="spacious"] {
+  --sidebar-row-pad: 10px;
+}
+
+/* Pointer devices only: a tap sets :hover before its click lands, so on touch the
+ * time-for-actions swap slid pin under a tap on archive. Same for hover titles. */
+@media (hover: hover) {
+  [data-nav-type="feature"]:is(:hover, :focus-within) [data-feature-time] {
+    display: none;
+  }
+}
+
+/* Two-line and expand-on-hover titles: the fixed slots stay on the first
+ * 24px line instead of centering on the whole wrapped title. */
+[data-sidebar-title-lines="two"] [data-feature-title] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+/* A fixed row height never grows on hover: the title stays on its line.
+ * Uniform rows hold the details beside the title on one clipped line; a title
+ * shown in full on hover brings the ones that didn't fit along with it. */
+@media (hover: hover) {
+  [data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
+    .sidebar-row:is(:hover, :focus-within) {
+    & [data-feature-title] {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+    & [data-feature-title-fold] {
+      height: auto;
+    }
+  }
+}
+:is([data-sidebar-title-lines="two"], [data-sidebar-title-lines="hover"]) {
+  & [data-feature-title-line] {
+    align-items: flex-start;
+  }
+  &
+    [data-feature-title-line]
+    > :is([data-sidebar-status], svg, [data-feature-model], [data-sidebar-identity-slot]),
+  & [data-feature-trailing] > :is(.sidebar-row-actions, [data-feature-time]) {
+    height: 1.5rem;
+  }
+  /* Margin, not padding: a clamped box shows its padding, so padding would
+   * let the start of a third line peek out under the second. */
+  & [data-feature-title] {
+    margin-block: calc((1.5rem - 1lh) / 2);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-status-working {
+  .sidebar-status-working,
+  .sidebar-status-dot-working {
     animation: none;
   }
 }
-html[data-animations="off"] .sidebar-status-working {
+html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-working) {
   animation: none;
+}
+
+/* H4: a row (or rail tile) whose conversation starts waiting, fails or gets an
+ * unread reply flashes once in that state's color (useAttentionFlash). */
+[data-sidebar-flash] {
+  animation: sidebar-row-flash 900ms ease-out;
+}
+[data-sidebar-flash="waiting"] {
+  --sidebar-flash-color: var(--color-amber-400);
+}
+[data-sidebar-flash="failed"] {
+  --sidebar-flash-color: var(--acc-red);
+}
+[data-sidebar-flash="unread"] {
+  --sidebar-flash-color: var(--acc-green);
+}
+
+@keyframes sidebar-row-flash {
+  from {
+    background-color: color-mix(in oklab, var(--sidebar-flash-color) 22%, transparent);
+  }
+}
+
+/* A project's conversations sit one step in, hung on a guide drawn under the
+ * project's chevron: section labels, projects and conversations read as three
+ * levels. The open project's guide is a shade stronger. The guide's 1px line
+ * is centered on the twisty column: row padding plus half its 14px width. */
+.sidebar-project-children {
+  --sidebar-guide-x: calc(0.375rem + 0.4375rem - 0.5px);
+  --sidebar-guide-pad: 0.25rem;
+  /* From the rows' edge back to the guide's line: its padding plus the line. */
+  --sidebar-guide-inset: calc(var(--sidebar-guide-pad) + 1px);
+  --sidebar-guide-color: color-mix(in oklab, var(--border) 60%, transparent);
+  margin-inline-start: var(--sidebar-guide-x);
+  margin-block-end: 0.5rem;
+  padding-inline-start: var(--sidebar-guide-inset);
+}
+.sidebar-project-children[data-active] {
+  --sidebar-guide-color: color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+/* The guide is drawn by the list's items, not the container: each one over
+ * its own height and the list's gap above it (gap-0.5), so a top-level row
+ * whose chevron sits on the guide can leave a real hole around it, clear on
+ * every surface (frost ones included). The virtualized list hands its line to
+ * its own items, which follow each other without a gap. */
+.sidebar-project-children > * > *,
+.sidebar-project-children [data-project-feature-index] {
+  --sidebar-guide-lead: 0.125rem;
+  position: relative;
+}
+.sidebar-project-children > * > :first-child,
+.sidebar-project-children [data-project-feature-index] {
+  --sidebar-guide-lead: 0px;
+}
+.sidebar-project-children > * > *::after,
+.sidebar-project-children [data-project-feature-index]::after {
+  content: "";
+  position: absolute;
+  inset-block: calc(-1 * var(--sidebar-guide-lead)) 0;
+  inset-inline-start: calc(-1 * var(--sidebar-guide-inset));
+  width: 1px;
+  background: var(--sidebar-guide-color);
+  pointer-events: none;
+}
+/* A worktree group's segment hangs from its padding box: step back over its border. */
+.sidebar-project-children > * > .worktree-group::after {
+  inset-inline-start: calc(-1 * (var(--sidebar-guide-inset) + var(--border-width)));
+}
+.sidebar-project-children > * > [data-virtual-nav-list]:has([data-project-feature-index])::after {
+  inset-block-end: auto;
+  height: var(--sidebar-guide-lead);
+}
+/* The hole: the line stops 7px (half the twisty column) either side of the
+ * row's center, where the chevron sits; the item's lead shifts that center. */
+.sidebar-project-children
+  > *
+  > .sidebar-row:has(> [data-feature-hierarchy-gutter="0"] > button)::after,
+.sidebar-project-children
+  [data-project-feature-index]:has(
+    > :not(.worktree-group) > * > [data-feature-hierarchy-gutter="0"] > button
+  )::after {
+  --sidebar-guide-hole: 0.4375rem;
+  background:
+    linear-gradient(var(--sidebar-guide-color) 0 0) top / 1px
+      calc(50% + var(--sidebar-guide-lead) / 2 - var(--sidebar-guide-hole)) no-repeat,
+    linear-gradient(var(--sidebar-guide-color) 0 0) bottom / 1px
+      calc(50% - var(--sidebar-guide-lead) / 2 - var(--sidebar-guide-hole)) no-repeat;
+}
+/* The rows' twisty column (sub-conversation chevrons) sits on the guide
+ * instead of taking a column of its own: moved back by the guide's offset,
+ * line and padding, its space handed to the status and title. Rows inside a
+ * worktree group keep theirs, inside the group's box. */
+.sidebar-project-children [data-feature-hierarchy-gutter] {
+  --sidebar-gutter-shift: calc(var(--sidebar-guide-x) + var(--sidebar-guide-inset));
+  translate: calc(-1 * var(--sidebar-gutter-shift)) 0;
+  margin-inline-end: calc(-1 * var(--sidebar-gutter-shift));
+}
+.sidebar-project-children .worktree-group [data-feature-hierarchy-gutter] {
+  translate: none;
+  margin-inline-end: 0;
+}
+/* The Dormant and Archived folds' chevron lines up with the rows' status
+ * slot instead of crossing the guide: past the rows' gutter (size-3.5) and
+ * gap (gap-1.5), less the shift. The label follows. */
+.sidebar-project-children [data-feature-fold] [data-feature-hierarchy-gutter] {
+  --sidebar-fold-nudge: calc(0.875rem + 0.375rem - var(--sidebar-gutter-shift));
+  translate: var(--sidebar-fold-nudge) 0;
+  margin-inline-end: var(--sidebar-fold-nudge);
+}
+
+/* Idle conversation titles step back (FeatureRowTitleLine); pointing at the
+ * row brings them forward. */
+[data-feature-title][data-tone="quiet"] {
+  color: color-mix(in oklab, var(--foreground) 70%, transparent);
+  transition: color 120ms ease-out;
+}
+[data-feature-title][data-tone="archived"] {
+  color: var(--muted-foreground);
+}
+:is(.sidebar-row, [data-nav-type="feature"]):is(:hover, :focus-visible)
+  [data-feature-title][data-tone="quiet"] {
+  color: var(--foreground);
+}
+
+/* The collapsed sidebar's rail tile: its project's color as a soft tint, the
+ * letter in that color pulled toward the foreground so it stays readable on
+ * every theme (SidebarRail sets --project-tint). */
+.sidebar-rail-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in oklab, var(--project-tint) 30%, transparent);
+  background-color: color-mix(in oklab, var(--project-tint) 14%, transparent);
+  color: color-mix(in oklab, var(--project-tint) 55%, var(--foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  outline: none;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+.sidebar-rail-tile:hover,
+.sidebar-rail-tile[data-active] {
+  border-color: color-mix(in oklab, var(--project-tint) 55%, transparent);
+  background-color: color-mix(in oklab, var(--project-tint) 26%, transparent);
+}
+.sidebar-rail-tile:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+/* A header held over scrolling rows (sticky headers). It is filled only once
+ * it is actually stuck (a scroll-state container), so a project header in its
+ * place reads as a plain row. Stuck, it lays the sidebar's color over the app
+ * background made opaque (frost themes make both translucent) and casts a soft
+ * shadow on the rows passing under it. A backdrop blur would not help: nested
+ * under the sidebar's glass, it has nothing to blur. */
+.sidebar-sticky {
+  container-type: scroll-state;
+}
+.sidebar-sticky,
+.sidebar-sticky-fill,
+.sidebar-sticky > * {
+  --sidebar-sticky-fill:
+    linear-gradient(var(--sidebar) 0 0), oklch(from var(--background) l c h / 1);
+  --sidebar-sticky-shadow: 0 8px 12px -10px oklch(0 0 0 / 0.45);
+}
+.sidebar-sticky-fill {
+  background: var(--sidebar-sticky-fill);
+  box-shadow: var(--sidebar-sticky-shadow);
+}
+@container scroll-state(stuck: top) {
+  .sidebar-sticky > * {
+    background: var(--sidebar-sticky-fill);
+    box-shadow: var(--sidebar-sticky-shadow);
+  }
+}
+/* WebKit (every iOS browser) has no scroll-state queries: the header would
+ * float bare over the rows. There it is always filled, on the wrapper so the
+ * row's own hover and active fills still paint over it; unstuck, the fill
+ * matches the sidebar it sits on. */
+@supports not (container-type: scroll-state) {
+  .sidebar-sticky {
+    background: var(--sidebar-sticky-fill);
+  }
+}
+/* A row revealed or reached by the keyboard stops below its stuck project
+ * header (the project row's height, plus a gap) instead of under it. */
+[data-sidebar-sticky-header] + .sidebar-project-children [data-nav-item] {
+  scroll-margin-top: calc(2rem + 2 * var(--sidebar-row-pad, 6px));
+}
+
+/* Display options: the option under the pointer or focus outlines what it
+ * changes, in the sidebar and in the Settings preview (useSidebarOptionHighlight). */
+[data-sidebar-highlight="density"] :is(.sidebar-row, .sidebar-project-row),
+[data-sidebar-highlight="fontSize"] [data-feature-title],
+[data-sidebar-highlight="titleLines"] [data-feature-title],
+[data-sidebar-highlight="titleSource"] [data-feature-title],
+[data-sidebar-highlight="status"] [data-sidebar-status],
+[data-sidebar-highlight="time"] [data-feature-time],
+[data-sidebar-highlight="label"] [data-feature-label],
+[data-sidebar-highlight="provider"] :is(.sidebar-provider-logo, [data-feature-model]),
+[data-sidebar-highlight="pendingRequest"] [data-feature-pending-request],
+[data-sidebar-highlight="worktreeIcon"] [data-feature-worktree-icon],
+[data-sidebar-highlight="branch"] [data-feature-branch],
+[data-sidebar-highlight="diff"] [data-feature-diff],
+[data-sidebar-highlight="pr"] [data-feature-pr],
+[data-sidebar-highlight="ports"] [data-feature-ports-badge],
+[data-sidebar-highlight="activity"] [data-feature-activity-indicators],
+[data-sidebar-highlight="todos"] [data-feature-todos],
+[data-sidebar-highlight="preview"] [data-feature-preview],
+[data-sidebar-highlight="uniformRows"] [data-feature-title-fold],
+[data-sidebar-highlight="compactRows"] .sidebar-row,
+[data-sidebar-highlight="rowHeight"] .sidebar-row,
+[data-sidebar-highlight="colorMode"]
+  :is(
+    [data-feature-time],
+    [data-feature-branch],
+    [data-feature-worktree-icon],
+    [data-feature-todos],
+    [data-feature-activity-indicators]
+  ),
+[data-sidebar-highlight="sectionOrder"] :is([data-sidebar-block], [data-sidebar-lens-menu]),
+[data-sidebar-highlight="projectBadges"] [data-project-attention],
+[data-sidebar-highlight="dormantAfter"] [data-feature-fold="dormant"],
+[data-sidebar-highlight="lens"] :is([data-sidebar-lens-menu], [data-sidebar-lens-header]),
+[data-sidebar-highlight="conversationSort"] [data-sidebar-tree],
+[data-sidebar-highlight="projectSort"] [data-sidebar-tree] .sidebar-project-row,
+[data-sidebar-highlight="stickyHeaders"]
+  :is([data-sidebar-sticky-header], [data-sidebar-lens-header]),
+[data-sidebar-highlight="forMe"] [data-sidebar-block="for-me"],
+[data-sidebar-highlight="forMeLimit"] [data-sidebar-block="for-me"],
+[data-sidebar-highlight="workingBlock"] [data-sidebar-block="working"],
+[data-sidebar-highlight="recentBlock"] [data-sidebar-block="recent"],
+[data-sidebar-highlight="recentCount"] [data-sidebar-block="recent"],
+[data-sidebar-highlight="blockCounts"] [data-sidebar-block-counter],
+[data-sidebar-highlight="hideEmptyBlocks"] [data-sidebar-block-empty],
+[data-sidebar-highlight="gatePopover"] [data-sidebar-status="waiting"],
+[data-sidebar-highlight="flashOnChange"]
+  :is(
+    [data-sidebar-status="waiting"],
+    [data-sidebar-status="failed"],
+    [data-sidebar-status="unread"]
+  ),
+[data-sidebar-highlight="rail"] [data-sidebar-sample-rail] {
+  outline: 1.5px solid color-mix(in oklab, var(--primary) 75%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* A conversation pointed at from elsewhere (an agent message's sender, see
+ * AgentMessageSender) lights up in place: a primary wash and rim, no layout
+ * change, so the list never moves under the pointer. */
+[data-nav-type="feature"][data-sidebar-pointed] {
+  background-color: color-mix(in oklab, var(--primary) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 55%, transparent);
+}
+[data-nav-type="feature"][data-sidebar-pointed] [data-feature-title][data-tone="quiet"] {
+  color: var(--foreground);
+}
+
+/* Manual and section order: where a dragged conversation (`useRowReorder`)
+ * or section (a block or the project list, by its header,
+ * `useSidebarSectionReorder`) would land, a 2px primary line across the gap
+ * above or below the hovered one, and the dragged one stepping back while it
+ * travels. A section's line sits over its rows' own. */
+:is(.sidebar-row[data-drop-position], [data-section-drop])::before {
+  content: "";
+  position: absolute;
+  inset-inline: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--primary);
+  pointer-events: none;
+}
+.sidebar-row[data-drop-position]::before {
+  z-index: 1;
+}
+[data-section-drop]::before {
+  z-index: 2;
+}
+:is(.sidebar-row[data-drop-position="before"], [data-section-drop="before"])::before {
+  top: -2px;
+}
+:is(.sidebar-row[data-drop-position="after"], [data-section-drop="after"])::before {
+  bottom: -2px;
+}
+:is(.sidebar-row[data-dragging], [data-section-dragging]) {
+  opacity: 0.45;
 }

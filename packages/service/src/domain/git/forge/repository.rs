@@ -8,6 +8,7 @@ use super::provider::{ForgeContext, ForgeProvider};
 use super::{api_base_url, effective_kind, provider_for};
 use crate::app_state::AppState;
 use crate::domain::git::host::{detect_origin_remote, GitHost, RemoteInfo};
+use crate::domain::git::linked_branches;
 use crate::domain::git::service;
 use crate::error::AppError;
 
@@ -31,7 +32,7 @@ pub async fn feature_forge_context(
 ) -> Result<FeatureForge, AppError> {
     let target = resolve_feature_target(state, feature_id).await;
     if let Some(error) = target.error {
-        return Err(AppError::Internal(error));
+        return Err(AppError::internal(error));
     }
     let remote = target
         .remote
@@ -42,11 +43,11 @@ pub async fn feature_forge_context(
     let provider = provider_for(kind)
         .ok_or_else(|| AppError::BadRequest("Configure this remote's forge kind".into()))?;
     let api_base_url = api_base_url(&remote.hostname, kind, config)
-        .map_err(forge_to_app_error)?
+        .map_err(|error| forge_to_app_error(error))?
         .ok_or_else(|| AppError::BadRequest("Configure this forge's API base URL".into()))?;
     let credentials = resolve_credentials(&state.forge_auth, &remote.hostname, kind, config)
         .await
-        .map_err(forge_to_app_error)?
+        .map_err(|error| forge_to_app_error(error))?
         .ok_or_else(|| AppError::BadRequest("Connect this forge in Settings first".into()))?;
     Ok(FeatureForge {
         context: ForgeContext {
@@ -63,9 +64,25 @@ pub async fn feature_forge_context(
 #[derive(Debug, Clone)]
 pub struct FeatureForgeTarget {
     pub feature_id: i64,
+    /// The conversation's current branch.
     pub branch: Option<String>,
+    /// Every branch to look proposals up for: the current one first, then
+    /// the conversation's other linked branches.
+    pub tracked: Vec<TrackedBranch>,
     pub remote: Option<RemoteInfo>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrackedBranch {
+    pub name: String,
+    /// Stored as one of the conversation's branches, so its proposal is worth
+    /// remembering. False for the checkout a worktree-free conversation only
+    /// follows: remembering it would link every branch the user visits.
+    pub linked: bool,
+    /// The proposal last recorded for it (number, state), which survives a
+    /// restart where the in-memory snapshot does not.
+    pub stored_pr: Option<(u64, String)>,
 }
 
 pub async fn active_feature_targets(state: &AppState) -> Result<Vec<FeatureForgeTarget>, AppError> {
@@ -82,19 +99,70 @@ pub async fn active_feature_targets(state: &AppState) -> Result<Vec<FeatureForge
 
 pub async fn resolve_feature_target(state: &AppState, feature_id: i64) -> FeatureForgeTarget {
     match try_resolve_feature_target(state, feature_id).await {
-        Ok((branch, remote)) => FeatureForgeTarget {
-            feature_id,
-            branch,
-            remote,
-            error: None,
-        },
-        Err(error) => FeatureForgeTarget {
-            feature_id,
-            branch: None,
-            remote: None,
-            error: Some(error.to_string()),
-        },
+        Ok((branch, remote)) => {
+            match tracked_branches(state, feature_id, branch.as_deref()).await {
+                Ok(tracked) => FeatureForgeTarget {
+                    feature_id,
+                    branch,
+                    tracked,
+                    remote,
+                    error: None,
+                },
+                Err(error) => failed_target(feature_id, error),
+            }
+        }
+        Err(error) => failed_target(feature_id, error),
     }
+}
+
+fn failed_target(feature_id: i64, error: AppError) -> FeatureForgeTarget {
+    FeatureForgeTarget {
+        feature_id,
+        branch: None,
+        tracked: Vec::new(),
+        remote: None,
+        error: Some(error.to_string()),
+    }
+}
+
+async fn tracked_branches(
+    state: &AppState,
+    feature_id: i64,
+    current: Option<&str>,
+) -> Result<Vec<TrackedBranch>, AppError> {
+    let rows = linked_branches::repository::list_linked(&state.read_pool, feature_id).await?;
+    let mut tracked = rows
+        .into_iter()
+        .map(|row| TrackedBranch {
+            stored_pr: row
+                .pr_number
+                .and_then(|number| u64::try_from(number).ok())
+                .map(|number| (number, row.pr_state.unwrap_or_default())),
+            name: row.branch,
+            linked: true,
+        })
+        .collect::<Vec<_>>();
+    if let Some(name) = service::recorded_feature_branch(&state.read_pool, feature_id).await? {
+        if !tracked.iter().any(|branch| branch.name == name) {
+            tracked.push(TrackedBranch {
+                name,
+                linked: true,
+                stored_pr: None,
+            });
+        }
+    }
+    if let Some(current) = current {
+        let entry = match tracked.iter().position(|branch| branch.name == current) {
+            Some(index) => tracked.remove(index),
+            None => TrackedBranch {
+                name: current.to_string(),
+                linked: false,
+                stored_pr: None,
+            },
+        };
+        tracked.insert(0, entry);
+    }
+    Ok(tracked)
 }
 
 pub async fn detected_project_remotes(state: &AppState) -> Result<Vec<RemoteInfo>, AppError> {

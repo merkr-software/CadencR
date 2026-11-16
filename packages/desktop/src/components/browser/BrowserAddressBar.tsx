@@ -43,6 +43,7 @@ export interface BrowserAddressBarProps {
   onOpenExternal: () => void;
   onAddComment: () => void;
   onResponsive: () => void;
+  onDownloads: () => void;
   onSuggestionOverlayOpenChange?: (open: boolean) => void;
   siteControl?: ReactNode;
   downloadsControl?: ReactNode;
@@ -267,6 +268,7 @@ function renderAddressBar(view: AddressBarViewProps): ReactElement {
             onOpenExternal={view.onOpenExternal}
             onAddComment={view.onAddComment}
             onResponsive={view.onResponsive}
+            onDownloads={view.onDownloads}
             onMenuOpenChange={view.setActionsOpen}
           />
           {view.downloadsControl}

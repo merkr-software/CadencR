@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ProviderIcon } from "@/lib/provider-icons";
 import { getProviderMetadata } from "@/lib/providers";
 import { buildResumeCommand } from "@/lib/provider-resume-command";
+import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import type { ClaudeCodeProfile } from "@/api/agentRuntime";
 import { DEFAULT_CLAUDE_PROFILE_NAME, formatClaudeProfileLabel } from "@/lib/claude-profiles";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,8 @@ import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
 import { McpServersRow } from "./McpServersRow";
 import { SyncFromCliRow } from "./SyncFromCliRow";
 
-interface SessionInfoChipProps {
+/** Everything the session details panel shows (the Info chip and the composer menu). */
+export interface SessionInfoPanelProps {
   runtimeProvider: string | undefined;
   runtimeSessionId?: string;
   projectPath: string | undefined;
@@ -31,7 +33,6 @@ interface SessionInfoChipProps {
   wsSessionId?: string;
   isRunning: boolean;
   onPause?: () => void;
-  chipClass: string;
   claudeProfile?: string;
   claudeProfiles?: ClaudeCodeProfile[];
   claudeProfilesLoading?: boolean;
@@ -39,6 +40,10 @@ interface SessionInfoChipProps {
   activeClaudeProfile?: string;
   onClaudeProfileChange?: (profile: string) => void;
   showProfileSelector?: boolean;
+}
+
+interface SessionInfoChipProps extends SessionInfoPanelProps {
+  chipClass: string;
 }
 
 const COPY_FEEDBACK_MS = 1500;
@@ -54,26 +59,21 @@ export function SessionInfoMcpServersProvider({
   return <McpServersContext.Provider value={mcpServers}>{children}</McpServersContext.Provider>;
 }
 
-export function SessionInfoChip({
+type CopiedField = "id" | "command" | null;
+
+/** Copy the session id / resume command, with a short "copied" acknowledgement. */
+function useSessionInfoCopy({
   runtimeProvider,
   runtimeSessionId,
   projectPath,
-  featureId,
-  wsSessionId,
   isRunning,
   onPause,
-  chipClass,
-  claudeProfile,
-  claudeProfiles = [],
-  claudeProfilesLoading = false,
-  claudeProfilesError = false,
-  activeClaudeProfile,
-  onClaudeProfileChange,
-  showProfileSelector = false,
-}: SessionInfoChipProps): ReactElement {
-  const [copiedField, setCopiedField] = useState<"id" | "command" | null>(null);
+}: Pick<
+  SessionInfoPanelProps,
+  "runtimeProvider" | "runtimeSessionId" | "projectPath" | "isRunning" | "onPause"
+>) {
+  const [copiedField, setCopiedField] = useState<CopiedField>(null);
   const timeoutRef = useRef<number | null>(null);
-  const mcpServers = useContext(McpServersContext);
 
   useEffect(() => {
     return () => {
@@ -81,8 +81,9 @@ export function SessionInfoChip({
     };
   }, []);
 
+  const resumeCommand = useCatalogProviderMetadata(runtimeProvider)?.resumeCommand;
   const resume = buildResumeCommand({
-    providerId: runtimeProvider,
+    resumeCommand,
     sessionId: runtimeSessionId ?? "",
     cwd: projectPath,
   });
@@ -106,6 +107,37 @@ export function SessionInfoChip({
     await copy("command", resume.command);
   };
 
+  return { copiedField, resumeSupported: resume.supported, copySessionId, copyLaunchCommand };
+}
+
+/** The session details: provider, MCP servers, profile, ids, resume and sync. */
+export function SessionInfoPanel(props: SessionInfoPanelProps): ReactElement {
+  const mcpServers = useContext(McpServersContext);
+  const copy = useSessionInfoCopy(props);
+  return (
+    <SessionInfoContent
+      runtimeProvider={props.runtimeProvider}
+      runtimeSessionId={props.runtimeSessionId}
+      featureId={props.featureId}
+      wsSessionId={props.wsSessionId}
+      mcpServers={mcpServers}
+      copiedField={copy.copiedField}
+      resumeSupported={copy.resumeSupported}
+      isRunning={props.isRunning}
+      onCopySessionId={copy.copySessionId}
+      onCopyLaunchCommand={copy.copyLaunchCommand}
+      claudeProfile={props.claudeProfile}
+      claudeProfiles={props.claudeProfiles ?? []}
+      claudeProfilesLoading={props.claudeProfilesLoading ?? false}
+      claudeProfilesError={props.claudeProfilesError ?? false}
+      activeClaudeProfile={props.activeClaudeProfile}
+      onClaudeProfileChange={props.onClaudeProfileChange}
+      showProfileSelector={props.showProfileSelector ?? false}
+    />
+  );
+}
+
+export function SessionInfoChip({ chipClass, ...panelProps }: SessionInfoChipProps): ReactElement {
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -123,25 +155,7 @@ export function SessionInfoChip({
         side="top"
         className="flex max-h-[min(70vh,var(--radix-popover-content-available-height))] min-h-0 w-80 flex-col gap-3 overflow-hidden"
       >
-        <SessionInfoContent
-          runtimeProvider={runtimeProvider}
-          runtimeSessionId={runtimeSessionId}
-          featureId={featureId}
-          wsSessionId={wsSessionId}
-          mcpServers={mcpServers}
-          copiedField={copiedField}
-          resumeSupported={resume.supported}
-          isRunning={isRunning}
-          onCopySessionId={copySessionId}
-          onCopyLaunchCommand={copyLaunchCommand}
-          claudeProfile={claudeProfile}
-          claudeProfiles={claudeProfiles}
-          claudeProfilesLoading={claudeProfilesLoading}
-          claudeProfilesError={claudeProfilesError}
-          activeClaudeProfile={activeClaudeProfile}
-          onClaudeProfileChange={onClaudeProfileChange}
-          showProfileSelector={showProfileSelector}
-        />
+        <SessionInfoPanel {...panelProps} />
       </PopoverContent>
     </Popover>
   );
@@ -153,7 +167,7 @@ interface SessionInfoContentProps {
   featureId?: number;
   wsSessionId?: string;
   mcpServers: McpServerStatus[] | null;
-  copiedField: "id" | "command" | null;
+  copiedField: CopiedField;
   resumeSupported: boolean;
   isRunning: boolean;
   onCopySessionId: () => Promise<void>;

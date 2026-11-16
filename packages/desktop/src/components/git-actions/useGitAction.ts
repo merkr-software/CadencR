@@ -132,14 +132,12 @@ function deriveStashDisabled(snapshot: GitStatusSnapshot): string | null {
 }
 
 function derivePushDisabled(snapshot: GitStatusSnapshot): string | null {
-  if (snapshot.uncommitted_count > 0) return "Commit your changes first";
-  if (snapshot.ahead_of_remote <= 0) return "Nothing to push";
-  return null;
+  // Uncommitted changes never block push (or compare): `git push` only sends commits.
+  return snapshot.ahead_of_remote > 0 ? null : "Nothing to push";
 }
 
 function derivePrDisabled(snapshot: GitStatusSnapshot, existingPr?: PrSummary): string | null {
   if (existingPr) return null;
-  if (snapshot.uncommitted_count > 0) return "Commit your changes first";
   if (snapshot.ahead_of_remote > 0) return "Push your commits first";
   if (!snapshot.has_remote) return "No remote configured";
   if (snapshot.ahead_of_target <= 0) return "Nothing to compare";

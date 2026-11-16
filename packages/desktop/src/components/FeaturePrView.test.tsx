@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@/test-utils";
 import type { CommentThread, PrStatusSnapshot } from "@/api/generated";
 import type { PrReviewThreads } from "@/hooks/usePrReviewThreads";
 import { usePrStatusStore } from "@/stores/usePrStatusStore";
+import { useViewedPrStore } from "@/stores/viewed-pr-store";
 import { FeaturePrView } from "./FeaturePrView";
 
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -83,6 +84,24 @@ describe("FeaturePrView pinned band", () => {
     fireEvent.wheel(band, { deltaY: 3, deltaMode: 1 });
 
     expect(scroller.scrollTop).toBe(48);
+  });
+
+  it.each([180, -180])("keeps a wheel delta of %i over a check out of the comments", (deltaY) => {
+    usePrStatusStore.getState().setStatus({
+      ...snapshot(),
+      fetched_at: 2,
+      ci: { state: "failing", checks: [{ name: "build", state: "failing" }] },
+    });
+    render(<FeaturePrView featureId={42} reviews={REVIEWS} />);
+    const band = screen.getByRole("heading", { name: "Pinned band" }).closest("div.shrink-0")!;
+    const scroller = band.nextElementSibling as HTMLElement;
+    scroller.scrollTop = 240;
+
+    // Even a short check list must own its gesture. Wheel events on a row
+    // used to bubble into the pinned band's manual forwarding handler.
+    fireEvent.wheel(screen.getByText("build"), { deltaY });
+
+    expect(scroller.scrollTop).toBe(240);
   });
 });
 
@@ -310,5 +329,76 @@ describe("FeaturePrView select-all", () => {
     expect(after).toBe(before);
     expect(document.activeElement).toBe(after);
     expect(after).toHaveAttribute("data-state", "indeterminate");
+  });
+});
+
+describe("FeaturePrView proposal tabs", () => {
+  function withOtherPr(overrides: Partial<PrStatusSnapshot> = {}): PrStatusSnapshot {
+    const base = snapshot();
+    return {
+      ...base,
+      other_prs: [
+        {
+          branch: "dependabot/actions/setup-node-7",
+          pr: { ...base.pr!, number: 7, title: "Bump setup-node", source_branch: "x" },
+          ci: { state: "failing", checks: [{ name: "lint", state: "failing" }] },
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    usePrStatusStore.setState({ byFeature: {}, latestFetchedAtByFeature: {} });
+    useViewedPrStore.setState({ byFeature: {} });
+  });
+
+  it("shows no tabs while the conversation has a single proposal", () => {
+    usePrStatusStore.getState().setStatus(snapshot());
+    render(<FeaturePrView featureId={42} reviews={REVIEWS} />);
+    expect(screen.queryByRole("tablist")).toBeNull();
+  });
+
+  it("swaps the pane to another branch's proposal instead of opening its host", () => {
+    usePrStatusStore.getState().setStatus(withOtherPr());
+    render(<FeaturePrView featureId={42} reviews={REVIEWS} />);
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["#42x", "#7setup-node-7"]);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(tabs[1]!);
+
+    expect(screen.getByRole("heading", { name: "Bump setup-node" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /#7/ })).toHaveAttribute("aria-selected", "true");
+    // Its own checks, not the current proposal's.
+    expect(screen.getByText("1 of 1 failing")).toBeInTheDocument();
+    expect(useViewedPrStore.getState().byFeature[42]).toBe(7);
+  });
+
+  it("moves between proposals with the arrow keys", () => {
+    usePrStatusStore.getState().setStatus(withOtherPr());
+    render(<FeaturePrView featureId={42} reviews={REVIEWS} />);
+
+    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
+    expect(screen.getByRole("heading", { name: "Bump setup-node" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
+    expect(screen.getByRole("heading", { name: "Pinned band" })).toBeInTheDocument();
+  });
+
+  it("keeps the current branch's tab when it has no proposal yet", () => {
+    usePrStatusStore.getState().setStatus(withOtherPr({ pr: null, ci: null }));
+    render(<FeaturePrView featureId={42} reviews={REVIEWS} />);
+
+    expect(screen.getByText("No open pull request")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /#7/ }));
+    expect(screen.getByRole("heading", { name: "Bump setup-node" })).toBeInTheDocument();
+  });
+
+  it("falls back to the current proposal once the picked one is gone", () => {
+    useViewedPrStore.getState().setViewedPr(42, 99);
+    usePrStatusStore.getState().setStatus(withOtherPr());
+    render(<FeaturePrView featureId={42} reviews={REVIEWS} />);
+    expect(screen.getByRole("heading", { name: "Pinned band" })).toBeInTheDocument();
   });
 });

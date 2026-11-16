@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetDeviceTokenMemoryForTests } from "@/lib/remote/device-token";
 import { ensurePaired, pairRemoteDevice, takeJustPaired, takePairingError } from "./remote-pairing";
@@ -14,13 +15,13 @@ function mockResponse(status: number, body: unknown): MockResponse {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) };
 }
 
-function stubLocation(search: string): void {
+function stubLocation(search: string, hash = "", pathname = "/"): void {
   vi.stubGlobal("location", {
     protocol: "https:",
     origin: "https://192.168.1.5:5006",
-    pathname: "/",
+    pathname,
     search,
-    hash: "",
+    hash,
   });
 }
 
@@ -61,6 +62,65 @@ describe("ensurePaired", () => {
     expect(replaceState).toHaveBeenCalledWith(null, "", "/");
   });
 
+  it.each([
+    [
+      "?view=list",
+      "#code=fragment-code&trust=1&tab=agent",
+      "/projects/7?view=list#tab=agent",
+      "fragment-code",
+    ],
+    [
+      "?code=legacy&view=list",
+      "#/projects/7?tab=agent",
+      "/projects/7?view=list#/projects/7?tab=agent",
+      "legacy",
+    ],
+    [
+      "?code=legacy&view=list",
+      "#/projects/7?code=fragment&tab=agent&trust=1",
+      "/projects/7?view=list#/projects/7?tab=agent",
+      "fragment",
+    ],
+  ])(
+    "scrubs pairing values before fetch and preserves unrelated URL state",
+    async (query, hash, cleaned, code) => {
+      stubLocation(query, hash, "/projects/7");
+      const fetchMock = vi.fn(() => {
+        expect(replaceState).toHaveBeenCalledWith(null, "", cleaned);
+        return Promise.resolve(mockResponse(200, { device_token: "t", label: "x" }));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await ensurePaired();
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ code }) }),
+      );
+      expect(localStorage.getItem(KEY)).toBeNull();
+    },
+  );
+
+  it("strips a malformed percent-encoded fragment without crashing or sending it", async () => {
+    stubLocation("?view=list", "#code=%E0%A4%A&tab=agent");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await ensurePaired();
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/?view=list#tab=agent");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(takePairingError()).toMatch(/malformed/i);
+  });
+
+  it("does not send the code if URL cleanup fails", async () => {
+    stubLocation("?code=secret");
+    replaceState.mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await ensurePaired();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(takePairingError()).toMatch(/pairing was stopped/i);
+  });
+
   it("ignores a legacy host trust flag (decision is the device's) and strips it", async () => {
     stubLocation("?code=abc&trust=1");
     vi.stubGlobal("fetch", () =>
@@ -97,6 +157,16 @@ describe("pairRemoteDevice", () => {
     stubLocation("");
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("defaults manual/QR pairing to session storage without implicit trust", async () => {
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(mockResponse(200, { device_token: "session-token", label: "x" })),
+    );
+    await pairRemoteDevice("abc123");
+    expect(sessionStorage.getItem(KEY)).toBe("session-token");
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(takeJustPaired()).toBe("session");
+  });
 
   it("exchanges a code and stores trusted devices durably", async () => {
     const fetchMock = vi.fn(() =>

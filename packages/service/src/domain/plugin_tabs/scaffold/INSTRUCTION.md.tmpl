@@ -1,0 +1,295 @@
+# Building a Cadencr custom tab
+
+You are working in a **custom tab**: a static web app that Cadencr shows as a
+tab on a conversation (feature) page, next to Agent, Terminal, Git, Editor and
+Browser. This folder is the whole tab. Do not modify Cadencr itself; if the tab
+needs something the SDK does not offer, say so.
+
+## How it runs
+
+- Cadencr loads `dist/index.html` (the manifest's `entry`) in an isolated view
+  at `cadencr-tab://<id>/`. Build output must use relative URLs (`base: "./"`
+  in `vite.config.ts` — keep it).
+- **Web root.** Only the directory holding `entry` — `dist/` — is served.
+  `src/`, `tab.json`, `node_modules/` and dot-files are never reachable from
+  the page. Every image, font or JSON file the page loads must end up in
+  `dist/`: import it from code (Vite fingerprints it into `dist/assets/`) or put
+  it in `public/` (copied as is).
+- The page has **no network access** (`connect-src 'none'`). `fetch`,
+  WebSockets, remote images, fonts and scripts from the internet all fail.
+  Everything goes through the SDK, which talks to Cadencr over a private
+  channel. Bundle every asset you need.
+- No inline `<script>`, no `eval`, no iframes, no forms that submit, no
+  `window.open`. Inline styles are allowed.
+
+## Dev loop
+
+```sh
+npm install
+npm run dev     # vite build --watch: rebuilds dist/ on every save
+npm run build   # tsc --noEmit && vite build — must pass before you finish
+```
+
+Cadencr watches `tab.json`, `icon.svg` and `dist/`: keep `npm run dev`
+running and every rebuild reloads the open tab. Manifest problems show in
+**Settings → Custom tabs**. Adding a permission or a network origin makes the
+user approve the tab again before it runs.
+
+## The manifest: `tab.json`
+
+| Key | Rule |
+| --- | --- |
+| `schema_version` | `1` |
+| `kind` | `"tab"` |
+| `id` | lowercase letters, digits, inner hyphens; equals the folder name. Never change it. |
+| `name` | 1–64 characters |
+| `version` | semver, e.g. `0.1.0` |
+| `description` | optional, ≤ 280 characters |
+| `icon` | optional relative `.svg` path, ≤ 32 KiB, monochrome with `currentColor` |
+| `api_version` | `1` |
+| `entry` | `dist/index.html` |
+| `tab.label` | the tab title, 1–24 characters (defaults to `name`) |
+| `tab.replaces` | optional built-in tabs the user may show this tab in place of: `terminal`, `git`, `editor`, `preview` |
+| `permissions` | scopes the tab needs (below); unknown scopes are errors |
+| `network` | optional `{ "allowed_origins": ["https://host"], "reasoning": "why" }` |
+| `configuration` | optional settings form (below) |
+| `commands` | optional programs Cadencr runs for the tab (below) |
+| `backend` | optional native process the tab ships (below) |
+
+Unknown keys are errors. Paths are relative, without `..` or backslashes.
+
+### Permissions (scopes)
+
+Ask only for what the tab uses. Every call is bound to the tab's own project
+and feature: asking about another one fails with `PLUGIN_BINDING_DENIED`, a
+call outside your scopes with `PLUGIN_SCOPE_DENIED`.
+
+| Scope | Allows | Stream topic |
+| --- | --- | --- |
+| `features:read` | the current project and feature, the project's features | `feature.events` (filtered to the project) |
+| `git:read` | status, diff, log, branches of the current feature | `git.status` |
+| `forge:read` | pull/merge request status and comments of the feature | `forge.status` |
+| `files:read` | file tree, file contents and search in the feature's worktree | `files.changes` |
+| `agent:observe` | the feature's agent sessions and history (read-only) | `session.stream` |
+| `workspace:read` | every project and feature | `session.status` |
+
+Always available without a scope: context, theme, visibility, `storage`,
+`state`, `config`, `ui.*`. `net.fetch` needs `network.allowed_origins`.
+
+### Network
+
+To call an external service, list its origin (`https://host[:port]`, no path,
+no wildcard, at most 16) in `network.allowed_origins` with a `reasoning`, then
+use `client.net.fetch(url, { method?, headers?, body?, timeoutMs? })`. Cadencr's
+service makes the request: only to listed origins, redirects only within them
+(at most 5), 30 s timeout, responses up to 10 MiB. It resolves an
+`ApiResponse` (`status`, `ok`, `headers`, `json()`, `text()`,
+`arrayBuffer()`) for every upstream status and throws `CadencrError` when the
+relay itself refuses (`PLUGIN_NETWORK_DENIED`, `PLUGIN_NETWORK_TIMEOUT`,
+`PLUGIN_NETWORK_BUSY`, `PLUGIN_NETWORK_FAILED`,
+`PLUGIN_NETWORK_TOO_MANY_REDIRECTS`, `PLUGIN_NETWORK_RESPONSE_TOO_LARGE`,
+`PLUGIN_TAB_SECRET_UNKNOWN`, …).
+`http://localhost` is accepted for local development only.
+
+### Levels: read-only, commands, native code
+
+A tab is **read-only** unless it declares `commands` or a `backend`. Stay
+read-only whenever the API, streams and `net.fetch` are enough: each level up
+asks the user to trust more, and Cadencr says so on the tab, in Settings and
+in the consent dialog.
+
+**Commands.** List each program the tab runs, with a reason:
+`"commands": [{ "program": "git", "reasoning": "Reads who changed these files." }]`.
+Then `await client.exec.run("git", ["log", "-1"], { timeoutMs? })` resolves
+`{ exitCode, success, stdout, stderr, durationMs }` for any exit status. The
+program is a bare name found on the user's `PATH`, run without a shell in the
+conversation's folder, stopped after 30 s (up to 120 s) or 1 MiB of output.
+Every run is shown to the user in the tab's Activity. Shells, interpreters and
+package runners (`bash`, `node`, `python`, `npx`…) are refused
+(`COMMAND_NOT_ALLOWED`). Errors: `PLUGIN_EXEC_DENIED` (not listed),
+`PLUGIN_EXEC_NOT_FOUND`, `PLUGIN_EXEC_TIMEOUT`, `PLUGIN_EXEC_OUTPUT_TOO_LARGE`,
+`PLUGIN_EXEC_BUSY`.
+
+**Native backend.** For a long-running process or your own dependencies,
+ship a native executable (for example a small Rust program) per platform:
+`"backend": { "protocol": 1, "binary": { "darwin-aarch64": "bin/darwin-aarch64/backend", "linux-x86_64": "bin/linux-x86_64/backend" }, "reasoning": "…" }`.
+Platform keys are `darwin-aarch64`, `darwin-x86_64` and `linux-x86_64`; each
+path is a file in this folder. Scripts (`#!`), interpreters and programs on
+`PATH` are refused (`PLUGIN_BACKEND_NOT_NATIVE`); arm64 macOS binaries must be
+code-signed (the Rust linker ad-hoc signs them; else `codesign -s - <file>`).
+A platform without a binary cannot run the backend
+(`PLUGIN_BACKEND_UNAVAILABLE_ON_PLATFORM`). Cadencr starts it with this folder
+as working directory (treat it as read-only) on the first
+`await client.backend.request(method, params?)` and stops it about 30 s after
+the tab closes. In Rust, the `cadencr-tab-backend` crate implements the whole
+protocol (`serve(|cx| …)`); otherwise it reads JSON lines on stdin and answers
+on stdout (normative spec: docs/TAB_BACKEND_PROTOCOL.md in the Cadencr repo):
+
+1. first line: `{"type":"hello","protocol":1,"plugin":{"id","version"},"worktree","state_dir","feature_id","project_id","scopes","api":{"base_url","token_header","token"}}`
+   — write files only under `state_dir`; call the Cadencr API with
+   `api.base_url + path` and the header `api.token_header: api.token`; the
+   token carries only this tab's permissions. Answer with exactly
+   `{"type":"ready","protocol":1}` as your first stdout line within 5 s
+   (`PLUGIN_BACKEND_NOT_READY` otherwise; another protocol or line is
+   `PLUGIN_BACKEND_PROTOCOL_MISMATCH` and is not retried until restarted
+   from Activity);
+2. then `{"type":"request","id","method","params"}` lines; answer each with
+   `{"type":"response","id","result"}` or `{"type":"response","id","error":{"code","message"}}`;
+3. write logs to stderr (shown in Activity), never to stdout; exit when stdin closes.
+
+`cadencr plugin validate <folder> --kind tab` runs this platform's binary
+through the protocol conformance checks; fix every failure it reports.
+
+A backend runs with the user's rights and is not sandboxed: keep it small and
+say exactly what it does in `reasoning`. A marketplace tab ships it as a signed
+native binary per platform, hashed against its signed digest before each start.
+
+### Configuration and secrets
+
+Each field: `{ "key", "type", "label", "scope" }` (+ `options` for `select`,
+optional `default`). `type` is `string`, `number`, `boolean`, `select` or
+`secret` (no `default`). `scope` is `global` or `project`. Keys match
+`^[a-z][a-z0-9_]{0,47}$`; labels are ≤ 64 characters. The user fills the form
+in Settings; `await client.config.get()` returns the non-secret values
+(project over global over `default`).
+
+Secrets are never readable by the tab. Write `{{secret:<key>}}` in a
+`net.fetch` header value (`Authorization: "Bearer {{secret:token}}"`) and the
+service substitutes it before the request leaves the machine. A secret the
+user has not set fails the call with `PLUGIN_TAB_SECRET_UNKNOWN`.
+
+### Keyboard shortcuts
+
+`"shortcuts": [{ "id": "refresh", "keys": ["mod", "shift", "r"], "description": "Refresh" }]`
+declares keys the tab handles while it has focus (≤ 16). `keys`: `mod` (⌘ on
+macOS, Ctrl elsewhere), `ctrl`, `alt`, `shift`, plus exactly one key — a
+lowercase letter, a digit, `f1`–`f12`, `enter`, `escape`, `space`, an arrow
+(`up`…), `plus`, `minus`, `comma`, `slash`, `backtick`, `backspace`,
+`lbracket` or `rbracket` — and `mod`, `ctrl` or `alt` must be held. Handle a
+press with `useShortcut("refresh", () => …)`, not a `keydown` listener.
+Cadencr's own shortcuts always win: one on the same keys never fires (Settings
+→ Custom tabs says which Cadencr shortcut takes it; `client.shortcuts` lists
+the ids that can fire), so prefer `mod`+`alt` or `mod`+`shift`+`alt` chords.
+
+## The SDK: `@cadencr/tab-sdk`
+
+`src/main.tsx` wraps the app in `<CadencrProvider>`, which connects and
+applies the theme; it shows `fallback` while connecting and a built-in
+"Can't reach Cadencr" message if the connection fails (pass `errorFallback`
+to render your own). Inside it:
+
+```tsx
+import {
+  useCadencr, useShortcut, useStorage, useStream, useTabContext, useTheme, useVisibility,
+} from "@cadencr/tab-sdk/react";
+```
+
+| Hook | Returns |
+| --- | --- |
+| `useTabContext()` | `{ project: { id, name, path }, feature: { id, name, branch, baseBranch, worktreePath }, pullRequest: { number, url, state, title } \| null, session: { id, provider, status } \| null }` — live |
+| `useTheme()` | `{ id, appearance: "light" \| "dark", tokens }` — live |
+| `useVisibility()` | `true` while the tab is shown; pause polling and heavy work when `false` |
+| `useShortcut(id, handler)` | runs `handler` when the manifest shortcut `id` is pressed while the tab has focus |
+| `useStream(topic, handler, { params?, onResync?, onError?, enabled? })` | one subscription for the component's lifetime |
+| `useStorage(key, initial)` | `{ value, loading, error, set(value) }` for one storage key |
+| `useCadencr()` | the client (below) |
+
+### Typed API: `@cadencr/tab-sdk/api`
+
+One function per route a tab may call, with request and response types,
+generated from Cadencr's policy table. Each resolves the parsed body and
+throws `CadencrError` on non-2xx. Prefer it over `client.api.request`.
+
+```ts
+import { getChangedFiles, getFileDiff, type ChangedFile } from "@cadencr/tab-sdk/api";
+
+const files: ChangedFile[] = await getChangedFiles({ feature_id: feature.id, mode: "uncommitted" });
+const { diff } = await getFileDiff({ feature_id: feature.id, mode: "uncommitted", file_path: files[0].file });
+```
+
+| Scope | Functions |
+| --- | --- |
+| `features:read` | `getFeature(id)`, `getWorkingDir(id, { project_id })`, `listFeatures({ project_id })`, `listFeatureActivity({ project_id })` |
+| `git:read` | `getGitStatus`, `getChangedFiles`, `getUncommittedFiles`, `getDiff`, `getFileDiff`, `getStats`, `getCommitLog`, `getCommitGraph`, `getFileContent`, `getBlame` — all `{ feature_id, … }`; `listBranches`, `getBranch` — `{ project_id }` |
+| `forge:read` | `getPr({ feature_id })`, `getPrComments({ feature_id })` |
+| `files:read` | `getEditorRoot`, `tree`, `treeAll`, `treeCount`, `readFile`, `search`, `contentSearch` — all `{ project_id, feature_id, … }` |
+| `agent:observe` | `getSessions(featureId)`, `getFeatureAgentState(featureId, params?)`, `getMessagePreview(featureId)`, `getFeatureRowSummary(featureId)`, `getPendingGate(featureId)` |
+| `workspace:read` | `listProjects()`, `listFeatures(…)`, `listRecentFeatures(…)`, `listActiveFeatures()`, `listPinnedFeatures()` |
+
+`mode` is `"uncommitted"` (the worktree against its last commit) or
+`"branch"` with `target_branch` (everything the branch adds over it, e.g.
+`feature.baseBranch`). Hover a function in your editor for its exact types.
+
+### Streams
+
+`useStream(topic, handler)` delivers `{ seq, data: { domain, action, payload } }`.
+Topics and their scopes are in the permissions table above; the `git.status`
+payload is the same snapshot `getGitStatus()` returns. Events can be lost (a
+gap, a host reload): `onResync` is your cue to refetch. A common pattern is to
+treat any event as "something changed" and refetch, debounced.
+
+### The client
+
+| Member | Use |
+| --- | --- |
+| `client.api.request({ method, path, query?, body? })` | untyped escape hatch to the same routes |
+| `client.storage.get/set/delete/list` | the tab's key/value store, **per project**, JSON values ≤ 256 KiB, ≤ 500 keys; persists |
+| `client.state.get()/set(value)` | per tab instance, in Cadencr's memory, ≤ 1 MiB; survives the view being recreated, not an app restart |
+| `client.config.get()` | configuration values (above) |
+| `client.net.fetch(url, init)` | egress through Cadencr (above) |
+| `client.exec.run(program, args?, options?)` | run a listed command (above) |
+| `client.backend.request(method, params?, options?)` | call the tab's backend (above) |
+| `client.ui.toast({ title, description?, variant? })` | `variant`: `"default"`, `"success"`, `"error"` |
+| `client.ui.openExternal(url)` | opens an `https:` URL in the browser after the user confirms |
+| `client.ui.setBadge(text \| null)` | up to 4 characters on the tab trigger |
+
+Every failure is a `CadencrError` with a `code` (`PLUGIN_SCOPE_DENIED`,
+`PLUGIN_BINDING_DENIED`, `PLUGIN_NETWORK_DENIED`, `NOT_FOUND`, `BAD_REQUEST`,
+`TIMEOUT` (the SDK's own 35 s limit), `DISCONNECTED`, … or the service's own
+code) and, for HTTP errors, a `status`; `toCadencrError(unknown)` (from
+`@cadencr/tab-sdk`) normalizes anything you catch. Handle errors visibly (an
+inline message or a toast); never swallow them. Give every load a visible
+loading state.
+
+## Testing
+
+`@cadencr/tab-sdk/testing` is a fake Cadencr host, usable from any test runner
+with a DOM (e.g. `vitest` + `happy-dom`, which you would add as dev
+dependencies):
+
+```ts
+import { connect } from "@cadencr/tab-sdk";
+import { getChangedFiles } from "@cadencr/tab-sdk/api";
+import { createTestHost, jsonResponse } from "@cadencr/tab-sdk/testing";
+
+const host = createTestHost({ config: { group: "directory" } });
+host.route("GET", "/api/git/changed-files", jsonResponse(200, []));
+await connect({ transport: host.transport });
+await getChangedFiles({ feature_id: host.context.feature.id, mode: "uncommitted" });
+host.pushStream("git.status", { domain: "git", action: "status", payload: {} });
+```
+
+`<CadencrProvider connectOptions={{ transport: host.transport }}>` renders the
+React app against it. `host.requests`, `host.storage` and `host.badge` show
+what the tab did.
+
+## Design
+
+- Build the UI from `@cadencr/tab-kit` components (`Button`, `Card*`,
+  `Badge`, `Input`, `Select*`, `Tabs*`, `Tooltip*`, `Skeleton`, `EmptyState`,
+  …) so the tab looks like the rest of Cadencr.
+- Icons come from `lucide-react` (already a dependency), the set the desktop
+  uses: `import { RefreshCw } from "lucide-react"`. Don't hand-copy SVG paths.
+- Style with the kit's Tailwind tokens (`bg-background`, `text-foreground`,
+  `text-muted-foreground`, `border-border`, `bg-surface-sunken`, `bg-chart-1`,
+  `text-acc-green`, `text-numstat-add-fg`, `bg-diff-add-bg`, …) or the raw
+  variables (`var(--cadencr-code-bg)`, …). **Never hardcode a color**: the user's
+  theme — light or dark, any palette — is injected for you, and `dark:`
+  follows it. Check the tab in both a light and a dark theme.
+- Data colors: `--cadencr-chart-1`…`5` for categories, `--cadencr-acc-green` /
+  `--cadencr-acc-red` (or the `numstat` tokens) for additions and deletions.
+  Never let color alone carry meaning: add a label, glyph or pattern.
+- Keep it calm and dense: Inter (`font-sans`), `font-mono` for paths and
+  numbers, small type, no decorative gradients or shadows.
+- Every control is keyboard reachable with a visible focus ring; motion goes
+  behind `motion-safe:` so reduced-motion users get none.

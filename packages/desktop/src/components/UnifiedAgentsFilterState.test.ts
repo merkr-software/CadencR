@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   readUnifiedAgentsFilters,
@@ -5,13 +6,13 @@ import {
 } from "@/components/UnifiedAgentsFilterState";
 
 const FILTER_KEYS = {
-  mode: "unified_agents_mode",
+  mode: "unified_agents_mode_v2",
   freshMinutes: "unified_agents_fresh_minutes",
   projectId: "unified_agents_project_id",
   projectIds: "unified_agents_project_ids",
   excludedTitles: "unified_agents_excluded_titles",
   query: "unified_agents_query",
-  sortOrder: "unified_agents_sort_order",
+  sortOrder: "unified_agents_sort_order_v2",
 } as const;
 
 describe("UnifiedAgentsFilterState", () => {
@@ -27,14 +28,28 @@ describe("UnifiedAgentsFilterState", () => {
     window.localStorage.setItem(FILTER_KEYS.sortOrder, "message_date");
 
     expect(readUnifiedAgentsFilters()).toEqual({
-      mode: "recent",
+      mode: "all",
       freshMinutes: 5,
       projectIds: [],
       excludedTitles: [],
       pinnedOnly: false,
       query: "needle",
-      sortOrder: "created_desc",
+      sortOrder: "attention",
     });
+  });
+
+  it("ignores the pre-v2 keys that persisted the old hidden 5-minute default", () => {
+    window.localStorage.setItem("unified_agents_mode", "recent");
+    window.localStorage.setItem("unified_agents_sort_order", "created_desc");
+
+    expect(readUnifiedAgentsFilters()).toMatchObject({ mode: "all", sortOrder: "attention" });
+  });
+
+  it("keeps an explicitly chosen activity window", () => {
+    window.localStorage.setItem(FILTER_KEYS.mode, "recent");
+    window.localStorage.setItem(FILTER_KEYS.freshMinutes, "20");
+
+    expect(readUnifiedAgentsFilters()).toMatchObject({ mode: "recent", freshMinutes: 20 });
   });
 
   it("preserves free freshness values and project filters", () => {

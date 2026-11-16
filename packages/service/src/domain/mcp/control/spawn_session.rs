@@ -11,9 +11,10 @@ use super::spawn_resolve::{
 };
 use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
-use crate::domain::features::service::create_feature_with_worktree;
-use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt;
-use crate::domain::ws_session::handler::session_prompt::publish_user_message;
+use crate::domain::features::models::FeatureStatus;
+use crate::domain::features::service::{create_feature_with_worktree, update_status};
+use crate::domain::ws_session::runtime::application::dispatch_control_prompt;
+use crate::domain::ws_session::runtime::prompt::publish_user_message;
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -35,21 +36,25 @@ pub(super) struct SpawnSessionRequest {
     pub(super) await_result: Option<bool>,
     pub(super) target_project_id: Option<i64>,
     pub(super) target_project_path: Option<String>,
+    /// Born archived: a temporary conversation (a side question) that stays
+    /// out of the sidebar until the user keeps it. Never set over the wire.
+    #[serde(skip)]
+    pub(super) start_archived: bool,
 }
 
 #[derive(Debug, Serialize)]
 pub(super) struct SpawnSessionResponse {
     #[serde(rename = "featureId")]
-    feature_id: i64,
+    pub(super) feature_id: i64,
     #[serde(rename = "sessionId")]
-    session_id: i64,
+    pub(super) session_id: i64,
     #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
     message_id: Option<i64>,
     project: TargetProject,
     #[serde(rename = "crossProject")]
     cross_project: bool,
     #[serde(rename = "dispatchError", skip_serializing_if = "Option::is_none")]
-    dispatch_error: Option<String>,
+    pub(super) dispatch_error: Option<String>,
     follow: SpawnFollowResponse,
 }
 
@@ -138,6 +143,11 @@ async fn spawn_into_target(
         base_branch,
     )
     .await?;
+    // Archived before anything announces the feature, so no sidebar ever
+    // lists it in between.
+    if body.start_archived {
+        update_status(&state.write_pool, created.id, FeatureStatus::Archived).await?;
+    }
 
     let session_id = insert_spawned_session(
         state,
@@ -247,7 +257,7 @@ async fn persist_and_announce_spawn(
         false,
     )
     .await
-    .map_err(|error| AppError::Internal(error.to_string()))?;
+    .map_err(|error| AppError::internal(error.to_string()))?;
     Ok(Some(message_id))
 }
 
@@ -279,6 +289,7 @@ async fn dispatch_initial_message(
     Ok(
         dispatch_control_prompt(state, feature_id, session_id, &initial_message, true)
             .await
+            .map(|outcome| outcome.delivery_confirmed())
             .err()
             .map(|error| error.to_string()),
     )

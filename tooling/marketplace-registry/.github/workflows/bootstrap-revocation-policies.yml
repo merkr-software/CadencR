@@ -1,0 +1,103 @@
+name: Bootstrap revocation policies
+
+# The FIRST publication of the three signed revocation policies (provider,
+# theme, custom tab) on the discovery branch `marketplace-v2`. Each is published
+# EMPTY (no entries) with a 13-day window, signed by the online key that exists
+# only as a secret of the reviewed `protected-marketplace-publisher` environment.
+# A policy already on the branch is skipped, never replaced, so a rerun after a
+# partial failure finishes only the missing ones. Adding or changing entries stays
+# a reviewed, manual signing; the daily renewal then keeps these policies alive
+# (renew-protected-catalog.yml). OPERATIONS.md describes the procedure.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type bootstrap-empty-policies to publish the missing empty revocation policies
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # The same lane as the reviewed publisher and the renewal: never race them and
+  # never cancel an in-flight run.
+  group: marketplace-publication
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    # Refuses a wrong confirmation or configuration before the reviewed
+    # environment is asked for approval. Holds no secret.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.19.0
+      - name: Check confirmation and configuration
+        env:
+          CONFIRM_BOOTSTRAP: ${{ inputs.confirm }}
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+        run: sh scripts/ci/registry-feeds.sh bootstrap-check
+
+  bootstrap:
+    needs: preflight
+    if: needs.preflight.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Repository administrators must configure this environment with required
+    # external reviewers. The workflow cannot provision that protection itself.
+    environment: protected-marketplace-publisher
+    runs-on: ubuntu-latest
+    # Publishes up to three files; each public read-back may wait out the raw
+    # CDN's 300 s cache, about six minutes each.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.19.0
+      - name: Select verified publisher runtime
+        id: publisher_runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/marketplace-released-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+      - name: Materialize protected signing key
+        id: materialize_key
+        env:
+          CADENCR_REGISTRY_PRIVATE_KEY_PEM: ${{ secrets.CADENCR_REGISTRY_PRIVATE_KEY_PEM }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: sh scripts/ci/registry-feeds.sh materialize-key marketplace-publisher-secret-
+      - name: Sign and publish the missing empty policies
+        env:
+          CONFIRM_BOOTSTRAP: ${{ inputs.confirm }}
+          CADENCR_REGISTRY_GITHUB_TOKEN: ${{ secrets.CADENCR_REGISTRY_GITHUB_TOKEN }}
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          VERIFIED_CLI: ${{ steps.publisher_runtime.outputs.cli_file }}
+        run: sh scripts/ci/registry-feeds.sh bootstrap-policies "$RUNNER_TEMP/marketplace-bootstrap-policies"
+      - name: Remove materialized signing key
+        if: ${{ always() && steps.materialize_key.outputs.private_key_file != '' }}
+        env:
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: sh scripts/ci/registry-feeds.sh remove-key marketplace-publisher-secret-
+      # Raw state is never uploaded. A rerun skips every policy already on the
+      # branch and publishes only the missing ones.

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useGlobalShortcut } from "./useGlobalShortcut";
@@ -53,6 +54,19 @@ describe("useGlobalShortcut", () => {
     renderHook(() => useGlobalShortcut("meta+shift+m", callback));
     fireKey("M", { metaKey: true, shiftKey: true, code: "KeyM" });
     expect(callback).toHaveBeenCalledOnce();
+  });
+
+  it("fires meta+alt+a on QWERTY, on AZERTY by the labelled key, and with macOS Option's glyph", () => {
+    renderHook(() => useGlobalShortcut("meta+alt+a", callback));
+    fireKey("a", { metaKey: true, altKey: true, code: "KeyA" });
+    // AZERTY: the labelled "A" sits where QWERTY has Q.
+    fireKey("a", { metaKey: true, altKey: true, code: "KeyQ" });
+    // macOS Option turns the letter into a glyph; the physical key still says A.
+    fireKey("å", { metaKey: true, altKey: true, code: "KeyA" });
+    expect(callback).toHaveBeenCalledTimes(3);
+    // The physical A on AZERTY is the labelled Q: that is not this shortcut.
+    fireKey("q", { metaKey: true, altKey: true, code: "KeyA" });
+    expect(callback).toHaveBeenCalledTimes(3);
   });
 
   it("handles TanStack Mod+Shift+letter syntax on AZERTY by labelled key", () => {
@@ -204,6 +218,31 @@ describe("useGlobalShortcut", () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["[", "BracketLeft"],
+    ["]", "BracketRight"],
+  ])("keeps history and tab switching separate for %s", (key, code) => {
+    const history = vi.fn();
+    renderHook(() => {
+      useGlobalShortcut(`Mod+${key}`, history);
+      useGlobalShortcut(`Mod+Shift+${key}`, callback);
+    });
+
+    fireKey(key, { metaKey: true, shiftKey: true, code });
+    expect(callback).toHaveBeenCalledOnce();
+    expect(history).not.toHaveBeenCalled();
+
+    fireKey(key, { metaKey: true, code });
+    expect(history).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledOnce();
+  });
+
+  it("does not consume composing letter input", () => {
+    renderHook(() => useGlobalShortcut("Mod+A", callback));
+    fireKey("a", { metaKey: true, code: "KeyQ", isComposing: true });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
   it("does not fire when enabled is false", () => {
     renderHook(() => useGlobalShortcut("meta+p", callback, { enabled: false }));
     fireKey("p", { metaKey: true, code: "KeyP" });
@@ -278,6 +317,22 @@ describe("useGlobalShortcut", () => {
       renderHook(() => useGlobalShortcut("meta+alt+left", callback));
       fireKey("ArrowLeft", { metaKey: true, code: "ArrowLeft" });
       expect(callback).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("modified digits", () => {
+    it("matches Mod+Alt+digit on the physical digit key whatever it types", () => {
+      renderHook(() => useGlobalShortcut(["Mod+Alt+1", "Mod+Alt+2"], callback));
+      const mod = navigator.platform.toLowerCase().includes("mac")
+        ? { metaKey: true }
+        : { ctrlKey: true };
+      // macOS Option turns 1 into "¡"; AZERTY types "&" on the 1 key.
+      fireKey("¡", { ...mod, altKey: true, code: "Digit1" });
+      fireKey("&", { ...mod, altKey: true, code: "Digit1" });
+      fireKey("2", { ...mod, altKey: true, code: "Digit2" });
+      expect(callback).toHaveBeenCalledTimes(3);
+      fireKey("3", { ...mod, altKey: true, code: "Digit3" });
+      expect(callback).toHaveBeenCalledTimes(3);
     });
   });
 });

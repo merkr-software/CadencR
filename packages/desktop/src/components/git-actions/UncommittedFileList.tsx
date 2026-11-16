@@ -30,7 +30,7 @@ export const UncommittedFileList = memo(function UncommittedFileList({
     // `pr-3` reserves a gutter for the overlay scrollbar so it doesn't
     // sit on top of the per-row `<NumStat>` badges. `pr-1` (the previous
     // value) was narrower than the macOS scrollbar in practice.
-    <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-3">
+    <div className="space-y-3 max-h-[calc(var(--app-vh)*0.4)] overflow-y-auto pr-3">
       {groups.map((group) => (
         <div key={group.key}>
           <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wide">

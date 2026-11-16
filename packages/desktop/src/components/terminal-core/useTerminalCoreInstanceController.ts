@@ -14,6 +14,11 @@ import { useTerminalWebSocket } from "@/hooks/useTerminalWebSocket";
 import { useCelerittyTransport } from "./useCelerittyTransport";
 import { useCelerittyTerminal } from "./useCelerittyTerminal";
 import { toControlChar } from "@/lib/terminal-keys";
+import {
+  getFocusedLeaf,
+  selectFeatureLayout,
+  useFeatureLayoutStore,
+} from "@/stores/feature-layout-store";
 import { useLinkRouting } from "@/components/links/LinkRoutingContext";
 import { attachTouchScroll } from "./terminal-touch-scroll";
 import { attachNavigationKeys } from "./terminal-navigation-keys";
@@ -254,6 +259,82 @@ function useInitialNoticeAndCommand(
   }, [terminal, ptyReady, connection, refs]);
 }
 
+/**
+ * A focus requested while the engine is still loading (fresh pane, WASM /
+ * WebGPU init) would otherwise be silently dropped — `terminal` stays
+ * `undefined` for the first few hundred milliseconds — and callers like the
+ * Cmd+Shift+T terminal-tab activation only try once. Remember the intent and
+ * flush it as soon as the engine instance exists.
+ *
+ * The pending request is also dropped when the feature layout moves focus to
+ * a different pane (e.g. the user clicks the editor while the terminal engine
+ * is still initializing). `TabPane` updates `focusedPaneId` on pointer/focus
+ * without calling this pane's `blur()`, so without this guard the flush
+ * below would steal keyboard focus from the editor once the engine is ready.
+ * The same applies when a layout hydrates with a non-terminal pane focused
+ * after an early focus request: the transition from no layout state has no
+ * previous terminal leaf, so the cancel condition keys off the next focused
+ * leaf alone. While no layout state exists at all, the pending request is
+ * kept — there is nothing to lose focus to yet.
+ */
+function useDeferredEngineFocus(terminal: Terminal | undefined, featureId: number) {
+  const pendingFocusRef = useRef(false);
+  /** Focus the engine immediately, or remember the request until it exists. */
+  const focusTerminal = useCallback((t: Terminal | undefined): void => {
+    if (t) t.focus();
+    else pendingFocusRef.current = true;
+  }, []);
+  /** Drop a pending focus request — called when the pane loses focus. `setActivePane`
+   *  blurs every non-active pane on focus change; a pane whose engine is still
+   *  loading must drop its pending focus there, otherwise the flush below would
+   *  steal focus back from the pane the user is typing in. */
+  const cancelPendingFocus = useCallback((): void => {
+    pendingFocusRef.current = false;
+  }, []);
+  // Cancel a pending focus when the layout's focused pane is not the pane
+  // hosting this terminal. Subscribing (rather than selecting) keeps this
+  // hook free of re-renders — the subscription only flips a ref.
+  useEffect(() => {
+    const isTerminalPaneFocused = (): boolean => {
+      const store = useFeatureLayoutStore.getState();
+      // No hydrated layout for the feature: nothing can own focus yet.
+      if (store.features[featureId] === undefined) return true;
+      const focusedLeaf = getFocusedLeaf(selectFeatureLayout(featureId)(store));
+      if (!focusedLeaf) return false;
+      return focusedLeaf.activeTabId === "terminal";
+    };
+    // If focus already moved elsewhere before the subscription attached,
+    // drop any pending request immediately.
+    if (pendingFocusRef.current && !isTerminalPaneFocused()) {
+      pendingFocusRef.current = false;
+    }
+    return useFeatureLayoutStore.subscribe((state) => {
+      if (!pendingFocusRef.current) return;
+      // No hydrated layout for the feature: keep the pending request.
+      if (state.features[featureId] === undefined) return;
+      const nextFocused = getFocusedLeaf(selectFeatureLayout(featureId)(state));
+      // A real focused leaf that is not a terminal pane cancels the pending
+      // request — whether focus moved away from the terminal or a layout
+      // hydrated with a non-terminal pane focused after an early request.
+      if (nextFocused && nextFocused.activeTabId !== "terminal") {
+        pendingFocusRef.current = false;
+      }
+    });
+  }, [featureId]);
+  useEffect(() => {
+    if (!terminal || !pendingFocusRef.current) return;
+    pendingFocusRef.current = false;
+    // Focus while the tab is hidden (mount div `display:none`) is a silent
+    // no-op in the DOM, so a stale pending focus can never steal focus back
+    // from the tab the user moved on to.
+    terminal.focus();
+  }, [terminal]);
+  return useMemo(
+    () => ({ focusTerminal, cancelPendingFocus }),
+    [focusTerminal, cancelPendingFocus],
+  );
+}
+
 export function useTerminalCoreInstanceController(
   props: TerminalCoreInstanceProps,
   ref: ForwardedRef<TerminalCoreInstanceHandle>,
@@ -326,21 +407,27 @@ export function useTerminalCoreInstanceController(
 
   useInitialNoticeAndCommand(terminal, ptyReady, connection, refs);
 
+  const { focusTerminal, cancelPendingFocus } = useDeferredEngineFocus(terminal, props.featureId);
+
   const handleRef = useRef<TerminalCoreInstanceHandle | null>(null);
+  /** Rebuilds the imperative handle whenever the engine instance changes. */
   const setHandle = useCallback(
     (t: typeof terminal) => {
       handleRef.current = {
-        focus: () => t?.focus(),
+        focus: () => focusTerminal(t),
         clearScreen: () => t?.clearScreen(),
         clearInput: () => connection.write("\x15"),
-        blur: () => t?.blur(),
+        blur: () => {
+          cancelPendingFocus();
+          t?.blur();
+        },
         markForKill: () => (refs.shouldKillRef.current = true),
         write: (data: string) => t?.write(data),
         getSelection: () => t?.getSelection() ?? null,
         paste: (text: string) => pasteTerminalText(hostRef.current, text),
       };
     },
-    [connection, refs, hostRef],
+    [connection, focusTerminal, cancelPendingFocus, refs, hostRef],
   );
 
   useEffect(() => {

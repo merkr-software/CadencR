@@ -39,7 +39,7 @@ main() {
   trap cleanup EXIT
 
   local arm_dmg="Cadencr-${version}-arm64.dmg"
-  local intel_dmg="Cadencr-${version}.dmg"
+  local intel_dmg="Cadencr-${version}-x64.dmg"
 
   echo "Downloading release assets for $tag from ${SOURCE_REPO}…"
   gh release download "$tag" \

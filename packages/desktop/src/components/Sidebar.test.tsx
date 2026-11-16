@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@/test-utils";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { Sidebar } from "./Sidebar";
 import { collectSidebarNavItems } from "@/hooks/useSidebarKeyboardNavigation";
 
@@ -15,9 +17,16 @@ let mockLocation: { pathname: string; search?: Record<string, unknown> } = {
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
-  useRouterState: () => ({
-    location: mockLocation,
-  }),
+  useRouterState: (options?: {
+    select?: (state: {
+      location: { pathname: string; search?: Record<string, unknown> };
+    }) => unknown;
+  }) => {
+    const state = {
+      location: mockLocation,
+    };
+    return options?.select ? options.select(state) : state;
+  },
   Link: ({ children, to }: { children: unknown; to: string }) => {
     const React = require("react");
     return React.createElement("a", { href: to }, children);
@@ -46,7 +55,7 @@ vi.mock("@/hooks/useTheme", () => ({
   }),
 }));
 
-// Keep the workspace-settings plumbing (useDebouncedSetting → useGetWorkspaceSetting)
+// Keep the workspace-settings plumbing (useSetting → useGetWorkspaceSetting)
 // out of the ProjectTree render tree pulled in by the sidebar.
 vi.mock("@/lib/project-onboarding", () => ({
   useNewProjectOnboarding: () => ({
@@ -145,6 +154,11 @@ vi.mock("@/components/SidebarContext", () => ({
   }),
 }));
 
+const SEARCH_TITLE = `Search (${formatCompactCombo(getRegistryShortcut("command-palette").keys)})`;
+const COLLAPSE_TITLE = `Collapse sidebar (${formatCompactCombo(
+  getRegistryShortcut("toggle-sidebar").keys,
+)})`;
+
 describe("Sidebar", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
@@ -195,14 +209,14 @@ describe("Sidebar", () => {
 
   it("renders collapse sidebar button", () => {
     render(<Sidebar onSearch={() => {}} />);
-    expect(screen.getByTitle("Collapse sidebar (⌘B)")).toBeInTheDocument();
+    expect(screen.getByTitle(COLLAPSE_TITLE)).toBeInTheDocument();
   });
 
   it("calls setCollapsed when collapse button is clicked", async () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     const user = userEvent.setup();
     render(<Sidebar onSearch={() => {}} />);
-    await user.click(screen.getByTitle("Collapse sidebar (⌘B)"));
+    await user.click(screen.getByTitle(COLLAPSE_TITLE));
     expect(mockSetCollapsed).toHaveBeenCalledWith(true);
   });
 
@@ -211,13 +225,13 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     const onSearch = vi.fn();
     render(<Sidebar onSearch={onSearch} />);
-    await user.click(screen.getByTitle("Search (⌘K)"));
+    await user.click(screen.getByTitle(SEARCH_TITLE));
     expect(onSearch).toHaveBeenCalledTimes(1);
   });
 
   it("shows an inactive search shortcut hint while terminal focus is active", async () => {
     render(<Sidebar onSearch={() => {}} />);
-    expect(screen.getByTitle("Search (⌘K)")).toBeInTheDocument();
+    expect(screen.getByTitle(SEARCH_TITLE)).toBeInTheDocument();
 
     const terminal = document.createElement("div");
     terminal.dataset.focusZone = "terminal";
@@ -232,12 +246,12 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByTitle("Search unavailable while terminal is focused")).toBeInTheDocument();
     });
-    expect(screen.getByText("--")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
 
     outsideButton.focus();
 
     await waitFor(() => {
-      expect(screen.getByTitle("Search (⌘K)")).toBeInTheDocument();
+      expect(screen.getByTitle(SEARCH_TITLE)).toBeInTheDocument();
     });
 
     terminal.remove();
@@ -291,6 +305,19 @@ describe("collectSidebarNavItems", () => {
     expect(collectSidebarNavItems(sidebar).map((element) => element.id)).toEqual([
       "before",
       "virtual",
+      "after",
+    ]);
+  });
+
+  it("excludes rows inside an aria-hidden ancestor (closing CollapsibleSection)", () => {
+    const sidebar = document.createElement("aside");
+    sidebar.innerHTML = `
+      <button data-nav-item id="before"></button>
+      <div aria-hidden="true"><button data-nav-item id="closing"></button></div>
+      <button data-nav-item id="after"></button>
+    `;
+    expect(collectSidebarNavItems(sidebar).map((element) => element.id)).toEqual([
+      "before",
       "after",
     ]);
   });

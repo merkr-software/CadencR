@@ -52,6 +52,9 @@ vi.mock("@/api/generated", () => ({
   useGetUncommittedFiles: mocks.useGetUncommittedFilesMock,
 }));
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 vi.mock("sonner", () => ({
   toast: {
     success: mocks.toastSuccessMock,
@@ -170,7 +173,9 @@ describe("CommitDialog", () => {
 
     resolveCommit?.({ success: true, error: null });
     await waitFor(() => {
-      expect(mocks.toastSuccessMock).toHaveBeenCalledWith("Background commit completed");
+      expect(mocks.toastSuccessMock).toHaveBeenCalledWith("Background commit completed", {
+        description: { scope: { featureId: 9 } },
+      });
     });
   });
 

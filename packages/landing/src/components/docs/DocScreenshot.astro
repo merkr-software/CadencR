@@ -15,6 +15,8 @@ interface Props {
   rounded?: boolean;
   elevated?: boolean;
   maxWidthClass?: string;
+  /** Keep vector artwork and the full pixel detail of an already compressed UI capture. */
+  preserveSource?: boolean;
 }
 
 const {
@@ -25,6 +27,7 @@ const {
   rounded = bordered,
   elevated = false,
   maxWidthClass = "",
+  preserveSource = false,
 } = Astro.props;
 
 const radiusClass = rounded ? "rounded-xl" : "";
@@ -37,19 +40,45 @@ const imageClass = [
   .filter(Boolean)
   .join(" ");
 const figureClass = ["my-6", maxWidthClass].filter(Boolean).join(" ");
+const widths = [720, 1200, 1600].filter((width) => width <= src.width);
+if (widths.length === 0) widths.push(src.width);
 ---
 <figure class={figureClass}>
-  <Image
-    src={src}
-    alt={alt}
-    widths={[720, 1200, 1600]}
-    sizes="(min-width: 768px) 720px, 100vw"
-    format="webp"
-    quality={95}
-    loading="lazy"
-    decoding="async"
-    class={imageClass}
-  />
+  <a
+    href={src.src}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label={`Open full-size screenshot: ${alt}`}
+    class="block cursor-zoom-in"
+    data-doc-screenshot
+  >
+    {
+      preserveSource ? (
+        <img
+          src={src.src}
+          alt={alt}
+          width={src.width}
+          height={src.height}
+          loading="lazy"
+          decoding="async"
+          class={imageClass}
+        />
+      ) : (
+        <Image
+          src={src}
+          alt={alt}
+          width={Math.max(...widths)}
+          widths={widths}
+          sizes="(min-width: 768px) 720px, 100vw"
+          format="webp"
+          quality={95}
+          loading="lazy"
+          decoding="async"
+          class={imageClass}
+        />
+      )
+    }
+  </a>
   {caption && (
     <figcaption class="mt-2 text-center text-xs text-muted-foreground">{caption}</figcaption>
   )}

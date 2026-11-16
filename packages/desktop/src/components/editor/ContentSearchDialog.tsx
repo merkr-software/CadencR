@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import SearchToggleButton from "./SearchToggleButton";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useContentSearch, type ContentMatch, type ContentSearchParams } from "@/api/generated";
 import { useEditorState } from "@/hooks/useEditorState";
 import { SearchIcon } from "lucide-react";
@@ -138,7 +138,7 @@ function useContentSearchResults({
   projectId,
 }: ContentSearchDialogProps & { filters: ReturnType<typeof useContentSearchFilters> }) {
   const { activePaneId, openFile } = useEditorState(featureId);
-  const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
+  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
   const maxTabs = parseInt(maxTabsSetting ?? "10", 10);
   const searchParams: ContentSearchParams = useMemo(
     () => ({

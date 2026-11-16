@@ -52,8 +52,8 @@ fn browser_tool(name: &'static str) -> Tool {
 fn tool_description(name: &str) -> &'static str {
     match name {
         "browser_list_tabs" => "List open Browser workspace tabs with id, title, URL and load state.",
-        "browser_open_url" => "Reuse the active Browser tab by default for a localhost or local file:// URL, or navigate an existing tab when tab_id is given. Pass new_tab:true only when you intentionally need another tab. Waits for the load to settle and returns the final URL and title. Only loopback (http/https) and file:// URLs are permitted; automation actions (click/fill/type/evaluate) still require a localhost tab.",
-        "browser_open_external_url" => "Reuse the active Browser tab by default for an arbitrary external website (any http/https URL), or navigate an existing tab when tab_id is given. Pass new_tab:true only when you intentionally need another tab. Unlike browser_open_url this prompts for permission (per the agent's permission mode) because it reaches the open internet; once opened, the resulting tab can be fully automated (click/fill/type/evaluate). Use browser_open_url for localhost or file:// targets.",
+        "browser_open_url" => "Reuse the active Browser tab by default for a localhost web URL, or navigate an existing tab when tab_id is given. Pass new_tab:true only when you intentionally need another tab. Waits for the load to settle and returns the final URL and title. Only loopback http/https URLs are permitted. Local files and Cadencr itself cannot be inspected or automated.",
+        "browser_open_external_url" => "Reuse the active Browser tab by default for an arbitrary external website (any http/https URL), or navigate an existing tab when tab_id is given. Pass new_tab:true only when you intentionally need another tab. Unlike browser_open_url this prompts for permission (per the agent's permission mode) because it reaches the open internet; once opened, the resulting tab can be fully automated (click/fill/type/evaluate). Use browser_open_url for localhost development sites. Cadencr itself and local files cannot be inspected or automated. Approval applies only to the requested origin, excluding redirects to other origins.",
         "browser_get_console" => "Return recent console entries from the active Browser tab. Filter with `level` (e.g. 'error') and cap with `limit` (default 50, newest last).",
         "browser_get_network" => "Return recent network requests from the active Browser tab. Filter with `failed_only` or `url_contains`, cap with `limit` (default 50). Headers are omitted unless `include_headers` is true.",
         "browser_get_snapshot" => "Preferred way to understand the page. Defaults to a compact accessibility-style outline where every interactive element has a stable [ref] (e1, e2, …) you pass to browser_click/browser_fill/browser_hover/browser_screenshot. Pass format:'html' for raw outerHTML. `selector` scopes to a subtree; output truncates to `max_length` with a `truncated` flag. Refs reset on navigation and on every snapshot — re-snapshot after the page changes.",
@@ -64,7 +64,7 @@ fn tool_description(name: &str) -> &'static str {
         "browser_type" => "Insert text into the currently focused element. Prefer browser_fill for form fields. Requires the active tab to be localhost.",
         "browser_keypress" => "Press a single key such as 'Enter' or 'Tab'. Requires the active tab to be localhost.",
         "browser_wait_for" => "Wait until a `selector` appears or visible `text` is present (timeout_ms default 5000). Returns whether it appeared and how long it took — use it to confirm an action landed instead of polling screenshots.",
-        "browser_evaluate" => "Run JavaScript in the active tab and return the value of the last expression. Requires the active tab to be localhost.",
+        "browser_evaluate" => "Run JavaScript in the active tab and return the value of the last expression. Requires provider approval and a localhost or explicitly approved external tab. Cadencr origins and local files are blocked.",
         "browser_select_element_context" => "Ask the user to click an element in the Browser tab, then return its selector candidates, attributes, computed styles, a region screenshot and diagnostics.",
         _ => "Control or inspect the Cadencr Browser workspace tab.",
     }
@@ -90,7 +90,7 @@ fn read_tool_schema(name: &str) -> Option<serde_json::Value> {
         "browser_open_url" => json!({
             "type": "object",
             "properties": {
-                "url": { "type": "string", "description": "Loopback URL (e.g. http://localhost:3000) or local file URL (e.g. file:///path/to/index.html) to open." },
+                "url": { "type": "string", "description": "Loopback development URL (e.g. http://localhost:3000) to open. Cadencr origins and local files are blocked." },
                 "tab_id": tab_id_prop(),
                 "new_tab": new_tab_prop(),
             },
@@ -249,7 +249,8 @@ async fn run_browser_tool(name: &str, args: serde_json::Value, feature_id: i64) 
             return error_result("Missing required parameter: url");
         };
         // Both openers validate the target up front under different policies:
-        // browser_open_url allows loopback + file://, the external opener any web URL.
+        // browser_open_url allows loopback web URLs, the external opener any web URL.
+        // Desktop policy denies Cadencr origins and non-web inspection for both.
         let allowed = if name == BROWSER_OPEN_EXTERNAL_URL {
             external_open_url_allowed(url)
         } else {
@@ -276,8 +277,6 @@ impl ServerHandler for BrowserServer {
         server_info("cadencr-browser")
     }
 
-    /// Restrict negotiation to the shared Cadencr version list, which
-    /// excludes `2026-07-28` (issue #208).
     fn supported_protocol_versions(
         &self,
     ) -> std::borrow::Cow<'static, [rmcp::model::ProtocolVersion]> {
@@ -289,29 +288,27 @@ impl ServerHandler for BrowserServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::with_all_items(tools())))
+        std::future::ready(Ok(super::tool_list_result(tools())))
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResponse, ErrorData>> + Send + '_ {
-        async move {
-            let args = request
-                .arguments
-                .as_ref()
-                .map(|m| serde_json::Value::Object(m.clone()))
-                .unwrap_or(serde_json::Value::Null);
-            if let Err(e) = pinned_feature_id(&args, self.ctx.feature_id) {
-                return Ok(error_result(&e).into());
-            }
-            Ok(
-                run_browser_tool(request.name.as_ref(), args, self.ctx.feature_id)
-                    .await
-                    .into(),
-            )
+    ) -> Result<CallToolResponse, ErrorData> {
+        let args = request
+            .arguments
+            .as_ref()
+            .map(|m| serde_json::Value::Object(m.clone()))
+            .unwrap_or(serde_json::Value::Null);
+        if let Err(e) = pinned_feature_id(&args, self.ctx.feature_id) {
+            return Ok(error_result(&e).into());
         }
+        Ok(
+            run_browser_tool(request.name.as_ref(), args, self.ctx.feature_id)
+                .await
+                .into(),
+        )
     }
 }
 

@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 
 use super::reads::get;
+use crate::domain::schedules::condition::CheckRecord;
 use crate::domain::schedules::models::Schedule;
 use crate::error::AppError;
 
@@ -8,7 +9,10 @@ use crate::error::AppError;
 /// over. A run that is still in flight after this has almost certainly died
 /// with the process that owned it; leaving the claim forever would wedge the
 /// schedule permanently, which is worse than a rare duplicate.
-const STALE_CLAIM_MINUTES: i64 = 15;
+///
+/// Must outlast the slowest legitimate run: a condition command at its
+/// timeout ceiling (10 min) followed by a dispatch at its own (10 min).
+const STALE_CLAIM_MINUTES: i64 = 25;
 
 pub struct ClaimedSchedule {
     pub schedule: Schedule,
@@ -110,10 +114,56 @@ pub async fn finish_run(
     .await?
     .rows_affected();
     if rows != 1 {
-        return Err(AppError::Internal(format!(
+        return Err(AppError::internal(format!(
             "schedule {id} dispatch claim is no longer current"
         )));
     }
+    Ok(())
+}
+
+/// Release a claim without recording a delivery: the condition passed, or the
+/// agent was busy. The rule still rolls forward — that is what makes the next
+/// evaluation happen at the next slot rather than on the next tick.
+pub async fn release_claim(
+    pool: &SqlitePool,
+    id: i64,
+    token: &str,
+    next_run_at: Option<&str>,
+) -> Result<(), AppError> {
+    let rows = sqlx::query(
+        "UPDATE schedules SET
+            next_run_at = datetime(?), claim_token = NULL, claimed_at = NULL,
+            updated_at = datetime('now')
+         WHERE id = ? AND claim_token = ?",
+    )
+    .bind(next_run_at)
+    .bind(id)
+    .bind(token)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if rows != 1 {
+        return Err(AppError::internal(format!(
+            "schedule {id} dispatch claim is no longer current"
+        )));
+    }
+    Ok(())
+}
+
+/// Record the outcome of a condition evaluation. Independent of the claim: a
+/// check result is true whoever owns the row, and it never moves the rule.
+pub async fn record_check(pool: &SqlitePool, id: i64, check: CheckRecord) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE schedules SET
+            last_check_at = datetime('now'), last_check_status = ?, last_check_exit_code = ?,
+            updated_at = datetime('now')
+         WHERE id = ?",
+    )
+    .bind(check.status)
+    .bind(check.exit_code)
+    .bind(id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -303,5 +353,48 @@ mod tests {
         let after = super::get(&pool, created.id).await.unwrap().unwrap();
         assert_eq!(after.run_count, 1);
         assert_eq!(after.next_run_at, created.next_run_at);
+    }
+
+    // A passing check delivers nothing, so it must leave the delivery history
+    // alone while still rolling the rule and freeing the row.
+    #[tokio::test]
+    async fn a_held_check_releases_the_claim_without_touching_delivery_history() {
+        use crate::domain::schedules::condition::CheckRecord;
+        use crate::domain::schedules::models::ScheduleCheckStatus;
+
+        let (pool, _, feature_id) = fixture().await;
+        let created = due_schedule(&pool, feature_id).await;
+        let claim = claim_due(&pool).await.unwrap().unwrap();
+
+        record_check(
+            &pool,
+            created.id,
+            CheckRecord {
+                status: ScheduleCheckStatus::Passed,
+                exit_code: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+        release_claim(
+            &pool,
+            created.id,
+            &claim.claim_token,
+            Some("2099-02-01 09:00:00"),
+        )
+        .await
+        .unwrap();
+
+        let after = super::get(&pool, created.id).await.unwrap().unwrap();
+        assert_eq!(after.run_count, 0);
+        assert!(after.last_run.is_none());
+        let check = after.last_check.unwrap();
+        assert_eq!(check.status, ScheduleCheckStatus::Passed);
+        assert_eq!(check.exit_code, Some(0));
+        assert_eq!(after.next_run_at.as_deref(), Some("2099-02-01T09:00:00Z"));
+        // Released: a second release with the old token is refused.
+        assert!(release_claim(&pool, created.id, &claim.claim_token, None)
+            .await
+            .is_err());
     }
 }

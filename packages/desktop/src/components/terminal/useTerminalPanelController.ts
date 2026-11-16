@@ -21,6 +21,7 @@ import { useWorktreeTerminalAutoSwitch } from "@/hooks/useWorktreeTerminalAutoSw
 import { useMonoFont } from "@/lib/fonts/mono-font-setting";
 import { useTheme } from "@/hooks/useTheme";
 import type { TerminalCoreInstanceHandle } from "@/components/terminal-core";
+import { useAddTerminalSelectionToPrompt } from "./useAddTerminalSelectionToPrompt";
 import {
   useTerminalCopyPasteShortcuts,
   useTerminalPaneShortcuts,
@@ -288,6 +289,12 @@ function useTerminalRuntimeActions(
     resolvedActivePaneId: focus.resolvedActivePaneId,
     onCopy: copyPaneSelection,
     onPaste: pasteIntoPane,
+  });
+  useAddTerminalSelectionToPrompt({
+    featureId,
+    enabled: hotkeysEnabled,
+    activePaneId: focus.resolvedActivePaneId,
+    paneRefs: focus.paneRefs,
   });
   const restartPane = useCallback(
     (paneId: string): void => {

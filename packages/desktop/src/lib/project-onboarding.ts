@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 
 /**
  * Workspace setting flagging that the user dismissed the per-project
@@ -20,7 +20,7 @@ export interface UseProjectOnboardingDismissedResult {
  * Defaults to `false` (show the modal) until explicitly turned off.
  */
 export function useProjectOnboardingDismissed(): UseProjectOnboardingDismissedResult {
-  const setting = useDebouncedSetting(PROJECT_ONBOARDING_DISMISSED_SETTING_KEY, 0);
+  const setting = useSetting(PROJECT_ONBOARDING_DISMISSED_SETTING_KEY);
   const setDismissed = useCallback(
     (next: boolean) => setting.setValue(next ? "true" : "false"),
     [setting.setValue],

@@ -11,8 +11,8 @@
  * via the LSP client manager).
  */
 import { Workspace, LSPPlugin, type WorkspaceFile, type LSPClient } from "@codemirror/lsp-client";
-import type { ChangeSet, Text } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { ChangeSet, type Extension, type Text } from "@codemirror/state";
+import { ViewPlugin, type EditorView, type ViewUpdate } from "@codemirror/view";
 import { fileUriToPath } from "./file-uri";
 
 /** Mirrors the un-exported `WorkspaceFileUpdate` type from `@codemirror/lsp-client`. */
@@ -23,13 +23,17 @@ interface WorkspaceFileUpdate {
 }
 
 class CadencrWorkspaceFile implements WorkspaceFile {
+  changes: ChangeSet;
+
   constructor(
     public uri: string,
     public languageId: string,
     public version: number,
     public doc: Text,
     public view: EditorView,
-  ) {}
+  ) {
+    this.changes = ChangeSet.empty(doc.length);
+  }
 
   getView(): EditorView | null {
     return this.view;
@@ -56,7 +60,7 @@ const DISPLAY_FILE_TIMEOUT_MS = 5_000;
 
 /** @public */
 export class CadencrWorkspace extends Workspace {
-  files: WorkspaceFile[] = [];
+  files: CadencrWorkspaceFile[] = [];
   private fileVersions: Record<string, number> = Object.create(null);
   private displayFileHandler: DisplayFileHandler | null = null;
   /** URIs awaiting their editor view to be created by `openFile`. */
@@ -64,6 +68,23 @@ export class CadencrWorkspace extends Workspace {
 
   constructor(client: LSPClient) {
     super(client);
+  }
+
+  /** CodeMirror deduplicates the stock LSP view plugin. Each additional client
+   * still needs its own document lifecycle and pending edits. */
+  editorPlugin(uri: string, languageId: string): Extension {
+    const lifecycle = ViewPlugin.define((view) => {
+      this.openFile(uri, languageId, view);
+      return {
+        update: (update: ViewUpdate): void => {
+          if (!update.docChanged) return;
+          const file = this.files.find((entry) => entry.uri === uri);
+          if (file?.view === update.view) file.changes = file.changes.compose(update.changes);
+        },
+        destroy: (): void => this.closeFile(uri, view),
+      };
+    });
+    return [lifecycle, this.client.plugin(uri, languageId)];
   }
 
   /** Set the host-provided file-opener used by `displayFile`. */
@@ -79,15 +100,15 @@ export class CadencrWorkspace extends Workspace {
 
   syncFiles(): readonly WorkspaceFileUpdate[] {
     const result: WorkspaceFileUpdate[] = [];
-    for (const file of this.files as CadencrWorkspaceFile[]) {
-      const plugin = LSPPlugin.get(file.view);
-      if (!plugin) continue;
-      const changes = plugin.unsyncedChanges;
+    for (const file of this.files) {
+      const changes = file.changes;
       if (changes.empty) continue;
       result.push({ changes, file, prevDoc: file.doc });
       file.doc = file.view.state.doc;
       file.version = this.nextFileVersion(file.uri);
-      plugin.clear();
+      file.changes = ChangeSet.empty(file.doc.length);
+      const plugin = LSPPlugin.get(file.view);
+      if (plugin?.client === this.client) plugin.clear();
     }
     return result;
   }
@@ -137,7 +158,7 @@ export class CadencrWorkspace extends Workspace {
   }
 
   closeFile(uri: string, view: EditorView): void {
-    const file = this.files.find((f) => f.uri === uri) as CadencrWorkspaceFile | undefined;
+    const file = this.files.find((f) => f.uri === uri);
     if (!file || file.view !== view) return;
     this.files = this.files.filter((f) => f !== file);
     this.client.didClose(uri);

@@ -35,7 +35,7 @@ pub(super) async fn restore_pending_or_idle(
     let turn_running = row.as_ref().is_some_and(|r| r.status == "running")
         || app_state
             .active_turns
-            .started_at(db_session_id)
+            .owner_sessions(db_session_id)
             .await
             .is_some();
     if turn_running {
@@ -52,24 +52,21 @@ fn send_pending(
     payload: PermissionRequestPayload,
     kind: PendingKind,
 ) {
+    let request_id = payload.request_id.clone();
     let envelope =
-        permission_request_envelope(&payload).expect("permission request payload should serialize");
+        permission_request_envelope(payload).expect("permission request payload should serialize");
     let _ = sender.send(Message::Text(String::from(envelope).into()));
     app_state
         .session_status_tx
-        .broadcast_gate(db_session_id, feature_id, kind, payload.request_id);
+        .broadcast_gate(db_session_id, feature_id, kind, request_id);
 }
 
 async fn clear_stale_pending(app_state: &AppState, db_session_id: i64, feature_id: i64) {
     WsSessionPersistence::clear_all_pending_user_input_static(&app_state.write_pool, db_session_id)
         .await;
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
-        db_session_id,
-        feature_id,
-        AgentStatus::Idle,
-        None,
-    );
+    app_state
+        .session_status_tx
+        .broadcast(db_session_id, feature_id, AgentStatus::Idle, None);
 }
 
 #[cfg(test)]
@@ -98,7 +95,7 @@ mod tests {
                 codex_permission_mode TEXT DEFAULT 'default',
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 pending_permission TEXT,
                 pending_questions TEXT,
                 thinking_effort TEXT,
@@ -236,6 +233,13 @@ mod tests {
         .execute(&state.write_pool)
         .await
         .unwrap();
+        // Every client still shows the gate whose columns have gone stale.
+        state.session_status_tx.broadcast(
+            2,
+            20,
+            AgentStatus::Question,
+            Some(PendingKind::Permission),
+        );
         let mut status_rx = state.session_status_tx.subscribe();
         let (sender, mut rx) = mpsc::unbounded_channel();
 

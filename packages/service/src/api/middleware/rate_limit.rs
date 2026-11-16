@@ -1,34 +1,50 @@
-//! Per-IP fixed-window rate limiting for loopback and remote listeners.
+//! Fixed-window rate limiting for loopback and remote listeners.
 //!
 //! The pairing endpoint is pre-auth and brute-forceable (a short pairing code
 //! is the only secret), so it gets a tight bucket; everything else gets a loose
 //! bucket that bounds general abuse. Loopback requests carrying the per-launch
 //! credential use a separate bucket so anonymous local traffic cannot starve
-//! the authenticated renderer. State is in-memory and lives for the life of one
-//! listener (each router receives its own limiter), keyed by source IP from
-//! `ConnectInfo<SocketAddr>`.
+//! the authenticated renderer, and each custom tab (plugin token) gets its own
+//! smaller bucket, so one chatty tab can starve neither the renderer nor
+//! another tab. State is in-memory and lives for the life of one
+//! listener (each router receives its own limiter), keyed by the TCP peer
+//! address from `ConnectInfo<SocketAddr>` — on the remote listener, verified
+//! devices are keyed by device instead (see [`remote`]).
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use axum::extract::{ConnectInfo, Request};
-use axum::http::Method;
+use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::{extract::State, Extension};
 
-use super::auth::{is_websocket_upgrade, AUTH_HEADER, MCP_CONTROL_HEADER};
+use super::auth::{is_websocket_upgrade, AUTH_HEADER};
 use super::response::{connection_metadata_unavailable, too_many_requests};
 use super::ws::validate_ws_token;
 use crate::app_state::AppState;
+use crate::domain::plugin_tabs::principal::PLUGIN_TOKEN_HEADER;
 use crate::shared::security::constant_time_str_eq;
+
+mod fingerprints;
+mod remote;
+
+pub use remote::rate_limit_middleware;
 
 const WINDOW: Duration = Duration::from_secs(60);
 /// Pairing-code attempts per IP per window. A code is single-use and expires in
 /// ~120s, so a legitimate device needs only one or two attempts.
 const PAIR_LIMIT: u32 = 5;
+/// Failed credentials per source IP; independent from authenticated traffic.
+const AUTH_FAILURE_LIMIT: u32 = 20;
+/// Verifications of never-seen tokens per source IP while its failure budget
+/// is exhausted: enough for a device reconnecting behind the same tunnel, too
+/// few to turn the lockout back into a DB load.
+const FIRST_CONTACT_LIMIT: u32 = 10;
 /// All other requests per IP per window, counted *before* listener-specific
 /// auth, so SPA assets and rejected tokens count too. A client opening the app
 /// bursts well past a "reasonable" steady rate — hashed chunks and fonts,
@@ -37,12 +53,35 @@ const PAIR_LIMIT: u32 = 5;
 /// rather than a traffic policy; pairing brute-force is bounded separately by
 /// `PAIR_LIMIT`.
 const GENERAL_LIMIT: u32 = 6000;
+/// Requests per custom tab per window, across its instances. A tab reads a
+/// feature's state; it has no business near the renderer's ceiling.
+const PLUGIN_LIMIT: u32 = 1200;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Bucket {
     Pair,
     General,
+    AuthFailure,
+    /// Never-seen remote tokens while the peer is locked out.
+    FirstContact,
     LoopbackAuthenticated,
+    /// One custom tab, keyed by a hash of its plugin id.
+    Plugin(u64),
+}
+
+/// Who a budget belongs to.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Client {
+    /// The TCP peer address (never a forwarded header).
+    Peer(IpAddr),
+    /// A remote device whose token has been verified.
+    Device(i64),
+}
+
+impl From<IpAddr> for Client {
+    fn from(ip: IpAddr) -> Self {
+        Self::Peer(ip)
+    }
 }
 
 struct Window {
@@ -50,25 +89,39 @@ struct Window {
     count: u32,
 }
 
-/// In-memory per-(IP, bucket) fixed-window counter.
+/// In-memory per-(client, bucket) fixed-window counter.
 #[derive(Default)]
 pub struct RateLimiter {
-    windows: Mutex<HashMap<(IpAddr, Bucket), Window>>,
+    windows: Mutex<HashMap<(Client, Bucket), Window>>,
+    fingerprints: Mutex<fingerprints::Fingerprints>,
 }
 
 impl RateLimiter {
+    /// Admission check: once failures exhaust the IP budget, shed anonymous
+    /// requests before authentication (including expensive remote token lookup).
+    fn auth_retry_after(&self, ip: IpAddr, now: Instant) -> Option<u64> {
+        let windows = self.windows.lock().expect("rate-limit mutex poisoned");
+        let window = windows.get(&(Client::Peer(ip), Bucket::AuthFailure))?;
+        let elapsed = now.duration_since(window.start);
+        (window.count >= AUTH_FAILURE_LIMIT && elapsed < WINDOW)
+            .then(|| WINDOW.saturating_sub(elapsed).as_secs().max(1))
+    }
+
     /// Record a hit and report whether it is within the bucket's limit. Returns
     /// `Err(retry_after_secs)` when the limit is exceeded.
-    fn check(&self, ip: IpAddr, bucket: Bucket, now: Instant) -> Result<(), u64> {
+    fn check(&self, client: impl Into<Client>, bucket: Bucket, now: Instant) -> Result<(), u64> {
         let limit = match bucket {
             Bucket::Pair => PAIR_LIMIT,
+            Bucket::AuthFailure => AUTH_FAILURE_LIMIT,
+            Bucket::FirstContact => FIRST_CONTACT_LIMIT,
             Bucket::General | Bucket::LoopbackAuthenticated => GENERAL_LIMIT,
+            Bucket::Plugin(_) => PLUGIN_LIMIT,
         };
         let mut windows = self.windows.lock().expect("rate-limit mutex poisoned");
         // Bound map growth: drop windows that have fully elapsed.
         windows.retain(|_, w| now.duration_since(w.start) < WINDOW);
 
-        let window = windows.entry((ip, bucket)).or_insert(Window {
+        let window = windows.entry((client.into(), bucket)).or_insert(Window {
             start: now,
             count: 0,
         });
@@ -86,21 +139,12 @@ impl RateLimiter {
         }
         Ok(())
     }
-}
 
-/// Middleware: rate-limit by source IP, with a tight bucket for `POST
-/// /api/remote/pair`. Runs outside the auth/host checks so abuse is shed early.
-pub async fn rate_limit_middleware(
-    Extension(limiter): Extension<std::sync::Arc<RateLimiter>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let bucket = if request.method() == Method::POST && request.uri().path() == "/api/remote/pair" {
-        Bucket::Pair
-    } else {
-        Bucket::General
-    };
-    apply_limit(&limiter, bucket, request, next).await
+    fn fingerprints(&self) -> MutexGuard<'_, fingerprints::Fingerprints> {
+        self.fingerprints
+            .lock()
+            .expect("token-fingerprint mutex poisoned")
+    }
 }
 
 /// Loopback middleware with credential-isolated buckets. The rate limit still
@@ -112,12 +156,24 @@ pub async fn loopback_rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let bucket = if has_valid_loopback_credential(&request, &state) {
+    let bucket = if let Some(plugin) = plugin_bucket(&request, &state) {
+        plugin
+    } else if has_valid_loopback_credential(&request, &state) {
         Bucket::LoopbackAuthenticated
     } else {
         Bucket::General
     };
     apply_limit(&limiter, bucket, request, next).await
+}
+
+/// The bucket of the custom tab whose live grant the request presents; an
+/// unknown token is anonymous traffic.
+fn plugin_bucket(request: &Request, state: &AppState) -> Option<Bucket> {
+    let token = request.headers().get(PLUGIN_TOKEN_HEADER)?.to_str().ok()?;
+    let grant = state.plugin_tab_grants.resolve(token)?;
+    let mut hasher = DefaultHasher::new();
+    grant.plugin_id.hash(&mut hasher);
+    Some(Bucket::Plugin(hasher.finish()))
 }
 
 async fn apply_limit(
@@ -133,24 +189,45 @@ async fn apply_limit(
     if let Err(retry_after) = limiter.check(ip, bucket, Instant::now()) {
         return too_many_requests(retry_after);
     }
-    next.run(request).await
+    // Known loopback and plugin credentials retain their isolated allowance.
+    // Anonymous callers share the peer's admission budget: once its failures
+    // are exhausted, it waits out the window before authentication is retried.
+    if bucket == Bucket::General {
+        if let Some(retry_after) = limiter.auth_retry_after(ip, Instant::now()) {
+            return too_many_requests(retry_after);
+        }
+    }
+    let response = next.run(request).await;
+    if response.status() == StatusCode::UNAUTHORIZED {
+        if let Err(retry_after) = limiter.check(ip, Bucket::AuthFailure, Instant::now()) {
+            return too_many_requests(retry_after);
+        }
+    }
+    response
 }
 
 fn has_valid_loopback_credential(request: &Request, state: &AppState) -> bool {
     if is_websocket_upgrade(request) {
+        if let Some(presented) = request.headers().get(AUTH_HEADER) {
+            return presented
+                .to_str()
+                .is_ok_and(|token| constant_time_str_eq(token, &state.auth_token));
+        }
         return validate_ws_token(request.headers(), &state.auth_token).is_ok();
     }
 
-    let (header, expected) = if request.uri().path().starts_with("/internal/mcp/") {
-        (MCP_CONTROL_HEADER, state.mcp_control_token.as_str())
-    } else {
-        (AUTH_HEADER, state.auth_token.as_str())
-    };
+    if request.uri().path().starts_with("/internal/mcp/") {
+        return crate::domain::mcp::control_grant::McpControlGrant::from_headers(
+            request.headers(),
+            &state.mcp_control_secret,
+        )
+        .is_some();
+    }
     request
         .headers()
-        .get(header)
+        .get(AUTH_HEADER)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|presented| constant_time_str_eq(presented, expected))
+        .is_some_and(|presented| constant_time_str_eq(presented, &state.auth_token))
 }
 
 /// Source IP from the connection info axum injects via
@@ -166,6 +243,77 @@ fn client_ip(request: &Request) -> Option<IpAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn exhausted_failure_budget_rejects_before_the_handler_runs() {
+        use axum::{body::Body, routing::get, Router};
+        use tower::ServiceExt;
+        let limiter = std::sync::Arc::new(RateLimiter::default());
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let handler_calls = calls.clone();
+        let app = Router::new()
+            .route(
+                "/failure",
+                get(move || {
+                    handler_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    async { StatusCode::UNAUTHORIZED }
+                }),
+            )
+            .route("/ok", get(|| async { StatusCode::OK }))
+            .layer(axum::middleware::from_fn(rate_limit_middleware))
+            .layer(Extension(limiter))
+            .layer(Extension(ConnectInfo(SocketAddr::from((
+                [10, 0, 0, 1],
+                1234,
+            )))));
+        for attempt in 0..=AUTH_FAILURE_LIMIT {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/failure")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if attempt < AUTH_FAILURE_LIMIT {
+                assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            } else {
+                assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+                assert!(response.headers().contains_key("retry-after"));
+            }
+        }
+        let response = app
+            .oneshot(Request::builder().uri("/ok").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            AUTH_FAILURE_LIMIT
+        );
+    }
+
+    #[test]
+    fn auth_failure_bucket_is_per_ip_and_resets() {
+        let limiter = RateLimiter::default();
+        let now = Instant::now();
+        for _ in 0..AUTH_FAILURE_LIMIT {
+            assert!(limiter.check(ip(1), Bucket::AuthFailure, now).is_ok());
+        }
+        assert!(limiter.check(ip(1), Bucket::AuthFailure, now).is_err());
+        assert!(limiter.auth_retry_after(ip(1), now).is_some());
+        assert!(limiter.auth_retry_after(ip(2), now).is_none());
+        assert!(limiter.auth_retry_after(ip(1), now + WINDOW).is_none());
+        assert!(limiter.check(ip(2), Bucket::AuthFailure, now).is_ok());
+        assert!(limiter
+            .check(ip(1), Bucket::LoopbackAuthenticated, now)
+            .is_ok());
+        assert!(limiter
+            .check(ip(1), Bucket::AuthFailure, now + WINDOW)
+            .is_ok());
+    }
 
     fn ip(n: u8) -> IpAddr {
         IpAddr::from([10, 0, 0, n])
@@ -213,6 +361,20 @@ mod tests {
         // A different IP and a different bucket are unaffected.
         assert!(limiter.check(ip(2), Bucket::Pair, now).is_ok());
         assert!(limiter.check(ip(1), Bucket::General, now).is_ok());
+        assert!(limiter
+            .check(ip(1), Bucket::LoopbackAuthenticated, now)
+            .is_ok());
+    }
+
+    #[test]
+    fn each_plugin_has_its_own_smaller_bucket() {
+        let limiter = RateLimiter::default();
+        let now = Instant::now();
+        for _ in 0..PLUGIN_LIMIT {
+            assert!(limiter.check(ip(1), Bucket::Plugin(1), now).is_ok());
+        }
+        assert!(limiter.check(ip(1), Bucket::Plugin(1), now).is_err());
+        assert!(limiter.check(ip(1), Bucket::Plugin(2), now).is_ok());
         assert!(limiter
             .check(ip(1), Bucket::LoopbackAuthenticated, now)
             .is_ok());

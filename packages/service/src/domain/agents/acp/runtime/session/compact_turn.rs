@@ -14,8 +14,8 @@ use super::super::events_stream_blocks::EventIndexer;
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::provider_hooks::AcpProviderHooks;
 use super::super::turn_lifecycle::{
-    await_event_loop_barrier, finalize_turn, request_prompt_with_cancel, PromptCancel,
-    PromptTurnLock,
+    agent_was_terminated, await_event_loop_barrier, finalize_turn, request_prompt_with_cancel,
+    PromptCancel, PromptTurnLock,
 };
 
 pub(super) struct CompactTurn {
@@ -33,7 +33,7 @@ pub(super) struct CompactTurn {
     pub(super) running: Arc<AtomicBool>,
     pub(super) replay_suppression: Arc<AtomicBool>,
     pub(super) initial_session_id: String,
-    pub(super) compact_prompt: Option<&'static str>,
+    pub(super) compact_prompt: Option<String>,
     pub(super) hooks: Arc<dyn AcpProviderHooks>,
 }
 
@@ -60,7 +60,7 @@ impl CompactTurn {
         let compact_prompt = self
             .compact_prompt
             .ok_or_else(|| RuntimeError::new("ACP provider does not support manual compaction"))?;
-        let prompt = acp_prompt_blocks_from_content(Value::String(compact_prompt.to_string()));
+        let prompt = acp_prompt_blocks_from_content(Value::String(compact_prompt));
         let supports = self.supports_set_config_option.load(Ordering::SeqCst);
         let model = self.current_model.read().await.clone();
         let effort = self.current_effort.read().await.clone();
@@ -72,7 +72,11 @@ impl CompactTurn {
             supports,
         );
         let response =
-            request_prompt_with_cancel(&self.client, params, &self.prompt_cancel).await?;
+            request_prompt_with_cancel(&self.client, params, &self.prompt_cancel, &self.local_tx)
+                .await?;
+        if agent_was_terminated(&response) {
+            return Ok(());
+        }
         await_event_loop_barrier(&self.client).await?;
         if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
             finalize_turn(

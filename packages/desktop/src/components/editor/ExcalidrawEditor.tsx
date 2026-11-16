@@ -29,7 +29,7 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { useReadFile } from "@/api/generated";
 import { useEditorStore } from "@/stores/editor-store";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { getFileName } from "@/lib/file-language";
 import { registerSave, unregisterSave } from "./editorSaveRegistry";
@@ -224,7 +224,7 @@ function ExcalidrawEditorImpl({ filePath, projectId, featureId, paneId }: Excali
   const setDirty = useEditorStore((s) => s.setDirty);
   const isFocusedPane = useEditorStore((s) => s.features[featureId]?.activePaneId === paneId);
 
-  const { value: autoSaveSetting } = useDebouncedSetting("editor_auto_save");
+  const { value: autoSaveSetting } = useSetting("editor_auto_save");
   const isAutoSaveEnabledRef = useRef(false);
   isAutoSaveEnabledRef.current = (autoSaveSetting ?? "false") === "true";
 

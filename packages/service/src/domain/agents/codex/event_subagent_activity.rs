@@ -160,7 +160,9 @@ mod tests {
             &mut indexes,
         );
         assert!(
-            activity.is_empty(),
+            activity
+                .iter()
+                .all(crate::domain::agents::adapter::RuntimeEvent::is_subagent_signal_only),
             "raw spawn already emitted the Agent block"
         );
 

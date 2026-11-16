@@ -16,16 +16,30 @@ import { updateSession } from "./ws-session-types";
 import { blocksPatchWithDerived } from "./ws-message-processing";
 import { bufferStreamDelta, flushStreamDeltas } from "./ws-delta-coalescer";
 import { SESSION_ACTION } from "./ws-session-action-names";
+import { parseErrorPayload } from "./ws-envelope-payload";
 
 /** Only `session.message` deltas are coalesced; everything else applies eagerly. */
 function isStreamDeltaEnvelope(envelope: WsEnvelope): boolean {
   return envelope.domain === "session" && envelope.action === SESSION_ACTION.message;
 }
 
+/** Cheap envelope checks first: this runs for every non-delta frame. */
+function isInitRefusal(ctx: StoreAccessors, sessionId: string, envelope: WsEnvelope): boolean {
+  if (envelope.domain !== "session" || envelope.action !== SESSION_ACTION.error) return false;
+  return envelope.ref != null && envelope.ref === ctx.get().sessions[sessionId]?.initRequestId;
+}
+
+function initRefusalMessage(payload: unknown): string {
+  const message = parseErrorPayload(payload)?.message;
+  return message ? `The session could not start: ${message}` : "The session could not start.";
+}
+
 export interface SocketHandlerDeps {
   ctx: StoreAccessors;
   /** Replays queued init-time envelopes once `session.initialized` lands. */
   flushQueuedInitActions: (sessionId: string) => void;
+  /** Drops the init queue once the backend refuses `session.init`. */
+  failQueuedInit: (sessionId: string, message: string) => void;
 }
 
 /**
@@ -73,8 +87,10 @@ export function handleSocketMessage(
   flushStreamDeltas(ctx, sessionId);
   try {
     handleEnvelope(ctx, sessionId, envelope);
-    if (envelope.domain === "session" && envelope.action === "initialized") {
+    if (envelope.domain === "session" && envelope.action === SESSION_ACTION.initialized) {
       deps.flushQueuedInitActions(sessionId);
+    } else if (isInitRefusal(ctx, sessionId, envelope)) {
+      deps.failQueuedInit(sessionId, initRefusalMessage(envelope.payload));
     }
   } catch (err) {
     console.error("[ws-session] handleEnvelope error:", err);

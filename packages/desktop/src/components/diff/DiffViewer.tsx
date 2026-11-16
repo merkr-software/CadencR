@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import type { PrThreadLine, ReviewNavigationTarget } from "@/lib/pr-review-threads";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { useTheme } from "@/hooks/useTheme";
 import { GIT_DIFF_VIEW_MODE_KEY, parseGitDiffViewMode } from "@/lib/git-diff-view-mode";
 import { DiffContent } from "./DiffContent";
@@ -10,6 +10,7 @@ import { GitDiffToolbar } from "./GitDiffToolbar";
 import { GitDiffFileTree } from "./GitDiffFileTree";
 import { useDiffData, type DiffMode } from "./useDiffData";
 import { useOpenDiffInEditor, type OpenDiffInEditor } from "./OpenDiffInEditorContext";
+import { useGitPathEditorOpener } from "./useGitPathEditorOpener";
 import { useGitFileIndexActions } from "./useGitFileIndexActions";
 import { useGitFileListCollapse, type GitFileListCollapseState } from "./useGitFileListCollapse";
 import { useDiffViewerComments } from "./useDiffViewerComments";
@@ -311,13 +312,16 @@ function DiffViewerImpl({
   onReviewThreadSelectedChange,
 }: DiffViewerProps) {
   const contextOpenFileInEditor = useOpenDiffInEditor();
-  const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
+  const openFileInEditor = useGitPathEditorOpener(
+    featureId,
+    onOpenFileInEditor ?? contextOpenFileInEditor,
+  );
   const {
     value,
     setValue: setDiffMode,
     isLoading: isDiffModeLoading,
     isSaving: isDiffModeSaving,
-  } = useDebouncedSetting(GIT_DIFF_VIEW_MODE_KEY, 0, { immediateCache: false });
+  } = useSetting(GIT_DIFF_VIEW_MODE_KEY);
   const diffMode = parseGitDiffViewMode(value);
   const fileList = useGitFileListCollapse({
     controlledValue: fileListCollapsed,

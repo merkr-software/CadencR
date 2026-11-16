@@ -6,34 +6,60 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Reserve one repository-wide publication lane for this preparation job and
+  # the separately dispatched privileged publisher. Never cancel an in-flight publication.
+  group: marketplace-publication
+  cancel-in-progress: false
+
 jobs:
   canonical-payload:
+    # workflow_dispatch can be launched against any ref. Only the repository's
+    # actual default-branch ref may enter the protected preparation environment.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     # Configure this environment with required reviewers in the registry repo.
+    # That external protection is not provisioned by this template.
     environment: protected-marketplace-publisher
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          # Pin the reviewed dispatch commit; do not follow a moving branch.
+          ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.19.0
-      - run: npm test
-      - run: npm run validate
+      - name: Select verified preparation runtime
+        id: publisher_runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/marketplace-released-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
       - name: Choose bounded publication window
         run: |
           echo "GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           echo "EXPIRES_AT=$(date -u -d '+7 days' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-      - run: npm run build:index -- --generated-at "$GENERATED_AT" --expires-at "$EXPIRES_AT" --output "$RUNNER_TEMP/managed-index.json"
+      - name: Build unsigned schema-2 input
+        env:
+          VERIFIED_CLI: ${{ steps.publisher_runtime.outputs.cli_file }}
+        run: |
+          set --
+          if [ -e provider-handoffs.json ]; then
+            set -- --provider-handoffs provider-handoffs.json
+          fi
+          "$VERIFIED_CLI" registry build-index "$@" --schema-version 2 --packages packages \
+            --generated-at "$GENERATED_AT" --expires-at "$EXPIRES_AT" \
+            --output "$RUNNER_TEMP/managed-index.json"
       - uses: actions/upload-artifact@v4
         with:
           name: canonical-unsigned-managed-index
           path: ${{ runner.temp }}/managed-index.json
           if-no-files-found: error
           retention-days: 1
-      # This bootstrap intentionally stops before signing, mirroring, or release
-      # writes. A production publisher must revalidate reviewed digests, mirror
-      # exact bytes, sign only this canonical payload, and publish atomically.
-      # It must never execute contributor archives or receive PR-controlled code.
+      # This is unsigned preparation, not a fully wired protected publisher. It
+      # intentionally stops before signing, mirroring, discovery, or release
+      # writes. The separate privileged publisher must use this same concurrency
+      # group, revalidate reviewed digests, mirror exact bytes, sign only the
+      # canonical payload, and publish atomically. It must never execute
+      # contributor archives or receive PR-controlled code.

@@ -8,17 +8,19 @@ By participating, you agree to the [Code of Conduct](./.github/CODE_OF_CONDUCT.m
 
 ## Local Development
 
-Setup (prerequisites, `.env` files, `pnpm dev`) lives in the [README — Run from source](./README.md#run-from-source). Follow that first. The notes below assume your dev environment is running.
+Setup (prerequisites, `pnpm setup:dev`, `pnpm doctor`, worktrees) lives in the [README — Run from source](./README.md#run-from-source). Follow that first. The notes below assume your dev environment is running; when it is not, `pnpm doctor` names the problem and its fix.
 
 ## Common Commands
 
+The shared [command reference](./AGENTS.md#commands) lists development, build,
+test, lint, format, and diagnostic commands. Use package-scoped checks while
+iterating; the examples below supplement that reference.
+
+Run only the desktop tests that cover the files you touched (paths relative to
+`packages/desktop`):
+
 ```bash
-pnpm dev             # run desktop app + backend service (the usual)
-pnpm start           # desktop only (skips the service watcher)
-pnpm test            # run all tests (vitest + cargo test)
-pnpm run lint        # oxlint + cargo check
-pnpm run format      # auto-format (oxfmt + rustfmt)
-pnpm run format:check
+pnpm --filter @cadencr/desktop exec vitest related --run src/lib/foo.ts
 ```
 
 Run a task for a single package:
@@ -28,14 +30,69 @@ pnpm --filter @cadencr/desktop <script>
 pnpm --filter @cadencr/service <script>
 ```
 
+### Packaged local builds
+
+Run:
+
+```bash
+pnpm build:local                 # macOS local package
+pnpm build:local:linux           # Linux local packages
+pnpm build:local --check-config  # validate configuration without compiling
+```
+
+Local packages use the Cargo `local` profile: release behavior and size
+optimization, but no cross-crate LTO and 16 codegen units. This trades binary
+size/runtime optimization for faster compilation; use `pnpm build` when checking
+the production optimization profile. The first local build populates its own
+`target/local/` cache; later builds reuse it. Both local and release packaging
+compile only `cadencr-service`, not developer utility binaries such as `dump-openapi`.
+
+These commands fetch the public marketplace, registry and Sentry/PostHog build
+variables from `merkr-software/CadencR`, validate them, then compile on your
+machine. Install GitHub CLI and authenticate with `gh auth login` to fetch the
+configuration and enable these features.
+If `gh` is absent, GitHub is unreachable, access is denied, or no build variables
+are configured, the build continues with the managed marketplace and all telemetry
+disabled. The command prints this fallback explicitly and removes inherited build
+variables so stale shell exports cannot reactivate those features. A successfully
+fetched but partial or malformed configuration still stops compilation.
+Values are passed directly to child processes without shell evaluation or
+writing a `.env` file. GitHub values replace inherited exports for these build
+variables, including removing exports that no longer exist in GitHub.
+
+All three telemetry variables (`CADENCR_SENTRY_DSN`, `CADENCR_POSTHOG_KEY`,
+`CADENCR_POSTHOG_HOST`) must be present in a configured build. They are embedded
+in the Rust service so the installed app can send telemetry according to the
+user's preferences.
+These commands do not upload Sentry source maps; see
+[Telemetry](./docs/TELEMETRY.md#renderer-source-maps-and-release-correlation).
+
+### Release compilation cache
+
+`release-rust-cache.yml` warms Rust release dependencies on `main` when Cargo
+manifests, lockfiles, the toolchain or cache tooling change. It uses the same
+macOS ARM/Intel targets and Ubuntu 22.04 baseline as the release workflows.
+Only dependencies are cached; each release recompiles workspace code with its
+own marketplace and telemetry configuration and retains all smoke tests,
+signing and notarization checks.
+
+GitHub caches are scoped by ref: one version tag cannot read another tag's
+cache, so warming on `main` is necessary. Wait for the warm job before tagging
+to benefit from it. After eviction (for example, a long idle period), manually
+run **Warm release Rust dependencies** on `main`. A missing cache is safe and
+falls back to a full build. Warming adds CI work when dependency inputs change
+but moves that compilation off the release's critical path.
+
 ## Rust Build Storage
 
 Cargo targets are intentionally isolated per Git worktree. The main checkout
 uses `./target/`; each linked worktree uses its own `<worktree>/target/`.
 Repository scripts deliberately do not use `sccache`: it did not produce cache
-hits between Cadencr worktrees, while disabling Cargo incremental compilation
-and consuming another large machine-wide cache. Cargo's own incremental cache
-instead accelerates repeated builds inside each active worktree.
+hits between Cadencr worktrees and consumed another large machine-wide cache.
+Incremental compilation is also disabled in the development and test profiles
+to save disk space. The Cargo wrapper enforces `CARGO_INCREMENTAL=0`, including
+when an inherited environment variable would otherwise enable it. Rebuilds
+after source changes may take longer.
 
 Do not set `CARGO_TARGET_DIR` to `.shared-cargo-target` or another shared path.
 Sharing Cargo targets can mix branch artifacts, create lock contention, and
@@ -50,10 +107,11 @@ pnpm rust -- test -p cadencr-service shared::migrate
 pnpm rust -- check -p opencode-sdk-rs
 ```
 
-The default development and test profiles omit debug information and
-incremental state to keep every worktree's Cargo target small. This does not
-disable application logs. For a debugger-oriented test run with line tables,
-use:
+The default development and test profiles also omit debug information to keep
+every worktree's Cargo target small. Existing incremental caches are not removed
+automatically; `pnpm rust:clean` / `pnpm rust:prune` below can reclaim old build
+artifacts. Omitting debug information does not disable application logs. For a
+debugger-oriented test run with line tables, use:
 
 ```bash
 pnpm rust -- test --profile test-debug -p cadencr-service <test-name>
@@ -65,14 +123,15 @@ Precompile the Rust targets used by `pnpm dev` without starting the app:
 pnpm dev:precompile
 ```
 
-For Cadencr-managed worktrees, put this command after `pnpm install` in the
-project's worktree setup commands. The setup runs in the new worktree, so its
-local `target/` is warm before the first `pnpm dev`.
+For Cadencr-managed worktrees, set the project's worktree setup commands to
+`pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile`. The setup
+runs in the new worktree, so it gets its own `.env` ports and a warm local
+`target/` before the first `pnpm dev`.
 
 Inspect and clean storage with dry-run-first commands:
 
 ```bash
-pnpm rust:storage                         # targets and legacy-path check
+pnpm rust:storage                         # targets, dev databases and backups
 pnpm rust:clean                           # preview cleaning the current target
 pnpm rust:clean -- --release --apply      # remove current release artifacts
 pnpm rust:prune                           # preview non-main targets unused for 14 days
@@ -83,11 +142,37 @@ pnpm rust:prune -- --older-than 7d --apply
 targets. Deleted artifacts are safe to rebuild, but applying a
 cleanup causes the next Rust command in that worktree to perform a cold build.
 
+### Dev databases
+
+Dev databases are usually bigger than the Cargo targets, so worktrees keep
+them cheap:
+
+- `pnpm dev:configure-worktree` seeds a worktree's database as a copy-on-write
+  clone of the main checkout's (`cp -c` on APFS, reflink elsewhere). The clone
+  shares its blocks until either side writes, so a multi-GB database costs
+  almost nothing per worktree. Worktrees created before this change hold full
+  copies.
+- Only when that run clones the database, and the worktree's `CADENCR_DB_PATH`
+  points at the clone, does it write a `cadencr.local.db.fresh-clone` marker
+  next to it. The first start of a debug build then skips the pre-migration
+  `VACUUM INTO` snapshot, which would be a full, unshared copy of data the main
+  checkout still holds, and deletes the marker: from then on the worktree may
+  hold data of its own, so every later migration backs up as usual. A database
+  the worktree already had (rerunning the script never replaces it), a custom
+  `CADENCR_DB_PATH` that may name a shared database, the main checkout and
+  release builds always back up before migrating.
+
+`pnpm rust:storage` lists every dev database and the installed app's
+`~/.cadencr/database`, and names the backups the service never rotates (legacy
+`<version>.<hour>` snapshots without a source identity, hand-made `.bck`
+copies). Nothing deletes those automatically: check you no longer need them,
+then remove them yourself.
+
 Troubleshoot the effective configuration with:
 
 ```bash
 echo "${CARGO_TARGET_DIR:-<unset>}"
-cargo metadata --no-deps --format-version 1 | jq -r .target_directory
+pnpm rust -- metadata --no-deps --format-version 1 | jq -r .target_directory
 pnpm rust:storage
 ```
 
@@ -95,13 +180,23 @@ pnpm rust:storage
 
 ## Project Conventions
 
-The full ruleset for code style, file/function size limits, and architectural boundaries lives in [`.claude/rules/`](./.claude/rules/). Claude Code loads those files directly (each rule's `paths:` frontmatter scopes it to the files it applies to); for Codex and OpenCode they are mirrored into the auto-generated `## Rules` section of [`AGENTS.md`](./AGENTS.md) by `pnpm build:agents-md`. Read them before opening a PR.
+[`AGENTS.md`](./AGENTS.md) is the short agent entry point: essential constraints, commands, validation, and an index of applicable rules. Detailed rules have one source in [`.claude/rules/`](./.claude/rules/). This guide covers contributor setup and Git/release workflows; it is read when needed, not imported into every agent session.
 
-The three rules contributors hit most often:
+### Agent instruction setup
 
-- Use **pnpm**, not `npm` or `yarn`.
-- When the Rust API surface changes, regenerate the frontend API client with `pnpm --filter @cadencr/desktop run generate:api` and commit `packages/desktop/src/api/generated/index.ts`.
-- Keep files under **400 lines** and functions under **100 lines**; extract modules before crossing those limits.
+| Agent       | Repository instructions                                                                                         | Shared skills                                |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Cursor      | Root/scoped `AGENTS.md` indexes; read the linked rules for the task                                             | `.agents/skills/`                            |
+| Claude Code | `CLAUDE.md` imports `AGENTS.md`; unscoped rules load at startup, path-scoped rules when matching files are used | `.claude/skills/` links to `.agents/skills/` |
+| Codex       | `AGENTS.md` from root to working directory; read the linked rules and deeper instructions for edited files      | `.agents/skills/`                            |
+
+Edit shared guidance in `AGENTS.md`, rules in `.claude/rules/`, and skills in `.agents/skills/`. Keep `CLAUDE.md` as the single `@AGENTS.md` import. `pnpm build:agents-md` generates source links and scopes, not copies of rule bodies: Claude's native loader and agents reading a source see the same text. Already-loaded rules need not be read again. The two critical database/rollback constraints are intentionally summarized at the entry point; other detailed policies belong in their rule files. Preserve the Turbo-managed block outside the generated index.
+
+After editing rules, run `pnpm build:agents-md`, then `pnpm build:agents-md --check`; pre-commit and CI check the indexes too. Start a new session after instruction changes. In Claude Code, `/context` shows loaded memory files. For Cursor/Codex, check that the agent opens the applicable rule sources before edits; links are discovery instructions, not automatic imports. The default Codex instruction budget is 32 KiB, which is a ceiling, not a target.
+
+Loading conventions: [Cursor rules](https://cursor.com/docs/rules), [Cursor skills](https://cursor.com/docs/skills), [Claude Code imports](https://code.claude.com/docs/en/memory#import-additional-files), and [Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+
+Keep persistent instructions short, concrete, and based on observed mistakes. Put occasional procedures in skills or linked docs; do not repeat linter rules or maintain parallel `.cursor/rules/` copies. See [Claude Code best practices](https://code.claude.com/docs/en/best-practices#write-an-effective-claudemd), [Cursor rule guidance](https://cursor.com/docs/rules#best-practices), and [Codex best practices](https://learn.chatgpt.com/guides/best-practices#make-guidance-reusable-with-agentsmd). These are context-management recommendations, not a measured guarantee that a particular model will perform better.
 
 ---
 
@@ -109,19 +204,19 @@ The three rules contributors hit most often:
 
 Maintainers keep labels intentionally simple. Contributors do not need to pick every label themselves, but please choose the most specific issue template and fill out the requested fields so maintainers can label quickly.
 
-| Label | Meaning |
-|---|---|
-| `Feature` | New user-visible capability or improvement |
-| `Fix` | Bug fix or regression |
-| `Desktop` | Electron/React desktop app |
-| `Backend` | Rust service or SDK/backend integration work |
-| `provider:claude` | Claude-specific behavior |
-| `provider:codex` | Codex-specific behavior |
-| `provider:opencode` | OpenCode-specific behavior |
-| `Planned` | Accepted and expected to be worked on |
-| `Will fix` | Confirmed fix for a bug/regression |
-| `Not planned` | Maintainers do not plan to work on this |
-| `Duplicated` | Duplicate of another issue or PR |
+| Label               | Meaning                                      |
+| ------------------- | -------------------------------------------- |
+| `Feature`           | New user-visible capability or improvement   |
+| `Fix`               | Bug fix or regression                        |
+| `Desktop`           | Electron/React desktop app                   |
+| `Backend`           | Rust service or SDK/backend integration work |
+| `provider:claude`   | Claude-specific behavior                     |
+| `provider:codex`    | Codex-specific behavior                      |
+| `provider:opencode` | OpenCode-specific behavior                   |
+| `Planned`           | Accepted and expected to be worked on        |
+| `Will fix`          | Confirmed fix for a bug/regression           |
+| `Not planned`       | Maintainers do not plan to work on this      |
+| `Duplicated`        | Duplicate of another issue or PR             |
 
 Provider labels should be used only when the work is truly provider-specific. Generic frontend/backend code should stay provider-neutral.
 
@@ -148,7 +243,9 @@ feature release:
 Release tags (`vX.Y.Z`) are always cut from `main`. Pushing a tag triggers
 [`desktop-release.yml`](./.github/workflows/desktop-release.yml), which notarizes the app, publishes the
 GitHub release, and updates the Homebrew cask — so a tag reaches users immediately and its version number
-is spent for good.
+is spent for good. Linux ships as an alpha, by hand: once the release is published,
+[`desktop-linux-release.yml`](./.github/workflows/desktop-linux-release.yml) builds the same tag for Linux
+and attaches the packages to it (`gh workflow run desktop-linux-release.yml -f release_tag=vX.Y.Z`).
 
 **Why a version branch.** A feature is usually merged before it is polished. When the integration branch
 is also the release source, that half-finished feature blocks every unrelated fix from shipping until the
@@ -236,6 +333,32 @@ The branch and release tag intentionally use the same name, so the branch must b
 tagging; otherwise Git commands can become ambiguous between `refs/heads/vX.Y.Z` and
 `refs/tags/vX.Y.Z`.
 
+### Releasing the SDKs and the CLI
+
+The SDKs and the `cadencr` CLI have their own semver, independent of the app: an app release never sets
+them to the app version, and they need not ship with one. To release one, bump its version in a normal
+PR, let it land on `main` with green CI, then dispatch its workflow from `main`. Each workflow:
+
+- is a dry run unless you untick `dry_run`;
+- publishes from a protected environment with required reviewers;
+- refuses a version that already exists.
+
+The release skill does all of it. `release --tools [tool …]` releases only the tools. `release vX.Y.Z` also
+detects which tools changed since their last release, and offers to release them after the app.
+`node scripts/release-tools.mjs` shows that state on its own.
+
+| Artifact                                                 | Version lives in                                                        | Workflow                                       | Tag                    |
+| -------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------- | ---------------------- |
+| Desktop app                                              | the app manifests (bumped by the release skill)                         | `desktop-release.yml`, on pushing a `v*` tag   | `vX.Y.Z`               |
+| crates.io: `cadencr-tab-backend`, `cadencr-provider-sdk` | the crate's `Cargo.toml`                                                | `crates-release.yml` (environment `crates-io`) | `<crate>-v<version>`   |
+| npm: `@cadencr/tab-sdk`, `@cadencr/tab-kit`              | the package's `package.json` (tab-sdk: also `SDK_VERSION`)              | `npm-release.yml` (environment `npm`)          | `<package>-v<version>` |
+| CLI `cadencr` (Linux x86_64 binary + `SHA256SUMS`)       | `packages/cli/Cargo.toml`, `packages/cli/package.json` and `Cargo.lock` | `cli-release.yml` (environment `cli-release`)  | `cli/v<version>`       |
+
+`cli-release.yml` takes the reviewed `main`-tip SHA as input, like the development CLI workflow
+(`cli-dev-release.yml`, tags `cli/vX.Y.Z-dev.<run>.<attempt>`). Its GitHub release is never marked
+"Latest", so the desktop auto-updater and the landing download page keep resolving the app's release. App
+releases up to `v0.14.0` also carried the CLI; their assets stay where they are.
+
 ## Commit Convention
 
 Commits follow **[Conventional Commits](https://www.conventionalcommits.org/)**:
@@ -247,9 +370,42 @@ Commits follow **[Conventional Commits](https://www.conventionalcommits.org/)**:
 - **Types**: `feat`, `fix`, `refactor`, `chore`, `docs`, `style`, `test`, `perf`, `build`.
 - **Scopes** (optional): package or area — `desktop`, `service`, `session`, `providers`, `landing`, `agent`, etc.
 - One logical change per commit. Explain **why**, not just **what**, in the body when the diff is non-obvious.
-- Husky runs `pnpm turbo run format:check lint ts-check test knip` as a pre-commit hook. Do not bypass it (`--no-verify`) unless a maintainer asks.
+- Husky runs a scoped pre-commit check (see [Pre-commit checks](#pre-commit-checks)). Do not bypass it (`--no-verify`) unless a maintainer asks.
 
 Run `git log --oneline` in this repo for a large set of real examples.
+
+## Pre-commit checks
+
+`.husky/pre-commit` runs `node scripts/pre-commit.mjs`, which reads the staged
+file list and runs only the checks those files can affect, streaming their
+output and stopping at the first failure with the exact command to rerun:
+
+| Staged files                                                                                                                                                          | Checks                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| anything                                                                                                                                                              | `AGENTS.md` is in sync with `.claude/rules/`                                             |
+| docs only (`*.md` outside a package's `src/`, `docs/**`)                                                                                                              | nothing else                                                                             |
+| any other file                                                                                                                                                        | root script tests (`pnpm run test:scripts`, a few seconds)                               |
+| `packages/desktop`, `packages/landing`, `packages/brand`                                                                                                              | that package's `format:check`, `lint`, `ts-check`, `knip` through Turbo, and its tests   |
+| desktop sources                                                                                                                                                       | `vitest related --run` on the staged desktop files only                                  |
+| desktop `vitest.config.*`, `src/test-setup*`, `src/test/**`, `package.json`                                                                                           | the full desktop suite                                                                   |
+| desktop `src/lib/shortcuts/**`, `src/shared/**`                                                                                                                       | landing checks too (it imports the shortcut registry)                                    |
+| `packages/brand/src/**`                                                                                                                                               | desktop and landing checks too, tracing desktop tests that import the brand file         |
+| `packages/service/src`, `packages/desktop/src`                                                                                                                        | provider-boundary scan                                                                   |
+| Rust: `packages/service`, any `packages/*-rs`, `packages/cli-discovery`, `Cargo.toml`/`Cargo.lock`, `rust-toolchain.toml`                                             | `@cadencr/service` `format:check`, `lint` (clippy), `test` for the whole Cargo workspace |
+| release scripts, `homebrew/**`, `desktop-release.yml`, `desktop-linux-release.yml`                                                                                    | `pnpm run test:release-scripts`                                                          |
+| root tooling: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `.oxlintrc.json`, `.oxfmtrc.json`, `.npmrc`, `.nvmrc`, `.husky/**`, `patches/**` | everything                                                                               |
+
+Preview the plan without running it, or force the full workspace check (also
+what CI runs):
+
+```bash
+node scripts/pre-commit.mjs --dry-run
+CADENCR_PRECOMMIT_FULL=1 git commit
+```
+
+Checks run against your working tree, so unstaged edits in the same files are
+checked too. CI always runs everything, so a scoped pass locally is not a
+guarantee.
 
 ## Pull Request Process
 
@@ -259,12 +415,16 @@ Run `git log --oneline` in this repo for a large set of real examples.
 2. **Open early.** Draft PRs are welcome for feedback before the work is final.
 3. **Use the PR template.** It prompts for summary, motivation, and a test plan.
 4. **Keep PRs focused.** A PR should be reviewable in one sitting. Split large changes.
-5. **CI must be green** — lint, typecheck, tests, knip, and format checks all pass.
+5. **CI must be green** — lint, typecheck, tests, knip, and format checks all pass. `ci.yml` runs them as
+   parallel `rust`, `web`, `vitest` (sharded) and `scripts` jobs; the required `Pre-commit checks` status
+   passes only when all of them do.
 6. **Link the issue.** Use `Closes #123`, `Fixes #123`, or explain why there is no issue.
 7. **Show visible changes.** Include screenshots or recordings for UI changes.
-8. **Squash on merge.** PRs are squash-merged so the version branch stays linear; the squash commit
-   message must itself follow Conventional Commits. Promotions from a version branch to `main` are the
-   exception — those are `--no-ff` merge commits.
+8. **Merge with `--no-ff`.** Branches land as a merge commit (`git merge --no-ff`), never squashed or
+   fast-forwarded, so the history keeps each reviewed commit and the merge commit groups them. Every
+   commit on the branch must therefore follow Conventional Commits on its own. Rebase onto the target
+   branch first (step 3 of [Day-to-day work](#day-to-day-work)) so the merge carries no conflict
+   resolution. Promotions from a version branch to `main` work the same way.
 
 For a bugfix, include a test that fails without the fix. For a feature, include a test that exercises the new behavior end-to-end when practical.
 

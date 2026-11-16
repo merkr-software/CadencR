@@ -75,3 +75,53 @@ describe("guestChrome", () => {
     expect(guestChrome(withMod({ key: "k" }))).toBeNull();
   });
 });
+
+describe("document authorization events", () => {
+  it("invalidates delayed automation and clears retained diagnostics using Electron event details", async () => {
+    const { EventEmitter } = await import("node:events");
+    const { installTabEvents } = await import("./browser-tab-events");
+    const { browserDocumentRevision } = await import("./browser-document-security");
+    const contents = Object.assign(new EventEmitter(), { getURL: () => "http://localhost:3000/" });
+    const tab = {
+      metadata: { id: "tab", url: "http://localhost:3000/", scopeId: 7 },
+      webContents: contents,
+      automationAccess: "shared",
+      externalAutomationOrigin: "https://approved.test",
+      consoleEntries: [{ message: "private" }],
+      networkEntries: [{ url: "https://private.test" }],
+    } as unknown as import("./browser-tab-events").ManagedTab;
+    const noop = (): void => undefined;
+    const host = {
+      emitState: noop,
+      setTabError: () => false,
+      isTabAlive: () => true,
+      tabDestroyed: noop,
+      recordHistoryNavigation: noop,
+      updateHistoryTitle: noop,
+      forgetHistory: noop,
+      emitShortcut: noop,
+      matchGuestShortcut: () => null,
+      emitFindResult: noop,
+      invalidateFind: noop,
+      syncZoom: noop,
+      persistTab: noop,
+      emitCommentBadgeClick: noop,
+    };
+    installTabEvents(tab, host);
+    contents.emit("did-start-navigation", {
+      url: "http://localhost:3000/next",
+      isMainFrame: false,
+      isSameDocument: false,
+    });
+    expect(browserDocumentRevision(tab.webContents)).toBe(0);
+    contents.emit("did-start-navigation", {
+      url: "http://localhost:3000/",
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    expect(browserDocumentRevision(tab.webContents)).toBe(1);
+    expect(tab.consoleEntries).toEqual([]);
+    expect(tab.networkEntries).toEqual([]);
+    expect(tab.externalAutomationOrigin).toBeNull();
+  });
+});

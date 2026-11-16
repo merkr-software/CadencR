@@ -6,10 +6,12 @@ import { RuntimeModelPickerContent } from "./RuntimeModelPickerContent";
 import type { RuntimeModelPickerAction } from "./RuntimeModelPickerSections";
 import {
   catalogNeedsCollapse,
+  getCatalogRefreshNotices,
   getModelEntries,
   getProviderStateEntries,
   groupCatalogEntries,
   initialExpandedGroupIds,
+  type CatalogRefreshNotice,
   type ModelEntry,
   type ModelGroupSpec,
   type ProviderStateEntry,
@@ -282,6 +284,10 @@ export function RuntimeModelPicker({
     () => getProviderStateEntries(providers),
     [providers],
   );
+  const catalogNotices = useMemo<CatalogRefreshNotice[]>(
+    () => getCatalogRefreshNotices(providers),
+    [providers],
+  );
 
   return (
     <Popover open={resolvedOpen} onOpenChange={handleOpenChange}>
@@ -289,6 +295,7 @@ export function RuntimeModelPicker({
       <RuntimeModelPickerContent
         action={action}
         align={align}
+        catalogNotices={catalogNotices}
         contentClassName={contentClassName}
         emptyText={emptyText}
         expandedGroupIds={expandedGroupIds}

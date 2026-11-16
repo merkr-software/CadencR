@@ -1,0 +1,346 @@
+name: Release Linux desktop alpha
+
+# Linux ships as an alpha, by hand. desktop-release.yml publishes macOS on every
+# `v*` tag; this workflow then builds that tag for Linux and attaches the
+# packages to its published release, flagging them as alpha in the notes. It
+# also attaches the server archive (`cadencr-server-<version>-linux-x64.tar.gz`
+# and its `.sha256`) that `cadencr serve` runs from on machines without a
+# desktop session, and that `cadencr update` installs there. A
+# release left without Linux packages keeps Linux installs where they are: the
+# updater reads a missing latest-linux.yml as "no update".
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published desktop release to add the Linux alpha to (for example, v0.15.0)
+        required: true
+        type: string
+
+# One run per tag, so two dispatches can never upload over each other.
+concurrency:
+  group: desktop-linux-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  # Public host-owned trust only; empty repository variables keep acquisition
+  # disabled. The build wrapper removes empty values before Rust option_env!.
+  CADENCR_REGISTRY_TRUST_MANIFEST_JSON: ${{ vars.CADENCR_REGISTRY_TRUST_MANIFEST_JSON }}
+  CADENCR_REGISTRY_ROOT_KEY_ID: ${{ vars.CADENCR_REGISTRY_ROOT_KEY_ID }}
+  CADENCR_REGISTRY_ROOT_PUBLIC_KEY_BASE64: ${{ vars.CADENCR_REGISTRY_ROOT_PUBLIC_KEY_BASE64 }}
+  CADENCR_REGISTRY_TRUST_MIN_GENERATION: ${{ vars.CADENCR_REGISTRY_TRUST_MIN_GENERATION }}
+  CADENCR_MANAGED_PROVIDER_KEY_ID: ${{ vars.CADENCR_MANAGED_PROVIDER_KEY_ID }}
+  CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64: ${{ vars.CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64 }}
+  CADENCR_MANAGED_PROVIDER_INDEX_URL: ${{ vars.CADENCR_MANAGED_PROVIDER_INDEX_URL }}
+  CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL }}
+  CADENCR_MANAGED_THEME_INDEX_URL: ${{ vars.CADENCR_MANAGED_THEME_INDEX_URL }}
+  CADENCR_MANAGED_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_THEME_BLOCKLIST_URL }}
+  CADENCR_MANAGED_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_TAB_BLOCKLIST_URL }}
+  CADENCR_MANAGED_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_LSP_BLOCKLIST_URL }}
+  # Public ingest configuration only; user consent is still off by default.
+  CADENCR_SENTRY_DSN: ${{ vars.CADENCR_SENTRY_DSN }}
+  CADENCR_POSTHOG_KEY: ${{ vars.CADENCR_POSTHOG_KEY }}
+  CADENCR_POSTHOG_HOST: ${{ vars.CADENCR_POSTHOG_HOST }}
+
+permissions:
+  contents: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected an existing version tag such as v0.14.0" >&2
+            exit 1
+          fi
+
+      # Fails before the long build: the macOS release must already be public,
+      # and Linux packages are never attached twice.
+      - name: Check the release can take the Linux alpha
+        run: |
+          if ! release="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
+            --jq '[.isDraft, ([.assets[].name | select(test("\\.(AppImage|deb|rpm)$") or startswith("cadencr-server-") or . == "latest-linux.yml")] | length)] | @tsv')"; then
+            echo "No GitHub release for $RELEASE_TAG: publish it with desktop-release.yml first" >&2
+            exit 1
+          fi
+          is_draft="$(cut -f1 <<< "$release")"
+          linux_assets="$(cut -f2 <<< "$release")"
+          if [ "$is_draft" != false ]; then
+            echo "Release $RELEASE_TAG is still a draft: let desktop-release.yml publish it first" >&2
+            exit 1
+          fi
+          if [ "$linux_assets" != 0 ]; then
+            echo "Release $RELEASE_TAG already carries Linux packages. Refusing to overwrite them." >&2
+            exit 1
+          fi
+
+  build:
+    needs: preflight
+    # The oldest supported runner image: the sidecar links against its glibc
+    # (2.35), so this build also runs on Debian 12 and Ubuntu 22.04.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      CADENCR_SENTRY_UPLOAD_CONFIGURED: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
+    steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected an existing version tag such as v0.14.0" >&2
+            exit 1
+          fi
+
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      # Same glibc baseline and Cargo layout as release-rust-cache.yml.
+      # Swatinem/rust-cache@v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: desktop-release-ubuntu-22.04
+          save-if: "false"
+
+      - name: Install Linux packaging tools
+        # rpmbuild for the RPM target; vendored OpenSSL needs perl + make.
+        run: sudo apt-get update && sudo apt-get install -y rpm perl make
+
+      - name: Verify release tag matches desktop version
+        run: |
+          node -e "const pkg=require('./packages/desktop/package.json'); const expected='v'+pkg.version; const actual=process.env.RELEASE_TAG; if (actual !== expected) { console.error('Release tag '+actual+' does not match desktop version '+expected); process.exit(1); }"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate marketplace build configuration
+        run: node scripts/validate-marketplace-build-env.mjs --require-catalog
+
+      - name: Use bounded pnpm listing for packaging
+        run: |
+          packaging_pnpm="pnpm@11.13.0+sha512.88d94724d8f2e6c186744a5584c6e59ecac869ec7ba15e9cb4cd628e8dc7066820b2481d8ee3b51ea8da323a7378068aa58c556a3720d32b7c20a051d088363a"
+          COREPACK_ENABLE_PROJECT_SPEC=0 corepack "$packaging_pnpm" --pm-on-fail=ignore --version
+          original_pnpm="$(command -v pnpm)"
+          tool_dir="$RUNNER_TEMP/cadencr-packaging-tools"
+          mkdir -p "$tool_dir"
+          cat > "$tool_dir/pnpm" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "$#" -gt 0 ] && [ "$1" = list ]; then
+            exec env COREPACK_ENABLE_PROJECT_SPEC=0 corepack "$CADENCR_PACKAGING_PNPM" --pm-on-fail=ignore "$@"
+          fi
+          exec "$CADENCR_BUILD_PNPM" "$@"
+          SH
+          chmod +x "$tool_dir/pnpm"
+          printf 'CADENCR_PACKAGING_PNPM=%s\nCADENCR_BUILD_PNPM=%s\n' "$packaging_pnpm" "$original_pnpm" >> "$GITHUB_ENV"
+          printf '%s\n' "$tool_dir" >> "$GITHUB_PATH"
+
+      - name: Verify packaging dependency graph
+        working-directory: packages/desktop
+        run: |
+          ulimit -Sn 10240
+          dependency_tree="$RUNNER_TEMP/desktop-production-dependencies.json"
+          if ! pnpm list --prod --json --depth Infinity --silent --loglevel=error > "$dependency_tree"; then
+            cat "$dependency_tree" >&2
+            exit 1
+          fi
+
+      - name: Build renderer + main bundles
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          CADENCR_RENDERER_SOURCEMAPS: "1"
+        run: pnpm --filter @cadencr/desktop exec electron-vite build
+
+      - name: Archive exact renderer bundles and source maps
+        run: node packages/desktop/scripts/archive-renderer-diagnostics.mjs
+
+      - name: Load Sentry uploader from workflow commit
+        if: env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/upload-sentry-renderer-maps.mjs?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+          test -s "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+
+      - name: Upload optional Sentry renderer source maps
+        if: env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+        run: node "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+
+      - name: Build Rust service sidecar (x64)
+        run: node scripts/validate-marketplace-build-env.mjs -- pnpm --filter @cadencr/service build:sidecars
+
+      - name: Smoke test packaged service sidecar startup
+        run: |
+          pnpm --filter @cadencr/service smoke:packaged-sidecar \
+            "$GITHUB_WORKSPACE/packages/desktop/resources/bin/x64/cadencr-service"
+
+      # build:sidecars also builds the bundled `cadencr` CLI beside the service.
+      - name: Package the server archive
+        run: |
+          bash scripts/package-server-archive.sh "${RELEASE_TAG#v}" linux-x64 \
+            packages/desktop/resources/bin/x64/cadencr \
+            packages/desktop/resources/bin/x64/cadencr-service \
+            packages/desktop/out/renderer \
+            dist-server
+
+      - name: Load server archive smoke test from workflow commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/smoke-server-archive.sh?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-smoke-server-archive.sh"
+          test -s "$RUNNER_TEMP/cadencr-smoke-server-archive.sh"
+
+      - name: Smoke test the server archive
+        run: bash "$RUNNER_TEMP/cadencr-smoke-server-archive.sh" "dist-server/cadencr-server-${RELEASE_TAG#v}-linux-x64.tar.gz"
+
+      - name: Build Linux AppImage, DEB, and RPM
+        run: |
+          pnpm --filter @cadencr/desktop exec electron-builder \
+            --config electron-builder.yml \
+            --linux \
+            --x64 \
+            --publish never
+
+      # Packaging tests follow the immutable workflow commit, while application
+      # sources remain checked out at the existing release tag.
+      - name: Load Linux smoke test from workflow commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/smoke-linux-packages.sh?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh"
+          test -s "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh"
+
+      - name: Smoke test Linux packages
+        run: bash "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh" packages/desktop/dist-electron "${RELEASE_TAG#v}" x64
+
+      - name: Stage renderer diagnostics and the server archive beside Linux packages
+        run: |
+          cp packages/desktop/diagnostics/*-renderer-diagnostics.tar.gz packages/desktop/dist-electron/
+          cp dist-server/cadencr-server-* packages/desktop/dist-electron/
+
+      # actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-linux
+          if-no-files-found: error
+          retention-days: 7
+          # The AppImage embeds its block map: no separate block map file exists.
+          path: |
+            packages/desktop/dist-electron/*.AppImage
+            packages/desktop/dist-electron/*.deb
+            packages/desktop/dist-electron/*.rpm
+            packages/desktop/dist-electron/latest-linux.yml
+            packages/desktop/dist-electron/*-renderer-diagnostics.tar.gz
+            packages/desktop/dist-electron/cadencr-server-*
+
+  attach:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # actions/download-artifact@v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: desktop-linux
+          path: dist
+
+      - name: Upload Linux alpha assets
+        # preflight saw no Linux asset on this release and runs are serialized per
+        # tag, so --clobber only replaces this run's own uploads when a failed
+        # attach job is re-run.
+        run: |
+          version="${RELEASE_TAG#v}"
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            "dist/Cadencr-${version}-x86_64.AppImage" \
+            "dist/Cadencr-${version}-amd64.deb" \
+            "dist/Cadencr-${version}-x86_64.rpm" \
+            "dist/latest-linux.yml" \
+            "dist/Cadencr-${version}-linux-renderer-diagnostics.tar.gz" \
+            "dist/cadencr-server-${version}-linux-x64.tar.gz" \
+            "dist/cadencr-server-${version}-linux-x64.tar.gz.sha256"
+
+      - name: Verify uploaded Linux alpha assets
+        run: |
+          version="${RELEASE_TAG#v}"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+            > "$RUNNER_TEMP/uploaded-release-assets.txt"
+          for asset in \
+            "Cadencr-${version}-x86_64.AppImage" \
+            "Cadencr-${version}-amd64.deb" \
+            "Cadencr-${version}-x86_64.rpm" \
+            "latest-linux.yml" \
+            "Cadencr-${version}-linux-renderer-diagnostics.tar.gz" \
+            "cadencr-server-${version}-linux-x64.tar.gz" \
+            "cadencr-server-${version}-linux-x64.tar.gz.sha256"; do
+            if ! grep -Fxq "$asset" "$RUNNER_TEMP/uploaded-release-assets.txt"; then
+              echo "Uploaded GitHub release is missing asset: $asset" >&2
+              exit 1
+            fi
+          done
+
+      - name: Flag the Linux packages as alpha in the release notes
+        run: |
+          version="${RELEASE_TAG#v}"
+          notes="$RUNNER_TEMP/release-notes.md"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$notes"
+          if grep -Fxq "## Linux (alpha)" "$notes"; then exit 0; fi
+          cat >> "$notes" <<MD
+
+          ## Linux (alpha)
+
+          This release also ships Linux x86-64 packages: an AppImage, a DEB and an RPM. Linux support is an **alpha**: expect rough edges, and please report what breaks in [GitHub issues](https://github.com/merkr-software/CadencR/issues).
+
+          Download one of the Linux assets below, then install it with the matching command:
+
+          \`\`\`bash
+          # Portable AppImage — works across most glibc-based distributions
+          chmod +x Cadencr-${version}-x86_64.AppImage
+          ./Cadencr-${version}-x86_64.AppImage
+
+          # Ubuntu, Debian, Mint, Pop!_OS, and other Debian-based distributions
+          sudo apt install ./Cadencr-${version}-amd64.deb
+
+          # Fedora, RHEL, Rocky, AlmaLinux, and other RPM distributions
+          sudo dnf install ./Cadencr-${version}-x86_64.rpm
+
+          # openSUSE and SUSE Linux Enterprise
+          sudo zypper install ./Cadencr-${version}-x86_64.rpm
+          \`\`\`
+
+          Official AppImage, DEB, and RPM installs receive updates through CadencR. DEB and RPM updates may request administrator authentication when the new package is installed.
+
+          For a Linux server without a desktop session, \`cadencr-server-${version}-linux-x64.tar.gz\` runs CadencR headless for paired devices: unpack it, then run \`cadencr-server/bin/cadencr serve\`. \`cadencr update\` installs later server archives.
+          MD
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"

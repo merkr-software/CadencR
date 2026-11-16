@@ -1,11 +1,10 @@
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import {
   createAccessModeSet,
   createCommandsGet,
-  createDestroy,
   createEffortSet,
   createFastModeSet,
-  createEnvelope,
+  createSessionEnvelope,
   createGateClose,
   createInterrupt,
   createModeSet,
@@ -15,22 +14,16 @@ import {
   createProviderSet,
   createSessionClear,
   createSessionCompact,
-  createSessionDelete,
+  createSessionSuspend,
   type GateCloseReason,
   type RuntimeConfigOverridePatch,
   type WsEnvelope,
 } from "@/lib/ws-envelope";
-import { clearReconnect, unregisterReconnector } from "@/lib/ws-reconnect";
 import { DEFAULT_PROMPT_COMMAND_POLICY } from "@/lib/prompt-command-policy";
-import { useConnectionStatusStore } from "@/stores/connection-status-store";
 import type { AccessMode } from "@/types/access-mode";
-import {
-  applyApprovePlan,
-  applyPersistedState,
-  applyPlanChangesRequest,
-  loadOlderSessionMessages,
-} from "./ws-session-actions";
-import { discardStreamDeltas } from "./ws-delta-coalescer";
+import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
+import { submitPlanDecision } from "./ws-session-plan-actions";
+import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
@@ -39,19 +32,18 @@ import type {
   PermissionMode,
   PersistedStatePayload,
   ResyncTarget,
-  SessionEntry,
   WsSessionStore,
 } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
-import { transitionTurn } from "./ws-turn-lifecycle";
+import { SESSION_COMMANDS, settleInterrupt, type SessionCommandSpec } from "./ws-session-commands";
 
 type SimpleSessionActions = Pick<
   WsSessionStore,
   | "interrupt"
-  | "destroy"
+  | "settleInterrupt"
+  | "suspendForSleep"
   | "clearSession"
   | "compactSession"
-  | "deleteSession"
   | "setProvider"
   | "setModel"
   | "setThinkingEffort"
@@ -68,15 +60,15 @@ type SimpleSessionActions = Pick<
   | "markPersistedLoaded"
   | "setPersistedState"
   | "loadOlderMessages"
+  | "loadPromptTurn"
   | "refreshSessionMessages"
 >;
 
 interface SimpleSessionActionDeps {
   ctx: StoreAccessors;
   sendRaw: (sessionId: string, envelope: WsEnvelope) => void;
-  sourceKey: (sessionId: string) => string;
-  rejectPendingRequests: (session: SessionEntry) => void;
-  planRestorePrefix: string;
+  /** Tracked request/acknowledgement path; see `ws-session-commands`. */
+  sendCommand: (sessionId: string, envelope: WsEnvelope, spec: SessionCommandSpec) => boolean;
 }
 
 export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): SimpleSessionActions {
@@ -88,47 +80,31 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
 }
 
 function createLifecycleActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw, sourceKey, rejectPendingRequests } = deps;
+  const { ctx, sendRaw, sendCommand } = deps;
   const { get, set, getSession } = ctx;
   return {
     interrupt(sessionId: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createInterrupt(session.serverSessionId));
+      if (session.pendingCommandActions.includes("interrupt")) return;
+      sendCommand(sessionId, createInterrupt(session.serverSessionId), SESSION_COMMANDS.interrupt);
     },
 
-    destroy(sessionId: string) {
-      clearReconnect(sourceKey(sessionId));
-      unregisterReconnector(sourceKey(sessionId));
-      useConnectionStatusStore.getState().clearSource(sourceKey(sessionId));
-      discardStreamDeltas(sessionId);
-      const session = get().sessions[sessionId];
-      // Same rationale as disconnect(): a destroyed session must not replay
-      // its queued envelopes on a future connect, nor leave sendRequest()
-      // callers hanging until the timeout after a deliberate close().
-      session?.outboundQueue.splice(0);
-      if (session) rejectPendingRequests(session);
-      if (!session?.conn) return;
+    settleInterrupt(sessionId: string) {
+      settleInterrupt(ctx, sessionId);
+    },
 
-      if (session.serverSessionId) {
-        session.conn.sendJson(createDestroy(session.serverSessionId));
-      }
-      session.conn.close();
-
-      set(
-        updateSession(get(), sessionId, {
-          conn: null,
-          isConnected: false,
-          lifecycle: transitionTurn(session.lifecycle, {
-            type: "turn_ended",
-            reason: "completed",
-          }),
-        }),
+    suspendForSleep(sessionId: string) {
+      const session = getSession(sessionId);
+      sendCommand(
+        sessionId,
+        createSessionSuspend(session.serverSessionId),
+        SESSION_COMMANDS.suspend,
       );
     },
 
     clearSession(sessionId: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createSessionClear(session.serverSessionId));
+      sendCommand(sessionId, createSessionClear(session.serverSessionId), SESSION_COMMANDS.clear);
     },
 
     compactSession(sessionId: string) {
@@ -141,31 +117,38 @@ function createLifecycleActions(deps: SimpleSessionActionDeps) {
         }),
       );
     },
-
-    deleteSession(sessionId: string) {
-      const session = getSession(sessionId);
-      sendRaw(sessionId, createSessionDelete(session.serverSessionId));
-    },
   };
 }
 
 function createConfigurationActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw } = deps;
+  const { ctx, sendCommand } = deps;
   const { get, set, getSession } = ctx;
   return {
     setProvider(sessionId: string, providerId: string, modelId?: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createProviderSet(session.serverSessionId, providerId, modelId));
+      sendCommand(
+        sessionId,
+        createProviderSet(session.serverSessionId, providerId, modelId),
+        SESSION_COMMANDS.provider,
+      );
     },
 
     setModel(sessionId: string, modelId: string, providerId: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createModelSet(session.serverSessionId, modelId, providerId));
+      sendCommand(
+        sessionId,
+        createModelSet(session.serverSessionId, modelId, providerId),
+        SESSION_COMMANDS.model,
+      );
     },
 
     setThinkingEffort(sessionId: string, thinkingEffort?: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createEffortSet(session.serverSessionId, thinkingEffort));
+      sendCommand(
+        sessionId,
+        createEffortSet(session.serverSessionId, thinkingEffort),
+        SESSION_COMMANDS.effort,
+      );
       // No optimistic update: `currentThinkingEffort` is set only once the
       // backend confirms via `effortSetOk` (see ws-envelope-handler.ts).
     },
@@ -189,7 +172,11 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
     setProfile(sessionId: string, profile: string) {
       const session = getSession(sessionId);
       if (!session.serverSessionId) return;
-      sendRaw(sessionId, createProfileSet(session.serverSessionId, profile));
+      sendCommand(
+        sessionId,
+        createProfileSet(session.serverSessionId, profile),
+        SESSION_COMMANDS.profile,
+      );
     },
     async setRuntimeOverrides(sessionId: string, patch: RuntimeConfigOverridePatch) {
       const session = getSession(sessionId);
@@ -217,36 +204,42 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
         // the only signal that the live CLI actually accepted the new
         // mode (vs. e.g. MODE_NOT_SUPPORTED rejection). No optimistic
         // local write here (see no-optimistic-updates.md).
-        sendRaw(sessionId, createModeSet(session.serverSessionId, mode));
+        sendCommand(sessionId, createModeSet(session.serverSessionId, mode), SESSION_COMMANDS.mode);
         return;
       }
       // Pre-init: there's no CLI to be out of sync with. Hold the
       // selection locally so `buildQueuedInitEnvelopes` can replay it as
       // a `mode.set` once the backend session comes up.
-      set(updateSession(get(), sessionId, { permissionMode: mode }));
+      set(
+        updateSession(get(), sessionId, { permissionMode: mode, pendingInitPermissionMode: mode }),
+      );
     },
 
     setAccessMode(sessionId: string, mode: AccessMode) {
       const session = getSession(sessionId);
       if (session.serverSessionId) {
-        sendRaw(sessionId, createAccessModeSet(session.serverSessionId, mode));
+        sendCommand(
+          sessionId,
+          createAccessModeSet(session.serverSessionId, mode),
+          SESSION_COMMANDS.accessMode,
+        );
         return;
       }
-      set(updateSession(get(), sessionId, { accessMode: mode }));
+      set(updateSession(get(), sessionId, { accessMode: mode, pendingInitAccessMode: mode }));
     },
   };
 }
 
 function createWorkflowActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw, planRestorePrefix } = deps;
+  const { ctx, sendRaw, sendCommand } = deps;
   const { get, set, getSession } = ctx;
   return {
     approvePlan(sessionId: string) {
-      applyApprovePlan(ctx, sessionId, sendRaw, planRestorePrefix);
+      submitPlanDecision(ctx, sessionId, "approved", "");
     },
 
     requestPlanChanges(sessionId: string, feedback: string) {
-      applyPlanChangesRequest(ctx, sessionId, feedback, sendRaw, planRestorePrefix);
+      submitPlanDecision(ctx, sessionId, "rejected", feedback);
     },
 
     closeGate(sessionId: string, reason: GateCloseReason) {
@@ -257,7 +250,11 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         session.pendingPermission?.requestId ||
         session.pendingPermissionQueue[0]?.requestId ||
         null;
-      sendRaw(sessionId, createGateClose(session.serverSessionId, requestId, reason));
+      sendCommand(
+        sessionId,
+        createGateClose(session.serverSessionId, requestId, reason),
+        SESSION_COMMANDS.gateClose,
+      );
     },
 
     retryWorktreeSetup(sessionId: string) {
@@ -272,7 +269,7 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         );
         return;
       }
-      const envelope = createEnvelope("session", "retry_worktree_setup", {
+      const envelope = createSessionEnvelope("retry_worktree_setup", {
         session_id: session.serverSessionId,
         feature_id: featureId,
       });
@@ -305,6 +302,7 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
             ? session.promptCommandPolicy
             : DEFAULT_PROMPT_COMMAND_POLICY,
           slashCommandsLoading: true,
+          slashCommandsError: sameTarget ? session.slashCommandsError : null,
           slashCommandsKey: nextKey,
           slashCommandsRequestRef: envelope.id,
         }),
@@ -317,11 +315,19 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
     },
 
     setPersistedState(sessionId: string, payload: PersistedStatePayload) {
-      applyPersistedState(ctx, sessionId, payload, planRestorePrefix);
+      applyPersistedState(ctx, sessionId, payload);
     },
 
     async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {
       return loadOlderSessionMessages(ctx, sessionId, displayMode);
+    },
+
+    loadPromptTurn(
+      sessionId: string,
+      messageDbId: number,
+      displayMode?: DisplayRowMode,
+    ): Promise<boolean> {
+      return loadSessionPromptTurn(ctx, sessionId, messageDbId, displayMode);
     },
 
     refreshSessionMessages(sessionId: string, target?: ResyncTarget): Promise<void> {

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { ExternalLink } from "lucide-react";
 import type { RemoteStatus } from "@/api/generated";
+import { RecommendedTag } from "@/components/RecommendedTag";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { useRemoteStore } from "@/stores/remote-store";
 import { interpolatePort, TUNNEL_GUIDES, type TunnelGuide } from "@/lib/remote/tunnel-guides";
@@ -36,11 +37,7 @@ function TunnelGuideCard({ guide, port }: { guide: TunnelGuide; port: number }):
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs font-medium">
           {guide.name}
-          {guide.recommended ? (
-            <span className="rounded-sm border border-[var(--acc-green)] px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-[var(--acc-green)]">
-              Recommended
-            </span>
-          ) : null}
+          {guide.recommended ? <RecommendedTag /> : null}
         </span>
         <button
           type="button"

@@ -25,13 +25,23 @@ describe("persistedQueries", () => {
 
   it("persists per-project settings sub-routes", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/projects/42/settings"))).toBe(true);
-    expect(shouldDehydrateQuery(makeQuery("/api/projects/42/model-settings"))).toBe(true);
-    expect(shouldDehydrateQuery(makeQuery("/api/projects/42/provider-settings"))).toBe(true);
+  });
+
+  it("does NOT persist the live sub-agent list", () => {
+    expect(shouldDehydrateQuery(makeQuery("/api/features/1076/subagents"))).toBe(false);
   });
 
   it("does NOT persist agent-state (multi-MB payload)", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/features/1076/agent-state"))).toBe(false);
     expect(shouldDehydrateQuery(makeQuery("/api/features/1076/agent-state?after=foo"))).toBe(false);
+  });
+
+  it("does NOT persist binary bodies, which serialize to {}", () => {
+    const query = {
+      queryKey: ["/api/features/7/agent-image", { src: "/tmp/qa/shot.png" }],
+      state: { status: "success", data: new Blob(["png"], { type: "image/png" }) },
+    } as unknown as Query;
+    expect(shouldDehydrateQuery(query)).toBe(false);
   });
 
   it("does NOT persist allocated ports (a restored scan would list dead servers)", () => {
@@ -42,6 +52,35 @@ describe("persistedQueries", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/git/diff"))).toBe(false);
     expect(shouldDehydrateQuery(makeQuery("/api/git/branch"))).toBe(false);
     expect(shouldDehydrateQuery(makeQuery("/api/git/stats"))).toBe(false);
+  });
+
+  it("does NOT persist live feature state that shares the /api/features prefix", () => {
+    for (const url of [
+      "/api/features/active",
+      "/api/features/activity",
+      "/api/features/12/status",
+      "/api/features/12/pending-gate",
+      "/api/features/12/sessions",
+      "/api/features/12/diff-comments",
+      "/api/workspace/settings-file",
+      "/api/projects/42/settings-file",
+    ]) {
+      expect(shouldDehydrateQuery(makeQuery(url)), url).toBe(false);
+    }
+  });
+
+  it("persists only the allowlisted feature reads", () => {
+    for (const url of [
+      "/api/features/pinned",
+      "/api/features/recent",
+      "/api/features/12",
+      "/api/features/12/settings",
+      "/api/features/12/row-summary",
+      "/api/workspace/settings/sidebar.lens",
+      "/api/features?project_id=1",
+    ]) {
+      expect(shouldDehydrateQuery(makeQuery(url)), url).toBe(true);
+    }
   });
 
   it("does NOT persist /api/health", () => {

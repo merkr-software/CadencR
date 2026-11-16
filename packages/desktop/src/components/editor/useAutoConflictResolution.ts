@@ -9,10 +9,14 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { FileStageState, useGetChangedFiles, type ChangedFileConflictKind } from "@/api/generated";
+import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { gitPathToFeaturePath } from "@/lib/git-paths";
 
 interface ConfirmedConflict {
   kind: ChangedFileConflictKind | undefined;
+  /** The path Git endpoints know the file by, relative to the checkout root. */
+  gitPath: string;
 }
 
 interface ConfirmedConflictPaths {
@@ -24,13 +28,15 @@ const ConfirmedConflictPathsContext = createContext<ConfirmedConflictPaths | nul
 /**
  * One changed-files observer per mounted feature editor. Consumers derive the
  * active path directly from this exact-path map instead of mirroring Git state
- * into every editor tab.
+ * into every editor tab. Keys are editor paths (relative to the feature's
+ * directory); conflicts outside that directory cannot be open in this editor.
  */
 export function useConfirmedConflictPaths(featureId: number): ConfirmedConflictPaths {
   const changedFiles = useGetChangedFiles(
     { feature_id: featureId, mode: "worktree" },
     { query: { refetchOnMount: false, refetchOnWindowFocus: false } },
   );
+  const prefix = useGitPathPrefix(featureId);
 
   useEffect(() => {
     if (!changedFiles.isError) return;
@@ -41,13 +47,16 @@ export function useConfirmedConflictPaths(featureId: number): ConfirmedConflictP
 
   return useMemo(() => {
     const byPath = new Map<string, ConfirmedConflict>();
+    if (prefix == null) return { byPath };
     for (const file of changedFiles.data ?? []) {
-      if (file.stage_state === FileStageState.conflicted) {
-        byPath.set(file.file, { kind: file.conflict_kind });
+      if (file.stage_state !== FileStageState.conflicted) continue;
+      const editorPath = gitPathToFeaturePath(file.file, prefix);
+      if (editorPath != null) {
+        byPath.set(editorPath, { kind: file.conflict_kind, gitPath: file.file });
       }
     }
     return { byPath };
-  }, [changedFiles.data]);
+  }, [changedFiles.data, prefix]);
 }
 
 export function ConfirmedConflictPathsProvider({

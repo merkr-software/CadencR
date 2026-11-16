@@ -24,12 +24,13 @@ export interface WorktreeChipProps {
    * anywhere — including over a session chip already bound to it.
    */
   enableModeShortcut?: boolean;
+  /** `manifest`: inline tokens of the composer's launch sentence. */
+  variant?: "chip" | "manifest";
 }
 
 /**
- * Branch + worktree selection chip. Shared by `MetaBar` (inline, wide screens)
- * and `MetaBarSecondary` (below the prompt on narrow/mobile widths) so the two
- * placements stay identical. Memoized like the sibling chips — it sits next to
+ * Branch + worktree selection: the tokens of the composer's launch sentence
+ * (`manifest`), or a chip. Memoized like the sibling chips — it sits next to
  * the agent stream, so it must not re-render on every streamed token.
  */
 export const WorktreeChip = memo(function WorktreeChip({
@@ -42,6 +43,7 @@ export const WorktreeChip = memo(function WorktreeChip({
   onWorktreeBranchChange,
   worktreeModes,
   enableModeShortcut,
+  variant,
 }: WorktreeChipProps) {
   if (
     worktreeProjectId == null ||
@@ -62,6 +64,7 @@ export const WorktreeChip = memo(function WorktreeChip({
       onSelectedBranchChange={onWorktreeBranchChange}
       modes={worktreeModes}
       enableModeShortcut={enableModeShortcut}
+      variant={variant}
     />
   );
 });

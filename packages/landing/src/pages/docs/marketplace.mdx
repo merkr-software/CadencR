@@ -1,0 +1,104 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Marketplace"
+description: "Discover, install, update, and manage plugins, themes, providers, custom tabs, skills, and MCP servers."
+lastReviewed: "2026-11-03"
+version: "0.16.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import marketplaceImage from "@/assets/news/v0.16.0/marketplace.webp";
+
+Open **Marketplace** in the sidebar, above **Agents**. Use it to extend CadencR itself or add skills and MCP servers to your installed agent CLIs.
+
+<DocScreenshot
+  src={marketplaceImage}
+  alt="Marketplace Discover view with theme previews, a provider, search, and category filters."
+  caption="Browse by category, inspect an extension, and choose what to install. Catalog contents vary over time."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Find an extension
+
+| View          | What to do                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| **Discover**  | Browse categories or search by name and description, then open an extension's detail page. |
+| **Installed** | See what is installed, activate or disable supported extensions, and manage removal.       |
+| **Updates**   | Review available updates and choose which versions to apply.                               |
+
+**Check for updates** refreshes the catalogs and installed agent extensions. The sidebar badge calls out available plugin updates. Refreshing does not automatically apply a new plugin version.
+
+## Choose the right category
+
+| Category        | What it adds                                                       | Where it is managed                                                             |
+| --------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Themes**      | Declarative colors and supported raster assets; no executable code | CadencR's signed plugin catalog and appearance settings                         |
+| **Providers**   | An executable connector for another coding agent over ACP          | CadencR's signed plugin catalog; the agent's CLI handles account authentication |
+| **Custom tabs** | A workspace web interface, sometimes with a native backend         | CadencR's signed plugin catalog and tab permission controls                     |
+| **Plugins**     | Several provider, theme, or tab contributions released together    | One marketplace detail page, with the included members listed                   |
+| **Skills**      | Skill packs offered by an agent CLI's own plugin marketplaces      | Each selected CLI's own plugin installation                                     |
+| **MCP servers** | Local tools or remote services from the official MCP Registry      | Each selected CLI's own MCP configuration                                       |
+
+An entry can appear in several categories when it contributes more than one kind of extension. Skills and MCP servers have their own sources and CLI support; they are not packages from CadencR's signed plugin catalog.
+
+## Install a CadencR plugin
+
+1. Open the theme, provider, custom tab, or plugin detail page.
+2. Read its description, publisher, source repository, license, and included contributions. For a tab, review permissions and any native backend declaration.
+3. Use the **Exact version** selector. The page marks the recommended version for your machine and explains unavailable or incompatible versions.
+4. Choose **Install** for that version and wait for the result.
+5. Complete the activation appropriate to its kind:
+
+| Kind                        | After installation                                                                                                                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Theme                       | Choose **Use this theme**. Manage light, dark, and system-following choices in **Settings → Appearance**.                                                                                                                                   |
+| Provider                    | Install and authenticate the underlying agent CLI as its README requires. Enable the connector, restart CadencR when prompted, then select its models in a conversation. See the [Cursor example](../providers/#install-the-cursor-plugin). |
+| Custom tab                  | Choose **Enable** and review the requested permissions before accepting. Custom tab web views run in the desktop app; remote/mobile clients show a placeholder.                                                                             |
+| Plugin with several members | Inspect **Includes** and the status of each member. Complete any provider restart or tab consent that remains.                                                                                                                              |
+
+A native tab backend runs code with your user account's rights. Its supported platform and protocol must match this machine and CadencR version. Review the source and the stated reason for native execution before enabling it.
+
+## Install skills in an agent CLI
+
+1. Open **Skills** and choose a pack.
+2. Under **Your agent CLIs**, inspect which installed CLIs offer it.
+3. Choose **Install in** the CLI you want to use. Repeat for another CLI if needed; each keeps its own copy.
+4. Start a new agent session to load the change.
+
+CadencR uses the CLI's own plugin commands. The page explains when a CLI is missing or its marketplaces do not offer the pack. Manually placed skill folders are listed for visibility; edit or remove those files yourself. Project-scoped packs must be managed from that project.
+
+## Add an MCP server
+
+1. Open **MCP servers**, search, and inspect a server's source and description.
+2. Choose how it runs when several options are offered: a local npm/PyPI package, container, or remote server. Install the required runtime on the host.
+3. Set **Server name in the CLI** and fill in the required arguments, environment variables, URL values, or headers.
+4. Under **Your agent CLIs**, choose **Add to** a supported installed CLI.
+
+CadencR runs that CLI's own MCP commands. The CLI starts or connects to the server, and the configuration also applies when you use the CLI outside CadencR. Secret inputs go into the CLI's configuration; CadencR does not retain a copy.
+
+MCP Registry entries are published by their authors and are not reviewed by CadencR. Review the source and requested access before adding a server. CadencR's built-in workspace, project, and browser MCP tools have a separate setup described in [MCP & orchestration](../mcp/).
+
+## Update, disable, or remove
+
+- **CadencR plugins:** open **Updates**, inspect the chosen exact version, and select **Update to**. A tab update that needs permission review remains staged until you accept it. Use **Review permissions** when offered.
+- **Skills and MCP servers:** use the actions on the relevant CLI row. Available update actions depend on that CLI and how the extension was installed. Removing one CLI's copy leaves the others in place.
+- **Disable:** providers and custom tabs can be disabled without removing their installed files. Provider changes may need a restart.
+- **Remove:** open an installed plugin's detail page and confirm **Remove**. Removing a provider keeps existing conversations; removing a tab keeps its configuration and retained revisions. A removed theme's active selections return to a built-in theme. Removing a plugin with several members removes its installed members.
+- **Edit a marketplace theme:** use **Duplicate** to create an editable author project. Installed signed revisions stay immutable. See [Themes](../themes/).
+
+## When installation is unavailable
+
+| Message or situation                             | Next step                                                                                                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **No verified catalog right now**                | Check your connection and select **Try again**. Browsing and installing plugins require a current signed catalog; installed plugins remain manageable from **Installed**. |
+| **The catalog isn't available in this build**    | This build has no plugin catalog configured. Use a distribution connected to the catalog; refreshing cannot configure it.                                                 |
+| **Needs a newer Cadencr**                        | Update CadencR or choose a compatible version.                                                                                                                            |
+| **Not available on this platform**               | Choose a version with a binary for your machine. Providers and native tab backends can have different macOS Apple Silicon, macOS Intel, and Linux support.                |
+| Blocked version or unavailable revocation policy | Read the reason shown. Choose an allowed version or retry when the policy can be verified.                                                                                |
+| Missing CLI, runtime, or required MCP values     | Complete the prerequisite shown on that CLI's row or in the server form, then retry.                                                                                      |
+
+## Publish your own extension
+
+Follow [Publish to the marketplace](../marketplace-publishing/) to package a provider, theme, custom tab, or multi-export plugin, publish its author release, and submit it for registry review.

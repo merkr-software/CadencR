@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub use crate::domain::agents::runtime::ProviderSettings as FeatureProviderSettings;
+use crate::domain::features::archive_cleanup::{CleanupReport, CleanupSelection};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
@@ -54,6 +55,11 @@ pub struct Feature {
     pub is_pinned: bool,
     pub spawned_by_feature_id: Option<i64>,
     pub spawn_link_type: Option<String>,
+    /// Latest user message across the conversation's sessions, else its
+    /// creation time: the sidebar's sort key. Set by the list endpoints only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub last_activity_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -81,12 +87,42 @@ pub struct UpdateStatusRequest {
     pub status: FeatureStatus,
 }
 
-#[derive(Debug, Default, Deserialize, ToSchema)]
+/// The Archive dialog's options: which relatives to archive along, and the
+/// cleanup to run on the selected conversation once the archive commits.
+#[derive(Debug, Default, Clone, Deserialize, ToSchema)]
 pub struct ArchiveRequest {
     #[serde(default)]
     pub include_parent: bool,
     #[serde(default)]
     pub include_descendants: bool,
+    #[serde(default)]
+    pub kill_terminals: bool,
+    #[serde(default)]
+    pub close_browser_tabs: bool,
+    #[serde(default)]
+    pub remove_worktree: bool,
+    /// Also removes the worktree, which git requires first.
+    #[serde(default)]
+    pub remove_branch: bool,
+    /// Discard uncommitted changes; only after the user confirmed it.
+    #[serde(default)]
+    pub force_remove_worktree: bool,
+    /// Delete the branch even when unmerged; only after the user confirmed it.
+    #[serde(default)]
+    pub force_remove_branch: bool,
+}
+
+impl ArchiveRequest {
+    pub fn cleanup(&self) -> CleanupSelection {
+        CleanupSelection {
+            kill_terminals: self.kill_terminals,
+            close_browser_tabs: self.close_browser_tabs,
+            remove_worktree: self.remove_worktree,
+            remove_branch: self.remove_branch,
+            force_remove_worktree: self.force_remove_worktree,
+            force_remove_branch: self.force_remove_branch,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, ToSchema)]
@@ -99,6 +135,18 @@ pub struct ArchivePreview {
 #[derive(Debug, PartialEq, Eq, Serialize, ToSchema)]
 pub struct ArchiveResponse {
     pub archived_ids: Vec<i64>,
+    /// Each requested cleanup step's outcome, on the selected conversation.
+    pub cleanup: CleanupReport,
+}
+
+/// Result of archiving every eligible session of a project: the archived
+/// feature ids plus how many active sessions were kept because they are
+/// pinned or have an agent turn in flight.
+#[derive(Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ArchiveProjectSessionsResponse {
+    pub archived_ids: Vec<i64>,
+    pub skipped_pinned: i64,
+    pub skipped_running: i64,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -185,6 +233,7 @@ mod tests {
             is_pinned: false,
             spawned_by_feature_id: None,
             spawn_link_type: None,
+            last_activity_at: None,
         };
 
         let json = serde_json::to_string(&feature).unwrap();

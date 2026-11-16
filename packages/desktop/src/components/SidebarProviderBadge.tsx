@@ -2,8 +2,34 @@ import { memo, type CSSProperties, type ReactElement } from "react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { BotIcon } from "lucide-react";
 import { useProviderMetadata } from "@/lib/provider-icons";
+import { cn } from "@/lib/utils";
 import { thinkingEffortLabel, parseThinkingEffort } from "@/shared/thinking-effort";
-import { useSidebarProviderLogos } from "@/components/SidebarPreferences";
+import { useSidebarOption } from "@/stores/sidebar-config-store";
+
+/** A provider's mono mark tinted with the text color; a bot glyph without one. */
+export function ProviderMonoMark({
+  iconSrc,
+  scale,
+  className,
+}: {
+  iconSrc?: string | null;
+  scale?: number | null;
+  className?: string;
+}): ReactElement {
+  if (!iconSrc) return <BotIcon className={cn("size-3.5", className)} aria-hidden />;
+  return (
+    <span
+      aria-hidden
+      className={cn("provider-mark-tint size-3.5", className)}
+      style={
+        {
+          "--provider-mark": `url("${iconSrc}")`,
+          "--provider-mark-size": `${(scale ?? 1) * 100}%`,
+        } as CSSProperties
+      }
+    />
+  );
+}
 
 interface SidebarProviderBadgeProps {
   providerId?: string | null;
@@ -18,8 +44,8 @@ export const SidebarProviderBadge = memo(function SidebarProviderBadge({
   thinkingEffort,
 }: SidebarProviderBadgeProps): ReactElement | null {
   const meta = useProviderMetadata(providerId, null, "mono");
-  const showProviderLogos = useSidebarProviderLogos();
-  if (!meta || !showProviderLogos) return null;
+  const providerDisplay = useSidebarOption("provider");
+  if (!meta || providerDisplay === "hidden") return null;
 
   const effort = parseThinkingEffort(thinkingEffort ?? undefined);
   const detail = [
@@ -36,20 +62,7 @@ export const SidebarProviderBadge = memo(function SidebarProviderBadge({
         data-provider-mark="mono"
         className="inline-flex size-3.5 items-center justify-center text-muted-foreground"
       >
-        {meta.iconSrc ? (
-          <span
-            aria-hidden
-            className="provider-mark-tint size-3.5"
-            style={
-              {
-                "--provider-mark": `url("${meta.iconSrc}")`,
-                "--provider-mark-size": `${(meta.monoIconScale ?? 1) * 100}%`,
-              } as CSSProperties
-            }
-          />
-        ) : (
-          <BotIcon className="size-3.5" aria-hidden />
-        )}
+        <ProviderMonoMark iconSrc={meta.iconSrc} scale={meta.monoIconScale} />
       </span>
     </ShortcutTooltip>
   );

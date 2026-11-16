@@ -11,7 +11,7 @@ use super::SettingWarning;
 /// Top-level keys whose value is a nested object the store persists verbatim
 /// (e.g. `profiles.<name>.<ENV_KEY>`). They are not part of the flat scalar
 /// projection, so they are skipped silently rather than warned on.
-const STRUCTURED_KEYS: &[&str] = &["profiles", "codex_profiles"];
+const STRUCTURED_KEYS: &[&str] = &["profiles", "codex_profiles", "telemetry"];
 
 fn is_structured_key(key: &str) -> bool {
     STRUCTURED_KEYS.contains(&key)
@@ -31,14 +31,26 @@ pub fn object_section(
 
 /// Read raw file text. Returns `None` when the file does not exist.
 pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(AppError::Internal(format!(
-            "failed to read settings file {}: {e}",
+    use std::io::Read;
+    let mut file = match crate::remote::secure_fs::open_owner_only(path, false) {
+        Ok(file) => file,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(None)
+        }
+        Err(error) => return Err(AppError::internal(error.to_string())),
+    };
+    let mut text = String::new();
+    file.read_to_string(&mut text).map_err(|error| {
+        AppError::internal(format!(
+            "failed to read settings file {}: {error}",
             path.display()
-        ))),
-    }
+        ))
+    })?;
+    Ok(Some(text))
 }
 
 /// Parse a settings document into a flat `key -> string` map.
@@ -130,12 +142,43 @@ pub fn serialize_document(map: &serde_json::Map<String, serde_json::Value>) -> S
 /// Atomically write `content` to `path`. Thin alias over the shared helper so
 /// callers in this module keep reading in settings terms.
 pub fn write_atomic(path: &Path, content: &str) -> Result<(), AppError> {
-    crate::shared::atomic_file::write_atomic(path, content)
+    if let Some(parent) = path.parent() {
+        crate::remote::secure_fs::create_dir_owner_only(parent)
+            .map_err(|error| AppError::internal(error.to_string()))?;
+    }
+    crate::shared::atomic_file::write_atomic_private(path, content)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_writes_and_reads_enforce_private_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_atomic(&path, "{}").unwrap();
+        assert_eq!(
+            std::fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(read_file(&path).unwrap().as_deref(), Some("{}"));
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let link = dir.path().join("linked.settings.json");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(read_file(&link).is_err());
+    }
 
     #[test]
     fn missing_file_reads_none() {

@@ -62,4 +62,15 @@ describe("remote-store refresh single-flight", () => {
 
     expect(remoteStatus).toHaveBeenCalledTimes(2);
   });
+
+  it.each([{ fingerprint: 123 }, { tunnel_host: {} }, { port: "5006" }, { lan_urls: [123] }])(
+    "rejects malformed certificate/origin metadata before it enters the UI: %j",
+    async (invalid) => {
+      remoteStatus.mockResolvedValue({ ...status(), ...invalid });
+      await useRemoteStore.getState().refresh();
+      expect(useRemoteStore.getState().status).toBeNull();
+      expect(useRemoteStore.getState().error).toBe("Malformed remote status response.");
+      expect(useRemoteStore.getState().phase).toBe("idle");
+    },
+  );
 });

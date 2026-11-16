@@ -150,12 +150,14 @@ mod tests {
                 path: PathBuf::from("/a/claude"),
                 canonical: PathBuf::from("/a/claude"),
                 version: Some(VersionKey(1, 0, 0)),
+                version_text: None,
                 source: CandidateSource::EnvPath,
             },
             Candidate {
                 path: PathBuf::from("/b/claude"),
                 canonical: PathBuf::from("/b/claude"),
                 version: Some(VersionKey(2, 0, 0)),
+                version_text: None,
                 source: CandidateSource::WellKnown,
             },
         ];

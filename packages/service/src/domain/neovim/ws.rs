@@ -86,7 +86,7 @@ pub async fn neovim_ws_handler(
             Ok(resolved) => resolved,
             Err(response) => return response,
         };
-    ws.protocols([selected_proto])
+    ws.protocols(selected_proto)
         .on_upgrade(move |socket| async move {
             if let Some(device_id) = device_id {
                 let (guard, _) = app_state.remote.live().register(device_id);

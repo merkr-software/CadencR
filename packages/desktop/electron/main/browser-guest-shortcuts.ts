@@ -9,7 +9,8 @@ function isValidShortcutChord(keys: string[]): boolean {
   return keys.filter((key) => !SHORTCUT_MODIFIERS.has(key.toLowerCase())).length === 1;
 }
 
-const shortcutBindingSchema = z
+/** Registry tokens for one shortcut; an empty chord is an unbound one. */
+export const shortcutBindingSchema = z
   .object({
     keys: z.array(z.string().min(1).max(32)).max(8).refine(isValidShortcutChord),
     altKeys: z.array(z.string().min(1).max(32)).max(8).refine(isValidShortcutChord).optional(),
@@ -23,8 +24,16 @@ const guestShortcutBindingsSchema = z
     responsive: shortcutBindingSchema,
     devtools: shortcutBindingSchema,
     zoomReset: shortcutBindingSchema,
+    navigateBack: shortcutBindingSchema,
+    navigateForward: shortcutBindingSchema,
   })
   .strict();
+
+/** The platform `compileBrowserShortcutBinding` resolves `mod` and key names for. */
+export function shortcutPlatform(): "mac" | "windows" | "linux" {
+  if (process.platform === "darwin") return "mac";
+  return process.platform === "win32" ? "windows" : "linux";
+}
 
 export function parseBrowserGuestShortcutBindings(value: unknown): BrowserGuestShortcutBindings {
   return guestShortcutBindingsSchema.parse(value);

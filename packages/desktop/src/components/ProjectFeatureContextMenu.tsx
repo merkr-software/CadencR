@@ -3,10 +3,14 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   ArrowRightIcon,
+  BrushCleaningIcon,
   FolderGit2Icon,
   GitBranchIcon,
   GitPullRequestIcon,
+  MailCheckIcon,
+  MailIcon,
   PinIcon,
+  PencilIcon,
   PinOffIcon,
   TagIcon,
   TrashIcon,
@@ -15,11 +19,19 @@ import {
 } from "lucide-react";
 import { ContextMenuSeparator } from "@/components/ui/context-menu";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
-import type { Feature, FeatureWorktreeInfo, PrSummary } from "@/api/generated";
+import {
+  useListArchiveCleanups,
+  type Feature,
+  type FeatureWorktreeInfo,
+  type PrSummary,
+} from "@/api/generated";
+import { useArchiveCleanupReviewStore } from "@/stores/archive-cleanup-review-store";
 import { closeFeatureActivityNoun } from "@/lib/feature-activity-close";
 import { copyToClipboard } from "@/lib/clipboard";
 import { openPullRequestActionLabel, openPullRequestExternally } from "@/lib/open-pull-request";
 import { archiveActionLabel, pinActionLabel } from "@/components/ProjectFeatureRowParts";
+import { useIsFeatureMarked, useUnreadStore } from "@/stores/unread-store";
+import { useSidebarRenameStore } from "@/stores/sidebar-rename-store";
 
 interface ProjectFeatureContextMenuProps {
   feature: Feature;
@@ -80,6 +92,13 @@ export function ProjectFeatureContextMenu({
           {pinActionLabel(isPinned)}
         </ContextMenuActionItem>
       )}
+      <ContextMenuActionItem
+        icon={PencilIcon}
+        onSelect={() => useSidebarRenameStore.getState().open(feature.id)}
+      >
+        Rename
+      </ContextMenuActionItem>
+      <MarkReadItem featureId={feature.id} />
       <ContextMenuActionItem icon={TagIcon} onSelect={onStartLabelEditAfterMenuClose}>
         Set label
       </ContextMenuActionItem>
@@ -122,6 +141,7 @@ export function ProjectFeatureContextMenu({
         Copy feature title
       </ContextMenuActionItem>
       <ContextMenuSeparator />
+      {isArchived && <ReviewCleanupItem featureId={feature.id} />}
       {isArchived && (
         <ContextMenuActionItem icon={ArchiveRestoreIcon} onSelect={() => onUnarchive(feature.id)}>
           Unarchive
@@ -135,5 +155,47 @@ export function ProjectFeatureContextMenu({
         {archiveActionLabel(isArchived)}
       </ContextMenuActionItem>
     </>
+  );
+}
+
+/** An archived conversation whose cleanup has steps left (see `ArchiveCleanupNotices`). */
+function ReviewCleanupItem({ featureId }: { featureId: number }): ReactNode {
+  const { data: unsettled = false } = useListArchiveCleanups({
+    query: {
+      retry: false,
+      select: (cleanups) => cleanups.some((cleanup) => cleanup.feature_id === featureId),
+    },
+  });
+  if (!unsettled) return null;
+  return (
+    <ContextMenuActionItem
+      icon={BrushCleaningIcon}
+      onSelect={() => useArchiveCleanupReviewStore.getState().open(featureId)}
+    >
+      Review archive cleanup…
+    </ContextMenuActionItem>
+  );
+}
+
+/**
+ * Mark as unread keeps a conversation in "For me" even while it is open: only
+ * opening it again reads it.
+ */
+function MarkReadItem({ featureId }: { featureId: number }): ReactNode {
+  const isMarked = useIsFeatureMarked(featureId);
+  return isMarked ? (
+    <ContextMenuActionItem
+      icon={MailCheckIcon}
+      onSelect={() => useUnreadStore.getState().toggleMarked(featureId)}
+    >
+      Mark as read
+    </ContextMenuActionItem>
+  ) : (
+    <ContextMenuActionItem
+      icon={MailIcon}
+      onSelect={() => useUnreadStore.getState().toggleMarked(featureId)}
+    >
+      Mark as unread
+    </ContextMenuActionItem>
   );
 }

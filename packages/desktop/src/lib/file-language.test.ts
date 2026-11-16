@@ -95,6 +95,8 @@ describe("getPreviewKind", () => {
     expect(getPreviewKind("index.html")).toBe("html");
     expect(getPreviewKind("page.HTM")).toBe("html");
     expect(getPreviewKind("logo.svg")).toBe("svg");
+    expect(getPreviewKind("data/export.csv")).toBe("csv");
+    expect(getPreviewKind("export.TSV")).toBe("csv");
   });
 
   it("returns null for files with no preview", () => {

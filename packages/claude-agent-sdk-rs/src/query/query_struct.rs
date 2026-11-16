@@ -17,7 +17,7 @@ use crate::messages::SdkMessage;
 use crate::types::McpServerStatus;
 
 use super::turn_state::TurnState;
-use super::wire::{InterruptAck, PendingControl};
+use super::wire::PendingControl;
 
 /// A running Claude Code CLI query with streaming output and turn management.
 ///
@@ -66,9 +66,6 @@ pub struct Query {
     /// Background reader task handle (for cleanup).
     pub(super) reader_task: Option<tokio::task::JoinHandle<()>>,
 
-    /// Channel to ask the reader task to send SIGINT to the CLI process.
-    pub(super) interrupt_tx: mpsc::Sender<InterruptAck>,
-
     /// Channel to signal the reader task to gracefully kill the CLI process.
     pub(super) kill_tx: mpsc::Sender<()>,
 
@@ -77,6 +74,9 @@ pub struct Query {
 
     /// PID of the CLI subprocess (captured at spawn time).
     pub(super) pid: Option<u32>,
+
+    /// Cancelled once the reader has let go of the CLI process.
+    pub(super) process_ended: CancellationToken,
 }
 
 impl Stream for Query {
@@ -145,13 +145,21 @@ impl Query {
         self.pid
     }
 
+    /// Resolves once the CLI process is gone: it exited and was waited on, or
+    /// it was sent SIGKILL because the query was dropped. Whatever it leaves
+    /// behind (its process group, see
+    /// [`Options::own_process_group`](crate::Options::own_process_group)) can
+    /// be cleaned up from then on. Resolves at once for a stub.
+    pub fn process_exited(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        self.process_ended.clone().cancelled_owned()
+    }
+
     /// Gracefully kill the child process (SIGTERM → wait 5s → SIGKILL) and
     /// stop the background reader task.
     ///
     /// After this call the stream will end.
     pub async fn close(&mut self) {
-        // Signal the reader loop to kill the child process.
-        let _ = self.kill_tx.send(()).await;
+        self.kill().await;
 
         // Wait for the reader task to finish (it will break after killing).
         if let Some(task) = self.reader_task.take() {
@@ -160,6 +168,13 @@ impl Query {
 
         // Drop stdin for good measure.
         self.process_stdin.lock().await.take();
+    }
+
+    /// Kill the child process without waiting for it, through a shared
+    /// handle. The stream ends once the reader has stopped it; use
+    /// [`close`](Query::close) to also wait for that.
+    pub async fn kill(&self) {
+        let _ = self.kill_tx.send(()).await;
     }
 
     /// Close stdin (no more user input). The CLI will finish its current
@@ -176,8 +191,9 @@ impl Query {
     pub fn new_test_stub(session_id: Option<String>) -> Self {
         let (msg_tx, message_rx) = mpsc::channel(1);
         drop(msg_tx); // close immediately so stream_input will fail
-        let (interrupt_tx, _interrupt_rx) = mpsc::channel::<InterruptAck>(1);
         let (kill_tx, _kill_rx) = mpsc::channel(1);
+        let process_ended = CancellationToken::new();
+        process_ended.cancel();
         Self {
             message_rx,
             process_stdin: Arc::new(Mutex::new(None)),
@@ -188,10 +204,10 @@ impl Query {
             pending_control: Arc::new(Mutex::new(HashMap::new())),
             control_request_counter: Arc::new(AtomicU64::new(0)),
             reader_task: None,
-            interrupt_tx,
             kill_tx,
             _cancel_token: None,
             pid: None,
+            process_ended,
         }
     }
 }

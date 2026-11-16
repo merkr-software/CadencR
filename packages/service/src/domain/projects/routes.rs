@@ -42,8 +42,39 @@ pub async fn delete_project_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<SuccessResponse>, AppError> {
-    service::delete_project(&state.write_pool, id).await?;
+    let feature_ids = service::delete_project(&state.write_pool, id).await?;
+    for feature_id in &feature_ids {
+        state.persistence_health.forget_feature(*feature_id).await;
+    }
+    state.plugin_tab_presence.release_features(&feature_ids);
+    // The rows are already gone, so the setup's final state cannot be stored
+    // (the foreign key refuses it); its processes still stop.
+    crate::domain::workflow::worktree::cancel_setups(&state.worktree_setup_runs, &feature_ids)
+        .await;
+    state
+        .session_status_tx
+        .forget_deleted_sessions(&state.write_pool)
+        .await?;
     Ok(Json(SuccessResponse { success: true }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/publication-readiness",
+    params(("id" = i64, Path,)),
+    responses(
+        (status = 200, body = PublicationReadinessResponse),
+        (status = 400, description = "Project is not an authored provider"),
+        (status = 404, description = "Project does not exist")
+    )
+)]
+pub async fn get_project_publication_readiness_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<PublicationReadinessResponse>, AppError> {
+    Ok(Json(
+        crate::domain::projects::publication_readiness::inspect(&state.read_pool, id).await?,
+    ))
 }
 
 #[utoipa::path(get, path = "/api/projects/{id}/settings", params(("id" = i64, Path,)), responses((status = 200, body = Vec<ProjectSetting>)))]
@@ -97,53 +128,6 @@ pub async fn put_project_settings_file_handler(
     Ok(Json(WriteSettingsFileResponse { warnings }))
 }
 
-#[utoipa::path(get, path = "/api/projects/{id}/model-settings", params(("id" = i64, Path,)), responses((status = 200, body = ProjectModelSettings)))]
-pub async fn get_project_model_settings_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<Json<ProjectModelSettings>, AppError> {
-    Ok(Json(
-        service::get_project_model_settings(&state.read_pool, id).await?,
-    ))
-}
-
-#[utoipa::path(put, path = "/api/projects/{id}/model-settings", params(("id" = i64, Path,)), request_body = SetProjectModelSettingRequest, responses((status = 200, body = SuccessResponse)))]
-pub async fn set_project_model_setting_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Json(body): Json<SetProjectModelSettingRequest>,
-) -> Result<Json<SuccessResponse>, AppError> {
-    service::set_project_model_setting(&state.write_pool, id, &body.model_type, &body.model)
-        .await?;
-    Ok(Json(SuccessResponse { success: true }))
-}
-
-#[utoipa::path(get, path = "/api/projects/{id}/provider-settings", params(("id" = i64, Path,)), responses((status = 200, body = ProjectProviderSettings)))]
-pub async fn get_project_provider_settings_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<Json<ProjectProviderSettings>, AppError> {
-    Ok(Json(
-        service::get_project_provider_settings(&state.read_pool, id).await?,
-    ))
-}
-
-#[utoipa::path(put, path = "/api/projects/{id}/provider-settings", params(("id" = i64, Path,)), request_body = SetProjectProviderSettingRequest, responses((status = 200, body = SuccessResponse)))]
-pub async fn set_project_provider_setting_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Json(body): Json<SetProjectProviderSettingRequest>,
-) -> Result<Json<SuccessResponse>, AppError> {
-    service::set_project_provider_setting(
-        &state.write_pool,
-        id,
-        &body.provider_type,
-        &body.provider,
-    )
-    .await?;
-    Ok(Json(SuccessResponse { success: true }))
-}
-
 pub fn projects_router() -> Router<AppState> {
     Router::new()
         .route(
@@ -155,20 +139,16 @@ pub fn projects_router() -> Router<AppState> {
             axum::routing::delete(delete_project_handler),
         )
         .route(
+            "/api/projects/{id}/publication-readiness",
+            get(get_project_publication_readiness_handler),
+        )
+        .route(
             "/api/projects/{id}/settings",
             get(get_project_settings_handler).put(set_project_setting_handler),
         )
         .route(
             "/api/projects/{id}/settings-file",
             get(get_project_settings_file_handler).put(put_project_settings_file_handler),
-        )
-        .route(
-            "/api/projects/{id}/model-settings",
-            get(get_project_model_settings_handler).put(set_project_model_setting_handler),
-        )
-        .route(
-            "/api/projects/{id}/provider-settings",
-            get(get_project_provider_settings_handler).put(set_project_provider_setting_handler),
         )
         .route(
             "/api/projects/{id}/icon-candidates",

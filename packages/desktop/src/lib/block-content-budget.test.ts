@@ -9,7 +9,7 @@ import {
   TRUNCATION_NOTICE,
 } from "./block-content-budget";
 import { promptImageSrc, resetPromptBlobCacheForTest } from "./prompt-image-cache";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { buildUserMessageContent, parseUserMessageContent } from "@/types/agent-types";
 
 afterEach(() => resetPromptBlobCacheForTest());

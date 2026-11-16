@@ -1,0 +1,2167 @@
+{
+  "schema_version": 2,
+  "id": "docker-langserver",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "node",
+  "entry": "node_modules/dockerfile-language-server-nodejs/lib/server.js",
+  "target": "all",
+  "sources": [
+    {
+      "name": "dockerfile-ast",
+      "version": "0.7.1",
+      "url": "https://registry.npmjs.org/dockerfile-ast/-/dockerfile-ast-0.7.1.tgz",
+      "sha256": "86d5054eaeacc5917c0e693a6e18480041a09ee2176a9cc2257c119fbc178b29",
+      "destination": "node_modules/dockerfile-ast",
+      "expanded_size": 239390,
+      "files": [
+        {
+          "path": "CHANGELOG.md",
+          "sha256": "a627f1e7f10116aea54cb394f2996a0f0cf54920994f3eb406e7b0d205f3ac31",
+          "size": 24514,
+          "mode": "100644"
+        },
+        {
+          "path": "License.txt",
+          "sha256": "d5e2e9c1dc6be820da0a0bed0d24d51c18d777dc867023b1881becce4e06c4c4",
+          "size": 1071,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "1485d8e6728bd0447bbf4d27511e42d1bde15f9e34e0c1453c5e0b4fc8286704",
+          "size": 2355,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/argument.d.ts",
+          "sha256": "bae3a0de4b01b8604eedfead77337bc3933259037b3b91135ad3716de3763eda",
+          "size": 355,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/argument.js",
+          "sha256": "532e084d2b1c3849b6f737fe89b7e14622c3a7b9de42cfbb8f0f40403195b026",
+          "size": 851,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/comment.d.ts",
+          "sha256": "12775ca5eb6a2e94ad4f22063b4d5bb0f1740b5969287f686827684ed2818d15",
+          "size": 806,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/comment.js",
+          "sha256": "382dc29eb3faabea8579bec505971e03878be0caaebe877e2f6f951970334571",
+          "size": 2208,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerfile.d.ts",
+          "sha256": "1249c8d8841e4118f48b701e50085dca84b27c77cb7b3156ad2b7fcd590c593e",
+          "size": 1564,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerfile.js",
+          "sha256": "e1efd7cd87c461d950c594bdd8f0c8e1d045c4c9de05eab983865e689fc73f6b",
+          "size": 9744,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/flag.d.ts",
+          "sha256": "1f3377901f3c2faab28cd0c36a7d7f4dc9e890ec0a7e1d2f8963bf08c74ea0ed",
+          "size": 2042,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/flag.js",
+          "sha256": "aa8fcbdc90122b910eaa8df5c909297b1c4ff8b48666b8db0d5f9058681db831",
+          "size": 4574,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/flagOption.d.ts",
+          "sha256": "872e77cfcfdc4ee4a007aa24d2a59e48812dbfd2ba680bf13b9e5f18ce6f75d8",
+          "size": 511,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/flagOption.js",
+          "sha256": "da18d9500a5e5d5d5d65dfc87968ae05deb9cf5f5c55ae069487b0a16dcfab8f",
+          "size": 797,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/heredoc.d.ts",
+          "sha256": "e62a5d159ae6d71576144ee017160be80a26c41d455ea7aabfc0c4581b96cb22",
+          "size": 1911,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/heredoc.js",
+          "sha256": "fef95f7723c7c8059f4356e9a9402736ee5433539314e6e0545d920ca8069f2c",
+          "size": 2100,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/imageTemplate.d.ts",
+          "sha256": "b0f45e869bb28fc16626ebbfcf1611eabaac508fe401dddb7cb91e56d206369e",
+          "size": 2705,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/imageTemplate.js",
+          "sha256": "26c74876c2bf3d15329ccc97fc7dba3af1d6694c7ca85d48c545409368cfb9ef",
+          "size": 8037,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instruction.d.ts",
+          "sha256": "096f2857ec41daf7fa5f6e179e16883149f424d136b7738fe217250fbcace5af",
+          "size": 1355,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instruction.js",
+          "sha256": "ba6b1322a7d4cbf5a20d16f389c0fe24813acc469158e0b61b3e448e92868cdc",
+          "size": 42557,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/add.d.ts",
+          "sha256": "160a6b8576ac99ea9c2ab307f911735a9601d39669597b42d1b1a7cb9961bf7e",
+          "size": 470,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/add.js",
+          "sha256": "970eb1f104e33f0d7a0875da162055ad49b678731e3523ec2f5aa42bd79fed7e",
+          "size": 504,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/arg.d.ts",
+          "sha256": "38c8310dfa3483ff41f33f6dfa12bd5e02b351b0cf92586e1aecd836be5a7bd9",
+          "size": 692,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/arg.js",
+          "sha256": "afb33949778b0acdbd7cb9609c24e8fbd5b6f7a2330c3646b55301123bc31771",
+          "size": 971,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/cmd.d.ts",
+          "sha256": "25a84cbb08d6e6d27af0eb28e62e0d5971385d834e2a3d0a29afba1e15a69abe",
+          "size": 416,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/cmd.js",
+          "sha256": "40df96ac1b49c5ba84915acefd871e9a9134e79877d2450caa52dff0297bb092",
+          "size": 414,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/copy.d.ts",
+          "sha256": "24e39fba7fd150f43fb4e431b2caa4076cb1eb6122f4026c11f7804c6bae7c15",
+          "size": 766,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/copy.js",
+          "sha256": "67facb8911428dea1081e5a2b913a3ef5f5412a90ab0c8ef470c0b98d6b37d4f",
+          "size": 883,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/entrypoint.d.ts",
+          "sha256": "dd3de1810c5d1f19075bc4dcb63245cba1b149aa1106d6f4934fe3d4721e223f",
+          "size": 423,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/entrypoint.js",
+          "sha256": "a48f0a53be7df51bb4ebfa0746de8b65dd7540f96462b8b0d91a4479ead9e100",
+          "size": 442,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/env.d.ts",
+          "sha256": "0eb6320ad4dc9b3e73e7e4689bc6ba7e1c00b93476df1af2bd90e763c67d4eab",
+          "size": 501,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/env.js",
+          "sha256": "1fe1311481c7622d565fbd2795122d16e2c537dd9a79de0d55ea892919a15a93",
+          "size": 496,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/from.d.ts",
+          "sha256": "76fa18b3cb1849ba285f7c326cf986dc9392c7ef369351df93fc4c4c539d3de1",
+          "size": 2218,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/from.js",
+          "sha256": "a86a23d933b33a562c69e15ce732906a3332b30df7b1e53d13741e825a8e7e8a",
+          "size": 10132,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/healthcheck.d.ts",
+          "sha256": "ea78e62479311ced64bdb6c4d27a1f3291e1cbc98a0dc928e70fa351861c935e",
+          "size": 584,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/healthcheck.js",
+          "sha256": "7557f9ad4beb41bdae3eb5f29b16c5c990863e6e01dc14cfac331e94ddf9f18a",
+          "size": 734,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/label.d.ts",
+          "sha256": "ec1f1853d492739b496e4e5b3177b923a7a0837dc563cab6e45fd6329efa3d52",
+          "size": 575,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/label.js",
+          "sha256": "54cd2995dc551a6238f0e394b136db6bd8832defce9ee37750eb63598fec8bbb",
+          "size": 1527,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/onbuild.d.ts",
+          "sha256": "b48230219a6b9e9eada05c3543c706edbe5c5d2225cfd0879396db2fa6973521",
+          "size": 564,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/onbuild.js",
+          "sha256": "c2cadaa9a89383ceac9eba7e04ed557ea6a0fec2e48152d41fbac0342149ba80",
+          "size": 1311,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/run.d.ts",
+          "sha256": "a7631f9f6bd7bbc92e7f01e4045b478eee925c480b86ebb63821e780048e73d3",
+          "size": 701,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/run.js",
+          "sha256": "940733f26252be924fc268fb6b187c169ab87d74b167254df3a9397770ef958c",
+          "size": 729,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/shell.d.ts",
+          "sha256": "1112917b453a4824081e36cf02d8db4ca3a8ea50c8b448f6c59cef4ff96ef7d2",
+          "size": 418,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/shell.js",
+          "sha256": "f799c92572988c326ede13f79ab3baf9f750893a22ccfcdda10c68086f84a4dd",
+          "size": 422,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/stopsignal.d.ts",
+          "sha256": "d071bc12a379e9ea42530ad85a4bc1f19e1edd357a9d1ccb26baf2d81f2aab03",
+          "size": 411,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/stopsignal.js",
+          "sha256": "7158ce44bc91805d0cf6ccc7ec38b5ec5760391143e0152a0cdeb341d093fe8a",
+          "size": 426,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/user.d.ts",
+          "sha256": "69679d62c021f427cea4cbcbae9fb6c3c42c92d78c1f343837efbf76c6335ec6",
+          "size": 405,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/user.js",
+          "sha256": "783cf08f2502d51ae3f59d795161457442588a57b28a9b483ad3b04f9337c94a",
+          "size": 402,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/volume.d.ts",
+          "sha256": "80b0383dadf34be8bdb9e559568a183629c8be518e620f60a3148f1071eecd7c",
+          "size": 419,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/volume.js",
+          "sha256": "7a3de98efbfa5e947eeebd1d62b14fdbac39c4a0f23f6ad57310714c2449f500",
+          "size": 426,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/workdir.d.ts",
+          "sha256": "7e8977db9769cbafe385b871f85bfa7aa9db1161b98e0b79fe69a7fc5fb43479",
+          "size": 1261,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/instructions/workdir.js",
+          "sha256": "19ecbdba5605e13ad17d01cbe9ff282a99b46fa21d0ae7e967ccb1e015148ea3",
+          "size": 2130,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/jsonArgument.d.ts",
+          "sha256": "e2127e9788c28723e5a020487d0d5c96adc7454790d8709690102acd90922af9",
+          "size": 298,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/jsonArgument.js",
+          "sha256": "86f190e038c97054cb37cd670c0b6ece3c53a603c50cd7d3398793eb46807f24",
+          "size": 551,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/jsonInstruction.d.ts",
+          "sha256": "f522a26a07ff252f52284c7a247ebbee1e43f0ab641dc79c061faed5f67d97c8",
+          "size": 822,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/jsonInstruction.js",
+          "sha256": "8e0478f370a24bc99b1a360354a2a9381085089ce8af0f716ddf6344c2000cd2",
+          "size": 7704,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/line.d.ts",
+          "sha256": "93ff475dbc25aa6093402d291012866e83ae0388fd80b4171a323953ea11ade6",
+          "size": 404,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/line.js",
+          "sha256": "a5578de752e8223eb8ba43378b2e2242882274fcbcbc2dd369ebfdd7de5c9b59",
+          "size": 610,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/main.d.ts",
+          "sha256": "77fde62feef5b2fa675cf2f75e81b34dcd7dd5c847fc53f68f480c182d585ed8",
+          "size": 5277,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/main.js",
+          "sha256": "58ea496c247430a785a550ca4216834adc0a3086187b16d3465a888cbbf7d0f8",
+          "size": 6812,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/modifiableInstruction.d.ts",
+          "sha256": "9b9251c30d4d0336d5348066b3d746f3ad4487d760a901031be2993a1e4b1bdd",
+          "size": 644,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/modifiableInstruction.js",
+          "sha256": "d5be11a7b2e464b58c3113ac10504d72d0a3d105db915805a25a36403e8de36f",
+          "size": 4084,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/parser.d.ts",
+          "sha256": "6699e92e1cc68d18182af4cb927224df6f5470ca38c878c1ac0bf034ffe3060f",
+          "size": 729,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/parser.js",
+          "sha256": "3dff019218ef6a32ef100501e5fcad9fb229368f0feb07bb0494c55eb8f27650",
+          "size": 20979,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/parserDirective.d.ts",
+          "sha256": "efc19fc505486b3fd551f0fadcfac4aea34ed913cedb6520d84b874da0f80a43",
+          "size": 562,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/parserDirective.js",
+          "sha256": "22c1f13456d2d8e96801005ccec601bcd67c9501f0f0adaa1b9cc4dc9e34065c",
+          "size": 1128,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/property.d.ts",
+          "sha256": "d6bfaa8c03c8ce74d95881d885646f981bc40e61bdcdd1c199640fdc5ea15c19",
+          "size": 2122,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/property.js",
+          "sha256": "795d587d3b2fa304b187893eeb24f118e99a42f6e2ca25b5e53aa6478e9dbcbd",
+          "size": 14419,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/propertyInstruction.d.ts",
+          "sha256": "588828a509d55376ac7cc28a0d36b94fa5178b8574a9b185707114ad99200086",
+          "size": 1192,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/propertyInstruction.js",
+          "sha256": "4f0373436d10a413c5062afad29fec959ad6165ebf3c07ea7f75061afc7d0e98",
+          "size": 16556,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/util.d.ts",
+          "sha256": "6cc2794d8694bb582755bfbbe3be209080bbe3f571c346c7ebb2b264973ad7e9",
+          "size": 652,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/util.js",
+          "sha256": "729a6f38dbb2794b3f38fd68456495c2c0f561a42ee3e76fbfec62bccc1b8fa9",
+          "size": 3649,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/variable.d.ts",
+          "sha256": "67557ebdfc224bdde48568984b8aa249d8045820983fd0df6c3547a9c240281e",
+          "size": 2926,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/variable.js",
+          "sha256": "ed3f0f0039839cedb5dcf51438dceab246f46caff2c012a6b8acc9a9581b2740",
+          "size": 3294,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "32f2a337d4f5baa043edda8c63a9b79b26e5e2ef4728ad3a3340990c1a7905e4",
+          "size": 1146,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "dockerfile-language-server-nodejs",
+      "version": "0.15.0",
+      "url": "https://registry.npmjs.org/dockerfile-language-server-nodejs/-/dockerfile-language-server-nodejs-0.15.0.tgz",
+      "sha256": "32ee93b98f43d8d60273019b7ed12a263593ba3a2308442ca7449d49676f480d",
+      "destination": "node_modules/dockerfile-language-server-nodejs",
+      "expanded_size": 113399,
+      "files": [
+        {
+          "path": "CHANGELOG.md",
+          "sha256": "3ac9829602a4548bd9ee3b3cc23434557fefa2993a2c288123f185f4285bf4d4",
+          "size": 68803,
+          "mode": "100644"
+        },
+        {
+          "path": "Dockerfile",
+          "sha256": "6475626c61ff76f01aaf794a3dc404cd049fb847b3eafa85b26cec1083ea3996",
+          "size": 322,
+          "mode": "100644"
+        },
+        {
+          "path": "License.txt",
+          "sha256": "aa3d338dc6e4a4cf5168e8d9f975d236618f3b803f1dde14e964da4e64669ec7",
+          "size": 1065,
+          "mode": "100644"
+        },
+        {
+          "path": "OriginalLicense.txt",
+          "sha256": "9a0eaf1abe346c9fd3f5973bd0aae73fcf0f2a86dd4e8bd5aba2e4fc70a6a55c",
+          "size": 1630,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "20354a200905eb5160bd3eadb82fa0a4ad477eb25d398e03736474aebee6c5fa",
+          "size": 11098,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/docker-langserver",
+          "sha256": "42d531bef66e4883287de032adae2cb892541fc17b1de0e6eb002c4803862b96",
+          "size": 384,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/server.js",
+          "sha256": "b0878f3b9fe88ae0e2b09c9b4e155e5c82b15f466df448fa694d769bc01d6c0a",
+          "size": 28890,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "df8eae23fcd10cd429f09fc06ed285d6f8f9aa2746aa1ff9b5771753f0fc9d2e",
+          "size": 1207,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "dockerfile-language-service",
+      "version": "0.16.1",
+      "url": "https://registry.npmjs.org/dockerfile-language-service/-/dockerfile-language-service-0.16.1.tgz",
+      "sha256": "64ad381981cb216d5fc9e1d37f3862541c2ff6a92daf6396e3f0e839a89d890f",
+      "destination": "node_modules/dockerfile-language-service",
+      "expanded_size": 347247,
+      "files": [
+        {
+          "path": "CHANGELOG.md",
+          "sha256": "48cfe204b1174496f93c56c51c15087f1d028ae05f2e384ec43245faebbaabc1",
+          "size": 41047,
+          "mode": "100644"
+        },
+        {
+          "path": "License.txt",
+          "sha256": "69cbe6bc832e8fe88d82f7f7bc68c13b6236009c21f535d4cdf864c1d5230a47",
+          "size": 1065,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "1f6f2e4765efc8b83123c7b896ea0578a4dc818f023b9dabdb730a18f0c19586",
+          "size": 3150,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/docker.d.ts",
+          "sha256": "fe20b864ca434babe4878e365b29763f6ec6c8cd166c702c06819fc8f8fa9689",
+          "size": 760,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/docker.js",
+          "sha256": "c1c00a116dadbe15ab5fb0980b0b3bad4fee756e5e6bc1b87a82c8b60809e728",
+          "size": 2711,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerAssist.d.ts",
+          "sha256": "620bcaa9e9fa96a7e9bd611f09c2be444ef642a69375ac35ce071e06dad2dd84",
+          "size": 4796,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerAssist.js",
+          "sha256": "cd209d9c9df15aca3d9dc2919798931500c62d8f5e1eb67b2671dc0e09d67c1a",
+          "size": 48813,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerCommands.d.ts",
+          "sha256": "21324861ed323cf298124a7dad585abd9cba119281c76aa293e3ce38c4a815a3",
+          "size": 288,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerCommands.js",
+          "sha256": "5d7f36bf3aadd21ad9607ad4bb85b449328864baadf2eb6a45317d17e4791ac6",
+          "size": 9416,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerCompletion.d.ts",
+          "sha256": "bbbbc994b35855c22dd90d66b052c1adc3686e04a839616cf12f656db978533a",
+          "size": 274,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerCompletion.js",
+          "sha256": "c1a5e77dc54cc3147420e91b424d63eeafc2026c1e05e0f3268cc7d29a7188f4",
+          "size": 2501,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerDefinition.d.ts",
+          "sha256": "c84258444169adfc737f003344f1358ac39679f242bd2cbffb04963aca993235",
+          "size": 674,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerDefinition.js",
+          "sha256": "992f812ddd7a8453a4e591e4a3199a2ef5c6f754e9d25374d0caaf6092080d94",
+          "size": 9029,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerFolding.d.ts",
+          "sha256": "0ec15b90a12ae8c99df36682838f1ae5348d1ca9fb5d4cb783ebe1a069dc0dac",
+          "size": 258,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerFolding.js",
+          "sha256": "d6014c9a81b14478129bd6a716ead757b6b4e1f3a4c5b6c134e2bcbb9fb133dd",
+          "size": 4631,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerFormatter.d.ts",
+          "sha256": "cf7e187ad2ac1b79c0c7c8c6bbe9439b45d6f80e053f14634871bc70a2389461",
+          "size": 1252,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerFormatter.js",
+          "sha256": "2cb6c42b9401e4a1a8e8ef8f66bc64352d571636c201d1d8087c70cb945c5c58",
+          "size": 7448,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerHighlight.d.ts",
+          "sha256": "7e245fce89cb158007e53906c94a097cd28d27a944a8d0b01519728b91983195",
+          "size": 202,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerHighlight.js",
+          "sha256": "361e1fecd9cc5ac2714e5022c8b5353928dab8f3d71db18b6f46f948c77d4586",
+          "size": 11306,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerHover.d.ts",
+          "sha256": "686a1c686f79aa64e6f643ada7c71e428a1c861549948eb86fc506231eb77882",
+          "size": 960,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerHover.js",
+          "sha256": "a672e509728f2c0d709f4fbed788b076070918f93b7bb1735e8e4bca3f175e1c",
+          "size": 9983,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerLinks.d.ts",
+          "sha256": "5601ad1c71202392d90b5d65525765138baa4d7ff340cd148c903b9408fae42f",
+          "size": 195,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerLinks.js",
+          "sha256": "57244e6f347fa2b3dd4124346fd4c9dddf35a418507c75258d762ff15261e58d",
+          "size": 3259,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerMarkdown.d.ts",
+          "sha256": "17e9c47d123cc8b85eba790ec53f807f695f0028bdcd940c73a20ab26a1b0b01",
+          "size": 395,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerMarkdown.js",
+          "sha256": "d915777070db5ee153f002e829b5bf32b36d49578aec3d5829eba7de4549bddf",
+          "size": 17114,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerPlainText.d.ts",
+          "sha256": "fe20b04be4a987eaca836f1fec6629951f6dca4003a1b9639280df5001d65a2c",
+          "size": 162,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerPlainText.js",
+          "sha256": "a31b9d54fecb48123175dea9f8ac8f80d510d7c125bb57e312e723e3f91543a5",
+          "size": 29952,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerRegistryClient.d.ts",
+          "sha256": "d4bde340b71390bf73d0815dda26ac49039eaf0b843a6e42ee2cd41d17ca6dde",
+          "size": 1469,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerRegistryClient.js",
+          "sha256": "393c3dcc27c934ca7e4bb9d1d644937aec92d994d178766b0e996980ad8c100e",
+          "size": 4870,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerRename.d.ts",
+          "sha256": "4daa642a531874e5e2c2af58253976697b9a85436976f0fbd2bfc2ba3a9c5df4",
+          "size": 321,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerRename.js",
+          "sha256": "0f97d2d68804d2543a5cf3efee422cf4825d453da4b21d040524b23988c67d17",
+          "size": 4787,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerSemanticTokens.d.ts",
+          "sha256": "46044bc1be212484462f3cb6f5937e54061f1dbc8f659011bd5f0b3de8b9914f",
+          "size": 811,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerSemanticTokens.js",
+          "sha256": "7f499869543e8d6d0a0958ca12886eed5709b9c201422b4434068f97a1a58419",
+          "size": 35136,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerSignatures.d.ts",
+          "sha256": "ddd1ff76b2e72e60af821ed3f5dc6912636f77cd4864ecd34db1b2dcf0bf2187",
+          "size": 733,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerSignatures.js",
+          "sha256": "b37d7f0316b860ff3f05e4d9f15fe647fd5373c2f795f7e836e47902c0c83f1d",
+          "size": 67680,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerSymbols.d.ts",
+          "sha256": "4f992a5bfefa22e982a603ef7e0a0e7c089527e9c9d98913e7c88b4c2a6ce5b1",
+          "size": 269,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerSymbols.js",
+          "sha256": "1ba0664aabac64d15aaf84527d584af1eeb10d1fc1b3a6661e4f76da7ec68082",
+          "size": 2265,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/languageService.d.ts",
+          "sha256": "73ad72654b3e79da99176c1b0f06ab8420bf8aaed45bc3f66a98df70293d8131",
+          "size": 2408,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/languageService.js",
+          "sha256": "93a623687b004ffe8723c039826087bcbc34dfd1b69c19a52a2accef3e5e3732",
+          "size": 6582,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/main.d.ts",
+          "sha256": "a7c59910197ed7df35f36f391e24ddd5088462ac468dd03daf486ae01eddc675",
+          "size": 5322,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/main.js",
+          "sha256": "045cfd6134190ac10a4677c1b9f5a601204f78e7cce7b75a082b8bf73796c6c0",
+          "size": 1736,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "9daf799d27f90ffc6fdbb63ce1eba6fb541741f5ec531283dedd0b4f78e3bf67",
+          "size": 1217,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.8",
+      "url": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.8.tgz",
+      "sha256": "07131cbc649a953b85d9b654b4301a2b1a9c450a23805666df8676c8a166a0d0",
+      "destination": "node_modules/dockerfile-language-service/node_modules/vscode-languageserver-textdocument",
+      "expanded_size": 40556,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "bec00c2c9fe6405a8828ad61d49b95514dd96ea4d51d401cb451ba40e7546a29",
+          "size": 933,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.d.ts",
+          "sha256": "688397cd9eb331368b275c2e8c7fac1c708f84cdcbfab9d43a4ec11a20394480",
+          "size": 6239,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.js",
+          "sha256": "996c02851d9f083a42802889fed22b90b2829724e12c5897d0a2346b5be9243d",
+          "size": 11258,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.d.ts",
+          "sha256": "688397cd9eb331368b275c2e8c7fac1c708f84cdcbfab9d43a4ec11a20394480",
+          "size": 6239,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.js",
+          "sha256": "eb90935393470429f113bfde058122eb220f0fbe41d9f3f5170a4f082934c767",
+          "size": 12811,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "45b77e0997ac793b58aa4d53dc1860cd22f61230cab5110d22d48577ad33f983",
+          "size": 1358,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "a89123562fe364dc8e969e85614eb6c1f8452afe131d6e42bd1314bb2d092b04",
+          "size": 623,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "dockerfile-utils",
+      "version": "0.16.3",
+      "url": "https://registry.npmjs.org/dockerfile-utils/-/dockerfile-utils-0.16.3.tgz",
+      "sha256": "bde68b44c874c61b1adcdb5a29d7ab38153c58647e5a1a106ca5c6f839974593",
+      "destination": "node_modules/dockerfile-utils",
+      "expanded_size": 178416,
+      "files": [
+        {
+          "path": "CHANGELOG.md",
+          "sha256": "5588cf821bd5ee1995a96c9f3b2e2cd79407650a4f08d32b9337b15cc3fa8705",
+          "size": 20820,
+          "mode": "100644"
+        },
+        {
+          "path": "Dockerfile",
+          "sha256": "ccc4c61be53ddedd3055af6113284b0865ab130e8e7f95ca34f34df094fd8746",
+          "size": 322,
+          "mode": "100644"
+        },
+        {
+          "path": "FORMATTER.md",
+          "sha256": "d70f70ba58fbdf06eda9f22a9146c3e5d6e5632bda2ac768005737c617032276",
+          "size": 1847,
+          "mode": "100644"
+        },
+        {
+          "path": "License.txt",
+          "sha256": "631669cc0f922681a864e195f0637ff7b8b5f1fbdd18432315bba67c5d3a9561",
+          "size": 1066,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "fa39aea88f7c14060423c9490256ae1536205280ca6abcb97348332f50e86c9d",
+          "size": 3202,
+          "mode": "100644"
+        },
+        {
+          "path": "VALIDATOR.md",
+          "sha256": "38277f5c38287fd1c75ad448aaacbd8dd0eba00619046f07e3ef60b9d1ed3380",
+          "size": 5644,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/dockerfile-utils",
+          "sha256": "30825329b715d631912772614a8a89d67fea1bfcedd3de94186294632b5e5f18",
+          "size": 9956,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerFormatter.d.ts",
+          "sha256": "4c465c8ce0c546f37f0b4084f24381b31e59fb93c3a0da1ef740ce5e874ca316",
+          "size": 1494,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerFormatter.js",
+          "sha256": "a42d928115cc27eb394760980dcd702667061c69e49fec6dcfb02a2a2fdd2a6d",
+          "size": 10693,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerValidator.d.ts",
+          "sha256": "30f133cb6c406491908ac3a6457775b47cc4ed20017da5dd5553c8bc564d47e2",
+          "size": 9578,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/dockerValidator.js",
+          "sha256": "5c8cf783524c14fff5dc4c30c3019308639d9ee2471a852059262ece324af147",
+          "size": 96185,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/main.d.ts",
+          "sha256": "c54f158e3b53ee8f2116bee835c5a8cf5585ad956a5adceb3d4b5256d447456d",
+          "size": 6500,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/main.js",
+          "sha256": "3b935843ec56b4fb1355858d5dd6c501945333fdc3e595b90de58fb359cf7ed1",
+          "size": 9911,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "17851c6a03fc757de3e1eabd566fe6f6d46068020b50f1e4c5dd8fab7dd05fb2",
+          "size": 1198,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "8.0.2",
+      "url": "https://registry.npmjs.org/vscode-jsonrpc/-/vscode-jsonrpc-8.0.2.tgz",
+      "sha256": "3a4dde1933438cf35131741ae1d246d3965606c5b121ee1c1c1df7f6f8e07203",
+      "destination": "node_modules/vscode-jsonrpc",
+      "expanded_size": 197363,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "9b5b0275c492c1a45d9b199b666c9bb1499a69b2f480a2b6d22bdd710f5ae0f8",
+          "size": 2205,
+          "mode": "100644"
+        },
+        {
+          "path": "browser.d.ts",
+          "sha256": "99170b7257d895bb2594d7db9c255a4b0029a1363fe5e89849fda830b5c997ce",
+          "size": 385,
+          "mode": "100644"
+        },
+        {
+          "path": "browser.js",
+          "sha256": "9406802db032558d3cd8bde9f68d20c067f3a7eca251ad7d0e4473da8d457ada",
+          "size": 411,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/main.d.ts",
+          "sha256": "37f3494c3e4e87d7f0d11397e864f71a56b783feee45a21c77c01a260a250acd",
+          "size": 975,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/main.js",
+          "sha256": "9d10f91e1bd90f66037aa3d4a28e5177bde908cd58ad353a4e484fe4d13aa7cc",
+          "size": 3020,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/ril.d.ts",
+          "sha256": "947da51287a1b3ef541bbfdb64217e4e291eeb60b879369b6e5db6624dfd2028",
+          "size": 354,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/ril.js",
+          "sha256": "34758917a58ccde840d2cffde6c87b39161b161f8abc45bd69992ec217f27560",
+          "size": 5897,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/api.d.ts",
+          "sha256": "2c36423ad2f16c8647811bb55a7adf6abc98496322d928b5073af5b586ef28c4",
+          "size": 3890,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/api.js",
+          "sha256": "7d86c729c555e93e16e35f57825003ea78fe6deaa540ee7b11aa6ffde4bb82fa",
+          "size": 9773,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/cancellation.d.ts",
+          "sha256": "41a35a21d3c9c0450229cf41be783285f3c01edd84039a41ffd162d42a93a576",
+          "size": 1026,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/cancellation.js",
+          "sha256": "b6ff2041f23c931c68aa3eaa66c71ca6d69dab33962ad24f1dda093f03ba5713",
+          "size": 3336,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/connection.d.ts",
+          "sha256": "52c728fc5621d5a672658822af10dcf6cbac6b806ce49c31a882e000e83e6a9a",
+          "size": 15789,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/connection.js",
+          "sha256": "6dbecc407a914dbbefcdce73acc74c29d9d36f1593656f72f84767f7babf7471",
+          "size": 48962,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/disposable.d.ts",
+          "sha256": "f0745ab78e18a2befaf1d9951481973318722c4e2f33e859239f55fa999ff2b1",
+          "size": 188,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/disposable.js",
+          "sha256": "a962003d81caa64db3b51ab8e7bd4398700429ccb7ed5aa45ed9d5c3b50ab098",
+          "size": 723,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/encoding.d.ts",
+          "sha256": "ec9d55888e353f9b5cdda761308dffc7eeb6aa0b7b25d328c64d3776a1cf2a7e",
+          "size": 1929,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/encoding.js",
+          "sha256": "2a42a2b4e6ab00e7fc63bb2a54facad4d3f603be53a5d952fef0dacf00be015d",
+          "size": 2686,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/events.d.ts",
+          "sha256": "886e183dd0199e7de45d6308ac3e2185dac6f83283d1b8200ea62cf5c43966a1",
+          "size": 1086,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/events.js",
+          "sha256": "2a2821f6d8f384cf5587536f4d38e1c3ca343728c4c9da89190cc7b22f4f731c",
+          "size": 4548,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/is.d.ts",
+          "sha256": "cf445a02b226e862589a7a4d4296dc0eb7e2b3398d24e2a9109fae165a179db1",
+          "size": 433,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/is.js",
+          "sha256": "695b1e11907329e4c270b1c8230b4f79060d1b84fdb1f5cdd595d4c87fe83f5d",
+          "size": 1302,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/linkedMap.d.ts",
+          "sha256": "049e3511439f11e1285bec4647ab8aac53e0c06951b93ba507565dbde851ba31",
+          "size": 1594,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/linkedMap.js",
+          "sha256": "fb2c9e3da986b7ea5683f9bd5115afdbd7bb221330642f946e7a80a0d75d4bc1",
+          "size": 11804,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messageBuffer.d.ts",
+          "sha256": "f8eb570a18c2d41dab40b7ceaefcc29e7e54e3e0070f464be180c0d49da2f54a",
+          "size": 884,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messageBuffer.js",
+          "sha256": "bc709a245dd63e7d16a2042cb0664e3b3470eedc05eb238b4fd924c94ad1cab7",
+          "size": 5630,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messageReader.d.ts",
+          "sha256": "78fbf5d1265bdca3b2e54323d63678e3f73fecf70c05d988966a683da4cdf2f8",
+          "size": 2975,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messageReader.js",
+          "sha256": "f38738f817dbf308f41b65610841ca558a576640711bb2344c9e2b9e92ec7501",
+          "size": 7518,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messageWriter.d.ts",
+          "sha256": "b138b3f30708386023a7dc9981bb867808e5ff3383429ac7f69b7bfd0dcc5bd5",
+          "size": 2193,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messageWriter.js",
+          "sha256": "837c389f2e3fda26aa2a13dee8fcb24988924c0d452f11a8354baaf4b73fb333",
+          "size": 4480,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messages.d.ts",
+          "sha256": "0def2c37cadfd7bf074fe9566cb83518f24d67193c79741b2d83ec290b945725",
+          "size": 12626,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messages.js",
+          "sha256": "3af3247ba0be1d4fa6ba4bac4ff2844823e7db3474427bfc5e6b030ecc827d4c",
+          "size": 10409,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/ral.d.ts",
+          "sha256": "9866c78a215dcf1bbd04c96522151897d1b18284d62813e737afd6dd381acf6b",
+          "size": 2667,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/ral.js",
+          "sha256": "c58dd0ce47a02b8b15ab7ca519a9ded1aff10fe5d885e4ebb741b9b4c5b72859",
+          "size": 865,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/semaphore.d.ts",
+          "sha256": "e861653b284114109a695dd061a427b7bb09ce01dbe1c2d3e753fc342919faaf",
+          "size": 272,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/semaphore.js",
+          "sha256": "417a05ba72f87aa178cc84fcc66f0e5f0bbc00d3a6711ec27ce5cefe205066c6",
+          "size": 2234,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/main.d.ts",
+          "sha256": "ddccf0a48338cac642e93bfdb563494dad6e05b70ef0e6e3605a454db88ca57e",
+          "size": 2890,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/main.js",
+          "sha256": "de06ec393f7a67c24bdcd4a92057693cd46502e260b9d7aec70a95d7dd048b9f",
+          "size": 8578,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/ril.d.ts",
+          "sha256": "9e97d604ca927ee80dab05257f7aaf9b2c90ef98537649ed987257acc36ce444",
+          "size": 409,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/ril.js",
+          "sha256": "d13e6625a29eaee32d49ebbf110ed865b85ac544ef1e92291d494c8888d2c51f",
+          "size": 5600,
+          "mode": "100644"
+        },
+        {
+          "path": "node.cmd",
+          "sha256": "fad7474018db5e3ef38b97374d82fb3b5c56a16aee423f482b6732800007f533",
+          "size": 213,
+          "mode": "100644"
+        },
+        {
+          "path": "node.d.ts",
+          "sha256": "9c98df0145d99011af92c397fa787fc39d42cc04019614ab5581febe71fb32e1",
+          "size": 382,
+          "mode": "100644"
+        },
+        {
+          "path": "node.js",
+          "sha256": "20ed9d05087fa65ed99369c32ebaad6d2714c56d38b6b58e660ec428d1280054",
+          "size": 408,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "20fd467232e8973b0b495e4b3b80cc9c99f7471600613929419349822933146b",
+          "size": 1698,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "a89123562fe364dc8e969e85614eb6c1f8452afe131d6e42bd1314bb2d092b04",
+          "size": 623,
+          "mode": "100644"
+        },
+        {
+          "path": "typings/thenable.d.ts",
+          "sha256": "65b9243c80068ec9696b1fbdd23c9acf80d51df02f97b2d7a0514312b0a9fe7d",
+          "size": 398,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "8.0.2",
+      "url": "https://registry.npmjs.org/vscode-languageserver/-/vscode-languageserver-8.0.2.tgz",
+      "sha256": "1fc73dd591cd7cb09b775935c70493f98b94218bcd55d58e9318ed7dbc5326a1",
+      "destination": "node_modules/vscode-languageserver",
+      "expanded_size": 189937,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "6709a9d93dd8bb14a5c14115cd49a965a5c165adc5e30ef5952dfde81cf8ef79",
+          "size": 984,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/installServerIntoExtension",
+          "sha256": "59abbccf36d1c453c935fb15d594c017d6de7fc2367565fb80710b8dfbb22ad1",
+          "size": 2754,
+          "mode": "100644"
+        },
+        {
+          "path": "browser.d.ts",
+          "sha256": "99170b7257d895bb2594d7db9c255a4b0029a1363fe5e89849fda830b5c997ce",
+          "size": 385,
+          "mode": "100644"
+        },
+        {
+          "path": "browser.js",
+          "sha256": "9406802db032558d3cd8bde9f68d20c067f3a7eca251ad7d0e4473da8d457ada",
+          "size": 411,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/main.d.ts",
+          "sha256": "14246cd016d146072475fb648c4e7ca7101bea205972d5ca4412f6e978eff871",
+          "size": 1371,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/main.js",
+          "sha256": "bcf953a027aad1c6649e519ade8778fdc9fb6f8e5a1c18fee882266b53677d34",
+          "size": 2337,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/api.d.ts",
+          "sha256": "d29fa1f984b6d5ec55c37e6f65474ea4acaf9ba92d2b1d502ca824abca86b430",
+          "size": 896,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/api.js",
+          "sha256": "8794df79c2faa638f60370c01f9561f9a0d37998104909c3b8dfe3f69fcaad6e",
+          "size": 2131,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/callHierarchy.d.ts",
+          "sha256": "46a9b0122b230cb2fab65999ba92f98a16fd8f1c25efaed47141cbf5056f6928",
+          "size": 991,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/callHierarchy.js",
+          "sha256": "8b479e30038b08fe1188f73acc109d2500067197887ce84b8b693064766152cc",
+          "size": 1971,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/configuration.d.ts",
+          "sha256": "7662d6994d28c9ebbe61b88cc35c3d705804351eedbf363df30ea9fe8c4961dc",
+          "size": 465,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/configuration.js",
+          "sha256": "5163ecb0573bfbc66773905115a08c6525aad681efa6a21597649610a6f57558",
+          "size": 1617,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/diagnostic.d.ts",
+          "sha256": "f8b482dddda55dd6677d7895a3fef8cd9d067f8c36c63cc7fe93b82a6dd4f10c",
+          "size": 1438,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/diagnostic.js",
+          "sha256": "a5080fc5b71b60edbf7f0de884dce9c27aaaef7162bd4793d6c1ddd2caf54bda",
+          "size": 1822,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/fileOperations.d.ts",
+          "sha256": "3990ae796cc23fb9829eae206eff1eddded9465504467a4433f2509e18ef1aed",
+          "size": 1017,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/fileOperations.js",
+          "sha256": "69a4eeb6ceb4c5c0be06c19006cd6ffd69571fa079b0f392354199316e17e87f",
+          "size": 2127,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/inlayHint.d.ts",
+          "sha256": "8274bfd5de49f9f072be2f39c34e390101a8b69844e55eda36c7df23ba6d03e2",
+          "size": 1012,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/inlayHint.js",
+          "sha256": "ff4500ae5a891dc94ad43d08dd6169b6815ac729b9c80f8c6fb59f72f449b84b",
+          "size": 1528,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/inlineValue.d.ts",
+          "sha256": "8a9bd1cf8c1f75435f83595b43737c135e7f73bde39ba4c9339dc6a31e8bb069",
+          "size": 784,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/inlineValue.js",
+          "sha256": "900af1aba569bb2ed4cc28d935a40ae8cd2aab6a2e0c5eefa034c04ea924be20",
+          "size": 1267,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/linkedEditingRange.d.ts",
+          "sha256": "b557ea3605e52406e35eeea468cb96f25b1ca906f2055f376597f0b02492d94c",
+          "size": 688,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/linkedEditingRange.js",
+          "sha256": "02805ffdab47b9d3c93dac789f83ef998401129bad151c64dfddc4c13a60fe5b",
+          "size": 1046,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/moniker.d.ts",
+          "sha256": "a980ce9470dc95ac355d7efb729f9cfb0564505eba96da4bbde504299efb833a",
+          "size": 467,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/moniker.js",
+          "sha256": "45f0065909231d2f271aa9ff6aa175ae7b974b094fd84ca9e4a66b861b3b5d5b",
+          "size": 1154,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/notebook.d.ts",
+          "sha256": "c77c8f4aa3f4b849eda044768882bb102edf211b1c26b04a3c6ad921110f2fa4",
+          "size": 3898,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/notebook.js",
+          "sha256": "47dac3dabbb7b52a80aae19d92e1ff9152767e40f60ffbbd14ca218ae0a79640",
+          "size": 11905,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/progress.d.ts",
+          "sha256": "f1f23acd4a8193453749f69d4432f5f122d6d572b793a8b630dd12fe80b0c3d3",
+          "size": 1358,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/progress.js",
+          "sha256": "c1bdfc62b682eb92b329af2e29aad168d27f6f1c4e3751b89f396975f426d75b",
+          "size": 5681,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/semanticTokens.d.ts",
+          "sha256": "ce95f2f822ef48510b6c7605d7bc61913e665431d08789584b29090e62ead653",
+          "size": 1791,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/semanticTokens.js",
+          "sha256": "b6a1de717741382cd28fac6d1cf177feffc267cf04d8bd119822064994eee165",
+          "size": 6283,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/server.d.ts",
+          "sha256": "1f2b429aaef34a63d2c8ea486caf9e234dc98b9806b08ec0b7b34fd10360ea73",
+          "size": 37041,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/server.js",
+          "sha256": "441e84c63dec6b0ce9343e3a307bb3fcce204faa64f0756caec578a8c8f6eef3",
+          "size": 35005,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/showDocument.d.ts",
+          "sha256": "351bbf43d585484825ee6c4b4805aac137ffc8e8a3b9812af99945a202db7c02",
+          "size": 358,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/showDocument.js",
+          "sha256": "70cc8190502e99abaabd3eda54303b8b32ad00b15c05da04fb933d06a2bb9b81",
+          "size": 878,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/textDocuments.d.ts",
+          "sha256": "71d11ad1f05b0b90e95591fa85c1c8043e590d67972dcaba9b50435a0c04d8fa",
+          "size": 5110,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/textDocuments.js",
+          "sha256": "3e6d59fb1c68c09e203a286ae265de70ba748a6e24be2bfcf5da100498ddaee1",
+          "size": 7173,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/typeHierarchy.d.ts",
+          "sha256": "f384bb303dbc114af6460e7cb30b766cc92eed33fccb331126b08bb63f15a034",
+          "size": 905,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/typeHierarchy.js",
+          "sha256": "cebcb20ac86ff2ecb1ed380bcf40071933bc7ad4729872efd4b672f11d2a3548",
+          "size": 1955,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/utils/is.d.ts",
+          "sha256": "98b8e50ce364a3d2f1049c2cc5e585f121442e1888062173b6b6f6d6b4c0bb2e",
+          "size": 601,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/utils/is.js",
+          "sha256": "633c00f847d21aef50bb3feec151290d2704c5506bf25040e840eaf2913b0849",
+          "size": 1564,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/utils/uuid.d.ts",
+          "sha256": "e02ab9eaa8f6d1a9f2fa819ba98efa5c4f7ff83cb7c1ac235583d4d765056721",
+          "size": 639,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/utils/uuid.js",
+          "sha256": "d3416c2d63a5b1d90f810885bb6c94dad2f69d9556166f6f3486b80fd04ca8cf",
+          "size": 3038,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/workspaceFolder.d.ts",
+          "sha256": "1fb68106bddae35448e5279095461a4b54c4bbb42787cd629f70924b17e9a11e",
+          "size": 421,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/workspaceFolder.js",
+          "sha256": "f3f5149bfc1930bac4a771b3a584f9837582334c265ea054b715436439f43c4a",
+          "size": 2450,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/files.d.ts",
+          "sha256": "a58402dc75738c188a741ccca86ccf898b0af98d305ad075c428171f193a6cd5",
+          "size": 1184,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/files.js",
+          "sha256": "8cb358834deb144f9a3951661fba0dcf82dc1bc436fd39d92e4672cad1654bec",
+          "size": 9134,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/main.d.ts",
+          "sha256": "d80febe35ee350c90040c5550d2f5e61891b3dc73b444cfd94810fa044262aa0",
+          "size": 4138,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/main.js",
+          "sha256": "2d002afaaa8b0238488ab73c50711adda517f13d02a496895b8cdfb561eff17a",
+          "size": 7474,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/resolve.d.ts",
+          "sha256": "06e75afe2bf6d058aae427edecc421fac2cc26e754fba6279bb5f69818238bc4",
+          "size": 100,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/resolve.js",
+          "sha256": "4e3a3a1462a4849a3c7151f0f5ba0febe594a4dde42f5b778953d992c26653bf",
+          "size": 820,
+          "mode": "100644"
+        },
+        {
+          "path": "node.cmd",
+          "sha256": "fad7474018db5e3ef38b97374d82fb3b5c56a16aee423f482b6732800007f533",
+          "size": 213,
+          "mode": "100644"
+        },
+        {
+          "path": "node.d.ts",
+          "sha256": "9c98df0145d99011af92c397fa787fc39d42cc04019614ab5581febe71fb32e1",
+          "size": 382,
+          "mode": "100644"
+        },
+        {
+          "path": "node.js",
+          "sha256": "20ed9d05087fa65ed99369c32ebaad6d2714c56d38b6b58e660ec428d1280054",
+          "size": 408,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "982fd40e4ddd80c13f340728c808583a8a36508bc5d1a78ef708dc3724faedf8",
+          "size": 1173,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "b8be93a14e6d5df97ea340c69529615563aaf2dd7698ae38b3a2758264df9b87",
+          "size": 4701,
+          "mode": "100644"
+        },
+        {
+          "path": "typings/thenable.d.ts",
+          "sha256": "65b9243c80068ec9696b1fbdd23c9acf80d51df02f97b2d7a0514312b0a9fe7d",
+          "size": 398,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.17.2",
+      "url": "https://registry.npmjs.org/vscode-languageserver-protocol/-/vscode-languageserver-protocol-3.17.2.tgz",
+      "sha256": "bc7f157db8c1ac0de18ac38e0b67a588550e315f7541759fd28f9a9c468f32d3",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "expanded_size": 358917,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "4e10ac36b8c9754e0ec0f7f59f732bd168d7606a4168ef1edf8f6fba545902ae",
+          "size": 1380,
+          "mode": "100644"
+        },
+        {
+          "path": "browser.d.ts",
+          "sha256": "99170b7257d895bb2594d7db9c255a4b0029a1363fe5e89849fda830b5c997ce",
+          "size": 385,
+          "mode": "100644"
+        },
+        {
+          "path": "browser.js",
+          "sha256": "9406802db032558d3cd8bde9f68d20c067f3a7eca251ad7d0e4473da8d457ada",
+          "size": 411,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/main.d.ts",
+          "sha256": "59ba6326cca505253577e9c34a601031793081c6e2b21b08ee73921fc1ecbeb3",
+          "size": 383,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/browser/main.js",
+          "sha256": "4e8925bd29d5233b7f3561bab3eee3aaaed62681087898a339381a0b02edbd20",
+          "size": 1558,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/api.d.ts",
+          "sha256": "37c2423005b2ec6130903de29aec9fcf1680ab1b2336efa0ff828980e92da7e9",
+          "size": 1930,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/api.js",
+          "sha256": "219d9dd4ef3c91d1451b3fb7357f54d66ad95d85469ebb9f0631cfda24805271",
+          "size": 3308,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/connection.d.ts",
+          "sha256": "0cb440c101851511b691ba725553d1460313b4d77af94efb9ad7f3731b8c25e5",
+          "size": 8393,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/connection.js",
+          "sha256": "02b211625292fb298b46516ff648dfb4e7ea1a6a26b13bd4a2bf33aaaedb04b8",
+          "size": 897,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messages.d.ts",
+          "sha256": "4284412700d89f927c8f5092a8e8c2a20a596349f2819148952b07f2cba9177a",
+          "size": 1958,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/messages.js",
+          "sha256": "d783ef9a87a7a6ce8cc54bcece7f1f1c08757e2f309328385bd4302adb37be86",
+          "size": 1967,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.$.d.ts",
+          "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+          "size": 11,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.$.js",
+          "sha256": "37beaa37e05817761a0a6f8b4d929fecab83c1f20e43f44997c282e56f56b589",
+          "size": 2341,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.callHierarchy.d.ts",
+          "sha256": "29a456c61c3d93e36f5eba4c0ed567d7896a9c08a38b537c3fc192a99d03b348",
+          "size": 3505,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.callHierarchy.js",
+          "sha256": "b566b2bf21311e671f493778ff1f77666500dda64115d6cab697534a7b9aa321",
+          "size": 2571,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.colorProvider.d.ts",
+          "sha256": "62fffcf3e6f61b9072625075a5d496ead7b5bf13b2eab1993367bdfdde831d53",
+          "size": 2966,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.colorProvider.js",
+          "sha256": "854b7537fa9b6213e2728dd9203e332fc2ccc0ab6d320c2406f4ca15cf06cb87",
+          "size": 1969,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.configuration.d.ts",
+          "sha256": "102d4b02b1d4d5d9957508ee159b11a20b8cacd0d614a453a6df1cfd6533f8f5",
+          "size": 1578,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.configuration.js",
+          "sha256": "c98927b7b5323b5d5c526719116821eaab7e34f4724f29d5b20088dc65082596",
+          "size": 1502,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.d.ts",
+          "sha256": "14bc9ae806f1c3ab0831604eca9545336df1f8ece38b1f74cac14f668be93614",
+          "size": 113582,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.declaration.d.ts",
+          "sha256": "f06ea41110af3278979b27abc74cc307914bc509bd74ddad486fa97b411da962",
+          "size": 1979,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.declaration.js",
+          "sha256": "4c632a30d3555693c83504bd1c17d22190b1490e357df384c81d7762ece1b2ec",
+          "size": 1387,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.diagnostic.d.ts",
+          "sha256": "8db15e1da6050330d9e36bddd03131d5a02d56fac2e919fd8360892616357863",
+          "size": 10782,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.diagnostic.js",
+          "sha256": "4d5c73cc56c9cadd4293eb2199e1b7e5eec072aa4e88bdf2ddd36306c66b7b6a",
+          "size": 3509,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.fileOperations.d.ts",
+          "sha256": "641b0ad75a8842edc67de488884741de6390bafc6eca5714c274daf96dc469cb",
+          "size": 9414,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.fileOperations.js",
+          "sha256": "3ea235bccc203447814237ba392d3b087f492500d3cd5b334651347fbc7e30b1",
+          "size": 4976,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.foldingRange.d.ts",
+          "sha256": "38331af82a26565ce075d7f39f396e55f54b38a94dc11c83e5937a4f5031dd00",
+          "size": 3104,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.foldingRange.js",
+          "sha256": "1e35ec92f6cc15e4189b873bfb1151e84a8b7154a3bfa3358bbc53e8350f5b59",
+          "size": 1202,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.implementation.d.ts",
+          "sha256": "10a121b3e8eaf078f3545b1ce84c282413cd6dc331825e5890d9b4c0b876fdc5",
+          "size": 1974,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.implementation.js",
+          "sha256": "2d4c3ac55f23f32f842225d21166264eca567a6246ab314c603bab326f1345ab",
+          "size": 1361,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.inlayHint.d.ts",
+          "sha256": "c922039be1a0a596442a3c7b313b91f04a949d026dee2a9812bcab9e02c4df46",
+          "size": 3736,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.inlayHint.js",
+          "sha256": "7f35d6dec156b09b5f547a43675ca5119e7100faf56f2fc98dbbeaeea9e7f766",
+          "size": 2362,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.inlineValue.d.ts",
+          "sha256": "4e9eba01d12940e37ce9d8ff81302c510f9735ee65a28567fff7ebc53e24dbdd",
+          "size": 3067,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.inlineValue.js",
+          "sha256": "acedd6e75a0929c38536dea8cb31bcabc9ef1a2b0365114539e4defb0afaa8f5",
+          "size": 1714,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.js",
+          "sha256": "dc5f195471f2c844cb2558f6dd9664cfdafb0d282bd14dbf025c81eb376401e9",
+          "size": 55684,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.linkedEditingRange.d.ts",
+          "sha256": "818d9a0841c884447fbd61b934c6743aea1fa6f1c0159ef44ef55b8f02b9120f",
+          "size": 2176,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.linkedEditingRange.js",
+          "sha256": "51b464de964df5cd1aa491a4a87686cfbd761b9620f2898c3c0f7e1c8069bc50",
+          "size": 1114,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.moniker.d.ts",
+          "sha256": "0af215b7d4eb63130ce97fcd2d577559d8806d021fe8925e9401a7a5c2a34c58",
+          "size": 3353,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.moniker.js",
+          "sha256": "b2cf88661ead5e635601c9b232ff14792bc931572b051555d0b5a2f9b54da1d8",
+          "size": 2589,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.notebook.d.ts",
+          "sha256": "44874584b7c30882ea2cb1b9b0df0e198221afee1ee5cc4d04deb4c8a3c6345a",
+          "size": 11906,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.notebook.js",
+          "sha256": "f227966f387eec9496ca47138a8ce06d200c31fc78361e25fc49a2833904699f",
+          "size": 10195,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.progress.d.ts",
+          "sha256": "96c0c4b30165eaedb3ade3b4e9f491113a1816c448d67fff542b2793bf565b04",
+          "size": 4220,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.progress.js",
+          "sha256": "564b338e01a79d4a63490ab7b97e1701c8563dfc27b19e9c2b1e403654bdc2f9",
+          "size": 2328,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.selectionRange.d.ts",
+          "sha256": "10e7c319a79593f3b600e54be3614313a2e4b7288e631b38a8a6f3825c8c18d8",
+          "size": 1931,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.selectionRange.js",
+          "sha256": "8fe092cd7d115b420e9863458d575ccd54b40f04821b0258b5db474dc8422f37",
+          "size": 1232,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.semanticTokens.d.ts",
+          "sha256": "3b67dd4fbeec66a7d2acd2be4f65219d85abd04e6eb9cc96fd862ddf70e02eec",
+          "size": 7994,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.semanticTokens.js",
+          "sha256": "60c2ff37e39d7c4c4abdba069eb2ca01f2118b0c3d0b44f7c1627af6f1fa687c",
+          "size": 3542,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.showDocument.d.ts",
+          "sha256": "091d24fd48e9a9a50a6063c5d857ab049155b9989c62206159184691bb32c2c2",
+          "size": 2199,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.showDocument.js",
+          "sha256": "fe4c64425f5e15f072da20ccab698227e75e837b14f41206b5e10a1122a1bdc6",
+          "size": 1213,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.typeDefinition.d.ts",
+          "sha256": "49fc583c65f7a8479f12e1c40558e3fd61ff01e077ee47209eaad90078b65a9c",
+          "size": 1972,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.typeDefinition.js",
+          "sha256": "433eb89fba8c6b871170a793a400a0c44619a4e873177017b5ae378c560ef112",
+          "size": 1360,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.typeHierarchy.d.ts",
+          "sha256": "98528506b6a07d49efdd7a65da416af50bfbfea67fbdca941ba55753e171a3db",
+          "size": 3339,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.typeHierarchy.js",
+          "sha256": "d2f7ca9245f8b49c16071923e3baa998159031c4082b2b3e695d54b6248ef423",
+          "size": 2474,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.workspaceFolder.d.ts",
+          "sha256": "05f6b2b3bef27dfc0e2464197510d08f275f2464363b441def7f309cbf42f51d",
+          "size": 2899,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/protocol.workspaceFolder.js",
+          "sha256": "75ebb8d30524eeb4a499d766295f9f6b79d6f5b9f0a0a602c5fee657686ac05d",
+          "size": 1893,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/utils/is.d.ts",
+          "sha256": "d7a48988ed49ecb85bf47987be5652cdf9cbca8d9ce336642a2a3350a368ab2f",
+          "size": 598,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/common/utils/is.js",
+          "sha256": "639aaa9588ea20578bbac44c956af44a7c09921285df4701c05e7f2ca011c9b3",
+          "size": 1844,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/main.d.ts",
+          "sha256": "d789022bf705385490fe89811bc7850225c207f37dd706ada2509eb1d8f31f12",
+          "size": 608,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/node/main.js",
+          "sha256": "79f8e9f109d029b047350785be375077632f8cad431369107fb1cd4b6d1c1c24",
+          "size": 1544,
+          "mode": "100644"
+        },
+        {
+          "path": "metaModel.schema.json",
+          "sha256": "060d8a30ef432e959ffdf545831430d0eee4cb0449a12381e535ca4d0c733cff",
+          "size": 19816,
+          "mode": "100644"
+        },
+        {
+          "path": "node.cmd",
+          "sha256": "fad7474018db5e3ef38b97374d82fb3b5c56a16aee423f482b6732800007f533",
+          "size": 213,
+          "mode": "100644"
+        },
+        {
+          "path": "node.d.ts",
+          "sha256": "9c98df0145d99011af92c397fa787fc39d42cc04019614ab5581febe71fb32e1",
+          "size": 382,
+          "mode": "100644"
+        },
+        {
+          "path": "node.js",
+          "sha256": "20ed9d05087fa65ed99369c32ebaad6d2714c56d38b6b58e660ec428d1280054",
+          "size": 408,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "d455eadcd2758c9c9e791d6f91823041d7420ca7e44a8d46eac7571b7e339da2",
+          "size": 1811,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "9265d27cf75775aa5ae19c5ba01846fb70ecd5121f8c39c81bef7e03f007072c",
+          "size": 1823,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.2",
+      "url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.2.tgz",
+      "sha256": "35b36dd9d84396a7e6e6dd2ea6058ba355e20f285b5aaf1c6a0ae1822cdbcfeb",
+      "destination": "node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types",
+      "expanded_size": 371287,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "53b5e27821b28f8b28f6f13f72d31bfb54793b8ba14bc9d039f1d537d5073043",
+          "size": 1023,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.d.ts",
+          "sha256": "8b3eedf17079e274136dd8160bbf8913b716b6a16af18ced330a93398fe5f35b",
+          "size": 97684,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.js",
+          "sha256": "5af81baab486bbb59c97fa227da74816823a3441106f521bba6dacffe0ab58bc",
+          "size": 79441,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.d.ts",
+          "sha256": "8b3eedf17079e274136dd8160bbf8913b716b6a16af18ced330a93398fe5f35b",
+          "size": 97684,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.js",
+          "sha256": "d232f764adf9628e8f1be5224439ad40b5cf59bcafa157efd15a942a5996b554",
+          "size": 92654,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "1db5c3ec3d4e82707ee90bc606ab971fd23d06064ceb394f5337a89a668bf015",
+          "size": 1083,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "a89123562fe364dc8e969e85614eb6c1f8452afe131d6e42bd1314bb2d092b04",
+          "size": 623,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "url": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.16.tgz",
+      "sha256": "3d00e3f62041ffb10b220a14b057116a9812ee41e04cc7eef12a78ca46302599",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "expanded_size": 46534,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "bec00c2c9fe6405a8828ad61d49b95514dd96ea4d51d401cb451ba40e7546a29",
+          "size": 933,
+          "mode": "100644"
+        },
+        {
+          "path": "eslint.config.js",
+          "sha256": "32ae689ec07457fc7b01a81cb66c3a8944855ac5d22eb73678e7252e1e6550ca",
+          "size": 272,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.d.ts",
+          "sha256": "5b9d5dc41a7ade351fa96285aebeb55b8b1e440149d70cb3eba2d3b46813be35",
+          "size": 7223,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.js",
+          "sha256": "931e3ce1fe624f0863f3e6109a52ebaf766ed37926971c91fe4ae8927f0883fe",
+          "size": 12197,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/package.json",
+          "sha256": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+          "size": 23,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.d.ts",
+          "sha256": "5b9d5dc41a7ade351fa96285aebeb55b8b1e440149d70cb3eba2d3b46813be35",
+          "size": 7223,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.js",
+          "sha256": "292fab6bd4872b3174625aa9c8c38ca9a15a90f026517f2fc6d3787e347e2e23",
+          "size": 15533,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "2cfa95044df91b4b741f04317dfc95dcdcc6e2db75adc062416919a70d6c9c93",
+          "size": 1412,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "a89123562fe364dc8e969e85614eb6c1f8452afe131d6e42bd1314bb2d092b04",
+          "size": 623,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.3",
+      "url": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.3.tgz",
+      "sha256": "e16078d54a14ff9f2793a5ab9915e0b442a6142321f0f2c78951f91618c529a5",
+      "destination": "node_modules/vscode-languageserver-types",
+      "expanded_size": 369153,
+      "files": [
+        {
+          "path": "License.txt",
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
+          "size": 1095,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "53b5e27821b28f8b28f6f13f72d31bfb54793b8ba14bc9d039f1d537d5073043",
+          "size": 1023,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.d.ts",
+          "sha256": "f0142b712ca22ad863476d9f3ae74e8b2766f3507a6fb5018882074f65ed0195",
+          "size": 97126,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/esm/main.js",
+          "sha256": "0950402b6e7b2671a3755258a2c9aa49fe8219a6e5b2d93209ac7119befccfd1",
+          "size": 78825,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.d.ts",
+          "sha256": "f0142b712ca22ad863476d9f3ae74e8b2766f3507a6fb5018882074f65ed0195",
+          "size": 97126,
+          "mode": "100644"
+        },
+        {
+          "path": "lib/umd/main.js",
+          "sha256": "2a7d6244507d60d8f03bde5eeb0c09ac03749c2bd10b4673948e1a920a1b0a30",
+          "size": 92006,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "28f40f3feb9f7f5dcf7b53e554c44c24ec558440b0eb32e2b8441cf3c7eb5141",
+          "size": 1329,
+          "mode": "100644"
+        },
+        {
+          "path": "thirdpartynotices.txt",
+          "sha256": "a89123562fe364dc8e969e85614eb6c1f8452afe131d6e42bd1314bb2d092b04",
+          "size": 623,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

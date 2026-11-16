@@ -26,7 +26,7 @@ interface ResizableSidebarLayoutProps {
   expandButtonLabel: string;
   expandButtonTitle: string;
   /** When set, the collapsed-rail expand button shows a `ShortcutTooltip`
-   *  rendering this combo (e.g. `["cmd", "E"]`) under the label. */
+   *  rendering this combo (the registry-resolved keys, see `useShortcutKeys`) under the label. */
   expandShortcutKeys?: string[];
   separatorLabel: string;
   className?: string;

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original neutral connector geometry created for this connector in 2026-11-01 source maintenance. SPDX-License-Identifier: Apache-2.0 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#16181d"/>
+  <path d="M18 22H30L38 32L30 42H18" fill="none" stroke="#c9ced8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M38 32H46" fill="none" stroke="#e8b04f" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="18" cy="22" r="5" fill="#f3f5f7"/>
+  <circle cx="18" cy="42" r="5" fill="#f3f5f7"/>
+  <circle cx="48" cy="32" r="6" fill="#e8b04f"/>
+</svg>

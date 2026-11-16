@@ -1,5 +1,8 @@
 use super::MESSAGE_SELECT;
 
+/// The tool calls that write a todo list, as an SQL `IN` list.
+pub(super) const TODO_TOOL_NAMES_SQL: &str = "('TodoWrite', 'TaskCreate', 'TaskUpdate')";
+
 pub(super) fn latest_todos_sql(session_count: usize) -> String {
     let target_values = std::iter::repeat_n("(?)", session_count)
         .collect::<Vec<_>>()
@@ -17,7 +20,7 @@ pub(super) fn latest_todos_sql(session_count: usize) -> String {
          {message_select_m} FROM agent_messages m \
          JOIN target_sessions t ON t.session_id = m.session_id \
          WHERE m.message_type = 'tool_call' \
-           AND m.tool_name IN ('TodoWrite', 'TaskCreate', 'TaskUpdate') \
+           AND m.tool_name IN {TODO_TOOL_NAMES_SQL} \
          UNION ALL \
          {message_select_m} FROM task_create_ids tci \
          CROSS JOIN agent_messages m \

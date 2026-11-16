@@ -92,4 +92,35 @@ describe("ScheduleEditorDialog", () => {
     );
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("gates the schedule on a command only once one is entered", async () => {
+    const onSave = vi.fn<SaveFn>().mockResolvedValue(undefined);
+    const { user } = renderDialog(onSave);
+    await user.click(screen.getByRole("button", { name: "write prompt" }));
+
+    await user.click(screen.getByRole("switch", { name: /Only send when a command fails/ }));
+    // Turned on but empty: the schedule would check nothing, so it can't save.
+    expect(screen.getByRole("button", { name: /Create schedule/ })).toBeDisabled();
+    expect(screen.getByText(/Next checks|Checks:/)).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Command to check" }), "pnpm test");
+    fireEvent.keyDown(document.body, { key: "Enter", code: "Enter", metaKey: true });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].condition).toEqual({
+      command: "pnpm test",
+      timeout_seconds: null,
+    });
+  });
+
+  it("sends no condition for an ordinary schedule", async () => {
+    const onSave = vi.fn<SaveFn>().mockResolvedValue(undefined);
+    const { user } = renderDialog(onSave);
+    await user.click(screen.getByRole("button", { name: "write prompt" }));
+
+    fireEvent.keyDown(document.body, { key: "Enter", code: "Enter", metaKey: true });
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].condition).toBeNull();
+  });
 });

@@ -22,11 +22,15 @@ import {
   type ReactNode,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ImageIcon, ImageOffIcon, Loader2Icon } from "lucide-react";
+import { ImageIcon } from "lucide-react";
 import type { ForgeUser } from "@/api/generated";
 import {
+  isDirectSource,
+  MARKDOWN_IMAGE_NOTICE_CLASS,
+  MarkdownImageNotice,
   MarkdownImageProvider,
   PlainMarkdownImage,
+  ProxiedMarkdownImage,
   type MarkdownImageProps,
 } from "@/components/markdown-image";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
@@ -84,11 +88,6 @@ interface ForgeImageState {
   direct: boolean;
   /** A feature's forge is in scope, so a proxied fetch is possible at all. */
   scoped: boolean;
-}
-
-/** `data:` and `blob:` sources are what the CSP already permits. */
-function isDirectSource(src: string): boolean {
-  return src.startsWith("data:") || src.startsWith("blob:");
 }
 
 function useForgeImage(
@@ -166,7 +165,10 @@ function DeferredForgeMarkdownImage({
         <button
           type="button"
           onClick={() => setManualLoad(true)}
-          className="my-2 inline-flex max-w-full items-center gap-1.5 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          className={cn(
+            MARKDOWN_IMAGE_NOTICE_CLASS,
+            "hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+          )}
         >
           <ImageIcon className="size-3.5 shrink-0" aria-hidden />
           <span className="truncate">Load {label}</span>
@@ -179,9 +181,9 @@ function DeferredForgeMarkdownImage({
       {inView ? (
         <LoadedForgeMarkdownImage {...props} />
       ) : (
-        <ForgeImageNotice label={label}>
+        <MarkdownImageNotice label={label}>
           <ImageIcon className="size-3.5 shrink-0" aria-hidden />
-        </ForgeImageNotice>
+        </MarkdownImageNotice>
       )}
     </span>
   );
@@ -189,42 +191,7 @@ function DeferredForgeMarkdownImage({
 
 function LoadedForgeMarkdownImage(props: MarkdownImageProps): ReactElement {
   const { url, errorMessage } = useForgeImage(props.src, "content", true);
-  const label = props.alt || props.src || "image";
-  if (errorMessage) {
-    return (
-      <ForgeImageNotice title={errorMessage} label={label}>
-        <ImageOffIcon className="size-3.5 shrink-0" aria-hidden />
-      </ForgeImageNotice>
-    );
-  }
-  if (!url) {
-    return (
-      <ForgeImageNotice label={label}>
-        <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
-      </ForgeImageNotice>
-    );
-  }
-  return <PlainMarkdownImage {...props} src={url} />;
-}
-
-function ForgeImageNotice({
-  children,
-  label,
-  title,
-}: {
-  children: ReactNode;
-  label: string;
-  title?: string;
-}): ReactElement {
-  return (
-    <span
-      title={title}
-      className="my-2 inline-flex max-w-full items-center gap-1.5 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
-    >
-      {children}
-      <span className="truncate">{label}</span>
-    </span>
-  );
+  return <ProxiedMarkdownImage {...props} url={url} errorMessage={errorMessage} />;
 }
 
 /**

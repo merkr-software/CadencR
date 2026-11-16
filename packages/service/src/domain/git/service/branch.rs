@@ -9,8 +9,7 @@ use crate::error::AppError;
 use crate::shared::git_cli::run_git_capture;
 
 use super::{
-    get_project_and_branch, normalize_git_path, resolve_feature_git_path, SETTING_TARGET_BRANCH,
-    SETTING_WORKTREE_PATH,
+    get_project_and_branch, normalize_git_path, resolve_feature_git_path, SETTING_WORKTREE_PATH,
 };
 
 pub async fn get_original_branch(
@@ -43,15 +42,6 @@ async fn resolve_feature_repo_and_target(
     feature_id: i64,
     fallback_project_path: &str,
 ) -> Result<(String, String), AppError> {
-    if let Some(stored) =
-        repository::get_feature_setting(&state.read_pool, feature_id, SETTING_TARGET_BRANCH).await?
-    {
-        let target = stored.trim();
-        if !target.is_empty() {
-            return Ok((fallback_project_path.to_string(), target.to_string()));
-        }
-    }
-
     let git_path = resolve_feature_git_path(state, feature_id)
         .await?
         .unwrap_or_else(|| fallback_project_path.to_string());
@@ -76,6 +66,11 @@ pub async fn delete_feature_branch(
             blocked_reason: None,
         });
     }
+    // Covers the optional checkout away from the branch and the deletion.
+    let _permit = state
+        .git_mutations
+        .try_acquire(Path::new(&project_path))
+        .map_err(|error| workflow_service::mutation_guard_error(error))?;
     let has_separate_worktree =
         feature_has_separate_worktree(state, &project_path, params.feature_id).await?;
     if !has_separate_worktree {
@@ -272,6 +267,10 @@ mod tests {
     #[tokio::test]
     async fn resolve_merge_conflict_target_honors_stored_target_branch() {
         let pool = setup_diff_refs_schema().await;
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'project', '/tmp/project')")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'feat')")
             .execute(&pool)
             .await
@@ -331,6 +330,60 @@ mod tests {
             .await
             .is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn branch_deletion_is_refused_while_the_project_worktree_is_busy() {
+        let repo = tempfile::tempdir().unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ][..],
+            &["branch", "feature/test"][..],
+        ] {
+            run_git_capture(args, &[], &[], repo.path()).await.unwrap();
+        }
+        let pool = setup_diff_refs_schema().await;
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'project', ?)")
+            .bind(repo.path().to_string_lossy().as_ref())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'feat')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 1, SETTING_WORKTREE_BRANCH, "feature/test")
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+        let _busy = state.git_mutations.try_acquire(repo.path()).unwrap();
+
+        let error = delete_feature_branch(
+            &state,
+            DeleteFeatureBranchParams {
+                project_id: 1,
+                feature_id: 1,
+                force: true,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, AppError::Conflict(_)), "{error:?}");
+        assert!(commands::list_local_branches(repo.path())
+            .await
+            .unwrap()
+            .contains("feature/test"));
     }
 
     #[tokio::test]

@@ -1,3 +1,7 @@
+use super::SessionRow;
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+
 impl WsSessionPersistence {
     pub async fn try_get_session_row(
         pool: &SqlitePool,
@@ -67,7 +71,7 @@ mod session_queries_tests {
                 has_file_changes INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 started_at TEXT,
                 ended_at TEXT,
                 pending_permission TEXT,
@@ -111,6 +115,104 @@ mod session_queries_tests {
         .unwrap();
 
         pool
+    }
+
+    #[tokio::test]
+    async fn overrides_and_their_model_are_written_together() {
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::new(pool.clone(), 1);
+        let id = p
+            .find_or_create_session(Some("gpt-old"), None)
+            .await
+            .unwrap();
+        let read = || async {
+            sqlx::query_as::<_, (Option<String>, Option<String>)>(
+                "SELECT model, runtime_overrides FROM agent_sessions WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        let overrides = crate::domain::agents::adapter::RuntimeConfigOverrides {
+            model: Some("gpt-new".to_string()),
+            ..Default::default()
+        };
+
+        WsSessionPersistence::update_runtime_overrides_and_model(
+            &pool,
+            id,
+            &overrides,
+            Some("gpt-new"),
+        )
+        .await
+        .unwrap();
+        let (model, document) = read().await;
+        assert_eq!(model.as_deref(), Some("gpt-new"));
+        assert!(document.unwrap().contains("gpt-new"));
+
+        // An inherited model nothing resolved leaves the column alone.
+        WsSessionPersistence::update_runtime_overrides_and_model(
+            &pool,
+            id,
+            &Default::default(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(read().await.0.as_deref(), Some("gpt-new"));
+    }
+
+    #[tokio::test]
+    async fn runtime_config_mirrors_effective_model_and_effort() {
+        let pool = setup_test_db().await;
+        let mut persistence = WsSessionPersistence::new(pool.clone(), 1);
+        let id = persistence
+            .find_or_create_session(Some("gpt-6-luna"), None)
+            .await
+            .unwrap();
+        WsSessionPersistence::update_thinking_effort_static(&pool, id, Some("high"))
+            .await
+            .unwrap();
+        let read = || async {
+            sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+                "SELECT model, thinking_effort, runtime_overrides FROM agent_sessions WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        let overrides = crate::domain::agents::adapter::RuntimeConfigOverrides {
+            model: Some("gpt-5.6-luna".to_string()),
+            thinking_effort: Some("max".to_string()),
+            ..Default::default()
+        };
+        WsSessionPersistence::update_runtime_config_static()
+            .pool(&pool)
+            .session_id(id)
+            .overrides(&overrides)
+            .model("gpt-5.6-luna")
+            .thinking_effort("max")
+            .call()
+            .await
+            .unwrap();
+        let (model, effort, document) = read().await;
+        assert_eq!(model.as_deref(), Some("gpt-5.6-luna"));
+        assert_eq!(effort.as_deref(), Some("max"));
+        assert!(document.contains("\"max\""));
+
+        // An unresolved model keeps the column; a default effort clears it.
+        WsSessionPersistence::update_runtime_config_static()
+            .pool(&pool)
+            .session_id(id)
+            .overrides(&Default::default())
+            .call()
+            .await
+            .unwrap();
+        let (model, effort, _) = read().await;
+        assert_eq!(model.as_deref(), Some("gpt-5.6-luna"));
+        assert!(effort.is_none());
     }
 
     #[tokio::test]

@@ -13,8 +13,10 @@ use crate::domain::git::models::CommitGraphEntry;
 use crate::error::AppError;
 use crate::shared::git_cli::guard_positionals;
 
+use super::graph_refs::parse_refs;
 use super::log::get_unpushed_shas;
 use super::util::{run_git_quiet, FIRST_PARENT_MERGES};
+use crate::shared::git_cli::version::{self, GitFeature};
 
 /// Record separator emitted before every commit; field separator between the
 /// `--format` placeholders. Both are control bytes that can't appear in commit
@@ -46,26 +48,6 @@ fn parse_shortstat(tail: &str) -> (i32, i32, i32) {
     (files, adds, dels)
 }
 
-/// Clean git's `%D` decoration (`HEAD -> feature/x, origin/x, tag: v1`) into a
-/// flat list of ref labels, dropping the `HEAD ->` / `tag:` noise prefixes and
-/// the symbolic `HEAD` / `origin/HEAD` pointers (pure clutter in the UI).
-fn parse_refs(decoration: &str) -> Vec<String> {
-    decoration
-        .split(',')
-        .filter_map(|raw| {
-            let label = raw
-                .trim()
-                .trim_start_matches("HEAD -> ")
-                .trim_start_matches("tag: ")
-                .trim();
-            if label.is_empty() || label == "HEAD" || label.ends_with("/HEAD") {
-                return None;
-            }
-            Some(label.to_string())
-        })
-        .collect()
-}
-
 fn parse_graph_log(output: &str) -> Vec<CommitGraphEntry> {
     let mut commits = vec![];
     for record in output.split('\x1e').filter(|s| !s.trim().is_empty()) {
@@ -83,6 +65,7 @@ fn parse_graph_log(output: &str) -> Vec<CommitGraphEntry> {
             .get(8)
             .map(|t| parse_shortstat(t))
             .unwrap_or((0, 0, 0));
+        let decorations = parse_refs(fields[6]);
         commits.push(CommitGraphEntry {
             sha: fields[0].to_string(),
             short_sha: fields[1].to_string(),
@@ -90,7 +73,8 @@ fn parse_graph_log(output: &str) -> Vec<CommitGraphEntry> {
             author: fields[3].to_string(),
             date: fields[4].to_string(),
             parents,
-            refs: parse_refs(fields[6]),
+            refs: decorations.iter().map(|r| r.name.clone()).collect(),
+            decorations,
             body: fields[7].trim().to_string(),
             files_changed,
             additions,
@@ -120,11 +104,18 @@ pub async fn get_commit_graph(
         "log",
         "--topo-order",
         "--shortstat",
-        FIRST_PARENT_MERGES,
+        // Full ref names, so `parse_refs` can tell local from remote branches.
+        "--decorate=full",
         &format_arg,
         &skip_arg,
         &max_arg,
     ];
+    // Older Git has no `diff-tree`-style fallback here: `-m --first-parent`
+    // would also prune the graph to first parents. Merge rows then read
+    // "0 files" while their diff still opens.
+    if version::supports(GitFeature::DiffMerges) {
+        args.push(FIRST_PARENT_MERGES);
+    }
     let tip_refs: Vec<&str> = tips.iter().map(String::as_str).collect();
     guard_positionals(&tip_refs)?;
     args.extend(tip_refs.iter().copied());
@@ -147,6 +138,7 @@ pub async fn get_commit_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::git::models::{CommitRef, CommitRefKind};
 
     #[test]
     fn parse_shortstat_full_line() {
@@ -173,23 +165,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_refs_strips_head_and_tag_prefixes() {
-        let refs = parse_refs("HEAD -> feature/x, origin/feature/x, tag: v1.0");
-        assert_eq!(refs, vec!["feature/x", "origin/feature/x", "v1.0"]);
-        assert!(parse_refs("").is_empty());
-    }
-
-    #[test]
-    fn parse_refs_drops_symbolic_head_pointers() {
-        // `origin/HEAD` and a bare detached `HEAD` are noise — keep only
-        // the real branch/tag labels.
-        let refs = parse_refs("HEAD, origin/HEAD, origin/main, main");
-        assert_eq!(refs, vec!["origin/main", "main"]);
-    }
-
-    #[test]
     fn parse_graph_log_single_commit_with_stats() {
-        let output = "\x1eabc123full\x1fabc123\x1ffix bug\x1fJane\x1f2024-01-01 12:00:00 +0000\x1fparent1 parent2\x1fHEAD -> main\x1fbody text\x1f\n 3 files changed, 10 insertions(+), 2 deletions(-)\n";
+        let output = "\x1eabc123full\x1fabc123\x1ffix bug\x1fJane\x1f2024-01-01 12:00:00 +0000\x1fparent1 parent2\x1fHEAD -> refs/heads/main\x1fbody text\x1f\n 3 files changed, 10 insertions(+), 2 deletions(-)\n";
         let commits = parse_graph_log(output);
         assert_eq!(commits.len(), 1);
         let c = &commits[0];
@@ -314,6 +291,11 @@ mod tests {
         assert!(pushed("feat"), "the pushed feature tip");
         assert!(pushed("base"), "shared ancestor rode along");
         assert!(!pushed("main work"), "unpushed on the target tip");
+        let feat = painted.iter().find(|c| c.message == "feat").unwrap();
+        assert!(feat.decorations.contains(&CommitRef {
+            name: "origin/feature/x".into(),
+            kind: CommitRefKind::Remote,
+        }));
     }
 
     /// A merge row must carry the same first-parent stat the diff pane shows

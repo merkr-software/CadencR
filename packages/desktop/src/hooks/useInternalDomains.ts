@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { INTERNAL_DOMAINS_SETTING_KEY, parseInternalDomains } from "@/lib/link-routing";
 
 /**
@@ -9,6 +9,6 @@ import { INTERNAL_DOMAINS_SETTING_KEY, parseInternalDomains } from "@/lib/link-r
  * per-link subscription.
  */
 export function useInternalDomains(): string[] {
-  const { value } = useDebouncedSetting(INTERNAL_DOMAINS_SETTING_KEY, 0);
+  const { value } = useSetting(INTERNAL_DOMAINS_SETTING_KEY);
   return useMemo(() => parseInternalDomains(value), [value]);
 }

@@ -23,6 +23,11 @@ import type { DefaultWorktreeMode } from "@/lib/default-worktree-mode";
 
 export type WorktreeMode = "on_branch" | "branch_worktree" | "from_branch" | "from_branch_worktree";
 
+/** Modes that create a fresh branch (named by the backend from the prompt). */
+export function createsBranch(mode: WorktreeMode | undefined): boolean {
+  return mode === "from_branch" || mode === "from_branch_worktree";
+}
+
 export const WORKTREE_MODES: readonly WorktreeMode[] = [
   "on_branch",
   "branch_worktree",

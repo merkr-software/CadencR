@@ -103,13 +103,13 @@ export function useUnifiedAgentsFilterSuggestionKeyboard({
     const commands = [
       editor.registerCommand(
         KEY_ARROW_DOWN_COMMAND,
-        (event: KeyboardEvent | null): boolean =>
+        (event): boolean =>
           moveSuggestionSelection(event, suggestions, selectedIndex, 1, setSelectedSuggestionIndex),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
         KEY_ARROW_UP_COMMAND,
-        (event: KeyboardEvent | null): boolean =>
+        (event): boolean =>
           moveSuggestionSelection(
             event,
             suggestions,
@@ -121,7 +121,7 @@ export function useUnifiedAgentsFilterSuggestionKeyboard({
       ),
       editor.registerCommand(
         KEY_TAB_COMMAND,
-        (event: KeyboardEvent | null): boolean =>
+        (event): boolean =>
           applyCurrentSuggestion(
             editor,
             projects,
@@ -135,7 +135,7 @@ export function useUnifiedAgentsFilterSuggestionKeyboard({
       ),
       editor.registerCommand(
         KEY_ENTER_COMMAND,
-        (event: KeyboardEvent | null): boolean =>
+        (event): boolean =>
           applyCurrentSuggestion(
             editor,
             projects,
@@ -149,7 +149,7 @@ export function useUnifiedAgentsFilterSuggestionKeyboard({
       ),
       editor.registerCommand(
         KEY_ESCAPE_COMMAND,
-        (event: KeyboardEvent | null): boolean => {
+        (event): boolean => {
           if (suggestions.length === 0) return false;
           event?.preventDefault();
           onDismiss();

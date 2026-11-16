@@ -1,7 +1,14 @@
+import { join } from "node:path";
 import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import pkg from "electron-updater";
+import { z } from "zod";
+import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
+import { fetchChangelogImage } from "./changelog-images";
 import { assertTrustedSender } from "./ipc";
-import { sendToWindow } from "./safe-send";
+import { GH_OWNER, GH_REPO } from "./release-repo";
+import { detectLinuxInstallType, type LinuxInstallType } from "./linux-install-type";
+import { devUpdateEvents, UpdateStateAuthority } from "./update-state-authority";
+import type { UpdateEvent, UpdateSnapshot } from "../../src/shared/update-state";
 
 // `electron-updater` ships as CommonJS; the `autoUpdater` named export is on
 // the default module object when imported from ESM/TS.
@@ -10,24 +17,43 @@ const { autoUpdater } = pkg;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FIRST_CHECK_DELAY_MS = 10_000; // 10 s after ready — let the sidecar boot
 
-// GitHub repo backing the public releases / changelog. Matches the `publish`
-// block in `electron-builder.yml`.
-const GH_OWNER = "merkr-software";
-const GH_REPO = "cadencr";
 const CHANGELOG_FETCH_TIMEOUT_MS = 8_000;
-
-type UpdateChannel =
-  | { channel: "update:checking" }
-  | { channel: "update:available"; version: string }
-  | { channel: "update:changelog"; version: string; markdown: string | null }
-  | { channel: "update:not-available"; version: string }
-  | { channel: "update:error"; message: string }
-  | { channel: "update:download-progress"; percent: number; bytesPerSecond: number }
-  | { channel: "update:downloaded"; version: string };
 
 let initialized = false;
 let registered = false;
 let intervalHandle: NodeJS.Timeout | null = null;
+let state: UpdateStateAuthority | null = null;
+
+/** The process-wide update state; the first caller's window getter publishes it. */
+function updateState(getMainWindow: () => BrowserWindow | null): UpdateStateAuthority {
+  state ??= new UpdateStateAuthority(getMainWindow);
+  return state;
+}
+
+/**
+ * Returns the Linux install type when electron-updater cannot service this
+ * build. Official AppImage, DEB, and RPM packages all update from GitHub
+ * Releases; only unrecognized/custom Linux packages are unsupported.
+ */
+let cachedUnsupported: LinuxInstallType | null | undefined;
+function unsupportedInstall(): LinuxInstallType | null {
+  if (cachedUnsupported !== undefined) return cachedUnsupported;
+  if (process.platform !== "linux") return (cachedUnsupported = null);
+  const packageTypePath =
+    typeof process.resourcesPath === "string"
+      ? join(process.resourcesPath, "package-type")
+      : undefined;
+  const installType = detectLinuxInstallType(process.env, packageTypePath);
+  return (cachedUnsupported = installType === "unknown" ? installType : null);
+}
+
+const UNSUPPORTED_INSTALL_MESSAGE =
+  "This Linux build is not an official AppImage, DEB, or RPM package. Download an official build from GitHub Releases to enable in-app updates.";
+const UNSUPPORTED_EVENT: UpdateEvent = {
+  kind: "unsupported",
+  reason: "unsupported-install",
+  message: UNSUPPORTED_INSTALL_MESSAGE,
+};
 
 interface InitOptions {
   getMainWindow: () => BrowserWindow | null;
@@ -37,29 +63,40 @@ interface InitOptions {
 export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: InitOptions): void {
   if (registered) return;
   registered = true;
-  ipcMain.handle("app:check-for-updates", (event: IpcMainInvokeEvent) => {
+  const updates = updateState(getMainWindow);
+  ipcMain.handle("app:update-state", (event: IpcMainInvokeEvent): UpdateSnapshot => {
+    assertTrustedSender(event, getMainWindow);
+    return updates.snapshot();
+  });
+  // Resolves with the state the check moved to, so the caller never guesses it.
+  ipcMain.handle("app:check-for-updates", (event: IpcMainInvokeEvent): UpdateSnapshot => {
     assertTrustedSender(event, getMainWindow);
     if (!app.isPackaged) {
-      sendUpdate(getMainWindow, {
-        channel: "update:error",
-        message: "Updates are disabled in dev builds.",
-      });
-      return;
+      return updates.apply({ kind: "error", message: "Updates are disabled in dev builds." });
     }
+    if (unsupportedInstall()) return updates.apply(UNSUPPORTED_EVENT);
+    const checking = updates.apply({ kind: "checking" });
     void autoUpdater.checkForUpdates().catch((error: unknown) => {
-      sendUpdate(getMainWindow, { channel: "update:error", message: errorMessage(error) });
+      reportUpdateFailure(updates, error);
     });
+    return checking;
   });
   ipcMain.handle("app:install-update", async (event: IpcMainInvokeEvent) => {
     assertTrustedSender(event, getMainWindow);
     if (!app.isPackaged) return;
+    if (unsupportedInstall()) {
+      // Renderer should never reach this path because the install button is
+      // hidden, but surface the same explanation rather than silently no-op.
+      updates.apply(UNSUPPORTED_EVENT);
+      return;
+    }
     try {
       await prepareInstallUpdate?.();
-      // `quitAndInstall(isSilent, isForceRunAfter)` — silent install, relaunch.
+      // Keep the installer interactive so DEB/RPM builds can request elevation,
+      // then relaunch Cadencr after the package has been replaced.
       autoUpdater.quitAndInstall(false, true);
     } catch (error: unknown) {
-      const message = errorMessage(error);
-      sendUpdate(getMainWindow, { channel: "update:error", message });
+      updates.apply({ kind: "error", message: errorMessage(error) });
       throw error;
     }
   });
@@ -71,13 +108,32 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
       return fetchChangelog(version);
     },
   );
+  ipcMain.handle(
+    "app:fetch-changelog-image",
+    async (event: IpcMainInvokeEvent, src: unknown): Promise<ChangelogImageBytes> => {
+      assertTrustedSender(event, getMainWindow);
+      const source = z.string().safeParse(src);
+      if (!source.success) throw new Error("Image source must be a string.");
+      return fetchChangelogImage(source.data);
+    },
+  );
 }
 
 export function initAutoUpdater({ getMainWindow }: InitOptions): void {
   if (initialized) return;
   initialized = true;
+  const updates = updateState(getMainWindow);
   if (!app.isPackaged) {
     console.info("[updater] dev build — skipping auto-update setup");
+    seedDevUpdateState(updates);
+    return;
+  }
+
+  const unsupported = unsupportedInstall();
+  if (unsupported) {
+    console.info(`[updater] linux ${unsupported} install — auto-update disabled`);
+    // The renderer reads this state when it mounts, whenever that is.
+    updates.apply(UNSUPPORTED_EVENT);
     return;
   }
 
@@ -86,52 +142,44 @@ export function initAutoUpdater({ getMainWindow }: InitOptions): void {
   autoUpdater.logger = console;
 
   autoUpdater.on("checking-for-update", () => {
-    sendUpdate(getMainWindow, { channel: "update:checking" });
+    updates.apply({ kind: "checking" });
   });
   autoUpdater.on("update-available", (info) => {
-    // Notify the renderer immediately so the sidebar can light up; the
-    // changelog body arrives separately once GitHub responds. Splitting the
-    // two events keeps the store's `applyEvent` reducer linear (no special-
-    // casing a second `available` fire) and prevents the second emit from
-    // racing with `download-progress`.
-    sendUpdate(getMainWindow, { channel: "update:available", version: info.version });
+    // Publish the update immediately so the sidebar can light up; the
+    // changelog body arrives as its own event once GitHub responds, which
+    // keeps `reduceUpdateSnapshot` linear (no special-casing a second
+    // `available`) and lets download progress flow in the meantime.
+    updates.apply({ kind: "available", version: info.version });
     void fetchChangelog(info.version).then((markdown) => {
-      sendUpdate(getMainWindow, {
-        channel: "update:changelog",
-        version: info.version,
-        markdown,
-      });
+      updates.apply({ kind: "changelog", version: info.version, markdown });
     });
   });
   autoUpdater.on("update-not-available", (info) => {
-    sendUpdate(getMainWindow, {
-      channel: "update:not-available",
-      version: info.version ?? app.getVersion(),
-    });
+    updates.apply({ kind: "not-available", version: info.version ?? app.getVersion() });
   });
   autoUpdater.on("error", (error) => {
-    sendUpdate(getMainWindow, { channel: "update:error", message: errorMessage(error) });
+    reportUpdateFailure(updates, error);
   });
   autoUpdater.on("download-progress", (progress) => {
-    sendUpdate(getMainWindow, {
-      channel: "update:download-progress",
+    updates.apply({
+      kind: "download-progress",
       percent: progress.percent,
       bytesPerSecond: progress.bytesPerSecond,
     });
   });
   autoUpdater.on("update-downloaded", (info) => {
-    sendUpdate(getMainWindow, { channel: "update:downloaded", version: info.version });
+    updates.apply({ kind: "downloaded", version: info.version });
   });
 
   setTimeout(() => {
     void autoUpdater.checkForUpdates().catch((error: unknown) => {
-      sendUpdate(getMainWindow, { channel: "update:error", message: errorMessage(error) });
+      reportUpdateFailure(updates, error);
     });
   }, FIRST_CHECK_DELAY_MS);
 
   intervalHandle = setInterval(() => {
     void autoUpdater.checkForUpdates().catch((error: unknown) => {
-      sendUpdate(getMainWindow, { channel: "update:error", message: errorMessage(error) });
+      reportUpdateFailure(updates, error);
     });
   }, CHECK_INTERVAL_MS);
 }
@@ -143,9 +191,36 @@ export function shutdownAutoUpdater(): void {
   }
 }
 
-function sendUpdate(getMainWindow: () => BrowserWindow | null, payload: UpdateChannel): void {
-  const { channel, ...data } = payload;
-  sendToWindow(getMainWindow(), channel, data);
+/** Dev builds have no feed: replay `CADENCR_DEV_UPDATE_EVENTS` so the UI can be exercised. */
+function seedDevUpdateState(updates: UpdateStateAuthority): void {
+  try {
+    for (const event of devUpdateEvents(process.env)) updates.apply(event);
+  } catch (error) {
+    updates.apply({ kind: "error", message: `Invalid dev update events: ${errorMessage(error)}` });
+  }
+}
+
+/**
+ * Linux packages are attached to a release by hand, after macOS ships, so the
+ * latest release can lack `latest-linux.yml`. That means no Linux update yet,
+ * not a failed check: report it as "not available" instead of an error.
+ */
+function isMissingLinuxFeed(error: unknown): boolean {
+  return (
+    process.platform === "linux" &&
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND"
+  );
+}
+
+function reportUpdateFailure(updates: UpdateStateAuthority, error: unknown): void {
+  if (isMissingLinuxFeed(error)) {
+    console.info("[updater] the latest release has no Linux packages yet");
+    updates.apply({ kind: "not-available", version: app.getVersion() });
+    return;
+  }
+  updates.apply({ kind: "error", message: errorMessage(error) });
 }
 
 function errorMessage(error: unknown): string {

@@ -14,20 +14,23 @@ interface ProviderAccessModeSettingProps {
 export function ProviderAccessModeSetting({
   providerId,
 }: ProviderAccessModeSettingProps): React.JSX.Element | null {
-  const config = providerAccessModeConfig(providerId);
-  const catalog = useAgentCatalog({ enabled: config != null });
+  const catalog = useAgentCatalog();
+  const entry = catalog.data?.providers.find((provider) => provider.id === providerId);
+  const config = providerAccessModeConfig(
+    providerId,
+    entry ? { label: entry.label, accessModes: entry.access_modes ?? [] } : null,
+  );
   const { globalAccessMode, handleAccessModeChange, isError, isLoading, isPending } =
     useAccessModeSetting(providerId);
+  const accessModes = entry?.access_modes;
   const options = useMemo(
     () =>
-      catalog.data?.providers
-        .find((provider) => provider.id === providerId)
-        ?.access_modes?.map((option) => ({
-          value: option.id,
-          label: option.label,
-          description: option.description,
-        })) ?? [],
-    [catalog.data?.providers, providerId],
+      accessModes?.map((option) => ({
+        value: option.id,
+        label: option.label,
+        description: option.description,
+      })) ?? [],
+    [accessModes],
   );
   if (!config) return null;
 

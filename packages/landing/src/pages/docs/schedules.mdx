@@ -1,0 +1,95 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Schedules"
+description: "Send agent prompts once or on a recurring rule, in the conversation you choose."
+lastReviewed: "2026-10-16"
+version: "0.13.0"
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import schedules_overviewImage from "@/assets/docs/v0.13.0/schedules-overview.png";
+import pageImage from "@/assets/docs/v0.13.0/schedules.png";
+
+A schedule sends an agent prompt at the times you choose. Open **Schedules** in the sidebar, or use the composer's schedule action to prepare a prompt for later.
+
+<DocScreenshot
+  src={pageImage}
+  alt="The current schedule editor for an example morning review. Example schedules are paused."
+  caption="The current schedule editor for an example morning review. Example schedules are paused."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+## Create a schedule
+
+1. Choose **New schedule** or schedule a draft from a conversation.
+2. Add an optional name; an unnamed schedule uses the prompt's first line.
+3. Choose an existing conversation or a new conversation in a project.
+4. Write the prompt and select the applicable runtime/worktree controls.
+5. Choose the recurrence and timezone, then review and create it.
+
+The editor includes the full prompt composer: file and conversation references, commands, skills, provider/model, thinking, mode, access, and profile controls as supported.
+
+## Choose the destination
+
+| Destination           | Behavior                                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| Existing conversation | Deliver into that conversation and its working context                                               |
+| New conversation      | Start a task in the selected project for each run, with the configured runtime and worktree behavior |
+
+Check the target before saving. A schedule created from a conversation uses the same underlying scheduler as one created from the Schedules page.
+
+## Recurrence rules
+
+| Rule     | What you choose                                                               |
+| -------- | ----------------------------------------------------------------------------- |
+| Once     | A single date and time                                                        |
+| Interval | A fixed elapsed interval                                                      |
+| Daily    | Local time of day                                                             |
+| Weekly   | Selected weekdays and local time                                              |
+| Monthly  | Day of month and local time; shorter months use their last day when necessary |
+
+Daily, weekly, and monthly rules use the selected IANA timezone, so a local wall-clock time follows daylight-saving transitions. Check both the rule and the next-run time after editing.
+
+## Only send when a command fails
+
+Turn on **Only send when a command fails** to gate a schedule on a shell command. The recurrence then decides when the command is checked: at each scheduled time CadencR runs it through your login shell — in the conversation's working copy, or the project's root folder for a schedule that starts a new conversation.
+
+| Command result      | What happens                                                                |
+| ------------------- | --------------------------------------------------------------------------- |
+| Exit code 0         | Nothing is sent. The list shows the check passed.                           |
+| Any other exit      | The prompt is sent with the exit code and the tail of the command's output. |
+| Timeout or no start | The run is marked failed with the reason, and nothing is sent.              |
+
+For example, check `pnpm test` every 15 minutes with the prompt "The test suite is failing — fix it". The timeout defaults to 300 seconds (at most 600). While the targeted conversation's agent is still working — or waiting on you for a permission or an answer — checks are skipped so the same failure isn't queued again and again. **Run now** runs the check too, and reports when it passed.
+
+Agents can create these schedules themselves with the `project_create_schedule` [MCP tool](../mcp/): ask one to "watch the build and fix it when it breaks", and it writes the command and the rule into its own conversation. Agent-created schedules appear in the list like any other. The agent can also list, change, pause, or delete the schedules of its own conversation (`project_list_schedules`, `project_update_schedule`, `project_delete_schedule`) — for example, dropping the watch once the fix has landed. It can't touch schedules that deliver anywhere else.
+
+## Pause, edit, and inspect runs
+
+<DocScreenshot
+  src={schedules_overviewImage}
+  alt="The schedule list groups two paused example rules by project."
+  caption="The schedule list groups two paused example rules by project."
+  rounded
+  elevated
+/>
+
+Pause a schedule to keep its rule without sending prompts. Resuming computes its next run instead of replaying a paused backlog. Edit its prompt or rule from the list, or delete a rule you no longer need.
+
+The list shows next/last run information and results such as sent, failed, or skipped, plus the latest check for a command-gated schedule. Open the last conversation when you want to inspect the work produced by that run. Read an error before retrying a failed schedule.
+
+CadencR must remain running to dispatch scheduled work. It is not a hosted cron service. Existing undelivered scheduled messages from the earlier one-shot system were migrated into schedules.
+
+## Prompt schedule or custom action?
+
+A schedule can either **send a prompt** or **run a custom action**. Choose **Run a custom action** in the editor, then the project, the action and the conversation whose working copy it runs in. It uses the same recurrence rules, pause and run now; a run that exits non-zero, or cannot start (a missing worktree or `${VAR}` value), is recorded as failed with the reason, and its output is on the action's page in the conversation's launcher menu. Conditions apply to prompts only.
+
+Use a prompt when an agent should inspect context and decide what to do; use a [custom action](../custom-actions/) for a known command. Schedules created by earlier versions on an action's popover were moved here, as interval schedules of at least one minute.
+
+## Related guides
+
+- [Prompt](../prompting/) — references and runtime controls.
+- [Worktrees](../worktrees/) — new or reused checkouts.
+- [Settings](../settings/) — provider setup and usage.

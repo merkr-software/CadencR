@@ -44,10 +44,14 @@ export function ConfirmDialog({
         showCloseButton={false}
         className="sm:max-w-sm"
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !busy) {
-            e.preventDefault();
-            void handleConfirm();
-          }
+          // Only the confirm control may trigger on Enter. Letting the event
+          // bubble from Cancel (or any other focused element) would confirm
+          // a destructive action the user explicitly declined.
+          if (e.key !== "Enter" || busy) return;
+          if (!(e.target instanceof HTMLElement)) return;
+          if (!e.target.closest('[data-confirm-dialog-confirm="true"]')) return;
+          e.preventDefault();
+          void handleConfirm();
         }}
       >
         <DialogHeader>
@@ -63,6 +67,7 @@ export function ConfirmDialog({
             variant={variant}
             disabled={busy}
             aria-busy={busy}
+            data-confirm-dialog-confirm="true"
             onClick={() => void handleConfirm()}
           >
             {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}

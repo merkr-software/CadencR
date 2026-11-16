@@ -5,10 +5,33 @@
  * Mirrors the desktop app's `KbdShortcut` "modal" variant
  * (packages/desktop/src/components/KbdShortcut.tsx) so a key in the
  * docs looks identical to the same key inside the in-app shortcuts
- * modal (⌘/).
+ * modal (⌘/): ⌘ ⌥ ⌃ ⇧ ↵ ⌫ and arrows render as the same Lucide glyphs,
+ * everything else as text.
  */
+import { KEY_GLYPHS } from "@/lib/keyGlyphs";
+
+const content = Astro.slots.has("default") ? await Astro.slots.render("default") : "";
+const glyph = KEY_GLYPHS[content.trim()];
 ---
 
 <kbd class="doc-kbd">
-  <slot />
+  {
+    glyph ? (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        role="img"
+        aria-label={glyph.label}
+        set:html={glyph.paths}
+      />
+    ) : (
+      // `content` is the already-rendered slot HTML; re-injecting it unescaped is safe.
+      <Fragment set:html={content} />
+    )
+  }
 </kbd>

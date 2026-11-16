@@ -1,0 +1,243 @@
+use crate::digest::sha256_hex as digest;
+
+use crate::{valid_publication_repository, CatalogSnapshot, PolicyKind, RegistryError};
+
+pub const DISCOVERY_FILENAME: &str = "managed-index.json";
+pub const MAX_DISCOVERY_BYTES: usize = crate::MAX_CATALOG_BYTES;
+
+pub const ADMINISTRATIVE_DISCOVERY_BRANCH: &str = "marketplace-v2-admin";
+
+/// Fixed, separately maintained client channels. Administrative metadata must
+/// never reach the legacy schema-2 feed consumed by released 0.16 clients.
+pub fn validate_catalog_discovery_channel(
+    schema: u64,
+    administrative: bool,
+    branch: &str,
+) -> Result<(), RegistryError> {
+    validate_discovery_branch(branch)?;
+    let mixed = matches!(branch, "marketplace-v2" | ADMINISTRATIVE_DISCOVERY_BRANCH);
+    if (schema == 2) != mixed || administrative && branch != ADMINISTRATIVE_DISCOVERY_BRANCH {
+        return Err(RegistryError::single(
+            "schema2 requires an isolated marketplace-v2 channel; provider handoffs require marketplace-v2-admin",
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_discovery_branch(branch: &str) -> Result<(), RegistryError> {
+    let mut bytes = branch.bytes();
+    let valid = (1..=64).contains(&branch.len())
+        && bytes
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'));
+    if valid {
+        Ok(())
+    } else {
+        Err(RegistryError::single("discovery branch is invalid"))
+    }
+}
+
+pub fn discovery_url(repository: &str, branch: &str) -> Result<String, RegistryError> {
+    discovery_object_url(repository, branch, DISCOVERY_FILENAME)
+}
+
+/// The raw URL of `file` on a discovery branch: the catalog or one of the
+/// four revocation policies, nothing else.
+pub fn discovery_object_url(
+    repository: &str,
+    branch: &str,
+    file: &str,
+) -> Result<String, RegistryError> {
+    if !valid_publication_repository(repository) {
+        return Err(RegistryError::single("discovery repository is invalid"));
+    }
+    validate_discovery_branch(branch)?;
+    let known = file == DISCOVERY_FILENAME
+        || [
+            PolicyKind::Provider,
+            PolicyKind::Theme,
+            PolicyKind::Tab,
+            PolicyKind::Lsp,
+        ]
+        .iter()
+        .any(|kind| kind.file_name() == file);
+    if !known {
+        return Err(RegistryError::single("discovery object name is invalid"));
+    }
+    Ok(format!(
+        "https://raw.githubusercontent.com/{repository}/refs/heads/{branch}/{file}"
+    ))
+}
+
+/// Assess an authenticated discovery head before a compare-and-swap update.
+///
+/// `true` means the exact candidate bytes are already current. `false` means
+/// the absent/bootstrap or exact-baseline head is safe to advance.
+pub fn assess_discovery_head(
+    snapshot: &CatalogSnapshot,
+    head: Option<&[u8]>,
+) -> Result<bool, RegistryError> {
+    let Some(bytes) = head else {
+        return if snapshot.discovery_bootstrap() {
+            Ok(false)
+        } else {
+            Err(RegistryError::single(
+                "discovery does not match the signed baseline",
+            ))
+        };
+    };
+    if bytes.len() > MAX_DISCOVERY_BYTES {
+        return Err(RegistryError::single("discovery exceeds 32 MiB"));
+    }
+    if bytes == snapshot.canonical_envelope() {
+        return Ok(true);
+    }
+    let Some(previous) = snapshot.previous_sha256() else {
+        return Err(RegistryError::single(
+            "discovery is not absent for bootstrap",
+        ));
+    };
+    if digest(bytes) == previous {
+        Ok(false)
+    } else {
+        Err(RegistryError::single(
+            "discovery does not match the signed baseline",
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use chrono::{Duration, SecondsFormat, Utc};
+    use serde_json::{json, Value};
+
+    use super::*;
+
+    #[test]
+    fn administrative_metadata_cannot_advance_the_legacy_client_channel() {
+        assert!(validate_catalog_discovery_channel(2, false, "marketplace-v2").is_ok());
+        assert!(validate_catalog_discovery_channel(2, true, "marketplace-v2").is_err());
+        assert!(
+            validate_catalog_discovery_channel(2, true, ADMINISTRATIVE_DISCOVERY_BRANCH).is_ok()
+        );
+        assert!(
+            validate_catalog_discovery_channel(2, false, ADMINISTRATIVE_DISCOVERY_BRANCH).is_ok()
+        );
+        assert!(
+            validate_catalog_discovery_channel(1, false, ADMINISTRATIVE_DISCOVERY_BRANCH).is_err()
+        );
+        assert!(validate_catalog_discovery_channel(2, true, "arbitrary").is_err());
+    }
+
+    // Deterministic synthetic 0x07 fixture key; never a production credential.
+    const PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\
+        MC4CAQAwBQYDK2VwBCIEIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH\n\
+        -----END PRIVATE KEY-----\n";
+    const PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\n\
+        MCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=\n\
+        -----END PUBLIC KEY-----\n";
+
+    fn package() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../tooling/marketplace-registry/tests/fixtures/example-provider.json.fixture"
+        ))
+        .unwrap()
+    }
+
+    fn signed(directory: &std::path::Path, name: &str, minute: i64) -> Vec<u8> {
+        let generated = Utc::now() - Duration::minutes(minute);
+        let payload = json!({
+            "schema_version":1,
+            "generated_at":generated.to_rfc3339_opts(SecondsFormat::Secs, true),
+            "expires_at":(generated + Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
+            "packages":[package()],
+        });
+        let private = directory.join("private.pem");
+        std::fs::write(&private, PRIVATE_KEY).unwrap();
+        let bytes = crate::sign_index_payload(&payload, &private, "release-2026").unwrap();
+        std::fs::write(directory.join(name), &bytes).unwrap();
+        bytes
+    }
+
+    fn snapshot(
+        previous: Option<&std::path::Path>,
+    ) -> (tempfile::TempDir, CatalogSnapshot, Vec<u8>) {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("public.pem"), PUBLIC_KEY).unwrap();
+        let candidate = signed(directory.path(), "candidate.json", 1);
+        let prior = previous.map_or(
+            crate::PreviousCatalog::Bootstrap,
+            crate::PreviousCatalog::File,
+        );
+        let value = crate::prepare_catalog_snapshot()
+            .catalog_file(&directory.path().join("candidate.json"))
+            .previous(prior)
+            .public_key_file(&directory.path().join("public.pem"))
+            .key_id("release-2026")
+            .repository("cadencr/registry")
+            .registry_commit(&"a".repeat(40))
+            .call()
+            .unwrap();
+        (directory, value, candidate)
+    }
+
+    #[test]
+    fn strict_branch_and_url_match_javascript() {
+        for valid in ["catalog", "A", "a_b-9", &"x".repeat(64)] {
+            assert!(validate_discovery_branch(valid).is_ok());
+        }
+        for invalid in ["", "-bad", "_bad", "bad/slash", "bad.dot", &"x".repeat(65)] {
+            assert!(validate_discovery_branch(invalid).is_err());
+        }
+        assert_eq!(discovery_url("cadencr/registry", "catalog").unwrap(), "https://raw.githubusercontent.com/cadencr/registry/refs/heads/catalog/managed-index.json");
+        assert!(discovery_url("invalid", "catalog").is_err());
+    }
+
+    #[test]
+    fn bootstrap_requires_absence_but_exact_candidate_replays() {
+        let (_directory, snapshot, candidate) = snapshot(None);
+        assert!(!assess_discovery_head(&snapshot, None).unwrap());
+        assert!(assess_discovery_head(&snapshot, Some(&candidate)).unwrap());
+        assert!(assess_discovery_head(&snapshot, Some(br#"{}"#))
+            .unwrap_err()
+            .to_string()
+            .contains("not absent"));
+    }
+
+    #[test]
+    fn baseline_uses_exact_raw_digest_and_enforces_bounds() {
+        let source = tempfile::tempdir().unwrap();
+        let baseline = signed(source.path(), "baseline.json", 2);
+        let baseline_path = source.path().join("baseline.json");
+        let mut padded = baseline.clone();
+        padded.extend_from_slice(b" \n");
+        std::fs::write(&baseline_path, &padded).unwrap();
+        let (_directory, snapshot, candidate) = snapshot(Some(&baseline_path));
+        assert!(!assess_discovery_head(&snapshot, Some(&padded)).unwrap());
+        assert!(assess_discovery_head(&snapshot, Some(&candidate)).unwrap());
+        for invalid in [baseline.as_slice(), b"not json", br#"{"foreign":true}"#] {
+            assert!(assess_discovery_head(&snapshot, Some(invalid)).is_err());
+        }
+        assert!(
+            assess_discovery_head(&snapshot, Some(&vec![b' '; MAX_DISCOVERY_BYTES + 1]))
+                .unwrap_err()
+                .to_string()
+                .contains("32 MiB")
+        );
+    }
+
+    #[test]
+    fn legacy_oracle_matches_url_and_raw_digest() {
+        let source = br#"{ "z": 1, "a": {"y":2,"b":3} }"#;
+        let oracle: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/legacy-v1/discovery.json"))
+                .unwrap();
+        assert_eq!(
+            oracle["url"],
+            discovery_url("cadencr/registry", "catalog").unwrap()
+        );
+        assert_eq!(oracle["digest"], digest(source));
+    }
+}

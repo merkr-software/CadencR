@@ -5,14 +5,14 @@
 
 use std::path::{Path, PathBuf};
 
-const CADENCR_DIR: &str = ".cadencr";
-const WORKTREES_DIR: &str = "worktrees";
+use crate::shared::app_paths;
 
-/// Return the default root for Cadencr-managed worktrees:
-/// `~/.cadencr/worktrees`.
+/// Return the default root for Cadencr-managed worktrees. On Linux this lands
+/// under `$XDG_DATA_HOME/cadencr/worktrees` (default
+/// `~/.local/share/cadencr/worktrees`); on macOS it stays at
+/// `~/.cadencr/worktrees`. See `app_paths` for the platform rules.
 pub fn default_worktrees_root() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-    Ok(home.join(CADENCR_DIR).join(WORKTREES_DIR))
+    app_paths::worktrees_dir()
 }
 
 /// Replace branch path separators with a single filesystem component.
@@ -20,7 +20,7 @@ pub fn worktree_name_for_branch(branch: &str) -> String {
     branch.replace('/', "-")
 }
 
-/// Resolve `~/.cadencr/worktrees/{project}/{safe-branch}` and return it as a
+/// Resolve `<worktrees-root>/{project}/{safe-branch}` and return it as a
 /// string. Creates the project parent directory; the leaf directory is left
 /// for `git worktree add` to create.
 pub async fn compute_worktree_path(project_name: &str, branch: &str) -> Result<String, String> {
@@ -57,7 +57,7 @@ pub async fn build_contained_worktree_path(
         .map_err(|e| format!("Failed to canonicalize worktree root: {e}"))?;
     if !canon_parent.starts_with(&canon_root) {
         return Err(format!(
-            "Resolved worktree parent escapes ~/.cadencr/worktrees: {}",
+            "Resolved worktree parent escapes worktrees root: {}",
             canon_parent.display()
         ));
     }
@@ -144,7 +144,7 @@ mod tests {
             let err = build_contained_worktree_path(&root, "proj", "branch")
                 .await
                 .unwrap_err();
-            assert!(err.contains("escapes ~/.cadencr/worktrees"), "{err}");
+            assert!(err.contains("escapes worktrees root"), "{err}");
         }
     }
 }

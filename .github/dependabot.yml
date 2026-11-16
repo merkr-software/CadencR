@@ -38,3 +38,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # init and analyze exchange versioned state and must move together.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"

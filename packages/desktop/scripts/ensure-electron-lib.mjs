@@ -7,6 +7,15 @@ const executablePathByPlatform = new Map([
   ["linux", "electron"],
   ["win32", "electron.exe"],
 ]);
+const macFrameworkVersionsPath =
+  "dist/Electron.app/Contents/Frameworks/Electron Framework.framework/Versions";
+const macRequiredPaths = [
+  "dist/Electron.app/Contents/MacOS/Electron",
+  `${macFrameworkVersionsPath}/A/Electron Framework`,
+  "dist/Electron.app/Contents/Frameworks/Mantle.framework/Mantle",
+  "dist/Electron.app/Contents/Frameworks/ReactiveObjC.framework/ReactiveObjC",
+  "dist/Electron.app/Contents/Frameworks/Squirrel.framework/Squirrel",
+];
 
 export function ensureElectronBundle({ electronModulePath, platform = process.platform }) {
   ensurePathFile(electronModulePath, platform);
@@ -15,11 +24,31 @@ export function ensureElectronBundle({ electronModulePath, platform = process.pl
       reinstallElectron(electronModulePath);
       ensurePathFile(electronModulePath, platform);
       if (isMacBundleMissingRequiredFiles(electronModulePath)) {
-        throw new Error("Electron reinstall completed, but the macOS app bundle is still incomplete.");
+        throw new Error(
+          "Electron reinstall completed, but the macOS app bundle is still incomplete.",
+        );
       }
     }
     repairMacFrameworkCurrentSymlink(electronModulePath);
   }
+}
+
+/**
+ * Why the installed Electron bundle cannot launch, or null when it can. Read
+ * only: it reports what `ensureElectronBundle` would repair (scripts/doctor.mjs).
+ */
+export function electronBundleProblem({ electronModulePath, platform = process.platform }) {
+  const executablePath = executablePathByPlatform.get(platform);
+  if (executablePath === undefined) return `unsupported platform ${platform}`;
+  const binary = join(electronModulePath, "dist", executablePath);
+  if (!existsSync(binary)) return `${binary} not found`;
+  if (platform !== "darwin") return null;
+  const missing = missingMacBundleFile(electronModulePath);
+  if (missing !== undefined) return `incomplete macOS app bundle: ${missing} not found`;
+  if (!existsSync(join(electronModulePath, macFrameworkVersionsPath, "Current"))) {
+    return "Electron Framework.framework/Versions/Current symlink is missing";
+  }
+  return null;
 }
 
 function ensurePathFile(electronModulePath, platform) {
@@ -39,10 +68,7 @@ function ensurePathFile(electronModulePath, platform) {
 }
 
 function repairMacFrameworkCurrentSymlink(electronModulePath) {
-  const versionsPath = join(
-    electronModulePath,
-    "dist/Electron.app/Contents/Frameworks/Electron Framework.framework/Versions",
-  );
+  const versionsPath = join(electronModulePath, macFrameworkVersionsPath);
   const currentPath = join(versionsPath, "Current");
   if (existsSync(currentPath)) return;
 
@@ -57,14 +83,13 @@ function repairMacFrameworkCurrentSymlink(electronModulePath) {
 }
 
 function isMacBundleMissingRequiredFiles(electronModulePath) {
-  const requiredPaths = [
-    "dist/Electron.app/Contents/MacOS/Electron",
-    "dist/Electron.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
-    "dist/Electron.app/Contents/Frameworks/Mantle.framework/Mantle",
-    "dist/Electron.app/Contents/Frameworks/ReactiveObjC.framework/ReactiveObjC",
-    "dist/Electron.app/Contents/Frameworks/Squirrel.framework/Squirrel",
-  ];
-  return requiredPaths.some((relativePath) => !existsSync(join(electronModulePath, relativePath)));
+  return missingMacBundleFile(electronModulePath) !== undefined;
+}
+
+function missingMacBundleFile(electronModulePath) {
+  return macRequiredPaths.find(
+    (relativePath) => !existsSync(join(electronModulePath, relativePath)),
+  );
 }
 
 function reinstallElectron(electronModulePath) {

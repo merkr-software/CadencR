@@ -9,6 +9,9 @@ pub(super) async fn copy_worktree_config(
     target: &Path,
     paths: &[Cow<'static, str>],
 ) -> Result<(), RuntimeError> {
+    if paths.is_empty() {
+        return Ok(());
+    }
     crate::domain::agents::config_migration::copy_provider_config_paths(
         label, source, target, paths,
     )

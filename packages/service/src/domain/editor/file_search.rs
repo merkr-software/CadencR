@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -43,7 +44,7 @@ pub fn recent_files(
     let mut entries: Vec<(String, SystemTime, bool)> = Vec::new();
 
     for result in list_walker(project) {
-        let entry = result.map_err(|e| AppError::Internal(e.to_string()))?;
+        let entry = result.map_err(|e| AppError::internal(e.to_string()))?;
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(true);
         if is_dir && !include_dirs {
             continue;
@@ -52,7 +53,7 @@ pub fn recent_files(
         let relative = entry
             .path()
             .strip_prefix(project)
-            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(|e| AppError::internal(e.to_string()))?
             .to_string_lossy()
             .to_string();
         if relative.is_empty() {
@@ -85,7 +86,7 @@ pub fn recent_files(
         entries.push((rel, mtime, false));
     }
 
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     entries.truncate(limit);
 
     Ok(entries
@@ -144,7 +145,7 @@ pub fn fuzzy_search_files(
     // we stream entries straight into the scorer instead of materialising
     // an intermediate `candidates` Vec.
     for result in list_walker(project) {
-        let entry = result.map_err(|e| AppError::Internal(e.to_string()))?;
+        let entry = result.map_err(|e| AppError::internal(e.to_string()))?;
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(true);
         if is_dir && !include_dirs {
             continue;
@@ -152,7 +153,7 @@ pub fn fuzzy_search_files(
         let relative = entry
             .path()
             .strip_prefix(project)
-            .map_err(|e| AppError::Internal(e.to_string()))?
+            .map_err(|e| AppError::internal(e.to_string()))?
             .to_string_lossy()
             .to_string();
         if relative.is_empty() {
@@ -180,7 +181,7 @@ pub fn fuzzy_search_files(
         );
     }
 
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    rank_matches(project, query, &mut scored);
     scored.truncate(limit);
 
     Ok(scored
@@ -191,4 +192,90 @@ pub fn fuzzy_search_files(
             is_dir,
         })
         .collect())
+}
+
+/// How directly an entry's own name answers the query — what a person typing
+/// `@invoice` means first: the file *called* that, then names starting with
+/// it, then names containing it, then any fuzzy path match. `query` is
+/// already trimmed and lowercased.
+fn name_bucket(relative: &str, query: &str) -> u8 {
+    if query.is_empty() {
+        return 3;
+    }
+    let name = relative
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(relative)
+        .to_lowercase();
+    let stem = name.split('.').next().unwrap_or(&name);
+    if name == query || stem == query {
+        0
+    } else if name.starts_with(query) {
+        1
+    } else if name.contains(query) {
+        2
+    } else {
+        3
+    }
+}
+
+/// Recency only breaks ties among the best candidates; stat'ing every match
+/// of a broad query in a large repository would cost more than it buys.
+const RECENCY_WINDOW: usize = 200;
+
+/// Order fuzzy matches: name bucket, then match score, then — within the top
+/// window — the most recently modified, then the shorter path. Each key is
+/// computed once per entry, not once per comparison.
+fn rank_matches(project: &Path, query: &str, scored: &mut [(String, u32, Vec<u32>, bool)]) {
+    let query = query.trim().to_lowercase();
+    scored.sort_by_cached_key(|(path, score, ..)| {
+        (name_bucket(path, &query), Reverse(*score), path.len())
+    });
+    let window = scored.len().min(RECENCY_WINDOW);
+    scored[..window].sort_by_cached_key(|(path, score, ..)| {
+        let modified = std::fs::metadata(project.join(path))
+            .and_then(|meta| meta.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        (
+            name_bucket(path, &query),
+            Reverse(*score),
+            Reverse(modified),
+            path.len(),
+        )
+    });
+}
+
+#[cfg(test)]
+mod ranking_tests {
+    use super::*;
+
+    #[test]
+    fn exact_name_beats_prefix_beats_contains_beats_fuzzy() {
+        assert_eq!(name_bucket("src/api/invoices.ts", "invoices"), 0);
+        assert_eq!(name_bucket("src/api/invoices.ts", "invoices.ts"), 0);
+        assert_eq!(name_bucket("src/api/invoices.ts", "invo"), 1);
+        assert_eq!(name_bucket("src/components/InvoiceTable.tsx", "table"), 2);
+        assert_eq!(name_bucket("src/invoices/api.ts", "invoices"), 3);
+        assert_eq!(name_bucket("src/components/", "components"), 0);
+    }
+
+    #[test]
+    fn ranks_the_file_named_like_the_query_first() {
+        let dir = tempfile::tempdir().unwrap();
+        for path in [
+            "src/invoices/api.ts",
+            "src/api/invoices.ts",
+            "src/InvoicesTable.tsx",
+        ] {
+            let full = dir.path().join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, "x").unwrap();
+        }
+        let root = dir.path().canonicalize().unwrap();
+        let results = fuzzy_search_files(&root, "invoices", 10, false).unwrap();
+        let paths: Vec<&str> = results.iter().map(|m| m.path.as_str()).collect();
+        assert_eq!(paths[0], "src/api/invoices.ts");
+        assert_eq!(paths[1], "src/InvoicesTable.tsx");
+    }
 }

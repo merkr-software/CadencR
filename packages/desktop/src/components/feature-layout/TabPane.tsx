@@ -1,20 +1,20 @@
 import { useCallback, useRef, type ReactNode } from "react";
 import { ROOT_LEAF_ID, type LayoutLeaf, type TabKind } from "@/stores/feature-layout-schema";
-import {
-  getFocusedLeaf,
-  selectFeatureLayout,
-  useFeatureLayoutStore,
-} from "@/stores/feature-layout-store";
+import { useFeatureLayoutStore, useFocusedPaneId } from "@/stores/feature-layout-store";
 import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 import { useFreezeWidthDuringResize } from "@/lib/use-freeze-width-during-resize";
-import { PaneChrome } from "./PaneChrome";
-import type { FeatureTabActivationHandlers, FeatureTabs } from "./types";
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
+import { PaneChrome, type PaneChromeProps } from "./PaneChrome";
+import type { FeatureTabActivationHandlers, FeatureTabs, PaneSlot } from "./types";
 
 interface TabPaneProps extends FeatureTabActivationHandlers {
   featureId: number;
   leaf: LayoutLeaf;
   tabs: FeatureTabs;
   splitsEnabled?: boolean;
+  rootStripActions?: ReactNode;
+  /** Where the pane sits in its parent split; absent for a lone root pane. */
+  slot?: PaneSlot;
 }
 
 /**
@@ -24,7 +24,7 @@ interface TabPaneProps extends FeatureTabActivationHandlers {
  *     can target it.
  *   - 5 drop zones (4 edges + 1 center) overlaid on the content area when a
  *     drag is active. Each zone is a `useDroppable` with edge metadata.
- *   - For the root pane, the LayoutMenu trailing the strip.
+ *   - For the root pane, `rootStripActions` + the LayoutMenu trailing the strip.
  */
 export function TabPane({
   featureId,
@@ -33,15 +33,14 @@ export function TabPane({
   onTerminalActivate,
   onEditorActivate,
   splitsEnabled = true,
+  rootStripActions,
+  slot,
 }: TabPaneProps): ReactNode {
   const registerHost = useTabHostRegistry((s) => s.registerHost);
   const unregisterHost = useTabHostRegistry((s) => s.unregisterHost);
   const setPaneActiveTab = useFeatureLayoutStore((s) => s.setPaneActiveTab);
-  const dockTab = useFeatureLayoutStore((s) => s.dockTab);
   const setFocusedPane = useFeatureLayoutStore((s) => s.setFocusedPane);
-  const focusedPaneId = useFeatureLayoutStore(
-    (s) => getFocusedLeaf(selectFeatureLayout(featureId)(s))?.id ?? ROOT_LEAF_ID,
-  );
+  const focusedPaneId = useFocusedPaneId(featureId);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hostKey = makeTabHostKey(featureId, leaf.id);
@@ -96,7 +95,12 @@ export function TabPane({
       queueMicrotask(() => {
         if (activatedTabRef.current === tab) activatedTabRef.current = null;
       });
-      if (leaf.activeTabId !== tab) setPaneActiveTab(featureId, leaf.id, tab);
+      // Re-clicking the tab already showing isn't arranging anything, so it
+      // must not hold off the agent's next reveal.
+      if (leaf.activeTabId !== tab) {
+        noteUserLayoutChange(featureId);
+        setPaneActiveTab(featureId, leaf.id, tab);
+      }
       notifyTabActivation(tab);
     },
     [featureId, leaf.activeTabId, leaf.id, markPaneFocused, notifyTabActivation, setPaneActiveTab],
@@ -117,12 +121,40 @@ export function TabPane({
       isRoot={isRoot}
       isFocused={isFocused}
       splitsEnabled={splitsEnabled}
+      stripActions={isRoot ? rootStripActions : undefined}
+      slot={slot}
       containerRef={containerRef}
       contentRef={setContentRef}
       onFocusPane={markPaneFocused}
       onTabChange={handleTabChange}
       onActivateTab={activateTab}
-      onDockTab={(tab) => dockTab(featureId, tab)}
+      {...paneLayoutActions(featureId, leaf.id)}
     />
   );
+}
+
+/**
+ * The strip's structural edits: each holds off auto layout's next reveal, as
+ * the user just arranged the panes themselves.
+ */
+function paneLayoutActions(
+  featureId: number,
+  paneId: string,
+): Pick<PaneChromeProps, "onDockTab" | "onCloseTab" | "onTogglePop"> {
+  const store = useFeatureLayoutStore.getState;
+  const structural = (): void => noteUserLayoutChange(featureId, { structural: true });
+  return {
+    onDockTab: (tab) => {
+      structural();
+      store().dockTab(featureId, tab);
+    },
+    onCloseTab: (tab) => {
+      structural();
+      store().removeTab(featureId, tab);
+    },
+    onTogglePop: (pop) => {
+      structural();
+      store().setPanePop(featureId, paneId, pop);
+    },
+  };
 }

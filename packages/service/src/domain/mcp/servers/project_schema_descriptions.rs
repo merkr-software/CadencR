@@ -1,4 +1,5 @@
 use crate::domain::agents::providers::{provider_alias_metadata, valid_provider_ids};
+use crate::domain::mcp::settings_tool::SettingsTool;
 
 pub(super) fn tool_description(name: &str) -> &'static str {
     match name {
@@ -15,6 +16,17 @@ pub(super) fn tool_description(name: &str) -> &'static str {
         "project_send_session_message" => "Send a provenance-tracked message to another current-project session. Delivery steers the active target turn by default; request next_turn explicitly only when delayed handling is intentional.",
         "project_list_pending_gates" => "Recovery only: reconcile a linked child's pending gate after a missed/stale notification. A live <cadencr-gate> already contains the complete request id, kind, options, and payload; never poll this tool.",
         "project_respond_gate" => "Answer a linked child's pending gate using the exact session id, request id, kind, and payload from the automatically delivered <cadencr-gate>.",
+        "project_create_schedule"
+        | "project_list_schedules"
+        | "project_update_schedule"
+        | "project_delete_schedule" => super::super::project_schedule_schema::description(name),
+        "project_archive_session" => super::super::project_archive_schema::DESCRIPTION,
+        "project_get_settings" => {
+            super::super::settings_schema::get_description(SettingsTool::Project)
+        }
+        "project_update_settings" => {
+            super::super::settings_schema::update_description(SettingsTool::Project)
+        }
         _ => "Coordinate CadencR sessions in the current project.",
     }
 }
@@ -28,7 +40,7 @@ pub(super) fn property_description(tool_name: &str, property: &str) -> String {
         ("project_spawn_session", "project_id") => "Target project id for the new session. Omit to spawn in the caller's own project; pass a registered id from workspace_list_projects to target another project.".into(),
         ("project_spawn_session", "project_path") => "Target project root path (alternative to project_id). It must exactly match a registered path from workspace_list_projects; if both selectors are given they must agree.".into(),
         ("project_spawn_session", "model") => model_description(),
-        ("project_spawn_session", "thinking_level") => "Provider/model-specific thinking or reasoning level. Use one of the target provider/model pair's thinking_levels from project_list_agent_providers. When omitted, CadencR uses the last selection for that target provider/model, then the CLI-advertised default_thinking_level.".into(),
+        ("project_spawn_session", "thinking_level") => "Provider/model-specific thinking or reasoning level. Use one of the target provider/model pair's thinking_levels from project_list_agent_providers. When omitted, CadencR uses the last selection for that target provider/model, then the CLI-advertised default_thinking_level (providers driven by a configuration profile keep the profile's own level instead).".into(),
         ("project_spawn_session", "follow") => "Reactive parent subscription. When present, omitted gates/completion fields default to true. Gates, questions, permissions, and requested completion replies automatically steer the parent; do not poll. An intentional child stop is not a failure and leaves completion follow armed for a later resumed result. Use false fields only to opt out explicitly.".into(),
         ("project_spawn_session", "await_result") => "Legacy completion-follow flag. Prefer follow.completion. A requested <cadencr-reply> steers the parent automatically when the child turn ends.".into(),
         (_, "session_id") => "Target session id in the current project.".into(),

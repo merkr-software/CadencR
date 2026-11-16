@@ -34,12 +34,12 @@ import {
   serverBlocksToAgentBlocks,
   type AccumulatedSession,
 } from "./useFeatureAgentState-merge";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { AgentType } from "../types/agent-types";
 import { normalizeContextWindow, type AgentStatus, type TodoItem } from "@/types/agent";
-import { parseAskUserQuestions } from "@/components/AgentQuestionDrawer";
-import type { AgentQuestion } from "@/components/AgentQuestionDrawer";
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
+import type { AgentQuestion } from "@/types/agent-question";
+import type { PendingPermission } from "@/types/agent-permission";
 import { parsePermissionMode, type PermissionMode } from "@/types/permission-mode";
 import { parseAccessMode, type AccessMode } from "@/types/access-mode";
 import {

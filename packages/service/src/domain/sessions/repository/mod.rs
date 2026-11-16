@@ -19,7 +19,9 @@ mod latest_todos_query;
 mod origins;
 mod pagination;
 mod queries;
+mod reply_preview;
 mod task_todos;
+mod todo_progress;
 mod tool_blocks;
 mod wire_preview;
 // `pub(crate)` so storage maintenance can trim exactly the payloads this module
@@ -37,3 +39,5 @@ pub use drafts::{get_draft, get_message_content, save_draft};
 pub use feature_state::get_feature_agent_state;
 pub(crate) use origins::{get_message_origin, origin_matches_session_generated};
 pub use queries::{get_session_status_snapshot, get_sessions, latest_assistant_preview};
+pub(crate) use queries::{parse_turn_models, preview_snippet};
+pub use todo_progress::latest_todo_progress;

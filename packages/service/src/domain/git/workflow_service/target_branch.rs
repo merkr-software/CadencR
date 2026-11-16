@@ -8,18 +8,24 @@ use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::git::commands;
+use crate::domain::git::linked_branches::{self, BranchOrigin, BranchRef};
 use crate::domain::git::models::{SuccessResponse, UpdateTargetBranchBody};
-use crate::domain::git::repository;
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::{
+    branch_identity, recorded_feature_branch, resolve_feature_branch, resolve_feature_git_path,
+};
 use crate::error::AppError;
 use crate::shared::git_cli::run_git;
 
-use super::{broadcast_after_write, SETTING_TARGET_BRANCH};
+use super::broadcast_after_write;
+
+mod reference;
+pub(crate) use reference::branch_exists;
 
 /// Fallback chain for the compare target when the user hasn't picked one:
 ///
-///   1. explicit feature setting (whatever the picker stored verbatim — we
-///      never rewrite it),
+///   1. the explicit pick (stored verbatim — we never rewrite it): the one
+///      for the conversation's current branch, else the conversation-wide
+///      setting every branch shared before targets became per branch,
 ///   2. `branch.<head>.merge` upstream tracking — the branch the current
 ///      HEAD was set up to merge into,
 ///   3. **`origin/HEAD`** (resolved via `git symbolic-ref`) — the remote's
@@ -33,36 +39,36 @@ use super::{broadcast_after_write, SETTING_TARGET_BRANCH};
 /// We never error: if every probe fails we hand back `"main"` and let
 /// `compute_status` set `ahead_of_target = 0` when the ref doesn't resolve.
 ///
-/// Once the user picks a branch in the chip — local `main` *or* remote
+/// Once the user picks a target for a branch — local `main` *or* remote
 /// `origin/main` — that pick is stored verbatim and step 1 short-circuits
-/// the rest. The fallback chain only runs the *first* time, before any
-/// explicit pick.
+/// the rest. The fallback chain only runs for branches nobody picked for.
 pub async fn resolve_target_branch(
     state: &AppState,
     feature_id: i64,
     repo: &Path,
 ) -> Result<String, AppError> {
+    let has_git = crate::shared::git_context::has_git_metadata(repo).await?;
+    // Targets are per branch: the conversation's current branch picks its own.
+    let branch = if has_git {
+        resolve_feature_branch(&state.read_pool, feature_id, repo).await?
+    } else {
+        None
+    };
     if let Some(stored) =
-        repository::get_feature_setting(&state.read_pool, feature_id, SETTING_TARGET_BRANCH).await?
+        linked_branches::configured_target(&state.read_pool, feature_id, branch.as_deref()).await?
     {
-        if !stored.trim().is_empty() {
-            return Ok(stored);
-        }
+        return Ok(stored);
     }
 
-    if !crate::shared::git_context::has_git_metadata(repo).await? {
+    if !has_git {
         return Ok("main".to_string());
     }
 
     // Tracking config: `branch.<head>.merge` points at the upstream this
     // branch was set up to merge into. When present it's the single best
     // signal — beats every heuristic below.
-    let head = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], repo)
-        .await
-        .ok()
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
-    if !head.is_empty() && head != "HEAD" {
+    // `None` is a detached HEAD: nothing tracks anything.
+    if let Some(head) = branch {
         if let Ok(branch) = commands::get_original_branch(repo, &head).await {
             return Ok(branch);
         }
@@ -116,14 +122,31 @@ pub async fn update_target_branch(
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
     let repo = Path::new(&git_path);
 
-    if !branch_exists(repo, target).await {
+    if !branch_exists(repo, target).await? {
         return Err(AppError::BadRequest(format!(
             "branch '{target}' does not resolve locally or on origin"
         )));
     }
 
-    repository::set_feature_setting(&state.write_pool, feature_id, SETTING_TARGET_BRANCH, target)
-        .await?;
+    let branch = match body.branch.as_deref().and_then(branch_identity) {
+        Some(branch) => branch,
+        None => resolve_feature_branch(&state.read_pool, feature_id, repo)
+            .await?
+            .ok_or_else(|| {
+                AppError::BadRequest("this conversation has no branch to set a target for".into())
+            })?,
+    };
+    let recorded = recorded_feature_branch(&state.read_pool, feature_id).await?;
+    let origin = if recorded.as_deref() == Some(branch.as_str()) {
+        BranchOrigin::Provisioned
+    } else {
+        BranchOrigin::Manual
+    };
+    let key = BranchRef {
+        feature_id,
+        branch: &branch,
+    };
+    linked_branches::repository::set_target(&state.write_pool, key, origin, target).await?;
 
     // The new target changes `ahead_of_target` and the compare URL — push a
     // refreshed snapshot so any open WS sessions update without waiting for
@@ -137,23 +160,10 @@ pub async fn update_target_branch(
     })
 }
 
-/// Verify a ref resolves either locally or via `origin/<ref>`.
-async fn branch_exists(repo: &Path, name: &str) -> bool {
-    if run_git(&["rev-parse", "--verify", name], repo)
-        .await
-        .is_ok()
-    {
-        return true;
-    }
-    let remote = format!("origin/{name}");
-    run_git(&["rev-parse", "--verify", &remote], repo)
-        .await
-        .is_ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::git::repository;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
 
@@ -181,10 +191,14 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(linked_branches::repository::TEST_SCHEMA)
+            .execute(&pool)
+            .await
+            .unwrap();
         pool
     }
 
-    fn run_git_for_test(dir: &std::path::Path, args: &[&str]) {
+    pub(super) fn run_git_for_test(dir: &std::path::Path, args: &[&str]) {
         let out = std::process::Command::new("git")
             .args(args)
             .current_dir(dir)
@@ -207,7 +221,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        repository::set_feature_setting(&pool, 1, SETTING_TARGET_BRANCH, "develop")
+        repository::set_feature_setting(&pool, 1, "target_branch", "develop")
             .await
             .unwrap();
 
@@ -224,7 +238,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        repository::set_feature_setting(&pool, 1, SETTING_TARGET_BRANCH, "   ")
+        repository::set_feature_setting(&pool, 1, "target_branch", "   ")
             .await
             .unwrap();
 
@@ -344,5 +358,62 @@ mod tests {
         let state = AppState::with_pool(pool);
         let target = resolve_target_branch(&state, 1, dir.path()).await.unwrap();
         assert_eq!(target, "master");
+    }
+
+    fn repo_on(branches: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        run_git_for_test(dir.path(), &["init", "-q", "-b", "main"]);
+        run_git_for_test(dir.path(), &["config", "user.email", "t@t"]);
+        run_git_for_test(dir.path(), &["config", "user.name", "T"]);
+        run_git_for_test(dir.path(), &["commit", "--allow-empty", "-q", "-m", "init"]);
+        for branch in branches {
+            run_git_for_test(dir.path(), &["branch", branch]);
+        }
+        dir
+    }
+
+    #[tokio::test]
+    async fn each_linked_branch_keeps_its_own_target() {
+        let pool = setup_schema().await;
+        let dir = repo_on(&["feature/a", "fix/b", "develop"]);
+        let path = dir.path().to_string_lossy().to_string();
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'p', ?)")
+            .bind(&path)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'feat')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 1, "feature_branch", "feature/a")
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 1, "target_branch", "main")
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+        let pick = |branch: &str, target: &str| UpdateTargetBranchBody {
+            target_branch: target.to_string(),
+            branch: Some(branch.to_string()),
+        };
+        update_target_branch(&state, 1, pick("fix/b", "feature/a"))
+            .await
+            .unwrap();
+        update_target_branch(&state, 1, pick("feature/a", "develop"))
+            .await
+            .unwrap();
+
+        // `fix/b` is now linked, so checking it out makes it current, with
+        // its own target; switching back restores the provisioned branch's.
+        run_git_for_test(dir.path(), &["checkout", "-q", "fix/b"]);
+        let target = resolve_target_branch(&state, 1, dir.path()).await.unwrap();
+        assert_eq!(target, "feature/a");
+        run_git_for_test(dir.path(), &["checkout", "-q", "main"]);
+        let target = resolve_target_branch(&state, 1, dir.path()).await.unwrap();
+        assert_eq!(
+            target, "develop",
+            "main is not linked: feature/a stays current"
+        );
     }
 }

@@ -111,7 +111,10 @@ describe("BrowserLibraryStore", () => {
     ]);
   });
 
-  it("bounds records and query results", async () => {
+  // 260 sequential atomic writes, each re-serializing a ~512 KiB library while
+  // `bounded()` binary-searches the byte budget. The work is deterministic but
+  // CPU-bound (~0.7s idle, >5s on a saturated runner), so it gets its own budget.
+  it("bounds records and query results", { timeout: 30_000 }, async () => {
     const { filePath, store } = await storeAt();
     const longSegment = "x".repeat(1_800);
     for (let index = 0; index < 260; index += 1) {

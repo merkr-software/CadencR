@@ -22,7 +22,7 @@ pub(super) fn reasoning_delta_event(
     };
     let delta = params.get("delta").and_then(Value::as_str).unwrap_or("");
     let section = kind.section(&params);
-    let cleaned = index_state.reasoning.delta(item_id, section, delta);
+    let cleaned = index_state.reasoning_mut().delta(item_id, section, delta);
     if cleaned.is_empty() {
         return Vec::new();
     }
@@ -49,7 +49,7 @@ pub(super) fn reasoning_summary_part_added(params: Value, index_state: &mut Inde
         return;
     };
     index_state
-        .reasoning
+        .reasoning_mut()
         .announce_section(item_id, ReasoningSection::Summary(summary_index));
 }
 
@@ -83,7 +83,7 @@ pub(super) fn reasoning_item_event(
     else {
         return Vec::new();
     };
-    let pending = index_state.reasoning.finish(item_id);
+    let pending = index_state.reasoning_mut().finish(item_id);
     let block_started = index_state.has_index(item_id);
     if !block_started && pending.is_none() {
         return Vec::new();

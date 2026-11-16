@@ -1,0 +1,245 @@
+name: Build and release the tab
+
+# Builds the native backend on each platform's runner, checks it against the
+# protocol, then packs the web archive and one backend archive per platform
+# with the released Cadencr CLI. Every push and pull request runs it as a
+# check; pushing a `v<version>` tag that matches tab.json's version also
+# creates the GitHub release the marketplace metadata points at
+# (docs/CUSTOM_TABS_GUIDE.md, "Publishing a tab with a native backend").
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The Cadencr CLI that packs the archives, pinned by version and digest:
+  # CADENCR_RELEASE_VERSION and CADENCR_RELEASE_SHA256 from the `released-cli.env`
+  # asset of a release at https://github.com/merkr-software/CadencR/releases.
+  CADENCR_CLI_VERSION: 0.14.1
+  CADENCR_CLI_SHA256: 8bc82e23a39f4a379713b47770fd4e0752574a7175c40e6dda932bd6d1beea73
+
+jobs:
+  version:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # Before any build: a tag that does not match tab.json fails at once.
+      - name: Read the tab version
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version tab.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match tab.json version $version (expected v$version)"
+            exit 1
+          fi
+
+  backend:
+    name: Backend (${{ matrix.os }})
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both macOS binaries from one Apple-silicon runner; the tests run
+          # on its own (aarch64) target.
+          - os: macos
+            runner: macos-15
+            host: aarch64-apple-darwin
+            targets: aarch64-apple-darwin x86_64-apple-darwin
+          - os: linux
+            runner: ubuntu-24.04
+            host: x86_64-unknown-linux-gnu
+            targets: x86_64-unknown-linux-gnu
+            lint: true
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Add the Rust targets
+        run: rustup target add ${{ matrix.targets }}
+
+      # Swatinem/rust-cache@v2.9.3: the dependencies' build, reused while
+      # Cargo.lock and the toolchain stay the same. Pull requests only read it.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: backend -> target
+          key: ${{ matrix.os }}
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      # The code is the same on every platform: linting once is enough.
+      - name: Lint
+        if: matrix.lint
+        run: |
+          cargo fmt --manifest-path backend/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path backend/Cargo.toml --all-targets -- -D warnings
+
+      # In release mode for the target the build below uses, so it reuses
+      # this compilation.
+      - name: Test (protocol conformance included)
+        run: cargo test --locked --release --manifest-path backend/Cargo.toml --target "${{ matrix.host }}"
+
+      # Each binary lands where tab.json's `backend.binary` says; a tarball
+      # keeps those paths and the executable bit through the artifact.
+      - name: Build
+        run: |
+          set -euo pipefail
+          for target in ${{ matrix.targets }}; do
+            node scripts/build-backend.mjs --locked --target "$target"
+          done
+          jq -r '.backend.binary[]' tab.json | while read -r path; do
+            if [[ -e "$path" ]]; then echo "$path"; fi
+          done | tar --no-xattrs -cf "backend-${{ matrix.os }}.tar" -T -
+
+      # actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backend-${{ matrix.os }}
+          path: backend-${{ matrix.os }}.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: Pack the archives
+    needs: backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+
+      # The asset needs glibc 2.39 or later, which ubuntu-24.04 has.
+      - name: Download the Cadencr CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          asset="cadencr-v$CADENCR_CLI_VERSION-x86_64-unknown-linux-gnu"
+          dir="$RUNNER_TEMP/cadencr"
+          mkdir -p "$dir"
+          gh release download "cli/v$CADENCR_CLI_VERSION" --repo merkr-software/CadencR \
+            --pattern "$asset" --dir "$dir"
+          echo "$CADENCR_CLI_SHA256  $dir/$asset" | sha256sum --check
+          install -m 0755 "$dir/$asset" "$dir/cadencr"
+          "$dir/cadencr" --version | grep -Fq "$CADENCR_CLI_VERSION"
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Build the web UI
+        run: |
+          npm ci
+          npm run build:ui
+
+      # actions/download-artifact@v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: backend-*
+          path: artifacts
+          merge-multiple: true
+
+      # The CLI wants a tab folder named after the tab's id, which a checkout
+      # (named after the repository) need not be. `web` holds what the web
+      # archive ships; `full` adds the binaries at their declared paths.
+      - name: Stage the tab
+        run: |
+          set -euo pipefail
+          id=$(jq -r .id tab.json)
+          entry_dir=$(dirname "$(jq -r .entry tab.json)")
+          web="$RUNNER_TEMP/web/$id"
+          full="$RUNNER_TEMP/full/$id"
+          mkdir -p "$web" "$full"
+          cp tab.json "$web/"
+          icon=$(jq -r '.icon // empty' tab.json)
+          if [[ -n "$icon" ]]; then cp --parents "$icon" "$web/"; fi
+          cp --parents -R "$entry_dir" "$web/"
+          cp -R "$web/." "$full/"
+          for archive in artifacts/*.tar; do tar -xf "$archive" -C "$full"; done
+          { echo "STAGE_WEB=$web"; echo "STAGE_FULL=$full"; } >> "$GITHUB_ENV"
+
+      # Every declared binary present; this runner's (Linux) one also native
+      # and through the protocol conformance checks.
+      - name: Validate the tab
+        run: cadencr plugin validate "$STAGE_FULL" --kind tab
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cadencr registry pack-tab --directory "$STAGE_WEB" --output out/tab.tar.gz > out/tab.json
+          for platform in $(jq -r '.backend.binary | keys[]' tab.json); do
+            cadencr registry pack-tab-backend --directory "$STAGE_FULL" --target "$platform" \
+              --output "out/tab-backend-$platform.tar.gz" > "out/tab-backend-$platform.json"
+          done
+          {
+            echo "### Values for the marketplace metadata"
+            echo
+            echo "\`tab.json\`: the web archive (\`tab.distribution\`); \`tab-backend-<platform>.json\`: \`tab.distribution.binary.<platform>\`."
+            echo
+            echo '```json'
+            jq -n '[inputs | {file: (input_filename | sub("^out/"; ""))} + .]' out/*.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: archives
+          path: out/
+          if-no-files-found: error
+
+  release:
+    name: Create the GitHub release
+    needs: [version, package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # actions/download-artifact@v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: archives
+          path: out
+
+      # The metadata's archive URLs point at this release's assets; the
+      # printed values stay in the run summary and the `archives` artifact.
+      # A re-run fails here once the release exists: delete it first.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --notes "Custom tab $VERSION." \
+            out/tab.tar.gz out/tab-backend-*.tar.gz

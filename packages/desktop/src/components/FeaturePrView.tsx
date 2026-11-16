@@ -13,6 +13,7 @@ import { useGetPr, type CommentThread } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_PR_COMMENT_FILTER, type PrCommentFilter } from "@/components/PrCommentsFilter";
 import type { PrReviewThreads } from "@/hooks/usePrReviewThreads";
+import { useViewedPr, type ViewedPr } from "@/hooks/useViewedPr";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { FORGE_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import { hydratePrStatuses } from "@/stores/pr-status-hydration";
@@ -26,6 +27,8 @@ import {
 } from "@/components/FeaturePrViewParts";
 import { ForgeImageScope } from "@/components/ForgeImage";
 import { PrStatusBand } from "@/components/PrStatusBand";
+import { PrSwitcher } from "@/components/PrSwitcher";
+import { snapshotForPr } from "@/lib/thread-prs";
 import {
   TIMELINE_COMPONENTS,
   useTimelineContext,
@@ -61,6 +64,7 @@ export const FeaturePrView = memo(function FeaturePrView({
     { query: { enabled: cached === undefined, retry: false } },
   );
   const status = cached ?? summaryQuery.data;
+  const viewedPr = useViewedPr(featureId, status);
   const [filter, setFilter] = useState<PrCommentFilter>(DEFAULT_PR_COMMENT_FILTER);
 
   if (summaryQuery.isLoading && !status) return <PrViewLoading />;
@@ -72,8 +76,14 @@ export const FeaturePrView = memo(function FeaturePrView({
     );
   }
   if (status?.setup_required) return <ForgeConnectEmptyState reason={status.error} />;
-  if (status?.error && !status.pr) return <PrViewError message={status.error} />;
-  if (!status?.pr) return <NoPrEmptyState />;
+  const { viewed } = viewedPr;
+  if (!status || !viewed) {
+    return (
+      <WithSwitcher viewedPr={viewedPr}>
+        {status?.error ? <PrViewError message={status.error} /> : <NoPrEmptyState />}
+      </WithSwitcher>
+    );
+  }
 
   // Everything below here — the description, every comment body, every author's
   // face — reaches its images through this feature's forge. Scoped once at the
@@ -81,27 +91,50 @@ export const FeaturePrView = memo(function FeaturePrView({
   // layers down inside Virtuoso and would otherwise have to carry the id.
   return (
     <ForgeImageScope featureId={featureId}>
-      <PrTimeline
-        status={status}
-        threads={filter === "unresolved" ? reviews.unresolved : reviews.threads}
-        unresolvedCount={reviews.unresolvedCount}
-        totalCount={reviews.threads.length}
-        filter={filter}
-        onFilterChange={setFilter}
-        commentsLoading={reviews.isLoading}
-        commentsRefreshing={reviews.isRefreshing}
-        commentsError={reviews.errorMessage}
-        onCommentsRetry={reviews.retry}
-        selectedThreadIds={selectedThreadIds}
-        onThreadSelectedChange={onThreadSelectedChange}
-        onAllThreadsSelectedChange={onAllThreadsSelectedChange}
-        onViewThread={onViewThread}
-        onSendThread={onSendThread}
-        registerNavigationAdapter={registerNavigationAdapter}
-      />
+      <WithSwitcher viewedPr={viewedPr}>
+        <PrTimeline
+          // A fresh timeline per proposal: scroll position, keyboard focus and
+          // the open check list all belong to the one being read.
+          key={viewed.pr.number}
+          status={snapshotForPr(status, viewed)}
+          threads={filter === "unresolved" ? reviews.unresolved : reviews.threads}
+          unresolvedCount={reviews.unresolvedCount}
+          totalCount={reviews.threads.length}
+          filter={filter}
+          onFilterChange={setFilter}
+          commentsLoading={reviews.isLoading}
+          commentsRefreshing={reviews.isRefreshing}
+          commentsError={reviews.errorMessage}
+          onCommentsRetry={reviews.retry}
+          selectedThreadIds={selectedThreadIds}
+          onThreadSelectedChange={onThreadSelectedChange}
+          onAllThreadsSelectedChange={onAllThreadsSelectedChange}
+          // Another branch's threads anchor to a diff this pane can't show.
+          onViewThread={viewed.isCurrent ? onViewThread : undefined}
+          onSendThread={onSendThread}
+          registerNavigationAdapter={registerNavigationAdapter}
+        />
+      </WithSwitcher>
     </ForgeImageScope>
   );
 });
+
+/** The pane's body under the proposal tabs, when there is more than one to pick. */
+function WithSwitcher({
+  viewedPr,
+  children,
+}: {
+  viewedPr: ViewedPr;
+  children: ReactElement;
+}): ReactElement {
+  if (viewedPr.tabs.length === 0) return children;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <PrSwitcher tabs={viewedPr.tabs} selected={viewedPr.selected} onSelect={viewedPr.select} />
+      <div className="min-h-0 flex-1">{children}</div>
+    </div>
+  );
+}
 
 interface PrTimelineProps extends TimelineHeaderSource {
   onViewThread?: (thread: CommentThread) => void;
@@ -192,7 +225,10 @@ function PrTimeline(props: PrTimelineProps): ReactElement {
       />
       <Virtuoso
         ref={band.listRef}
-        className="min-h-0 flex-1"
+        // The well: one step below the pane colour the band and the send bar
+        // sit on, so the thread cards (`bg-card`) lift off it. On one shared
+        // surface the cards were separated by their hairlines alone.
+        className="min-h-0 flex-1 bg-background"
         data={threads}
         context={listContext}
         components={TIMELINE_COMPONENTS}

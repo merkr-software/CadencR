@@ -337,7 +337,7 @@ impl CommandBuilder {
             EnvEntry {
                 is_from_base_env: false,
                 preferred_key: key,
-                value: value,
+                value,
             },
         );
     }
@@ -477,7 +477,7 @@ impl CommandBuilder {
 
             if let Some(path) = self.resolve_path() {
                 for path in std::env::split_paths(&path) {
-                    let candidate = cwd.join(&path).join(&exe);
+                    let candidate = cwd.join(&path).join(exe);
 
                     if candidate.is_dir() {
                         errors.push(format!("{} exists but is a directory", candidate.display()));
@@ -530,8 +530,7 @@ impl CommandBuilder {
         let home = self.get_home_dir()?;
         let dir: &OsStr = self
             .cwd
-            .as_ref()
-            .map(|dir| dir.as_os_str())
+            .as_deref()
             .filter(|dir| std::path::Path::new(dir).is_dir())
             .unwrap_or(home.as_ref());
         let shell = self.get_shell();
@@ -542,7 +541,7 @@ impl CommandBuilder {
             // Run the shell as a login shell by prefixing the shell's
             // basename with `-` and setting that as argv0
             let basename = shell.rsplit('/').next().unwrap_or(&shell);
-            cmd.arg0(&format!("-{}", basename));
+            cmd.arg0(format!("-{}", basename));
             cmd
         } else {
             let resolved = self.search_path(&self.args[0], dir)?;
@@ -586,7 +585,7 @@ impl CommandBuilder {
             }
         }
 
-        get_shell().into()
+        get_shell()
     }
 
     fn get_home_dir(&self) -> anyhow::Result<String> {

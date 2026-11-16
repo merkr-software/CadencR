@@ -22,7 +22,7 @@ pub(super) async fn run(
     occurrence: &str,
 ) -> Result<i64, AppError> {
     let project_id = schedule.target.project_id.ok_or_else(|| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "schedule {} creates conversations but has no project_id",
             schedule.id
         ))
@@ -71,6 +71,7 @@ async fn take_back(state: &AppState, schedule_id: i64, feature_id: i64, project_
         // The `Created` event may already be out; retract it so clients don't
         // keep a conversation that no longer exists in their sidebar.
         Ok(()) => {
+            state.plugin_tab_presence.release_features(&[feature_id]);
             state
                 .feature_events_tx
                 .emit(feature_id, Some(project_id), FeatureEventAction::Deleted)
@@ -112,7 +113,7 @@ async fn insert_session(
 ) -> Result<i64, AppError> {
     let now = Utc::now().to_rfc3339();
     let overrides = serde_json::to_string(&runtime.overrides)
-        .map_err(|error| AppError::Internal(format!("serialize runtime overrides: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize runtime overrides: {error}")))?;
     // `codex_permission_mode` is NOT NULL: every other provider stores the
     // literal 'default', so the COALESCE is required, not cosmetic.
     // `permission_mode` is nullable and the spawn path falls back to the

@@ -1,164 +1,69 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Docs"
-description: "Your friendly map to CadencR, from first look to faster daily use."
+description: "Practical guides to the current CadencR workspace, agents, and review workflows."
+lastReviewed: "2026-11-03"
+version: "0.16.0"
 ---
 
-import DocCallout from "@/components/docs/DocCallout.astro";
 import DocPageGrid from "@/components/docs/DocPageGrid.astro";
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import overviewImage from "@/assets/docs/overview.png";
+import { DOC_SECTIONS, getDocHref } from "@/lib/docs";
+import overviewImage from "@/assets/docs/v0.13.0/index.png";
 
-This is the "show me where to click next" part of the website.
+Use these guides to set up your agents, choose a task's working context, and review its result. The marketplace guides cover **CadencR v0.16.0**; each guide shows its reviewed version. Some screenshots illustrate earlier versions from a separate example workspace. Open a screenshot to inspect it at full size.
 
-If you are brand new, start with [Concept](./concept/) and [Workspace Pages](./workspace-pages/). If you already know what you need, jump straight to that page.
+Ready to install the desktop app? Follow the [macOS and Linux installation guide](./installation/).
+
+Building an extension? The [libraries overview](./libraries/) links to dedicated **npm packages** and **Rust crates** guides for custom tabs and agent providers. Library versions are independent of the desktop version shown above.
+
+Find extensions in the [Marketplace](./marketplace/), or follow [Publish to the marketplace](./marketplace-publishing/) to release your own.
 
 <DocScreenshot
   src={overviewImage}
-  alt="CadencR overview — the sidebar, a feature workspace with agent, editor, terminal, and Git tabs, plus a unified agents view in the background"
-  caption="A look at the surfaces these docs cover: sidebar, feature workspace, and the unified agents view."
+  alt="CadencR v0.13.0 with an example conversation, project sidebar, and workspace tools"
+  caption="Workspace example from v0.13.0: conversations across projects, the agent, and tools for inspecting its work. The conversation is example data."
   bordered={false}
+  rounded
+  elevated
 />
 
-## What you can learn here
+## Choose a starting point
 
-These docs are here to help you:
+| Your goal                   | Start here                                              | Then read                                                     |
+| --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------- |
+| Set up an agent             | [Providers](./providers/)                               | [Prompt](./prompting/) and [Approvals](./approvals/)          |
+| Understand the app          | [Concept](./concept/)                                   | [Workspace pages](./workspace-pages/)                         |
+| Work on a task              | [Feature workspace](./feature-workspace/)               | [Worktrees](./worktrees/) and [Git](./git/)                   |
+| Supervise several agents    | [Sidebar](./sidebar/)                                   | [Unified agent list](./unified-agent-list/) and [MCP](./mcp/) |
+| Repeat work automatically   | [Schedules](./schedules/)                               | [Custom actions](./custom-actions/)                           |
+| Continue from another point | [Rewind & Fork](./rewind-and-fork/)                     | [Session view](./session-view/)                               |
+| Customize or inspect usage  | [Settings](./settings/)                                 | [Themes](./themes/) and [Usage Stats](./usage-stats/)         |
+| Install extensions          | [Marketplace](./marketplace/)                           | [Providers](./providers/) and [Themes](./themes/)             |
+| Publish an extension        | [Publish to the marketplace](./marketplace-publishing/) | [Libraries](./libraries/)                                     |
+| Use another device          | [Remote access](./remote-access/)                       | [Terminal](./terminal/)                                       |
 
-- understand what CadencR is without learning a pile of jargon first,
-- find your way around the main screens,
-- get more comfortable with agent sessions, Git, the editor, terminal, and Browser,
-- move faster with practical tips like [Shortcuts](./shortcuts/), [Custom Actions](./custom-actions/), and [Browser](./browser/).
+## Browse every guide
 
-## How to use these docs
+{DOC_SECTIONS.map((section) => (
 
-You do not need to read everything in order. Use it like a reference, not a course.
+  <section>
+    <h3>{section.title}</h3>
+    <DocPageGrid
+      items={section.pages.filter((page) => page.slug.length > 0).map((page) => ({
+        title: page.navLabel,
+        href: getDocHref(page.slug),
+        description: page.description,
+      }))}
+    />
+  </section>
+))}
 
-- **Start Here** explains the big picture and the main places you will spend time.
-- **Core Views** helps you stay oriented while work is happening.
-- **Features** covers the tools you will reach for once you are in motion.
-- **Reference** is the look-it-up section for approvals, worktrees, and settings.
+## Before your first prompt
 
-## Browse the docs
+1. Install and authenticate an agent CLI on the host.
+2. Register your project folder.
+3. Check the provider/model and branch/worktree controls.
+4. Describe one task, then inspect files, checks, and Git before publishing changes.
 
-### Start here
-
-<DocPageGrid
-  items={[
-    {
-      title: "The IDE for the era of agents",
-      href: "./concept/",
-      description:
-        "What CadencR is, who it is for, and why it feels different from regular chat tools.",
-    },
-    {
-      title: "Workspace pages",
-      href: "./workspace-pages/",
-      description: "A guided tour of the major surfaces you will bounce between while working.",
-    },
-  ]}
-/>
-
-### Core views
-
-<DocPageGrid
-  items={[
-    {
-      title: "Feature workspace",
-      href: "./feature-workspace/",
-      description: "How a feature becomes your home base for files, agents, terminal, and Git.",
-    },
-    {
-      title: "Session view",
-      href: "./session-view/",
-      description: "How to read an agent session, stay oriented, and steer work without chaos.",
-    },
-    {
-      title: "Unified agent list",
-      href: "./unified-agent-list/",
-      description: "Find, filter, scan, and pin agent sessions across your workspace.",
-    },
-  ]}
-/>
-
-### Features
-
-<DocPageGrid
-  items={[
-    {
-      title: "Prompt",
-      href: "./prompting/",
-      description:
-        "How to ask for work clearly without turning every prompt into a tiny legal document.",
-    },
-    {
-      title: "Git in CadencR",
-      href: "./git/",
-      description:
-        "How Git shows up in the product and how to stay confident instead of git-scared.",
-    },
-    {
-      title: "Editor",
-      href: "./editor/",
-      description:
-        "Browse files, open diffs, split panes, and stay close to the code without getting buried.",
-    },
-    {
-      title: "Terminal",
-      href: "./terminal/",
-      description:
-        "Use the built-in terminal when agent work needs a little human keyboard energy.",
-    },
-    {
-      title: "Browser",
-      href: "./browser/",
-      description: "Preview local apps, keep feature-scoped tabs, and send page context to agents.",
-    },
-    {
-      title: "Custom actions",
-      href: "./custom-actions/",
-      description: "What the plus button does and why it is more helpful than it first looks.",
-    },
-    {
-      title: "Shortcuts",
-      href: "./shortcuts/",
-      description: "A practical keyboard cheat sheet for faster navigation and less mouse mileage.",
-    },
-  ]}
-/>
-
-### Reference
-
-<DocPageGrid
-  items={[
-    {
-      title: "Approvals & permissions",
-      href: "./approvals/",
-      description:
-        "Plan approval, tool permissions, multi-choice questions, and the permission-mode toggle.",
-    },
-    {
-      title: "Worktrees",
-      href: "./worktrees/",
-      description:
-        "Why each feature lives in its own Git worktree and how to work with them safely.",
-    },
-    {
-      title: "Settings",
-      href: "./settings/",
-      description: "A tour of every Settings section and when you actually need it.",
-    },
-  ]}
-/>
-
-## Suggested reading paths
-
-| If you are...         | Start with                      | Then read                                                                             |
-| --------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
-| New to CadencR        | [Concept](./concept/)           | [Workspace Pages](./workspace-pages/) → [Feature Workspace](./feature-workspace/)     |
-| Already using the app | [Session View](./session-view/) | [Editor](./editor/) → [Git in CadencR](./git/)                                        |
-| A keyboard enjoyer    | [Shortcuts](./shortcuts/)       | [Browser](./browser/) → [Terminal](./terminal/) → [Custom Actions](./custom-actions/) |
-
-<DocCallout title="Tiny but important note" variant="tip">
-  The docs are meant to be practical, not mysterious. If a page sounds too abstract, skip to a more
-  concrete one and come back later. CadencR will not be offended.
-</DocCallout>
+New conversations use the provider and model from your last accepted manual prompt across projects, unless the conversation has an override. Add providers through the [Marketplace](./marketplace/) or a local ACP connector.

@@ -43,7 +43,7 @@ export function useAgentFirstNonAgentWork({
 
 /**
  * Priority order in which non-agent tabs are progressively enabled once the
- * agent has painted. Editor first, then git, terminal, browser — the order the
+ * agent has painted. Editor first, then git, terminal, browser, preview — the order the
  * user is most likely watching for in a split layout, and it staggers the
  * expensive panels (editor/diff) so no single frame hydrates two at once.
  */
@@ -52,6 +52,7 @@ const STAGGER_ORDER: readonly Exclude<TabKind, "agent">[] = [
   "git",
   "terminal",
   "browser",
+  "preview",
 ];
 /** Gap between revealing each successive tab. */
 const STAGGER_STEP_MS = 120;
@@ -127,6 +128,7 @@ export function useStaggeredTabReadiness({
       git: ready("git", 1),
       terminal: ready("terminal", 2),
       browser: ready("browser", 3),
+      preview: ready("preview", 4),
     };
   }, [enabled, immediateTab, stage]);
 }

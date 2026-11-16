@@ -5,8 +5,7 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 use crate::domain::custom_actions::run_registry::CustomActionRunRegistry;
-use crate::domain::custom_actions::scheduler::CustomActionScheduler;
-use crate::domain::editor::watcher::{FileChangeEvent, SharedFileWatcher};
+use crate::domain::editor::watcher::EditorWatchers;
 use crate::domain::feature_events::FeatureEventBroadcaster;
 use crate::domain::features::run_registry::FeatureRunRegistry;
 use crate::domain::gate_registry::GateRegistry;
@@ -28,7 +27,8 @@ use crate::domain::schedules::models::ScheduleRanEvent;
 use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::terminal::service::PtyManager;
 use crate::domain::workflow::worktree::WorktreeSetupRegistry;
-use crate::domain::ws_session::handler::{new_sdk_sessions, ActiveTurnRegistry};
+use crate::domain::ws_session::persistence_health::SessionPersistenceHealth;
+use crate::domain::ws_session::runtime::{turns::ActiveTurnRegistry, SessionRuntimeRegistry};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 use crate::domain::ws_session::user_shell_runs::UserShellRunRegistry;
 use crate::remote::{RemoteConfig, RemoteController};
@@ -112,8 +112,6 @@ pub struct AppState {
     pub pty_manager: PtyManager,
     /// Neovim RPC manager (stub — RPC surface removed; awaiting PTY migration).
     pub neovim_manager: NeovimManager,
-    /// Broadcast channel for file-system change events.
-    pub file_change_tx: broadcast::Sender<FileChangeEvent>,
     /// Broadcast when a settings JSON file changes on disk (our own writes or an
     /// external editor). Drives the frontend to re-fetch settings live.
     pub settings_events_tx: broadcast::Sender<crate::domain::settings_store::SettingsChangeEvent>,
@@ -121,6 +119,20 @@ pub struct AppState {
     /// live preview: the frontend re-fetches and re-injects the theme's tokens
     /// while the user edits the file.
     pub theme_events_tx: broadcast::Sender<crate::domain::themes::ThemesChangeEvent>,
+    /// Broadcast when a custom tab's `tab.json`, icon or `dist/` changes on
+    /// disk. Drives live reload of open tab instances.
+    pub plugin_tab_events_tx: broadcast::Sender<crate::domain::plugin_tabs::PluginTabChangedEvent>,
+    /// Broadcast when a session's queued-prompt list changes (bare ping).
+    pub prompt_queue_events_tx:
+        broadcast::Sender<crate::domain::prompt_queue::PromptQueueChangedEvent>,
+    /// In-memory plugin tokens of live custom tab instances (never persisted).
+    pub plugin_tab_grants: crate::domain::plugin_tabs::grants::GrantStore,
+    /// The commands custom tabs ran, for their Activity dialog (memory only).
+    pub plugin_tab_activity: crate::domain::plugin_tabs::activity::ActivityLog,
+    /// Custom tabs' native backend processes.
+    pub plugin_tab_backends: crate::domain::plugin_tabs::backend::BackendSupervisor,
+    /// Open custom tab instances (presence leases); a backend stops with its tab.
+    pub plugin_tab_presence: crate::domain::plugin_tabs::presence::PresenceStore,
     /// Broadcast when `alacritty.toml` changes on disk. Drives the frontend
     /// to re-fetch `GET /api/terminal/alacritty-config` live.
     pub alacritty_config_events_tx:
@@ -132,25 +144,27 @@ pub struct AppState {
     /// User-visible lifecycle for first-run optimization and later cleanup.
     /// Every app client subscribes so long-running work has explicit progress.
     pub storage_maintenance_events_tx: StorageMaintenanceBroadcaster,
-    /// Shared file watcher (one project at a time).
-    pub file_watcher: SharedFileWatcher,
+    /// Cached provider version checks and background provider updates.
+    pub provider_updates: crate::domain::agents::updates::ProviderUpdateService,
+    /// Per-client editor file-watcher subscriptions.
+    pub editor_watchers: Arc<EditorWatchers>,
     /// Per-launch bearer token required on every HTTP request (via the
     /// `X-Cadencr-Token` header) and WebSocket upgrade (via the
     /// `cadencr-token.<tok>` `Sec-WebSocket-Protocol` entry).
     pub auth_token: String,
-    /// Per-launch token accepted only by loopback `/internal/mcp/*` control
-    /// endpoints used by Cadencr-owned MCP subprocesses.
-    pub mcp_control_token: String,
+    /// Per-launch secret that signs the control grants of Cadencr-owned MCP
+    /// subprocesses (`domain::mcp::control_grant`). Never handed to a child:
+    /// each subprocess gets a token bound to its feature, session and server.
+    pub mcp_control_secret: String,
     /// Frontend dev server port used for WebSocket origin allowlisting.
     pub frontend_port: u16,
     /// Listener port, pinned against the `Host` header for DNS-rebinding defense.
     pub port: u16,
-    /// Scheduler for periodic custom-action runs. Holds one tokio task per
-    /// enabled `custom_action_schedules` row.
-    pub custom_action_scheduler: CustomActionScheduler,
     /// In-flight custom-action runs keyed by `run_id`, so a `cancel` request can
     /// interrupt a running command (Ctrl-C) even after the triggering UI closes.
     pub custom_action_runs: Arc<CustomActionRunRegistry>,
+    /// Broadcast when an action or one of its runs changes (bare hint).
+    pub custom_action_events_tx: crate::domain::custom_actions::events::CustomActionEventSender,
     /// Per-worktree filesystem watchers driving real-time `git.status`
     /// envelopes. Refcounted by WS subscriptions; see `domain::git::watcher`.
     pub git_watcher: Arc<GitWatcherRegistry>,
@@ -181,10 +195,11 @@ pub struct AppState {
     /// Maps feature_id → active WS senders. Lets HTTP handlers push WS
     /// envelopes (e.g. auto-naming events) without holding a socket ref.
     pub ws_feature_senders: WsFeatureSenderRegistry,
-    /// Maps `agent_sessions.id` → the connection driving its live turn. Lets a
-    /// remote client answer a permission/question/plan against the host's live
-    /// query, and carries the server-stamped turn start for synced timers.
+    /// Logical turn generation and interruption identity for each runtime.
+    /// Resolves the service-owned cell for cross-client controls.
     pub active_turns: Arc<ActiveTurnRegistry>,
+    /// Latest transcript durability transitions, shared by all viewers.
+    pub persistence_health: Arc<SessionPersistenceHealth>,
     /// In-flight Cadencr-managed `!` commands, keyed by agent session.
     pub user_shell_runs: Arc<UserShellRunRegistry>,
     /// In-flight worktree setup commands and recovery claims, keyed by feature.
@@ -193,14 +208,14 @@ pub struct AppState {
     /// Process-global pending gate registry. Both human WebSocket responses and
     /// MCP parent responses atomically claim the same entry, so first answer wins.
     pub pending_gates: Arc<GateRegistry>,
-    /// Runtime-session owner map for turns started by internal MCP control
-    /// endpoints when no frontend WebSocket connection currently owns the
-    /// target session. Kept strongly referenced so `active_turns` weak entries
-    /// remain valid for follow-up delegation.
-    pub mcp_control_sessions: crate::domain::ws_session::handler::SdkSessions,
+    /// Authoritative live runtime cell for each persisted session.
+    pub(crate) session_runtimes: Arc<SessionRuntimeRegistry>,
     /// Active explicit auto-rename requests keyed by feature_id. Prevents
     /// duplicate model runs racing to update the same title.
     pub auto_name_runs: Arc<FeatureRunRegistry>,
+    /// The archive cleanup running for a conversation (`features::archive_cleanup`).
+    /// Unarchiving cancels it between two steps.
+    pub archive_cleanup_runs: Arc<FeatureRunRegistry>,
     /// Pending LSP session reservations. The renderer POSTs
     /// `/api/lsp/sessions` to reserve, then upgrades
     /// `/api/lsp/sessions/{id}/connect`; this map is the bridge between the
@@ -231,6 +246,7 @@ pub struct AppState {
     pub fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette,
 }
 
+#[bon::bon]
 impl AppState {
     /// Read max_parallel_agents from CADENCR_MAX_PARALLEL env var, defaulting to 3.
     pub fn max_parallel_from_env() -> usize {
@@ -250,7 +266,8 @@ impl AppState {
 
     /// Production constructor used by `main`. Creates the broadcast channels and
     /// every shared registry. Kept next to the struct (mirroring `with_pool`) so
-    /// the entrypoint stays lean.
+    /// the entrypoint stays lean (a builder: pools and ports swap positionally).
+    #[builder(finish_fn = build)]
     pub fn for_server(
         read_pool: SqlitePool,
         write_pool: SqlitePool,
@@ -264,9 +281,11 @@ impl AppState {
         let (session_status_tx, _) = broadcast::channel(64);
         let (feature_events_tx, _) = broadcast::channel(64);
         let (schedule_events_tx, _) = broadcast::channel(64);
-        let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (theme_events_tx, _) = broadcast::channel(16);
+        let (plugin_tab_events_tx, _) = broadcast::channel(16);
+        let (prompt_queue_events_tx, _) = broadcast::channel(32);
+        let (custom_action_events_tx, _) = broadcast::channel(64);
         let (alacritty_config_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
         let storage_maintenance_events_tx = StorageMaintenanceBroadcaster::new(16);
@@ -281,6 +300,8 @@ impl AppState {
             }),
         );
         let pty_manager = PtyManager::new();
+        let provider_updates =
+            crate::domain::agents::updates::ProviderUpdateService::new(read_pool.clone());
         Self {
             read_pool: read_pool.clone(),
             write_pool,
@@ -288,27 +309,30 @@ impl AppState {
             browser_bridge: Arc::new(RwLock::new(BrowserBridgeConfig::from_env())),
             max_parallel_agents: Self::max_parallel_from_env(),
             agent_timeout_minutes: Self::agent_timeout_minutes_from_env(),
-            session_status_tx: SessionStatusBroadcaster::new(
-                session_status_tx,
-                Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            ),
+            session_status_tx: SessionStatusBroadcaster::new(session_status_tx),
             feature_events_tx: FeatureEventBroadcaster::new(feature_events_tx),
             schedule_events_tx,
             pty_manager: pty_manager.clone(),
             neovim_manager: NeovimManager::new(pty_manager, read_pool),
-            file_change_tx,
             settings_events_tx,
             theme_events_tx,
+            plugin_tab_events_tx,
+            prompt_queue_events_tx,
+            plugin_tab_grants: Default::default(),
+            plugin_tab_activity: Default::default(),
+            plugin_tab_backends: Default::default(),
+            plugin_tab_presence: Default::default(),
             alacritty_config_events_tx,
             remote_events_tx,
             storage_maintenance_events_tx,
-            file_watcher: crate::domain::editor::watcher::new_shared(),
+            provider_updates,
+            editor_watchers: Arc::default(),
             auth_token,
-            mcp_control_token: uuid::Uuid::new_v4().to_string(),
+            mcp_control_secret: uuid::Uuid::new_v4().to_string(),
             frontend_port,
             port,
-            custom_action_scheduler: CustomActionScheduler::new(),
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
+            custom_action_events_tx,
             git_watcher: Arc::new(GitWatcherRegistry::new()),
             forge_status: Arc::new(ForgeStatusCache::default()),
             port_scan: Arc::new(PortScanCache::default()),
@@ -320,25 +344,27 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            persistence_health: Arc::new(SessionPersistenceHealth::default()),
             user_shell_runs: Arc::new(UserShellRunRegistry::new()),
             worktree_setup_runs: WorktreeSetupRegistry::new(),
             pending_gates: Arc::new(GateRegistry::new()),
-            mcp_control_sessions: new_sdk_sessions(),
+            session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
+            archive_cleanup_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
             import_jobs: ImportJobRegistry::new(),
             remote,
             push,
             fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette {
-                black: "#1a1b1d".to_string(),
-                red: "#ec707b".to_string(),
-                green: "#8bcf67".to_string(),
-                yellow: "#e2b64d".to_string(),
-                blue: "#6d9bec".to_string(),
-                magenta: "#de7ca7".to_string(),
-                cyan: "#52bfd0".to_string(),
-                white: "#c6c8cc".to_string(),
+                black: Some("#1a1b1d".to_string()),
+                red: Some("#ec707b".to_string()),
+                green: Some("#8bcf67".to_string()),
+                yellow: Some("#e2b64d".to_string()),
+                blue: Some("#6d9bec".to_string()),
+                magenta: Some("#de7ca7".to_string()),
+                cyan: Some("#52bfd0".to_string()),
+                white: Some("#c6c8cc".to_string()),
             },
         }
     }
@@ -353,14 +379,18 @@ impl AppState {
         let (session_status_tx, _) = broadcast::channel(64);
         let (feature_events_tx, _) = broadcast::channel(64);
         let (schedule_events_tx, _) = broadcast::channel(64);
-        let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (theme_events_tx, _) = broadcast::channel(16);
+        let (plugin_tab_events_tx, _) = broadcast::channel(16);
+        let (prompt_queue_events_tx, _) = broadcast::channel(32);
+        let (custom_action_events_tx, _) = broadcast::channel(64);
         let (alacritty_config_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
         let storage_maintenance_events_tx = StorageMaintenanceBroadcaster::new(16);
         let (forge_events_tx, _) = broadcast::channel(64);
         let pty_manager = PtyManager::new();
+        let provider_updates =
+            crate::domain::agents::updates::ProviderUpdateService::new(pool.clone());
         Self {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
@@ -371,27 +401,31 @@ impl AppState {
             browser_bridge: Arc::new(RwLock::new(None)),
             max_parallel_agents: 3,
             agent_timeout_minutes: 30,
-            session_status_tx: SessionStatusBroadcaster::new(
-                session_status_tx,
-                std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            ),
+            session_status_tx: SessionStatusBroadcaster::new(session_status_tx),
             feature_events_tx: FeatureEventBroadcaster::new(feature_events_tx),
             schedule_events_tx,
             pty_manager: pty_manager.clone(),
             neovim_manager: NeovimManager::new(pty_manager, pool),
-            file_change_tx,
             settings_events_tx,
             theme_events_tx,
+            plugin_tab_events_tx,
+            prompt_queue_events_tx,
+            plugin_tab_grants: Default::default(),
+            plugin_tab_activity: Default::default(),
+            plugin_tab_backends: Default::default(),
+            plugin_tab_presence: Default::default(),
             alacritty_config_events_tx,
             remote_events_tx,
             storage_maintenance_events_tx,
-            file_watcher: crate::domain::editor::watcher::new_shared(),
+            provider_updates,
+            editor_watchers: Arc::default(),
             auth_token: "test-token".to_string(),
-            mcp_control_token: "test-mcp-token".to_string(),
+            mcp_control_secret: crate::domain::mcp::control_grant::TEST_MCP_CONTROL_SECRET
+                .to_string(),
             frontend_port: 1420,
             port: 0,
-            custom_action_scheduler: CustomActionScheduler::new(),
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
+            custom_action_events_tx,
             git_watcher: Arc::new(GitWatcherRegistry::new()),
             forge_status: Arc::new(ForgeStatusCache::default()),
             port_scan: Arc::new(PortScanCache::default()),
@@ -403,11 +437,13 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            persistence_health: Arc::new(SessionPersistenceHealth::default()),
             user_shell_runs: Arc::new(UserShellRunRegistry::new()),
             worktree_setup_runs: WorktreeSetupRegistry::new(),
             pending_gates: Arc::new(GateRegistry::new()),
-            mcp_control_sessions: new_sdk_sessions(),
+            session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
+            archive_cleanup_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
             import_jobs: ImportJobRegistry::new(),
@@ -418,14 +454,14 @@ impl AppState {
             })),
             push: Arc::new(PushNotifier::ephemeral()),
             fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette {
-                black: "#1a1b1d".to_string(),
-                red: "#ec707b".to_string(),
-                green: "#8bcf67".to_string(),
-                yellow: "#e2b64d".to_string(),
-                blue: "#6d9bec".to_string(),
-                magenta: "#de7ca7".to_string(),
-                cyan: "#52bfd0".to_string(),
-                white: "#c6c8cc".to_string(),
+                black: Some("#1a1b1d".to_string()),
+                red: Some("#ec707b".to_string()),
+                green: Some("#8bcf67".to_string()),
+                yellow: Some("#e2b64d".to_string()),
+                blue: Some("#6d9bec".to_string()),
+                magenta: Some("#de7ca7".to_string()),
+                cyan: Some("#52bfd0".to_string()),
+                white: Some("#c6c8cc".to_string()),
             },
         }
     }

@@ -45,7 +45,6 @@ export interface MetaBarInput {
   isRunning: boolean;
   onPause: (() => void) | undefined;
   onModelSelected: (() => void) | undefined;
-  secondaryBelow: boolean;
 }
 
 export function useMetaBarInput(props: MetaBarProps): MetaBarInput {
@@ -85,7 +84,6 @@ export function useMetaBarInput(props: MetaBarProps): MetaBarInput {
     isRunning: props.isRunning ?? false,
     onPause: props.onPause,
     onModelSelected: props.onModelSelected,
-    secondaryBelow: props.secondaryBelow ?? false,
   };
 }
 
@@ -109,7 +107,12 @@ export function useMetaBarForwardRef(
  * No fade and no overhang of its own: the transcript dissolves at its own
  * bottom edge (`STREAM_DISSOLVE_STYLE`), so this row always sits on plain page.
  */
-export function useMetaBarContainerClassName(variant: "session" | "standalone"): string {
+export function useMetaBarContainerClassName(
+  variant: "session" | "standalone",
+  section: "all" | "instruments" | "utilities" = "all",
+): string {
+  if (section === "instruments") return "@container flex min-w-0 flex-1 items-center gap-0.5";
+  if (section === "utilities") return "@container flex items-center gap-1 px-3 pt-1.5 pb-1";
   return cn(
     "@container flex items-center gap-1.5 px-3",
     variant === "standalone" ? "py-2" : "py-3",

@@ -44,6 +44,12 @@ export interface EditorFeatureState {
   panes: Record<string, EditorPaneState>;
   activePaneId: string;
   sidebarVisible: boolean;
+  /**
+   * Auto layout tucked the file tree away because the Editor opened in a
+   * narrow pane beside the agent. Session-only: the persisted preference
+   * must not reopen it, and the user's next toggle clears it.
+   */
+  sidebarAutoHidden?: boolean;
 }
 
 // Default max tabs — can be overridden via settings in the component layer
@@ -112,6 +118,8 @@ export interface EditorStore {
     pos: { line: number; col: number },
   ) => void;
   toggleSidebar: (featureId: number) => void;
+  /** Hide the file tree for an Editor opened beside the agent (not persisted). */
+  hideSidebarBesideAgent: (featureId: number) => void;
   splitEditorPane: (featureId: number, paneId: string, orientation: SplitOrientation) => void;
   removeEditorPane: (featureId: number, paneId: string) => void;
   navigatePane: (featureId: number, direction: Direction) => void;

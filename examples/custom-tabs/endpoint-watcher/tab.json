@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "endpoint-watcher",
+  "name": "Endpoint watcher",
+  "version": "0.1.0",
+  "description": "Open pull requests and recent workflow runs of a GitHub repository, read through Cadencr's egress relay.",
+  "icon": "icon.svg",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "GitHub" },
+  "permissions": [],
+  "network": {
+    "allowed_origins": ["https://api.github.com"],
+    "reasoning": "Reads the configured repository's open pull requests and workflow runs from the GitHub REST API."
+  },
+  "configuration": [
+    {
+      "key": "repository",
+      "type": "string",
+      "label": "Repository (owner/name)",
+      "scope": "project"
+    },
+    { "key": "token", "type": "secret", "label": "GitHub token (optional)", "scope": "global" }
+  ]
+}

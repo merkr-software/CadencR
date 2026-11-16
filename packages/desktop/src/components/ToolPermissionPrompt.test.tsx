@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import { useHotkeys } from "@tanstack/react-hotkeys";
+import { invokeRegisteredHotkey } from "@/test/hotkeys";
 import React, { useState } from "react";
 import { ToolPermissionPrompt } from "./ToolPermissionPrompt";
-import type { PendingPermission } from "./ToolPermissionPrompt";
+import type { PendingPermission } from "@/types/agent-permission";
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
 
@@ -17,7 +18,8 @@ interface RegisteredHotkey {
 function registeredHotkeys(): RegisteredHotkey[] {
   return mockedUseHotkeys.mock.calls.flatMap(([definitions]) =>
     definitions.map((definition) => ({
-      callback: definition.callback as (event: KeyboardEvent) => void,
+      callback: (event: KeyboardEvent) =>
+        invokeRegisteredHotkey(definition.callback, String(definition.hotkey), event),
       hotkey: String(definition.hotkey),
     })),
   );

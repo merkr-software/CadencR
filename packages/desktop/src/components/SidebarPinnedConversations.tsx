@@ -1,32 +1,39 @@
+import type { FeatureNavigateOptions } from "@/lib/feature-focus-handoff";
 import { useCallback, useMemo, useRef, type ReactElement } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { PinIcon } from "lucide-react";
-import { toast } from "sonner";
-import {
-  useListPinnedFeatures,
-  useListProjects,
-  useUpdateFeaturePinned,
-  type Feature,
-  type Project,
-} from "@/api/generated";
+import { useListPinnedFeatures, type Feature } from "@/api/generated";
 import { PinnedConversationRow } from "@/components/PinnedConversationRow";
-import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
-import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { SidebarBlock } from "@/components/SidebarBlock";
+import { useSidebarAttention } from "@/components/SidebarAttentionProvider";
+import { isStrongAttention } from "@/lib/sidebar-attention";
+import { useSidebarOption } from "@/stores/sidebar-config-store";
+import { useCrossProjectNavigate } from "@/hooks/useCrossProjectNavigate";
+import { skipProjectAutoExpand } from "@/lib/project-auto-expand";
+import { useReorderAnimation } from "@/hooks/useReorderAnimation";
+import { useStableFeatureOrder } from "@/hooks/useStableFeatureOrder";
+import { useManualConversationOrder } from "@/hooks/useManualConversationOrder";
+import { sortByManualOrder } from "@/lib/sidebar-manual-order";
+import { SidebarReorderProvider } from "@/components/SidebarReorderProvider";
+import { useFeaturePorts } from "@/hooks/useFeaturePorts";
+import { crossProjectRowData, usePinnedActivity } from "@/hooks/usePinnedActivity";
+import { useSidebarFilteredFeatures } from "@/hooks/useSidebarFilteredFeatures";
+import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
+import { useSidebarSectionFold } from "@/hooks/useSidebarSections";
 
 /**
  * Global "Pinned" section rendered above the project list. Pinning is a
  * feature-level concept (`features.is_pinned`), so a single backend query
  * returns every pinned conversation across all projects — each row carries its
  * project color dot so the user can tell them apart at a glance. Renders
- * nothing when no conversation is pinned.
+ * nothing when no conversation is pinned, unless empty blocks are kept.
  *
- * Unpinning here and pinning from a project row both write the same column and
- * invalidate the `/api/features` cache prefix (which covers this list); there
- * is no optimistic state — the section re-renders from the refetched data.
+ * Unpinning here (the sidebar's row actions) and pinning from a project row
+ * both write the same column and invalidate the `/api/features` cache prefix
+ * (which covers this list); there is no optimistic state — the section
+ * re-renders from the refetched data.
  */
+const EMPTY_FEATURES: Feature[] = [];
+
 export function SidebarPinnedConversations({
   activeFeatureId,
   onSelectFeature,
@@ -34,72 +41,85 @@ export function SidebarPinnedConversations({
   activeFeatureId: number | null;
   onSelectFeature: (featureId: number) => void;
 }): ReactElement | null {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { data: pinnedFeatures = [] } = useListPinnedFeatures();
-  const { data: projects = [] } = useListProjects();
-
-  const projectsById = useMemo(() => {
-    const map = new Map<number, Project>();
-    for (const project of projects) map.set(project.id, project);
-    return map;
-  }, [projects]);
-
-  // Keep navigation stable across active-row changes: read the live active id
-  // through a ref so the click handler's identity doesn't churn every render.
-  const activeFeatureIdRef = useRef(activeFeatureId);
-  activeFeatureIdRef.current = activeFeatureId;
-
+  const { data: fetchedPinned = EMPTY_FEATURES } = useListPinnedFeatures();
+  const orderedPinned = usePinnedOrder(fetchedPinned);
+  const activity = usePinnedActivity(fetchedPinned);
+  const pinnedFeatures = useSidebarFilteredFeatures(orderedPinned, activity.worktreeByFeatureId);
+  const listRef = useRef<HTMLElement>(null);
+  const pinnedIds = useMemo(() => pinnedFeatures.map((feature) => feature.id), [pinnedFeatures]);
+  useReorderAnimation(listRef, pinnedIds);
+  const reorderGroups = useMemo(() => [pinnedIds], [pinnedIds]);
+  const portsByFeatureId = useFeaturePorts();
+  const crossProjectNavigate = useCrossProjectNavigate(activeFeatureId, onSelectFeature);
+  // Opening from the pinned section must not unfold the parent project.
   const handleNavigate = useCallback(
-    (feature: Feature): void => {
-      const project = projectsById.get(feature.project_id);
-      if (!project) return;
-      onSelectFeature(feature.id);
-      const focusTab = getFocusedTabForFeature(activeFeatureIdRef.current);
-      void navigate({
-        to: "/ws-session/$sessionId",
-        params: { sessionId: wsSessionIdFromFeature(feature.id) },
-        search: focusTab
-          ? { cwd: project.path, featureId: feature.id, projectId: project.id, focusTab }
-          : { cwd: project.path, featureId: feature.id, projectId: project.id },
-      });
+    (feature: Feature, options?: FeatureNavigateOptions): void => {
+      skipProjectAutoExpand(feature.project_id);
+      crossProjectNavigate(feature, options);
     },
-    [navigate, projectsById, onSelectFeature],
+    [crossProjectNavigate],
   );
+  const hideEmpty = useSidebarOption("hideEmptyBlocks");
+  const filtering = useSidebarFilterQuery() !== "";
+  const fold = useSidebarSectionFold("pinned");
+  const strongCount = usePinnedStrongCount(pinnedFeatures);
 
-  const { mutate: updateFeaturePinned } = useUpdateFeaturePinned({
-    mutation: {
-      onSuccess: () => void invalidateByUrlPrefix(queryClient, "/api/features"),
-      onError: (error) => {
-        toast.error(apiErrorMessage(error, "Failed to update pinned state"));
-      },
-    },
-  });
-
-  const handleUnpin = useCallback(
-    (featureId: number): void => {
-      updateFeaturePinned({ id: featureId, data: { pinned: false } });
-    },
-    [updateFeaturePinned],
-  );
-
-  if (pinnedFeatures.length === 0) return null;
+  const isEmpty = pinnedFeatures.length === 0;
+  // An empty Pinned block only shows when empty blocks are kept and nothing is filtered out.
+  if (isEmpty && (hideEmpty || filtering)) return null;
 
   return (
-    <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
-      <div className="flex items-center gap-1.5 px-2 pb-0.5 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-        <PinIcon className="size-3 shrink-0" />
-        <span>Pinned</span>
-      </div>
-      {pinnedFeatures.map((feature) => (
-        <PinnedConversationRow
-          key={feature.id}
-          feature={feature}
-          activeFeatureId={activeFeatureId}
-          onNavigate={handleNavigate}
-          onUnpin={handleUnpin}
-        />
-      ))}
-    </div>
+    <SidebarBlock
+      ref={listRef}
+      block="pinned"
+      label="Pinned"
+      icon={PinIcon}
+      count={pinnedFeatures.length}
+      // Pinned rows show nowhere else: a folded block still flags who waits on the user.
+      strongCount={strongCount}
+      fold={fold}
+      empty="Pin a conversation to keep it here"
+      isEmpty={isEmpty}
+      capped
+    >
+      <SidebarReorderProvider groups={reorderGroups}>
+        {pinnedFeatures.map((feature) => (
+          <PinnedConversationRow
+            key={feature.id}
+            feature={feature}
+            activeFeatureId={activeFeatureId}
+            {...crossProjectRowData(activity, portsByFeatureId, feature.id)}
+            onNavigate={handleNavigate}
+            showUnpin
+          />
+        ))}
+      </SidebarReorderProvider>
+    </SidebarBlock>
   );
+}
+
+/**
+ * Pinned rows hold their place while agents work, like the tree; under the
+ * manual sort they follow the rank dragged into place instead (the other
+ * sorts never applied here: Pinned is the user's own shortlist).
+ */
+function usePinnedOrder(fetched: readonly Feature[]): readonly Feature[] {
+  const stable = useStableFeatureOrder(fetched);
+  const manual = useSidebarOption("conversationSort") === "manual";
+  const manualOrder = useManualConversationOrder();
+  return useMemo(
+    () => (manual ? sortByManualOrder(stable, manualOrder) : stable),
+    [manual, manualOrder, stable],
+  );
+}
+
+/** How many pinned conversations need an action (a request waiting, a failure). */
+function usePinnedStrongCount(pinned: readonly Feature[]): number {
+  const { queue } = useSidebarAttention();
+  return useMemo(() => {
+    const strongIds = new Set(
+      queue.filter((item) => isStrongAttention(item.state)).map((item) => item.feature.id),
+    );
+    return pinned.filter((feature) => strongIds.has(feature.id)).length;
+  }, [pinned, queue]);
 }

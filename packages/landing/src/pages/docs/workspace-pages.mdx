@@ -1,79 +1,57 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Workspace pages"
-description: "A quick map of the main pages in CadencR, what each one is for, and where to go next."
+description: "Find conversations, schedules, tools, and settings in the current workspace."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
-import DocCallout from "@/components/docs/DocCallout.astro";
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/unified-agent-list.png";
 
-CadencR has a few main places you will move between. The structure is simple once you know what each page is for.
+Use the sidebar to choose work, then use the workspace panes to inspect and continue it.
 
-## Fast orientation
+<DocScreenshot
+  src={pageImage}
+  alt="The Agents page and sidebar give access to conversations across projects. Conversation content is an example."
+  caption="The Agents page and sidebar give access to conversations across projects. Conversation content is an example."
+  bordered={false}
+  rounded
+  elevated
+/>
 
-Think of the app like this:
+## Where to go
 
-- **Home / project picker** is where you choose what to work on.
-- **Feature workspace** is your main work area for a feature or task.
-- **Session view** is where you focus on one agent conversation in detail.
-- **Unified agent list** is where you manage all sessions in the current workspace.
-- **Browser** is a feature-scoped tab for previewing pages and sending page context to agents.
-- **Settings** helps when a feature needs setup, but it is not where you will spend most of your day.
+| Surface                  | Use it for                                                                  | Learn more                                   |
+| ------------------------ | --------------------------------------------------------------------------- | -------------------------------------------- |
+| Project list and sidebar | Search, group, sort, pin, and open conversations across projects            | [Sidebar](../sidebar/)                       |
+| Conversation workspace   | Agent history beside code, a terminal, browser pages, and Git               | [Feature workspace](../feature-workspace/)   |
+| Agents                   | A live cockpit of conversations, with filtering and adjustable grid density | [Unified agent list](../unified-agent-list/) |
+| Schedules                | Review, create, edit, or pause scheduled agent prompts                      | [Schedules](../schedules/)                   |
+| Marketplace              | Discover, install, update, and manage plugins, skills, and MCP servers      | [Marketplace](../marketplace/)               |
+| Settings                 | Appearance, providers, sidebar, notifications, storage, naming, and usage   | [Settings](../settings/)                     |
+| Remote access            | Pair a browser or PWA on another device                                     | [Remote access](../remote-access/)           |
 
-<DocCallout title="Short version" variant="tip">
-  If you only remember one thing: start from **Home**, do most work in the **Feature workspace**,
-  open **Session view** when you want to steer one agent closely, and use the **Unified agent list**
-  when things get busy.
-</DocCallout>
+## Move between tools
 
-## Main pages and when to use them
+Open **Agent**, **Editor**, **Terminal**, **Git**, or **Browser** from the workspace. Panes can be split and resized, so a file or preview stays beside the conversation.
 
-| Page                  | What it is                                                                                                                                                                                        | Go here when...                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Home / project picker | The starting point for opening or switching projects.                                                                                                                                             | You want to open a repo, return to a recent project, or start fresh without wondering where your stuff went.                        |
-| Feature workspace     | The main surface for a piece of work. It brings together files, sessions, browser tabs, terminal, and Git context.                                                                                | You are actively working on a task and want one place to stay oriented.                                                             |
-| Session view          | A focused view of one agent session.                                                                                                                                                              | You want to read the full conversation, check progress, or guide a single agent step by step.                                       |
-| Unified agent list    | A shared list of sessions across the current workspace.                                                                                                                                           | You have more than one session going and need to scan, filter, pin, compare, or jump between them quickly.                          |
-| Settings              | App-wide preferences and setup. Sections cover **Appearance**, **Editor**, **Interface & Zoom**, **Notifications**, **Browser**, **Runtime & Models**, **Git**, **CLI Providers**, and **About**. | A feature needs setup, like provider profiles, custom models, browser defaults, or notification rules. Open it with <kbd>⌘ ,</kbd>. |
+**Auto layout** is enabled by default. Opening a browser page or a file reference can arrange it beside the agent. It remembers pane sizes and respects manual layout changes. Use its undo action or turn it off for the conversation or workspace when you want to manage the arrangement yourself.
 
-## How people typically move between them
+Keyboard bindings depend on focus: `Cmd/Ctrl+P` opens the model picker in the composer and file search in the editor. Use the [shortcuts reference](../shortcuts/) to see each scope.
 
-Most people follow a simple loop:
+## First-run setup
 
-1. Start on **Home** and choose the project you want to work in.
-2. Land in a **Feature workspace** and use it as your home base.
-3. Open a **Session view** when one agent needs your full attention.
-4. Use the **Browser** tab when a task needs a live page, local preview, or visual feedback for the agent.
-5. Jump to the **Unified agent list** when you want to compare sessions, resume an older one, or find the least chaotic option.
-6. Return to **Home** when you want to switch projects entirely.
+The onboarding flow has six steps: **Welcome**, **Detect CLIs**, **Choose folder**, **Agent & model**, **Preferences**, and **Get started**. It discovers your installed providers and lets you choose initial preferences. A project setup dialog can also set its accent and worktree behavior.
 
-You usually do **not** bounce into **Settings** during normal work. It is there when something needs enabling, connecting, or adjusting.
+Replay onboarding from **Settings → About**. Provider-account authentication is handled by each provider's own CLI.
 
-## First-run onboarding
+## A practical daily loop
 
-The very first time you open CadencR you will see a short onboarding overlay — Welcome → Pick an agent → Discover the agent CLI on your machine → Choose a workspace → Send your first prompt. It is mostly nudging you through the same steps you would do manually, and you can rerun it later from **Settings → About** if you want a refresher.
+1. Use **For me** to find pending requests, failures, and unread replies.
+2. Open the conversation that needs attention.
+3. Inspect the result in Editor, Browser, or Git.
+4. Send a follow-up, answer a request, or review the next change.
+5. Use **In progress** or **Agents** to supervise parallel work.
 
-## Common beginner path
-
-If you are new, this path keeps things simple:
-
-1. Open CadencR and pick your project from **Home**.
-2. Open or create a **Feature workspace** for the thing you want to change.
-3. Start **one** agent session.
-4. Use **Session view** to read what that agent is doing and nudge it when needed.
-5. Go back to the **Feature workspace** to inspect files, browser state, diffs, or terminal output.
-6. Once you have multiple sessions, use the **Unified agent list** to keep them organized.
-
-<DocCallout title="Beginner tip">
-  You do not need to master every page on day one. If you can move between **Home**, **Feature
-  workspace**, and **Session view**, you already know enough to get real work done.
-</DocCallout>
-
-## Related deep dives
-
-- [Getting started](../) for the first-run basics.
-- [Feature workspace](../feature-workspace/) for the main home base.
-- [Session view](../session-view/) for reading and steering a single agent.
-- [Unified agent list](../unified-agent-list/) for managing multiple sessions.
-- [Browser](../browser/) for previewing pages and sharing page context with agents.
-- [Git in CadencR](../git/) if you want more confidence around branches, diffs, and worktrees.
-- [Shortcuts](../shortcuts/) if you would like less mouse mileage.
+Before a new conversation's first prompt, its usage grid shows the last 30 days. Use it to inspect activity before starting another task.

@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen } from "@/test-utils";
+import { fireEvent, render, screen, waitFor } from "@/test-utils";
 import { ProjectFeatures } from "./ProjectFeatures";
 import { resetMockIds } from "@/test-fixtures";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
+import { resetPersistedIdSets } from "@/test/persisted-id-set-mock";
+import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
+
+vi.mock("@/hooks/usePersistedIdSet", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("@/test/persisted-id-set-mock")),
+}));
 
 const mockNavigate = vi.fn();
 const mockUpdateStatus = vi.fn();
@@ -47,12 +55,27 @@ vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
   FeatureStatus: { active: "active", archived: "archived" },
   useArchiveFeature: vi.fn(
-    (opts?: { mutation?: { onSuccess?: (data: { archived_ids: number[] }) => void } }) => ({
-      mutateAsync: ({ id }: { id: number }) => {
-        mockArchive(id);
-        const response = { archived_ids: [id] };
-        opts?.mutation?.onSuccess?.(response);
-        return Promise.resolve(response);
+    (opts?: {
+      mutation?: {
+        onMutate?: (variables: { id: number }) => unknown;
+        onSuccess?: (
+          data: { archived_ids: number[]; cleanup: object },
+          variables: { id: number },
+          context: unknown,
+        ) => void;
+      };
+    }) => ({
+      // The service answers after the dialog closed, as in the app.
+      mutate: (variables: { id: number }) => {
+        mockArchive(variables.id);
+        const context = opts?.mutation?.onMutate?.(variables);
+        queueMicrotask(() =>
+          opts?.mutation?.onSuccess?.(
+            { archived_ids: [variables.id], cleanup: {} },
+            variables,
+            context,
+          ),
+        );
       },
     }),
   ),
@@ -134,6 +157,11 @@ function openFeatureContextMenu(featureTitle: string): void {
 
 describe("ProjectFeatures archived section", () => {
   beforeEach(() => {
+    // Fixture dates are fixed in the past: keep every conversation out of "Dormant".
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never" },
+    });
+    resetPersistedIdSets();
     resetMockIds();
     mockNavigate.mockClear();
     mockUpdateStatus.mockClear();
@@ -244,7 +272,7 @@ describe("ProjectFeatures archived section", () => {
     await user.click(screen.getByRole("button", { name: /archive/i }));
 
     expect(mockArchive).toHaveBeenCalledWith(1);
-    expect(mockDisconnectSession).toHaveBeenCalledWith("ws-feature-1");
+    await waitFor(() => expect(mockDisconnectSession).toHaveBeenCalledWith("ws-feature-1"));
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/",
     });

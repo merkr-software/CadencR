@@ -26,27 +26,19 @@ use std::path::Path;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
-use crate::domain::projects::models::THEME_PROJECT_KIND;
+use crate::domain::projects::authoring_workspace::{self, AuthoredFolder};
+use crate::domain::projects::models::{ProjectAuthoringTarget, THEME_PROJECT_KIND};
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_with_env};
+use crate::shared::git_cli::ensure_repository_with_initial_commit;
 
 use super::{paths, scaffold};
 
-/// Cadencr authors the first commit itself: a fresh theme repository inherits no
-/// identity of its own, and `git commit` refuses without one.
-const COMMIT_IDENTITY: [(&str, &str); 4] = [
-    ("GIT_AUTHOR_NAME", "Cadencr"),
-    ("GIT_AUTHOR_EMAIL", "themes@cadencr.local"),
-    ("GIT_COMMITTER_NAME", "Cadencr"),
-    ("GIT_COMMITTER_EMAIL", "themes@cadencr.local"),
-];
+/// Cadencr authors the first commit itself.
+const COMMIT_EMAIL: &str = "themes@cadencr.local";
 
 /// Atomic saves stage through `.theme.json.tmp`; it exists for microseconds and
 /// is nobody's change.
 const GITIGNORE: &str = ".*.tmp\n";
-
-const DEFAULT_WORKTREE_MODE: &str = "default_worktree_mode";
-const WORKTREE_SKIP: &str = "skip";
 
 /// Where a theme is edited. The renderer needs all three to route to the
 /// conversation; the ws session id is derived from `feature_id`.
@@ -73,24 +65,26 @@ pub async fn ensure(pool: &SqlitePool, theme_id: &str) -> Result<ThemeWorkspace,
     let cwd = dir.to_string_lossy().to_string();
     let label = theme_label(&theme).unwrap_or_else(|| theme_id.to_string());
 
-    let existing_project = find_project(pool, theme_id, &cwd).await?;
+    let folder = authored_folder(theme_id, &cwd);
+    let existing_project = folder.find_project(pool).await?;
     ensure_repository(&dir).await?;
     // After the repository, so the first commit is the theme alone. The agent
     // that is about to work here has only this folder to go on, and `theme.json`
     // does not explain itself — see `scaffold`.
     scaffold::refresh(&dir).await?;
     let name = project_name(Some(&label), theme_id);
-    let project_id = ensure_project(pool, existing_project, &name, &cwd, theme_id).await?;
+    let project_id = folder.ensure_project(pool, existing_project, &name).await?;
     // Not only at creation: the theme may have been renamed while nothing was
     // watching — by the user's own editor, or before this ran at all.
     rename_project(pool, project_id, &name).await?;
-    let (feature_id, created) = ensure_feature(pool, project_id, &label).await?;
+    let (feature_id, created) =
+        authoring_workspace::ensure_conversation(pool, project_id, &label).await?;
     // Asserted on every open, not only at creation. These two settings are what
     // keep the agent editing the live theme, and a failure between creating the
     // project and writing them would otherwise leave them missing for good —
     // the next conversation started here would get a worktree and repaint
     // nothing.
-    apply_worktree_settings(pool, project_id, feature_id).await?;
+    authoring_workspace::apply_worktree_skip(pool, project_id, feature_id).await?;
     Ok(ThemeWorkspace {
         project_id,
         feature_id,
@@ -144,7 +138,7 @@ pub async fn sync_project_name(pool: &SqlitePool, theme_id: &str) -> Result<bool
         return Ok(false);
     };
     let cwd = dir.to_string_lossy().to_string();
-    let Some(project_id) = find_project(pool, theme_id, &cwd).await? else {
+    let Some(project_id) = authored_folder(theme_id, &cwd).find_project(pool).await? else {
         return Ok(false);
     };
     let theme = super::store::get(theme_id).await?;
@@ -172,7 +166,7 @@ async fn rename_project(pool: &SqlitePool, project_id: i64, name: &str) -> Resul
         .await?;
     // The document may have stayed put — it can already belong to a project of
     // the new name. Re-assert what a theme project cannot work without.
-    apply_project_defaults(pool, project_id).await?;
+    authoring_workspace::apply_project_worktree_skip(pool, project_id).await?;
     Ok(true)
 }
 
@@ -185,10 +179,14 @@ async fn rename_project(pool: &SqlitePool, project_id: i64, name: &str) -> Resul
 pub async fn remove(pool: &SqlitePool, theme_id: &str) -> Result<(), AppError> {
     let dir = paths::theme_dir(theme_id)?;
     let cwd = dir.to_string_lossy().to_string();
-    let Some(project_id) = find_project(pool, theme_id, &cwd).await? else {
+    let Some(project_id) = authored_folder(theme_id, &cwd).find_project(pool).await? else {
         return Ok(());
     };
-    crate::domain::projects::repository::delete_project(pool, project_id).await
+    // Leases its custom tabs may hold go at their next renewal, refused once
+    // the conversation is gone.
+    crate::domain::projects::repository::delete_project(pool, project_id)
+        .await
+        .map(drop)
 }
 
 fn theme_label(theme: &super::models::UserTheme) -> Option<String> {
@@ -199,22 +197,11 @@ fn theme_label(theme: &super::models::UserTheme) -> Option<String> {
         .or_else(|| theme.label.clone())
 }
 
-/// The sidebar name for a theme's project.
-///
-/// Prefixed rather than bare, for one reason that matters: project settings are
-/// stored in a file named after the project, so a theme sharing a name with one
-/// of the user's own projects would share its settings — including the worktree
-/// default below. The prefix also answers, in the one line the sidebar shows,
-/// why this project exists.
-///
-/// A label that a project name is not allowed to contain — the same shapes
-/// `projects::service` rejects — falls back to the slug the theme is stored
-/// under, which is a valid name by construction.
+/// The sidebar name for a theme's project: `Theme: <label>` (see
+/// [`authoring_workspace::prefixed_name`] for why it is prefixed). The prefix
+/// also answers, in the one line the sidebar shows, why this project exists.
 fn project_name(label: Option<&str>, theme_id: &str) -> String {
-    let trimmed = label.unwrap_or_default().trim();
-    let usable =
-        !trimmed.is_empty() && !trimmed.contains("..") && !trimmed.contains(['/', '\\', '\0']);
-    format!("Theme: {}", if usable { trimmed } else { theme_id })
+    authoring_workspace::prefixed_name("Theme", label, theme_id)
 }
 
 /// Make the theme directory a repository, once. A theme project without git
@@ -225,96 +212,19 @@ async fn ensure_repository(dir: &Path) -> Result<(), AppError> {
         return Ok(());
     }
     std::fs::write(dir.join(".gitignore"), GITIGNORE)
-        .map_err(|e| AppError::Internal(format!("failed to write the theme's .gitignore: {e}")))?;
-    run_git(&["init", "-q", "-b", "main"], dir).await?;
-    run_git(&["add", "-A"], dir).await?;
-    // `-c commit.gpgsign=false`: this commit is Cadencr's, not the user's, and a
-    // global signing config would otherwise stop it on a key prompt.
-    run_git_with_env(
-        &["-c", "commit.gpgsign=false", "commit", "-qm", "New theme"],
-        dir,
-        &COMMIT_IDENTITY,
-    )
-    .await?;
-    Ok(())
+        .map_err(|e| AppError::internal(format!("failed to write the theme's .gitignore: {e}")))?;
+    ensure_repository_with_initial_commit(dir, COMMIT_EMAIL, "New theme").await
 }
 
-async fn find_project(
-    pool: &SqlitePool,
-    theme_id: &str,
-    cwd: &str,
-) -> Result<Option<i64>, AppError> {
-    let canonical_cwd = std::fs::canonicalize(cwd)
-        .map_err(|error| AppError::Internal(format!("canonicalize theme project path: {error}")))?
-        .to_string_lossy()
-        .to_string();
-    let rows: Vec<(i64, String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, path, kind, authoring_target, plugin_id FROM projects \
-         WHERE (authoring_target = 'theme' AND plugin_id = ?) OR path IN (?, ?) ORDER BY id",
-    )
-    .bind(theme_id)
-    .bind(cwd)
-    .bind(&canonical_cwd)
-    .fetch_all(pool)
-    .await?;
-    let mut owned = None;
-    for (id, path, kind, target, plugin_id) in rows {
-        let marked_theme =
-            target.as_deref() == Some("theme") && plugin_id.as_deref() == Some(theme_id);
-        let expected_path = path == cwd || path == canonical_cwd;
-        let legacy_theme =
-            expected_path && kind == THEME_PROJECT_KIND && target.is_none() && plugin_id.is_none();
-        if marked_theme {
-            if path != cwd && path != canonical_cwd {
-                return Err(project_conflict(
-                    theme_id,
-                    "its marked project points at another path",
-                ));
-            }
-            if owned.replace(id).is_some() {
-                return Err(project_conflict(
-                    theme_id,
-                    "more than one project claims this theme",
-                ));
-            }
-        } else if legacy_theme {
-            if owned.replace(id).is_some() {
-                return Err(project_conflict(
-                    theme_id,
-                    "more than one project claims this theme",
-                ));
-            }
-        } else if expected_path {
-            return Err(project_conflict(
-                theme_id,
-                "its folder belongs to another project",
-            ));
-        }
-    }
-    Ok(owned)
-}
-
-async fn ensure_project(
-    pool: &SqlitePool,
-    existing: Option<i64>,
-    name: &str,
-    cwd: &str,
-    theme_id: &str,
-) -> Result<i64, AppError> {
-    if let Some(id) = existing {
-        return Ok(id);
-    }
-    let created = crate::domain::projects::service::create_author_project()
-        .pool(pool)
-        .name(name)
-        .path(cwd)
-        .authoring_target(crate::domain::projects::models::ProjectAuthoringTarget::Theme)
-        .plugin_id(theme_id)
-        .call()
-        .await;
-    match created {
-        Ok(project) => Ok(project.id),
-        Err(error) => find_project(pool, theme_id, cwd).await?.ok_or(error),
+/// The theme folder as an authored project. Legacy `kind = 'theme'` rows at
+/// the folder still count as its project.
+fn authored_folder<'a>(theme_id: &'a str, cwd: &'a str) -> AuthoredFolder<'a> {
+    AuthoredFolder {
+        target: ProjectAuthoringTarget::Theme,
+        plugin_id: theme_id,
+        cwd,
+        legacy_kind: Some(THEME_PROJECT_KIND),
+        conflict: project_conflict,
     }
 }
 
@@ -326,73 +236,11 @@ fn project_conflict(theme_id: &str, reason: &str) -> AppError {
     )
 }
 
-/// Both halves of "edit the theme where it lives": the project default, so every
-/// conversation started here inherits it, and the conversation's own setting.
-async fn apply_worktree_settings(
-    pool: &SqlitePool,
-    project_id: i64,
-    feature_id: i64,
-) -> Result<(), AppError> {
-    apply_project_defaults(pool, project_id).await?;
-    crate::domain::features::repository::upsert_feature_setting(
-        pool,
-        feature_id,
-        "worktree_mode",
-        WORKTREE_SKIP,
-    )
-    .await
-}
-
-/// Every conversation started here, not just the first, has to edit the theme in
-/// place — see the module header.
-///
-/// Read before write, unlike most setters: the settings dir is watched, and a
-/// write that changes nothing still fans a settings refetch across every open
-/// conversation. This runs on every open, so the common case has to be silent.
-async fn apply_project_defaults(pool: &SqlitePool, project_id: i64) -> Result<(), AppError> {
-    let current =
-        crate::domain::settings_store::project_get(pool, project_id, DEFAULT_WORKTREE_MODE).await?;
-    if current.as_deref() == Some(WORKTREE_SKIP) {
-        return Ok(());
-    }
-    crate::domain::projects::repository::set_project_setting(
-        pool,
-        project_id,
-        DEFAULT_WORKTREE_MODE,
-        WORKTREE_SKIP,
-    )
-    .await
-}
-
-/// The theme's conversation, and whether this call is what created it.
-async fn ensure_feature(
-    pool: &SqlitePool,
-    project_id: i64,
-    title: &str,
-) -> Result<(i64, bool), AppError> {
-    let existing: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM features WHERE project_id = ? ORDER BY id LIMIT 1")
-            .bind(project_id)
-            .fetch_optional(pool)
-            .await?;
-    if let Some(id) = existing {
-        return Ok((id, false));
-    }
-    let feature_id: i64 = sqlx::query_scalar(
-        "INSERT INTO features (project_id, title, status, type) \
-         VALUES (?, ?, 'active', 'ws-session') RETURNING id",
-    )
-    .bind(project_id)
-    .bind(title)
-    .fetch_one(pool)
-    .await?;
-    Ok((feature_id, true))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::themes::test_support::{dracula_css_vars, dracula_xterm};
+    use crate::shared::git_cli::run_git;
 
     async fn pool() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();

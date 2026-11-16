@@ -23,12 +23,33 @@ export function loadDevEnv(root: string = packageRoot()): string {
     );
   }
 
-  const values = parse(fs.readFileSync(filePath, "utf8"));
+  const values = parse(readPrivateEnv(filePath));
   for (const [key, value] of Object.entries(values)) {
     if (process.env[key] === undefined) process.env[key] = value;
   }
   validateRequiredDevEnvKeys(values);
   return filePath;
+}
+
+/** Tighten the opened inode before reading, without following or replacing a secret file. */
+function readPrivateEnv(filePath: string): string {
+  if (fs.lstatSync(filePath).isSymbolicLink())
+    throw new Error("Development env must not be a symbolic link.");
+  const descriptor = fs.openSync(
+    filePath,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0),
+  );
+  try {
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile() || stat.nlink !== 1)
+      throw new Error("Development env must be a regular, unshared file.");
+    if (process.platform !== "win32" && (stat.mode & 0o777) !== 0o600) {
+      fs.fchmodSync(descriptor, 0o600);
+    }
+    return fs.readFileSync(descriptor, "utf8");
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 function validateRequiredDevEnvKeys(values: Record<string, string>): void {

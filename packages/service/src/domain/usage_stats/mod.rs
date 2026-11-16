@@ -1,5 +1,5 @@
-//! Long-lived record of provider-reported token usage for each
-//! provider / model / thinking-effort combination.
+//! Long-lived record of provider-reported token usage, and of the prompts the
+//! user sent, for each provider / model / thinking-effort combination.
 //!
 //! Deliberately decoupled from conversations: tokens are folded into a per-day
 //! bucket keyed only by (provider, model, effort), so archiving a feature or

@@ -5,6 +5,7 @@ import {
   displayModelDescription,
   displayModelId,
   displayModelLabel,
+  getCatalogRefreshNotices,
   getModelEntries,
   groupCatalogEntries,
   IDLE_COLLAPSE_AFTER,
@@ -12,6 +13,7 @@ import {
   isProviderCollapsed,
   isVendorCollapsed,
   modelPickerFilter,
+  pickerProviderFromCatalog,
   vendorPrefix,
 } from "./runtimeModelPickerGroups";
 import type { RuntimeModelPickerProvider } from "./RuntimeModelPicker.types";
@@ -230,5 +232,39 @@ describe("runtimeModelPickerGroups", () => {
     expect(
       modelPickerFilter("claude_code:opus", "Claude", ["Claude", "claude_code", "Opus", "opus"]),
     ).toBeGreaterThan(0);
+  });
+
+  it("carries a catalog's refresh error into its picker provider", () => {
+    const entry = pickerProviderFromCatalog({
+      id: "codex_cli",
+      label: "Codex CLI",
+      models: [{ id: "gpt", label: "GPT" }],
+      refresh_error: "Codex model/list timed out",
+    });
+    expect(entry).toEqual({
+      id: "codex_cli",
+      label: "Codex CLI",
+      disabled: false,
+      refreshError: "Codex model/list timed out",
+      models: [{ id: "gpt", label: "GPT" }],
+    });
+  });
+
+  it("notices only selectable providers serving their last known models", () => {
+    const fresh = provider("claude_code", "Claude", [{ id: "opus", label: "Opus" }]);
+    const lastKnown = {
+      ...provider("opencode", "OpenCode", [{ id: "openai/gpt", label: "GPT" }]),
+      refreshError: "unterminated opencode models JSON block",
+    };
+    const empty = { ...provider("codex_cli", "Codex CLI", []), refreshError: "boom" };
+    const disabled = { ...lastKnown, id: "other", disabled: true };
+
+    expect(getCatalogRefreshNotices([fresh, lastKnown, empty, disabled])).toEqual([
+      {
+        providerId: "opencode",
+        providerLabel: "OpenCode",
+        reason: "unterminated opencode models JSON block",
+      },
+    ]);
   });
 });

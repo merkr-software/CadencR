@@ -106,3 +106,45 @@ describe("EditorPreviewSurface", () => {
     expect(srcDoc).toContain('transformOrigin = "0 0"');
   });
 });
+
+it("does not dispatch arbitrary host shortcuts from a forged preview message", () => {
+  render(
+    <EditorPreviewSurface
+      kind="html"
+      content="<h1>Preview</h1>"
+      filePath="preview.html"
+      projectId={1}
+      featureId={1}
+    />,
+  );
+  const frame = screen.getByTitle<HTMLIFrameElement>("HTML preview");
+  const onKey = vi.fn();
+  window.addEventListener("keydown", onKey);
+  const message = {
+    type: "cadencr-preview-shortcut",
+    shortcut: "editor-close",
+    key: "k",
+    code: "KeyK",
+    metaKey: true,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+  };
+  window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, data: message }));
+  expect(onKey).not.toHaveBeenCalled();
+  window.dispatchEvent(
+    new MessageEvent("message", {
+      source: frame.contentWindow,
+      data: { ...message, key: "w", code: "KeyZ" },
+    }),
+  );
+  expect(onKey).toHaveBeenCalledOnce();
+  expect(onKey.mock.calls[0][0]).toMatchObject({
+    key: "w",
+    code: "KeyW",
+    metaKey: true,
+    shiftKey: false,
+    altKey: false,
+  });
+  window.removeEventListener("keydown", onKey);
+});

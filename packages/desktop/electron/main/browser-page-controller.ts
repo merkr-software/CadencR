@@ -1,6 +1,7 @@
 import type { Input, Result } from "electron";
 
 import { BrowserFindController } from "./browser-find-controller";
+import { shortcutPlatform } from "./browser-guest-shortcuts";
 import type { ManagedTab } from "./browser-tab-events";
 import type {
   BrowserFindRequest,
@@ -21,6 +22,8 @@ export class BrowserPageController {
   private responsiveShortcutMatcher: BrowserShortcutInputMatcher = () => false;
   private devtoolsShortcutMatcher: BrowserShortcutInputMatcher = () => false;
   private zoomResetShortcutMatcher: BrowserShortcutInputMatcher = () => false;
+  private navigateBackShortcutMatcher: BrowserShortcutInputMatcher = () => false;
+  private navigateForwardShortcutMatcher: BrowserShortcutInputMatcher = () => false;
   private readonly findController: BrowserFindController;
   private readonly zoomController: BrowserZoomController;
 
@@ -87,13 +90,20 @@ export class BrowserPageController {
   }
 
   setGuestShortcutBindings(bindings: BrowserGuestShortcutBindings): void {
-    const platform =
-      process.platform === "darwin" ? "mac" : process.platform === "win32" ? "windows" : "linux";
+    const platform = shortcutPlatform();
     this.findShortcutMatcher = compileBrowserShortcutBinding(bindings.find, platform);
     this.downloadsShortcutMatcher = compileBrowserShortcutBinding(bindings.downloads, platform);
     this.responsiveShortcutMatcher = compileBrowserShortcutBinding(bindings.responsive, platform);
     this.devtoolsShortcutMatcher = compileBrowserShortcutBinding(bindings.devtools, platform);
     this.zoomResetShortcutMatcher = compileBrowserShortcutBinding(bindings.zoomReset, platform);
+    this.navigateBackShortcutMatcher = compileBrowserShortcutBinding(
+      bindings.navigateBack,
+      platform,
+    );
+    this.navigateForwardShortcutMatcher = compileBrowserShortcutBinding(
+      bindings.navigateForward,
+      platform,
+    );
   }
 
   matchGuestShortcut(input: Input): BrowserShortcut | null {
@@ -102,6 +112,8 @@ export class BrowserPageController {
     if (this.responsiveShortcutMatcher(input)) return "responsive";
     if (this.devtoolsShortcutMatcher(input)) return "devtools";
     if (this.zoomResetShortcutMatcher(input)) return "zoom-reset";
+    if (this.navigateBackShortcutMatcher(input)) return "navigate-back";
+    if (this.navigateForwardShortcutMatcher(input)) return "navigate-forward";
     return null;
   }
 

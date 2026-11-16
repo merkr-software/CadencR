@@ -11,6 +11,7 @@ import { CircleAlert, ChevronDown, GitBranch, GitCommit, Loader2 } from "lucide-
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import { cn } from "@/lib/utils";
 import { gitActionIcon } from "./GitActionPopover";
 import { GitActionPopoverContent } from "./GitActionPopoverContent";
@@ -32,6 +33,12 @@ export interface GitActionControlsProps {
   featureId: number;
   projectId: number;
   isMobile: boolean;
+  /**
+   * The directory's checkout. Phones have no room for the header's branch chip
+   * (it moves into the popover), so their trigger names the branch instead of
+   * "Git" — the header always says what is checked out.
+   */
+  checkedOut: string | undefined;
   state: GitActionState;
   activities: GitActivities;
   popoverOpen: boolean;
@@ -47,6 +54,7 @@ export function GitActionControls(props: GitActionControlsProps): ReactElement {
 function MobileGitActionControl({
   featureId,
   projectId,
+  checkedOut,
   state,
   activities,
   popoverOpen,
@@ -93,11 +101,15 @@ function MobileGitActionControl({
         <Button
           variant="outline"
           size="xs"
-          className={GIT_ACTION_BUTTON_CLASS}
-          aria-label="Git actions"
+          className={`${GIT_ACTION_BUTTON_CLASS} min-w-0`}
+          aria-label={checkedOut ? `Git actions, on ${checkedOut}` : "Git actions"}
         >
           <GitBranch className="size-3.5" />
-          <span>Git</span>
+          {checkedOut ? (
+            <span className="max-w-24 truncate font-mono">{checkedOut}</span>
+          ) : (
+            <span>Git</span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
@@ -122,6 +134,7 @@ function DesktopGitActionControl({
   onPopoverOpenChange,
   onAction,
 }: GitActionControlsProps): ReactElement {
+  const gitActionsKeys = useShortcutKeys("git-actions");
   const active = activeGitActivity(activities);
   const primaryAction = active?.action ?? state.primary;
   const PrimaryIcon = state.updatePending
@@ -154,7 +167,7 @@ function DesktopGitActionControl({
         </Button>
       )}
       <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-        <ShortcutTooltip label="Git actions" keys={["cmd", "G"]}>
+        <ShortcutTooltip label="Git actions" keys={gitActionsKeys}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"

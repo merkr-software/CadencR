@@ -1,6 +1,8 @@
 //! Runs a command with a fixed terminal size.
 //! This is used by wezterm's doc building automation to keep
 //! the --help output within a reasonable width
+// Cadencr: `to_write` below is an intentionally empty placeholder.
+#![allow(clippy::const_is_empty)]
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::sync::mpsc::channel;
 

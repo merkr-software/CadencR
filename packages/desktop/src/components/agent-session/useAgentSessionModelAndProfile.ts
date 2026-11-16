@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { useAgentCatalog } from "../../api/agentRuntime";
 import { toastError } from "@/lib/api-errors";
@@ -30,14 +30,26 @@ export function useAgentSessionModelAndProfile(
     hasConversation: blocks.length > 0,
   });
 
+  // Embedded cards run without a catalog, so `model.activeProviderId` is the
+  // Claude fallback there; trust the session's known provider instead, or a
+  // cold card forwards a profile to a provider that rejects it.
+  const profileProviderId = agentCatalogData
+    ? model.activeProviderId
+    : (selection?.providerId ?? model.activeProviderId);
   const isClaudeProvider =
-    model.activeProviderId === PROVIDER_IDS.CLAUDE_CODE ||
-    runtimeProvider === PROVIDER_IDS.CLAUDE_CODE;
+    profileProviderId === PROVIDER_IDS.CLAUDE_CODE || runtimeProvider === PROVIDER_IDS.CLAUDE_CODE;
   const supportsProfiles = Boolean(
     agentCatalogData?.providers.find((provider) => provider.id === model.activeProviderId)
       ?.profile_capability,
   );
-  const sendsProfile = supportsProfiles || isClaudeProvider;
+  // The prompt runs on the provider the session confirmed, which the composer
+  // can differ from (a fallback while that provider is unavailable). Before
+  // the session knows its provider the pick still goes out: the backend
+  // ignores a profile its provider cannot apply.
+  const sessionProviderId = selection?.providerId ?? runtimeProvider;
+  const sendsProfile =
+    (!sessionProviderId || sessionProviderId === profileProviderId) &&
+    (supportsProfiles || isClaudeProvider);
 
   const localClaudeProfileSelection = useClaudeProfileSelection({
     isClaudeProvider: isClaudeProvider && claudeProfileSelection == null,
@@ -70,9 +82,13 @@ export function useAgentSessionModelAndProfile(
     [onSend, profile.selectedClaudeProfile, scrollToBottom, sendsProfile],
   );
 
-  const visibleProviders = model.canChangeProvider
-    ? model.providerOptions
-    : model.providerOptions.filter((provider) => provider.id === model.activeProviderId);
+  const visibleProviders = useMemo(
+    () =>
+      model.canChangeProvider
+        ? model.providerOptions
+        : model.providerOptions.filter((provider) => provider.id === model.activeProviderId),
+    [model.activeProviderId, model.canChangeProvider, model.providerOptions],
+  );
 
   return {
     model,

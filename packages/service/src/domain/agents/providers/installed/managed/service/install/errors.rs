@@ -11,7 +11,7 @@ use crate::domain::agents::providers::installed::managed::quarantine::{
 };
 use crate::domain::agents::providers::installed::managed::receipt::ManagedPackageReceipt;
 use crate::domain::agents::providers::installed::managed::ResolvedManagedProviderPackage;
-use crate::error::AppError;
+use crate::error::{AppError, GitRejection};
 
 pub(super) fn failure(
     service: &ManagedProviderService,
@@ -108,23 +108,21 @@ fn check_blocked(
         chrono::Utc::now(),
     )
     .map_err(|error| AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message))?;
-    if let Some(blocklist) = cached {
-        let reason = blocklist
-            .blocked_reason(id, version, digest)
-            .map_err(|error| {
-                AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
-            })?;
-        if let Some(reason) = reason {
-            return Err(failure(
-                service,
-                id,
-                version,
-                Some(digest),
-                ManagedFailureStage::Blocklist,
-                "MANAGED_PROVIDER_BLOCKED",
-                format!("managed provider {id} is blocked: {reason}"),
-            ));
-        }
+    let reason = cached
+        .blocked_reason(id, version, digest)
+        .map_err(|error| {
+            AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
+        })?;
+    if let Some(reason) = reason {
+        return Err(failure(
+            service,
+            id,
+            version,
+            Some(digest),
+            ManagedFailureStage::Blocklist,
+            "MANAGED_PROVIDER_BLOCKED",
+            format!("managed provider {id} is blocked: {reason}"),
+        ));
     }
     Ok(())
 }
@@ -164,11 +162,17 @@ fn artifact_code(code: ArtifactErrorCode) -> &'static str {
 pub(super) fn append_context(error: AppError, context: String) -> AppError {
     let message = |value: String| format!("{value}; {context}");
     match error {
-        AppError::DatabaseError(value) => AppError::DatabaseError(message(value)),
-        AppError::GitCommandError(value) => AppError::GitCommandError(message(value)),
+        AppError::DatabaseError(value) => AppError::DatabaseError(value.map(message)),
+        AppError::DatabaseBusy(value) => AppError::DatabaseBusy(value.map(message)),
+        AppError::ConstraintViolation(value) => AppError::ConstraintViolation(message(value)),
+        AppError::GitCommandError(value) => AppError::GitCommandError(value.map(message)),
+        AppError::GitRejected(rejection) => AppError::GitRejected(GitRejection {
+            message: message(rejection.message),
+            ..rejection
+        }),
         AppError::NotFound(value) => AppError::NotFound(message(value)),
         AppError::BadRequest(value) => AppError::BadRequest(message(value)),
-        AppError::Internal(value) => AppError::Internal(message(value)),
+        AppError::Internal(value) => AppError::Internal(value.map(message)),
         AppError::Conflict(value) => AppError::Conflict(message(value)),
         AppError::Coded {
             status,

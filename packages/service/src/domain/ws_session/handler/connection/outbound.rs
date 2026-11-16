@@ -120,7 +120,16 @@ async fn run_socket_sender<S>(
                 break;
             }
             message = socket_rx.recv() => {
-                let Some(message) = message else { break };
+                // The bridge left (a slow peer timed out) and the queue is
+                // drained, but the connection loop still decides whether a
+                // retryable close goes out: the peer can catch up before
+                // that decision arrives.
+                let Some(message) = message else {
+                    if let Some(shutdown) = close_rx.recv().await {
+                        send_priority_shutdown(&mut sink, shutdown).await;
+                    }
+                    break;
+                };
                 message
             }
         };
@@ -344,6 +353,48 @@ mod tests {
             messages.last(),
             Some(Message::Close(Some(frame))) if frame.code == 1013 && frame.reason == "overloaded"
         ));
+    }
+
+    #[tokio::test]
+    async fn retry_close_follows_a_bridge_that_left_before_the_decision() {
+        let (socket_tx, socket_rx) = mpsc::channel(2);
+        socket_tx
+            .send(Message::Text("queued event".into()))
+            .await
+            .expect("queue normal message");
+        let (close_tx, close_rx) = mpsc::channel(1);
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded_for_sink = recorded.clone();
+        let sink = Box::pin(futures::sink::unfold((), move |(), message| {
+            let recorded = recorded_for_sink.clone();
+            async move {
+                recorded
+                    .lock()
+                    .expect("recording sink poisoned")
+                    .push(message);
+                Ok::<_, std::convert::Infallible>(())
+            }
+        }));
+        let sender = tokio::spawn(run_socket_sender(sink, socket_rx, close_rx));
+
+        // The bridge timed out and left, then the peer drained the queue
+        // before the connection loop asked for the overload close.
+        drop(socket_tx);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = close_tx.send(retryable_shutdown("overloaded")).await;
+
+        tokio::time::timeout(Duration::from_secs(1), sender)
+            .await
+            .expect("sender finishes after the close")
+            .expect("sender task succeeds");
+        let messages = recorded.lock().expect("recording sink poisoned");
+        assert!(
+            matches!(
+                messages.last(),
+                Some(Message::Close(Some(frame))) if frame.code == 1013 && frame.reason == "overloaded"
+            ),
+            "{messages:?}"
+        );
     }
 
     #[tokio::test]

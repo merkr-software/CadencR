@@ -1,8 +1,33 @@
+use crate::domain::ws_session::runtime::output::{OutputTarget, SessionOutput};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::extract::ws::Message;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, Mutex};
+
+/// A read-only tap on one feature's traffic (a custom tab's `session.stream`).
+///
+/// Unlike a viewer socket it is bounded and filtered at the source: frames
+/// `accepts` rejects are never cloned, and a full queue drops the frame and
+/// raises `lagged` instead of growing — the agent stream never waits on, or
+/// buffers for, a plugin.
+#[derive(Clone)]
+pub struct FeatureObserver {
+    pub sender: mpsc::Sender<Message>,
+    /// Decides from the raw text frame; must be cheap (it runs per frame).
+    pub accepts: fn(&str) -> bool,
+    /// Set when a frame was dropped on a full queue.
+    pub lagged: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Default)]
+struct Observers {
+    by_feature: Arc<std::sync::Mutex<HashMap<i64, Vec<FeatureObserver>>>>,
+    /// Lock-free fast path: with no observer anywhere, mirroring costs one load.
+    count: Arc<AtomicUsize>,
+}
 
 /// Lightweight registry that maps a `feature_id` to all active WebSocket
 /// senders currently subscribed to that feature. Held by `AppState` so HTTP
@@ -13,6 +38,7 @@ use tokio::sync::{mpsc, Mutex};
 #[derive(Clone, Default)]
 pub struct WsFeatureSenderRegistry {
     inner: Arc<Mutex<HashMap<i64, Vec<mpsc::UnboundedSender<Message>>>>>,
+    observers: Observers,
 }
 
 impl WsFeatureSenderRegistry {
@@ -28,7 +54,31 @@ impl WsFeatureSenderRegistry {
         feature_id: i64,
         owner: mpsc::UnboundedSender<Message>,
     ) -> mpsc::UnboundedSender<Message> {
+        self.forwarding_sender(feature_id, owner)
+    }
+
+    /// Forward legacy workflow progress to feature viewers, with an optional
+    /// initiating socket. This is an outbound adapter, never a command reply.
+    pub(crate) fn feature_output_sender(
+        &self,
+        feature_id: i64,
+        owner: &impl OutputTarget,
+    ) -> mpsc::UnboundedSender<Message> {
+        let output = owner
+            .recipient()
+            .cloned()
+            .map(SessionOutput::from)
+            .unwrap_or_default();
+        self.forwarding_sender(feature_id, output)
+    }
+
+    fn forwarding_sender(
+        &self,
+        feature_id: i64,
+        owner: impl Into<SessionOutput>,
+    ) -> mpsc::UnboundedSender<Message> {
         let registry = self.clone();
+        let owner = owner.into();
         let (sender, mut receiver) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             while let Some(message) = receiver.recv().await {
@@ -91,6 +141,7 @@ impl WsFeatureSenderRegistry {
         exclude: &mpsc::UnboundedSender<Message>,
         message: &Message,
     ) {
+        self.notify_observers(feature_id, message);
         let mut map = self.inner.lock().await;
         let Some(senders) = map.get_mut(&feature_id) else {
             return;
@@ -107,19 +158,96 @@ impl WsFeatureSenderRegistry {
         }
     }
 
+    /// Send `message` to every device and observer viewing `feature_id`.
+    pub async fn broadcast_all(&self, feature_id: i64, message: &Message) {
+        self.notify_observers(feature_id, message);
+        for sender in self.get_senders(feature_id).await {
+            let _ = sender.send(message.clone());
+        }
+    }
+
+    /// Attach a read-only observer to `feature_id`'s traffic.
+    pub fn observe(&self, feature_id: i64, observer: FeatureObserver) {
+        let mut map = self.observers.lock();
+        map.entry(feature_id).or_default().push(observer);
+        self.observers.recount(&map);
+    }
+
+    /// Detach the observer feeding `sender`, wherever it is attached.
+    pub fn unobserve(&self, sender: &mpsc::Sender<Message>) {
+        let mut map = self.observers.lock();
+        for observers in map.values_mut() {
+            observers.retain(|observer| !observer.sender.same_channel(sender));
+        }
+        map.retain(|_, observers| !observers.is_empty());
+        self.observers.recount(&map);
+    }
+
+    /// Offer `message` to `feature_id`'s observers. Callers that write to
+    /// [`Self::get_senders`] directly call this too, so observers see what
+    /// every other viewer sees.
+    pub fn notify_observers(&self, feature_id: i64, message: &Message) {
+        if self.observers.count.load(Ordering::Acquire) == 0 {
+            return;
+        }
+        let Message::Text(text) = message else {
+            return;
+        };
+        let mut map = self.observers.lock();
+        let Some(observers) = map.get_mut(&feature_id) else {
+            return;
+        };
+        observers.retain(|observer| {
+            if !(observer.accepts)(text.as_str()) {
+                return !observer.sender.is_closed();
+            }
+            match observer.sender.try_send(message.clone()) {
+                Ok(()) => true,
+                Err(TrySendError::Full(_)) => {
+                    observer.lagged.store(true, Ordering::Release);
+                    true
+                }
+                Err(TrySendError::Closed(_)) => false,
+            }
+        });
+        if observers.is_empty() {
+            map.remove(&feature_id);
+        }
+        self.observers.recount(&map);
+    }
+
     /// Send `msg` to the turn `owner` and mirror it to every *other* device
     /// viewing `feature_id`. Others are mirrored first so the owner send can
     /// move `msg` without a clone; with only the owner registered this is a
     /// plain send. Returns `true` when the owner socket is gone, so callers can
     /// stop a loop exactly as a bare `send().is_err()` would.
-    pub async fn send_and_mirror(
+    pub(crate) async fn send_and_mirror(
         &self,
         feature_id: i64,
-        owner: &mpsc::UnboundedSender<Message>,
+        owner: &impl OutputTarget,
         msg: Message,
     ) -> bool {
-        self.broadcast_others(feature_id, owner, &msg).await;
-        owner.send(msg).is_err()
+        if let Some(recipient) = owner.recipient() {
+            self.broadcast_others(feature_id, recipient, &msg).await;
+            return recipient.send(msg).is_err();
+        }
+        self.broadcast_all(feature_id, &msg).await;
+        false
+    }
+}
+
+impl Observers {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<i64, Vec<FeatureObserver>>> {
+        // Every operation leaves the map consistent, so a poisoned lock is
+        // safe to keep using.
+        self.by_feature
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn recount(&self, map: &HashMap<i64, Vec<FeatureObserver>>) {
+        let count = map.values().map(Vec::len).sum();
+        self.count.store(count, Ordering::Release);
     }
 }
 
@@ -224,5 +352,73 @@ mod tests {
                 .unwrap(),
             Some(Message::Text(_))
         ));
+    }
+
+    fn observer(capacity: usize) -> (FeatureObserver, mpsc::Receiver<Message>) {
+        let (sender, receiver) = mpsc::channel(capacity);
+        let observer = FeatureObserver {
+            sender,
+            accepts: |text| text.starts_with("keep"),
+            lagged: Arc::default(),
+        };
+        (observer, receiver)
+    }
+
+    #[tokio::test]
+    async fn observers_get_only_accepted_frames_bounded_and_flag_overflow() {
+        let registry = WsFeatureSenderRegistry::new();
+        let (driver_tx, _driver_rx) = mpsc::unbounded_channel::<Message>();
+        registry.register(1, driver_tx.clone()).await;
+        let (tap, mut rx) = observer(2);
+        let lagged = tap.lagged.clone();
+        registry.observe(1, tap.clone());
+        for text in ["skip", "keep 1", "keep 2", "keep 3"] {
+            registry
+                .send_and_mirror(1, &driver_tx, Message::Text(text.into()))
+                .await;
+        }
+        assert!(matches!(rx.try_recv(), Ok(Message::Text(t)) if t.as_str() == "keep 1"));
+        assert!(matches!(rx.try_recv(), Ok(Message::Text(t)) if t.as_str() == "keep 2"));
+        assert!(rx.try_recv().is_err(), "the third frame overflowed");
+        assert!(lagged.load(Ordering::Acquire));
+        // Observers are not viewers: direct-send paths do not see them.
+        assert_eq!(registry.get_senders(1).await.len(), 1);
+        registry.unobserve(&tap.sender);
+        assert_eq!(registry.observers.count.load(Ordering::Acquire), 0);
+        registry.notify_observers(1, &Message::Text("keep 4".into()));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn closed_observers_are_dropped_on_the_next_frame() {
+        let registry = WsFeatureSenderRegistry::new();
+        let (tap, rx) = observer(4);
+        registry.observe(7, tap);
+        drop(rx);
+        registry.notify_observers(7, &Message::Text("keep".into()));
+        assert_eq!(registry.observers.count.load(Ordering::Acquire), 0);
+    }
+    #[tokio::test]
+    async fn headless_progress_forwarder_reaches_current_and_later_viewers_once() {
+        let registry = WsFeatureSenderRegistry::new();
+        let (first, mut first_rx) = mpsc::unbounded_channel();
+        registry.register(1, first).await;
+        let progress = registry.feature_output_sender(1, &SessionOutput::headless());
+        progress.send(Message::Text("first".into())).unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), first_rx.recv())
+            .await
+            .unwrap();
+        assert!(matches!(event, Some(Message::Text(text)) if text.as_str() == "first"));
+        assert!(first_rx.try_recv().is_err());
+        let (later, mut later_rx) = mpsc::unbounded_channel();
+        registry.register(1, later).await;
+        progress.send(Message::Text("later".into())).unwrap();
+        for receiver in [&mut first_rx, &mut later_rx] {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv())
+                .await
+                .unwrap();
+            assert!(matches!(event, Some(Message::Text(text)) if text.as_str() == "later"));
+            assert!(receiver.try_recv().is_err());
+        }
     }
 }

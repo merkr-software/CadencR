@@ -13,6 +13,7 @@ pub(super) struct TurnStartOptions<'a> {
     pub(super) effort: Option<String>,
     pub(super) collaboration_model: Option<String>,
     pub(super) collaboration_effort: Option<String>,
+    pub(super) summary: Option<String>,
     pub(super) fast_mode: Option<bool>,
 }
 
@@ -39,6 +40,11 @@ pub(super) fn turn_start_params(
     }
     if let Some(effort) = options.effort {
         params["effort"] = Value::String(effort);
+    }
+    // Apply the same provider/profile policy to every turn, including turns
+    // sent to resumed threads whose stored defaults may differ.
+    if let Some(summary) = options.summary {
+        params["summary"] = Value::String(summary);
     }
     if let Some(fast_mode) = options.fast_mode {
         params["serviceTier"] = super::fast_service_tier_value(fast_mode);
@@ -81,10 +87,12 @@ pub(super) fn collaboration_mode(
 #[cfg(test)]
 mod tests {
     use super::{turn_start_params, TurnStartOptions};
+    use crate::domain::agents::codex::native_config::reasoning_summary;
+    use serde_json::json;
     use std::path::Path;
 
     #[test]
-    fn turn_start_preserves_native_summary_config_and_applies_explicit_effort() {
+    fn turn_start_applies_resolved_summary_and_explicit_effort() {
         let params = turn_start_params(
             "thread",
             vec![serde_json::json!({ "type": "text", "text": "hello" })],
@@ -96,11 +104,12 @@ mod tests {
                 effort: Some("ultra".to_string()),
                 collaboration_model: Some("gpt-5.6-sol".to_string()),
                 collaboration_effort: Some("ultra".to_string()),
+                summary: Some("detailed".to_string()),
                 fast_mode: Some(true),
             },
         );
 
-        assert!(params.get("summary").is_none());
+        assert_eq!(params["summary"], "detailed");
         assert_eq!(params["effort"], "ultra");
         assert_eq!(params["model"], "gpt-5.6-sol");
         assert_eq!(params["serviceTier"], "priority");
@@ -108,6 +117,44 @@ mod tests {
             params["collaborationMode"]["settings"]["reasoning_effort"],
             "ultra"
         );
+    }
+
+    #[test]
+    fn turn_start_keeps_provider_and_profile_summary_choices() {
+        for (native, expected) in [
+            (json!({}), Some("detailed")),
+            (json!({"model_provider": "openai"}), Some("detailed")),
+            (json!({"model_provider": "amazon-bedrock"}), None),
+            (json!({"model_provider": "custom"}), None),
+            (json!({"model_supports_reasoning_summaries": false}), None),
+            (json!({"model_reasoning_summary": "none"}), Some("none")),
+            (json!({"model_reasoning_summary": "auto"}), Some("auto")),
+            (
+                json!({"model_reasoning_summary": "concise"}),
+                Some("concise"),
+            ),
+        ] {
+            let config_read = json!({"config": native});
+            let params = turn_start_params(
+                "thread",
+                vec![json!({"type": "text", "text": "continue"})],
+                TurnStartOptions {
+                    cwd: Path::new("/tmp/app"),
+                    permission_mode: None,
+                    access_mode: None,
+                    model: None,
+                    effort: None,
+                    collaboration_model: None,
+                    collaboration_effort: None,
+                    summary: reasoning_summary(&config_read).map(ToOwned::to_owned),
+                    fast_mode: None,
+                },
+            );
+            assert_eq!(
+                params.get("summary"),
+                expected.map(serde_json::Value::from).as_ref()
+            );
+        }
     }
 
     #[test]
@@ -123,6 +170,7 @@ mod tests {
                 effort: Some("high".to_string()),
                 collaboration_model: Some("gpt-5.5".to_string()),
                 collaboration_effort: Some("high".to_string()),
+                summary: None,
                 fast_mode: Some(false),
             },
         );
@@ -154,6 +202,7 @@ mod tests {
                 effort: Some("high".to_string()),
                 collaboration_model: None,
                 collaboration_effort: Some("high".to_string()),
+                summary: None,
                 fast_mode: Some(false),
             },
         );
@@ -176,6 +225,7 @@ mod tests {
                 effort: Some("high".to_string()),
                 collaboration_model: Some("gpt-5.5".to_string()),
                 collaboration_effort: Some("high".to_string()),
+                summary: None,
                 fast_mode: Some(false),
             },
         );

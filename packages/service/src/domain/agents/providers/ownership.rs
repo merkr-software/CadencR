@@ -33,6 +33,7 @@ mod tests {
             icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
+            refresh_error: None,
             models: models
                 .iter()
                 .map(|model| ModelCatalogEntry::alias(*model, *model))

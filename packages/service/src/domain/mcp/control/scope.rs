@@ -22,7 +22,7 @@ impl SessionScope {
     }
 }
 
-pub(super) fn is_active_db_state(
+pub(crate) fn is_active_db_state(
     status_col: &str,
     pending_permission: bool,
     pending_question: bool,

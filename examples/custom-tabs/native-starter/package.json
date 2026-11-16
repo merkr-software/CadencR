@@ -1,0 +1,28 @@
+{
+  "name": "native-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "npm run build:ui && npm run build:backend",
+    "build:ui": "tsc --noEmit && vite build",
+    "build:backend": "node scripts/build-backend.mjs",
+    "test:backend": "cargo test --manifest-path backend/Cargo.toml"
+  },
+  "dependencies": {
+    "@cadencr/tab-kit": "^0.1.0",
+    "@cadencr/tab-sdk": "^0.1.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.7.0",
+    "vite": "^6.4.3"
+  }
+}

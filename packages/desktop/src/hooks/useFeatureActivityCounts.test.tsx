@@ -13,14 +13,14 @@ vi.mock("@/api/generated", () => ({
 }));
 vi.mock("@/components/browser/browser-errors", () => ({ showBrowserError }));
 
-const { useFeatureActivityCounts } = await import("./useFeatureActivityCounts");
+const { useBrowserActivityBridge } = await import("./useFeatureActivityCounts");
 
 afterEach(() => {
   clearDesktopBridgeOverrideForTests();
   showBrowserError.mockReset();
 });
 
-describe("useFeatureActivityCounts", () => {
+describe("useBrowserActivityBridge", () => {
   it("does not call or subscribe to the native browser outside Electron", async () => {
     const calls = {
       listBrowserTabCountsByScope: vi.fn(),
@@ -29,7 +29,7 @@ describe("useFeatureActivityCounts", () => {
       onBrowserDownloadCounts: vi.fn(),
     };
     setDesktopBridgeOverrideForTests({ isElectron: false, ...calls });
-    const { unmount } = renderHook(() => useFeatureActivityCounts(1));
+    const { unmount } = renderHook(() => useBrowserActivityBridge());
     await act(async () => undefined);
     unmount();
     for (const call of Object.values(calls)) expect(call).not.toHaveBeenCalled();
@@ -45,7 +45,7 @@ describe("useFeatureActivityCounts", () => {
         throw error;
       }),
     });
-    const { unmount } = renderHook(() => useFeatureActivityCounts(1));
+    const { unmount } = renderHook(() => useBrowserActivityBridge());
     await waitFor(() =>
       expect(showBrowserError).toHaveBeenCalledWith(
         error,
@@ -69,7 +69,7 @@ describe("useFeatureActivityCounts", () => {
         return () => undefined;
       }),
     });
-    renderHook(() => useFeatureActivityCounts(1));
+    renderHook(() => useBrowserActivityBridge());
     await waitFor(() => expect(listener).not.toBeNull());
 
     act(() => listener?.({ 4: 1 }));

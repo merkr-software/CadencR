@@ -62,11 +62,12 @@ pub async fn lsp_root_handler(
     let workspace_root = canonical_workspace_root(&params.workspace_root)?;
     let start_dir = validated_start_dir(&workspace_root, &params.file_path)?;
     let entry = match &params.lsp_id {
-        Some(lsp_id) => catalog::lookup_by_id(lsp_id),
-        None => catalog::lookup(&params.language_id),
+        Some(lsp_id) => catalog::lookup_by_id(lsp_id).await?,
+        None => catalog::lookup(&params.language_id).await?,
     };
-    let markers = entry.map(|entry| entry.root_markers).unwrap_or(&[]);
-    let root = nearest_root(&workspace_root, &start_dir, markers);
+    let markers = entry.map(|entry| entry.root_markers).unwrap_or_default();
+    let markers = markers.iter().map(String::as_str).collect::<Vec<_>>();
+    let root = nearest_root(&workspace_root, &start_dir, &markers);
     Ok(Json(LspRootResponse {
         root: root.to_string_lossy().into_owned(),
     }))
@@ -115,7 +116,7 @@ fn validated_start_dir(workspace_root: &Path, file_path: &str) -> Result<PathBuf
 /// first directory containing any of `markers`. Falls back to `workspace_root`
 /// when no marker matches or `markers` is empty. `start_dir` is assumed to be
 /// inside `workspace_root` (validated by the caller).
-fn nearest_root(workspace_root: &Path, start_dir: &Path, markers: &[&str]) -> PathBuf {
+pub(super) fn nearest_root(workspace_root: &Path, start_dir: &Path, markers: &[&str]) -> PathBuf {
     if markers.is_empty() {
         return workspace_root.to_path_buf();
     }

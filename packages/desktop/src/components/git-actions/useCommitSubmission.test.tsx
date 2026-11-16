@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
 }));
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 vi.mock("@/api/generated", () => ({
   useCommit: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
 }));

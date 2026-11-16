@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "id": "taplo",
+  "version": "0.10.0",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/tamasfe/taplo/releases/tag/0.10.0",
+  "license": "MIT",
+  "license_source": "https://github.com/tamasfe/taplo/tree/0.10.0",
+  "args": [
+    "lsp",
+    "stdio"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz",
+      "sha256": "8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156",
+      "size": 5116068,
+      "format": "gz",
+      "member": null,
+      "entry": "taplo",
+      "entry_sha256": "dad2faf6377d2daa4f4fabf459fe7ccfb98a5448f0d4bca8270ca9acb0409bfe",
+      "entry_size": 12647136
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz",
+      "sha256": "713734314c3e71894b9e77513c5349835eefbd52908445a0d73b0c7dc469347d",
+      "size": 4616415,
+      "format": "gz",
+      "member": null,
+      "entry": "taplo",
+      "entry_sha256": "13cd257c1cadb003b40daf82b3fb1451e012e2463b760bdd33df07a07970c604",
+      "entry_size": 10522288,
+      "macos_min_version": "11.0.0"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz",
+      "sha256": "898122cde3a0b1cd1cbc2d52d3624f23338218c91b5ddb71518236a4c2c10ef2",
+      "size": 4921954,
+      "format": "gz",
+      "member": null,
+      "entry": "taplo",
+      "entry_sha256": "9fd7a2872ea154df61a2c7e9ca69fc19ac08e29f2e2dc2f866e299bdc789c1a1",
+      "entry_size": 11367780,
+      "macos_min_version": "10.12.0"
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Taplo",
+  "description": "TOML validation, formatting and code intelligence using Taplo 0.10.0.",
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "toml",
+      "extensions": [
+        "toml"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    ".taplo.toml",
+    "taplo.toml",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": [],
+  "extra_sources": [
+    {
+      "name": "tamasfe/taplo-LICENSE",
+      "version": "0.10.0",
+      "url": "https://raw.githubusercontent.com/tamasfe/taplo/0.10.0/LICENSE",
+      "sha256": "b23690ab205e06bf09725ef88e0b321175cbc2dd4d9f8ec7f7cd0577302c244d",
+      "size": 1070,
+      "path": "licenses/LICENSE"
+    }
+  ]
+}

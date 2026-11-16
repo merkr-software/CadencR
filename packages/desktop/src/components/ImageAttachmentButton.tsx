@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Paperclip } from "lucide-react";
+import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import { attachmentAcceptForProvider } from "@/lib/prompt-attachments";
 
 interface ImageAttachmentButtonProps {
@@ -14,6 +15,7 @@ export function ImageAttachmentButton({
   providerId,
 }: ImageAttachmentButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const promptCapabilities = useCatalogProviderMetadata(providerId)?.promptCapabilities ?? null;
 
   const handleClick = () => {
     inputRef.current?.click();
@@ -32,7 +34,7 @@ export function ImageAttachmentButton({
       <input
         ref={inputRef}
         type="file"
-        accept={attachmentAcceptForProvider(providerId)}
+        accept={attachmentAcceptForProvider(providerId, promptCapabilities)}
         multiple
         className="hidden"
         onChange={handleChange}
@@ -42,9 +44,9 @@ export function ImageAttachmentButton({
         onClick={handleClick}
         disabled={disabled}
         aria-label="Attach files"
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+        className="composer-instrument composer-instrument-icon text-muted-foreground hover:text-foreground disabled:opacity-50"
       >
-        <Paperclip className="size-4" />
+        <Paperclip className="size-3.5" />
       </button>
     </>
   );

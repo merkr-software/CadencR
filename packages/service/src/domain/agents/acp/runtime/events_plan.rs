@@ -22,7 +22,7 @@ pub fn map_plan(
     body: &Value,
     indexer: &mut EventIndexer,
     active_model: Option<&str>,
-    metadata: RuntimeEventMetadata,
+    mut metadata: RuntimeEventMetadata,
 ) -> MappedUpdate {
     if indexer.last_todowrite_call_id.is_some() {
         return MappedUpdate { events: vec![] };
@@ -37,6 +37,26 @@ pub fn map_plan(
         indexer.mark_plan_todowrite_emitted();
     }
     let model = active_model.map(ToOwned::to_owned);
+    let input = json!({ "todos": todos });
+    // The live stream forwards `raw` to the desktop, whose parser only knows
+    // the assistant-message shape: the bare ACP notification was dropped there,
+    // so the todo list only appeared once the turn was reloaded.
+    let provider_raw = std::mem::take(&mut metadata.raw);
+    metadata.raw = json!({
+        "type": "assistant",
+        "session_id": metadata.session_id,
+        "parent_tool_use_id": null,
+        "message": {
+            "model": model,
+            "content": [{
+                "type": "tool_use",
+                "id": synthetic_id,
+                "name": "TodoWrite",
+                "input": input,
+            }],
+        },
+        "provider_raw": provider_raw,
+    });
     MappedUpdate {
         events: vec![RuntimeEvent::new(
             metadata,
@@ -46,7 +66,7 @@ pub fn map_plan(
                     content: vec![RuntimeContentBlock::ToolUse {
                         id: synthetic_id,
                         name: "TodoWrite".to_string(),
-                        input: json!({ "todos": todos }),
+                        input,
                     }],
                 },
                 parent_tool_use_id: None,
@@ -132,6 +152,31 @@ mod tests {
             }
             other => panic!("unexpected variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn map_plan_forwards_an_assistant_shaped_raw_envelope() {
+        let mut idx = EventIndexer::default();
+        let provider_raw = json!({ "sessionId": "s-1", "update": { "sessionUpdate": "plan" } });
+        let result = map_plan(
+            &json!({ "entries": [{ "content": "step 1", "status": "pending" }] }),
+            &mut idx,
+            Some("gemini"),
+            RuntimeEventMetadata {
+                session_id: Some("s-1".to_string()),
+                raw: provider_raw.clone(),
+                ..RuntimeEventMetadata::default()
+            },
+        );
+        let raw = result.events[0].raw_json();
+        assert_eq!(raw["type"], "assistant");
+        assert_eq!(raw["session_id"], "s-1");
+        assert_eq!(raw["message"]["model"], "gemini");
+        let block = &raw["message"]["content"][0];
+        assert_eq!(block["type"], "tool_use");
+        assert_eq!(block["name"], "TodoWrite");
+        assert_eq!(block["input"]["todos"][0]["content"], "step 1");
+        assert_eq!(raw["provider_raw"], provider_raw);
     }
 
     #[test]

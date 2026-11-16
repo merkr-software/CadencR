@@ -15,8 +15,9 @@ export function ToolPermissionPromptHeader({
     <div className="mb-2 flex items-center gap-2 text-xs text-amber-400">
       <ShieldAlertIcon className="size-3.5" />
       <span className="font-medium">Permission Required</span>
-      <span className="text-muted-foreground">-</span>
-      <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-foreground">{toolName}</code>
+      {toolName ? (
+        <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-foreground">{toolName}</code>
+      ) : null}
       {onCancel && (
         <Button
           type="button"

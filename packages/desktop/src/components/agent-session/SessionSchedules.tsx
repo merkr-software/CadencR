@@ -11,12 +11,14 @@ export interface SessionSchedulesController {
   /** Opens the editor prefilled with the composer's text. `onSaved` runs once
    *  the schedule is persisted, so the composer can clear itself. */
   requestSchedule: (prompt: string, onSaved: () => void) => void;
-  /** The banner + editor dialog. Rendered above the composer's meta bar. */
-  element: ReactElement | null;
+  /** The composer stack's "Scheduled" section. */
+  section: ReactElement | null;
+  /** The editor dialog, mounted at the composer root so it outlives the stack's section. */
+  dialog: ReactElement | null;
 }
 
 /**
- * Owns everything schedule-related for one conversation's composer: the banner,
+ * Owns everything schedule-related for one conversation's composer: the section,
  * the editor dialog, and the "schedule this message" entry point the prompt bar
  * triggers.
  *
@@ -37,7 +39,15 @@ export function useSessionSchedules(
   // Cleared after a successful save so a later edit can't re-clear the composer.
   const [onSaved, setOnSaved] = useState<(() => void) | null>(null);
 
-  const armed = useMemo(() => schedules.filter(isActive), [schedules]);
+  // Messages only: a custom action scheduled in this conversation is managed
+  // on the Schedules page, and this composer's editor can only write prompts.
+  const armed = useMemo(
+    () =>
+      schedules.filter(
+        (schedule) => isActive(schedule) && schedule.target.kind !== "custom_action",
+      ),
+    [schedules],
+  );
   const lockedConversation = useMemo(
     () => (featureId ? { featureId, projectId } : undefined),
     [featureId, projectId],
@@ -70,29 +80,32 @@ export function useSessionSchedules(
   );
 
   const cancel = useCallback((schedule: Schedule) => fireAndForget(remove(schedule.id)), [remove]);
-  const sendNow = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule.id)), [runNow]);
+  const sendNow = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule)), [runNow]);
 
-  const element = featureId ? (
-    <>
-      <SessionSchedulesBanner
-        schedules={armed}
-        busy={isMutating}
-        onEdit={editSchedule}
-        onCancel={cancel}
-        onSendNow={sendNow}
-      />
-      <ScheduleEditorDialog
-        open={open}
-        onOpenChange={setOpen}
-        schedule={editing}
-        initialPrompt={draftPrompt}
-        lockedConversation={lockedConversation}
-        projects={projectsQuery.data ?? []}
-        onSave={handleSave}
-        onDelete={remove}
-      />
-    </>
+  const section = featureId ? (
+    <SessionSchedulesBanner
+      schedules={armed}
+      busy={isMutating}
+      onEdit={editSchedule}
+      onCancel={cancel}
+      onSendNow={sendNow}
+    />
+  ) : null;
+  const dialog = featureId ? (
+    <ScheduleEditorDialog
+      open={open}
+      onOpenChange={setOpen}
+      schedule={editing}
+      initialPrompt={draftPrompt}
+      lockedConversation={lockedConversation}
+      projects={projectsQuery.data ?? []}
+      onSave={handleSave}
+      onDelete={remove}
+    />
   ) : null;
 
-  return useMemo(() => ({ armed, requestSchedule, element }), [armed, requestSchedule, element]);
+  return useMemo(
+    () => ({ armed, requestSchedule, section, dialog }),
+    [armed, requestSchedule, section, dialog],
+  );
 }

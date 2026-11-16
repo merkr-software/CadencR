@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import {
   $createTextNode,
   $getSelection,
@@ -21,6 +14,9 @@ import {
   type LexicalNode,
   type TextNode,
 } from "lexical";
+import { composerOptionId } from "@/components/composer/ComposerPopover";
+import { shallow } from "zustand/shallow";
+import { composerPopoverPlacement } from "./composer-popover-placement";
 
 /** Result of matching a trigger character (e.g. `@` or `/`) before the cursor. */
 interface TriggerMatch {
@@ -112,7 +108,9 @@ interface TriggerHookState {
 
 /**
  * Registers the 5 keyboard commands (ArrowUp, ArrowDown, Enter, Tab, Escape)
- * on the editor while the popover is open.
+ * on the editor while the popover is open, and — when `listId` is given —
+ * points the editor root's combobox ARIA at the popover's listbox so screen
+ * readers announce the highlighted option.
  */
 export function usePopoverKeyboardCommands<T>(
   editor: LexicalEditor,
@@ -120,7 +118,9 @@ export function usePopoverKeyboardCommands<T>(
   hookRef: RefObject<TriggerHookState>,
   getSelectedValue: () => T | undefined,
   onSelect: (value: T) => void,
+  listId?: string,
 ): void {
+  useComboboxAria(editor, isOpen, listId, hookRef.current?.selectedIndex ?? 0);
   useEffect(() => {
     if (!isOpen) return;
 
@@ -177,7 +177,10 @@ export function usePopoverKeyboardCommands<T>(
       editor.registerCommand(
         KEY_ESCAPE_COMMAND,
         (e) => {
+          // The popover owns this Esc: nothing above the editor (agent stop,
+          // pane close) may also react to it.
           e?.preventDefault();
+          e?.stopPropagation();
           hookRef.current.close();
           return true;
         },
@@ -189,53 +192,50 @@ export function usePopoverKeyboardCommands<T>(
   }, [editor, isOpen, hookRef, getSelectedValue, onSelect]);
 }
 
-/** Hook that tracks cursor position as a DOMRect for popover positioning. */
-export function useCursorRect(): [DOMRect | null, () => void] {
-  const [cursorRect, setCursorRect] = useState<DOMRect | null>(null);
-
-  const updateCursorRect = useCallback(() => {
-    const domSelection = window.getSelection();
-    if (!domSelection || domSelection.rangeCount === 0) return;
-    const range = domSelection.getRangeAt(0);
-    const rect =
-      typeof range.getBoundingClientRect === "function"
-        ? range.getBoundingClientRect()
-        : document.documentElement.getBoundingClientRect();
-    setCursorRect(rect);
-  }, []);
-
-  return [cursorRect, updateCursorRect];
+/** Mirror an open typeahead onto the editor root's combobox attributes. */
+function useComboboxAria(
+  editor: LexicalEditor,
+  isOpen: boolean,
+  listId: string | undefined,
+  selectedIndex: number,
+): void {
+  useEffect(() => {
+    const root = editor.getRootElement();
+    if (!root || !listId) return;
+    if (!isOpen) {
+      root.setAttribute("aria-expanded", "false");
+      root.removeAttribute("aria-activedescendant");
+      return;
+    }
+    root.setAttribute("aria-expanded", "true");
+    root.setAttribute("aria-controls", listId);
+    root.setAttribute("aria-activedescendant", composerOptionId(listId, selectedIndex));
+  }, [editor, isOpen, listId, selectedIndex]);
 }
 
-/** Minimal rect shared by cursor- and editor-anchored fixed popovers. */
-export interface PopoverAnchorRect {
+/** Where a typeahead popover sits: at the composer card's width, rising from `bottom`. */
+export interface ComposerPopoverAnchor {
   left: number;
-  top: number;
   width: number;
+  bottom: number;
+  maxHeight: number;
 }
 
-function samePopoverAnchorRect(a: PopoverAnchorRect | null, b: PopoverAnchorRect): boolean {
-  return a?.left === b.left && a.top === b.top && a.width === b.width;
-}
-
-/** Wrapper for positioning a popover above a cursor or editor-top anchor. */
-export function CursorPopover({
-  cursorRect,
+/** Positions a typeahead popover at its anchor (see `useComposerPopoverAnchor`). */
+export function AnchoredPopover({
+  anchor,
   children,
-  matchWidth = false,
 }: {
-  cursorRect: PopoverAnchorRect;
+  anchor: ComposerPopoverAnchor;
   children: ReactNode;
-  /** Stretch to the anchor width (slash/skill menus). */
-  matchWidth?: boolean;
 }) {
   return (
     <div
       className="fixed z-50"
       style={{
-        left: cursorRect.left,
-        top: cursorRect.top - 4,
-        width: matchWidth ? cursorRect.width : undefined,
+        left: anchor.left,
+        top: anchor.bottom,
+        width: anchor.width,
         transform: "translateY(-100%)",
       }}
     >
@@ -244,16 +244,32 @@ export function CursorPopover({
   );
 }
 
+/** Top of the caret's line when the selection sits in `root`. */
+function caretLineTop(root: HTMLElement): number | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const node = selection.anchorNode;
+  if (!node || !root.contains(node)) return null;
+  const lineRect = selection.getRangeAt(0).getClientRects()[0];
+  if (lineRect) return lineRect.top;
+  // A caret in an empty paragraph has no client rect: use the paragraph's.
+  const element = node instanceof Element ? node : node.parentElement;
+  return element ? element.getBoundingClientRect().top : null;
+}
+
 /**
- * Tracks the PromptEditor anchor box while `active` so fixed popovers can
+ * Tracks where a typeahead popover goes while `active`, so fixed popovers can
  * escape composer overflow yet stay prompt-width. Uses ResizeObserver +
- * scroll/resize (rAF-coalesced, equality-gated) — not Lexical updates.
+ * scroll/resize (rAF-coalesced, equality-gated) — not Lexical updates. Also
+ * follows the caret's line and the visual viewport: on a phone, the keyboard
+ * moves the card without resizing it, and a tall draft leaves no room above it
+ * (see `composerPopoverPlacement`).
  */
-export function useEditorAnchorRect(
+export function useComposerPopoverAnchor(
   editor: LexicalEditor,
   active: boolean,
-): PopoverAnchorRect | null {
-  const [rect, setRect] = useState<PopoverAnchorRect | null>(null);
+): ComposerPopoverAnchor | null {
+  const [rect, setRect] = useState<ComposerPopoverAnchor | null>(null);
 
   useLayoutEffect(() => {
     if (!active) {
@@ -263,19 +279,31 @@ export function useEditorAnchorRect(
 
     const root = editor.getRootElement();
     const anchor =
+      (root?.closest("[data-composer-card]") as HTMLElement | null) ??
       (root?.closest("[data-prompt-editor-anchor]") as HTMLElement | null) ??
       root?.parentElement ??
       root;
-    if (!anchor) return;
+    if (!root || !anchor) return;
 
     let frame: number | null = null;
-    let last: PopoverAnchorRect | null = null;
+    let last: ComposerPopoverAnchor | null = null;
+    const vv = window.visualViewport;
 
     const sync = (): void => {
       frame = null;
-      const nextRect = anchor.getBoundingClientRect();
-      const next = { left: nextRect.left, top: nextRect.top, width: nextRect.width };
-      if (samePopoverAnchorRect(last, next)) return;
+      const card = anchor.getBoundingClientRect();
+      const viewportTop = vv?.offsetTop ?? 0;
+      const next = {
+        left: card.left,
+        width: card.width,
+        ...composerPopoverPlacement({
+          cardTop: card.top,
+          caretTop: caretLineTop(root),
+          viewportTop,
+          viewportBottom: vv ? viewportTop + vv.height : window.innerHeight,
+        }),
+      };
+      if (shallow(last, next)) return;
       last = next;
       setRect(next);
     };
@@ -289,11 +317,17 @@ export function useEditorAnchorRect(
     observer?.observe(anchor);
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
+    vv?.addEventListener("resize", schedule);
+    vv?.addEventListener("scroll", schedule);
+    document.addEventListener("selectionchange", schedule);
 
     return () => {
       observer?.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
+      vv?.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      document.removeEventListener("selectionchange", schedule);
       if (frame !== null) cancelAnimationFrame(frame);
     };
   }, [active, editor]);

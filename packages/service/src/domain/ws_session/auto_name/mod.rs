@@ -1,3 +1,5 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
+
 use std::path::PathBuf;
 
 use axum::extract::ws::Message;
@@ -7,7 +9,7 @@ use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimePurpose, RuntimeSpawnConfig};
 use crate::domain::agents::providers::runtime_adapter;
 use crate::domain::features::repository::update_generated_title;
 use crate::domain::features::title::GeneratedTitlePolicy;
@@ -18,7 +20,10 @@ use super::protocol::{
 };
 
 mod drain;
-use drain::drain_text;
+use drain::{drain_text, report_close_error, truncate_for_log};
+mod prompt;
+use prompt::{build_prompt, resolve_system_prompt, NAME_END, NAME_START};
+pub use prompt::{AUTO_NAME_USER_PROMPT_PREFIX, DEFAULT_AUTO_NAME_SYSTEM_PROMPT};
 mod title_state;
 pub use title_state::has_default_title;
 
@@ -48,11 +53,8 @@ fn send_autonaming(senders: &[mpsc::UnboundedSender<Message>], feature_id: i64, 
         feature_id,
         in_progress,
     };
-    let envelope = WsEnvelope::new(
-        "session",
-        "feature.autonaming",
-        serde_json::to_value(&payload).unwrap(),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureAutonaming(payload.clone()))
+        .expect("session event payload should serialize");
     let json: String = envelope.into();
     send_to_all(senders, json);
 }
@@ -62,8 +64,6 @@ fn send_to_all(senders: &[mpsc::UnboundedSender<Message>], json: String) {
         let _ = sender.send(Message::Text(json.clone().into()));
     }
 }
-
-const AUTO_NAME_SYSTEM_PROMPT: &str = "You are a feature naming assistant. Your ONLY job is to output a short name (3-7 words) for a coding session. ALWAYS output a name, even if the input is vague — just pick a reasonable generic name. Examples: 'hi' → 'General Coding Session', 'fix the login bug' → 'Fix Login Bug', 'I want to add dark mode' → 'Add Dark Mode Support'.";
 
 /// Fetch the most recent user message content for the given feature.
 /// Returns `None` if no user message exists.
@@ -155,32 +155,25 @@ async fn run_auto_name(
     title_policy: GeneratedTitlePolicy,
 ) -> Option<String> {
     info!(feature_id, "auto-name: starting");
-    // Fetch provider + model concurrently — both are independent SQL reads.
-    let (provider_settings_result, stored_model_result) = tokio::join!(
-        crate::domain::workspace::repository::get_provider_settings(pool),
-        crate::domain::workspace::repository::get_setting(pool, "model_auto_name"),
-    );
-    let provider_settings = match provider_settings_result {
-        Ok(s) => s,
-        Err(e) => {
-            error!(feature_id, error = %e, "auto-name: failed to load provider settings");
+    // Same resolution the settings UI displays, so the auto-naming row never
+    // shows a provider/model the spawn would not actually use.
+    let selection = match crate::domain::agents::resolve_selection(
+        pool,
+        Some(std::path::Path::new(&cwd)),
+        "auto_name",
+        None,
+        None,
+    )
+    .await
+    {
+        Ok(selection) => selection,
+        Err(error) => {
+            error!(feature_id, %error, "auto-name: no usable provider/model");
             return None;
         }
     };
-    let stored_model = match stored_model_result {
-        Ok(v) => v,
-        Err(e) => {
-            error!(feature_id, error = %e, "auto-name: failed to load model setting");
-            return None;
-        }
-    };
-    let provider_id = provider_settings.auto_name;
-    let model_id = match stored_model {
-        Some(v) if !v.is_empty() => v,
-        _ => crate::domain::agents::providers::provider_default_model(pool, &provider_id)
-            .await
-            .unwrap_or_default(),
-    };
+    let provider_id = selection.provider_id;
+    let model_id = selection.model_id;
 
     debug!(
         feature_id,
@@ -202,8 +195,11 @@ async fn run_auto_name(
         }
     };
 
-    let prompt = build_prompt(&user_input);
-    let config = match build_spawn_config(adapter.as_adapter(), &model_id, &cwd).await {
+    let system_prompt = resolve_system_prompt();
+    let prompt = build_prompt(&user_input, &system_prompt);
+    let config = match build_spawn_config(adapter.as_adapter(), &model_id, &cwd, system_prompt)
+        .await
+    {
         Ok(config) => config,
         Err(error) => {
             error!(feature_id, provider = %provider_id, %error, "auto-name: profile resolution failed");
@@ -224,7 +220,13 @@ async fn run_auto_name(
         }
     };
 
-    let accumulated_text = drain_text(feature_id, &provider_id, session).await;
+    let accumulated_text = match drain_text(feature_id, &provider_id, session).await {
+        Ok(text) => text,
+        Err(error) => {
+            report_close_error(ws_senders, error);
+            return None;
+        }
+    };
     debug!(
         feature_id,
         text_len = accumulated_text.len(),
@@ -262,11 +264,8 @@ async fn run_auto_name(
         feature_id,
         title: name.clone(),
     };
-    let envelope = WsEnvelope::new(
-        "session",
-        "feature.renamed",
-        serde_json::to_value(&payload).unwrap(),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureRenamed(payload.clone()))
+        .expect("session event payload should serialize");
     let json: String = envelope.into();
     send_to_all(ws_senders, json);
     send_feature_updated(ws_senders, feature_id, &["title"]);
@@ -281,30 +280,11 @@ async fn run_auto_name(
     Some(name)
 }
 
-/// Clamp a string to `max` bytes at a char boundary for log output. Prevents
-/// an OpenCode message with a long payload from flooding the log line.
-pub(super) fn truncate_for_log(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_string();
-    }
-    let mut end = max;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &text[..end])
-}
-
-fn build_prompt(user_input: &str) -> String {
-    let escaped_input = user_input.replace('"', "\\\"");
-    format!(
-        "Now name this session. User's first message: \"{escaped_input}\". Reply with ONLY: __FEATURE_NAME_START__<name>__FEATURE_NAME_END__"
-    )
-}
-
 async fn build_spawn_config(
     adapter: &dyn crate::domain::agents::adapter::AgentRuntimeAdapter,
     model_id: &str,
     cwd: &str,
+    system_prompt: String,
 ) -> Result<RuntimeSpawnConfig, crate::domain::agents::adapter::RuntimeError> {
     let resolved_profile = adapter
         .resolve_profile(None, std::path::Path::new(cwd))
@@ -328,7 +308,8 @@ async fn build_spawn_config(
         model: Some(model_id.to_string()),
         thinking_effort: None,
         fast_mode: false,
-        system_prompt: Some(AUTO_NAME_SYSTEM_PROMPT.to_string()),
+        system_prompt: Some(system_prompt),
+        purpose: Some(RuntimePurpose::AutoName),
         resume_session_id: None,
         allow_bypass_permissions: false,
         mcp_servers: None,
@@ -355,7 +336,12 @@ async fn build_spawn_config(
 }
 
 fn extract_name(accumulated_text: &str) -> String {
-    let re = Regex::new(r"__FEATURE_NAME_START__(.+?)__FEATURE_NAME_END__").unwrap();
+    let re = Regex::new(&format!(
+        "{}(.+?){}",
+        regex_lite::escape(NAME_START),
+        regex_lite::escape(NAME_END)
+    ))
+    .unwrap();
     let raw_name = match re.captures(accumulated_text) {
         Some(caps) => caps.get(1).unwrap().as_str().to_string(),
         None => accumulated_text.to_string(),
@@ -384,13 +370,6 @@ mod tests {
     #[test]
     fn extract_name_returns_empty_for_whitespace() {
         assert_eq!(extract_name("   "), "");
-    }
-
-    #[test]
-    fn build_prompt_escapes_quotes() {
-        let prompt = build_prompt("say \"hi\"");
-        assert!(prompt.contains("\\\"hi\\\""));
-        assert!(prompt.contains("__FEATURE_NAME_START__"));
     }
 
     #[test]

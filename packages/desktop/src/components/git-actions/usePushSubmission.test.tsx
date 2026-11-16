@@ -14,6 +14,9 @@ vi.mock("@/api/generated", () => ({
   usePush: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
 }));
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 vi.mock("sonner", () => ({
   toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
@@ -63,7 +66,9 @@ describe("usePushSubmission", () => {
 
     await act(() => result.current.submit("none"));
 
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("Background push completed");
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Background push completed", {
+      description: { scope: { featureId: 11 } },
+    });
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 

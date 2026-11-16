@@ -1,19 +1,19 @@
+import type { QuestionDraftIdentity } from "@/stores/question-drafts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { SendIcon } from "lucide-react";
+import { Loader2Icon, SendIcon } from "lucide-react";
 import { AgentQuestionHeader } from "./agent-question/AgentQuestionHeader";
 import { AgentQuestionOptionList } from "./agent-question/AgentQuestionOptionList";
 import { useAgentQuestionForm } from "./agent-question/useAgentQuestionForm";
 import { useAgentQuestionShortcuts } from "./agent-question/useAgentQuestionShortcuts";
-import type { AgentQuestion, AgentQuestionAnswers } from "./agent-question/types";
-
-export { parseAskUserQuestions } from "./agent-question/parse-questions";
-export type { AgentQuestion, AgentQuestionAnswers } from "./agent-question/types";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 
 interface AgentQuestionDrawerProps {
   /** The questions to display */
   questions: AgentQuestion[];
+  draftIdentity?: QuestionDraftIdentity;
+  isSubmitting?: boolean;
   /** Called when the user submits their response */
   onSubmit: (response: AgentQuestionAnswers) => void;
   /** Called when the user closes the gate without answering it */
@@ -31,6 +31,7 @@ interface AgentQuestionContentProps {
   inline?: boolean;
   onCancel?: () => void;
   questionCount: number;
+  isSubmitting?: boolean;
 }
 
 function AgentQuestionContent({
@@ -38,13 +39,17 @@ function AgentQuestionContent({
   inline,
   onCancel,
   questionCount,
+  isSubmitting,
 }: AgentQuestionContentProps): React.ReactElement {
   const currentQuestion = form.currentQuestion!;
   const { hasAnswer, isLastQuestion, hasOptions, selectedPreview } = form;
+  // `break-words` is inherited: long paths in the question or an option wrap
+  // instead of running under the composer's clip. The preview's `white-space:
+  // pre` keeps the ASCII art unwrapped.
   return (
     <div
       className={cn(
-        "agent-prompt-gate-panel bg-card",
+        "agent-prompt-gate-panel bg-card break-words",
         inline ? "px-3 py-2" : "border-t border-border px-4 py-3",
       )}
     >
@@ -62,8 +67,15 @@ function AgentQuestionContent({
       <p className={cn("text-sm font-medium text-foreground", inline ? "mb-2" : "mb-3")}>
         {currentQuestion.question}
       </p>
+      {/* Capped against the visible height (it shrinks with a phone keyboard
+          up) so a tall diagram scrolls in place rather than pushing Submit
+          below the fold. Keyed so each option's diagram opens scrolled to its
+          top-left. */}
       {selectedPreview && (
-        <pre className="mb-2 overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] leading-tight text-foreground">
+        <pre
+          key={selectedPreview}
+          className="mb-2 max-h-[min(16rem,calc(var(--app-vh,100dvh)*0.3))] overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] leading-tight text-foreground"
+        >
           {selectedPreview}
         </pre>
       )}
@@ -86,7 +98,8 @@ function AgentQuestionContent({
             onFocus={() => form.setFreeTextFocused(true)}
             onBlur={() => form.setFreeTextFocused(false)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") form.handleFreeTextSubmit();
+              if (event.key === "Enter" && !event.nativeEvent.isComposing)
+                form.handleFreeTextSubmit();
             }}
             placeholder="Type your answer..."
             className={cn(
@@ -100,8 +113,12 @@ function AgentQuestionContent({
       )}
       <div className="flex justify-end">
         <Button size="sm" disabled={!hasAnswer} onClick={form.handleNext}>
-          <SendIcon className="mr-1.5 size-3" />
-          {isLastQuestion ? "Submit" : "Next"}
+          {isSubmitting ? (
+            <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+          ) : (
+            <SendIcon className="mr-1.5 size-3" />
+          )}
+          {isSubmitting ? "Submitting…" : isLastQuestion ? "Submit" : "Next"}
         </Button>
       </div>
     </div>
@@ -119,11 +136,13 @@ export function AgentQuestionDrawer({
   open,
   inline,
   disableShortcuts,
+  draftIdentity,
+  isSubmitting,
 }: AgentQuestionDrawerProps) {
-  const form = useAgentQuestionForm({ questions, onSubmit });
+  const form = useAgentQuestionForm({ questions, onSubmit, draftIdentity });
 
   useAgentQuestionShortcuts({
-    open,
+    open: open && !isSubmitting,
     disableShortcuts,
     onCancel,
     currentQuestion: form.currentQuestion,
@@ -144,12 +163,20 @@ export function AgentQuestionDrawer({
     return null;
   }
 
+  // A fieldset defaults to `min-inline-size: min-content`, so a wide ASCII
+  // preview stretched the whole form past the composer, whose
+  // `overflow-x-hidden` then clipped the right-aligned Submit and dismiss
+  // buttons out of reach. `min-w-0` keeps the form at the composer's width and lets the
+  // preview scroll inside its own box instead.
   return (
-    <AgentQuestionContent
-      form={form}
-      inline={inline}
-      onCancel={onCancel}
-      questionCount={questions.length}
-    />
+    <fieldset disabled={isSubmitting} aria-busy={isSubmitting} className="min-w-0">
+      <AgentQuestionContent
+        isSubmitting={isSubmitting}
+        form={form}
+        inline={inline}
+        onCancel={onCancel}
+        questionCount={questions.length}
+      />
+    </fieldset>
   );
 }

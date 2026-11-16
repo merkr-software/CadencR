@@ -35,41 +35,6 @@ pub(crate) fn permission_mode_wire(mode: &RuntimePermissionMode) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{effective_permission_mode, parse_permission_mode, permission_mode_wire};
-    use crate::domain::agents::adapter::RuntimePermissionMode;
-
-    #[test]
-    fn parses_opencode_agent_mode() {
-        let mode = parse_permission_mode("opencodeAgent:documentor");
-        assert_eq!(
-            mode,
-            RuntimePermissionMode::OpenCodeAgent("documentor".to_string())
-        );
-        assert_eq!(permission_mode_wire(&mode), "opencodeAgent:documentor");
-    }
-
-    #[test]
-    fn parses_and_serializes_ask_mode() {
-        let mode = parse_permission_mode("ask");
-        assert_eq!(mode, RuntimePermissionMode::Ask);
-        assert_eq!(permission_mode_wire(&mode), "ask");
-    }
-
-    #[test]
-    fn effective_mode_filters_values_the_adapter_does_not_support() {
-        assert_eq!(
-            effective_permission_mode("cursor", Some("plan")),
-            Some(RuntimePermissionMode::Plan)
-        );
-        assert_eq!(
-            effective_permission_mode("cursor", Some("acceptEdits")),
-            None
-        );
-    }
-}
-
 /// Whether a given runtime provider can run a given permission mode.
 /// Dispatches to the adapter so the (provider, mode) matrix lives next to
 /// each adapter's CLI-arg mapping rather than as a switch in shared code.
@@ -80,6 +45,16 @@ pub(crate) fn provider_supports_mode(provider: &str, mode: &RuntimePermissionMod
     runtime_adapter(provider)
         .map(|adapter| adapter.supports_permission_mode(mode))
         .unwrap_or(true)
+}
+
+/// How a permission answer reaches this provider's runtime. Unknown providers
+/// use the session's `respond_permission`, the trait default.
+pub(crate) fn provider_permission_response_route(
+    provider: &str,
+) -> crate::domain::agents::adapter::RuntimePermissionResponseRoute {
+    runtime_adapter(provider)
+        .map(|adapter| adapter.permission_response_route())
+        .unwrap_or(crate::domain::agents::adapter::RuntimePermissionResponseRoute::Session)
 }
 
 /// Wire string the chip should land on after a session switches to this
@@ -112,6 +87,19 @@ pub(crate) fn effective_permission_mode(
     provider_supports_mode(provider, &mode).then_some(mode)
 }
 
+/// Like [`effective_permission_mode`], but a requested mode the provider can't
+/// run falls back to the provider default instead of to nothing. Used where a
+/// client-supplied mode may come from another provider's catalog (the frontend
+/// seeds new conversations with the default provider's mode), so the session
+/// still runs — and reports — a mode its provider accepts.
+pub(crate) fn supported_or_default_permission_mode(
+    provider: &str,
+    requested: Option<&str>,
+) -> Option<RuntimePermissionMode> {
+    effective_permission_mode(provider, requested)
+        .or_else(|| effective_permission_mode(provider, None))
+}
+
 /// Wire string the chip should land on after a plan is approved
 /// (post-`ExitPlanMode`). Dispatches to the adapter so the per-provider
 /// matrix lives next to the rest of each adapter's mode policy. Mirrored on
@@ -134,4 +122,56 @@ pub(crate) fn post_plan_approval_fallback_mode_wire(
 ) -> Option<Cow<'static, str>> {
     runtime_adapter(provider)
         .and_then(|adapter| adapter.post_plan_approval_fallback_mode_wire(failed_mode_wire))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        effective_permission_mode, parse_permission_mode, permission_mode_wire,
+        supported_or_default_permission_mode,
+    };
+    use crate::domain::agents::adapter::RuntimePermissionMode;
+
+    #[test]
+    fn parses_opencode_agent_mode() {
+        let mode = parse_permission_mode("opencodeAgent:documentor");
+        assert_eq!(
+            mode,
+            RuntimePermissionMode::OpenCodeAgent("documentor".to_string())
+        );
+        assert_eq!(permission_mode_wire(&mode), "opencodeAgent:documentor");
+    }
+
+    #[test]
+    fn parses_and_serializes_ask_mode() {
+        let mode = parse_permission_mode("ask");
+        assert_eq!(mode, RuntimePermissionMode::Ask);
+        assert_eq!(permission_mode_wire(&mode), "ask");
+    }
+
+    #[test]
+    fn effective_mode_filters_values_the_adapter_does_not_support() {
+        assert_eq!(
+            effective_permission_mode("codex_cli", Some("plan")),
+            Some(RuntimePermissionMode::Plan)
+        );
+        assert_eq!(effective_permission_mode("codex_cli", Some("ask")), None);
+    }
+
+    #[test]
+    fn an_unsupported_request_falls_back_to_the_provider_default() {
+        // Claude's `auto` seeded onto a conversation that starts on Codex.
+        assert_eq!(
+            supported_or_default_permission_mode("codex_cli", Some("auto")),
+            Some(RuntimePermissionMode::Default)
+        );
+        assert_eq!(
+            supported_or_default_permission_mode("codex_cli", Some("plan")),
+            Some(RuntimePermissionMode::Plan)
+        );
+        assert_eq!(
+            supported_or_default_permission_mode("codex_cli", None),
+            Some(RuntimePermissionMode::Default)
+        );
+    }
 }

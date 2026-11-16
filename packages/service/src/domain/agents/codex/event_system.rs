@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use super::event_json::{metadata, thread_id};
 use super::permissions::{permission_option_values, permission_request, request_id_from_value};
+use super::server_request_method::CodexServerRequestMethod;
 use crate::domain::agents::adapter::{
     RuntimeEvent, RuntimeEventKind, RuntimeInitEvent, RuntimeMcpServerStatus,
     RuntimePermissionDecision,
@@ -34,7 +35,11 @@ pub fn init_event(
     )
 }
 
-pub fn permission_request_event(id: &Value, method: &str, params: &Value) -> RuntimeEvent {
+pub(super) fn permission_request_event(
+    id: &Value,
+    method: CodexServerRequestMethod,
+    params: &Value,
+) -> RuntimeEvent {
     let request = permission_request(id, method, params);
     let options = permission_option_values(&request.options);
     let supports_allow_future = request
@@ -67,13 +72,14 @@ pub fn request_key(id: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::permission_request_event;
+    use crate::domain::agents::codex::server_request_method::method;
     use serde_json::json;
 
     #[test]
     fn legacy_exec_approval_exposes_session_approval_option() {
         let event = permission_request_event(
             &json!(7),
-            "execCommandApproval",
+            method("execCommandApproval"),
             &json!({
                 "conversationId": "thread",
                 "callId": "call-1",

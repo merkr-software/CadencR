@@ -7,15 +7,13 @@ use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventKind, RuntimeEven
 
 use super::permission_events::permission_raw_event;
 use super::permissions::derive_preview;
-use super::permissions_dispatch::PendingPermissions;
+use super::permissions_dispatch::{read_pending, write_pending, PendingPermissions};
 
 pub async fn has_pending_permission_for_tool_call(
     pending: &PendingPermissions,
     tool_call_id: &str,
 ) -> bool {
-    pending
-        .read()
-        .await
+    read_pending(pending)
         .values()
         .any(|entry| entry.request.tool_use_id.as_deref() == Some(tool_call_id))
 }
@@ -27,13 +25,10 @@ pub async fn refreshed_permission_event_for_tool_input(
     tool_input: Value,
 ) -> Option<RuntimeEvent> {
     let (request, params) = {
-        let mut pending = pending.write().await;
-        let Some(entry) = pending
+        let mut pending = write_pending(pending);
+        let entry = pending
             .values_mut()
-            .find(|entry| entry.request.tool_use_id.as_deref() == Some(tool_call_id))
-        else {
-            return None;
-        };
+            .find(|entry| entry.request.tool_use_id.as_deref() == Some(tool_call_id))?;
         if entry.request.tool_input == tool_input {
             return None;
         }

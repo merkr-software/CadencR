@@ -10,6 +10,7 @@
 //! `--version`, and lets the caller pick the best (highest semver). It also
 //! exposes the full candidate list so the host app can render a picker UI.
 
+mod path_lookup;
 mod shell;
 mod shell_exec;
 mod types;
@@ -19,6 +20,7 @@ mod walk;
 #[cfg(test)]
 mod tests_support;
 
+pub use path_lookup::find_on_path;
 pub use shell::login_shell_path;
 pub use shell_exec::{login_shell_command, login_shell_exec_command, shell_quote};
 pub use types::{Candidate, CandidateSource, DiscoverySpec, VersionKey};
@@ -27,7 +29,7 @@ pub use version::{parse_version_string, query_version};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::version::{contains_ci, probe_version};
+use crate::version::probe_version;
 use crate::walk::{canonicalize_executable, walk_path_var, walk_well_known};
 
 /// Enumerate every candidate binary on disk, in source order.
@@ -48,13 +50,10 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
             // honoring an override that will only fail downstream.
             let probe = probe_version(path, &spec.version_args).await;
             let accept = match (&probe, spec.version_must_contain.as_deref()) {
-                // Filter set: require both the substring and a parsed semver.
-                // The substring alone is too lax — the rustup shim's
-                // "Unknown binary 'rust-analyzer'" error mentions the name
-                // and would pass a contains-only check.
-                (Some((version, raw)), Some(needle)) => {
-                    contains_ci(raw, needle) && version.is_some()
-                }
+                // Filter set: the substring alone is too lax — the rustup
+                // shim's "Unknown binary 'rust-analyzer'" error mentions the
+                // name and would pass a contains-only check.
+                (Some(probe), Some(needle)) => probe.passes_filter(needle),
                 // No filter, or subprocess failed entirely: keep behavior
                 // unchanged (returns a possibly versionless candidate).
                 _ => true,
@@ -63,7 +62,8 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
                 return vec![Candidate {
                     path: path.to_path_buf(),
                     canonical,
-                    version: probe.and_then(|(v, _)| v),
+                    version: probe.as_ref().and_then(|probe| probe.version),
+                    version_text: probe.and_then(|probe| probe.version_text),
                     source: CandidateSource::Override,
                 }];
             }
@@ -122,18 +122,19 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
                 // accepted earlier, etc.) → reject. The filter exists
                 // specifically to weed out shims and we can't validate one
                 // without its output.
-                let (version, raw) = match &probe {
-                    Some(parts) => parts,
-                    None => return None,
-                };
-                // Require both substring AND parsed semver — see the doc
-                // comment on `version_must_contain`. A shim's error message
-                // can mention the binary name without producing a version.
-                if !contains_ci(raw, needle) || version.is_none() {
+                // See the doc comment on `version_must_contain`: a shim's
+                // error message can mention the binary name.
+                if !probe
+                    .as_ref()
+                    .is_some_and(|probe| probe.passes_filter(needle))
+                {
                     return None;
                 }
             }
-            candidate.version = probe.and_then(|(v, _)| v);
+            if let Some(probe) = probe {
+                candidate.version = probe.version;
+                candidate.version_text = probe.version_text;
+            }
             Some(candidate)
         })
         .collect()
@@ -187,6 +188,8 @@ pub async fn detect_nvim() -> bool {
         well_known_absolute: vec![
             "/opt/homebrew/bin".to_string(),
             "/usr/local/bin".to_string(),
+            "/usr/bin".to_string(),
+            "/snap/bin".to_string(),
         ],
         version_args: vec!["--version".to_string()],
         version_must_contain: Some("NVIM".to_string()),
@@ -218,12 +221,14 @@ mod tests {
                 path: PathBuf::from("/a/thing"),
                 canonical: PathBuf::from("/a/thing"),
                 version: Some(VersionKey(1, 4, 3)),
+                version_text: None,
                 source: CandidateSource::WellKnown,
             },
             Candidate {
                 path: PathBuf::from("/b/thing"),
                 canonical: PathBuf::from("/b/thing"),
                 version: Some(VersionKey(1, 1, 65)),
+                version_text: None,
                 source: CandidateSource::EnvPath,
             },
         ];
@@ -237,12 +242,14 @@ mod tests {
                 path: PathBuf::from("/a/thing"),
                 canonical: PathBuf::from("/a/thing"),
                 version: Some(VersionKey(1, 0, 0)),
+                version_text: None,
                 source: CandidateSource::WellKnown,
             },
             Candidate {
                 path: PathBuf::from("/b/thing"),
                 canonical: PathBuf::from("/b/thing"),
                 version: Some(VersionKey(1, 0, 0)),
+                version_text: None,
                 source: CandidateSource::EnvPath,
             },
         ];
@@ -260,12 +267,14 @@ mod tests {
                 path: PathBuf::from("/a/thing"),
                 canonical: PathBuf::from("/a/thing"),
                 version: None,
+                version_text: None,
                 source: CandidateSource::Override,
             },
             Candidate {
                 path: PathBuf::from("/b/thing"),
                 canonical: PathBuf::from("/b/thing"),
                 version: Some(VersionKey(0, 0, 1)),
+                version_text: None,
                 source: CandidateSource::WellKnown,
             },
         ];

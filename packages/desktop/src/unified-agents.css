@@ -1,0 +1,88 @@
+/* Unified agents grid (`/agents`). Each card embeds a full feature session;
+ * these rules trim that session's chrome to what a glance at many agents
+ * needs. Everything is scoped to `.unified-agent-card`, so the feature page
+ * keeps its full chrome. */
+
+.unified-agent-card {
+  container: agent-card / inline-size;
+}
+
+/* A card that needs the user wears its state on the rim, so it reads from
+ * across the grid. The active card's primary ring still wins. The state sits
+ * on a hidden child so a change never re-renders the card's session. */
+.unified-agent-card:not(.unified-agent-active):has(> [data-agent-card-attention="waiting"]) {
+  border-color: color-mix(in oklab, var(--acc-yellow) 50%, var(--border));
+}
+.unified-agent-card:not(.unified-agent-active):has(> [data-agent-card-attention="failed"]) {
+  border-color: color-mix(in oklab, var(--acc-red) 50%, var(--border));
+}
+
+/* The branch already sits behind the header's worktree mark; in the tab
+ * strip it pushed every other tab out of reach. */
+.unified-agent-card [data-tab-branch] {
+  display: none;
+}
+
+/* Narrow cards: inactive tabs collapse to their icon (the tooltip names
+ * them), so the whole strip — and the way back to Agent — stays visible. */
+@container agent-card (max-width: 560px) {
+  .unified-agent-card [data-feature-tab-kind][data-state="inactive"] [data-tab-label] {
+    display: none;
+  }
+  .unified-agent-card [data-feature-tab-kind][data-state="inactive"] {
+    padding-inline: 0.625rem;
+  }
+}
+
+/* Send / newline keys are the same on every card; the full page teaches them. */
+.unified-agent-card [data-prompt-keyboard-hint] {
+  display: none;
+}
+
+/* Re-sort pill: one short entrance, nothing on exit. */
+@keyframes unified-agents-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.unified-agents-resort-pill {
+  animation: unified-agents-pill-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+html[data-animations="off"] .unified-agents-resort-pill {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .unified-agents-resort-pill {
+    animation: none;
+  }
+}
+
+/* Waiting / failed words in a card header carry a soft pill, matching the
+ * amber "action needed" pill elsewhere. */
+.agent-card-state-pill {
+  border-radius: 9999px;
+  padding: 3px 7px;
+  background: color-mix(in oklab, currentColor 14%, transparent);
+}
+
+/* Text runs to the scroller's edge in a narrow card, under macOS overlay
+ * scrollbars: give the transcript a lane for the thumb. */
+.unified-agent-card [data-testid="agent-stream-scroller"] [data-testid="virtuoso-item-list"] {
+  padding-right: 10px;
+}
+
+/* Following new output is the normal state of a card, so it stays quiet; the
+ * chip only takes color once following is off and the card is parked. */
+.unified-agent-card [data-auto-scroll-chip][aria-pressed="true"] {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.unified-agent-card [data-auto-scroll-chip][aria-pressed="true"]:hover {
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+}
+.unified-agent-card [data-auto-scroll-chip][aria-pressed="false"] {
+  background: color-mix(in oklab, var(--acc-yellow) 15%, transparent);
+  color: var(--acc-yellow);
+}

@@ -7,6 +7,12 @@ import {
   toDraft,
   type RecurrenceDraft,
 } from "@/lib/schedules/recurrence";
+import {
+  conditionDraftError,
+  conditionDraftToInput,
+  toConditionDraft,
+  type ConditionDraft,
+} from "@/lib/schedules/condition";
 
 export interface ScheduleDraftParams {
   open: boolean;
@@ -17,9 +23,19 @@ export interface ScheduleDraftParams {
    *  project rides along because the chips need it: it is what resolves the
    *  command catalog and the conversation's current settings. */
   lockedConversation?: { featureId: number; projectId?: number };
+  /** Opens a new schedule that runs this custom action (the Schedules page's
+   *  `?action=` link). Ignored when editing an existing schedule. */
+  initialAction?: ScheduleActionPreset;
   projects: Project[];
   onSave: (body: SaveScheduleRequest, id?: number) => Promise<unknown>;
   onDelete?: (id: number) => Promise<void>;
+}
+
+/** A custom action to preselect, from wherever the user asked to schedule it. */
+export interface ScheduleActionPreset {
+  projectId: number;
+  featureId?: number;
+  actionId?: number;
 }
 
 export interface ScheduleDraft {
@@ -31,12 +47,16 @@ export interface ScheduleDraft {
   setTarget: (target: ScheduleTarget) => void;
   recurrence: RecurrenceDraft;
   setRecurrence: (recurrence: RecurrenceDraft) => void;
+  condition: ConditionDraft;
+  setCondition: (condition: ConditionDraft) => void;
   /** Captured once per open so `min` and validation don't drift while the
    *  dialog sits open. */
   now: Date;
   /** Changes whenever a different schedule is loaded — remounts the prompt
    *  editor, which is uncontrolled once mounted. */
   formKey: number;
+  /** The draft runs a custom action instead of sending a prompt. */
+  runsAction: boolean;
   busy: boolean;
   worktreeError: string | null;
   canSave: boolean;
@@ -44,17 +64,34 @@ export interface ScheduleDraft {
   remove: () => Promise<void>;
 }
 
-function initialTarget(
-  schedule: Schedule | null | undefined,
-  lockedConversation: ScheduleDraftParams["lockedConversation"],
-  projects: Project[],
-): ScheduleTarget {
+interface DraftSource {
+  schedule: Schedule | null | undefined;
+  initialPrompt: string | undefined;
+  lockedConversation: ScheduleDraftParams["lockedConversation"];
+  initialAction: ScheduleActionPreset | undefined;
+  projects: Project[];
+}
+
+function initialTarget({
+  schedule,
+  lockedConversation,
+  initialAction,
+  projects,
+}: DraftSource): ScheduleTarget {
   if (schedule) {
     // A stored conversation target has no project (the backend strips it), but
     // the picker browses by project — recover it from the resolved context.
     return {
       ...schedule.target,
       project_id: schedule.target.project_id ?? schedule.context.project_id,
+    };
+  }
+  if (initialAction) {
+    return {
+      kind: "custom_action",
+      project_id: initialAction.projectId,
+      feature_id: initialAction.featureId,
+      action_id: initialAction.actionId,
     };
   }
   if (lockedConversation) {
@@ -73,30 +110,25 @@ function useDraftFields() {
   const [prompt, setPrompt] = useState("");
   const [target, setTarget] = useState<ScheduleTarget>({ kind: "new_conversation" });
   const [recurrence, setRecurrence] = useState<RecurrenceDraft>(() => emptyDraft());
+  const [condition, setCondition] = useState<ConditionDraft>(() => toConditionDraft(null));
   const [now, setNow] = useState(() => new Date());
   const [formKey, setFormKey] = useState(0);
 
-  const load = useCallback(
-    (
-      schedule: Schedule | null | undefined,
-      initialPrompt: string | undefined,
-      lockedConversation: ScheduleDraftParams["lockedConversation"],
-      projects: Project[],
-    ): void => {
-      const opened = new Date();
-      setNow(opened);
-      setName(schedule?.name ?? "");
-      setPrompt(schedule?.prompt ?? initialPrompt ?? "");
-      setTarget(initialTarget(schedule, lockedConversation, projects));
-      setRecurrence(
-        schedule ? toDraft(schedule.recurrence, schedule.next_run_at, opened) : emptyDraft(opened),
-      );
-      // Bumped in the same commit as `setPrompt`, so the editor mounts with the
-      // text already in state.
-      setFormKey((key) => key + 1);
-    },
-    [],
-  );
+  const load = useCallback((source: DraftSource): void => {
+    const { schedule, initialPrompt } = source;
+    const opened = new Date();
+    setNow(opened);
+    setName(schedule?.name ?? "");
+    setPrompt(schedule?.prompt ?? initialPrompt ?? "");
+    setTarget(initialTarget(source));
+    setRecurrence(
+      schedule ? toDraft(schedule.recurrence, schedule.next_run_at, opened) : emptyDraft(opened),
+    );
+    setCondition(toConditionDraft(schedule?.condition));
+    // Bumped in the same commit as `setPrompt`, so the editor mounts with the
+    // text already in state.
+    setFormKey((key) => key + 1);
+  }, []);
 
   // A hook that returns a fresh literal breaks every downstream `useMemo` and
   // `React.memo` (`frontend-performance.md`), and this one feeds the whole
@@ -112,11 +144,14 @@ function useDraftFields() {
       setTarget,
       recurrence,
       setRecurrence,
+      condition,
+      setCondition,
       now,
       formKey,
+      runsAction: target.kind === "custom_action",
       load,
     }),
-    [formKey, load, name, now, prompt, recurrence, target],
+    [condition, formKey, load, name, now, prompt, recurrence, target],
   );
 }
 
@@ -127,12 +162,13 @@ export function useScheduleDraft({
   schedule,
   initialPrompt,
   lockedConversation,
+  initialAction,
   projects,
   onSave,
   onDelete,
 }: ScheduleDraftParams): ScheduleDraft {
   const fields = useDraftFields();
-  const { name, prompt, target, setTarget, recurrence, load } = fields;
+  const { name, prompt, target, setTarget, recurrence, condition, runsAction, load } = fields;
   const [busy, setBusy] = useState(false);
 
   // Read inside the effect instead of listed as deps: callers build
@@ -141,18 +177,23 @@ export function useScheduleDraft({
   // what had been typed and remounting the prompt editor — whenever the
   // conversation behind the dialog re-rendered, which during streaming is
   // constantly.
-  const latest = useRef({ schedule, initialPrompt, lockedConversation, projects });
-  latest.current = { schedule, initialPrompt, lockedConversation, projects };
+  const latest = useRef<DraftSource>({
+    schedule,
+    initialPrompt,
+    lockedConversation,
+    initialAction,
+    projects,
+  });
+  latest.current = { schedule, initialPrompt, lockedConversation, initialAction, projects };
 
   useEffect(() => {
     if (!open) return;
     setBusy(false);
-    const { schedule, initialPrompt, lockedConversation, projects } = latest.current;
-    load(schedule, initialPrompt, lockedConversation, projects);
+    load(latest.current);
     // A different schedule (or none) is a different form; anything else that
     // changes while the dialog sits open is the caller re-rendering, not a new
     // form to load.
-  }, [open, schedule?.id, initialPrompt, load]);
+  }, [open, schedule?.id, initialPrompt, initialAction?.actionId, load]);
 
   // The project list can still be loading when the dialog opens, which would
   // leave a new-conversation draft with no project. Fill it in once, without
@@ -176,9 +217,11 @@ export function useScheduleDraft({
       await onSave(
         {
           name: name.trim() || undefined,
-          prompt: prompt.trim(),
+          // An action sends no prompt and is never gated on a command.
+          prompt: runsAction ? "" : prompt.trim(),
           target,
           recurrence: draftToInput(recurrence),
+          condition: runsAction ? null : conditionDraftToInput(condition),
           enabled: schedule?.enabled ?? true,
         },
         schedule?.id,
@@ -188,7 +231,18 @@ export function useScheduleDraft({
       // useSchedules surfaces the toast; keep the dialog open to retry.
       setBusy(false);
     }
-  }, [canSave, name, onOpenChange, onSave, prompt, recurrence, schedule, target]);
+  }, [
+    canSave,
+    condition,
+    name,
+    onOpenChange,
+    onSave,
+    prompt,
+    recurrence,
+    runsAction,
+    schedule,
+    target,
+  ]);
 
   const remove = useCallback(async (): Promise<void> => {
     if (!schedule || !onDelete) return;
@@ -209,11 +263,13 @@ export function useScheduleDraft({
 
 /** What stops a save, in the order the user can act on it. */
 function validate(
-  { target, prompt, recurrence, now }: ReturnType<typeof useDraftFields>,
+  { target, prompt, recurrence, condition, now, runsAction }: ReturnType<typeof useDraftFields>,
   busy: boolean,
 ): { worktreeError: string | null; canSave: boolean } {
   const missingTarget =
-    target.kind === "new_conversation" ? !target.project_id : !target.feature_id;
+    target.kind === "new_conversation"
+      ? !target.project_id
+      : !target.feature_id || (runsAction && !target.action_id);
   // The backend rejects a reuse target with no branch; say so before the save
   // round-trip rather than after it.
   const worktreeError =
@@ -225,6 +281,6 @@ function validate(
     !draftError(recurrence, now) &&
     !worktreeError &&
     !missingTarget &&
-    prompt.trim().length > 0;
+    (runsAction || (!conditionDraftError(condition) && prompt.trim().length > 0));
   return { worktreeError, canSave };
 }

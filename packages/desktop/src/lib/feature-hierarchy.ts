@@ -32,3 +32,25 @@ function hasAncestryCycle(feature: Feature, nodes: ReadonlyMap<number, FeatureTr
   }
   return false;
 }
+
+const descendantIdsCache = new WeakMap<FeatureTreeNode, readonly number[]>();
+
+/**
+ * Ids of every conversation below `node`, depth first. Cached per node so a
+ * collapsed parent hands its row the same array on every render (rows are
+ * memoized); a rebuilt forest brings new nodes and a fresh list.
+ */
+export function descendantIdsOf(node: FeatureTreeNode): readonly number[] {
+  const cached = descendantIdsCache.get(node);
+  if (cached) return cached;
+  const ids: number[] = [];
+  const visit = (current: FeatureTreeNode): void => {
+    for (const child of current.children) {
+      ids.push(child.feature.id);
+      visit(child);
+    }
+  };
+  visit(node);
+  descendantIdsCache.set(node, ids);
+  return ids;
+}

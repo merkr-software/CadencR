@@ -7,15 +7,18 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc, Mutex as AsyncMutex, RwLock};
+use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
 
+use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::{
-    AcpClient, AcpClientInfo, AcpEvent, AcpProcessTreePolicy, AcpSpawnOptions, AcpStderrPolicy,
+    AcpClient, AcpClientInfo, AcpProcessTreePolicy, AcpSpawnOptions, AcpStderrPolicy,
 };
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata,
     RuntimeInitEvent, RuntimeSpawnConfig,
 };
+
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 use super::events_stream_blocks::EventIndexer;
 use super::lifecycle::{negotiate_session, NegotiatedSession};
@@ -27,7 +30,7 @@ use super::session::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
 use super::session_config::AcpSessionConfigState;
 use super::session_permissions::SessionPermissions;
 use super::spawn_initial_config::{apply_initial_model, apply_initial_thinking_effort};
-use super::spawn_initial_mode::apply_initial_permission_mode;
+use super::spawn_initial_mode::{apply_initial_access_mode, apply_initial_permission_mode};
 use super::terminal_registry::TerminalRegistry;
 use super::turn_lifecycle::{drive_initial_prompt, PromptCancel};
 
@@ -83,28 +86,44 @@ pub async fn spawn_acp_runtime_session(
     .await
     .map_err(|e| RuntimeError::new(format!("failed to spawn ACP subprocess: {e}")))?;
     let pid = client.pid();
-    let mut event_rx = client.subscribe();
-    let negotiated = negotiate_session(&client, &config, context_window, hooks.as_ref()).await?;
+    let mut event_rx = client.subscribe_reliable();
+    // Overlaps the handshake: OpenCode lists its own MCP config to decide.
+    let injected = CadencrBrowserTrust::injected_in(config.mcp_servers.as_ref());
+    let (negotiated, browser_trust) = tokio::try_join!(
+        negotiate_session(
+            &client,
+            &config,
+            context_window,
+            hooks.as_ref(),
+            Some(&event_rx),
+        ),
+        async { Ok(hooks.cadencr_browser_trust(&config.cwd, injected).await) },
+    )?;
 
     let (tx, rx) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
     let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        config.cwd.clone(),
-        pid,
-        rx,
-        tx.clone(),
-        hooks.clone(),
-        Arc::clone(&indexer),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(config.cwd.clone())
+        .maybe_pid(pid)
+        .rx(rx)
+        .local_tx(tx.clone())
+        .hooks(hooks.clone())
+        .indexer(Arc::clone(&indexer))
+        .call();
     if negotiated.may_replay_history {
         session
             .replay_suppression
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    indexer
+        .lock()
+        .expect("EventIndexer poisoned")
+        .watch_prompt_cancel(session.prompt_cancel.clone());
 
     apply_initial_permission_mode(&session, &negotiated, &config).await?;
+    apply_initial_access_mode(&session, &config).await?;
     // Push the user-selected model and thinking effort to the agent before
     // the first `session/prompt`, otherwise the agent runs at its own
     // default. Model goes first because its authoritative response may replace
@@ -133,11 +152,12 @@ pub async fn spawn_acp_runtime_session(
             closing: Arc::clone(&session.closing),
             pending_permissions: Arc::clone(&session.pending_permissions),
             session_permissions: session.session_permissions.clone(),
-            terminals: Arc::new(TerminalRegistry::default()),
+            terminals: Arc::clone(&session.terminals),
             hooks: hooks.clone(),
             indexer: Arc::clone(&session.indexer),
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
+            browser_trust,
         },
     );
     session.loop_task = Some(loop_task);
@@ -150,6 +170,7 @@ pub async fn spawn_acp_runtime_session(
         &negotiated.session_id,
         config.cwd.as_path(),
         session.context_window,
+        browser_trust,
         tx.clone(),
     );
 
@@ -161,20 +182,13 @@ pub async fn spawn_acp_runtime_session(
     Ok(Box::new(session))
 }
 
-fn drain_resume_backlog(event_rx: &mut broadcast::Receiver<AcpEvent>) -> usize {
-    let mut drained = 0usize;
-    loop {
-        match event_rx.try_recv() {
-            Ok(_) => drained += 1,
-            Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
-                drained = drained.saturating_add(usize::try_from(skipped).unwrap_or(usize::MAX));
-            }
-            Err(broadcast::error::TryRecvError::Empty | broadcast::error::TryRecvError::Closed) => {
-                break;
-            }
-        }
-    }
-    drained
+/// End the `session/load` replay window opened by `negotiate_session`: the
+/// replay was dropped on arrival (never queued, so it cannot overflow the
+/// queue), and notifications queued before it are dropped now. Server
+/// requests, exits and transport errors stay queued for the loop: discarding
+/// one would leave the agent (or the session) hanging.
+fn drain_resume_backlog(event_rx: &mut AcpReliableEventReceiver) -> usize {
+    event_rx.finish_discarding_notifications()
 }
 
 /// Detach: awaiting `session/prompt` here would deadlock the spawn when the
@@ -199,29 +213,31 @@ fn spawn_initial_prompt(
     let replay_suppression = Arc::clone(&session.replay_suppression);
     tokio::spawn(async move {
         replay_suppression.store(false, std::sync::atomic::Ordering::SeqCst);
-        if let Err(error) = drive_initial_prompt(
-            &session_for_prompt,
-            &session_id_arc,
-            &current_model_arc,
-            &current_effort_arc,
-            initial_content,
-            &local_tx,
-            &indexer_arc,
-            context_window,
-            hooks.as_ref(),
-            &prompt_turn_lock,
-            &prompt_cancel,
-        )
-        .await
+        if let Err(error) = drive_initial_prompt()
+            .client(&session_for_prompt)
+            .session_id_lock(&session_id_arc)
+            .current_model_lock(&current_model_arc)
+            .current_effort_lock(&current_effort_arc)
+            .content(initial_content)
+            .tx(&local_tx)
+            .indexer(&indexer_arc)
+            .maybe_context_window(context_window)
+            .hooks(hooks.as_ref())
+            .prompt_turn_lock(&prompt_turn_lock)
+            .prompt_cancel(&prompt_cancel)
+            .call()
+            .await
         {
             let _ = local_tx.send(Err(error)).await;
         }
     });
 }
 
+#[bon::bon]
 impl AcpRuntimeSession {
     /// Assemble a session struct from negotiated handshake state.
     /// Pulled out of [`spawn_acp_runtime_session`] for readability.
+    #[builder]
     pub(super) fn assemble(
         client: &AcpClient,
         negotiated: &NegotiatedSession,
@@ -232,6 +248,7 @@ impl AcpRuntimeSession {
         hooks: Arc<dyn AcpProviderHooks>,
         indexer: Arc<StdMutex<EventIndexer>>,
     ) -> AcpRuntimeSession {
+        let prompt_cancel = PromptCancel::new().with_cancel_grace(hooks.cancel_grace());
         AcpRuntimeSession {
             client: client.clone(),
             session_id: Arc::new(RwLock::new(Some(negotiated.session_id.clone()))),
@@ -269,14 +286,14 @@ impl AcpRuntimeSession {
             message_rx: Some(rx),
             loop_task: None,
             side_channel_task: None,
+            terminals: Arc::new(TerminalRegistry::default()),
             local_tx: Some(local_tx),
             hooks,
             indexer,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
-            pending_followups: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             prompt_turn_lock: Arc::new(AsyncMutex::new(())),
-            prompt_cancel: PromptCancel::new(),
+            prompt_cancel,
         }
     }
 }

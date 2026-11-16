@@ -1,112 +1,89 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Git in CadencR"
-description: "How Git appears inside CadencR and how it supports feature-based work."
+description: "Review changes, manage branches and stashes, and work with GitHub or GitLab review."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import DocCallout from "@/components/docs/DocCallout.astro";
-import Kbd from "@/components/ui/Kbd.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
-import gitImage from "@/assets/docs/git.png";
+import pageImage from "@/assets/docs/v0.13.0/git.png";
 
-In CadencR, Git is visible because it helps you stay oriented: what changed, where those changes live, and what to do next.
-
-## Why Git appears so much in CadencR
-
-CadencR is built around **feature-based work**. Each feature gets its own working area — usually a Git **worktree** on its own branch — so several features can move at the same time without stepping on each other's commits.
-
-Why do that? Because it keeps work tidy:
-
-- one feature does not casually spill into another,
-- agent changes stay reviewable,
-- you can check what happened before you commit to it, and
-- opening a pull request back into the target branch feels deliberate and easier to review.
-
-A few Git concepts show up directly in the CadencR interface:
-
-| Term     | Plain-English version                                               | Why you care in CadencR                                                |
-| -------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Branch   | A separate lane for one piece of work                               | Each feature can stay focused instead of tangling with everything else |
-| Worktree | A checked-out copy of the repo on its own branch, in its own folder | Lets several features (and agents) work in parallel without conflicts  |
-| Commit   | A saved checkpoint with a message                                   | It is the moment you say, “Yes, this set of changes belongs together”  |
-| Diff     | The before/after view of a change                                   | This is how you check what really changed, not what you hope changed   |
-| Push     | Sending your branch to the remote repo                              | Useful when you want to share or open a PR                             |
-| Compare  | Opening a comparison or pull request against the target branch      | The “okay, this lane is ready for review” step                         |
-
-<DocCallout title="Gentle truth" variant="tip">
-  In CadencR, Git is mainly there to answer practical questions: what changed, what branch this work
-  belongs to, and what the next step should be.
-</DocCallout>
-
-## What the Git tab helps you do
-
-The Git tab is the calm, visual version of “so... what happened here?”
+Open **Git** in a conversation workspace to inspect its checkout, branch history, and review context. Git operates on the conversation's working folder and comparison target.
 
 <DocScreenshot
-  src={gitImage}
-  alt="CadencR Git tab showing changed files, the diff viewer, branch picker, and the commit / push / compare actions"
-  caption="A friendly place to review changed files, compare against the target branch, and decide whether the next step is commit, push, or compare."
+  src={pageImage}
+  alt="The current Git changes view showing a real diff in the example repository."
+  caption="The current Git changes view showing a real diff in the example repository."
   bordered={false}
+  rounded
+  elevated
 />
 
-Inside the Git tab, CadencR helps you:
+## Review working changes
 
-- review changed files before you trust them,
-- switch between **uncommitted changes** and **changes vs the target branch**,
-- inspect the diff instead of guessing,
-- switch to the commit graph when you need history, branch shape, or a commit-level diff,
-- see what branch you are on and what it is compared against,
-- reach the header actions for the next sensible step: **Commit** (<kbd>⌘<ShiftIcon />K</kbd>), **Push** (<kbd>⌘<ShiftIcon />U</kbd>), and **Open compare / PR** (<kbd>⌘<ShiftIcon />O</kbd>), or the <kbd>⌘G</kbd> popover for everything else.
+The Changes view separates the changed-file list from the patches, so large diffs can load as needed. Use tree or flat layout, inspect conflicts first, and mark viewed files as you review. Untracked directories expand into individual files.
 
-The branch picker lives behind <kbd>⌘B</kbd> while a feature is focused, so swapping branches inside a worktree never needs a mouse trip.
+Stage or unstage each file using its control. Pending operations show progress until Git confirms the state. Open a file in Editor when you need to change it. Review unresolved conflicts and unsaved work before staging.
 
-### Commit graph
+The nearby diff toolbar controls **Unified/Split** presentation. That preference is shared with Git settings. Image diffs show added, deleted, or before/after previews instead of empty binary panels.
 
-The Git tab also includes a commit graph view. Use it when the question is about history rather than uncommitted files: which branch contains a commit, how your branch diverged from the target, or what changed in a specific commit. When a remote URL is available, CadencR can also open the matching online commit or comparison view.
+## Inspect history, branches, and stashes
 
-### Reviewing the diff with the keyboard
+| View                          | What you can inspect                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------- |
+| Changes                       | Uncommitted files and patches in the working checkout                           |
+| Comparison against the target | What this task's branch changes relative to its target                          |
+| Commit graph                  | Branch history, individual commits, and commit-level diffs                      |
+| Branches                      | Search local/remote branches and inspect their graphs without checking them out |
+| Stashes                       | Descriptions, timestamps, file statistics, and the exact saved diff             |
 
-The in-app **Keyboard shortcuts** helper is the canonical, searchable reference for Git navigation and actions. Open it from the command palette or with the shortcut shown in the app. <kbd>⌘ Enter</kbd> sends pending review comments.
+Create a named stash, optionally including untracked files. Existing stashes offer **Apply**, **Pop**, and **Drop**. Apply keeps the stash, Pop applies then removes it when successful, and Drop discards it. Destructive actions require confirmation; conflicts return to the working changes for resolution.
 
-If you prefer to drive review from the unified agent list or session view, the same shortcuts apply once the diff has focus.
+## Update the task branch
 
-## Safe everyday Git workflow in CadencR
+The Update controls show the incoming branch and ahead/behind counts. Choose **merge** or **rebase**, then follow the operation's output.
 
-If you want the least dramatic daily rhythm, this is a good one:
+If there are conflicts, open the affected files in Editor. Accept the current side, incoming side, or both as appropriate, review the result, then continue or abort the update. The comparison target comes from the selected source branch; it is not always `main`.
 
-1. **Start work in a feature workspace.** Think “one task, one home base.”
-2. **Let the agent work, or make edits yourself.** No Git action needed yet.
-3. **Open the Git tab and review the diff.** This is your confidence step.
-4. **Commit when the change makes sense as one unit.** A commit is just a checkpoint with a label.
-5. **Push when you want the branch on the remote.** Helpful for sharing, backup, or opening a PR.
-6. **Open compare / PR when the feature is actually ready.** CadencR will surface the comparison against the target branch and, when configured, hand off to your forge for the actual PR.
+## Commit and push
 
-A simple mental model helps here:
+1. Inspect the diff and stage the intended files.
+2. Open Commit and review the selected changes and message.
+3. Follow live output while hooks run. Commits can continue in the background so the workspace stays usable.
+4. Open Push and check the remote, branch, and exact command shown.
 
-- **Git tab** = review and understand
-- **Commit** = save this chunk of work
-- **Push** = share this branch with the remote repo
-- **Compare / PR** = hand the finished work back to the target branch for review
+| Push mode        | Effect                                                             |
+| ---------------- | ------------------------------------------------------------------ |
+| Plain            | Normal push to the remote branch                                   |
+| Force with lease | Rewrite only when the remote still matches the expected state      |
+| Force            | Force a remote update; inspect the shown command before confirming |
 
-### Worktrees in one paragraph
+The push dialog supports keyboard submission, live output, background execution, and reopening a running push.
 
-When you start a feature, CadencR can spin up a Git worktree for it — a real folder on disk on its own branch, separate from your main checkout. That is what lets several agents run in parallel without overwriting each other's files. The command palette's worktree picker (<kbd>⌘K</kbd>) is where you choose to reuse an existing worktree or create a new one; the rest of the time, the Git tab simply reflects the worktree the current feature is in.
+## Connect GitHub or GitLab
 
-If your team cares about merge style, CadencR has a **Git merge strategy** setting. If your team does **not** care, leaving the default alone is a completely respectable life choice.
+Configure the remote-host connection in **Settings → Git → Remote connections**. CadencR supports GitHub pull requests and GitLab merge requests through a shared review workflow. The connection UI reports missing authentication, unavailable tools, or throttling; check those messages when review data cannot load.
 
-<DocCallout title="Beginner-friendly rule" variant="note">
-  If you are unsure what to do next, open the Git tab before opening a terminal. A visible diff is
-  usually more helpful than jumping straight into terminal commands.
-</DocCallout>
+Disconnecting a host revokes its stored or CLI-derived access in CadencR. Credentials belong to the exact connected host; a custom GitLab host needs matching authentication.
 
-## Related docs
+## Review a pull request or merge request
 
-Good next stops from here:
+The sidebar and Git view show proposal and check health. Open the review view to inspect the description, checks, unresolved threads, and inline annotations.
 
-- [Feature workspace](../feature-workspace/) for the bigger picture of where Git fits
-- [Workspace pages](../workspace-pages/) for the app tour
-- [Session view](../session-view/) for following what an agent is doing
-- [Editor](../editor/) for inspecting files and manual changes
-- [Browser](../browser/) for checking web-facing changes before review
-- [Terminal](../terminal/) for the cases where you do want the command line involved
+1. Navigate review threads by file or keyboard.
+2. Select the comments you want to address, or select all relevant comments.
+3. Send the selected review context to the agent.
+4. Review the resulting code changes before committing and pushing again.
+
+The **Open compare / PR** action can still open the forge's comparison page. It complements the integrated review workflow.
+
+## Keyboard reference
+
+Use [Shortcuts](../shortcuts/) for Git views, files, staging, review comments, and header actions. The tables come directly from the desktop shortcut registry.
+
+## Related guides
+
+- [Worktrees](../worktrees/) — choose and clean up the task checkout.
+- [Editor](../editor/) — inspect and resolve files.
+- [Feature workspace](../feature-workspace/) — use Git beside the agent.

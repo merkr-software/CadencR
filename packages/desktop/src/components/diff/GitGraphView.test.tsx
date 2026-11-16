@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen } from "@/test-utils";
 import { GitGraphView } from "./GitGraphView";
 import type { CommitGraphResponse } from "@/api/generated";
 import type { GitNavigationAdapter } from "./gitNavigation";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
 
 const commit = {
   sha: "abc123def456",
@@ -22,6 +23,7 @@ const commit = {
   is_pushed: true,
   parents: [],
   refs: ["feature/x"],
+  decorations: [{ name: "feature/x", kind: "head" as const }],
   files_changed: 1,
   additions: 2,
   deletions: 0,
@@ -60,6 +62,34 @@ import { useGetCommitGraph } from "@/api/generated";
 describe("GitGraphView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useGitStatusStore.setState({ byFeature: {} });
+  });
+
+  it("states how many commits are still only local, and when everything is pushed", () => {
+    mockGraph(false);
+    const status = {
+      feature_id: 1,
+      current_branch: "feature/x",
+      target_branch: "main",
+      uncommitted_count: 0,
+      staged_count: 0,
+      unstaged_count: 0,
+      untracked_count: 0,
+      ahead_of_remote: 3,
+      behind_remote: 0,
+      ahead_of_target: 3,
+      has_remote: true,
+      computed_at: 1,
+    };
+    useGitStatusStore.getState().setStatus(status);
+    render(<GitGraphView featureId={1} />);
+    expect(screen.getByText("3 not pushed")).toBeInTheDocument();
+
+    act(() =>
+      useGitStatusStore.getState().setStatus({ ...status, ahead_of_remote: 0, computed_at: 2 }),
+    );
+    expect(screen.queryByText("3 not pushed")).not.toBeInTheDocument();
+    expect(screen.getByText("All pushed")).toBeInTheDocument();
   });
 
   it("renders the commit graph when there are no more pages (has_more: false)", () => {
@@ -78,6 +108,21 @@ describe("GitGraphView", () => {
 
   it("requests and labels a dedicated branch graph with a path back", () => {
     mockGraph(false);
+    // The checked-out branch's counts would describe another branch here.
+    useGitStatusStore.getState().setStatus({
+      feature_id: 1,
+      current_branch: "feature/x",
+      target_branch: "main",
+      uncommitted_count: 0,
+      staged_count: 0,
+      unstaged_count: 0,
+      untracked_count: 0,
+      ahead_of_remote: 3,
+      behind_remote: 0,
+      ahead_of_target: 3,
+      has_remote: true,
+      computed_at: 1,
+    });
     const onBack = vi.fn();
     render(
       <GitGraphView
@@ -99,6 +144,7 @@ describe("GitGraphView", () => {
     );
     expect(screen.getByText("origin/release")).toBeInTheDocument();
     expect(screen.queryByText("main")).not.toBeInTheDocument();
+    expect(screen.queryByText("3 not pushed")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Branches" }));
     expect(onBack).toHaveBeenCalledOnce();
   });

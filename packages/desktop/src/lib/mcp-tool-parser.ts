@@ -45,26 +45,35 @@ const FRIENDLY_LABELS: Record<string, string> = {
   list_pages: "Listing pages",
   navigate_page: "Navigating page",
   new_page: "Opening page",
+  project_archive_session: "Archiving a session",
   project_compare_sessions: "Comparing sessions",
+  project_create_schedule: "Scheduling a prompt",
+  project_delete_schedule: "Deleting a schedule",
   project_find_related_sessions: "Finding related sessions",
   project_get_session_status: "Checking session status",
+  project_get_settings: "Reading settings",
   project_get_worktree_status: "Checking worktree status",
   project_link_sessions: "Linking sessions",
+  project_list_schedules: "Listing schedules",
   project_list_sessions: "Listing project sessions",
   project_read_session: "Reading project session",
   project_read_session_tail: "Reading session tail",
   project_send_session_message: "Sending session message",
   project_spawn_session: "Spawning session",
+  project_update_schedule: "Updating a schedule",
+  project_update_settings: "Changing settings",
   search_commits: "Searching commits",
   search_openai_docs: "Searching documentation",
   take_screenshot: "Taking screenshot",
   take_snapshot: "Taking snapshot",
   wait_for: "Waiting for page",
+  workspace_get_settings: "Reading settings",
   workspace_list_projects: "Listing workspace projects",
   workspace_read_session: "Reading workspace session",
   workspace_read_sessions: "Searching workspace sessions",
   workspace_recent_activity: "Reading recent activity",
   workspace_session_graph: "Reading session graph",
+  workspace_update_settings: "Changing settings",
 };
 
 export function parseMcpTool(toolName: string, toolArgs?: string): McpTool | undefined {
@@ -125,13 +134,6 @@ function bareIdentity(name: string): McpIdentity | undefined {
 }
 
 function normalizeAppIdentity(identity: McpIdentity, args: Record<string, unknown>): McpIdentity {
-  // Older Cursor ACP sessions persisted its unidentified `MCP: tool` event as
-  // `mcp__cursor__tool`. Cursor is the agent provider, not the MCP server, so
-  // keep historical transcripts honest until late permission metadata reveals
-  // the real server/tool identity.
-  if (identity.server === "cursor" && identity.tool === "tool") {
-    return { server: "mcp", tool: "tool" };
-  }
   if (identity.server !== "codex_apps") return identity;
   const appContext = recordValue(args.appContext);
   const contextApp = nonEmptyString(appContext?.appName)?.toLowerCase();

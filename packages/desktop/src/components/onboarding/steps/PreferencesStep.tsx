@@ -1,13 +1,12 @@
 import type { ReactNode } from "react";
 import { AgentVerbositySettings } from "@/components/settings/AgentVerbositySettings";
 import { AgentSummaryModeToggle } from "@/components/settings/AgentSummaryModeToggle";
-import { NotificationModePicker } from "@/components/settings/NotificationModePicker";
 import { McpToggleList } from "@/components/settings/McpToggleList";
 import { OnboardingFooter } from "../OnboardingFooter";
 import type { OnboardingStepProps } from "../OnboardingOverlay";
 
 /**
- * Step 5 — workspace preferences that apply everywhere. Each control is the
+ * Step 6 — workspace preferences that apply everywhere. Each control is the
  * exact component the Settings page uses, wired to the same setting keys, so
  * onboarding and Settings never drift. Every field already resolves to the
  * app's default, so a user can Skip and keep all defaults.
@@ -45,13 +44,6 @@ export function PreferencesStep({
       </PreferenceGroup>
 
       <PreferenceGroup
-        title="Notifications"
-        description="Where agent-finished notifications appear."
-      >
-        <NotificationModePicker />
-      </PreferenceGroup>
-
-      <PreferenceGroup
         title="Agent tools (MCP)"
         description="Built-in tool servers Cadencr exposes to your agents."
       >
@@ -62,7 +54,6 @@ export function PreferencesStep({
 
       <OnboardingFooter
         primaryLabel="Continue"
-        onPrimary={onAdvance}
         primaryDisabled={isPersisting}
         onBack={onBack}
         onSkipStep={onSkipStep}

@@ -6,15 +6,66 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-/// Best-effort macOS fallback for GUI launches where neither launchd nor the
-/// login-shell env exported SSH_AUTH_SOCK.
-pub async fn hydrate_macos_ssh_auth_sock() -> usize {
-    if !cfg!(target_os = "macos") {
-        return 0;
-    }
+/// Best-effort fallback for GUI launches where neither the launcher nor the
+/// login-shell env exported a usable SSH_AUTH_SOCK. Returns the number of env
+/// vars written (0 or 1).
+pub async fn hydrate_ssh_auth_sock() -> usize {
     if current_ssh_auth_sock_is_usable() {
         return 0;
     }
+    if cfg!(target_os = "macos") {
+        hydrate_macos_ssh_auth_sock().await
+    } else {
+        hydrate_linux_ssh_auth_sock()
+    }
+}
+
+/// Well-known per-user agent sockets on Linux desktops, most specific first:
+/// GNOME (gcr 4, then gnome-keyring), the systemd user `ssh-agent.socket`
+/// unit, KDE/openssh_agent setups, then the 1Password agent.
+fn linux_agent_socket_candidates(runtime_dir: Option<&Path>, home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(runtime) = runtime_dir.filter(|dir| dir.is_absolute()) {
+        for relative in [
+            "gcr/ssh",
+            "keyring/ssh",
+            "ssh-agent.socket",
+            "openssh_agent",
+        ] {
+            candidates.push(runtime.join(relative));
+        }
+    }
+    if let Some(home) = home.filter(|dir| dir.is_absolute()) {
+        candidates.push(home.join(".1password").join("agent.sock"));
+    }
+    candidates
+}
+
+fn select_linux_agent_socket(
+    candidates: Vec<PathBuf>,
+    is_owned: impl Fn(&Path) -> bool,
+    is_socket: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|path| is_socket(path) && is_owned(path))
+}
+
+fn hydrate_linux_ssh_auth_sock() -> usize {
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    let home = dirs::home_dir();
+    let candidates = linux_agent_socket_candidates(runtime_dir.as_deref(), home.as_deref());
+    let Some(sock) = select_linux_agent_socket(candidates, is_current_user_owned, is_unix_socket)
+    else {
+        tracing::warn!("SSH_AUTH_SOCK unavailable after login-shell hydration and no per-user agent socket was found");
+        return 0;
+    };
+    std::env::set_var("SSH_AUTH_SOCK", &sock);
+    tracing::info!(ssh_auth_sock = %sock.display(), "hydrated SSH_AUTH_SOCK from a per-user agent socket");
+    1
+}
+
+async fn hydrate_macos_ssh_auth_sock() -> usize {
     let Some(sock) = launchctl_ssh_auth_sock()
         .await
         .or_else(|| select_launchd_ssh_auth_sock(Path::new("/private/tmp")))
@@ -173,6 +224,53 @@ mod tests {
         );
 
         assert_eq!(selected, Some(earlier_socket_path));
+    }
+
+    #[test]
+    fn linux_candidates_follow_desktop_agent_precedence() {
+        let candidates = linux_agent_socket_candidates(
+            Some(Path::new("/run/user/1000")),
+            Some(Path::new("/home/u")),
+        );
+        let expected: Vec<PathBuf> = [
+            "/run/user/1000/gcr/ssh",
+            "/run/user/1000/keyring/ssh",
+            "/run/user/1000/ssh-agent.socket",
+            "/run/user/1000/openssh_agent",
+            "/home/u/.1password/agent.sock",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+        assert_eq!(candidates, expected);
+    }
+
+    #[test]
+    fn linux_candidates_ignore_missing_or_relative_roots() {
+        assert!(linux_agent_socket_candidates(None, None).is_empty());
+        assert!(
+            linux_agent_socket_candidates(Some(Path::new("run")), Some(Path::new("home")))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn linux_selection_requires_an_owned_socket() {
+        let candidates = vec![
+            PathBuf::from("/a"),
+            PathBuf::from("/b"),
+            PathBuf::from("/c"),
+        ];
+        let selected = select_linux_agent_socket(
+            candidates.clone(),
+            |path| path != Path::new("/b"),
+            |path| path != Path::new("/a"),
+        );
+        assert_eq!(selected, Some(PathBuf::from("/c")));
+        assert_eq!(
+            select_linux_agent_socket(candidates, |_| false, |_| true),
+            None
+        );
     }
 
     #[test]

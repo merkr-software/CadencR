@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "id": "marksman",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "marksman",
+  "target": "linux-x86_64",
+  "sources": [
+    {
+      "name": "marksman",
+      "version": "2026-02-08",
+      "url": "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-linux-x64",
+      "sha256": "be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087",
+      "destination": ".",
+      "expanded_size": 22500875,
+      "files": [
+        {
+          "path": "marksman",
+          "sha256": "be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087",
+          "size": 22500875,
+          "mode": "100755"
+        }
+      ]
+    },
+    {
+      "name": "artempyanykh/marksman-LICENSE",
+      "version": "2026-02-08",
+      "url": "https://raw.githubusercontent.com/artempyanykh/marksman/2026-02-08/LICENSE",
+      "sha256": "f48413df41ebe5a5f77f997f1f8a0cf5236f24c6878a16e0073da81642aabf04",
+      "destination": ".",
+      "expanded_size": 1057,
+      "files": [
+        {
+          "path": "licenses/LICENSE",
+          "sha256": "f48413df41ebe5a5f77f997f1f8a0cf5236f24c6878a16e0073da81642aabf04",
+          "size": 1057,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

@@ -31,14 +31,14 @@ pub(super) fn write(
     )?;
     write_file_if_missing(&directory.join(".gitignore"), GITIGNORE)?;
     std::fs::create_dir_all(directory.join("bin")).map_err(|error| {
-        AppError::Internal(format!("failed to create provider bin directory: {error}"))
+        AppError::internal(format!("failed to create provider bin directory: {error}"))
     })?;
     write_file_if_missing(&directory.join("bin/.gitkeep"), "")
 }
 
 pub(super) fn can_resume(directory: &Path, provider_id: &str) -> Result<bool, AppError> {
     let mut entries = std::fs::read_dir(directory).map_err(|error| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "failed to inspect provider workspace {}: {error}",
             directory.display()
         ))
@@ -49,7 +49,7 @@ pub(super) fn can_resume(directory: &Path, provider_id: &str) -> Result<bool, Ap
     match std::fs::read_to_string(directory.join(WORKSPACE_MARKER)) {
         Ok(marker) => Ok(marker.trim() == provider_id),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(AppError::Internal(format!(
+        Err(error) => Err(AppError::internal(format!(
             "failed to read provider workspace marker: {error}"
         ))),
     }
@@ -64,14 +64,14 @@ fn write_file_if_missing(path: &Path, content: &str) -> Result<(), AppError> {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "failed to create {}: {error}",
                 path.display()
             )))
         }
     };
     file.write_all(content.as_bytes())
-        .map_err(|error| AppError::Internal(format!("failed to write {}: {error}", path.display())))
+        .map_err(|error| AppError::internal(format!("failed to write {}: {error}", path.display())))
 }
 
 fn readme(provider_id: &str, display_name: &str, executable: &str) -> String {

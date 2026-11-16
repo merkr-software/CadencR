@@ -15,7 +15,7 @@ pub const THEME_FILE_NAME: &str = "theme.json";
 /// under a `plugins/` root the later extensibility steps share rather than as
 /// another top-level sibling of `settings/` and `lsp/`.
 pub fn themes_dir() -> PathBuf {
-    crate::domain::settings_store::dir::sibling_dir("plugins").join("themes")
+    crate::domain::settings_store::dir::data_sibling_dir("plugins").join("themes")
 }
 
 pub fn theme_dir(id: &str) -> Result<PathBuf, AppError> {

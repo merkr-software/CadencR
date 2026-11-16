@@ -14,37 +14,87 @@ import type { StoreAccessors } from "./ws-envelope-types";
 import { notifyRateLimited, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
 
 /**
- * Error codes whose user mistake originates outside the agent stream (e.g. a
- * meta-bar action). Surfacing these as inline error blocks in the chat is
- * confusing — the user wasn't talking to the agent. Route them to a toast
- * instead, and don't transition the turn lifecycle since no turn was active.
+ * Uncorrelated errors only: a failed session command (stop, model, mode, …)
+ * is presented by the command itself through `handleCommandError`. These
+ * codes reach the stream path without a tracked request — a `mode.set`
+ * replayed from the init queue, a prompt that went through while
+ * remembering its model for the next conversation failed, or a turn that
+ * carries on while recording its state failed — and are not turn failures,
+ * so they toast instead of erroring the turn inline. Every other uncorrelated
+ * error (e.g. `AGENT_STOP_ESCALATED`) still errors the turn inline.
  */
-const TOAST_ERROR_CODES = new Set(["MODE_NOT_SUPPORTED"]);
+// LAST_USED_MODEL_SAVE_FAILED: the prompt itself went through; only
+// remembering its model for the next new conversation failed.
+// SESSION_STATE_NOT_SAVED: the change or turn carries on; only recording it in
+// the database failed, so the running turn must not read as failed.
+const TOAST_ERROR_CODES = new Set([
+  "MODE_NOT_SUPPORTED",
+  "LAST_USED_MODEL_SAVE_FAILED",
+  "SESSION_STATE_NOT_SAVED",
+]);
+// RUNTIME_CHANGE_DEFERRED: not a failure — the prompt went through, but a
+// setting that needs a fresh runtime waits for the agent's background work.
+const TOAST_INFO_CODES = new Set(["RUNTIME_CHANGE_DEFERRED"]);
 const COMPACT_PRE_START_ERROR_CODES = new Set([
   "COMPACT_REJECTED",
   "SDK_SPAWN_ERROR",
   "UNSUPPORTED_PROVIDER",
 ]);
 
-export function handleError(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseErrorPayload(payload);
-
+/** Errors any request can hit that are not about the request itself. */
+function handleTransportError(
+  ctx: StoreAccessors,
+  sessionId: string,
+  p: ReturnType<typeof parseErrorPayload>,
+): boolean {
   if (p?.code === "RATE_LIMITED") {
     notifyRateLimited(p.retryAfterMs ?? WS_RATE_LIMIT_RETRY_MS);
     toast.error(p.message ?? "WebSocket message rate exceeded. Reconnecting shortly.");
-    return;
+    return true;
   }
+  // CLI refused a specific permission mode (e.g. Claude Code `auto` on a
+  // non-auto-capable model). The payload carries the rejected wire mode;
+  // skip past it in the Shift+Tab cycle so the chip isn't stuck.
+  if (p?.code === "MODE_REJECTED_BY_CLI" && p.mode) {
+    handleModeRejectedByCli(ctx, sessionId, p.mode as PermissionMode, p.message);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * A tracked session command failed (its `ref` names it). The turn did not
+ * error — the user acted on a control — so the failure is a toast naming the
+ * command, never an inline stream error or a lifecycle change.
+ */
+export function handleCommandError(
+  ctx: StoreAccessors,
+  sessionId: string,
+  failure: string,
+  payload: unknown,
+): void {
+  const p = parseErrorPayload(payload);
+  if (handleTransportError(ctx, sessionId, p)) return;
+  const gatePatch = isGateClosingErrorCode(p?.code)
+    ? buildClearedGatePatch(ctx.getSession(sessionId))
+    : null;
+  if (gatePatch) ctx.set(updateSession(ctx.get(), sessionId, gatePatch));
+  toast.error(failure, { description: p?.message ?? "The backend rejected the request." });
+}
+
+export function handleError(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
+  const p = parseErrorPayload(payload);
+
+  if (handleTransportError(ctx, sessionId, p)) return;
 
   if (p?.code && TOAST_ERROR_CODES.has(p.code) && p.message) {
     toast.error(p.message);
     return;
   }
 
-  // CLI refused a specific permission mode (e.g. Claude Code `auto` on a
-  // non-auto-capable model). The payload carries the rejected wire mode;
-  // skip past it in the Shift+Tab cycle so the chip isn't stuck.
-  if (p?.code === "MODE_REJECTED_BY_CLI" && p.mode) {
-    handleModeRejectedByCli(ctx, sessionId, p.mode as PermissionMode, p.message);
+  if (p?.code && TOAST_INFO_CODES.has(p.code)) {
+    // Keyed by code so a repeat (one per prompt while it waits) replaces it.
+    toast.info(p.message, { id: p.code });
     return;
   }
 
@@ -63,7 +113,6 @@ export function handleError(ctx: StoreAccessors, sessionId: string, payload: unk
     }),
     compactRequestPending: false,
     pendingManualCompact: false,
-    runtimeCompacting: false,
   };
   // A manual compaction holds the prompt turn — a follow-up `prompt.send` while
   // compacting fails the steering RPC and the backend emits `session.error`,

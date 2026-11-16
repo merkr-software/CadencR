@@ -1,6 +1,10 @@
 use axum::extract::ws::Message;
 
 use super::super::protocol::*;
+use super::session_compact_lifecycle::{
+    begin_compact, finish_compact_start, persist_compact_command, report_compact_stopped,
+    stopped_before_dispatch,
+};
 use super::session_compact_pending::spawn_pending_runtime_for_compact;
 use super::{parse_session_id, send_error, QueryState, SdkHandle, SdkSessions, WsSender};
 use crate::app_state::AppState;
@@ -70,49 +74,6 @@ pub(super) async fn handle_compact(
     }
 }
 
-async fn persist_compact_command(
-    app_state: &AppState,
-    sender: &WsSender,
-    session_id: i64,
-    message_uuid: Option<&str>,
-) -> Result<bool, String> {
-    let feature_id: i64 = sqlx::query_scalar("SELECT feature_id FROM agent_sessions WHERE id = ?")
-        .bind(session_id)
-        .fetch_one(&app_state.read_pool)
-        .await
-        .map_err(|error| error.to_string())?;
-    let message_uuid =
-        crate::domain::sessions::user_messages::canonical_user_message_uuid(message_uuid)
-            .map_err(|_| "message_uuid must be a valid UUID".to_string())?;
-    let outcome = super::session_prompt::persist_and_publish_user_message(
-        super::session_prompt::CanonicalUserMessageRequest {
-            pool: &app_state.write_pool,
-            feature_senders: &app_state.ws_feature_senders,
-            owner: Some(sender),
-            feature_id,
-            session_id,
-            content: "/compact",
-            message_uuid,
-            origin: None,
-            mode: super::session_prompt::CanonicalUserMessageMode::PersistOnly,
-        },
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    if let Err(error) = outcome.delivery {
-        tracing::warn!(feature_id, session_id, error = %error, "compact command owner disconnected");
-    }
-    let message = outcome.message;
-    if message.inserted {
-        app_state.feature_events_tx.emit(
-            feature_id,
-            None,
-            crate::domain::feature_events::FeatureEventAction::Reordered,
-        );
-    }
-    Ok(message.inserted)
-}
-
 fn compact_payload(envelope: &WsEnvelope, sender: &WsSender) -> Option<SessionActionPayload> {
     match serde_json::from_value(envelope.payload.clone()) {
         Ok(payload) => Some(payload),
@@ -143,61 +104,117 @@ async fn handle_active_runtime_compact(
     db_session_id: i64,
     app_state: Option<&AppState>,
 ) {
-    let query = {
-        let sessions = sdk_sessions.lock().await;
-        let Some(handle) = sessions.get(&db_session_id) else {
-            send_error(
-                sender,
-                envelope_id,
-                "SESSION_NOT_FOUND",
-                "Session not found",
-            );
-            return;
+    let (was_running, reservation) =
+        match begin_compact(sdk_sessions, db_session_id, app_state).await {
+            Ok(running) => running,
+            Err(error) => {
+                send_error(sender, envelope_id, "COMPACT_REJECTED", &error);
+                return;
+            }
         };
-        match compact_target(handle) {
-            CompactTarget::Active => {
-                let QueryState::Active { query, .. } = &handle.state else {
-                    unreachable!("compact_target returned active for non-active state");
-                };
-                query.clone()
-            }
-            CompactTarget::PendingSpawn => {
-                let Some(app_state) = app_state else {
-                    send_error(sender, envelope_id, "INVALID_STATE", "Session not active");
-                    return;
-                };
-                drop(sessions);
-                match spawn_pending_runtime_for_compact(
-                    envelope_id,
-                    sender,
-                    sdk_sessions,
-                    db_session_id,
-                    app_state,
-                )
-                .await
-                {
-                    Some(spawned) => spawned,
-                    None => return,
-                }
-            }
+    let query =
+        resolve_compact_runtime(envelope_id, sender, sdk_sessions, db_session_id, app_state).await;
+    let succeeded = match query {
+        Some(query) => {
+            start_runtime_compaction(
+                &query,
+                envelope_id,
+                sender,
+                sdk_sessions,
+                db_session_id,
+                app_state,
+            )
+            .await
         }
+        None => false,
     };
-
-    if let Err(error) = query.read().await.compact().await {
-        send_error(sender, envelope_id, "COMPACT_REJECTED", &error.to_string());
-        return;
+    finish_compact_start(
+        sdk_sessions,
+        db_session_id,
+        app_state,
+        succeeded,
+        was_running,
+        reservation,
+    )
+    .await;
+    if succeeded {
+        if let Err(error) = send_compact_started(sender, envelope_id) {
+            tracing::warn!(error = %error, "compact.started reply delivery failed");
+        }
     }
+}
 
-    if let Err(error) = send_compact_started(sender, envelope_id) {
-        tracing::warn!(error = %error, "compact.started reply delivery failed");
+async fn resolve_compact_runtime(
+    envelope_id: &str,
+    sender: &WsSender,
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
+    app_state: Option<&AppState>,
+) -> Option<crate::domain::agents::adapter::RuntimeSessionHandle> {
+    let sessions = sdk_sessions.lock().await;
+    let handle = sessions.get(&db_session_id)?;
+    match compact_target(handle) {
+        CompactTarget::Active => {
+            let QueryState::Active { query, .. } = &handle.state else {
+                unreachable!("active compaction target has a runtime");
+            };
+            Some(query.clone())
+        }
+        CompactTarget::PendingSpawn => {
+            let Some(app_state) = app_state else {
+                send_error(sender, envelope_id, "INVALID_STATE", "Session not active");
+                return None;
+            };
+            drop(sessions);
+            // `begin_compact` marked it working and spawn-pending: a Stop now
+            // cancels it (see `stop_session`).
+            super::let_controls_through();
+            let query = spawn_pending_runtime_for_compact(
+                envelope_id,
+                sender,
+                sdk_sessions,
+                db_session_id,
+                app_state,
+            )
+            .await?;
+            Some(query)
+        }
+    }
+}
+
+/// Ask the runtime to compact, unless a Stop came first (see `stop_session`):
+/// the compaction then gives up before it starts. Decided holding the runtime
+/// and its turn-control barrier, as a Stop interrupts, so a later Stop finds
+/// the compaction started. Whether it started.
+async fn start_runtime_compaction(
+    query: &crate::domain::agents::adapter::RuntimeSessionHandle,
+    envelope_id: &str,
+    sender: &WsSender,
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
+    app_state: Option<&AppState>,
+) -> bool {
+    let runtime = query.read().await;
+    let _barrier = runtime.turn_control_guard().await;
+    if let Some(feature_id) = stopped_before_dispatch(sdk_sessions, db_session_id).await {
+        if let Some(app_state) = app_state {
+            report_compact_stopped(app_state, sender, envelope_id, db_session_id, feature_id).await;
+        }
+        return false;
+    }
+    match runtime.compact().await {
+        Ok(()) => true,
+        Err(error) => {
+            send_error(sender, envelope_id, "COMPACT_REJECTED", &error.to_string());
+            false
+        }
     }
 }
 
 fn send_compact_started(sender: &WsSender, envelope_id: &str) -> Result<(), String> {
     let reply = WsEnvelope::session_reply(
         envelope_id,
-        WsSessionAction::CompactStarted,
-        serde_json::Value::Null,
+        &WsSessionEvent::CompactStarted(SessionCompactStartedPayload),
     )
     .expect("compact started payload should serialize");
     sender
@@ -228,7 +245,7 @@ fn compact_target(handle: &SdkHandle) -> CompactTarget {
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
 
     use async_trait::async_trait;
@@ -245,6 +262,7 @@ mod tests {
 
     struct CompactRuntime {
         fail: bool,
+        compacts: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -263,13 +281,16 @@ mod tests {
             Ok(())
         }
         async fn compact(&self) -> Result<(), RuntimeError> {
+            self.compacts.fetch_add(1, Ordering::SeqCst);
             if self.fail {
                 Err(RuntimeError::new("compact failed"))
             } else {
                 Ok(())
             }
         }
-        async fn close(&mut self) {}
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
         async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
             Ok(())
         }
@@ -286,6 +307,7 @@ mod tests {
 
     fn handle_for_provider(provider: &str, state: QueryState) -> SdkHandle {
         SdkHandle {
+            identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
             state,
             feature_id: 1,
             runtime_provider: provider.to_string(),
@@ -318,7 +340,7 @@ mod tests {
                 profile_revision: None,
                 profile_state_identity: None,
             },
-            manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+            manual_compact_start: Default::default(),
             manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -369,8 +391,13 @@ mod tests {
     }
 
     fn active_sessions(fail: bool) -> SdkSessions {
-        let (permission_tx, _permission_rx) = mpsc::channel(1);
-        let runtime = Box::new(CompactRuntime { fail }) as Box<dyn AgentRuntimeSession>;
+        active_sessions_counting(fail, Arc::default())
+    }
+
+    fn active_sessions_counting(fail: bool, compacts: Arc<AtomicUsize>) -> SdkSessions {
+        let (permission_tx, _permission_rx) =
+            crate::domain::ws_session::runtime::prompt::permission_response_channel();
+        let runtime = Box::new(CompactRuntime { fail, compacts }) as Box<dyn AgentRuntimeSession>;
         Arc::new(Mutex::new(HashMap::from([(
             1,
             handle_for_provider(
@@ -404,5 +431,61 @@ mod tests {
         };
         assert!(text.contains("\"error\""));
         assert!(text.contains("compact failed"));
+    }
+
+    /// A Stop that lands once the compaction's runtime is up, but before the
+    /// runtime is asked to compact, cancels the compaction: no compaction
+    /// turn exists yet for the Stop to interrupt.
+    #[tokio::test]
+    async fn a_stop_before_the_runtime_is_asked_to_compact_cancels_it() {
+        let app_state =
+            crate::domain::ws_session::handler::tests::support::make_test_app_state().await;
+        let compacts = Arc::new(AtomicUsize::new(0));
+        let sessions = active_sessions_counting(false, compacts.clone());
+        let runtime = match &sessions.lock().await[&1].state {
+            QueryState::Active { query, .. } => query.clone(),
+            QueryState::Pending(_) => unreachable!("active session"),
+        };
+        // Holding the runtime parks the compaction right before `compact()`.
+        let parked = runtime.write().await;
+        let (sender, mut replies) = mpsc::unbounded_channel();
+        let compaction = tokio::spawn({
+            let (sessions, app_state) = (sessions.clone(), app_state.clone());
+            async move {
+                handle_active_runtime_compact("req-3", &sender, &sessions, 1, Some(&app_state))
+                    .await;
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let stop = tokio::spawn({
+            let (sessions, app_state) = (sessions.clone(), app_state.clone());
+            async move {
+                crate::domain::ws_session::handler::session_control::stop_session(
+                    &app_state,
+                    Some(&sessions),
+                    1,
+                )
+                .await
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        drop(parked);
+
+        let bounded = std::time::Duration::from_secs(5);
+        tokio::time::timeout(bounded, compaction)
+            .await
+            .expect("the compaction start returns")
+            .unwrap();
+        tokio::time::timeout(bounded, stop)
+            .await
+            .expect("the stop returns")
+            .unwrap()
+            .expect("the stop is taken");
+        assert_eq!(compacts.load(Ordering::SeqCst), 0, "the compaction started");
+        let mut reply = String::new();
+        while let Ok(Message::Text(text)) = replies.try_recv() {
+            reply.push_str(text.as_str());
+        }
+        assert!(reply.contains("compact.stopped"), "{reply}");
     }
 }

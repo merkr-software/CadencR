@@ -43,5 +43,12 @@ grep -q '^## v1\.2\.3 - 2026-07-17$' "$tmp_dir/release-notes.md" \
 if grep -q '^## v1\.2\.2' "$tmp_dir/release-notes.md"; then
   fail "release output must not include the previous release"
 fi
+grep -q '^## Install$' "$tmp_dir/release-notes.md" \
+  || fail "expected platform installation instructions"
+grep -q 'brew install --cask merkr-software/cadencr/cadencr' "$tmp_dir/release-notes.md" \
+  || fail "expected Homebrew installation instructions"
+if grep -Eq 'Linux|AppImage|\.deb|\.rpm' "$tmp_dir/release-notes.md"; then
+  fail "the macOS release must not advertise Linux packages it does not ship"
+fi
 
 echo "release-notes tests passed"

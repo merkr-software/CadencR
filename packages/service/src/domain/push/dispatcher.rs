@@ -118,7 +118,7 @@ async fn dispatch(
         "project_id": feature.project_id,
     });
     let bytes = serde_json::to_vec(&payload)
-        .map_err(|e| AppError::Internal(format!("serialize push payload: {e}")))?;
+        .map_err(|e| AppError::internal(format!("serialize push payload: {e}")))?;
 
     for sub in targets {
         if let Err(err) = state.push.send(&sub, &bytes).await {

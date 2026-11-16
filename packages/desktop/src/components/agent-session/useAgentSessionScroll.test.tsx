@@ -2,7 +2,7 @@ import { render, renderHook, screen, waitFor, act } from "@/test-utils";
 import type { VirtuosoHandle } from "react-virtuoso";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAgentSessionScroll } from "./useAgentSessionScroll";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 const isIosMock = vi.fn(() => false);
 vi.mock("@/lib/is-ios", () => ({ isIos: () => isIosMock() }));
@@ -214,6 +214,42 @@ describe("useAgentSessionScroll history loading", () => {
     dispatchScroll(scroller, 900);
     dispatchScroll(scroller, 24);
     await waitFor(() => expect(secondLoad).toHaveBeenCalledTimes(1));
+  });
+
+  // Virtuoso re-runs its `scrollerRef` effect whenever the ref changes: every
+  // scroller listener and observer detaches and re-attaches, and the scroll
+  // anchor guard drops its bridge mid-frame.
+  it("keeps the scroll container ref stable across stick and history-load toggles", async () => {
+    let resolveLoad: () => void = () => {};
+    const onLoadOlder = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveLoad = () => resolve(0);
+        }),
+    );
+    const { result } = renderHook(() =>
+      useAgentSessionScroll({
+        blocks: [makeBlock("1"), makeBlock("2")],
+        conversationKey: "conversation-a",
+        hasMore: true,
+        onLoadOlder,
+      }),
+    );
+    const { scrollContainerRef } = result.current;
+    const scroller = document.createElement("div");
+    stubGeometry(scroller, 2_000, 500);
+    act(() => scrollContainerRef(scroller));
+
+    dispatchPointerDown(scroller);
+    dispatchScroll(scroller, 900);
+    dispatchScroll(scroller, 24);
+    await waitFor(() => expect(result.current.isLoadingOlder).toBe(true));
+    expect(result.current.autoScrollEnabled).toBe(false);
+    act(() => resolveLoad());
+    await waitFor(() => expect(result.current.isLoadingOlder).toBe(false));
+
+    expect(result.current.scrollContainerRef).toBe(scrollContainerRef);
+    act(() => scrollContainerRef(null));
   });
 });
 

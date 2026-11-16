@@ -17,7 +17,7 @@ use crate::domain::agents::providers::registry::{
 };
 use crate::domain::{features, projects, settings_store};
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_output_with_env, run_git_with_env};
+use crate::shared::git_cli::ensure_repository_with_initial_commit;
 
 use super::models::{CreateProviderWorkspaceRequest, ProviderWorkspace};
 use super::scaffold;
@@ -29,19 +29,14 @@ const MAX_DISPLAY_NAME_LENGTH: usize = 80;
 const WORKSPACES_DIR: &str = "provider-workspaces";
 const PROVIDER_VERSION: &str = "0.1.0";
 const WORKSPACE_ALREADY_EXISTS: &str = "PROVIDER_WORKSPACE_ALREADY_EXISTS";
-const COMMIT_IDENTITY: [(&str, &str); 4] = [
-    ("GIT_AUTHOR_NAME", "Cadencr"),
-    ("GIT_AUTHOR_EMAIL", "providers@cadencr.local"),
-    ("GIT_COMMITTER_NAME", "Cadencr"),
-    ("GIT_COMMITTER_EMAIL", "providers@cadencr.local"),
-];
+const COMMIT_EMAIL: &str = "providers@cadencr.local";
 
 pub(super) async fn create(
     pool: &SqlitePool,
     request: &CreateProviderWorkspaceRequest,
 ) -> Result<ProviderWorkspace, AppError> {
     let roots = WorkspaceRoots {
-        workspaces: settings_store::dir::sibling_dir(WORKSPACES_DIR),
+        workspaces: settings_store::dir::data_sibling_dir(WORKSPACES_DIR),
         descriptors: descriptors_dir(),
     };
     create_with_roots(pool, request, &roots).await
@@ -177,7 +172,7 @@ fn descriptor_matches(
         None => return Ok(false),
     };
     let expected = serde_json::to_value(expected).map_err(|error| {
-        AppError::Internal(format!("failed to compare provider descriptor: {error}"))
+        AppError::internal(format!("failed to compare provider descriptor: {error}"))
     })?;
     Ok(actual == expected)
 }
@@ -214,11 +209,11 @@ fn validate_display_name(value: &str) -> Result<String, AppError> {
 }
 
 fn ensure_workspace_directory(root: &Path, provider_id: &str) -> Result<PathBuf, AppError> {
-    std::fs::create_dir_all(&root).map_err(|error| {
-        AppError::Internal(format!("failed to create provider workspace root: {error}"))
+    std::fs::create_dir_all(root).map_err(|error| {
+        AppError::internal(format!("failed to create provider workspace root: {error}"))
     })?;
-    let root = std::fs::canonicalize(&root).map_err(|error| {
-        AppError::Internal(format!(
+    let root = std::fs::canonicalize(root).map_err(|error| {
+        AppError::internal(format!(
             "failed to resolve provider workspace root: {error}"
         ))
     })?;
@@ -238,34 +233,14 @@ fn ensure_workspace_directory(root: &Path, provider_id: &str) -> Result<PathBuf,
             WORKSPACE_ALREADY_EXISTS,
             format!("a provider workspace already exists for {provider_id:?}"),
         )),
-        Err(error) => Err(AppError::Internal(format!(
+        Err(error) => Err(AppError::internal(format!(
             "failed to create provider workspace: {error}"
         ))),
     }
 }
 
 async fn ensure_repository(directory: &Path) -> Result<(), AppError> {
-    if !directory.join(".git").exists() {
-        run_git(&["init", "-q", "-b", "main"], directory).await?;
-    }
-    let head = run_git_output_with_env(&["rev-parse", "--verify", "HEAD"], directory, &[]).await?;
-    if head.status.success() {
-        return Ok(());
-    }
-    run_git(&["add", "-A"], directory).await?;
-    run_git_with_env(
-        &[
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-qm",
-            "Start provider connector",
-        ],
-        directory,
-        &COMMIT_IDENTITY,
-    )
-    .await?;
-    Ok(())
+    ensure_repository_with_initial_commit(directory, COMMIT_EMAIL, "Start provider connector").await
 }
 
 async fn ensure_project_and_feature(
@@ -559,13 +534,9 @@ mod tests {
         let before = snapshot_files(&directory);
         let request = request("preserved-import", "Preserved", directory.to_str());
         create_with_roots(&pool, &request, &roots).await.unwrap();
-        assert_eq!(snapshot_files(&directory), before);
+        assert_snapshot_unchanged(&directory, &before, "import");
         create_with_roots(&pool, &request, &roots).await.unwrap();
-        assert_eq!(
-            snapshot_files(&directory),
-            before,
-            "retry must preserve files too"
-        );
+        assert_snapshot_unchanged(&directory, &before, "retry");
     }
 
     #[tokio::test]
@@ -979,6 +950,14 @@ mod tests {
         run_git(&["init", "-q", "-b", "main"], &directory)
             .await
             .unwrap();
+        // Detached auto-maintenance after fixture commits races with snapshots
+        // of .git, creating and removing objects/maintenance.lock.
+        run_git(
+            &["config", "--local", "maintenance.auto", "false"],
+            &directory,
+        )
+        .await
+        .unwrap();
         std::fs::canonicalize(directory).unwrap()
     }
 
@@ -1004,9 +983,26 @@ mod tests {
         String::from_utf8(output.stdout).unwrap()
     }
 
-    fn snapshot_files(
-        root: &Path,
-    ) -> std::collections::BTreeMap<std::path::PathBuf, (Vec<u8>, u32)> {
+    type FileSnapshot = std::collections::BTreeMap<std::path::PathBuf, (Vec<u8>, u32)>;
+
+    fn assert_snapshot_unchanged(root: &Path, before: &FileSnapshot, phase: &str) {
+        let after = snapshot_files(root);
+        let changed: std::collections::BTreeSet<_> = before
+            .keys()
+            .chain(after.keys())
+            .filter(|path| before.get(*path) != after.get(*path))
+            .collect();
+        // Git object bytes make assert_eq!'s full map dump exceed CI log limits.
+        // Keep the same content/mode comparison, reporting only affected paths.
+        assert!(
+            changed.is_empty(),
+            "{phase} changed {} paths: {:?}",
+            changed.len(),
+            changed.iter().take(20).collect::<Vec<_>>()
+        );
+    }
+
+    fn snapshot_files(root: &Path) -> FileSnapshot {
         fn visit(
             root: &Path,
             directory: &Path,

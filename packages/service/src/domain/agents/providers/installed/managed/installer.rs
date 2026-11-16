@@ -20,6 +20,8 @@ use crate::shared::{atomic_file, fs_durability};
 use axum::http::StatusCode;
 
 mod guard;
+mod handoff;
+pub(crate) use handoff::{session_receipt, verify_admission_owner};
 mod storage;
 mod verification;
 pub use guard::is_managed_executable;
@@ -45,19 +47,19 @@ pub fn commit_staged_revision(
     let destination = storage.revision_dir(&receipt.agent.id, &revision)?;
     let parent = destination
         .parent()
-        .ok_or_else(|| AppError::Internal("managed revision has no parent".into()))?;
+        .ok_or_else(|| AppError::internal("managed revision has no parent"))?;
     create_secure_dir(parent)?;
     write_receipt(&staging_revision.join("receipt.json"), receipt)?;
     if let Err(error) = std::fs::rename(staging_revision, &destination) {
         if !destination.exists() {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "commit managed revision {}: {error}",
                 destination.display()
             )));
         }
         verify_existing_revision(&destination, receipt)?;
         std::fs::remove_dir_all(staging_revision).map_err(|cleanup_error| {
-            AppError::Internal(format!(
+            AppError::internal(format!(
                 "remove duplicate managed staging revision {} after commit collision: {cleanup_error}",
                 staging_revision.display()
             ))
@@ -65,7 +67,7 @@ pub fn commit_staged_revision(
         return Ok(destination.join("payload"));
     }
     fs_durability::sync_directory(parent)
-        .map_err(|error| AppError::Internal(format!("sync managed revision parent: {error}")))?;
+        .map_err(|error| AppError::internal(format!("sync managed revision parent: {error}")))?;
     Ok(destination.join("payload"))
 }
 
@@ -98,11 +100,12 @@ fn activate_revision_locked(
 ) -> Result<ManagedProviderState, AppError> {
     let state_path = storage.state_path(&receipt.agent.id)?;
     let mut state = read_state(&state_path, &receipt.agent.id)?;
+    handoff::require_separate_installation(storage, &state, receipt)?;
     if action == ManagedHistoryAction::Installed {
         ensure_descriptor_id_available(
             descriptors,
             &receipt.agent.id,
-            &super::super::super::registry::builtin_provider_identifiers(),
+            super::super::super::registry::builtin_provider_identifiers(),
         )?;
     }
     state.transition(
@@ -337,7 +340,7 @@ fn prepare_descriptor_sync(
         });
     };
     let mut json = serde_json::to_string_pretty(&projection.descriptor)
-        .map_err(|error| AppError::Internal(format!("serialize managed descriptor: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize managed descriptor: {error}")))?;
     json.push('\n');
     Ok(DescriptorSync::Write {
         path: projection.path,
@@ -365,13 +368,13 @@ fn retire_managed_descriptor(
         Ok(raw) => raw,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
-            return Err(AppError::Internal(format!(
+            return Err(AppError::internal(format!(
                 "read managed descriptor: {error}"
             )))
         }
     };
     let existing: ProviderDescriptor = serde_json::from_slice(&raw)
-        .map_err(|error| AppError::Internal(format!("parse managed descriptor: {error}")))?;
+        .map_err(|error| AppError::internal(format!("parse managed descriptor: {error}")))?;
     let command = existing
         .installation
         .executable
@@ -384,7 +387,7 @@ fn retire_managed_descriptor(
         .provider_dir(provider_id)?
         .join(format!("descriptor-retired-{}.json", uuid::Uuid::new_v4()));
     std::fs::rename(descriptor, retired)
-        .map_err(|error| AppError::Internal(format!("retire managed descriptor: {error}")))
+        .map_err(|error| AppError::internal(format!("retire managed descriptor: {error}")))
 }
 
 fn not_installed(provider_id: &str) -> AppError {
@@ -396,7 +399,7 @@ fn not_installed(provider_id: &str) -> AppError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use base64::Engine as _;
     use ed25519_dalek::{Signer as _, SigningKey};
 
@@ -410,7 +413,7 @@ mod tests {
     use crate::domain::agents::providers::installed::managed::trust::TrustedIndexKey;
     use crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex;
 
-    fn uncommitted_receipt() -> (tempfile::TempDir, ManagedPackageReceipt) {
+    pub(crate) fn uncommitted_receipt() -> (tempfile::TempDir, ManagedPackageReceipt) {
         let directory = tempfile::tempdir().unwrap();
         let staging = directory.path().join("revision");
         let payload = staging.join("payload");
@@ -434,6 +437,8 @@ mod tests {
             "/tests/fixtures/managed_provider_index/v1/valid.json"
         )))
         .unwrap();
+        index.signed.packages[0].host.compatibility.max_app_version =
+            Some(env!("CARGO_PKG_VERSION").into());
         let signing_key = SigningKey::from_bytes(&[23; 32]);
         let signing_bytes = index.signed.signing_bytes().unwrap();
         index.signature.key_id = "managed-installer-test".into();
@@ -483,19 +488,230 @@ mod tests {
         (directory, receipt)
     }
 
-    fn staged_receipt(storage: &ManagedStorage) -> (tempfile::TempDir, ManagedPackageReceipt) {
+    pub(crate) fn staged_receipt(
+        storage: &ManagedStorage,
+    ) -> (tempfile::TempDir, ManagedPackageReceipt) {
         let (directory, receipt) = uncommitted_receipt();
         commit_staged_revision(storage, &directory.path().join("revision"), &receipt).unwrap();
         (directory, receipt)
     }
 
-    fn test_trust_store() -> ManagedTrustStore {
+    /// A current, empty blocklist signed with the test key: installs and
+    /// launches need a verified policy, like in any build.
+    pub(crate) fn allow_all_blocklist(storage: &ManagedStorage) {
+        use crate::domain::agents::providers::installed::managed::blocklist::{
+            ManagedProviderBlocklist, SignedManagedProviderBlocklist,
+        };
+        let now = chrono::Utc::now();
+        let signed = ManagedProviderBlocklist {
+            schema_version: 1,
+            generated_at: now - chrono::Duration::minutes(1),
+            expires_at: now + chrono::Duration::hours(1),
+            entries: Vec::new(),
+        };
+        let signature = SigningKey::from_bytes(&[23; 32]).sign(&signed.signing_bytes().unwrap());
+        let envelope = SignedManagedProviderBlocklist {
+            signed,
+            signature: serde_json::from_value(serde_json::json!({
+                "algorithm": "ed25519",
+                "key_id": "managed-installer-test",
+                "value": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            }))
+            .unwrap(),
+        };
+        let path = storage.blocklist_cache_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        crate::shared::atomic_file::write_atomic_private(
+            &path,
+            &serde_json::to_string(&envelope).unwrap(),
+        )
+        .unwrap();
+    }
+
+    pub(crate) fn test_trust_store() -> ManagedTrustStore {
         let signing_key = SigningKey::from_bytes(&[23; 32]);
         ManagedTrustStore::new([TrustedIndexKey::new(
             "managed-installer-test",
             signing_key.verifying_key().to_bytes(),
         )
         .unwrap()])
+    }
+
+    #[tokio::test]
+    async fn owner_change_is_refused_before_download_probe_or_revision_placement() {
+        use chrono::{Duration, SecondsFormat, Utc};
+        use serde_json::json;
+        use sha2::{Digest as _, Sha256};
+        let root = tempfile::tempdir().unwrap();
+        let storage = ManagedStorage::new(root.path().join("managed"));
+        let descriptors = root.path().join("descriptors");
+        let (staging, mut receipt) = uncommitted_receipt();
+        let index = receipt.signed_index.legacy_mut();
+        index.signed.packages[0].agent.repository =
+            Some("https://github.com/original/provider".into());
+        receipt.agent = index.signed.packages[0].agent.clone();
+        let bytes = index.signed.signing_bytes().unwrap();
+        index.signature.value = base64::engine::general_purpose::STANDARD
+            .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&bytes);
+        commit_staged_revision(&storage, &staging.path().join("revision"), &receipt).unwrap();
+        activate_revision_locked(
+            &storage,
+            &descriptors,
+            &receipt,
+            ManagedHistoryAction::Installed,
+            true,
+        )
+        .unwrap();
+        let before = std::fs::read(storage.state_path(&receipt.agent.id).unwrap()).unwrap();
+        let old = json!({"kind":"provider","package":serde_json::to_value(&receipt.signed_index).unwrap()["signed"]["packages"][0]});
+        let digest = Sha256::digest(cadencr_registry_core::canonical_json_bytes(&old))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut next = old.clone();
+        next["package"]["agent"]["version"] = json!("2.0.0");
+        next["package"]["agent"]["repository"] = json!("https://github.com/independent/provider");
+        next["package"]["host"]["publisher"] = json!("independent");
+        for binary in next["package"]["agent"]["distribution"]["binary"]
+            .as_object_mut()
+            .unwrap()
+            .values_mut()
+        {
+            binary["archive"] = json!(format!(
+                "https://{}/must-not-download",
+                listener.local_addr().unwrap()
+            ));
+        }
+        let now = Utc::now() - Duration::minutes(1);
+        let mut index: crate::domain::marketplace::models::SignedMixedCatalog = serde_json::from_value(json!({
+            "signed":{"schema_version":2,"generated_at":now.to_rfc3339_opts(SecondsFormat::Secs,true),
+                "expires_at":(now+Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs,true),"packages":[old,next],
+                "provider_handoffs":[{"provider_id":receipt.agent.id,
+                    "from":{"publisher":receipt.publisher,"repository":"https://github.com/original/provider"},
+                    "to":{"publisher":"independent","repository":"https://github.com/independent/provider"},
+                    "retired_versions":{receipt.agent.version.clone():digest},
+                    "authorization":"https://github.com/owner/registry/pull/22#issuecomment-123","reason":"Retire old provider"}]},
+            "signature":{"algorithm":"ed25519","key_id":"managed-installer-test","value":""}})).unwrap();
+        index.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[23; 32])
+                .sign(&cadencr_registry_core::canonical_json_bytes(
+                    &serde_json::to_value(&index.signed).unwrap(),
+                ))
+                .to_bytes(),
+        );
+        let service = super::super::service::ManagedProviderService::builder()
+            .client(reqwest::Client::new())
+            .storage(storage.clone())
+            .descriptors(descriptors)
+            .trust_store(test_trust_store())
+            .build();
+        super::super::catalog::admit_request(
+            &storage.catalog_cache_path(),
+            &test_trust_store(),
+            index.into(),
+        )
+        .unwrap();
+        let error = service
+            .update(&receipt.agent.id, "2.0.0")
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("changed publisher or source"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read(storage.state_path(&receipt.agent.id).unwrap()).unwrap(),
+            before
+        );
+        assert!(!storage
+            .provider_dir(&receipt.agent.id)
+            .unwrap()
+            .join("2.0.0")
+            .exists());
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn namespace_handoff_does_not_switch_an_existing_installation_or_saved_state() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = ManagedStorage::new(root.path().join("managed"));
+        let descriptors = root.path().join("descriptors");
+        let (_staging, receipt) = staged_receipt(&storage);
+        activate_revision_locked(
+            &storage,
+            &descriptors,
+            &receipt,
+            ManagedHistoryAction::Installed,
+            true,
+        )
+        .unwrap();
+        let state_path = storage.state_path(&receipt.agent.id).unwrap();
+        let before = std::fs::read(&state_path).unwrap();
+        let mut successor = receipt.clone();
+        successor.publisher = "edjubert".into();
+        let error = activate_revision_locked(
+            &storage,
+            &descriptors,
+            &successor,
+            ManagedHistoryAction::Updated,
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("changed publisher or source"));
+        assert_eq!(std::fs::read(&state_path).unwrap(), before);
+        successor.publisher = receipt.publisher.clone();
+        successor.agent.repository = Some("https://github.com/edjubert/pi".into());
+        assert!(activate_revision_locked(
+            &storage,
+            &descriptors,
+            &successor,
+            ManagedHistoryAction::Updated,
+            true
+        )
+        .is_err());
+        assert_eq!(std::fs::read(&state_path).unwrap(), before);
+    }
+
+    #[test]
+    fn mixed_provider_receipt_keeps_original_signed_proof_through_revision_commit() {
+        use super::super::SignedProviderCatalog;
+        use crate::domain::marketplace::models::SignedMixedCatalog;
+        let root = tempfile::tempdir().unwrap();
+        let storage = ManagedStorage::new(root.path().join("managed"));
+        let (staging, mut receipt) = uncommitted_receipt();
+        let legacy = receipt.signed_index.legacy_mut().clone();
+        let value = serde_json::json!({
+            "schema_version":2,
+            "generated_at":legacy.signed.generated_at.to_rfc3339_opts(chrono::SecondsFormat::Secs,true),
+            "expires_at":legacy.signed.expires_at.to_rfc3339_opts(chrono::SecondsFormat::Secs,true),
+            "packages":legacy.signed.packages.iter().map(|package|serde_json::json!({"kind":"provider","package":package})).collect::<Vec<_>>()
+        });
+        let bytes = cadencr_registry_core::canonical_json_bytes(&value);
+        let mut signature = legacy.signature;
+        signature.value = base64::engine::general_purpose::STANDARD
+            .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
+        let mixed: SignedMixedCatalog =
+            serde_json::from_value(serde_json::json!({"signed":value,"signature":signature}))
+                .unwrap();
+        receipt.signed_index = SignedProviderCatalog::Mixed(mixed);
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&bytes);
+        verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
+        let proof = serde_json::to_value(&receipt.signed_index).unwrap();
+        let revision =
+            commit_staged_revision(&storage, &staging.path().join("revision"), &receipt).unwrap();
+        verify_existing_revision(revision.parent().unwrap(), &receipt).unwrap();
+        assert_eq!(serde_json::to_value(&receipt.signed_index).unwrap(), proof);
+        let mut tampered = receipt.clone();
+        if let SignedProviderCatalog::Mixed(index) = &mut tampered.signed_index {
+            index.signed.packages[0]["package"]["agent"]["name"] = serde_json::json!("Tampered");
+        }
+        assert!(verify_receipt_trust(&tampered, &test_trust_store()).is_err());
     }
 
     #[test]
@@ -544,12 +760,23 @@ mod tests {
         let storage = ManagedStorage::new(root.path().join("managed"));
         let (_staging, receipt) = staged_receipt(&storage);
         let mut refreshed = receipt.clone();
-        let mut unrelated = refreshed.signed_index.signed.packages[0].clone();
+        let mut unrelated = refreshed.signed_index.legacy_mut().signed.packages[0].clone();
         unrelated.agent.id = "z-other-agent".into();
-        refreshed.signed_index.signed.packages.push(unrelated);
-        let bytes = refreshed.signed_index.signed.signing_bytes().unwrap();
-        refreshed.signed_index.signature.value = base64::engine::general_purpose::STANDARD
-            .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
+        refreshed
+            .signed_index
+            .legacy_mut()
+            .signed
+            .packages
+            .push(unrelated);
+        let bytes = refreshed
+            .signed_index
+            .legacy_mut()
+            .signed
+            .signing_bytes()
+            .unwrap();
+        refreshed.signed_index.legacy_mut().signature.value =
+            base64::engine::general_purpose::STANDARD
+                .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
         refreshed.trust.signed_payload_sha256 = signed_payload_sha256(&bytes);
         verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
         verify_receipt_trust(&refreshed, &test_trust_store()).unwrap();
@@ -572,6 +799,51 @@ mod tests {
     }
 
     #[test]
+    fn retained_legacy_receipt_uses_the_bytes_that_were_actually_verified() {
+        let (_staging, mut receipt) = uncommitted_receipt();
+        receipt.signed_index.legacy_mut().signed.packages[0]
+            .agent
+            .extra
+            .insert(
+                "x-large-integer".into(),
+                serde_json::json!(9_007_199_254_740_993_u64),
+            );
+        receipt.agent = receipt.signed_index.legacy_mut().signed.packages[0]
+            .agent
+            .clone();
+        let legacy = receipt
+            .signed_index
+            .legacy_mut()
+            .signed
+            .legacy_signing_bytes()
+            .unwrap();
+        assert_ne!(
+            legacy,
+            receipt
+                .signed_index
+                .legacy_mut()
+                .signed
+                .signing_bytes()
+                .unwrap()
+        );
+        receipt.signed_index.legacy_mut().signature.value =
+            base64::engine::general_purpose::STANDARD
+                .encode(SigningKey::from_bytes(&[23; 32]).sign(&legacy).to_bytes());
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&legacy);
+
+        verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(
+            &receipt
+                .signed_index
+                .legacy_mut()
+                .signed
+                .signing_bytes()
+                .unwrap(),
+        );
+        assert!(verify_receipt_trust(&receipt, &test_trust_store()).is_err());
+    }
+
+    #[test]
     fn existing_revision_rejects_changed_launch_metadata() {
         let root = tempfile::tempdir().unwrap();
         let storage = ManagedStorage::new(root.path().join("managed"));
@@ -583,7 +855,7 @@ mod tests {
         changed.args.push("--different-behavior".into());
         assert!(verify_existing_revision(&revision, &changed).is_err());
         let mut changed = receipt;
-        changed.signed_index.signed.packages[0]
+        changed.signed_index.legacy_mut().signed.packages[0]
             .host
             .compatibility
             .max_app_version = Some("0.99.0".into());

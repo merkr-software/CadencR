@@ -7,7 +7,8 @@ const captureElementContext = vi.hoisted(() => vi.fn());
 
 vi.mock("./browser-dom", () => ({ captureElementContext }));
 
-const { selectElementContext } = await import("./browser-comment-context");
+const { isPinnedCommentBadge, removeCommentBadge, selectElementContext } =
+  await import("./browser-comment-context");
 
 function context(tabId: string): BrowserElementContext {
   return {
@@ -62,6 +63,7 @@ describe("selectElementContext", () => {
   it("re-arms the picker in the replacement document after a page refresh", async () => {
     const contents = Object.assign(new EventEmitter(), {
       executeJavaScript: vi.fn(async () => undefined),
+      getURL: () => "https://example.test/refreshed",
       getZoomFactor: vi.fn(() => 1.2),
       isDestroyed: vi.fn(() => false),
       isLoading: vi.fn(() => true),
@@ -80,7 +82,11 @@ describe("selectElementContext", () => {
       .mockResolvedValueOnce(context("tab-1"));
 
     const selection = selectElementContext(tab as unknown as ManagedTab, "anchor-1");
-    contents.emit("did-start-navigation", {}, tab.metadata.url, false, true);
+    contents.emit("did-start-navigation", {
+      url: tab.metadata.url,
+      isSameDocument: false,
+      isMainFrame: true,
+    });
     tab.metadata = { ...tab.metadata, url: "https://example.test/refreshed", title: "Refreshed" };
     await vi.waitFor(() => expect(contents.listenerCount("did-stop-loading")).toBe(1));
     expect(captureElementContext).toHaveBeenCalledOnce();
@@ -102,5 +108,28 @@ describe("selectElementContext", () => {
     expect(contents.executeJavaScript).toHaveBeenCalledOnce();
     expect(contents.listenerCount("did-start-navigation")).toBe(0);
     expect(contents.listenerCount("destroyed")).toBe(0);
+  });
+
+  it("trusts badge clicks only for anchors it pinned, until the badge is removed", async () => {
+    const contents = Object.assign(new EventEmitter(), {
+      executeJavaScript: vi.fn(async () => undefined),
+      getURL: () => "https://example.test/original",
+      getZoomFactor: vi.fn(() => 1),
+      isDestroyed: vi.fn(() => false),
+    });
+    const tab = {
+      metadata: metadata(),
+      webContents: contents,
+      consoleEntries: [],
+      networkEntries: [],
+    } as unknown as ManagedTab;
+    captureElementContext.mockResolvedValueOnce(context("tab-1"));
+
+    await selectElementContext(tab, "anchor-1");
+    expect(isPinnedCommentBadge(tab, "anchor-1")).toBe(true);
+    expect(isPinnedCommentBadge(tab, "forged-anchor")).toBe(false);
+
+    await removeCommentBadge(tab, "anchor-1");
+    expect(isPinnedCommentBadge(tab, "anchor-1")).toBe(false);
   });
 });

@@ -1,50 +1,41 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  ChevronRight,
-  ChevronDown,
-  Download,
-  Ellipsis,
-  PlusIcon,
-  Settings,
-  Trash2,
-} from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useCreateProject,
+  type Project,
   useDeleteProject,
   getListProjectsQueryKey,
-  getGetProjectSettingsQueryKey,
   useCreateFeature,
-  useSetProjectSetting,
 } from "../api/generated";
+import { useArchiveProjectSessionsAction } from "@/hooks/useArchiveProjectSessionsAction";
 import { useOrderedProjects } from "@/hooks/useOrderedProjects";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
+import { useProjectExpansion } from "@/hooks/useProjectExpansion";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { ProjectRowActions, ProjectRowContextMenu } from "./ProjectRowMenus";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
-import { ProjectBadge } from "@/components/ProjectBadge";
-import { PROJECT_COLORS } from "@/lib/project-colors";
+import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { toast } from "sonner";
 import { SidebarProjectsHeader } from "./SidebarProjectsHeader";
 import { ProjectFeatures } from "./ProjectFeatures";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
-import { ProjectRowButton } from "./ProjectRowButton";
+import { ProjectRowButton, ProjectRowLabel } from "./ProjectRowButton";
 import { ProjectTreeDialogs } from "./ProjectTreeDialogs";
+import { FilteredProjectList } from "./FilteredProjectList";
+import type { ProjectFilterMatch } from "@/hooks/useSidebarFilterMatches";
+import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
+import { ProjectRowAttention } from "./SidebarAttentionProvider";
+import { useRevealActiveRow } from "@/hooks/useRevealActiveRow";
+import { useSidebarOption } from "@/stores/sidebar-config-store";
+import { SampleScope, useSidebarSamplePreview } from "./SidebarSampleProvider";
+import { SidebarCrossProjectList } from "./SidebarCrossProjectList";
+import { STICKY_HEADER_CLASS } from "./SidebarLensGroupHeader";
+import { useSidebarListMode } from "@/hooks/useSidebarViews";
+import { useSidebarSectionFold, useSidebarSectionReorder } from "@/hooks/useSidebarSections";
+import { SidebarSampleTree } from "./SidebarSampleTree";
+import { SidebarSampleRail } from "./SidebarSampleRail";
 
 interface ProjectTreeProps {
   activeProjectId: number | null;
@@ -53,43 +44,30 @@ interface ProjectTreeProps {
 }
 
 type ProjectSummary = ReturnType<typeof useOrderedProjects>["projects"][number];
-type ProjectDialogTarget = { id: number; name: string };
+type ProjectDialogTarget = {
+  id: number;
+  name: string;
+  authoringTarget?: Project["authoring_target"];
+};
 
 function useProjectTreeMutations(
   projects: ProjectSummary[],
-  maybeOnboard: (project: ProjectDialogTarget) => void,
+  activeProjectId: number | null,
+  activeFeatureId: number | null,
 ) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pendingProjectIdRef = useRef(0);
-  const setProjectSetting = useSetProjectSetting({
-    mutation: {
-      onSuccess: (_data, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: getGetProjectSettingsQueryKey(variables.id),
-        });
-      },
-      onError: (error) => {
-        toast.error(`Could not save project setting: ${apiErrorMessage(error, "Unknown error")}`);
-      },
-    },
-  });
-  const createProject = useCreateProject({
-    mutation: {
-      onSuccess: (project) => {
-        const color = PROJECT_COLORS[project.id % PROJECT_COLORS.length];
-        setProjectSetting.mutate({ id: project.id, data: { key: "color", value: color } });
-        void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
-        maybeOnboard({ id: project.id, name: project.name });
-      },
-    },
-  });
   const deleteProject = useDeleteProject({
     mutation: {
       onSuccess: () => {
         void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       },
     },
+  });
+  const archiveProjectSessions = useArchiveProjectSessionsAction({
+    activeFeatureId,
+    projectId: activeProjectId ?? -1,
   });
   const createSession = useCreateFeature({
     mutation: {
@@ -106,57 +84,70 @@ function useProjectTreeMutations(
     },
   });
   return useMemo(
-    () => ({ createProject, createSession, deleteProject, pendingProjectIdRef }),
-    [createProject, createSession, deleteProject],
+    () => ({
+      archiveProjectSessions,
+      createSession,
+      deleteProject,
+      pendingProjectIdRef,
+    }),
+    [archiveProjectSessions, createSession, deleteProject],
   );
 }
 
 function useProjectTreeController(props: ProjectTreeProps) {
   const ordered = useOrderedProjects();
-  const [isSelectingFolder, setIsSelectingFolder] = useState(false);
+  const [isAddingProject, setIsAddingProject] = useState(false);
   const onboarding = useNewProjectOnboarding();
-  const mutations = useProjectTreeMutations(ordered.projects, onboarding.maybeOnboard);
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const addProjectAtPath = useAddProjectAtPath();
+  const mutations = useProjectTreeMutations(
+    ordered.projects,
+    props.activeProjectId,
+    props.activeFeatureId,
+  );
+  const revealActive = useSidebarOption("revealActive");
+  const expansion = useProjectExpansion(revealActive === "off" ? null : props.activeProjectId);
+  const { setExpanded: setProjectExpanded } = expansion;
   const [settingsProject, setSettingsProject] = useState<ProjectDialogTarget | null>(null);
   const [importProject, setImportProject] = useState<ProjectDialogTarget | null>(null);
   const [deleteProject, setDeleteProject] = useState<ProjectDialogTarget | null>(null);
-  useEffect(() => {
-    if (props.activeProjectId != null) {
-      setExpanded((previous) => ({ ...previous, [props.activeProjectId!]: true }));
-    }
-  }, [props.activeProjectId]);
+  const [archiveSessionsProject, setArchiveSessionsProject] = useState<ProjectDialogTarget | null>(
+    null,
+  );
   const startSession = useCallback(
     (projectId: number) => {
-      setExpanded((previous) => ({ ...previous, [projectId]: true }));
+      setProjectExpanded(projectId, true);
       mutations.pendingProjectIdRef.current = projectId;
       mutations.createSession.mutate({ data: { project_id: projectId, type: "ws-session" } });
     },
-    [mutations],
+    [mutations, setProjectExpanded],
   );
+  const { maybeOnboard } = onboarding;
   const addProject = useCallback(async () => {
-    setIsSelectingFolder(true);
+    setIsAddingProject(true);
     try {
       const folder = await desktopBridge.pickDirectory();
       if (!folder) return;
-      mutations.createProject.mutate({
-        data: { name: folder.split("/").pop() ?? folder, path: folder },
-      });
+      const project = await addProjectAtPath(folder);
+      maybeOnboard({ id: project.id, name: project.name });
+    } catch (error) {
+      toast.error(apiErrorMessage(error, "Couldn't add the project"));
     } finally {
-      setIsSelectingFolder(false);
+      setIsAddingProject(false);
     }
-  }, [mutations.createProject]);
+  }, [addProjectAtPath, maybeOnboard]);
   return useMemo(
     () => ({
       addProject,
+      archiveSessionsProject,
       deleteProject,
-      expanded,
+      expansion,
       importProject,
-      isSelectingFolder,
+      isAddingProject,
       mutations,
       onboarding,
       ordered,
+      setArchiveSessionsProject,
       setDeleteProject,
-      setExpanded,
       setImportProject,
       setSettingsProject,
       settingsProject,
@@ -164,10 +155,11 @@ function useProjectTreeController(props: ProjectTreeProps) {
     }),
     [
       addProject,
+      archiveSessionsProject,
       deleteProject,
-      expanded,
+      expansion,
       importProject,
-      isSelectingFolder,
+      isAddingProject,
       mutations,
       onboarding,
       ordered,
@@ -181,34 +173,98 @@ export type ProjectTreeController = ReturnType<typeof useProjectTreeController>;
 
 export function ProjectTree(props: ProjectTreeProps) {
   const controller = useProjectTreeController(props);
+  const filterQuery = useSidebarFilterQuery();
+  const treeRef = useRef<HTMLDivElement>(null);
+  const projectSort = useSidebarOption("projectSort");
+  const mode = useSidebarListMode();
+  // A cross-project list reveals its own open row (it is virtualized).
+  useRevealActiveRow(treeRef, mode.kind === "tree" ? props.activeFeatureId : null);
+  const showsSamples = useSidebarSamplePreview() !== null;
+  const fold = useSidebarSectionFold("projects");
+  const reorder = useSidebarSectionReorder("projects");
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+    <div
+      data-sidebar-section="projects"
+      {...reorder.target}
+      className="relative flex min-w-0 flex-col gap-2 not-last:mb-3"
+    >
       <SidebarProjectsHeader
+        fold={fold}
+        dragHandle={reorder.handle}
         onAddProject={controller.addProject}
-        isAddingProject={
-          controller.isSelectingFolder || controller.mutations.createProject.isPending
-        }
+        isAddingProject={controller.isAddingProject}
         canAddProject={isDesktopShell()}
-        onRefresh={() => void controller.ordered.refresh()}
+        onRefresh={
+          mode.kind !== "tree" || projectSort !== "frozen"
+            ? undefined
+            : () => void controller.ordered.refresh()
+        }
         isRefreshing={controller.ordered.isRefreshing}
       />
-      <ScrollArea className="flex-1 min-h-0 min-w-0 overflow-hidden">
-        <div className="flex min-w-0 flex-col gap-0.5 px-1">
-          {controller.ordered.projects.map((project) => (
+      {!fold.expanded ? null : showsSamples ? (
+        <div data-sidebar-sample className="flex min-w-0 flex-col gap-0.5 px-1">
+          <SampleScope>
+            <SidebarSampleTree />
+            <SidebarSampleRail />
+          </SampleScope>
+        </div>
+      ) : (
+        <div ref={treeRef} data-sidebar-tree className="flex min-w-0 flex-col gap-0.5 px-1">
+          {mode.kind !== "tree" ? (
+            <SidebarCrossProjectList
+              mode={mode}
+              activeFeatureId={props.activeFeatureId}
+              onSelectFeature={props.onSelectFeature}
+            />
+          ) : (
+            <ProjectTreeRows props={props} controller={controller} filterQuery={filterQuery} />
+          )}
+        </div>
+      )}
+      <ProjectTreeDialogs controller={controller} />
+    </div>
+  );
+}
+
+function ProjectTreeRows({
+  props,
+  controller,
+  filterQuery,
+}: {
+  props: ProjectTreeProps;
+  controller: ProjectTreeController;
+  filterQuery: string;
+}) {
+  return (
+    <>
+      {filterQuery ? (
+        <FilteredProjectList
+          projects={controller.ordered.projects}
+          query={filterQuery}
+          renderProject={(project, match) => (
             <ProjectTreeRow
               key={project.id}
               project={project}
               props={props}
               controller={controller}
+              filterMatch={match}
             />
-          ))}
-          {controller.ordered.projects.length === 0 && (
-            <p className="px-2 py-4 text-center text-xs text-muted-foreground">No projects yet</p>
           )}
-        </div>
-      </ScrollArea>
-      <ProjectTreeDialogs controller={controller} />
-    </div>
+        />
+      ) : (
+        controller.ordered.projects.map((project) => (
+          <ProjectTreeRow
+            key={project.id}
+            project={project}
+            props={props}
+            controller={controller}
+          />
+        ))
+      )}
+      {controller.ordered.projects.length === 0 && (
+        <p className="px-2 py-4 text-center text-xs text-muted-foreground">No projects yet</p>
+      )}
+    </>
   );
 }
 
@@ -216,135 +272,51 @@ function ProjectTreeRow({
   project,
   props,
   controller,
+  filterMatch,
 }: {
   project: ProjectSummary;
   props: ProjectTreeProps;
   controller: ProjectTreeController;
+  /** Set while the sidebar filter is active: the row is held open on its matches. */
+  filterMatch?: ProjectFilterMatch;
 }) {
-  const isExpanded = controller.expanded[project.id] ?? false;
+  const isFiltering = filterMatch !== undefined;
+  const isExpanded = isFiltering || controller.expansion.expandedIds.has(project.id);
   const isActive = props.activeProjectId === project.id;
-  const toggle = (): void =>
-    controller.setExpanded((previous) => ({ ...previous, [project.id]: !previous[project.id] }));
+  const sticky = useSidebarOption("stickyHeaders") && isExpanded;
+  // Folding a project the filter holds open would silently flip its remembered state.
+  const toggle = (): void => {
+    if (!isFiltering) controller.expansion.setExpanded(project.id, !isExpanded);
+  };
   return (
     <div>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <ProjectRowButton projectId={project.id} isActive={isActive} onClick={toggle}>
-            {isExpanded ? (
-              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-            )}
-            <ProjectBadge projectId={project.id} />
-            <span className="min-w-0 truncate">{project.name}</span>
-            <ProjectRowActions project={project} controller={controller} />
-          </ProjectRowButton>
-        </ContextMenuTrigger>
-        <ProjectRowContextMenu project={project} controller={controller} />
-      </ContextMenu>
+      {/* Held at the top while the project's conversations scroll under it. */}
+      <div
+        data-sidebar-sticky-header={sticky || undefined}
+        className={sticky ? STICKY_HEADER_CLASS : undefined}
+      >
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <ProjectRowButton projectId={project.id} isActive={isActive} onClick={toggle}>
+              <ProjectRowLabel projectId={project.id} name={project.name} expanded={isExpanded} />
+              {!isExpanded && <ProjectRowAttention projectId={project.id} />}
+              <ProjectRowActions project={project} controller={controller} />
+            </ProjectRowButton>
+          </ContextMenuTrigger>
+          <ProjectRowContextMenu project={project} controller={controller} />
+        </ContextMenu>
+      </div>
       {isExpanded && (
-        <ProjectFeatures
-          projectId={project.id}
-          projectPath={project.path}
-          activeFeatureId={isActive ? props.activeFeatureId : null}
-          onSelectFeature={props.onSelectFeature}
-        />
+        <div className="sidebar-project-children" data-active={isActive || undefined}>
+          <ProjectFeatures
+            projectId={project.id}
+            projectPath={project.path}
+            activeFeatureId={isActive ? props.activeFeatureId : null}
+            onSelectFeature={props.onSelectFeature}
+            filterMatch={filterMatch}
+          />
+        </div>
       )}
     </div>
-  );
-}
-
-function ProjectRowActions({
-  project,
-  controller,
-}: {
-  project: ProjectSummary;
-  controller: ProjectTreeController;
-}) {
-  const target = { id: project.id, name: project.name };
-  return (
-    <div className="ml-auto flex shrink-0 items-center gap-0.5">
-      <span
-        role="button"
-        tabIndex={0}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent"
-        onClick={(event) => {
-          event.stopPropagation();
-          controller.startSession(project.id);
-        }}
-      >
-        <PlusIcon className="h-3.5 w-3.5" />
-      </span>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <span
-            role="button"
-            tabIndex={0}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent can-hover:opacity-0 can-hover:focus-visible:opacity-100 can-hover:group-hover/project:opacity-100"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <Ellipsis className="h-3.5 w-3.5" />
-          </span>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setSettingsProject(target);
-            }}
-          >
-            <Settings className="size-4" /> Project Settings
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setImportProject(target);
-            }}
-          >
-            <Download className="size-4" /> Import existing sessions
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setDeleteProject(target);
-            }}
-          >
-            <Trash2 className="size-4" /> Delete Project
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
-
-function ProjectRowContextMenu({
-  project,
-  controller,
-}: {
-  project: ProjectSummary;
-  controller: ProjectTreeController;
-}) {
-  const target = { id: project.id, name: project.name };
-  return (
-    <ContextMenuContent>
-      <ContextMenuActionItem icon={PlusIcon} onSelect={() => controller.startSession(project.id)}>
-        New Session
-      </ContextMenuActionItem>
-      <ContextMenuSeparator />
-      <ContextMenuActionItem icon={Settings} onSelect={() => controller.setSettingsProject(target)}>
-        Project Settings
-      </ContextMenuActionItem>
-      <ContextMenuActionItem icon={Download} onSelect={() => controller.setImportProject(target)}>
-        Import existing sessions
-      </ContextMenuActionItem>
-      <ContextMenuActionItem
-        icon={Trash2}
-        variant="destructive"
-        onSelect={() => controller.setDeleteProject(target)}
-      >
-        Delete Project
-      </ContextMenuActionItem>
-    </ContextMenuContent>
   );
 }

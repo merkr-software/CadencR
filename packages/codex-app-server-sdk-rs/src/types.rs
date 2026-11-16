@@ -43,6 +43,13 @@ pub enum AppServerEvent {
     },
 }
 
+/// How an app-server process ended on its own (not stopped by its client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppServerExit {
+    pub code: Option<i32>,
+    pub signal: Option<i32>,
+}
+
 #[derive(Debug, Clone)]
 pub struct CodexServiceTier {
     pub id: String,

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useMonoFont } from "./mono-font-setting";
@@ -6,8 +7,8 @@ import { DEFAULT_MONO_STACK } from "./constants";
 const setValue = vi.fn();
 let mockValue: string | null = null;
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: () => ({ value: mockValue, setValue, isLoading: false }),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: () => ({ value: mockValue, setValue, isLoading: false }),
 }));
 
 describe("useMonoFont", () => {

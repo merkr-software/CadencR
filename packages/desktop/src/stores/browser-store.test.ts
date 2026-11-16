@@ -32,9 +32,6 @@ function snapshot(scopeId: number | null, tabCount: number): BrowserStateSnapsho
       scopeId,
     })),
     activeTabId: tabCount > 0 ? `tab-${scopeId}-0` : null,
-    consoleEntries: [],
-    networkEntries: [],
-    knownOrigins: [],
     error: null,
   };
 }

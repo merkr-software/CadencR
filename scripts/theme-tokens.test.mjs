@@ -6,7 +6,7 @@ import test from "node:test";
 
 /**
  * The closed set of theme design tokens is declared twice — the renderer needs
- * it to duplicate a built-in theme, the service needs it to validate what lands
+ * it to duplicate a built-in theme, the shared Rust core validates what lands
  * on disk — and neither language can import the other's list.
  *
  * Drift between them is silent and nasty in both directions: a token only the
@@ -17,7 +17,8 @@ import test from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TS_FILE = join(repoRoot, "packages/desktop/src/lib/themes/tokens.ts");
-const RS_FILE = join(repoRoot, "packages/service/src/domain/themes/tokens.rs");
+const RS_FILE = join(repoRoot, "packages/plugin-core/src/theme/tokens.rs");
+const SERVICE_FILE = join(repoRoot, "packages/service/src/domain/themes/tokens.rs");
 
 /** Extract the `"--token",` entries from a bracketed list, ignoring comments. */
 function tokensBetween(source, startMarker) {
@@ -48,7 +49,13 @@ test("the frontend and service theme token lists are identical", () => {
   const ts = readTsTokens();
   const rs = readRustTokens();
   assert.ok(ts.length > 50, `expected a full token set, got ${ts.length}`);
-  assert.deepEqual(rs, ts, "packages/service/.../tokens.rs must match lib/themes/tokens.ts");
+  assert.deepEqual(rs, ts, "plugin-core theme tokens must match lib/themes/tokens.ts");
+});
+
+test("the service consumes the shared Rust theme tokens", () => {
+  const source = readFileSync(SERVICE_FILE, "utf8");
+  assert.match(source, /pub use cadencr_plugin_core::theme::tokens::\*;/);
+  assert.doesNotMatch(source, /pub const (?:REQUIRED|OPTIONAL)_TOKENS/);
 });
 
 test("the optional chrome token lists are identical too", () => {

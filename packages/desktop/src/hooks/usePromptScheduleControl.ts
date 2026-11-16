@@ -21,6 +21,8 @@ interface UsePromptScheduleControlParams {
   /** Whether there is schedulable text right now (drives the disabled state). */
   enabled: boolean;
   textRef: MutableRefObject<string>;
+  /** Rewrites the scheduled text like a send (the skill wizard's flags); history keeps it as typed. */
+  decorate: (text: string) => string;
   editorRef: RefObject<PromptEditorHandle | null>;
   setText: (text: string) => void;
   saveDraft: (text: string | null) => void;
@@ -33,6 +35,7 @@ export function usePromptScheduleControl({
   featureId,
   enabled,
   textRef,
+  decorate,
   editorRef,
   setText,
   saveDraft,
@@ -52,8 +55,8 @@ export function usePromptScheduleControl({
   const requestSchedule = useCallback(() => {
     const trimmed = textRef.current.trim();
     if (!trimmed) return;
-    onScheduleRequest?.(trimmed, onScheduled);
-  }, [onScheduleRequest, onScheduled, textRef]);
+    onScheduleRequest?.(decorate(trimmed), onScheduled);
+  }, [decorate, onScheduleRequest, onScheduled, textRef]);
 
   // Stable object so the prompt-bar action group can stay memoized.
   return useMemo(() => {

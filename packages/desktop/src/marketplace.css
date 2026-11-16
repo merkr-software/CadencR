@@ -1,0 +1,396 @@
+/*
+ * Marketplace — the plugin catalog page and plugin detail pages.
+ *
+ * Kind tones come from the theme's categorical chart palette: a plugin kind is
+ * a category, never a status, so it must not borrow --primary or the reserved
+ * status colors. A future kind takes the next free chart slot.
+ */
+.mp-kind-theme {
+  --mp-kind: var(--chart-2);
+}
+.mp-kind-provider {
+  --mp-kind: var(--chart-4);
+}
+/* A plugin listing (several kinds in one release); its chips keep their own kinds' tones. */
+.mp-kind-plugin {
+  --mp-kind: var(--chart-5);
+}
+
+/* ── Kind chip ─────────────────────────────────────────────────────────── */
+.mp-kind-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px 0 6px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: color-mix(in oklab, var(--mp-kind) 78%, var(--foreground));
+  background: color-mix(in oklab, var(--mp-kind) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--mp-kind) 24%, transparent);
+  white-space: nowrap;
+}
+
+/* ── Monogram mark (no package icon yet): the rail-tile grammar ────────── */
+.mp-mark {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 22%;
+  background: color-mix(in oklab, var(--mp-kind) 14%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--mp-kind) 30%, transparent);
+  color: color-mix(in oklab, var(--mp-kind) 70%, var(--foreground));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.mp-mark img {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+}
+
+/* ── Tile ──────────────────────────────────────────────────────────────── */
+.mp-tile {
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: var(--card);
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+.mp-tile:hover {
+  border-color: color-mix(in oklab, var(--foreground) 22%, var(--border));
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px -16px color-mix(in oklab, var(--foreground) 45%, transparent);
+}
+.mp-tile:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.mp-tile-art {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  background: color-mix(in oklab, var(--mp-kind) 6%, var(--surface-sunken, var(--muted)));
+}
+
+/* ── Theme stage: a miniature workspace painted with the theme's tokens ── */
+.mp-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 26% 1fr;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+}
+/* Only a painted stage animates: a preview landing is the one authored moment,
+ * an app theme switch repainting outline stages is not. */
+.mp-stage:not([data-unpainted]) * {
+  transition:
+    background-color 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 420ms ease;
+}
+.mp-stage-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 5%;
+  padding: 9% 8%;
+  background: var(--sidebar);
+  border-right: 1px solid var(--sidebar-border);
+}
+.mp-stage-row {
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--sidebar-foreground) 34%, transparent);
+}
+.mp-stage-row[data-active] {
+  height: 9px;
+  background: color-mix(in oklab, var(--primary) 26%, transparent);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.mp-stage-page {
+  display: flex;
+  flex-direction: column;
+  gap: 6%;
+  min-width: 0;
+  padding: 5% 6%;
+}
+.mp-stage-tabs {
+  display: flex;
+  gap: 6%;
+  padding-bottom: 3%;
+  border-bottom: 1px solid var(--border);
+}
+.mp-stage-tab {
+  width: 16%;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+.mp-stage-tab[data-active] {
+  background: var(--primary);
+}
+.mp-stage-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4% 5%;
+  border-radius: 4px;
+}
+.mp-stage-block[data-kind="thinking"] {
+  background: var(--block-thinking-bg);
+  box-shadow: inset 2px 0 0 var(--block-thinking-accent);
+}
+.mp-stage-block[data-kind="diff"] {
+  background: var(--code-bg);
+}
+.mp-stage-line {
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--foreground) 42%, transparent);
+}
+.mp-stage-line[data-tone="thinking"] {
+  background: color-mix(in oklab, var(--block-thinking-accent) 70%, transparent);
+}
+.mp-stage-line[data-tone="add"] {
+  background: var(--numstat-add-fg, var(--acc-green));
+}
+.mp-stage-line[data-tone="del"] {
+  background: var(--numstat-del-fg, var(--acc-red));
+}
+.mp-stage-line[data-tone="code"] {
+  background: color-mix(in oklab, var(--code-fg) 45%, transparent);
+}
+.mp-stage-composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 3% 4%;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+}
+.mp-stage-send {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--primary);
+}
+/* Before a verified preview exists the stage is drawn in outline only: the
+ * current app theme must never stand in for an unknown theme's colors. */
+.mp-stage[data-unpainted] {
+  background: color-mix(in oklab, var(--muted) 45%, var(--background));
+}
+.mp-stage[data-unpainted] :is(.mp-stage-rail, .mp-stage-block, .mp-stage-composer) {
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+.mp-stage[data-unpainted]
+  :is(.mp-stage-row, .mp-stage-tab, .mp-stage-line, .mp-stage-send, .mp-stage-row[data-active]) {
+  background: color-mix(in oklab, var(--foreground) 12%, transparent);
+  box-shadow: none;
+}
+
+/* ── Provider stage: the composer, its agent picker opened upward ───────── */
+.mp-composer-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 7% 8%;
+  font-size: 12.5px;
+  background: color-mix(in oklab, var(--mp-kind) 5%, var(--surface-sunken, var(--muted)));
+}
+.mp-composer-stage[data-compact] {
+  gap: 6px;
+  padding: 0 9% 9%;
+  font-size: 11.5px;
+}
+.mp-menu {
+  width: min(72%, 320px);
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  box-shadow: 0 14px 32px -16px color-mix(in oklab, var(--foreground) 45%, transparent);
+}
+.mp-composer-stage[data-compact] .mp-menu {
+  width: 86%;
+  padding: 3px;
+  border-radius: 8px;
+}
+.mp-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.mp-composer-stage[data-compact] .mp-menu-row {
+  height: 24px;
+  padding: 0 6px;
+}
+.mp-menu-row[data-active] {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+.mp-menu-blank-mark {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+.mp-menu-blank-line {
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+.mp-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.mp-composer-stage[data-compact] .mp-composer {
+  padding: 6px;
+  border-radius: 9px;
+}
+.mp-composer-placeholder {
+  width: 46%;
+  height: 6px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+.mp-composer-picker {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 5px;
+  border-radius: 7px;
+  font-weight: 500;
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+.mp-composer-send {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border-radius: 7px;
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+/* ── Spotlight ─────────────────────────────────────────────────────────── */
+.mp-spotlight {
+  background: var(--card);
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+}
+.mp-spotlight-enter {
+  animation: mp-spotlight-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes mp-spotlight-in {
+  from {
+    opacity: 0.35;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-tile,
+  .mp-stage:not([data-unpainted]) * {
+    transition: none;
+  }
+  .mp-tile:hover {
+    transform: none;
+  }
+  .mp-spotlight-enter {
+    animation: none;
+  }
+}
+html[data-animations="off"] :is(.mp-tile, .mp-stage:not([data-unpainted]) *) {
+  transition: none;
+}
+html[data-animations="off"] .mp-spotlight-enter {
+  animation: none;
+}
+
+.mp-kind-tab {
+  --mp-kind: var(--chart-3);
+}
+
+/* Skills and MCP servers install into the agent CLIs, not into Cadencr. */
+/* --chart-6 is optional: a theme without it gets a mix no other kind uses. */
+.mp-kind-skill {
+  --mp-kind: var(--chart-6, color-mix(in oklch, var(--chart-2), var(--chart-4)));
+}
+.mp-kind-mcp {
+  --mp-kind: var(--chart-1);
+}
+
+/* ── Agent extension art: the command the agent CLI will run, and which
+ * CLIs carry it (filled) or could (faded). Never a fake preview. ─────────── */
+.mp-agent-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 7% 7% 6%;
+}
+.mp-agent-command {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: color-mix(in oklab, var(--background) 80%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--mp-kind) 22%, transparent);
+  color: color-mix(in oklab, var(--mp-kind) 55%, var(--foreground));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mp-agent-command::before {
+  content: "$ ";
+  color: var(--muted-foreground);
+}
+.mp-agent-carriers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mp-agent-carrier {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 85%, transparent);
+}
+.mp-agent-carrier[data-absent] {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+
+.mp-kind-lsp {
+  --mp-kind: var(--acc-cyan);
+}

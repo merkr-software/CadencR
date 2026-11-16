@@ -67,14 +67,20 @@ export function useResolvedShortcut(id: ShortcutId): {
   keys: ShortcutKey[];
   altKeys?: ShortcutKey[];
 } {
-  const override = useShortcutOverridesStore((s) => {
-    const current = s.overrides[id];
-    if (current) return current;
-    for (const legacyId of LEGACY_OVERRIDE_IDS[id] ?? []) {
-      const legacy = s.overrides[legacyId];
-      if (legacy) return legacy;
-    }
-    return undefined;
-  });
+  const override = useShortcutOverridesStore((s) => findOverride(s.overrides, id));
   return override ?? getRegistryShortcut(id);
+}
+
+/** The user's binding for `id`, under its current or a legacy id. */
+export function findOverride(
+  overrides: Readonly<Record<string, ShortcutOverride>>,
+  id: ShortcutId,
+): ShortcutOverride | undefined {
+  const current = overrides[id];
+  if (current) return current;
+  for (const legacyId of LEGACY_OVERRIDE_IDS[id] ?? []) {
+    const legacy = overrides[legacyId];
+    if (legacy) return legacy;
+  }
+  return undefined;
 }

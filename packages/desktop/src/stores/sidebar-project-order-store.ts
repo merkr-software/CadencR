@@ -17,18 +17,18 @@
  * - Manual refresh: the caller refetches and then calls `freeze` with the
  *   fresh backend order, re-adopting the canonical sort.
  *
- * Conversations are intentionally NOT frozen here — they re-sort on every
- * fetch straight from the backend.
+ * Conversations use the same merge but unfreeze when a turn ends — see
+ * `useStableFeatureOrder`.
  *
  * Being in-memory, the store resets on a full app reload/restart, which is
  * exactly when projects are meant to re-sort.
  */
 import { create } from "zustand";
-import { intArraysEqual } from "@/lib/utils";
+import { reconcileFrozenOrder } from "@/lib/frozen-order";
 
 interface SidebarProjectOrderState {
   /** Frozen display order of project ids; `null` until the first fetch. */
-  order: number[] | null;
+  order: readonly number[] | null;
   /**
    * Merge the latest fetched project ids into the frozen order.
    * First fetch adopts the backend order; later fetches keep it (adding new
@@ -44,14 +44,10 @@ export const useSidebarProjectOrderStore = create<SidebarProjectOrderState>((set
   reconcile: (fetchedIds) =>
     set((state) => {
       if (state.order === null) return { order: fetchedIds };
-      const fetched = new Set(fetchedIds);
-      const known = new Set(state.order);
-      const newIds = fetchedIds.filter((id) => !known.has(id));
-      const kept = state.order.filter((id) => fetched.has(id));
-      const next = [...newIds, ...kept];
-      // Return the same reference when nothing changed so consumers don't
-      // re-render on every no-op background refetch.
-      return intArraysEqual(next, state.order) ? state : { order: next };
+      const next = reconcileFrozenOrder(state.order, fetchedIds);
+      // Keep the same state when nothing changed so consumers don't re-render
+      // on every no-op background refetch.
+      return next === state.order ? state : { order: next };
     }),
   freeze: (fetchedIds) => set({ order: fetchedIds }),
 }));

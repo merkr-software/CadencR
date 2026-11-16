@@ -53,7 +53,11 @@ export const GitBadge = memo(function GitBadge({
 
   return (
     <>
-      {branch && <span className="truncate max-w-[120px]">{branch}</span>}
+      {branch && (
+        <span data-tab-branch className="truncate max-w-[120px]">
+          {branch}
+        </span>
+      )}
       {indicator && (
         <BadgeWithTooltip
           glyph={indicator.glyph}

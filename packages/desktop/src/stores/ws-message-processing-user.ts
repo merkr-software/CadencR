@@ -1,18 +1,8 @@
 import type { BlockMutation, ParserSignals, StreamingState } from "./ws-message-processing-core";
 import { nextSyntheticBlockId } from "./ws-message-processing-utils";
 import { messageDbId } from "./ws-message-identity";
-
-/**
- * Claude's harness may run a Task/Agent subagent asynchronously. Instead of the
- * subagent's output, the Agent tool_result then carries a fixed launch ack —
- * "Async agent launched successfully. … The agent is working in the background."
- * Detect it so we don't mistake the ack for completion. Matching two stable
- * phrases (rather than one) keeps a real subagent report that happens to mention
- * "background" from tripping this.
- */
-function isBackgroundAgentLaunchAck(content: string): boolean {
-  return content.includes("Async agent launched") && content.includes("in the background");
-}
+import { isBackgroundLaunchAck } from "@/lib/subagents/subagent-report";
+import { isSubagentToolName } from "@/lib/tool-display-policy";
 
 export function processUserMessage(
   msg: Record<string, unknown>,
@@ -47,7 +37,7 @@ export function processUserMessage(
     const toolUseId = item.tool_use_id as string;
     const matchingBlock = state.toolUseIdToBlock.get(toolUseId);
     const sourceToolName = matchingBlock?.toolName ?? "unknown";
-    const isSubagentResult = sourceToolName === "Agent" || sourceToolName === "Task";
+    const isSubagentResult = isSubagentToolName(sourceToolName);
     const rawContent =
       typeof item.content === "string" ? item.content : JSON.stringify(item.content ?? "");
 
@@ -61,7 +51,7 @@ export function processUserMessage(
       // the ack (it is internal metadata the model is told never to surface).
       // A foreground subagent, by contrast, returns its actual output here — the
       // authoritative "it finished" signal, so complete it now (feedback #2).
-      if (isBackgroundAgentLaunchAck(rawContent)) {
+      if (isBackgroundLaunchAck(rawContent)) {
         matchingBlock.taskBackground = true;
         continue;
       }

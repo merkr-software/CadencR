@@ -49,12 +49,18 @@ nvm use
 corepack enable
 ```
 
+`nvm use` and `nvm install` read the version from `.nvmrc`. To switch
+automatically whenever you `cd` into the repo, use nvm's
+[shell integration](https://github.com/nvm-sh/nvm#deeper-shell-integration) or
+[fnm](https://github.com/Schniz/fnm) with `fnm env --use-on-cd`.
+
 Install workspace dependencies from the lockfile:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @cadencr/desktop ensure:electron
 ```
+
+`pnpm setup:dev` (below) installs the Electron binary.
 
 ## Rust
 
@@ -65,30 +71,29 @@ curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init https://sh.rustup.rs
 chmod +x /tmp/rustup-init
 /tmp/rustup-init -y --profile minimal
 . "$HOME/.cargo/env"
-rustup component add rustfmt clippy
-cargo install cargo-watch --locked
+rustup toolchain install   # in the repo root: the toolchain, rustfmt and clippy from rust-toolchain.toml
+cargo install --locked watchexec-cli
 ```
 
-Optional, but useful for warming the cache before the first dev launch:
-
-```bash
-cargo fetch
-cargo check
-```
+`pnpm dev` uses watchexec to restart the Rust service on changes; an existing
+`cargo-watch` install also works as a fallback.
 
 ## Local environment files
 
-Create local env files from the examples:
+From the repository root of the main checkout:
 
 ```bash
-cp packages/service/.env.example packages/service/.env
-cp packages/desktop/.env.example packages/desktop/.env
+pnpm setup:dev --precompile
+pnpm doctor
 ```
 
-Set the same random local token in both files:
-
-- `CADENCR_AUTH_TOKEN` in `packages/service/.env`
-- `VITE_API_TOKEN` in `packages/desktop/.env`
+`pnpm setup:dev` creates `packages/service/.env` and `packages/desktop/.env`
+from their examples when missing, writes one random token to both
+`CADENCR_AUTH_TOKEN` and `VITE_API_TOKEN`, and installs the Electron binary;
+`--precompile` also builds the Rust targets so the first `pnpm dev` is not a
+cold Cargo build. `pnpm doctor` checks Node, pnpm, Rust, the watcher, both
+`.env` files, and Electron, and prints a fix for each problem. In a linked Git
+worktree, run `pnpm dev:configure-worktree` instead of `pnpm setup:dev`.
 
 Keep the default ports unless they conflict with another local process:
 
@@ -156,6 +161,7 @@ The service may also warn that `claude` or `opencode` are not installed. That on
 After setup, these commands should pass:
 
 ```bash
+pnpm doctor
 pnpm --filter @cadencr/desktop ts-check
 pnpm --filter @cadencr/service lint
 ```

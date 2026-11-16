@@ -18,6 +18,11 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::host::GitHost;
+use super::service::branch_identity;
+
+/// What `git status` reports as the branch of a detached HEAD.
+pub const DETACHED_HEAD: &str = "(detached)";
+use super::linked_branches::ThreadBranch;
 use super::models::GitOperationKind;
 
 /// One-shot snapshot of the worktree's git state. Field semantics:
@@ -43,6 +48,9 @@ use super::models::GitOperationKind;
 /// - `host` / `compare_url` / `action_label` are populated only when a remote
 ///   exists. The frontend disables the open-PR button when `compare_url` is
 ///   `None`.
+/// - `thread_branches` lists the conversation's branches; the current one
+///   (first, `is_current`) can differ from `current_branch` when a
+///   worktree-free conversation's branch is no longer checked out.
 /// - `shared_with` lists OTHER features that point at the same worktree
 ///   directory (reuse-branch flow). Filled in by the caller via
 ///   `enrich_with_sharing` — `compute_status` itself leaves it empty.
@@ -89,7 +97,21 @@ pub struct GitStatusSnapshot {
     pub action_label: Option<String>,
     #[serde(default)]
     pub shared_with: Vec<SharedFeatureRef>,
+    /// Every branch of the conversation, the current one first. Filled in
+    /// by the caller via `enrich_snapshot`, like `shared_with`.
+    #[serde(default)]
+    pub thread_branches: Vec<ThreadBranch>,
     pub computed_at: i64,
+}
+
+impl GitStatusSnapshot {
+    /// The branch checked out, or `None` for a detached HEAD.
+    pub fn checked_out_branch(&self) -> Option<String> {
+        if self.current_branch == DETACHED_HEAD {
+            return None;
+        }
+        branch_identity(&self.current_branch)
+    }
 }
 
 /// Lightweight pointer to another feature that shares the same worktree

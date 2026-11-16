@@ -57,10 +57,64 @@ function isUnifiedAgentsFilterTokenTextNode(node: TextNode): boolean {
 }
 
 export function normalizeUnifiedAgentsFilterTextNode(node: TextNode): void {
-  const filterKey = getUnifiedAgentsFilterTokenKey(node.getTextContent());
-  const nextStyle = filterKey ? filterTokenStyle(filterKey) : "";
+  if (mergeContinuedToken(node)) return;
+  if (splitOutFilterTokens(node)) return;
+  const nextStyle = filterStyleForText(node.getTextContent());
   if (node.getStyle() !== nextStyle) node.setStyle(nextStyle);
-  if (!filterKey && isSelectionInsideTextNode(node)) clearCurrentSelectionStyle();
+  if (!nextStyle && isSelectionInsideTextNode(node)) clearCurrentSelectionStyle();
+}
+
+/**
+ * The selection keeps the style it had before a node turned into a chip, and
+ * Lexical gives the next typed character a fresh node whenever the two
+ * disagree: typing `/last:all` left a `/last:a` chip followed by a plain
+ * `ll`. With no whitespace between them the two are one token, so fold them
+ * back together; the transform re-runs on the merged node and restyles it.
+ */
+function mergeContinuedToken(node: TextNode): boolean {
+  const previous = node.getPreviousSibling();
+  if ($isTextNode(previous) && continuesToken(previous, node)) {
+    previous.mergeWithSibling(node);
+    return true;
+  }
+  const next = node.getNextSibling();
+  if ($isTextNode(next) && continuesToken(node, next)) {
+    node.mergeWithSibling(next);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Only a node that is exactly one token can be a chip, but typing after a
+ * chip lands in the plain space node that follows it: `/last:20 /sort:x`
+ * left `/sort:x` inside ` /sort:x`, never styled. Cut every filter token out
+ * into its own node, styled at once: Lexical merges same-style neighbours
+ * back together before the transform could reach the pieces.
+ */
+function splitOutFilterTokens(node: TextNode): boolean {
+  const text = node.getTextContent();
+  const cuts = new Set<number>();
+  for (const token of tokenizeFilterText(text)) {
+    if (!getUnifiedAgentsFilterTokenKey(token.text)) continue;
+    cuts.add(token.start);
+    cuts.add(token.end);
+  }
+  cuts.delete(0);
+  cuts.delete(text.length);
+  if (cuts.size === 0) return false;
+  for (const piece of node.splitText(...[...cuts].sort((a, b) => a - b))) {
+    piece.setStyle(filterStyleForText(piece.getTextContent()));
+  }
+  return true;
+}
+
+function continuesToken(left: TextNode, right: TextNode): boolean {
+  const leftText = left.getTextContent();
+  const rightText = right.getTextContent();
+  if (leftText.length === 0 || rightText.length === 0) return false;
+  if (/\s$/.test(leftText) || /^\s/.test(rightText)) return false;
+  return leftText.startsWith("/");
 }
 
 export function insertPlainSpaceAfterFilterToken(): boolean {
@@ -127,11 +181,13 @@ function writeUnifiedAgentsFilterEditorText(
 }
 
 function createFilterEditorNode(text: string): LexicalNode {
-  const node = $createTextNode(text);
+  return $createTextNode(text).setStyle(filterStyleForText(text));
+}
+
+/** A chip's style when `text` is exactly one filter token, else none. */
+function filterStyleForText(text: string): string {
   const filterKey = getUnifiedAgentsFilterTokenKey(text);
-  if (!filterKey) return node;
-  node.setStyle(filterTokenStyle(filterKey));
-  return node;
+  return filterKey ? filterTokenStyle(filterKey) : "";
 }
 
 function isSelectionInsideTextNode(node: TextNode): boolean {
@@ -203,25 +259,31 @@ function filterTokenStyle(filterKey: UnifiedAgentsFilterKey): string {
     `background:${palette.background}`,
     `color:${palette.foreground}`,
     "padding:0 0.25rem",
-    "font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace",
+    "font-family:var(--font-mono)",
     "font-size:12px",
     "font-weight:600",
   ].join(";");
 }
 
+/** Chip colors come from the theme's accent tokens, so every theme (light
+ *  ones included) keeps them legible. */
 function filterTokenPalette(filterKey: UnifiedAgentsFilterKey): {
   border: string;
   background: string;
   foreground: string;
 } {
-  if (filterKey === "last") {
-    return { border: "#38bdf855", background: "#0ea5e91f", foreground: "#38bdf8" };
-  }
-  if (filterKey === "project") {
-    return { border: "#34d39955", background: "#10b9811f", foreground: "#34d399" };
-  }
-  if (filterKey === "pin") {
-    return { border: "#fbbf2455", background: "#f59e0b1f", foreground: "#fbbf24" };
-  }
-  return { border: "#a78bfa55", background: "#8b5cf61f", foreground: "#a78bfa" };
+  const accent = FILTER_TOKEN_ACCENT[filterKey];
+  return {
+    border: `color-mix(in oklab, ${accent} 40%, transparent)`,
+    background: `color-mix(in oklab, ${accent} 12%, transparent)`,
+    foreground: accent,
+  };
 }
+
+const FILTER_TOKEN_ACCENT: Record<UnifiedAgentsFilterKey, string> = {
+  last: "var(--acc-cyan)",
+  project: "var(--acc-green)",
+  pin: "var(--acc-yellow)",
+  sort: "var(--acc-purple)",
+  exclude: "var(--acc-purple)",
+};

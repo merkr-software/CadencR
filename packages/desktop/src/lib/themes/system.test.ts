@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { getTheme } from "./registry";
+import { setManagedThemes } from "./user-registry";
 import {
   DEFAULT_SYSTEM_DARK_THEME_ID,
   DEFAULT_SYSTEM_LIGHT_THEME_ID,
@@ -8,6 +10,25 @@ import {
 } from "./system";
 
 describe("system theme resolution", () => {
+  it("resolves saved managed system references only for the effective mode and appearance", () => {
+    setManagedThemes([{ ...getTheme("cadencr-dark"), id: "managed:midnight" }]);
+    const selection = {
+      manualTheme: "cadencr-light",
+      systemLightTheme: "cadencr-light",
+      systemDarkTheme: "managed:midnight",
+    };
+    expect(
+      resolveActiveThemeId({ ...selection, followSystem: false, systemAppearance: "dark" }),
+    ).toBe("cadencr-light");
+    expect(
+      resolveActiveThemeId({ ...selection, followSystem: true, systemAppearance: "dark" }),
+    ).toBe("managed:midnight");
+    expect(
+      resolveActiveThemeId({ ...selection, followSystem: true, systemAppearance: "light" }),
+    ).toBe("cadencr-light");
+    setManagedThemes([]);
+  });
+
   it("uses the manual theme when follow-system is disabled", () => {
     expect(
       resolveActiveThemeId({

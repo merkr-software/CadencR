@@ -58,6 +58,8 @@ async fn legacy_pool() -> sqlx::SqlitePool {
     .await
     .unwrap();
     super::test_fixtures::seed_applied_migrations_before(&pool, TARGET_VERSION).await;
+    super::test_fixtures::ensure_agent_session_context_window(&pool).await;
+    super::test_fixtures::ensure_user_message_count_prerequisites(&pool).await;
     pool
 }
 

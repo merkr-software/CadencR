@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MutableRefObject,
   type PointerEvent,
   type RefObject,
 } from "react";
@@ -13,6 +12,16 @@ import {
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 8;
 const BUTTON_STEP = 1.2;
+/** Inline fit never shrinks text below this; wider diagrams scroll instead. */
+const MIN_WIDTH_FIT = 0.75;
+/** Full-screen fit may enlarge a small diagram, up to this. */
+const MAX_CONTAIN_FIT = 2;
+
+/**
+ * `width`: fit the viewport's width, never enlarging (inline in a message).
+ * `contain`: fit the whole diagram in the viewport (full screen).
+ */
+type PanZoomFit = "width" | "contain";
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
@@ -75,28 +84,28 @@ function usePanHandlers(containerRef: RefObject<HTMLDivElement | null>): PanHand
   );
 }
 
+interface Size {
+  w: number;
+  h: number;
+}
+
+function fitScale(natural: Size, container: HTMLElement | null, fit: PanZoomFit): number {
+  const width = container?.clientWidth || natural.w;
+  if (fit === "width") return clamp(width / natural.w, MIN_WIDTH_FIT, 1);
+  const height = container?.clientHeight || natural.h;
+  return clamp(Math.min(width / natural.w, height / natural.h), MIN_SCALE, MAX_CONTAIN_FIT);
+}
+
+/** The injected SVG's natural size, from its `viewBox`; re-read for each new diagram. */
 function useDiagramMeasurement(
   svg: string,
-  containerRef: RefObject<HTMLDivElement | null>,
   contentRef: RefObject<HTMLDivElement | null>,
-  fitScaleRef: MutableRefObject<number>,
-  setScale: (scale: number) => void,
-): { w: number; h: number } | null {
-  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+): Size | null {
+  const [natural, setNatural] = useState<Size | null>(null);
   useLayoutEffect(() => {
-    const svgElement = contentRef.current?.querySelector("svg");
-    const box = svgElement?.viewBox?.baseVal;
-    if (!box || !box.width || !box.height) {
-      setNatural(null);
-      fitScaleRef.current = 1;
-      return;
-    }
-    setNatural({ w: box.width, h: box.height });
-    const containerWidth = containerRef.current?.clientWidth ?? box.width;
-    const fit = clamp(Math.min(1, containerWidth / box.width), MIN_SCALE, MAX_SCALE);
-    fitScaleRef.current = fit;
-    setScale(fit);
-  }, [containerRef, contentRef, fitScaleRef, setScale, svg]);
+    const box = contentRef.current?.querySelector("svg")?.viewBox?.baseVal;
+    setNatural(box && box.width && box.height ? { w: box.width, h: box.height } : null);
+  }, [contentRef, svg]);
   return natural;
 }
 
@@ -135,16 +144,20 @@ function useWheelZoom(
  *
  * `svg` is passed in only so a new diagram re-measures and re-fits.
  */
-export function usePanZoom(svg: string): PanZoom {
+export function usePanZoom(svg: string, fit: PanZoomFit = "width"): PanZoom {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
-  // Fit-to-width scale is derived once per diagram and only read by `reset`,
-  // so it lives in a ref rather than driving renders.
-  const fitScaleRef = useRef(1);
   // Scroll offset to apply after a zoom commits, to keep a point anchored.
   const pendingScroll = useRef<{ left: number; top: number } | null>(null);
-  const natural = useDiagramMeasurement(svg, containerRef, contentRef, fitScaleRef, setScale);
+  const natural = useDiagramMeasurement(svg, contentRef);
+  // Re-reads the viewport on every call, so `reset` fits a resized window again.
+  const computeFit = useCallback(
+    () => (natural ? fitScale(natural, containerRef.current, fit) : 1),
+    [natural, fit],
+  );
+  // Fit each newly measured diagram before it paints.
+  useLayoutEffect(() => setScale(computeFit()), [computeFit]);
   const { isPanning, onPointerDown, onPointerMove, onPointerUp } = usePanHandlers(containerRef);
 
   // Apply the anchored scroll offset once the new scale has laid out.
@@ -192,13 +205,15 @@ export function usePanZoom(svg: string): PanZoom {
       el.scrollLeft = 0;
       el.scrollTop = 0;
     }
-    setScale(fitScaleRef.current);
-  }, []);
+    setScale(computeFit());
+  }, [computeFit]);
 
   const contentStyle = useMemo<React.CSSProperties>(
     () =>
+      // `margin: auto` in the flex viewport centers a diagram smaller than the
+      // viewport and falls back to 0 when it overflows, so nothing is clipped.
       natural
-        ? { width: natural.w * scale, height: natural.h * scale, marginInline: "auto" }
+        ? { width: natural.w * scale, height: natural.h * scale, margin: "auto", flexShrink: 0 }
         : { width: "100%" },
     [natural, scale],
   );

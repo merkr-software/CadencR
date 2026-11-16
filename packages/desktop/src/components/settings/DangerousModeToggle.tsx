@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { AlertTriangle, ShieldOff } from "lucide-react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +40,7 @@ export function DangerousModeToggle({
   warningBody: ReactNode;
   variant?: "card" | "subsection";
 }): ReactNode {
-  const { value, setValue, isLoading } = useDebouncedSetting(settingKey, 0);
+  const { value, setValue, isLoading } = useSetting(settingKey);
   const enabled = value === "true";
   const [confirmOpen, setConfirmOpen] = useState(false);
 

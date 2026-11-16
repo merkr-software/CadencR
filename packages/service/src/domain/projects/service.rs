@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use super::models::{
-    Project, ProjectAuthoringTarget, ProjectModelSettings, ProjectProviderSettings, ProjectSetting,
-};
+use super::models::{Project, ProjectAuthoringTarget, ProjectSetting};
 use super::repository;
 use crate::error::AppError;
 use crate::shared::slug::slugify;
@@ -10,6 +8,25 @@ use sqlx::SqlitePool;
 
 pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> {
     repository::list_projects(pool).await
+}
+
+/// `AppError::NotFound` unless project `project_id` exists. Generic over the
+/// executor so a caller can check inside its own transaction.
+pub async fn ensure_project_exists<'e, E>(executor: E, project_id: i64) -> Result<(), AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?)")
+        .bind(project_id)
+        .fetch_one(executor)
+        .await?;
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(format!(
+            "project {project_id} not found"
+        )))
+    }
 }
 
 /// Resolve a project id to its on-disk canonical root. Returns
@@ -47,7 +64,7 @@ pub async fn resolve_feature_editor_root(
         if let Some(path) =
             crate::domain::workflow::worktree::resolve_live_worktree(pool, fid, &project_path)
                 .await
-                .map_err(AppError::Internal)?
+                .map_err(|error| AppError::internal(error))?
         {
             return std::fs::canonicalize(&path).map_err(|e| {
                 AppError::BadRequest(format!("cannot resolve feature {fid} worktree root: {e}"))
@@ -63,7 +80,9 @@ pub async fn create_project(
     path: &str,
 ) -> Result<Project, AppError> {
     let (clean_name, canonical_path) = validate_new_project(name, path)?;
-    repository::create_project(pool, &clean_name, &canonical_path).await
+    let project = repository::create_project(pool, &clean_name, &canonical_path).await?;
+    crate::domain::telemetry::product(crate::domain::telemetry::models::ProductEvent::ProjectAdded);
+    Ok(project)
 }
 
 /// Create a first-class user project that owns one locally-authored plugin.
@@ -79,7 +98,7 @@ pub async fn create_author_project(
     plugin_id: &str,
 ) -> Result<Project, AppError> {
     let (clean_name, canonical_path) = validate_new_project(name, path)?;
-    validate_plugin_id(plugin_id)?;
+    validate_plugin_id(authoring_target, plugin_id)?;
     repository::create_author_project()
         .pool(pool)
         .name(&clean_name)
@@ -90,8 +109,17 @@ pub async fn create_author_project(
         .await
 }
 
-fn validate_plugin_id(plugin_id: &str) -> Result<(), AppError> {
-    if !plugin_id.is_empty() && slugify(plugin_id) == plugin_id {
+/// A plugin id in the target's own grammar. Tab ids are URL host labels
+/// (inner `--` allowed, up to 64 bytes), which a slug round-trip would refuse;
+/// theme and provider ids are stable slugs.
+fn validate_plugin_id(target: ProjectAuthoringTarget, plugin_id: &str) -> Result<(), AppError> {
+    let valid = match target {
+        ProjectAuthoringTarget::Tab => cadencr_plugin_core::tab::is_valid_tab_id(plugin_id),
+        ProjectAuthoringTarget::Theme | ProjectAuthoringTarget::Provider => {
+            !plugin_id.is_empty() && slugify(plugin_id) == plugin_id
+        }
+    };
+    if valid {
         Ok(())
     } else {
         Err(AppError::BadRequest(
@@ -148,7 +176,7 @@ fn validate_new_project(name: &str, path: &str) -> Result<(String, String), AppE
     ))
 }
 
-pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
+pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<Vec<i64>, AppError> {
     repository::delete_project(pool, id).await
 }
 
@@ -166,38 +194,6 @@ pub async fn set_project_setting(
     value: &str,
 ) -> Result<(), AppError> {
     repository::set_project_setting(pool, project_id, key, value).await
-}
-
-pub async fn get_project_model_settings(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<ProjectModelSettings, AppError> {
-    repository::get_project_model_settings(pool, project_id).await
-}
-
-pub async fn set_project_model_setting(
-    pool: &SqlitePool,
-    project_id: i64,
-    model_type: &str,
-    model: &str,
-) -> Result<(), AppError> {
-    repository::set_project_model_setting(pool, project_id, model_type, model).await
-}
-
-pub async fn get_project_provider_settings(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<ProjectProviderSettings, AppError> {
-    repository::get_project_provider_settings(pool, project_id).await
-}
-
-pub async fn set_project_provider_setting(
-    pool: &SqlitePool,
-    project_id: i64,
-    provider_type: &str,
-    provider: &str,
-) -> Result<(), AppError> {
-    repository::set_project_provider_setting(pool, project_id, provider_type, provider).await
 }
 
 #[cfg(test)]
@@ -293,6 +289,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(project.plugin_id.as_deref(), Some("2026-theme"));
+    }
+
+    #[test]
+    fn plugin_ids_follow_their_targets_grammar() {
+        let long = format!("{}-2", "a".repeat(50));
+        for tab_id in ["a--b", long.as_str(), &"a".repeat(64)] {
+            assert!(validate_plugin_id(ProjectAuthoringTarget::Tab, tab_id).is_ok());
+        }
+        for bad in ["", "A", "-a", &"a".repeat(65)] {
+            assert!(validate_plugin_id(ProjectAuthoringTarget::Tab, bad).is_err());
+        }
+        for target in [
+            ProjectAuthoringTarget::Theme,
+            ProjectAuthoringTarget::Provider,
+        ] {
+            assert!(validate_plugin_id(target, "a--b").is_err());
+            assert!(validate_plugin_id(target, "acme-2").is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_project_exists_reports_not_found() {
+        let pool = migrated_pool().await;
+        assert!(matches!(
+            ensure_project_exists(&pool, 404).await,
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[test]

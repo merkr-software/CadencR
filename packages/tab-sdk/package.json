@@ -1,0 +1,111 @@
+{
+  "name": "@cadencr/tab-sdk",
+  "version": "0.2.0",
+  "description": "SDK for Cadencr custom tabs: connect to the host, read context and theme, call the plugin API, subscribe to streams.",
+  "keywords": [
+    "cadencr",
+    "custom-tab",
+    "plugin"
+  ],
+  "homepage": "https://cadencr.com/docs/tab-sdk/",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/merkr-software/CadencR.git",
+    "directory": "packages/tab-sdk"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./api": {
+      "types": "./src/plugin-api.ts",
+      "import": "./src/plugin-api.ts"
+    },
+    "./react": {
+      "types": "./src/react.tsx",
+      "import": "./src/react.tsx"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "import": "./src/testing/index.ts"
+    },
+    "./protocol": {
+      "types": "./src/protocol.ts",
+      "import": "./src/protocol.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./api": {
+        "types": "./dist/plugin-api.d.ts",
+        "import": "./dist/plugin-api.js"
+      },
+      "./react": {
+        "types": "./dist/react.d.ts",
+        "import": "./dist/react.js"
+      },
+      "./testing": {
+        "types": "./dist/testing/index.d.ts",
+        "import": "./dist/testing/index.js"
+      },
+      "./protocol": {
+        "types": "./dist/protocol.d.ts",
+        "import": "./dist/protocol.js"
+      },
+      "./package.json": "./package.json"
+    },
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "vitest run",
+    "ts-check": "tsc --noEmit",
+    "lint": "oxlint src/ scripts/",
+    "lint:fix": "oxlint --fix src/ scripts/",
+    "format": "oxfmt src/ scripts/ README.md",
+    "format:check": "oxfmt --check src/ scripts/ README.md",
+    "knip": "knip",
+    "vendor": "node ../../scripts/vendor-tab-packages.mjs",
+    "generate:api": "node ../../scripts/cargo-env.mjs cargo run --quiet --manifest-path ../service/Cargo.toml --bin dump-openapi -- --plugin-surface openapi.plugin.json && orval --config ./orval.config.ts && oxfmt src/generated/"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "happy-dom": "21.0.4",
+    "knip": "^6.41.0",
+    "orval": "8.41.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "4.1.12"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  }
+}

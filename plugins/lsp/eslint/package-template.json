@@ -1,0 +1,101 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [],
+      "description": "ESLint using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-eslint-v0.1.0/lsp-eslint-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "adapter/adapter.mjs",
+            "entry_sha256": "0172d93445006df53251e5f15fd07b8b81ce8690c6f00d315fc963afb0c5a705",
+            "entry_size": 5001,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
+            "size": 13919632
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-eslint-v0.1.0/lsp-eslint-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "adapter/adapter.mjs",
+            "entry_sha256": "0172d93445006df53251e5f15fd07b8b81ce8690c6f00d315fc963afb0c5a705",
+            "entry_size": 5001,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
+            "size": 13919632
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-eslint-v0.1.0/lsp-eslint-0.1.0-linux-x86_64.tar.gz",
+            "entry": "adapter/adapter.mjs",
+            "entry_sha256": "0172d93445006df53251e5f15fd07b8b81ce8690c6f00d315fc963afb0c5a705",
+            "entry_size": 5001,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
+            "size": 13919632
+          }
+        }
+      },
+      "id": "eslint",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "js",
+            "mjs",
+            "cjs"
+          ],
+          "filenames": [],
+          "id": "javascript"
+        },
+        {
+          "extensions": [
+            "jsx"
+          ],
+          "filenames": [],
+          "id": "javascriptreact"
+        },
+        {
+          "extensions": [
+            "ts",
+            "mts",
+            "cts"
+          ],
+          "filenames": [],
+          "id": "typescript"
+        },
+        {
+          "extensions": [
+            "tsx"
+          ],
+          "filenames": [],
+          "id": "typescriptreact"
+        }
+      ],
+      "license": "Apache-2.0 AND MIT",
+      "name": "ESLint",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "linter",
+      "root_markers": [
+        "eslint.config.js",
+        "eslint.config.mjs",
+        "eslint.config.cjs",
+        ".eslintrc.json",
+        "tsconfig.json",
+        "jsconfig.json",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

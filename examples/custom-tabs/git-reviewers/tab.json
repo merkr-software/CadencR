@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "git-reviewers",
+  "name": "Git reviewers",
+  "version": "0.1.0",
+  "description": "Who knows the code this branch changes: the people who wrote it, ranked from its Git history, to pick reviewers.",
+  "icon": "icon.svg",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "Reviewers" },
+  "permissions": ["git:read"],
+  "commands": [
+    {
+      "program": "git",
+      "reasoning": "Reads who changed each file this branch touches (git log) and your own Git identity (git config user.email), in this conversation's folder."
+    }
+  ]
+}

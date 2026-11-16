@@ -105,14 +105,13 @@ fn opencode_session_model(raw: Option<String>) -> Option<String> {
 }
 
 fn opencode_db_files() -> Result<Vec<PathBuf>, AppError> {
-    let Some(home) = dirs::home_dir() else {
+    let Some(dir) = super::opencode_data_dir() else {
         return Ok(Vec::new());
     };
-    let dir = home.join(".local").join("share").join("opencode");
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(AppError::Internal(format!("read {}: {err}", dir.display()))),
+        Err(err) => return Err(AppError::internal(format!("read {}: {err}", dir.display()))),
     };
     Ok(entries
         .flatten()

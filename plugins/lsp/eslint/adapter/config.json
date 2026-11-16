@@ -1,0 +1,47 @@
+{
+  "entry": "node_modules/vscode-langservers-extracted/bin/vscode-eslint-language-server",
+  "args": [
+    "--stdio"
+  ],
+  "initialization_options": {},
+  "workspace_configuration": {
+    "": {
+      "validate": "on",
+      "packageManager": "npm",
+      "useESLintClass": false,
+      "useFlatConfig": true,
+      "experimental": {
+        "useFlatConfig": false
+      },
+      "run": "onType",
+      "nodePath": null,
+      "workspaceFolder": {
+        "uri": "${workspaceUri}",
+        "name": "workspace"
+      },
+      "workingDirectory": {
+        "directory": "${workspace}"
+      },
+      "codeAction": {
+        "disableRuleComment": {
+          "enable": true
+        },
+        "showDocumentation": {
+          "enable": true
+        }
+      },
+      "codeActionOnSave": {
+        "enable": false,
+        "mode": "all"
+      },
+      "format": false,
+      "quiet": false,
+      "onIgnoredFiles": "off",
+      "options": {},
+      "rulesCustomizations": [],
+      "problems": {
+        "shortenToSingleLine": false
+      }
+    }
+  }
+}

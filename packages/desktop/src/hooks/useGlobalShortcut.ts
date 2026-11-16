@@ -1,6 +1,7 @@
 import { matchesKeyboardEvent, parseHotkey } from "@tanstack/hotkeys";
 import { useEffect, useRef } from "react";
 import { expandCharacterHotkey } from "@/lib/shortcuts/character-hotkeys";
+import { shellOwnsKeyEvent } from "@/lib/shortcuts/shell-keys";
 
 interface GlobalShortcutOptions {
   /** When false, the listener is not attached. Default: true. */
@@ -12,6 +13,18 @@ function normalizeTanStackShortcut(shortcut: string): string {
     .split("+")
     .map((part) => part.trim())
     .join("+");
+}
+
+/**
+ * An Alt/Option digit chord (Mod+Alt+1) matched by physical key. Option on
+ * macOS and AZERTY's unshifted digit row change what the key types (`¡`, `&`)
+ * but not which key it is. Chords without Alt keep the layout-aware match, so
+ * ⌘⇧! on QWERTY never reads as ⌘1.
+ */
+function matchesAltDigitByCode(e: KeyboardEvent, parsed: ReturnType<typeof parseHotkey>): boolean {
+  const key = parsed.key ?? "";
+  if (!parsed.alt || !/^[0-9]$/.test(key) || e.code !== `Digit${key}`) return false;
+  return e.altKey && e.ctrlKey === parsed.ctrl && e.metaKey === parsed.meta;
 }
 
 /**
@@ -49,10 +62,14 @@ export function useGlobalShortcut(
       })),
     );
     const handler = (e: KeyboardEvent) => {
-      if (!enabledRef.current) return;
+      if (!enabledRef.current || shellOwnsKeyEvent(e)) return;
       const matches = variants.some((variant) => {
-        if (variant.exactKeys && !variant.exactKeys.includes(e.key)) return false;
-        return matchesKeyboardEvent(e, variant.parsed);
+        // Keep navigation chords distinct from their Shift-modified variants.
+        if (e.shiftKey !== variant.parsed.shift) return false;
+        if (variant.exactKeys && !variant.exactKeys.includes(e.key)) {
+          return matchesAltDigitByCode(e, variant.parsed);
+        }
+        return matchesKeyboardEvent(e, variant.parsed) || matchesAltDigitByCode(e, variant.parsed);
       });
       if (matches) callbackRef.current(e);
     };

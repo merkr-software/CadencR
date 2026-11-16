@@ -11,7 +11,7 @@ import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
  */
 export function showRemoteConnectedToast(): void {
   toast("Device connected", {
-    description: "A remote device connected to this Mac.",
+    description: "A remote device connected to this computer.",
     action: {
       label: "View devices",
       onClick: () => useRemoteDialogStore.getState().openDialog({ focusDevices: true }),

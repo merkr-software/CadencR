@@ -95,15 +95,27 @@ describe("PlanApprovalBar", () => {
     expect(onReject).toHaveBeenCalledOnce();
   });
 
-  it("uses Escape to reject even while feedback is open", async () => {
+  it("Escape in the feedback field closes the field and keeps the plan", async () => {
     const onReject = vi.fn();
     const { user } = render(
       <PlanApprovalBar onApprove={vi.fn()} onRequestChanges={vi.fn()} onReject={onReject} />,
     );
     await user.click(screen.getByRole("button", { name: /request changes/i }));
+    const field = screen.getByPlaceholderText(/describe the changes/i);
+    await user.type(field, "shorter please");
 
     fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    fireEvent.keyDown(field, { key: "Escape", code: "Escape" });
 
+    expect(onReject).not.toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText(/describe the changes/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+  });
+
+  it("Escape rejects when the feedback field is closed", () => {
+    const onReject = vi.fn();
+    render(<PlanApprovalBar onApprove={vi.fn()} onRequestChanges={vi.fn()} onReject={onReject} />);
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
     expect(onReject).toHaveBeenCalledOnce();
   });
 

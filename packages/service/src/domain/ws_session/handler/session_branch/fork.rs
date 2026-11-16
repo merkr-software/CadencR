@@ -8,9 +8,10 @@
 //! first-class view + sidebar entry, so the originating client can navigate
 //! straight to it.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use tracing::info;
 
-use super::super::super::protocol::{BranchForkedPayload, WsEnvelope, WsSessionAction};
+use super::super::super::protocol::{BranchForkedPayload, WsEnvelope};
 use super::super::helpers::send_error;
 use super::super::types::{SdkSessions, WsSender};
 use super::fork_db::create_forked_feature;
@@ -38,7 +39,8 @@ pub(crate) async fn handle_fork(
 
     // Stop any live turn so the on-disk transcript is consistent before surgery.
     // The source session's conversation rows are left untouched.
-    stop_live_turn(sdk_sessions, app_state, db_session_id).await;
+    // Held until the fork is written: no runtime of the source starts meanwhile.
+    let _branching = stop_live_turn(sdk_sessions, app_state, db_session_id).await;
     let source_runtime_session_id =
         current_runtime_session_id(&app_state.read_pool, db_session_id).await;
 
@@ -89,14 +91,13 @@ pub(crate) async fn handle_fork(
         sender,
         &envelope.id,
         inputs.feature_id,
-        WsSessionAction::BranchForked,
-        BranchForkedPayload {
+        &WsSessionEvent::BranchForked(BranchForkedPayload {
             source_session_id: db_session_id.to_string(),
             new_session_id: fork.new_session_id.to_string(),
             new_feature_id: fork.new_feature_id,
             project_id: fork.project_id,
             draft_text: inputs.message_text.clone(),
-        },
+        }),
     )
     .await;
 }

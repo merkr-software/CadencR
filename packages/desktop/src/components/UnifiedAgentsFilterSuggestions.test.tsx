@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  KEY_ENTER_COMMAND,
-  KEY_TAB_COMMAND,
-  type LexicalCommand,
-  type LexicalEditor,
-} from "lexical";
+import { KEY_ENTER_COMMAND, KEY_TAB_COMMAND, createEditor, type LexicalEditor } from "lexical";
 import type { Project } from "@/api/generated";
 import type { UnifiedAgentsFilterSuggestion } from "@/components/UnifiedAgentsFilterLanguage";
 import {
@@ -44,6 +39,16 @@ describe("UnifiedAgentsFilterSuggestions", () => {
 
     expect(editor.run(KEY_ENTER_COMMAND, event)).toBe(true);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(onApply).toHaveBeenCalledWith(SORT_SUGGESTION);
+  });
+
+  it("applies a suggestion on a programmatic Enter without a keyboard event", () => {
+    const editor = createCommandEditor();
+    const onApply = vi.fn();
+
+    renderSuggestionKeyboard(editor.editor, [SORT_SUGGESTION], onApply);
+
+    expect(editor.run(KEY_ENTER_COMMAND, null)).toBe(true);
     expect(onApply).toHaveBeenCalledWith(SORT_SUGGESTION);
   });
 
@@ -109,26 +114,10 @@ function SuggestionKeyboardHarness({
 
 function createCommandEditor(): {
   editor: LexicalEditor;
-  run: (command: LexicalCommand<KeyboardEvent>, event: KeyboardEvent) => boolean | undefined;
+  run: LexicalEditor["dispatchCommand"];
 } {
-  const commands = new Map<LexicalCommand<KeyboardEvent>, (event: KeyboardEvent) => boolean>();
-  const editor = {
-    registerCommand<TCommandPayload>(
-      command: LexicalCommand<TCommandPayload>,
-      listener: (payload: TCommandPayload) => boolean,
-    ): () => void {
-      commands.set(
-        command as unknown as LexicalCommand<KeyboardEvent>,
-        listener as unknown as (event: KeyboardEvent) => boolean,
-      );
-      return () => commands.delete(command as unknown as LexicalCommand<KeyboardEvent>);
-    },
-  } as unknown as LexicalEditor;
-  return {
-    editor,
-    run: (command: LexicalCommand<KeyboardEvent>, event: KeyboardEvent): boolean | undefined =>
-      commands.get(command)?.(event),
-  };
+  const editor = createEditor();
+  return { editor, run: editor.dispatchCommand.bind(editor) };
 }
 
 function createKeyboardEvent(): KeyboardEvent {

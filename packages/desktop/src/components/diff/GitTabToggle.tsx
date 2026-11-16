@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { memo, useMemo, type ReactElement, type ReactNode } from "react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
-import { PR_TONE_DOT, type PrIndicatorTone } from "@/components/PrStatusIndicators";
+import { PR_ICON_STYLE, PR_TONE_DOT, type PrIndicatorTone } from "@/components/PrStatusIndicators";
 import { useDelayedPending } from "@/hooks/useDelayedPending";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
@@ -74,6 +74,9 @@ export interface GitTabToggleProps {
   /** Colours the proposal's dot, so its health reads from any other sub-view. */
   prTone?: PrIndicatorTone;
   prAttention?: boolean;
+  /** Open proposals on the conversation's other branches, and the most urgent one's tone. */
+  prOtherCount?: number;
+  prOtherTone?: PrIndicatorTone;
   /** Working-tree file count shown on the Changes tab. */
   uncommittedCount?: number;
   conflictCount?: number;
@@ -103,6 +106,8 @@ export const GitTabToggle = memo(function GitTabToggle({
   prNumber,
   prTone = "neutral",
   prAttention = false,
+  prOtherCount = 0,
+  prOtherTone = "neutral",
   uncommittedCount,
   conflictCount = 0,
   pendingValue = null,
@@ -117,7 +122,7 @@ export const GitTabToggle = memo(function GitTabToggle({
   // the PR tab without changing the strip's own box, so neither the resize
   // observer nor any other field would notice, and the thumb would sit a couple
   // of pixels short until the next tab switch.
-  const signature = `${targetLabel}|${prLabel}|${prNumber ?? ""}|${uncommittedCount ?? ""}|${conflictCount}|${prAttention}`;
+  const signature = `${targetLabel}|${prLabel}|${prNumber ?? ""}|${prOtherCount}|${uncommittedCount ?? ""}|${conflictCount}|${prAttention}`;
   const { listRef, thumb } = useSegmentedThumb(value, signature);
   // The spinner takes the tab's icon slot, so a save that lands in a couple of
   // frames — which is every save, against a local database — would swap the
@@ -180,6 +185,7 @@ export const GitTabToggle = memo(function GitTabToggle({
         onChange={onChange}
       >
         <PrTabSignal tone={prTone} attention={prAttention} hasPr={prNumber != null} />
+        <PrOthersBadge count={prOtherCount} tone={prOtherTone} />
       </Tab>
       <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
       {SECOND_RANK.map((tab) => (
@@ -390,5 +396,25 @@ function PrTabSignal({
       )}
       aria-hidden
     />
+  );
+}
+
+/** "+N" for the conversation's other open proposals, in the most urgent one's tone. */
+function PrOthersBadge({
+  count,
+  tone,
+}: {
+  count: number;
+  tone: PrIndicatorTone;
+}): ReactElement | null {
+  if (count <= 0) return null;
+  return (
+    <span
+      data-pr-tab-others
+      className={cn("shrink-0 font-mono text-[10px] tabular-nums", PR_ICON_STYLE[tone])}
+      title={`${count} more on this conversation's other branches`}
+    >
+      +{count}
+    </span>
   );
 }

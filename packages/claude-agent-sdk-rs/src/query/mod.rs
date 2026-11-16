@@ -12,25 +12,28 @@
 //!   round-trip helper
 //! - [`reader`] — background CLI-stdout reader loop
 //! - [`permission_dispatch`] — spawned task that runs `can_use_tool`
+//! - [`stale_task_turns`] — the empty turn a resumed CLI runs for a lost task
 //! - [`spawn`] — top-level [`query`] constructor
 //! - [`metadata`] — one-shot `supported_commands` / `supported_models`
 
-mod cancelled_control;
 mod control_commands;
 mod interrupt;
 mod mcp_status;
 mod metadata;
 mod permission_dispatch;
+mod permission_requests;
 mod query_struct;
 mod reader;
 mod reader_task;
 mod spawn;
+mod stale_task_turns;
 mod turn_state;
 mod wire;
 
 #[cfg(test)]
 mod test_support;
 
+pub use interrupt::InterruptTimeouts;
 pub use metadata::{supported_commands, supported_models, supported_models_with_env};
 pub use query_struct::Query;
 pub use spawn::query;

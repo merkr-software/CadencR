@@ -1,9 +1,8 @@
-import { useCallback, useMemo, type ReactElement } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
-import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
 import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
@@ -16,10 +15,50 @@ import {
   type useSessionControls,
   type useSessionFeatureData,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
-import { COMPACT_ACTION_PROVIDERS } from "@/lib/providers";
+import { isCompactActionPrompt } from "@/lib/provider-host-capabilities";
 import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
-import type { SessionConfigControls } from "./agent-session/types";
+import type { AgentSessionProps, SessionConfigControls } from "./agent-session/types";
+
+type SessionControls = ReturnType<typeof useSessionControls>;
+const NO_SLASH_COMMANDS: NonNullable<AgentSessionProps["slashCommandsOverride"]> = [];
+
+/**
+ * The latest value, read at call time. `controls.ws` is a snapshot rebuilt on
+ * every stream delta; callbacks that close over it change identity per delta
+ * and re-render the composer with each one.
+ */
+function useLatestRef<T>(value: T): { readonly current: T } {
+  const ref = useRef(value);
+  useLayoutEffect(() => {
+    ref.current = value;
+  });
+  return ref;
+}
+
+/** Composer callbacks that keep their identity across stream deltas. */
+function useStableSessionCallbacks(controls: SessionControls) {
+  const latest = useLatestRef(controls);
+  return useMemo(
+    () => ({
+      onPermissionDecision: (
+        decision: Parameters<NonNullable<AgentSessionProps["onPermissionDecision"]>>[0],
+        feedback?: string,
+        optionId?: string,
+      ): void => {
+        const { ws } = latest.current;
+        ws.respondToPermission(ws.pendingRequestId, decision, feedback, optionId);
+      },
+      onGateClose: (): void => latest.current.ws.closeGate("escape"),
+      onModelChange: (nextProviderId: string, modelId: string): void =>
+        handleModelChange(nextProviderId, modelId, latest.current),
+      onThinkingEffortChange: (effort: string | undefined): void =>
+        setEffort(latest.current, effort),
+      onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
+    }),
+    [latest],
+  );
+}
 
 function useSessionConfigControls(
   controls: ReturnType<typeof useSessionControls>,
@@ -62,6 +101,7 @@ function AgentTabContent({
   const { sessionId, featureId, projectId, data, controls, refs, agentVisible, hotkeysEnabled } =
     args;
   const sessionConfigControls = useSessionConfigControls(controls);
+  const callbacks = useStableSessionCallbacks(controls);
   return (
     <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
       <AgentSession
@@ -70,6 +110,7 @@ function AgentTabContent({
         featureId={featureId}
         projectId={projectId}
         wsSessionId={sessionId}
+        sessionId={controls.ws.sessionDbId ?? undefined}
         blocks={controls.ws.blocks}
         rootBlocks={controls.ws.rootBlocks}
         toolResultMap={controls.ws.toolResultMap}
@@ -77,23 +118,17 @@ function AgentTabContent({
         status={controls.ws.status}
         isCompacting={controls.ws.isCompacting}
         lifecycle={controls.ws.lifecycle}
-        turnTiming={controls.ws.turnTiming}
+        turnClock={controls.ws.turnClock}
         onSend={onSend}
         onStop={controls.ws.interrupt}
         disabled={hasAccessModes && controls.isAccessModePending}
         pendingPermission={controls.ws.pendingPermission}
-        onPermissionDecision={(decision, feedback, optionId) => {
-          controls.ws.respondToPermission(
-            controls.ws.pendingRequestId,
-            decision,
-            feedback,
-            optionId,
-          );
-        }}
+        onPermissionDecision={callbacks.onPermissionDecision}
         isSubmittingPermission={controls.ws.isSubmittingPermission}
         pendingQuestions={
           controls.ws.pendingQuestions.length > 0 ? controls.ws.pendingQuestions : undefined
         }
+        pendingQuestionRequestId={controls.ws.pendingRequestId}
         onAnswerSubmit={controls.ws.respondToQuestion}
         permissionMode={controls.ws.permissionMode}
         enabledOptInModes={controls.enabledOptInModes}
@@ -105,25 +140,27 @@ function AgentTabContent({
         onAccessModeChange={hasAccessModes ? controls.handleAccessModeChange : undefined}
         agentCatalog={controls.agentCatalog}
         onPermissionModeToggle={controls.handlePermissionModeToggle}
+        onPermissionModeSet={controls.handlePermissionModeSet}
+        modelSupportsAutoMode={controls.modelSupportsAutoMode}
+        steeringAcknowledged={controls.steeringAcknowledged}
         pendingPlanApproval={controls.ws.pendingPlanApproval}
         onPlanApprove={controls.ws.approvePlan}
         onPlanRequestChanges={controls.ws.requestPlanChanges}
-        onGateClose={() => controls.ws.closeGate("escape")}
+        onGateClose={callbacks.onGateClose}
         contextUsage={controls.ws.contextUsage}
         selection={controls.ws.currentSelection}
         onProviderChange={controls.ws.setProvider}
-        onModelChange={(nextProviderId, modelId) =>
-          handleModelChange(nextProviderId, modelId, controls)
-        }
+        onModelChange={callbacks.onModelChange}
         currentThinkingEffort={controls.ws.currentThinkingEffort}
-        onThinkingEffortChange={(effort) => setEffort(controls, effort)}
+        onThinkingEffortChange={callbacks.onThinkingEffortChange}
         fastMode={controls.ws.fastMode}
-        onFastModeChange={(enabled) => setFastMode(controls, enabled)}
+        onFastModeChange={callbacks.onFastModeChange}
         runtimeProvider={controls.ws.currentSelection?.providerId}
         runtimeSessionId={controls.ws.runtimeSessionId || undefined}
         sessionConfigControls={sessionConfigControls}
-        slashCommandsOverride={data.session?.slashCommands ?? []}
+        slashCommandsOverride={data.session?.slashCommands ?? NO_SLASH_COMMANDS}
         slashCommandsLoading={data.session?.slashCommandsLoading ?? false}
+        slashCommandsError={data.session?.slashCommandsError ?? null}
         promptCommandPolicy={data.session?.promptCommandPolicy}
         todos={agentVisible ? (data.session?.todos ?? null) : null}
         disableShortcuts={!hotkeysEnabled}
@@ -131,6 +168,7 @@ function AgentTabContent({
         claudeProfileSelection={controls.claudeProfile}
         hasMore={controls.ws.hasMore}
         onLoadOlder={controls.ws.loadOlderMessages}
+        onLoadPromptTurn={controls.ws.loadPromptTurn}
         worktreeMode={controls.worktreeMode}
         onWorktreeModeChange={controls.setWorktreeMode}
         worktreeProjectId={projectId}
@@ -144,10 +182,7 @@ function AgentTabContent({
   );
 }
 
-function setEffort(
-  controls: ReturnType<typeof useSessionControls>,
-  effort: string | undefined,
-): void {
+function setEffort(controls: SessionControls, effort: string | undefined): void {
   if (controls.supportsConfigInheritance)
     void controls.ws
       .setRuntimeOverrides({ thinking_effort: effort ?? null })
@@ -155,10 +190,7 @@ function setEffort(
   else controls.ws.setThinkingEffort(effort);
 }
 
-function setFastMode(
-  controls: ReturnType<typeof useSessionControls>,
-  enabled: boolean,
-): Promise<void> {
+function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
   if (controls.supportsConfigInheritance) {
     return controls.ws.setRuntimeOverrides({ fast_mode: enabled });
   }
@@ -174,7 +206,7 @@ export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
     () => ({
       label: "Agent",
       Icon: BotIcon,
-      shortcut: ["cmd", "shift", "A"],
+      shortcutId: "pane-agent",
       content: <AgentTabContent args={args} onSend={onSend} hasAccessModes={hasAccessModes} />,
     }),
     [
@@ -203,17 +235,21 @@ function useAgentSendHandler(args: {
   attachments?: PromptAttachmentPayload[],
   claudeProfile?: string,
 ) => Promise<void> {
-  const { featureId, projectId, data, controls } = args;
+  const { featureId, projectId } = args;
   const queryClient = useQueryClient();
   const setFeatureSetting = useSetFeatureSetting();
   const checkoutMutateAsync = useCheckoutBranch().mutateAsync;
+  // Read at send time: depending on `controls.ws` would rebuild this handler,
+  // and so the composer's context, on every stream delta.
+  const latest = useLatestRef(args);
   return useCallback(
     async (text, attachments, claudeProfile) => {
+      const { data, controls } = latest.current;
       if (text.trim() === "/clear") {
         controls.ws.clearSession();
         return;
       }
-      if (text.trim() === "/compact" && COMPACT_ACTION_PROVIDERS.has(controls.activeProviderId)) {
+      if (isCompactActionPrompt(text, controls.compactAction)) {
         controls.ws.compactSession();
         return;
       }
@@ -251,26 +287,23 @@ function useAgentSendHandler(args: {
           branchSetup = { kind: "worktree" };
         }
       }
-      controls.ws.sendPrompt(text, {
-        attachments,
-        branchSetup,
-        claudeProfile: claudeProfile ?? claudeProfileForPrompt(controls),
-      });
+      // Awaiting delivery keeps the composer pending while the session
+      // initializes; a rejection hands the text back to the composer.
+      try {
+        if (controls.ws.isCompacting && attachments?.length) {
+          throw new Error("Keep attachments in the composer until compaction finishes.");
+        }
+        await controls.ws.deliverPrompt(text, {
+          attachments,
+          branchSetup,
+          claudeProfile: claudeProfile ?? claudeProfileForPrompt(controls),
+        });
+      } catch (error) {
+        toastError(error, "Message not sent");
+        throw error;
+      }
     },
-    [
-      checkoutMutateAsync,
-      controls.activeProviderId,
-      controls.claudeProfile.selectedClaudeProfile,
-      controls.selectedBranch,
-      controls.worktreeMode,
-      controls.ws,
-      data.defaultBranch,
-      data.session?.blocks?.length,
-      featureId,
-      projectId,
-      queryClient,
-      setFeatureSetting,
-    ],
+    [checkoutMutateAsync, featureId, latest, projectId, queryClient, setFeatureSetting],
   );
 }
 
@@ -294,15 +327,7 @@ export function handleModelChange(
     controls.ws.setProvider(nextProviderId, modelId);
   }
 
-  const nextModel = controls.agentCatalog.data?.providers
-    .find((provider) => provider.id === nextProviderId)
-    ?.models.find((model) => model.id === modelId);
-  const nextLevels = supportedThinkingEffortLevels(nextModel);
-  const nextEffort = controls.resolveModelThinkingEffort(nextProviderId, modelId);
-  if (!controls.supportsConfigInheritance) {
-    if (nextEffort) controls.ws.setThinkingEffort(nextEffort);
-    else if (!nextLevels.includes(controls.ws.currentThinkingEffort as never)) {
-      controls.ws.setThinkingEffort(undefined);
-    }
-  }
+  // The thinking level is not sent from here: the backend resumes the target
+  // model's last-used level (or its default) as part of the model/provider
+  // change, so the client never guesses it.
 }

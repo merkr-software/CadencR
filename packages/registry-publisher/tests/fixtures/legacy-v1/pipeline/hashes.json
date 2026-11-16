@@ -1,0 +1,15 @@
+{
+  "observations.json": "2c0672a59aac4b93dbe9dd601039281c19e08b70cba79d3e9e4efffd6363f003",
+  "none.json.gz": {
+    "sha256": "e5a94795f15de6c1ce8eda53ecb077cdef57668408b2ad55361185b35fd8c2b8",
+    "uncompressed_sha256": "53ab25468b97ae0e22ed30448f6f4fda1f2fcc8f6669771525e4efbdca8a2deb"
+  },
+  "provider.json.gz": {
+    "sha256": "1db9d487eac7c94cf7eae1408c9e19e385429895527e55c886573db11698e445",
+    "uncompressed_sha256": "5dcfc50fb03a219f4e3902ec6fa73c805ae9e15b369cae06eb9db9cfc72eb3b2"
+  },
+  "discovery.json.gz": {
+    "sha256": "1f19ba3390964399efe7f146630e602e62c997280d68eb1bd5bf5d25c98da758",
+    "uncompressed_sha256": "c74f19bf4a10d9d13b4a3345eda215ec15489894e4e58c18ea0469aef81d4ab8"
+  }
+}

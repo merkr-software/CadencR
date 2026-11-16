@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * Tests for the selectors that expose live agent-status to the four UI
  * surfaces (sidebar feature row, agent view badge, unified-agents grid,

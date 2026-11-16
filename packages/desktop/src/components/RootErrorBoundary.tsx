@@ -1,3 +1,5 @@
+import type { DiagnosticContext } from "@/shared/renderer-diagnostics";
+import { formatDiagnosticError } from "@/lib/renderer-diagnostics";
 import {
   Component,
   useEffect,
@@ -16,14 +18,9 @@ import { ErrorDetailsPanel } from "./ErrorDetailsPanel";
 
 interface RootErrorBoundaryState {
   error: Error | null;
-  /**
-   * React's component stack for the crash (display names of the component
-   * tree at the throw site). Present even in minified production builds, and
-   * the only thing that names *which* component looped on a "Maximum update
-   * depth exceeded" — so we surface it in the fallback for the user to
-   * screenshot (works on desktop and the remote/phone client alike).
-   */
+  /** Component tree at the throw site, which may differ from the cause of a loop. */
   componentStack: string | null;
+  diagnostics: DiagnosticContext | null;
 }
 
 interface RootErrorBoundaryProps {
@@ -41,27 +38,21 @@ interface RootErrorBoundaryProps {
  * the fallback is shown.
  */
 export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBoundaryState> {
-  state: RootErrorBoundaryState = { error: null, componentStack: null };
+  state: RootErrorBoundaryState = { error: null, componentStack: null, diagnostics: null };
 
   static getDerivedStateFromError(error: Error): Partial<RootErrorBoundaryState> {
     return { error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Surface to the dev console; the fallback shows the message AND the
-    // component stack to the user (the error-handling rule requires
-    // user-visible feedback, and the stack is what names the looping
-    // component on "Maximum update depth exceeded"). The stack lives only on
-    // `ErrorInfo` here — `getDerivedStateFromError` never receives it — so a
-    // second setState is the only way to capture it.
     console.error("Unhandled UI error:", error, info);
     const componentStack = info.componentStack ?? null;
-    reportReactBoundaryError(error, componentStack);
-    this.setState({ componentStack });
+    const diagnostics = reportReactBoundaryError(error, componentStack);
+    this.setState({ componentStack, diagnostics });
   }
 
   private reset = (): void => {
-    this.setState({ error: null, componentStack: null });
+    this.setState({ error: null, componentStack: null, diagnostics: null });
   };
 
   render(): ReactNode {
@@ -70,6 +61,7 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
         <RootErrorFallback
           error={this.state.error}
           componentStack={this.state.componentStack}
+          diagnostics={this.state.diagnostics}
           onReset={this.reset}
         />
       );
@@ -81,12 +73,14 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
 interface RootErrorFallbackProps {
   error: Error;
   componentStack: string | null;
+  diagnostics: DiagnosticContext | null;
   onReset: () => void;
 }
 
 function RootErrorFallback({
   error,
   componentStack,
+  diagnostics,
   onReset,
 }: RootErrorFallbackProps): ReactElement {
   const navigate = useNavigate();
@@ -102,8 +96,7 @@ function RootErrorFallback({
     if (pathname !== erroredAtPathRef.current) onReset();
   }, [pathname, onReset]);
 
-  const message = error.message || String(error);
-  const details = componentStack ? `${message}\n\nComponent stack:${componentStack}` : message;
+  const details = formatDiagnosticError(error, componentStack, diagnostics);
 
   const goToAgents = (): void => {
     void navigate({ to: "/agents" });

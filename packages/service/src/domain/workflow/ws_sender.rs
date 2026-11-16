@@ -27,6 +27,7 @@ pub fn send_feature_renamed_envelope(sender: &WsSender, feature_id: i64, title: 
         feature_id,
         title: title.to_string(),
     };
-    let envelope = WsEnvelope::new("session", "feature.renamed", to_value(payload));
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureRenamed(payload))
+        .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(envelope).into()));
 }

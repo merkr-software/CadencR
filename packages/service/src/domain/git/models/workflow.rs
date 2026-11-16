@@ -47,6 +47,11 @@ pub struct CompareUrlResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTargetBranchBody {
     pub target_branch: String,
+    /// The conversation branch this target is for. Defaults to the current
+    /// one: targets are per branch, so a stacked branch can target the branch
+    /// it was cut from while the others keep theirs.
+    #[serde(default)]
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

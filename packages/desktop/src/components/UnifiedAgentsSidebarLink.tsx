@@ -2,6 +2,7 @@ import { memo, type ReactElement, type ReactNode } from "react";
 import { LayoutGridIcon } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import { useLiveTotalWorkingCount } from "@/stores/session-status-selectors";
 import { cn } from "@/lib/utils";
 
@@ -14,9 +15,10 @@ export const UnifiedAgentsSidebarLink = memo(function UnifiedAgentsSidebarLink()
   // `staleTime: Infinity` and never refetched, so it drifted out of sync —
   // dropped entirely. This count updates the instant a WS status event lands.
   const runningCount = useLiveTotalWorkingCount();
+  const openKeys = useShortcutKeys("open-unified-agents");
 
   return (
-    <ShortcutTooltip label="Open unified agents" keys={["cmd", "shift", "R"]} className="w-full">
+    <ShortcutTooltip label="Open unified agents" keys={openKeys} className="w-full">
       <AgentsSidebarAnchor active={active}>
         <LayoutGridIcon className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">Agents</span>
@@ -54,8 +56,7 @@ function AgentsSidebarAnchor({
 /**
  * Live "agents working" badge: a breathing blue dot + count when one or more
  * agents are running, an idle grey dot + count when none are. Blue matches the
- * working tint on each row's provider mark (`text-blue-500`); grey matches the
- * idle dot used elsewhere (`CustomActionStatusDot`).
+ * working tint on each row's provider mark (`text-blue-500`).
  */
 function RunningAgentsIndicator({ count }: { count: number }): ReactElement {
   const running = count > 0;

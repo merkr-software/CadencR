@@ -110,6 +110,35 @@ pub fn managed_command(
     package_env: &BTreeMap<String, String>,
     cwd: &Path,
 ) -> Result<Command, ManagedProcessPolicyError> {
+    direct_command(executable, args, package_env, cwd, CpuLimit::Applied)
+}
+
+/// [`managed_command`] for a process meant to run as long as its owner wants
+/// (a custom tab's backend, kept while its tab is open — for days): no
+/// arguments, no package environment, and no CPU-time ceiling, which would
+/// kill a busy one with `SIGXCPU` after an hour of work. The memory ceiling
+/// stays.
+pub fn long_lived_managed_command(
+    executable: &Path,
+    cwd: &Path,
+) -> Result<Command, ManagedProcessPolicyError> {
+    direct_command(executable, &[], &BTreeMap::new(), cwd, CpuLimit::None)
+}
+
+/// Whether a direct command gets [`MANAGED_CPU_TIME_SECONDS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CpuLimit {
+    Applied,
+    None,
+}
+
+fn direct_command(
+    executable: &Path,
+    args: &[String],
+    package_env: &BTreeMap<String, String>,
+    cwd: &Path,
+    cpu: CpuLimit,
+) -> Result<Command, ManagedProcessPolicyError> {
     validate_paths(executable, cwd)?;
     validate_package_environment(package_env)?;
 
@@ -121,7 +150,7 @@ pub fn managed_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    resources::configure_resource_limits(&mut command)?;
+    resources::configure_resource_limits(&mut command, cpu == CpuLimit::Applied)?;
     for (key, _) in std::env::vars_os() {
         if is_cadencr_host_secret_env_key(&key) {
             command.env_remove(key);
@@ -181,6 +210,7 @@ pub async fn capture_managed_command(
         Ok(Ok((status, stdout, stderr))) => {
             process_tree
                 .cleanup_after_exit(pid)
+                .await
                 .map_err(|error| containment_error("could not clean up descendants", error))?;
             Ok(ManagedCommandOutput {
                 status,
@@ -226,7 +256,7 @@ async fn terminate_capture(
     // wait() can reap the group leader while descendants still hold the pipes.
     // Child::id() is then None, but the original process group still needs killing.
     if child.id().is_none() {
-        process_tree.cleanup_after_exit(pid)
+        process_tree.cleanup_after_exit(pid).await
     } else {
         process_tree
             .terminate(child, Duration::from_secs(1))
@@ -397,7 +427,30 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn only_long_lived_commands_run_without_a_cpu_time_limit() {
+        let directory = tempfile::tempdir().expect("test directory");
+        let cpu_limit = |mut command: Command| async move {
+            command.arg("-c").arg("ulimit -t");
+            let output = command.output().await.expect("run sh");
+            String::from_utf8(output.stdout).unwrap().trim().to_string()
+        };
+        let sh = Path::new("/bin/sh");
+        let one_shot = managed_command(sh, &[], &BTreeMap::new(), directory.path()).unwrap();
+        assert_eq!(
+            cpu_limit(one_shot).await,
+            MANAGED_CPU_TIME_SECONDS.to_string()
+        );
+        let long_lived = long_lived_managed_command(sh, directory.path()).unwrap();
+        assert_eq!(cpu_limit(long_lived).await, "unlimited");
+    }
+
+    #[cfg(unix)]
     #[test]
+    #[allow(
+        clippy::zombie_processes,
+        reason = "the exit-parent mode deliberately orphans the descendant"
+    )]
     fn managed_descendant_helper() {
         let Some(pid_file) = std::env::var_os("PROCESS_TREE_TEST_PID_FILE") else {
             return;
@@ -456,6 +509,8 @@ mod tests {
             .expect("helper should publish descendant pid")
             .parse()
             .expect("numeric descendant pid");
+        // Keep a failing regression from leaving its own helper process behind.
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
         for _ in 0..50 {
             if unsafe { libc::kill(pid, 0) } != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
@@ -465,8 +520,6 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        // Keep a failing regression from leaving its own helper process behind.
-        unsafe { libc::kill(pid, libc::SIGKILL) };
         panic!("managed descendant {pid} survived bounded tree termination: {error}");
     }
 }

@@ -78,6 +78,12 @@ pub struct PtyManager {
     pub terminals: Arc<DashMap<String, Arc<PtyHandle>>>,
 }
 
+impl Default for PtyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PtyManager {
     pub fn new() -> Self {
         Self {
@@ -125,10 +131,13 @@ impl PtyManager {
         })?;
 
         cmd.cwd(cwd);
-        cmd.env_remove(crate::shared::security::SERVICE_AUTH_TOKEN_ENV);
+        crate::shared::security::scrub_service_only_pty_env(&mut cmd);
         // Ensure the program knows it's running inside an xterm-compatible
         // terminal. Without this, programs emit wrong escape sequences.
         cmd.env("TERM", "xterm-256color");
+        // The renderer is truecolor-capable. Without this, TUIs that probe
+        // COLORTERM quantize their palettes to the 256-color cube.
+        cmd.env("COLORTERM", "truecolor");
 
         let mut child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);

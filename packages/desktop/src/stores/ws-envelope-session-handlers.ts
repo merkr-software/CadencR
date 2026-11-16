@@ -1,37 +1,79 @@
-import type { AgentQuestion } from "@/components/AgentQuestionDrawer";
-import { parseAskUserQuestions } from "@/components/AgentQuestionDrawer";
+import type { AgentQuestion } from "@/types/agent-question";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import {
   parseClearedPayload,
-  parseCompactingPayload,
   parseGateClosedPayload,
   parseInitializedPayload,
   parseMcpServersPayload,
   parsePermissionPayload,
   parsePromptReceivedPayload,
   parseCanonicalUserMessagePayload,
+  parseTranscriptBlockPayload,
 } from "./ws-envelope-payload";
-import { upsertCanonicalUserMessage } from "./ws-user-message-reconciliation";
+import {
+  messageDbIdFromBlockId,
+  upsertCanonicalUserMessage,
+} from "./ws-user-message-reconciliation";
+import type { AgentBlockData } from "@/types/agent-block";
 import { buildClearedGatePatch } from "./ws-gate-state";
 import { blocksPatchWithDerived, createStreamingState } from "./ws-message-processing";
 import { normalizeContextWindow } from "@/types/agent";
 import { parseAccessMode } from "@/types/access-mode";
+import { parsePermissionMode, type PermissionMode } from "@/types/permission-mode";
+import { providerAcceptsMode } from "@/lib/provider-modes";
 import type { SessionEntry } from "./ws-session-types";
-import { updateSession } from "./ws-session-types";
+import { createStreamHealth, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
-// Re-exported so the envelope dispatch table keeps importing `handleMessage`
-// from here; the implementation moved to `ws-message-envelope-handler.ts`.
-export { handleMessage } from "./ws-message-envelope-handler";
 
-export function handleCompacting(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseCompactingPayload(payload);
-  if (!p) return;
+/**
+ * Append a row the backend wrote to the transcript itself — a turn's closing
+ * line, a model switch the CLI reported. Every device viewing the conversation
+ * receives the same persisted row, under the id history returns it with.
+ */
+export function handleTranscriptBlock(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  const p = parseTranscriptBlockPayload(payload);
   const session = ctx.getSession(sessionId);
-  if (session.runtimeCompacting === p.active) return;
-  ctx.set(updateSession(ctx.get(), sessionId, { runtimeCompacting: p.active }));
+  if (!p) {
+    console.warn("[ws-session] dropped malformed transcript_block envelope", payload);
+    ctx.set(
+      updateSession(
+        ctx.get(),
+        sessionId,
+        appendErrorBlockPatch(
+          session,
+          "A transcript line could not be displayed because its live event was malformed. Reconnect to reload the conversation.",
+          { code: "MALFORMED_TRANSCRIPT_BLOCK" },
+        ),
+      ),
+    );
+    return;
+  }
+  // Rows go to every device viewing the feature: a conversation that does not
+  // know its own id yet cannot tell a sibling's row from its own.
+  if (session.sessionDbId == null || String(session.sessionDbId) !== p.session_id) return;
+  if (session.blocks.some((block) => block.id === p.block.id)) return;
+  const block: AgentBlockData = {
+    id: p.block.id,
+    type: p.block.type,
+    content: p.block.content,
+    createdAt: p.block.createdAt ?? undefined,
+    messageDbId: messageDbIdFromBlockId(p.block.id) ?? undefined,
+  };
+  ctx.set(
+    updateSession(
+      ctx.get(),
+      sessionId,
+      blocksPatchWithDerived(session.streamingState, [...session.blocks, block]),
+    ),
+  );
 }
 
 export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
@@ -51,6 +93,26 @@ export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload
   );
 }
 
+/**
+ * The mode to hold once the backend has picked the session's provider. New
+ * entries are seeded with the default provider's mode (Claude's `auto`), which
+ * a Codex or installed-provider session can't run; the backend then falls back to its
+ * provider default and reports it. Adopt that report only when the local mode
+ * doesn't fit the provider — a valid local mode may be a chip change made
+ * while `session.init` was in flight, which the init replay still has to send.
+ */
+function initializedPermissionMode(
+  session: SessionEntry,
+  provider: string | undefined,
+  reported: string | undefined,
+): PermissionMode | null {
+  const providerId = provider ?? session.currentSelection?.providerId;
+  if (!reported || !providerId || providerAcceptsMode(providerId, session.permissionMode)) {
+    return null;
+  }
+  return parsePermissionMode(reported);
+}
+
 export function handleInitialized(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const p = parseInitializedPayload(payload);
   if (!p) return;
@@ -60,6 +122,12 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     lifecycle: transitionTurn(session.lifecycle, { type: "initialized" }),
     mcpServers: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
+    initRequestId: null,
+    // `session.init` carried the chip's mode, and the init replay resends it.
+    pendingInitPermissionMode: null,
+    // A fresh stream: a retry reported on the previous connection (whose
+    // recovery or turn end may have been missed) no longer applies.
+    streamHealth: createStreamHealth(),
   };
   if (p.sessionDbId != null) updates.sessionDbId = p.sessionDbId;
   // Empty models are valid for providers that negotiate models at runtime.
@@ -69,10 +137,13 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     updates.currentSelection = { providerId: p.provider, modelId: p.model ?? "" };
   }
   if (p.profile) updates.currentProfile = p.profile;
+  const permissionMode = initializedPermissionMode(session, p.provider, p.permission_mode);
+  if (permissionMode) updates.permissionMode = permissionMode;
   if (p.runtime_overrides) updates.runtimeOverrides = p.runtime_overrides;
   const accessMode = p.access_mode ?? p.codex_permission_mode;
   if (accessMode) {
     updates.accessMode = parseAccessMode(accessMode);
+    if (accessMode === session.pendingInitAccessMode) updates.pendingInitAccessMode = null;
   }
   updates.currentThinkingEffort = p.thinking_effort;
   updates.fastMode = p.fast_mode ?? false;

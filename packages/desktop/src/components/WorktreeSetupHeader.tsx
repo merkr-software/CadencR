@@ -11,12 +11,15 @@ import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/CopyButton";
 import { cn } from "@/lib/utils";
 
-interface WorktreeSetupHeaderProps {
+export interface WorktreeSetupHeaderProps {
   branch: string;
   branchExists: boolean | null;
   status: WorktreeSetupDisplayStatus;
+  /** Shown as the status badge tooltip while setup has failed. */
+  setupError?: string;
   isOpen: boolean;
   onToggle: () => void;
+  className?: string;
 }
 
 export type WorktreeSetupDisplayStatus =
@@ -27,26 +30,73 @@ export type WorktreeSetupDisplayStatus =
   | "health-error"
   | "setup-error";
 
-export function WorktreeSetupHeader(props: WorktreeSetupHeaderProps): ReactElement {
+/**
+ * One-line worktree summary on a two-column grid: the chevron in a leading
+ * column, the branch row beside it. Unpadded — the feature header joins the
+ * grid as a subgrid so the chevron shares its project-badge column.
+ */
+export function WorktreeSetupHeader({
+  branch,
+  branchExists,
+  status,
+  setupError,
+  isOpen,
+  onToggle,
+  className,
+}: WorktreeSetupHeaderProps): ReactElement {
+  const missing = status === "removed" ? missingSummary(branchExists) : null;
   return (
     <div
-      className="flex min-w-0 cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-muted/70 md:px-6"
-      onClick={props.onToggle}
+      className={cn(
+        "grid min-h-5 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 text-xs",
+        className,
+      )}
     >
-      <ChevronRightIcon
-        className={cn(
-          "size-3.5 shrink-0 text-foreground/40 transition-transform duration-200",
-          props.isOpen && "rotate-90",
+      {/* Pointer twin of the branch toggle; its negative margins keep the
+          leading column as narrow as the badge it sits under. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-hidden
+        onClick={onToggle}
+        className="-mx-0.5 flex justify-self-center text-foreground/40 hover:text-foreground/70"
+      >
+        <ChevronRightIcon
+          className={cn("size-3.5 transition-transform duration-200", isOpen && "rotate-90")}
+        />
+      </button>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          title={branch || undefined}
+          onClick={onToggle}
+          className="flex min-w-0 items-center gap-1.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <GitBranchIcon className="size-3.5 shrink-0" />
+          {branch ? (
+            <>
+              <span className="sr-only">Worktree setup</span>
+              <span className="truncate font-mono">{branch}</span>
+            </>
+          ) : (
+            <span className="truncate">Worktree setup</span>
+          )}
+        </button>
+        {branch && (
+          <CopyButton
+            text={branch}
+            label="Copy branch name"
+            copiedLabel="Copied branch name"
+            idleClassName="text-muted-foreground opacity-70"
+            iconClassName="size-3"
+            className="shrink-0 hover:text-foreground"
+          />
         )}
-      />
-      <GitBranchIcon className="size-3.5 shrink-0" />
-      <span className="shrink-0 text-xs font-medium">Worktree Setup</span>
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {props.branch && <WorktreeBranchChip branch={props.branch} />}
-        <WorktreeSetupBadge {...props} />
-        {props.status === "removed" && (
-          <span className="min-w-0 truncate text-xs text-destructive">
-            {missingSummary(props.branchExists)}
+        <WorktreeSetupBadge status={status} setupError={setupError} />
+        {missing && (
+          <span className="min-w-0 truncate text-destructive" title={missing}>
+            {missing}
           </span>
         )}
       </div>
@@ -54,27 +104,15 @@ export function WorktreeSetupHeader(props: WorktreeSetupHeaderProps): ReactEleme
   );
 }
 
-function WorktreeBranchChip({ branch }: { branch: string }): ReactElement {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span className="truncate font-mono text-xs text-muted-foreground">{branch}</span>
-      <CopyButton
-        text={branch}
-        label="Copy branch name"
-        copiedLabel="Copied branch name"
-        idleClassName="text-muted-foreground opacity-70"
-        iconClassName="size-3"
-        className="shrink-0 hover:text-foreground"
-      />
-    </div>
-  );
-}
-
-function WorktreeSetupBadge(props: WorktreeSetupHeaderProps): ReactElement {
-  const badge = badgeContent(props.status);
+function WorktreeSetupBadge({
+  status,
+  setupError,
+}: Pick<WorktreeSetupHeaderProps, "status" | "setupError">): ReactElement {
+  const badge = badgeContent(status);
   return (
     <Badge
       variant="secondary"
+      title={status === "setup-error" && setupError ? setupError : undefined}
       className={cn("shrink-0 gap-1 px-1.5 py-0 text-[10px]", badge.style)}
     >
       {badge.content}

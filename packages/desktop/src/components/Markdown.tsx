@@ -15,6 +15,12 @@ import { parseConversationReferenceHref } from "@/components/prompt-editor/conve
 import { parseFileReferenceHref } from "@/components/prompt-editor/file-reference";
 import { fileReferenceRemarkPlugin } from "@/components/prompt-editor/file-reference-remark-plugin";
 import { defaultRemarkPlugins } from "streamdown";
+import {
+  AGENT_FILE_HREF_SCHEME,
+  protectAgentFileHrefs,
+  restoreAgentFileHrefs,
+} from "@/components/markdown/agent-file-href-sanitize";
+import { INCOMPLETE_MARKDOWN_IMAGE_SRC } from "@/components/markdown-image";
 import { buildMarkdownComponents } from "@/components/markdown/markdown-components";
 import { markdownTreeCache } from "@/components/markdown/markdown-tree-cache";
 import "./dracula-highlight.css";
@@ -48,22 +54,10 @@ interface MarkdownProps {
  * over `"char"` are both budget calls: opacity is compositor-only, while a
  * per-word `filter` is GPU work a low-end machine cannot absorb mid-stream.
  *
- * `stagger: 0` is load-bearing, not taste. Streamdown gives each word span
- * `animation-delay: <nth-new-word> * stagger` with `animation-fill-mode: both`,
- * so a word is *invisible* until its delay elapses. Which words count as "new"
- * comes from a `prevContentLength` that Streamdown sets from a render-phase side
- * effect using a consume-once getter — so StrictMode's double-invoke reads the
- * real count on the first pass and `0` on the second, and the second is the one
- * that sticks. Every word then reads as new on every re-parse: at the stock 40ms
- * that is 8s of hidden text on a 200-word message, growing with the message.
- * (One plugin instance is also shared across blocks, so two blocks re-rendering
- * in one commit mis-classify each other's words.)
- *
- * With no delay none of that is observable: nothing is held at `opacity: 0`, and
- * every span's style string stays identical across re-parses, so React leaves
- * the attribute alone and the animation cannot restart on a word already on
- * screen. Only genuinely new DOM nodes animate. `streamdown` is pinned to an
- * exact version because this rests on its internals.
+ * Streamdown 2.6 fixes the old StrictMode bookkeeping issue. Keep stagger at
+ * zero so long bursts never queue words behind an animation delay. Existing
+ * words stay visible while only newly inserted words fade in. The exact
+ * Streamdown version and regression tests keep this hot-path behavior stable.
  */
 const STREAM_ANIMATION: AnimateOptions = {
   animation: "fadeIn",
@@ -77,10 +71,16 @@ function preprocessContent(raw: string): string {
   return raw.replace(/---PLAN_START---|---PLAN_END---/g, "\n---\n");
 }
 
-const markdownUrlTransform: UrlTransform = (url, key, node) =>
-  parseConversationReferenceHref(url) === null && parseFileReferenceHref(url) === null
+const markdownUrlTransform: UrlTransform = (url, key, node) => {
+  // Only the exact image sentinel may reach our renderer, which consumes it
+  // before an img/proxy is created. Pending links must not be navigable.
+  if (/^streamdown:/i.test(url)) {
+    return key === "src" && url === INCOMPLETE_MARKDOWN_IMAGE_SRC ? url : "";
+  }
+  return parseConversationReferenceHref(url) === null && parseFileReferenceHref(url) === null
     ? defaultUrlTransform(url, key, node)
     : url;
+};
 
 /**
  * Sanitization schema for raw HTML embedded in markdown. Agent output (which
@@ -89,13 +89,21 @@ const markdownUrlTransform: UrlTransform = (url, key, node) =>
  * it drops `<script>`, event handlers, and dangerous URL schemes before they
  * reach the Electron renderer. We only widen it to keep our internal
  * `cadencr-conversation:` link scheme, which the default `href` allowlist would
- * otherwise strip.
+ * otherwise strip, plus the envelope agent file links cross it in (see
+ * `agent-file-href-sanitize.ts`).
  */
 const sanitizeSchema: typeof defaultSchema = {
   ...defaultSchema,
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "cadencr-conversation", "cadencr-file"],
+    // The URL transform restricts this protocol to the exact loading sentinel.
+    src: [...(defaultSchema.protocols?.src ?? []), "streamdown"],
+    href: [
+      ...(defaultSchema.protocols?.href ?? []),
+      "cadencr-conversation",
+      "cadencr-file",
+      AGENT_FILE_HREF_SCHEME,
+    ],
   },
 };
 
@@ -110,7 +118,12 @@ const sanitizeSchema: typeof defaultSchema = {
  * processor on plugin-array identity — rebuilding them per render would defeat
  * the cache on every streaming tick.
  */
-const RAW_HTML_PLUGINS: RehypePlugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
+const RAW_HTML_PLUGINS: RehypePlugins = [
+  rehypeRaw,
+  protectAgentFileHrefs,
+  [rehypeSanitize, sanitizeSchema],
+  restoreAgentFileHrefs,
+];
 /** Prose has no `<`, so it skips the parse5 re-parse and the sanitize walk. */
 const NO_RAW_HTML_PLUGINS: RehypePlugins = [];
 

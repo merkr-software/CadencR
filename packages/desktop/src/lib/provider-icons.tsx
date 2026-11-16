@@ -1,6 +1,6 @@
 import { BotIcon } from "lucide-react";
-import { memo, useCallback, useMemo, useSyncExternalStore } from "react";
-import { getCatalogProviderMetadata, subscribeProviderCatalog } from "./provider-catalog-registry";
+import { memo, useMemo } from "react";
+import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import { getProviderMetadata, type ProviderIconVariant, type ProviderMetadata } from "./providers";
 import { cn } from "./utils";
 
@@ -9,12 +9,7 @@ export function useProviderMetadata(
   catalogLabel?: string | null,
   variant: ProviderIconVariant = "color",
 ) {
-  const subscribe = useCallback(
-    (listener: () => void) => subscribeProviderCatalog(providerId, listener),
-    [providerId],
-  );
-  const snapshot = useCallback(() => getCatalogProviderMetadata(providerId), [providerId]);
-  const catalogMetadata = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const catalogMetadata = useCatalogProviderMetadata(providerId);
   return useMemo(
     () => getProviderMetadata(providerId, catalogLabel, variant, catalogMetadata),
     [catalogLabel, catalogMetadata, providerId, variant],

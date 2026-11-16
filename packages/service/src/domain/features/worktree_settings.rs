@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 use std::path::Path;
 
+use crate::domain::features::repository::project_id_for_feature;
 use crate::domain::features::service;
 use crate::domain::features::worktree_validation::{validate_reuse_branch, validate_worktree_mode};
 use crate::domain::git;
@@ -65,14 +66,6 @@ async fn current_reuse_branch(
         .into_iter()
         .find(|setting| setting.key == "worktree_reuse_branch")
         .map(|setting| setting.value))
-}
-
-async fn project_id_for_feature(read_pool: &SqlitePool, feature_id: i64) -> Result<i64, AppError> {
-    sqlx::query_scalar("SELECT project_id FROM features WHERE id = ?")
-        .bind(feature_id)
-        .fetch_optional(read_pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))
 }
 
 async fn ensure_local_branch_exists(project_path: &Path, branch: &str) -> Result<(), AppError> {

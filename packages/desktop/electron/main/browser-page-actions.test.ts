@@ -13,6 +13,7 @@ describe("browser page action authorization", () => {
     const sendCommand = vi.fn(async () => ({ data: "png" }));
     const executeJavaScript = vi.fn<() => Promise<unknown>>(async () => undefined);
     const webContents = {
+      getURL: () => "http://localhost:3000/",
       debugger: { isAttached: () => true, attach: vi.fn(), sendCommand },
       executeJavaScript,
       getZoomFactor: () => 1.2,

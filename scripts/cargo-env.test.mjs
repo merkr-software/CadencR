@@ -5,16 +5,17 @@ import { join } from "node:path";
 import test from "node:test";
 import { CARGO_LAST_USED_FILE, createCargoEnv, markCargoUse, usesSccache } from "./cargo-env.mjs";
 
-test("forces Cargo artifacts into the current worktree target", () => {
+test("isolates Cargo artifacts and disables inherited incremental compilation", () => {
   const env = createCargoEnv(
-    { CARGO_TARGET_DIR: "/repo/.shared-cargo-target/wt/old" },
+    { CARGO_TARGET_DIR: "/repo/.shared-cargo-target/wt/old", CARGO_INCREMENTAL: "1" },
     { repoRoot: "/worktrees/feature" },
   );
 
   assert.equal(env.CARGO_TARGET_DIR, "/worktrees/feature/target");
+  assert.equal(env.CARGO_INCREMENTAL, "0");
 });
 
-test("removes inherited sccache configuration and restores Cargo defaults", () => {
+test("removes inherited sccache configuration and keeps incremental compilation disabled", () => {
   const env = createCargoEnv(
     {
       RUSTC_WRAPPER: "sccache",
@@ -27,11 +28,11 @@ test("removes inherited sccache configuration and restores Cargo defaults", () =
 
   assert.equal(env.RUSTC_WRAPPER, undefined);
   assert.equal(env.RUSTC_WORKSPACE_WRAPPER, undefined);
-  assert.equal(env.CARGO_INCREMENTAL, undefined);
+  assert.equal(env.CARGO_INCREMENTAL, "0");
   assert.equal(env.SCCACHE_CACHE_SIZE, undefined);
 });
 
-test("does not alter incremental settings for another rustc wrapper", () => {
+test("preserves other rustc wrappers with incremental compilation disabled", () => {
   const env = createCargoEnv(
     {
       RUSTC_WRAPPER: "/usr/local/bin/custom-wrapper",
@@ -42,6 +43,7 @@ test("does not alter incremental settings for another rustc wrapper", () => {
 
   assert.equal(env.RUSTC_WRAPPER, "/usr/local/bin/custom-wrapper");
   assert.equal(env.RUSTC_WORKSPACE_WRAPPER, "/usr/local/bin/custom-workspace-wrapper");
+  assert.equal(env.CARGO_INCREMENTAL, "0");
 });
 
 test("recognizes sccache by executable basename", () => {

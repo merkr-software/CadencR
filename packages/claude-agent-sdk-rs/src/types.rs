@@ -7,7 +7,11 @@ use serde_json::Value;
 /// per agent session to monitor context window consumption.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Usage {
+    // Defaulted so a usage block that drops a counter costs that counter, not
+    // the `result` / assistant message carrying it.
+    #[serde(default)]
     pub input_tokens: u64,
+    #[serde(default)]
     pub output_tokens: u64,
     #[serde(default)]
     pub cache_creation_input_tokens: Option<u64>,
@@ -70,8 +74,10 @@ pub enum ContentDelta {
     InputJsonDelta { partial_json: String },
     /// Real-time thinking chunks.
     ThinkingDelta { thinking: String },
+    /// The signature that closes a thinking block (verification data, no text).
+    SignatureDelta { signature: String },
     /// Any delta type the CLI emits that we don't model yet (e.g.
-    /// `signature_delta` or `citations_delta`). Catching it here keeps an
+    /// `citations_delta`). Catching it here keeps an
     /// unknown delta from sinking the whole `stream_event` into
     /// `SdkMessage::Unknown` and dropping the live turn. Carries the raw JSON
     /// so the consumer can log/inspect what was dropped instead of losing it.
@@ -134,7 +140,11 @@ pub struct McpServerStatus {
 }
 
 /// Records a tool use that was denied (e.g. via permission system).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Every field is defaulted: denials ride on the turn-ending `result`, which
+/// must decode even when a denial entry drifts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PermissionDenial {
     pub tool_name: String,
     pub tool_use_id: String,
@@ -289,6 +299,19 @@ mod tests {
         assert!(
             matches!(back, ContentDelta::ThinkingDelta { thinking } if thinking == "step 1: analyze")
         );
+    }
+
+    #[test]
+    fn content_delta_signature_delta_is_modeled() {
+        let back: ContentDelta =
+            serde_json::from_str(r#"{"type":"signature_delta","signature":"EqQBCkYIBRgC"}"#)
+                .unwrap();
+        assert!(
+            matches!(back, ContentDelta::SignatureDelta { signature } if signature == "EqQBCkYIBRgC")
+        );
+        let unknown: ContentDelta =
+            serde_json::from_str(r#"{"type":"citations_delta","citation":{}}"#).unwrap();
+        assert!(matches!(unknown, ContentDelta::Other(_)));
     }
 
     // ── ModelInfo serde ──────────────────────────────────────────────────────

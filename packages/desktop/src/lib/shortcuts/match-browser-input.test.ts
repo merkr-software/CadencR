@@ -3,6 +3,62 @@ import { describe, expect, it } from "vitest";
 import { matchesBrowserShortcutInput } from "./match-browser-input";
 
 describe("matchesBrowserShortcutInput", () => {
+  it.each(["mac", "linux"] as const)(
+    "preserves distinct glyph and Shift chords on %s",
+    (platform) => {
+      const modifier = platform === "mac" ? { meta: true } : { control: true };
+      for (const [key, code, token] of [
+        ["[", "BracketLeft", "lbracket"],
+        ["]", "BracketRight", "rbracket"],
+      ] as const) {
+        const input = { key, code, ...modifier };
+        expect(matchesBrowserShortcutInput(input, { keys: ["mod", token] }, platform)).toBe(true);
+        expect(
+          matchesBrowserShortcutInput(
+            { ...input, shift: true },
+            { keys: ["mod", token] },
+            platform,
+          ),
+        ).toBe(false);
+        expect(
+          matchesBrowserShortcutInput(
+            { ...input, shift: true },
+            { keys: ["mod", "shift", token] },
+            platform,
+          ),
+        ).toBe(true);
+      }
+      expect(
+        matchesBrowserShortcutInput(
+          { key: "-", code: "Minus", shift: true, ...modifier },
+          { keys: ["mod", "minus"] },
+          platform,
+        ),
+      ).toBe(false);
+      expect(
+        matchesBrowserShortcutInput(
+          { key: "0", code: "Digit0", shift: true, ...modifier },
+          { keys: ["mod", "0"] },
+          platform,
+        ),
+      ).toBe(true);
+      expect(
+        matchesBrowserShortcutInput(
+          { key: "+", code: "Slash", ...modifier },
+          { keys: ["mod", "plus"] },
+          platform,
+        ),
+      ).toBe(true);
+      expect(
+        matchesBrowserShortcutInput(
+          { key: "?", code: "Comma", shift: true, ...modifier },
+          { keys: ["mod", "shift", "question"] },
+          platform,
+        ),
+      ).toBe(true);
+    },
+  );
+
   it("matches letters by layout-aware key rather than physical code", () => {
     expect(
       matchesBrowserShortcutInput(

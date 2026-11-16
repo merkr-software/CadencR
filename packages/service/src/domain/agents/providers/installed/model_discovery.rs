@@ -8,7 +8,6 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
@@ -16,25 +15,28 @@ use agent_client_protocol::schema::v1::{
     SessionConfigSelectOptions,
 };
 use serde::Deserialize;
-use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::domain::agents::runtime::ModelCatalogEntry;
 
+mod modes;
+
+pub use modes::{option_role, ProviderModeMap, ACCESS_MODE_ROLE};
+
+use super::command_capture::run_provider_subcommand;
 use super::installation::LocalExecutable;
 #[cfg(test)]
 use super::managed::process_policy::managed_command;
-use super::managed::process_policy::{capture_managed_command, ManagedCommandOutput};
-use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
 
 pub const MODEL_DISCOVERY_FORMAT: &str = "acp-config-options-v1";
 const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_DISCOVERY_OUTPUT_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredModels {
     pub config_id: String,
     pub default_model: String,
     pub models: Vec<ModelCatalogEntry>,
+    /// Optional mode / access-mode selectors mapped onto host modes.
+    pub modes: ProviderModeMap,
 }
 
 #[derive(Debug, Clone)]
@@ -67,27 +69,9 @@ pub async fn discover_models(
         OsString::from("--cwd"),
         cwd.as_os_str().to_owned(),
     ];
-    let PreparedProviderCommand {
-        mut command,
-        process_tree_policy,
-    } = prepare_provider_command(executable, &args, cwd, None)
+    let output = run_provider_subcommand(executable, &args, cwd, MODEL_DISCOVERY_TIMEOUT)
         .await
-        .map_err(|error| {
-            ModelDiscoveryError::new(format!(
-                "could not prepare provider model discovery: {error}"
-            ))
-        })?;
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-    let is_managed = matches!(
-        process_tree_policy,
-        crate::domain::agents::acp::AcpProcessTreePolicy::Isolated(_)
-    );
-    let output = capture_model_command(command, is_managed, MODEL_DISCOVERY_TIMEOUT).await?;
+        .map_err(|error| ModelDiscoveryError::new(format!("provider model discovery {error}")))?;
     if !output.status.success() {
         // Provider stderr can contain credentials. Record only its bounded byte
         // count; provider authors can reproduce the command in a terminal.
@@ -98,103 +82,6 @@ pub async fn discover_models(
         )));
     }
     parse_models(&output.stdout)
-}
-
-async fn capture_model_command(
-    command: tokio::process::Command,
-    is_managed: bool,
-    timeout: Duration,
-) -> Result<ManagedCommandOutput, ModelDiscoveryError> {
-    if is_managed {
-        return capture_managed_command(command, timeout)
-            .await
-            .map_err(|error| {
-                ModelDiscoveryError::new(format!(
-                    "managed provider model discovery failed: {error}"
-                ))
-            });
-    }
-    capture_local_model_command(command, timeout).await
-}
-
-async fn capture_local_model_command(
-    mut command: tokio::process::Command,
-    timeout: Duration,
-) -> Result<ManagedCommandOutput, ModelDiscoveryError> {
-    let mut child = command.spawn().map_err(|error| {
-        ModelDiscoveryError::new(format!("could not start provider model discovery: {error}"))
-    })?;
-    let stdout = child.stdout.take().ok_or_else(|| {
-        ModelDiscoveryError::new("provider model discovery stdout was unavailable")
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        ModelDiscoveryError::new("provider model discovery stderr was unavailable")
-    })?;
-    let mut stdout_task = tokio::spawn(read_bounded(stdout));
-    let mut stderr_task = tokio::spawn(read_bounded(stderr));
-
-    let capture = async {
-        let wait = async {
-            child.wait().await.map_err(|error| {
-                ModelDiscoveryError::new(format!(
-                    "provider model discovery failed to wait: {error}"
-                ))
-            })
-        };
-        let stdout = async {
-            (&mut stdout_task).await.map_err(|error| {
-                ModelDiscoveryError::new(format!("stdout reader failed: {error}"))
-            })?
-        };
-        let stderr = async {
-            (&mut stderr_task).await.map_err(|error| {
-                ModelDiscoveryError::new(format!("stderr reader failed: {error}"))
-            })?
-        };
-        tokio::try_join!(wait, stdout, stderr)
-    };
-    match tokio::time::timeout(timeout, capture).await {
-        Ok(Ok((status, stdout, stderr))) => Ok(ManagedCommandOutput {
-            status,
-            stdout,
-            stderr,
-        }),
-        Ok(Err(error)) => {
-            let _ = child.kill().await;
-            stdout_task.abort();
-            stderr_task.abort();
-            Err(error)
-        }
-        Err(_) => {
-            let _ = child.kill().await;
-            stdout_task.abort();
-            stderr_task.abort();
-            Err(ModelDiscoveryError::new(format!(
-                "provider model discovery timed out after {} seconds",
-                timeout.as_secs()
-            )))
-        }
-    }
-}
-
-async fn read_bounded(mut reader: impl AsyncRead + Unpin) -> Result<Vec<u8>, ModelDiscoveryError> {
-    let mut bytes = Vec::new();
-    let mut buffer = [0_u8; 8192];
-    loop {
-        let count = reader.read(&mut buffer).await.map_err(|error| {
-            ModelDiscoveryError::new(format!("could not read provider output: {error}"))
-        })?;
-        if count == 0 {
-            break;
-        }
-        if bytes.len().saturating_add(count) > MAX_DISCOVERY_OUTPUT_BYTES {
-            return Err(ModelDiscoveryError::new(format!(
-                "provider output exceeded {MAX_DISCOVERY_OUTPUT_BYTES} bytes"
-            )));
-        }
-        bytes.extend_from_slice(&buffer[..count]);
-    }
-    Ok(bytes)
 }
 
 fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
@@ -264,6 +151,7 @@ fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
         config_id: config_id.to_string(),
         default_model,
         models,
+        modes: ProviderModeMap::parse(&options)?,
     })
 }
 
@@ -309,10 +197,8 @@ fn model_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        capture_model_command, managed_command, parse_models, read_bounded,
-        MAX_DISCOVERY_OUTPUT_BYTES,
-    };
+    use super::super::command_capture::capture_provider_command;
+    use super::{managed_command, parse_models};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -352,7 +238,7 @@ mod tests {
         )
         .expect("prepare managed discovery helper");
 
-        let error = capture_model_command(command, true, std::time::Duration::from_secs(1))
+        let error = capture_provider_command(command, true, std::time::Duration::from_secs(1))
             .await
             .expect_err("managed discovery helper must time out");
         assert!(error.to_string().contains("timed out"), "{error}");
@@ -360,6 +246,7 @@ mod tests {
             .expect("helper should publish descendant pid")
             .parse()
             .expect("numeric descendant pid");
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
         for _ in 0..50 {
             if unsafe { libc::kill(pid, 0) } != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
@@ -422,12 +309,5 @@ mod tests {
         for value in cases {
             assert!(parse_models(&serde_json::to_vec(&value).unwrap()).is_err());
         }
-    }
-
-    #[tokio::test]
-    async fn bounded_reader_rejects_output_immediately_after_the_limit() {
-        let bytes = vec![b'x'; MAX_DISCOVERY_OUTPUT_BYTES + 1];
-        let error = read_bounded(std::io::Cursor::new(bytes)).await.unwrap_err();
-        assert!(error.to_string().contains("exceeded"));
     }
 }

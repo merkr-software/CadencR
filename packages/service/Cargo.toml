@@ -1,23 +1,28 @@
 [package]
 name = "cadencr-service"
-version = "0.11.5"
+version = "0.16.2"
 edition = "2021"
 license.workspace = true
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 bon.workspace = true
+cadencr-app-paths = { path = "../app-paths-rs" }
+cadencr-plugin-core = { path = "../plugin-core" }
+cadencr-registry-core = { path = "../registry-core" }
+cadencr-registry-publisher = { path = "../registry-publisher" }
+# The stdio protocol's reference types and limits (transport only).
+cadencr-tab-backend = { path = "../tab-backend-sdk-rs" }
 claude-agent-sdk-rs = { path = "../claude-agent-sdk-rs" }
 cli-discovery = { path = "../cli-discovery" }
 codex-app-server-sdk-rs = { path = "../codex-app-server-sdk-rs" }
-cursor-agent-sdk-rs = { path = "../cursor-agent-sdk-rs" }
 opencode-sdk-rs = { path = "../opencode-sdk-rs" }
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["compat"] }
+tokio-util = { version = "0.7", features = ["compat", "io"] }
 sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros", "chrono", "uuid", "json"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 semver = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
@@ -27,7 +32,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 thiserror = "2"
-agent-client-protocol = "1.2.0"
+agent-client-protocol = "3.4.0"
 regex-lite = "0.1"
 dirs = "6"
 rand = "0.10"
@@ -44,6 +49,7 @@ libc = "0.2"
 portable-pty = { path = "vendor/portable-pty" }
 percent-encoding = "2"
 ignore = "0.4"
+globset = "0.4.18"
 nucleo-matcher = "0.3"
 notify-debouncer-mini = "0.7"
 dotenvy = "0.15"
@@ -51,8 +57,14 @@ tempfile = "3"
 trash = "5"
 flate2 = "1"
 sha2 = "0.11"
+hmac = "0.13"
 tar = "0.4.46"
-zip = { version = "6.0.0", default-features = false, features = ["deflate", "bzip2"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate", "bzip2"] }
+# Document preview: recalculates workbooks saved without formula results
+# (openpyxl / xlsxwriter output). Pinned: the engine is 0.x and its results are
+# written into users' previews.
+ironcalc = "=0.8.3"
+roxmltree = "0.19"
 ed25519-dalek = "3.0.0"
 # `web-push` depends on `ece -> openssl`. In release builds that previously
 # linked the sidecar against Homebrew's `/opt/homebrew/opt/openssl@3` dylibs,
@@ -64,7 +76,7 @@ rcgen = "0.14"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 # Pin the `ring` crypto provider explicitly (installed at remote startup) so TLS
 # is deterministic regardless of what else pulls rustls into the tree.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 subtle = "2.6"
 zeroize = "1.8"
 if-addrs = "0.15"
@@ -75,7 +87,7 @@ if-addrs = "0.15"
 web-push = { version = "0.11", default-features = false, features = ["hyper-client"] }
 jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
 chrono-tz = { version = "0.10.4", features = ["serde"] }
-nvim-rs = { version = "0.6", features = ["use_tokio"] }
+nvim-rs = { version = "0.9", features = ["use_tokio"] }
 rmpv = "1"
 
 [target.'cfg(windows)'.dependencies]
@@ -87,15 +99,25 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Threading",
 ] }
 
+# Both binaries are thin wrappers over the lib and carry no unit tests, so
+# skip building and running an empty test harness for each. All unit tests live
+# in the lib (`src/lib.rs`) and run exactly once.
+[[bin]]
+name = "cadencr-service"
+path = "src/main.rs"
+test = false
+
 [[bin]]
 name = "dump-openapi"
 path = "src/bin/dump_openapi.rs"
+test = false
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 assert-json-diff = "2"
+cadencr-plugin-core = { path = "../plugin-core", features = ["test-support"] }
 tower = { version = "0.5", features = ["util"] }
 # `rustls-tls` is dev-only: the remote-listener test needs a rustls client to
 # talk to our rustls server (macOS Secure Transport mis-negotiates against it).

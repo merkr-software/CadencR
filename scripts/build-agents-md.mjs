@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -79,30 +79,18 @@ function stripQuotes(value) {
   return match ? match[2] : value;
 }
 
-// Demote every markdown heading (## or deeper) by one level so rule bodies nest
-// under the generated `### <name>` heading. Fenced code blocks are left alone.
-export function demoteHeadings(body) {
-  let inFence = false;
-  return body
-    .split("\n")
-    .map((line) => {
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
-        return line;
-      }
-      if (!inFence && /^#{2,}\s/.test(line)) return `#${line}`;
-      return line;
-    })
-    .join("\n");
-}
-
-function ruleBlock(rule) {
-  let out = `### ${rule.name}\n`;
-  if (rule.paths.length > 0) {
-    out += `_Applies to: ${rule.paths.map((p) => `\`${p}\``).join(", ")}_\n`;
-  }
-  out += `\n${demoteHeadings(rule.body)}\n`;
-  return out.trimEnd();
+// Link to each source instead of copying its body into every instruction chain.
+// Markdown paths stay portable regardless of the OS running the generator.
+function ruleIndex(rules, dir = ".") {
+  const sourceDir = posix.relative(dir, ".claude/rules");
+  const rows = [...rules].sort(byName).map((rule) => {
+    const path = posix.join(sourceDir, `${rule.name}.md`);
+    const scope = rule.paths.length ? rule.paths.map((p) => `\`${p}\``).join(", ") : "Every task";
+    return `| [${rule.name}](${path}) | ${scope} |`;
+  });
+  return ["| Rule source | Applies to (repository-relative) |", "| --- | --- |", ...rows].join(
+    "\n",
+  );
 }
 
 // Map a single glob to the deepest nested directory it belongs to, or null when
@@ -132,7 +120,7 @@ function byName(a, b) {
 // Replace only the content between the begin/end markers, leaving the rest of
 // the root AGENTS.md untouched.
 export function renderRoot(existing, rules) {
-  const inner = [...rules].sort(byName).map(ruleBlock).join("\n\n");
+  const inner = ruleIndex(rules);
   const replacement = `${BEGIN}\n\n${inner}\n\n${END}`;
   const re = new RegExp(`${escapeRegExp(BEGIN)}[\\s\\S]*?${escapeRegExp(END)}`);
   if (!re.test(existing)) {
@@ -141,12 +129,12 @@ export function renderRoot(existing, rules) {
   return existing.replace(re, replacement);
 }
 
-export function renderNested(intro, rules) {
+export function renderNested(intro, rules, dir = ".") {
   let out = `${NESTED_HEADER}\n\n# AGENTS.md\n\n${intro}\n`;
-  for (const rule of [...rules].sort(byName)) {
-    out += `\n${ruleBlock(rule)}\n`;
-  }
-  return out.replace(/\n+$/, "\n");
+  out +=
+    "\nRead the applicable sources below before editing, unless already loaded in this session. ";
+  out += "The root `AGENTS.md` also lists cross-cutting rules.\n\n";
+  return `${out}${ruleIndex(rules, dir)}\n`;
 }
 
 function escapeRegExp(value) {
@@ -157,7 +145,9 @@ function loadRules(rulesDir) {
   return readdirSync(rulesDir)
     .filter((file) => file.endsWith(".md"))
     .sort()
-    .map((file) => parseRule(file.replace(/\.md$/, ""), readFileSync(join(rulesDir, file), "utf8")));
+    .map((file) =>
+      parseRule(file.replace(/\.md$/, ""), readFileSync(join(rulesDir, file), "utf8")),
+    );
 }
 
 // Build the full set of { path, content } outputs from the current rules.
@@ -169,7 +159,7 @@ export function buildOutputs(root, rules) {
     const scoped = rules.filter((rule) => mapRuleToDirs(rule.paths).includes(target.dir));
     outputs.push({
       path: join(root, target.dir, "AGENTS.md"),
-      content: renderNested(target.intro, scoped),
+      content: renderNested(target.intro, scoped, target.dir),
     });
   }
   return outputs;

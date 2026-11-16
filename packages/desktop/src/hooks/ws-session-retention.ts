@@ -1,4 +1,5 @@
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { isSessionIdle } from "@/stores/session-status-selectors";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 
 export const WS_SESSION_EVICTION_MS = 5 * 60_000;
@@ -18,7 +19,7 @@ function canEvictSession(sessionId: string): boolean {
     // assigned a runtime id, wait for canonical status before tearing it down.
     return session.serverSessionId === "";
   }
-  return useSessionStatusStore.getState().bySession[session.sessionDbId]?.status === "idle";
+  return isSessionIdle(useSessionStatusStore.getState(), session.sessionDbId);
 }
 
 function scheduleEviction(sessionId: string, entry: RetentionEntry): void {
@@ -29,7 +30,8 @@ function scheduleEviction(sessionId: string, entry: RetentionEntry): void {
       scheduleEviction(sessionId, entry);
       return;
     }
-    useWsSessionStore.getState().disconnect(sessionId);
+    // Release, not disconnect: the backend decides when the runtime may stop.
+    useWsSessionStore.getState().release(sessionId);
     entries.delete(sessionId);
   }, WS_SESSION_EVICTION_MS);
 }

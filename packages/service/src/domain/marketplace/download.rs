@@ -1,0 +1,374 @@
+use super::{invalid, ExtensionKind};
+use crate::domain::projects::publication_release::local::validation::{
+    parse_repository, validate_archive_url,
+};
+use crate::error::AppError;
+use futures::StreamExt as _;
+
+mod conditional;
+pub use conditional::{download_if_modified, Fetched, Validators};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DownloadKind {
+    Catalog,
+    Artifact,
+}
+
+/// A `kind` package archive, from the release host its signed entry names.
+pub async fn download_archive(
+    kind: ExtensionKind,
+    url: &str,
+    distribution_repository: Option<&serde_json::Value>,
+    limit: usize,
+) -> Result<Vec<u8>, AppError> {
+    let origin = cadencr_registry_core::theme_distribution_repository(url, distribution_repository)
+        .map_err(|error| kind.invalid(format!("archive origin is invalid: {error}")))?;
+    let repository = parse_repository(Some(&origin))?;
+    validate_archive_url(url, &repository)?;
+    download_inner(url, limit, DownloadKind::Artifact)
+        .await
+        .map_err(|error| kind.invalid(format!("archive download failed: {error}")))
+}
+fn allowed_redirect(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && matches!(
+            url.host_str(),
+            Some(
+                "github.com"
+                    | "release-assets.githubusercontent.com"
+                    | "objects.githubusercontent.com"
+            )
+        )
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && url.fragment().is_none()
+}
+
+pub async fn download(url: &str, limit: usize) -> Result<Vec<u8>, AppError> {
+    download_inner(url, limit, DownloadKind::Catalog).await
+}
+fn client(kind: DownloadKind) -> Result<&'static reqwest::Client, AppError> {
+    static CATALOG: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    static ARTIFACT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    let slot = match kind {
+        DownloadKind::Catalog => &CATALOG,
+        DownloadKind::Artifact => &ARTIFACT,
+    };
+    slot.get_or_init(|| build_client(kind))
+        .as_ref()
+        .map_err(invalid)
+}
+fn build_client(kind: DownloadKind) -> Result<reqwest::Client, String> {
+    client_builder(kind)
+        .build()
+        .map_err(|error| error.to_string())
+}
+fn client_builder(kind: DownloadKind) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            if (kind == DownloadKind::Artifact && !allowed_redirect(attempt.url()))
+                || attempt.url().scheme() != "https"
+                || attempt.previous().len() >= 3
+            {
+                attempt.error("unsafe download redirect")
+            } else {
+                attempt.follow()
+            }
+        }))
+        .timeout(std::time::Duration::from_secs(30))
+}
+fn checked_url(url: &str) -> Result<reqwest::Url, AppError> {
+    let url = reqwest::Url::parse(url).map_err(invalid)?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(invalid(
+            "download requires absolute HTTPS without credentials",
+        ));
+    }
+    Ok(url)
+}
+async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<Vec<u8>, AppError> {
+    response_bytes(checked_url(url)?, limit, kind, client(kind)?).await
+}
+async fn response_bytes(
+    url: reqwest::Url,
+    limit: usize,
+    kind: DownloadKind,
+    client: &reqwest::Client,
+) -> Result<Vec<u8>, AppError> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(invalid)?
+        .error_for_status()
+        .map_err(invalid)?;
+    body_bytes(response, limit, kind).await
+}
+async fn body_bytes(
+    response: reqwest::Response,
+    limit: usize,
+    kind: DownloadKind,
+) -> Result<Vec<u8>, AppError> {
+    if (kind == DownloadKind::Artifact && !allowed_redirect(response.url()))
+        || response.url().scheme() != "https"
+        || response
+            .content_length()
+            .is_some_and(|size| size > limit as u64)
+    {
+        return Err(invalid("unsafe or oversized download"));
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(invalid)?;
+        if bytes.len().saturating_add(chunk.len()) > limit {
+            return Err(invalid("download exceeds budget"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    async fn tls_fixture() -> (reqwest::Client, axum_server::Handle<std::net::SocketAddr>) {
+        use axum::{body::Body, http::Response, routing::get, Router};
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let certificate = rcgen::generate_simple_self_signed(vec![
+            "github.com".into(),
+            "release-assets.githubusercontent.com".into(),
+        ])
+        .unwrap();
+        let config = axum_server::tls_rustls::RustlsConfig::from_pem(
+            certificate.cert.pem().into_bytes(),
+            certificate.signing_key.serialize_pem().into_bytes(),
+        )
+        .await
+        .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new()
+            .route(
+                "/cadencr/registry/releases/download/theme-midnight-v1/theme.tar.gz",
+                get(|| async {
+                    Response::builder()
+                        .status(302)
+                        .header(
+                            "location",
+                            "https://release-assets.githubusercontent.com/exact",
+                        )
+                        .body(Body::empty())
+                        .unwrap()
+                }),
+            )
+            .route("/exact", get(|| async { "fresh TLS fixture archive" }))
+            .route(
+                "/catalog",
+                get(|headers: axum::http::HeaderMap| async move {
+                    let fresh = headers
+                        .get("if-none-match")
+                        .is_some_and(|etag| etag == "\"v1\"");
+                    Response::builder()
+                        .status(if fresh { 304 } else { 200 })
+                        .header("etag", "\"v1\"")
+                        .body(Body::from(if fresh { "" } else { "catalog body" }))
+                        .unwrap()
+                }),
+            )
+            .route(
+                "/tampered",
+                get(|| async { "tampered TLS fixture archive" }),
+            )
+            .route(
+                "/unsafe",
+                get(|| async {
+                    Response::builder()
+                        .status(302)
+                        .header("location", "https://evil.example/stolen")
+                        .body(Body::empty())
+                        .unwrap()
+                }),
+            );
+        let handle = axum_server::Handle::new();
+        let server_handle = handle.clone();
+        tokio::spawn(async move {
+            axum_server::from_tcp_rustls(listener, config)
+                .unwrap()
+                .handle(server_handle)
+                .serve(app.into_make_service())
+                .await
+                .unwrap();
+        });
+        let client = client_builder(DownloadKind::Artifact)
+            .use_rustls_tls()
+            .no_proxy()
+            .add_root_certificate(
+                reqwest::Certificate::from_pem(certificate.cert.pem().as_bytes()).unwrap(),
+            )
+            .resolve("github.com", address)
+            .resolve("release-assets.githubusercontent.com", address)
+            .build()
+            .unwrap();
+        (client, handle)
+    }
+    #[tokio::test]
+    async fn an_unchanged_catalog_is_confirmed_without_its_body() {
+        let (client, handle) = tls_fixture().await;
+        let url = reqwest::Url::parse("https://github.com/catalog").unwrap();
+        let Fetched::Body { bytes, validators } =
+            conditional::fetch_with(&client, url.clone(), 1024, None)
+                .await
+                .unwrap()
+        else {
+            panic!("an unconditional request returns the body");
+        };
+        assert_eq!(bytes, b"catalog body");
+        assert_eq!(validators.etag.as_deref(), Some("\"v1\""));
+        assert!(matches!(
+            conditional::fetch_with(&client, url.clone(), 1024, Some(&validators))
+                .await
+                .unwrap(),
+            Fetched::NotModified
+        ));
+        let stale = Validators {
+            etag: Some("\"v0\"".into()),
+            last_modified: None,
+        };
+        assert!(matches!(
+            conditional::fetch_with(&client, url, 1024, Some(&stale))
+                .await
+                .unwrap(),
+            Fetched::Body { .. }
+        ));
+        handle.shutdown();
+    }
+    #[tokio::test]
+    async fn fresh_tls_github_origin_redirect_bytes_digest_and_rejections() {
+        let (client, handle) = tls_fixture().await;
+        let origin =
+            "https://github.com/cadencr/registry/releases/download/theme-midnight-v1/theme.tar.gz";
+        let repository = parse_repository(Some("https://github.com/cadencr/registry")).unwrap();
+        validate_archive_url(origin, &repository).unwrap();
+        let bytes = response_bytes(
+            reqwest::Url::parse(origin).unwrap(),
+            1024,
+            DownloadKind::Artifact,
+            &client,
+        )
+        .await
+        .unwrap();
+        assert_eq!(bytes, b"fresh TLS fixture archive");
+        let digest = super::super::storage::digest(&bytes);
+        assert_eq!(
+            digest,
+            super::super::storage::digest(b"fresh TLS fixture archive")
+        );
+        let tampered = response_bytes(
+            reqwest::Url::parse("https://release-assets.githubusercontent.com/tampered").unwrap(),
+            1024,
+            DownloadKind::Artifact,
+            &client,
+        )
+        .await
+        .unwrap();
+        crate::domain::themes::managed::service::require_archive_digest(&bytes, &digest).unwrap();
+        let error =
+            crate::domain::themes::managed::service::require_archive_digest(&tampered, &digest)
+                .unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                code: "MANAGED_THEME_HASH_MISMATCH",
+                ..
+            }
+        ));
+        assert!(response_bytes(
+            reqwest::Url::parse("https://github.com/unsafe").unwrap(),
+            1024,
+            DownloadKind::Artifact,
+            &client
+        )
+        .await
+        .is_err());
+        assert!(response_bytes(
+            reqwest::Url::parse(origin).unwrap(),
+            4,
+            DownloadKind::Artifact,
+            &client
+        )
+        .await
+        .is_err());
+        handle.shutdown();
+    }
+    #[test]
+    fn signed_distribution_origin_is_distinct_from_author_provenance() {
+        let url =
+            "https://github.com/cadencr/registry/releases/download/theme-midnight-v1/theme.tar.gz";
+        assert_eq!(
+            cadencr_registry_core::theme_distribution_repository(url, None).unwrap(),
+            "https://github.com/cadencr/registry"
+        );
+        assert!(cadencr_registry_core::theme_distribution_repository(
+            url,
+            Some(&serde_json::json!("https://github.com/author/themes"))
+        )
+        .is_err());
+        assert!(cadencr_registry_core::theme_distribution_repository(
+            url,
+            Some(&serde_json::json!(null))
+        )
+        .is_err());
+        assert!(cadencr_registry_core::theme_distribution_repository(
+            "https://example.com/a.tar.gz",
+            None
+        )
+        .is_err());
+    }
+    #[tokio::test]
+    async fn artifact_sources_reject_private_hosts_non_release_paths_and_queries() {
+        for url in [
+            "https://127.0.0.1/archive.tar.gz",
+            "https://localhost/archive.tar.gz",
+            "https://github.com/acme/themes/archive.tar.gz",
+            "https://github.com/acme/themes/releases/download/v1/theme.tar.gz?secret=1",
+            "https://github.com/other/themes/releases/download/v1/theme.tar.gz",
+        ] {
+            assert!(download_archive(
+                ExtensionKind::Theme,
+                url,
+                Some(&serde_json::json!("https://github.com/acme/themes")),
+                10
+            )
+            .await
+            .is_err());
+        }
+    }
+    #[test]
+    fn redirect_policy_permits_only_public_github_asset_hosts() {
+        for url in [
+            "https://127.0.0.1/a",
+            "https://localhost/a",
+            "https://github.com.evil.test/a",
+            "http://github.com/a",
+            "https://user@github.com/a",
+            "https://github.com:8443/a",
+        ] {
+            assert!(!allowed_redirect(&reqwest::Url::parse(url).unwrap()));
+        }
+        assert!(allowed_redirect(
+            &reqwest::Url::parse(
+                "https://release-assets.githubusercontent.com/object?token=signed"
+            )
+            .unwrap()
+        ));
+    }
+}

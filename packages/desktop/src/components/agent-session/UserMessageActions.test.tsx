@@ -15,18 +15,25 @@ vi.mock("@/stores/ws-session-store", () => ({
 vi.mock("@/lib/markdown-export", () => ({
   copyAs: (...args: unknown[]) => copyAs(...args),
 }));
+const useIsTouchDevice = vi.hoisted(() => vi.fn(() => false));
+vi.mock("@/hooks/useIsTouchDevice", () => ({ useIsTouchDevice }));
+const rangeToEmailHtml = vi.hoisted(() => vi.fn((_range: Range) => "<p>hello</p>"));
+vi.mock("@/lib/email-export", () => ({ rangeToEmailHtml }));
 vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
 }));
 import { extractPromptBlobs, resetPromptBlobCacheForTest } from "@/lib/prompt-image-cache";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { AgentSessionProvider } from "./agent-session-context";
 import { UserMessageActions } from "./UserMessageActions";
+import { UserMessageBlock } from "../UserMessageBlock";
+
+const NOOP_ACTIONS = { featureId: 1, sendPrompt: vi.fn(), openModelPicker: vi.fn() };
 
 function renderActions(block: AgentBlockData, wsSessionId: string | null = "ws-feature-1") {
   return render(
-    <AgentSessionProvider value={{ wsSessionId }}>
-      <UserMessageActions block={block} />
+    <AgentSessionProvider value={{ wsSessionId, ...NOOP_ACTIONS }}>
+      <UserMessageActions block={block} bubbleRef={{ current: null }} />
     </AgentSessionProvider>,
   );
 }
@@ -35,6 +42,7 @@ const persisted: AgentBlockData = { id: "msg-42", type: "user_message", content:
 
 describe("UserMessageActions", () => {
   beforeEach(() => {
+    useIsTouchDevice.mockReturnValue(false);
     rewindToMessage.mockClear();
     forkFromMessage.mockClear();
     sendPrompt.mockClear();
@@ -193,5 +201,28 @@ describe("UserMessageActions", () => {
       ),
     );
     expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("emails the rendered bubble from the touch Copy as menu", async () => {
+    useIsTouchDevice.mockReturnValue(true);
+    const user = userEvent.setup();
+    render(
+      <AgentSessionProvider value={{ wsSessionId: "ws-feature-1", ...NOOP_ACTIONS }}>
+        <UserMessageBlock
+          content="hello"
+          renderActions={(bubbleRef) => (
+            <UserMessageActions block={persisted} bubbleRef={bubbleRef} />
+          )}
+        />
+      </AgentSessionProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Copy as/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Email" }));
+
+    expect(rangeToEmailHtml.mock.calls[0]?.[0].commonAncestorContainer).toBe(
+      screen.getByTestId("user-message-bubble"),
+    );
+    expect(copyAs).toHaveBeenCalledWith("email", "hello", "<p>hello</p>");
   });
 });

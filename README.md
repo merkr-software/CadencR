@@ -1,107 +1,133 @@
-<p align="center">
-  <a href="https://cadencr.com">
-    <img src="packages/landing/src/assets/hero.gif" alt="CadencR desktop workspace in action: streaming agent output, the project list, an inline diff, editor, terminal, embedded browser, and Git review" width="920" />
-  </a>
-</p>
+# CadencR
 
-<p align="center">
-  <a href="https://cadencr.com"><strong>▶ Watch the full demo at cadencr.com</strong></a>
-</p>
+## Run agents. Stay in control. Ship.
 
-<h1 align="center">CadencR</h1>
+The desktop workspace for managing AI coding agents. **Run Claude Code, Codex, Cursor, and OpenCode across projects. See their progress, handle their requests, and steer the work from one place.**
 
-<p align="center">
-  <strong>Stop switching. One window for Agent, Git, Browser, Editor &amp; Terminal.</strong><br />
-  The IDE for the era of agents: read, steer, and ship with Claude Code, OpenCode, and Codex.
-</p>
+[**Download for macOS →**](https://github.com/merkr-software/CadencR/releases/latest) · [Website & demo](https://cadencr.com) · [Documentation](https://cadencr.com/docs/) · [What's new](https://cadencr.com/news/)
 
-<p align="center">
-  <a href="https://cadencr.com">Website</a>
-  ·
-  <a href="https://cadencr.com/docs/">Docs</a>
-  ·
-  <a href="https://cadencr.com/news/">News</a>
-  ·
-  <a href="https://github.com/merkr-software/CadencR/releases">Download</a>
-</p>
+**Free & open source · Local-first · Privacy controls · Apache 2.0**
 
-<p align="center">
-  <sub>Open source · No telemetry · Apache 2.0 · macOS</sub>
-</p>
+[![CadencR v0.14.1: four agent conversations in a unified grid, with model controls, a permission request, and the For me queue across projects.](./.github/assets/readme/hero.png)](./.github/assets/readme/hero.png)
 
----
-
-## Stop babysitting agents in a terminal scrollback
-
-CLI coding agents are powerful, but the workflow around them is still too often a pile of terminals, branches, diffs, and half-remembered context, with you alt-tabbing between windows all day.
-
-CadencR turns local coding agents into a desktop IDE experience: every task gets a focused workspace with its own agent session, Git worktree, editor, terminal, embedded browser, approvals, and review flow.
-
-You keep the agents you already use. CadencR gives you the surface to supervise them (every running agent, every project, every tab in one place) without losing the thread.
-
-## What you get
-
-| Instead of... | CadencR gives you... |
-| --- | --- |
-| One terminal per agent | A unified cockpit for Claude Code, OpenCode, and Codex sessions across every project. |
-| Agents fighting in the same checkout | Isolated feature workspaces, each backed by its own Git worktree and branch. |
-| Endless tool-call scrollback | Rendered streams with grouped tool-call pills, inline diffs, model tags, and a context meter. |
-| Jumping between editor, terminal, and a Git UI | Files, diffs, terminal, an embedded browser, and commits in one place. |
-| A separate window to check the app | A real Chromium pane your agent can drive to QA its own change. |
-| Guessing what changed | A review-first flow built around diffs, commit previews, and human checkpoints. |
-
-## Features
-
-| Feature | What you get |
-| --- | --- |
-| **Agent** | Readable, steerable agent sessions. Raw output is rendered as collapsible tool-call pills (Bash, Grep, Read, Edit, Thinking), inline `+/-` diffs, per-message model tags, and a context meter. Plus plan approvals, tool-permission cards, and multiple-choice questions as keyboard checkpoints, in-conversation search (`⌘F`), and scheduled prompts. |
-| **Orchestrate (Project & Workspace MCP)** | Loop-engineering built in: CadencR's own MCP servers let an agent inspect activity, list projects, compare session history, and **message or spawn sibling sessions** in the current project (Project MCP), and search conversation history across every project (Workspace MCP). Agents that coordinate agents. |
-| **Browser (with Browser MCP)** | A real embedded Chromium pane with per-feature tabs, normal/private cookie modes, and page comments you send to the agent. Over the `cadencr-browser` MCP the agent opens pages, clicks, fills, screenshots, waits for selectors, and reads the console and failed network requests: agent-driven QA before it says "done". |
-| **Git tab** | Review changed files (uncommitted or vs. the target branch) with themed diffs, commit previews before anything lands, and a **commit graph** across sessions × branches with links to the online commit. Commit (`⌘⇧K`), push (`⌘⇧U`), or open a compare/PR (`⌘⇧O`) from the header. |
-| **Editor tab** | A real CodeMirror editor, not a viewer: LSP go-to-definition, references, symbols, diagnostics, and rename; file and content search, split panes and tabs, Git-gutter markers, blame, Markdown preview, multi-cursor, and a read-only large-file mode. Prefer modal editing? Switch to a real Neovim instance per session from Settings. |
-| **Sidebar** | One rail for every project and feature. A global **Pinned** section above the project list keeps hot sessions reachable across projects, activity indicators flag busy features, ordering stays stable, and archived features remain searchable. |
-| **Unified agent list** | Every session at once in a live grid. Filter by name, task, or feature, adjust row density, pin (`⌘⇧P`), and keyboard-navigate, with live status rings so you can read, steer, and review many agents without switching tabs. |
-
-## Built for how agents actually work
-
-- **Run agents in parallel.** Start several features, fixes, or investigations at once. Each session works on its own branch in its own Git worktree, so one agent can run tests while another explores a bug or prepares a refactor, with no fighting over the same checkout.
-- **A real terminal, next to the agent.** One PTY per session, rooted at that session's worktree, for the things the agent shouldn't do: ssh, dev servers, ad-hoc scripts. Split the pane freely; a warning flags if the shell drifts out of the worktree. Rendered with [celeritty](https://github.com/edjubert/celeritty), a WebGPU terminal that reads your `alacritty.toml` for font and colors.
-- **Approvals & permissions.** Plan approvals, tool-permission cards showing the exact command, and multi-choice questions become explicit keyboard checkpoints. Per-provider permission modes (from ask-every-time to auto-accept edits to opt-in bypass/full-access) cycle with `Shift+Tab`.
-- **Custom actions.** Attach reusable shell commands to a project (lint, deploy, seed a database) with `${VARIABLE}` placeholders. Run them on demand from the `+` menu or on a fixed schedule against any feature's worktree.
-- **Steer from a second screen.** Pair a phone, tablet, or second computer by QR code or link and drive the same sessions, terminals, and editor from a browser. Local-first (agents and state stay on your machine), works over your LAN or Tailscale, installs as a PWA, and can send Web Push notifications.
-- **Works with the agents you run.** CadencR supports Claude Code, OpenCode, and Codex, surfacing each through the same shared workflows instead of hardcoded, per-provider assumptions, so switching between them doesn't mean relearning the app.
-
-## Install
-
-### macOS
-
-CadencR currently ships a desktop build for **macOS on both Apple Silicon and Intel**. Native Linux and Windows builds are planned next; you can [run from source](#run-from-source) on either today.
-
-Install with [Homebrew](https://brew.sh):
+_One view for your agents across projects. Captured in CadencR v0.14.1 with example conversations._
 
 ```bash
 brew install --cask merkr-software/cadencr/cadencr
 ```
 
-Or download the latest DMG/ZIP from [GitHub Releases](https://github.com/merkr-software/CadencR/releases).
+**Bring the agents you already use. Add your repositories. Start delegating.** CadencR keeps parallel conversations organized and brings your attention back when an agent needs a decision.
 
-> CadencR is early `0.x` software. Expect fast iteration, frequent updates, and a few sharp edges.
+## More parallel work. A clearer next move.
+
+Start a feature with Claude Code, investigate a bug with Codex, and keep another project moving with Cursor or OpenCode. Give independent tasks their own Git worktree and branch. See every conversation in a live agent grid, or focus on one workspace with split panes.
+
+### Know which agent needs you next.
+
+When an agent needs you, **For me** names the next action: answer a question, approve a command, inspect an error, fix CI, review a reply, or merge a ready proposal. Spend your attention on decisions while the other agents keep working.
+
+[![An agent pauses for permission to run payment tests. The sidebar keeps pending questions, permissions, pinned conversations, and projects visible.](./.github/assets/readme/attention.png)](./.github/assets/readme/attention.png)
+
+_The next decision is explicit: what the agent wants to run, why, and whether you allow it. Example conversation._
+
+- **Keep your bearings.** Pinned conversations, saved sidebar views, live status, and keyboard navigation keep work across projects within reach.
+- **Make approvals legible.** Review plans, exact tool commands, and structured questions inside the conversation. Permission modes follow each provider's capabilities.
+- **Keep the useful context.** Search conversations, inspect context usage, and rewind or fork with providers that support it.
+- **Choose how files are shared.** Use a new worktree for independent edits, or deliberately reuse a checkout when conversations should share files. Worktrees isolate Git working copies; they are not permission sandboxes.
+
+[Explore parallel work](https://cadencr.com/docs/unified-agent-list/) · [Worktrees](https://cadencr.com/docs/worktrees/) · [Approvals](https://cadencr.com/docs/approvals/)
+
+## Steer the conversation. Keep the context.
+
+Open an agent's conversation and pick up where you left off. Read rendered responses, grouped tool calls, and inline diffs. See its model and context usage, attach files, ask a follow-up, or change direction while it works.
+
+[![A focused Claude Code conversation in CadencR v0.14.1, with the task's branch, rendered response, model and context controls, message composer, and other agents in the sidebar.](./.github/assets/readme/review.png)](./.github/assets/readme/review.png)
+
+_A focused conversation, with the rest of your agents still within reach. Example project data._
+
+- **Choose per task.** Use the provider, model, profile, and supported thinking or permission controls that fit the work.
+- **Resume with your bearings intact.** Search earlier messages, jump between your prompts, and revisit the code or file references in context.
+- **Explore another direction.** Supported providers can rewind to a pre-turn code checkpoint or fork a conversation that shares the current checkout.
+- **Drive it from the keyboard.** Navigate conversations, switch panes, and handle agent checkpoints without reaching for the mouse.
+
+[Conversation guide](https://cadencr.com/docs/session-view/) · [Providers & profiles](https://cadencr.com/docs/providers/) · [Keyboard shortcuts](https://cadencr.com/docs/shortcuts/)
+
+## Let your agents coordinate, too.
+
+CadencR's **Project and Workspace MCP** give agents tools to find earlier work, read related conversations, and spawn or message other sessions. An investigation can inform an implementation; a review can return to the agent that made the change.
+
+| Workflow                      | What CadencR makes possible                                                                                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Delegate in parallel**      | Give independent work its own conversation and worktree, then bring the results back to the coordinating agent.                                       |
+| **Reuse prior work**          | Search session history across projects and read the relevant conversation before starting again.                                                      |
+| **Schedule a follow-up**      | Send a prompt once or on a recurring rule. Run a check first: success stays quiet; failure sends its output to the agent. The host must stay running. |
+| **Steer from another device** | Pair a phone, tablet, or second computer over your LAN or Tailscale and return to the same sessions. Your Mac remains the host.                       |
+
+[MCP & orchestration](https://cadencr.com/docs/mcp/) · [Schedules](https://cadencr.com/docs/schedules/) · [Remote access](https://cadencr.com/docs/remote-access/)
+
+## The tools around the agent, already in place.
+
+When you need to inspect, test, or ship what an agent produced, open the relevant pane beside the conversation.
+
+| Surface               | What you can do                                                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Editor**            | Edit with CodeMirror, LSP navigation, diagnostics, rename, search, splits, and Git blame — or use a real Neovim instance per session.                                                           |
+| **Terminal**          | Keep a real PTY, dev servers, and interactive commands rooted in the task's worktree.                                                                                                           |
+| **Browser**           | Test the running app in embedded Chromium and leave page comments for the agent. Browser MCP lets supported sessions click, fill, screenshot, and inspect console or network failures.          |
+| **Git & reviews**     | Review diffs, stage hunks, manage branches and stashes, preview commits, and follow GitHub PR or GitLab MR feedback. Send selected review threads back to the agent.                            |
+| **Preview**           | Read PDF, Word, Excel, PowerPoint, CSV, and TSV output inside the workspace.                                                                                                                    |
+| **Layouts & actions** | Arrange or save split layouts, let auto layout place references beside the agent, and run reusable project commands.                                                                            |
+| **Custom tabs**       | Add your own project tools to the workspace. [Guide](./docs/CUSTOM_TABS_GUIDE.md) · [SDK](./packages/tab-sdk/README.md) · [Examples](./examples/custom-tabs/README.md). Currently desktop only. |
+
+## Your machine. Your agents. Your code.
+
+- **Local workspace.** CadencR runs on your computer and stores its workspace state locally. Remote access is opt-in.
+- **Your existing agent accounts.** Install and authenticate the native CLI you want to use. CadencR runs it locally; requests to the provider follow that agent's own configuration and service.
+- **Privacy controls.** Diagnostics and detailed usage analytics start off. A separate monthly installation counter starts on when configured, independently of the detailed telemetry decision, and has its own off switch in Settings. Declining detailed telemetry leaves that counter setting unchanged. No prompts, your code, conversation content, session replay, or log dumps are sent. [Data and setup details](./docs/TELEMETRY.md). No additional CadencR subscription; your agent provider's pricing and usage limits still apply.
+- **Open source under Apache 2.0.** Inspect the implementation, build from source, and adapt it to your workflow.
+
+Built-in integrations support **Claude Code, Codex, and OpenCode**. **Cursor** is available as an official provider plugin from the marketplace. Local ACP connectors let you bring additional agents. Models, permission modes, rewind, and other controls depend on what each provider supports. [Provider setup and capabilities →](https://cadencr.com/docs/providers/)
+
+## Install
+
+### macOS
+
+Desktop builds are available for **Apple Silicon and Intel**.
+
+```bash
+brew install --cask merkr-software/cadencr/cadencr
+```
+
+Or [download the latest DMG / ZIP from GitHub Releases](https://github.com/merkr-software/CadencR/releases/latest).
+
+1. **Install and authenticate an agent CLI:** Claude Code, Codex, or OpenCode. For Cursor, install the Cursor CLI, run `agent login`, then add the Cursor provider plugin from the marketplace.
+2. **Open CadencR and add a repository.** Start a task with a new worktree or an existing checkout.
+3. **Choose your agent and model.** Send a prompt, then open the editor, browser, terminal, or Git beside it.
+
+[Get oriented with the workspace guide →](https://cadencr.com/docs/feature-workspace/)
+
+From a terminal, the [`cadencr` command](https://cadencr.com/docs/cli/) opens projects and files, adds projects, starts updates, and runs CadencR headless on a server for paired devices (`cadencr serve`). Install it from **Settings → General → Command line**.
+
+Linux x86-64 packages (AppImage, DEB, RPM) are an alpha, attached by hand to selected releases ([porting status](./docs/LINUX_PORTING_PLAN.md)); native Windows packages are planned. For source builds, follow the [Linux setup](./docs/LINUX_SETUP.md) or [Windows / WSL setup](./docs/WINDOWS_WSL_SETUP.md).
+
+> CadencR is early `0.x` software, with fast iteration and frequent updates. [Report a bug](https://github.com/merkr-software/CadencR/issues/new/choose) or [join the discussion](https://github.com/merkr-software/CadencR/discussions).
 
 ### Run from source
 
-Use this path if you want to try the latest code or contribute.
-
-On Linux, follow the [Linux development setup](./docs/LINUX_SETUP.md).
-
-On Windows, use WSL2/WSLg and follow the [Windows / WSL development setup](./docs/WINDOWS_WSL_SETUP.md).
+Use the latest code or contribute to the product.
 
 #### Requirements
 
-- **Node.js 22.x**: the repo enforces `>=22.19.0 <23.0.0`.
-- **pnpm**: managed through Corepack.
-- **Rust**: install with [rustup](https://rustup.rs/).
-- **cargo-watch**: required by `pnpm dev` for the Rust service watcher. Install with `cargo install cargo-watch`.
-- At least one local agent CLI you want to use: Claude Code, OpenCode, or Codex.
+| Dependency          | Setup                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Node.js 22.19.0** | Pinned in `.nvmrc`; supported range `>=22.19.0 <23.0.0`. Run `nvm use`, or configure fnm to use the file.    |
+| **pnpm**            | Run `corepack enable`; `package.json` pins the version.                                                      |
+| **Rust**            | Install with [rustup](https://rustup.rs/). `rust-toolchain.toml` selects the toolchain, rustfmt, and clippy. |
+| **watchexec**       | `pnpm dev` uses it to restart the service: `brew install watchexec`. `cargo-watch` is a fallback.            |
+| **Python 3.11+**    | The root script tests (run by the pre-commit hook) need it as `python3`; macOS's `/usr/bin/python3` is 3.9.  |
+| **An agent CLI**    | Install and authenticate at least one supported agent.                                                       |
+
+Using Nix? `nix develop` supplies Node 22, Python 3, rustup, watchexec, and native libraries; Corepack supplies pnpm.
 
 #### Setup
 
@@ -111,71 +137,72 @@ cd CadencR
 
 corepack enable
 pnpm install
-
-cp packages/service/.env.example packages/service/.env
-cp packages/desktop/.env.example packages/desktop/.env
+pnpm setup:dev   # .env files, shared dev token, Electron binary
+pnpm doctor      # verify the environment
+pnpm dev         # desktop + Rust service + landing site
 ```
 
-Set the same local token in both env files:
+`pnpm setup:dev` is safe to rerun: it creates missing `.env` files with a shared token and installs Electron. Existing `.env` files are preserved. If the service and desktop tokens differ, run `pnpm setup:dev --fix-token`. Add `--precompile` to build the Rust targets ahead of the first launch.
 
-- `CADENCR_AUTH_TOKEN` in `packages/service/.env`
-- `VITE_API_TOKEN` in `packages/desktop/.env`
+`pnpm doctor` prints a fix for each detected problem. Use it first if development startup fails. `pnpm start` starts only the desktop; use `pnpm dev` to run the service too.
 
-Then start the app:
+#### Git worktrees
+
+In a linked worktree, use `pnpm dev:configure-worktree` in place of `pnpm setup:dev`. It copies the main checkout's environment, assigns separate ports and an Electron profile, and seeds a dev database from the main checkout when available. An automated worktree setup can run:
 
 ```bash
-pnpm dev
+pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile
 ```
 
-If you create Git worktrees through an automated setup hook, add
-`pnpm dev:precompile` after `pnpm install`. It builds the Rust targets used by
-`pnpm dev` without starting the app, so the first launch in that worktree does
-not pay the cold Cargo build cost.
+## Libraries
+
+Build custom tabs and agent providers with the public libraries below. Each
+package follows its own semver, independent of the desktop app.
+
+| Library                | Registry                                                   | Documentation                                                            | README                                                      |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `@cadencr/tab-sdk`     | [npm](https://www.npmjs.com/package/@cadencr/tab-sdk)      | [Host API, React hooks, and testing](https://cadencr.com/docs/tab-sdk/)  | [tab-sdk](./packages/tab-sdk/README.md)                     |
+| `@cadencr/tab-kit`     | [npm](https://www.npmjs.com/package/@cadencr/tab-kit)      | [Components, theme, and Tailwind v4](https://cadencr.com/docs/tab-kit/)  | [tab-kit](./packages/tab-kit/README.md)                     |
+| `cadencr-tab-backend`  | [crates.io](https://crates.io/crates/cadencr-tab-backend)  | [Native custom tab backends](https://cadencr.com/docs/tab-backend/)      | [tab-backend](./packages/tab-backend-sdk-rs/README.md)      |
+| `cadencr-provider-sdk` | [crates.io](https://crates.io/crates/cadencr-provider-sdk) | [Agent provider command harness](https://cadencr.com/docs/provider-sdk/) | [provider-sdk](./packages/provider-plugin-sdk-rs/README.md) |
+
+Start with the [libraries overview and custom tab quick start](https://cadencr.com/docs/libraries/).
 
 ## Development
 
-```bash
-pnpm build                              # build the desktop app
-pnpm test                               # Vitest + Rust tests
-pnpm lint                               # oxlint
-pnpm format                             # oxfmt + cargo fmt
-pnpm --filter @cadencr/desktop ts-check # TypeScript checks
-pnpm --filter @cadencr/desktop knip     # unused export detection
-```
+| Command                                   | Purpose                                              |
+| ----------------------------------------- | ---------------------------------------------------- |
+| `pnpm dev`                                | Run the desktop, service, and landing site.          |
+| `pnpm build`                              | Build the desktop app.                               |
+| `pnpm test`                               | Run Vitest, Rust tests, and repository script tests. |
+| `pnpm lint`                               | Check provider boundaries, oxlint, and clippy.       |
+| `pnpm format`                             | Format with oxfmt and rustfmt.                       |
+| `pnpm --filter @cadencr/desktop ts-check` | Check desktop TypeScript.                            |
+| `pnpm --filter @cadencr/desktop knip`     | Detect unused exports.                               |
+| `pnpm doctor`                             | Diagnose the development environment.                |
 
-Rust build artifacts are isolated in each checkout's `target/`. Development
-profiles omit debug information and incremental state to keep each worktree's
-disk footprint bounded; application logs are unaffected. Run
-`pnpm rust:storage` to inspect disk use, or see
-[CONTRIBUTING.md](./CONTRIBUTING.md#rust-build-storage) for cleanup commands.
+For Rust commands, use `pnpm rust -- <args>`. Build artifacts stay isolated in each checkout's `target/`; `pnpm rust:storage` reports disk usage. See [CONTRIBUTING.md](./CONTRIBUTING.md) for checks, build storage, conventions, and the PR process.
 
-## How it works
+### Under the hood
 
-```text
-packages/
-├── desktop/                 # Electron shell + React frontend
-├── service/                 # Rust API/WebSocket service, packaged as sidecar
-├── claude-agent-sdk-rs/     # Claude Code transport SDK
-├── codex-app-server-sdk-rs/ # Codex transport SDK
-├── opencode-sdk-rs/         # OpenCode transport SDK
-├── cli-discovery/           # Local agent CLI discovery
-└── landing/                 # Marketing site, docs, and news
-```
+| Package                                 | Role                                                                |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `packages/desktop`                      | Electron shell and React workspace.                                 |
+| `packages/service`                      | Rust API and WebSocket service; packaged as the desktop sidecar.    |
+| `packages/*-sdk-rs`                     | Focused transport SDKs for the agent integrations.                  |
+| `packages/cli-discovery`                | Discover locally installed agent CLIs.                              |
+| `packages/cli`                          | The `cadencr` command, bundled with the app and the server archive. |
+| `packages/app-paths-rs`                 | Per-user data, config, and cache locations on macOS and Linux.      |
+| `packages/tab-sdk` · `packages/tab-kit` | Custom tab SDK and design system.                                   |
+| `packages/brand` · `packages/landing`   | Shared brand assets, marketing site, documentation, and news.       |
 
-- **Desktop ↔ Service**: HTTP for requests and WebSocket for live updates.
-- **Service ↔ Agents**: provider adapters call local CLIs through focused Rust SDKs.
-- **Work isolation**: sessions run in Git worktrees so parallel work stays separated.
-- **Local-first**: everything runs on your machine and sends no telemetry; remote access is opt-in over your own LAN or Tailscale.
-- **Release flow**: tagged desktop releases build, sign, notarize, and publish macOS artifacts from GitHub Actions.
+The desktop communicates with the service over HTTP and WebSocket. Provider adapters connect the service to local agent CLIs through the Rust SDKs.
 
-## Open an issue or contribute
+## Build with us
 
-- Found a bug or have a feature idea? [Open an issue](https://github.com/merkr-software/CadencR/issues/new/choose).
-- Have a question or want to share what you built? [Start a discussion](https://github.com/merkr-software/CadencR/discussions).
-- Want to contribute? Start with [`CONTRIBUTING.md`](./CONTRIBUTING.md).
-- Please follow the [Code of Conduct](./.github/CODE_OF_CONDUCT.md).
-- Security reports should use [GitHub private vulnerability reporting](https://github.com/merkr-software/CadencR/security/advisories/new).
+- [**Report a bug or request a feature**](https://github.com/merkr-software/CadencR/issues/new/choose).
+- [**Share a workflow or ask a question**](https://github.com/merkr-software/CadencR/discussions).
+- [**Contribute code, documentation, or a custom tab**](./CONTRIBUTING.md).
+- Follow the [Code of Conduct](./.github/CODE_OF_CONDUCT.md); report vulnerabilities through [private security reporting](https://github.com/merkr-software/CadencR/security/advisories/new).
 
-## License
-
-[Apache 2.0](./LICENSE): free and open source. Bring your own Claude Code, OpenCode, or Codex credentials.
+[**Download CadencR →**](https://github.com/merkr-software/CadencR/releases/latest) · [Read the docs](https://cadencr.com/docs/) · [Apache 2.0 license](./LICENSE)

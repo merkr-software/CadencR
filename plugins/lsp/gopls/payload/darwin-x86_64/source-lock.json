@@ -1,0 +1,243 @@
+{
+  "schema_version": 2,
+  "id": "gopls",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "gopls",
+  "target": "darwin-x86_64",
+  "sources": [
+    {
+      "name": "gopls",
+      "version": "0.23.0",
+      "url": "https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.23.0.zip",
+      "sha256": "b3bb593ef163f614e358cdb14a9feede3cad2bfc9087b8e4dca73b2fff858b74",
+      "destination": ".",
+      "expanded_size": 31244500,
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "gopls",
+          "sha256": "0d59ebdf93fd139b65510042ab1f08012290e88d23677addf233a220b4ee5f72",
+          "size": 31141088,
+          "mode": "100755"
+        },
+        {
+          "path": "licenses/Go-LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/BurntSushi/toml_v1.6.0/COPYING",
+          "sha256": "d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3",
+          "size": 1079,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/BurntSushi/toml_v1.6.0/cmd/toml-test-decoder/COPYING",
+          "sha256": "d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3",
+          "size": 1079,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/BurntSushi/toml_v1.6.0/cmd/toml-test-encoder/COPYING",
+          "sha256": "d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3",
+          "size": 1079,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/BurntSushi/toml_v1.6.0/cmd/tomlv/COPYING",
+          "sha256": "d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3",
+          "size": 1079,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/fatih/camelcase_v1.0.0/LICENSE.md",
+          "sha256": "b2ffbe485b8e503f07853fbdfa79a51b0d2902f9d44e18d913666b6ddde83b57",
+          "size": 1079,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/fatih/gomodifytags_v1.17.1-0.20250423142747-f3939df9aa3c/LICENSE",
+          "sha256": "45908542c0d996af679b8908f800386c10e5f06cc6dc3ba96e4a1c90a65a3007",
+          "size": 1482,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/fatih/structtag_v1.2.0/LICENSE",
+          "sha256": "38429b7e92ee587cdc897fe7a0ca85ff2cd4475e4fe672e5a01b77d374971ffe",
+          "size": 3279,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/fsnotify/fsnotify_v1.9.0/LICENSE",
+          "sha256": "2dfbe6d2b5eb18b55148f3805d88648a09e0d17e38428123259afb08c8996e37",
+          "size": 1531,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/google/jsonschema-go_v0.4.3/LICENSE",
+          "sha256": "2d56c53449691d85d9aea245eb8dac12713e9075d70d5557b82ae1e94805b357",
+          "size": 1087,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/modelcontextprotocol/go-sdk_v1.6.0/LICENSE",
+          "sha256": "af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5",
+          "size": 12223,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/segmentio/asm_v1.2.1/LICENSE",
+          "sha256": "cca993712df289a5958bdef69031a5dac0f951ac15afeb313f9eeea55ed59443",
+          "size": 902,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/segmentio/encoding_v0.5.4/LICENSE",
+          "sha256": "d6d71a1f7dc6539e371120cc7af6e3257e55ca79634d473211f217b8965b0f16",
+          "size": 1073,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/segmentio/encoding_v0.5.4/json/fuzz/LICENSE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "size": 11357,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/github.com/yosida95/uritemplate/v3_v3.0.2/LICENSE",
+          "sha256": "0761aadfb1921103752869ee942d4a71bdd54494697684d4b13dc17ad9781191",
+          "size": 1546,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/exp/typeparams_v0.0.0-20260611194520-c48552f49976/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/mod_v0.37.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/oauth2_v0.36.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/sync_v0.21.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/sys_v0.46.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/telemetry_v0.0.0-20260625142307-59b4966ccb57/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/text_v0.38.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/tools/gopls_v0.23.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/tools/gopls_v0.23.0/internal/cmd/usage/licenses.hlp",
+          "sha256": "088f2f616cbcd100ddb36125ed916ca8797775c81239979ffad8489e94580105",
+          "size": 69,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/tools/gopls_v0.23.0/internal/licenses/licenses.go",
+          "sha256": "65349ccbd57851e5841ac6b0f7404f2784a14571b1e3e03920ac3de9aefc4e9b",
+          "size": 30120,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/tools/gopls_v0.23.0/internal/licenses/licenses_test.go",
+          "sha256": "75d98edecbe92f127be84aca5966df7877cbfa417f319168c204bab607e41b40",
+          "size": 943,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/tools_v0.47.1-0.20260707181000-a299dadba899/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/golang.org/x/vuln_v1.4.0/LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+          "size": 1453,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/honnef.co/go/tools_v0.8.0-rc.1/LICENSE",
+          "sha256": "f221780eca6d16dc9dce29ce46cd089ce1ca1178998b31ebbcc89ff822c6072b",
+          "size": 1058,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/honnef.co/go/tools_v0.8.0-rc.1/LICENSE-THIRD-PARTY",
+          "sha256": "3e7ed5dc00f1b3518b99284123bfc3e3c65b82c62988c0dcda5c86c13d913f7c",
+          "size": 6442,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/honnef.co/go/tools_v0.8.0-rc.1/go/gcsizes/LICENSE",
+          "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067",
+          "size": 1479,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/honnef.co/go/tools_v0.8.0-rc.1/go/ir/LICENSE",
+          "sha256": "7d38c43dad3b1e280ebcf8b69f39ac34689c2ae3ce12d6ac5eb0b1e5c1f2db58",
+          "size": 1535,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/mvdan.cc/gofumpt_v0.10.0/LICENSE",
+          "sha256": "3ffd3576875cec2ca5d8e0f6ec7d871d6fba8cb87cfb2285347fddce108fc57c",
+          "size": 1488,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/mvdan.cc/gofumpt_v0.10.0/LICENSE.google",
+          "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067",
+          "size": 1479,
+          "mode": "100644"
+        },
+        {
+          "path": "licenses/mvdan.cc/xurls/v2_v2.6.0/LICENSE",
+          "sha256": "6b44db2e2b57c1f8a3b44f105650813bbef494e0472cb76620d4dfbffd96f988",
+          "size": 1488,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

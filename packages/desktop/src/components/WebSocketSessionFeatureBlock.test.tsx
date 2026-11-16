@@ -71,8 +71,20 @@ vi.mock("@/components/WebSocketSessionFeatureBlockTabs", () => ({
   useSessionTabs: mocks.useSessionTabs,
 }));
 
-const NO_TABS_READY = { editor: false, git: false, terminal: false, browser: false };
-const ALL_TABS_READY = { editor: true, git: true, terminal: true, browser: true };
+const NO_TABS_READY = {
+  editor: false,
+  git: false,
+  terminal: false,
+  browser: false,
+  preview: false,
+};
+const ALL_TABS_READY = {
+  editor: true,
+  git: true,
+  terminal: true,
+  browser: true,
+  preview: true,
+};
 
 // Two timer rounds drive the full reveal: round one fires the agent-first gate
 // timer, round two fires the per-tab stagger timers scheduled once the gate

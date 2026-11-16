@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/index.ts",
+    "scripts/*.mjs",
+    "example/src/main.tsx",
+    "example/vite.config.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "*.css",
+    "scripts/**/*.{ts,mjs}",
+    "test/**/*.ts",
+    "example/**/*.{ts,tsx,css}"
+  ],
+  "ignoreDependencies": [
+    "@fontsource-variable/inter",
+    "tw-animate-css",
+    "tailwind-merge",
+    "lucide-react"
+  ]
+}

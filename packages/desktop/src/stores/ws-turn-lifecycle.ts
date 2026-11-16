@@ -158,3 +158,8 @@ function hasPendingSnapshotValue(value: unknown): boolean {
 export function isTurnActive(lifecycle: TurnLifecycle): boolean {
   return lifecycle.phase === "active";
 }
+
+/** A turn is running, possibly paused on a gate. */
+export function isTurnInProgress(lifecycle: TurnLifecycle | undefined): boolean {
+  return lifecycle?.phase === "active" || lifecycle?.phase === "paused";
+}

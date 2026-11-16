@@ -1,5 +1,8 @@
 import { favoriteModelKey } from "@/lib/favorite-models";
-import type { RuntimeModelPickerProvider } from "./RuntimeModelPicker.types";
+import type {
+  RuntimeModelPickerModel,
+  RuntimeModelPickerProvider,
+} from "./RuntimeModelPicker.types";
 
 export interface ModelEntry {
   providerId: string;
@@ -9,6 +12,13 @@ export interface ModelEntry {
   description?: string;
   value: string;
   keywords: string[];
+}
+
+/** A provider whose picker models are its last known catalog. */
+export interface CatalogRefreshNotice {
+  providerId: string;
+  providerLabel: string;
+  reason: string;
 }
 
 export interface ProviderStateEntry {
@@ -192,6 +202,32 @@ export function displayModelDescription(
   if (lower === visibleLabel.toLowerCase()) return undefined;
   if (visibleId && lower === visibleId.toLowerCase()) return undefined;
   return description;
+}
+
+/** Picker entry for an available catalog provider, keeping its model type. */
+export function pickerProviderFromCatalog<Model extends RuntimeModelPickerModel>(provider: {
+  id: string;
+  label: string;
+  models: Model[];
+  refresh_error?: string;
+}): Omit<RuntimeModelPickerProvider, "models"> & { models: Model[] } {
+  return {
+    id: provider.id,
+    label: provider.label,
+    disabled: false,
+    refreshError: provider.refresh_error,
+    models: provider.models,
+  };
+}
+
+export function getCatalogRefreshNotices(
+  providers: RuntimeModelPickerProvider[],
+): CatalogRefreshNotice[] {
+  return providers.flatMap((provider) =>
+    !provider.disabled && provider.models.length > 0 && provider.refreshError
+      ? [{ providerId: provider.id, providerLabel: provider.label, reason: provider.refreshError }]
+      : [],
+  );
 }
 
 export function getProviderStateEntries(

@@ -39,7 +39,7 @@ done
 printf 'gh release download patterns=%s dir=%s\n' "$patterns" "$download_dir" >> "$TEST_LOG"
 [ -n "$download_dir" ] || exit 1
 printf 'arm64 dmg' > "$download_dir/Cadencr-9.8.7-arm64.dmg"
-printf 'intel dmg' > "$download_dir/Cadencr-9.8.7.dmg"
+printf 'intel dmg' > "$download_dir/Cadencr-9.8.7-x64.dmg"
 SH
 chmod +x "$stub_bin/gh"
 
@@ -115,7 +115,7 @@ grep -q "Updated merkr-software/homebrew-cadencr cask to 9.8.7." "$output_file" 
     fail "expected successful cask update output"
   }
 
-grep -q "patterns=Cadencr-9.8.7-arm64.dmg Cadencr-9.8.7.dmg" "$test_log" \
+grep -q "patterns=Cadencr-9.8.7-arm64.dmg Cadencr-9.8.7-x64.dmg" "$test_log" \
   || fail "expected exact DMG release asset patterns"
 
 grep -q "github.com/merkr-software/homebrew-cadencr.git" "$test_log" \
@@ -145,3 +145,6 @@ grep -q "$expected_sha_arm" "$cask_file" \
 
 grep -q "$expected_sha_intel" "$cask_file" \
   || fail "expected rendered intel SHA-256"
+
+grep -q 'arch arm: "-arm64", intel: "-x64"' "$cask_file" \
+  || fail "expected the cask to resolve both DMGs by an explicit arch suffix"

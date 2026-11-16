@@ -22,6 +22,11 @@ import type {
 
 import { customInstance } from "../client.ts";
 import type { ErrorType } from "../client.ts";
+export interface AccessModeSetPayload {
+  mode: string;
+  session_id: string;
+}
+
 export type AcpBinaryTargetEnv = { [key: string]: string };
 
 export interface AcpBinaryTarget {
@@ -71,6 +76,57 @@ export interface AcpAgentEntry {
   [key: string]: unknown;
 }
 
+export interface AgentDigestToolOutcome {
+  /**
+   * The start of a failed call's output, which says why, line breaks kept;
+   * absent when it succeeded.
+   * @nullable
+   */
+  error_output?: string | null;
+  /** The call failed: its result is a `tool_error`. */
+  is_error: boolean;
+}
+
+export type AgentDigestToolCallOutcome = null | AgentDigestToolOutcome;
+
+export interface AgentDigestToolCall {
+  /**
+   * The tool input JSON with long strings and arrays clipped, so a file
+   * write's body never crosses the wire. Still valid JSON when the stored
+   * input was.
+   */
+  args: string;
+  /** Tool name exactly as the provider reported it. */
+  name: string;
+  outcome?: AgentDigestToolCallOutcome;
+}
+
+export type AgentActivityDigestEntryLastTool = null | AgentDigestToolCall;
+
+export interface AgentActivityDigestEntry {
+  feature_id: number;
+  feature_title: string;
+  /**
+   * ISO-8601 UTC timestamp of the session's latest message.
+   * @nullable
+   */
+  last_activity_at?: string | null;
+  /**
+   * Start of the agent's latest top-level text reply, whitespace-collapsed.
+   * @nullable
+   */
+  last_reply?: string | null;
+  last_tool?: AgentActivityDigestEntryLastTool;
+  project_id: number;
+  project_name: string;
+  /** @nullable */
+  provider?: string | null;
+}
+
+export interface AgentActivityDigestResponse {
+  entries: AgentActivityDigestEntry[];
+}
+
 export type AgentBlockChildBlocksItem = { [key: string]: unknown };
 
 export interface AgentMessageOrigin {
@@ -112,6 +168,13 @@ export interface AgentBlock {
   content: string;
   /** @nullable */
   createdAt?: string | null;
+  /**
+   * UTF-8 size of the complete persisted content when `content` is a
+   * bounded preview of it, so the client can say what loading it costs.
+   * @minimum 0
+   * @nullable
+   */
+  fullContentBytes?: number | null;
   id: string;
   /** @nullable */
   isError?: boolean | null;
@@ -193,6 +256,12 @@ export interface ProviderCatalogEntry {
   label: string;
   models: ModelCatalogEntry[];
   modes?: ProviderModeCatalogEntry[];
+  /**
+   * Set when `models` is the last catalog known because refreshing it
+   * failed; carries why. `None` for a fresh catalog.
+   * @nullable
+   */
+  refresh_error?: string | null;
   status: ProviderStatus;
   /** @nullable */
   status_message?: string | null;
@@ -217,11 +286,51 @@ export interface ProviderProfileCapability {
   supports_config_inheritance: boolean;
 }
 
+/**
+ * ACP `promptCapabilities`: which non-text content blocks a prompt may carry.
+ */
+export interface ProviderPromptCapabilities {
+  audio: boolean;
+  embedded_context: boolean;
+  image: boolean;
+}
+
+/**
+ * A program and argument vector; `{session_id}` is the only placeholder.
+ * Never a shell string: the desktop quotes every element itself.
+ */
+export interface ProviderResumeCommand {
+  args: string[];
+  program: string;
+  /**
+   * Host-managed owner binding; never supplied by a contributor command template.
+   * @nullable
+   */
+  session_owner?: string | null;
+}
+
 export type ProviderCatalogResponseEntryAllOfProfileCapability = null | ProviderProfileCapability;
 
+export type ProviderCatalogResponseEntryAllOfPromptCapabilities = null | ProviderPromptCapabilities;
+
+export type ProviderCatalogResponseEntryAllOfResumeCommand = null | ProviderResumeCommand;
+
 export type ProviderCatalogResponseEntryAllOf = {
+  /**
+   * `/compact` is a session action Cadencr performs (manual compaction
+   * through the live runtime) rather than text the runtime understands.
+   */
+  compact_action?: boolean;
   origin: ProviderOrigin;
   profile_capability?: ProviderCatalogResponseEntryAllOfProfileCapability;
+  prompt_capabilities?: ProviderCatalogResponseEntryAllOfPromptCapabilities;
+  resume_command?: ProviderCatalogResponseEntryAllOfResumeCommand;
+  /**
+   * A prompt sent while the agent works is delivered into the running turn
+   * and acknowledged (steering). When false the composer queues it for
+   * after the turn instead of promising a steer it can't confirm.
+   */
+  steering_acknowledged?: boolean;
 };
 
 /**
@@ -265,6 +374,10 @@ export interface AgentSelectionResponse {
   selections: AgentSelectionResponseSelections;
 }
 
+export interface AgentSessionControlAck {
+  accepted: boolean;
+}
+
 export interface AgentSessionRow {
   agent_type: string;
   /** @nullable */
@@ -306,14 +419,27 @@ export interface AgentSessionRow {
 }
 
 export interface AnsiPalette {
-  black: string;
-  blue: string;
-  cyan: string;
-  green: string;
-  magenta: string;
-  red: string;
-  white: string;
-  yellow: string;
+  /**
+   * Per-color: Alacritty lets a file override a single ANSI color
+   * (e.g. only `[colors.normal] red`), so `None` means "not overridden
+   * anywhere in the chain" and the consumer fills it from its own theme.
+   * @nullable
+   */
+  black?: string | null;
+  /** @nullable */
+  blue?: string | null;
+  /** @nullable */
+  cyan?: string | null;
+  /** @nullable */
+  green?: string | null;
+  /** @nullable */
+  magenta?: string | null;
+  /** @nullable */
+  red?: string | null;
+  /** @nullable */
+  white?: string | null;
+  /** @nullable */
+  yellow?: string | null;
 }
 
 export interface CursorColors {
@@ -335,14 +461,10 @@ export interface PrimaryColors {
   foreground?: string | null;
 }
 
-export type ColorsConfigBright = null | AnsiPalette;
-
-export type ColorsConfigNormal = null | AnsiPalette;
-
 export interface ColorsConfig {
-  bright?: ColorsConfigBright;
+  bright?: AnsiPalette;
   cursor?: CursorColors;
-  normal?: ColorsConfigNormal;
+  normal?: AnsiPalette;
   primary?: PrimaryColors;
 }
 
@@ -402,6 +524,16 @@ export interface AlacrittyConfigResponse {
    * @nullable
    */
   parse_error?: string | null;
+  /**
+   * Set while live reload is unavailable (the file watcher failed to
+   * start, failed to watch part of the import chain, or part of the
+   * chain sits under a missing directory that no existing ancestor can
+   * observe): `config` is still accurate, but external edits won't show
+   * up until a restart. Unlike `parse_error` this is not fatal — the
+   * frontend warns and keeps rendering.
+   * @nullable
+   */
+  watch_error?: string | null;
 }
 
 /**
@@ -427,19 +559,100 @@ export interface AllocatedPort {
   source: PortSource;
 }
 
+export type StepStatus = (typeof StepStatus)[keyof typeof StepStatus];
+
+export const StepStatus = {
+  pending: "pending",
+  running: "running",
+  interrupted: "interrupted",
+  done: "done",
+  skipped: "skipped",
+  blocked: "blocked",
+  failed: "failed",
+} as const;
+
+/**
+ * One step's state. `reason` is a skip explanation, a blocked code
+ * (`dirty_worktree`, `unmerged_branch`) or what a pending step waits on.
+ */
+export interface StepOutcome {
+  /** @nullable */
+  detail?: string | null;
+  /** @nullable */
+  message?: string | null;
+  /** @nullable */
+  reason?: string | null;
+  status: StepStatus;
+}
+
+export type CleanupReportBranch = null | StepOutcome;
+
+export type CleanupReportBrowserTabs = null | StepOutcome;
+
+export type CleanupReportTerminals = null | StepOutcome;
+
+export type CleanupReportWorktree = null | StepOutcome;
+
+/**
+ * One entry per step that was asked for; absent steps were not requested.
+ */
+export interface CleanupReport {
+  branch?: CleanupReportBranch;
+  browser_tabs?: CleanupReportBrowserTabs;
+  terminals?: CleanupReportTerminals;
+  worktree?: CleanupReportWorktree;
+}
+
+export interface ArchiveCleanupStatus {
+  cleanup: CleanupReport;
+  feature_id: number;
+  project_id: number;
+  /** A run is executing its steps right now. */
+  running: boolean;
+  /** Every requested step is done or had nothing to do. */
+  settled: boolean;
+  title: string;
+}
+
 export interface ArchivePreview {
   descendant_ids: number[];
   has_relations: boolean;
   parent_ids: number[];
 }
 
+/**
+ * Result of archiving every eligible session of a project: the archived
+ * feature ids plus how many active sessions were kept because they are
+ * pinned or have an agent turn in flight.
+ */
+export interface ArchiveProjectSessionsResponse {
+  archived_ids: number[];
+  skipped_pinned: number;
+  skipped_running: number;
+}
+
+/**
+ * The Archive dialog's options: which relatives to archive along, and the
+ * cleanup to run on the selected conversation once the archive commits.
+ */
 export interface ArchiveRequest {
+  close_browser_tabs?: boolean;
+  /** Delete the branch even when unmerged; only after the user confirmed it. */
+  force_remove_branch?: boolean;
+  /** Discard uncommitted changes; only after the user confirmed it. */
+  force_remove_worktree?: boolean;
   include_descendants?: boolean;
   include_parent?: boolean;
+  kill_terminals?: boolean;
+  /** Also removes the worktree, which git requires first. */
+  remove_branch?: boolean;
+  remove_worktree?: boolean;
 }
 
 export interface ArchiveResponse {
   archived_ids: number[];
+  /** Each requested cleanup step's outcome, on the selected conversation. */
+  cleanup: CleanupReport;
 }
 
 export type ArchivedCleanupRunStatus =
@@ -458,6 +671,50 @@ export interface ArchivedCleanupRunResponse {
    */
   eligible_features: number;
   status: ArchivedCleanupRunStatus;
+}
+
+export interface ForgeUser {
+  /** @nullable */
+  avatar_url?: string | null;
+  /** @nullable */
+  display_name?: string | null;
+  username: string;
+}
+
+export type AutoMergeStateEnabledBy = null | ForgeUser;
+
+/**
+ * How a proposal's commits land on the target branch. Each forge offers a
+ * subset, and which one is allowed is a repository (or branch) setting.
+ */
+export type MergeMethod = (typeof MergeMethod)[keyof typeof MergeMethod];
+
+export const MergeMethod = {
+  merge: "merge",
+  squash: "squash",
+  rebase: "rebase",
+  rebase_merge: "rebase_merge",
+  fast_forward: "fast_forward",
+  squash_fast_forward: "squash_fast_forward",
+} as const;
+
+export type AutoMergeStateMethod = null | MergeMethod;
+
+/**
+ * The proposal will merge itself once its checks (and, where the forge
+ * supports it, its approvals) pass.
+ */
+export interface AutoMergeState {
+  enabled_by?: AutoMergeStateEnabledBy;
+  method?: AutoMergeStateMethod;
+}
+
+export interface AutoNamePromptResponse {
+  /**
+   * The built-in auto-naming system prompt, used whenever the workspace
+   * `auto_name_system_prompt` setting is empty.
+   */
+  default_prompt: string;
 }
 
 export type DiscoveredSource = (typeof DiscoveredSource)[keyof typeof DiscoveredSource];
@@ -556,6 +813,117 @@ export interface BranchInfo {
   name: string;
 }
 
+export interface BranchNeedsConfirmPayload {
+  kind: string;
+  messageId: number;
+  reason: string;
+  sessionId: string;
+}
+
+/**
+ * How a branch came to belong to a conversation.
+ */
+export type BranchOrigin = (typeof BranchOrigin)[keyof typeof BranchOrigin];
+
+export const BranchOrigin = {
+  provisioned: "provisioned",
+  checked_out: "checked_out",
+  agent: "agent",
+  manual: "manual",
+  head: "head",
+} as const;
+
+/**
+ * Inbound payload shared by `branch.rewind` and `branch.fork`.
+ */
+export interface BranchPayload {
+  /**
+   * Rewind only: the user has acknowledged that uncommitted changes since the
+   * checkpoint will be discarded. Ignored by fork.
+   */
+  confirm_discard?: boolean;
+  message_id: number;
+  session_id: string;
+}
+
+export type CiState = (typeof CiState)[keyof typeof CiState];
+
+export const CiState = {
+  none: "none",
+  running: "running",
+  passing: "passing",
+  failing: "failing",
+} as const;
+
+export interface CiCheck {
+  name: string;
+  state: CiState;
+  /** @nullable */
+  url?: string | null;
+}
+
+export interface CiRollup {
+  checks: CiCheck[];
+  state: CiState;
+}
+
+export type BranchPrCi = null | CiRollup;
+
+export type ReviewState = (typeof ReviewState)[keyof typeof ReviewState];
+
+export const ReviewState = {
+  approved: "approved",
+  changes_requested: "changes_requested",
+  pending: "pending",
+  none: "none",
+} as const;
+
+export type PrState = (typeof PrState)[keyof typeof PrState];
+
+export const PrState = {
+  open: "open",
+  draft: "draft",
+  merged: "merged",
+  closed: "closed",
+} as const;
+
+export interface PrSummary {
+  author: ForgeUser;
+  body_markdown: string;
+  head_sha: string;
+  /** @minimum 0 */
+  number: number;
+  /**
+   * Provider-neutral display noun. Values are currently `Pull request` and
+   * `Merge request` — spelled out, because the abbreviations read as jargon
+   * in the UI surfaces that show them (Git sub-tab, sidebar menu, header).
+   */
+  pr_label: string;
+  review_state: ReviewState;
+  source_branch: string;
+  state: PrState;
+  target_branch: string;
+  title: string;
+  updated_at: string;
+  url: string;
+}
+
+/**
+ * The proposal of one of a conversation's non-current branches, with the
+ * same health signals the snapshot carries for the current one.
+ */
+export interface BranchPr {
+  branch: string;
+  ci?: BranchPrCi;
+  pr: PrSummary;
+  /**
+   * Same contract as [`PrStatusSnapshot::unresolved_threads`].
+   * @minimum 0
+   * @nullable
+   */
+  unresolved_threads?: number | null;
+}
+
 export interface BranchResponse {
   /** @nullable */
   branch?: string | null;
@@ -634,29 +1002,44 @@ export interface CheckoutValidateBody {
   project_id: number;
 }
 
-export type CiState = (typeof CiState)[keyof typeof CiState];
-
-export const CiState = {
-  none: "none",
-  running: "running",
-  passing: "passing",
-  failing: "failing",
-} as const;
-
-export interface CiCheck {
-  name: string;
-  state: CiState;
-  /** @nullable */
-  url?: string | null;
-}
-
-export interface CiRollup {
-  checks: CiCheck[];
-  state: CiState;
-}
-
 export interface ClaudeCodeSuccessResponse {
   ok: boolean;
+}
+
+/**
+ * How an agent CLI reaches an MCP server.
+ */
+export type McpTransport = (typeof McpTransport)[keyof typeof McpTransport];
+
+export const McpTransport = {
+  stdio: "stdio",
+  http: "http",
+  sse: "sse",
+} as const;
+
+/**
+ * One MCP server as an agent CLI reports it.
+ */
+export interface CliMcpServer {
+  args: string[];
+  /** @nullable */
+  command?: string | null;
+  enabled: boolean;
+  /**
+   * Set when the server is owned by something else (a connector account,
+   * a plugin) and cannot be removed or updated from here.
+   * @nullable
+   */
+  managed_by?: string | null;
+  name: string;
+  /**
+   * Health as the CLI reported it (`Connected`, `Needs authentication`…).
+   * @nullable
+   */
+  status?: string | null;
+  transport: McpTransport;
+  /** @nullable */
+  url?: string | null;
 }
 
 export type CodexProfileDraftEnv = { [key: string]: string };
@@ -791,6 +1174,12 @@ export interface PromptCommandPolicyPayload {
 
 export interface CommandsListPayload {
   commands: SlashCommandPayload[];
+  /**
+   * Why the provider's own commands are missing from `commands` (its
+   * discovery failed or timed out). Shown in the `/` menu.
+   * @nullable
+   */
+  error?: string | null;
   prompt_command_policy?: PromptCommandPolicyPayload;
   /**
    * `true` when the server is currently re-resolving the catalog in
@@ -812,6 +1201,11 @@ export interface CommandsListPayload {
  */
 export interface CommandsUpdatedPayload {
   commands: SlashCommandPayload[];
+  /**
+   * Same as the `error` of `CommandsListPayload`; absent on live pushes.
+   * @nullable
+   */
+  error?: string | null;
 }
 
 /**
@@ -828,14 +1222,6 @@ export const ThreadSide = {
 } as const;
 
 export type CommentThreadSide = null | ThreadSide;
-
-export interface ForgeUser {
-  /** @nullable */
-  avatar_url?: string | null;
-  /** @nullable */
-  display_name?: string | null;
-  username: string;
-}
 
 export interface PrComment {
   author: ForgeUser;
@@ -877,8 +1263,30 @@ export interface CommitBody {
 }
 
 /**
+ * What a decorating ref points from: the branch checked out (`HEAD ->`), any
+ * other local branch, a remote-tracking branch, or a tag.
+ */
+export type CommitRefKind = (typeof CommitRefKind)[keyof typeof CommitRefKind];
+
+export const CommitRefKind = {
+  head: "head",
+  local: "local",
+  remote: "remote",
+  tag: "tag",
+} as const;
+
+/**
+ * One decorating ref on a graph commit, by its short name (`main`,
+ * `origin/main`, `v1.0`).
+ */
+export interface CommitRef {
+  kind: CommitRefKind;
+  name: string;
+}
+
+/**
  * One commit row in the graph view. Carries `parents` so the frontend can
- * compute lane positions, `refs` (decorating branch/tag labels), and the
+ * compute lane positions, `decorations` (typed branch/tag labels), and the
  * `--shortstat` summary (`files_changed` / `additions` / `deletions`).
  */
 export interface CommitGraphEntry {
@@ -886,11 +1294,21 @@ export interface CommitGraphEntry {
   author: string;
   body: string;
   date: string;
+  /**
+   * The decorating refs with their kind, so the UI can tell the checked-out branch, a
+   * local branch, a remote-tracking branch and a tag apart — the names
+   * alone cannot (`feature/x` and `origin/x` both contain a slash).
+   */
+  decorations: CommitRef[];
   deletions: number;
   files_changed: number;
   is_pushed: boolean;
   message: string;
   parents: string[];
+  /**
+   * Short names of `decorations`. The desktop reads `decorations`; this
+   * stays for custom tabs, which reach this route through the tab SDK.
+   */
   refs: string[];
   sha: string;
   short_sha: string;
@@ -974,6 +1392,38 @@ export const FeatureStatus = {
   active: "active",
   archived: "archived",
 } as const;
+
+/**
+ * One conversation as the command palette searches it: active and archived
+ * alike, with just what a result row and its preview name.
+ */
+export interface ConversationIndexEntry {
+  /**
+   * When it was archived; `None` for an active conversation.
+   * @nullable
+   */
+  archived_at?: string | null;
+  created_at: string;
+  id: number;
+  is_pinned: boolean;
+  /** @nullable */
+  label?: string | null;
+  /** Latest user message across the conversation's sessions, else its creation time. */
+  last_activity_at: string;
+  project_id: number;
+  /**
+   * Provider of the latest agent session, else the conversation's setting.
+   * @nullable
+   */
+  runtime_provider?: string | null;
+  status: FeatureStatus;
+  title: string;
+  /**
+   * Branch recorded for the conversation's worktree, when it has one.
+   * @nullable
+   */
+  worktree_branch?: string | null;
+}
 
 export interface ConversationReferenceCandidate {
   feature_id: number;
@@ -1078,22 +1528,35 @@ export interface CreateFolderResponse {
   path: string;
 }
 
+export interface CreatePluginTabGrantRequest {
+  /**
+   * The feature the tab instance is shown in; the grant binds to it and
+   * its project.
+   */
+  feature_id: number;
+}
+
+export interface CreatePluginTabRequest {
+  /** @nullable */
+  description?: string | null;
+  /** Human-readable name; the id is slugified from it. */
+  name: string;
+}
+
 export interface CreateProjectRequest {
   name: string;
   path: string;
 }
 
 /**
- * Existing connector repository to import instead of scaffolding a new one.
- */
-export type CreateProviderWorkspaceRequestDirectory = string | null;
-
-/**
  * The stable identity and human label for a new provider connector project.
  */
 export interface CreateProviderWorkspaceRequest {
-  /** Existing connector repository to import instead of scaffolding a new one. */
-  directory?: CreateProviderWorkspaceRequestDirectory;
+  /**
+   * Existing connector repository to import instead of scaffolding a new one.
+   * @nullable
+   */
+  directory?: string | null;
   /** Human-readable name used in the project and scaffold. */
   display_name: string;
   /** ACP Registry-compatible provider id, e.g. `pi-connector`. */
@@ -1430,6 +1893,9 @@ export interface LastRunSummary {
    * @nullable
    */
   exit_code?: number | null;
+  /** The run's id, so the header can stop it without fetching the history. */
+  run_id: number;
+  started_at: string;
 }
 
 export type CustomActionLastRun = null | LastRunSummary;
@@ -1487,16 +1953,6 @@ export interface CustomActionRun {
   triggered_by: TriggeredBy;
 }
 
-export interface CustomActionSchedule {
-  action_id: number;
-  enabled: boolean;
-  feature_id: number;
-  id: number;
-  interval_seconds: number;
-  /** @nullable */
-  last_run_at?: string | null;
-}
-
 export interface CustomActionVariable {
   value: string;
   var_name: string;
@@ -1506,6 +1962,22 @@ export interface CustomModelsResponse {
   models: ModelCatalogEntry[];
 }
 
+export interface DeleteSourceBranch {
+  /**
+   * Whether the viewer may choose. False when the repository always deletes
+   * it, or when the source branch lives in another repository (a fork).
+   */
+  configurable: boolean;
+  /** What the forge (or repository setting) would do by default. */
+  default: boolean;
+  /**
+   * Whether the choice also holds when the merge is deferred (auto-merge, a
+   * queue). False when the forge only deletes on an immediate merge: the
+   * repository setting then decides.
+   */
+  deferred: boolean;
+}
+
 export interface DeleteThemeResponse {
   success: boolean;
 }
@@ -1513,6 +1985,50 @@ export interface DeleteThemeResponse {
 export interface DeletedResponse {
   /** @minimum 0 */
   deleted: number;
+}
+
+export type DeliveryStatus = (typeof DeliveryStatus)[keyof typeof DeliveryStatus];
+
+export const DeliveryStatus = {
+  disabled: "disabled",
+  not_configured: "not_configured",
+  ready: "ready",
+  delivery_failed: "delivery_failed",
+} as const;
+
+export type DiagnosticCategory = (typeof DiagnosticCategory)[keyof typeof DiagnosticCategory];
+
+export const DiagnosticCategory = {
+  react_boundary: "react_boundary",
+  renderer_unhandled_error: "renderer_unhandled_error",
+  renderer_unhandled_rejection: "renderer_unhandled_rejection",
+  renderer_recoverable: "renderer_recoverable",
+  electron_main: "electron_main",
+  electron_preload: "electron_preload",
+  renderer_process_exit: "renderer_process_exit",
+  service_process_exit: "service_process_exit",
+  service_internal: "service_internal",
+  service_database: "service_database",
+  service_git: "service_git",
+  service_panic: "service_panic",
+} as const;
+
+export interface DiagnosticFrame {
+  /** @minimum 0 */
+  colno: number;
+  filename: string;
+  /** @minimum 0 */
+  lineno: number;
+}
+
+/**
+ * The wire contract deliberately has no message, URL, context or arbitrary properties.
+ */
+export interface DiagnosticReport {
+  /** @nullable */
+  build_id?: string | null;
+  category: DiagnosticCategory;
+  frames?: DiagnosticFrame[];
 }
 
 export interface DiffComment {
@@ -1550,9 +2066,32 @@ export interface DiffViewedFile {
   viewed_at: string;
 }
 
+export interface DraftGetPayload {
+  session_id: number;
+}
+
 export interface DraftResponse {
   /** @nullable */
   draftPrompt?: string | null;
+}
+
+export interface DraftResultPayload {
+  /** @nullable */
+  draft?: string | null;
+}
+
+export interface DraftSavePayload {
+  /** @nullable */
+  draft?: string | null;
+  session_id: number;
+}
+
+export interface DraftSavedPayload {
+  success: boolean;
+}
+
+export interface DuplicateManagedThemeRequest {
+  label: string;
 }
 
 export interface EditorRootResponse {
@@ -1573,6 +2112,45 @@ export interface EffortSetPayload {
   session_id: string;
   /** @nullable */
   thinking_effort?: string | null;
+}
+
+/**
+ * A CLI that could not report its extensions; the others still answer.
+ */
+export interface ExtensionCliError {
+  message: string;
+  provider_id: string;
+}
+
+/**
+ * What a provider's CLI can install, list and update for Cadencr.
+ */
+export interface ExtensionSupport {
+  /** The CLI can attach arbitrary HTTP headers to a remote server. */
+  mcp_headers: boolean;
+  /** Transports `mcp add` accepts. Empty: the CLI cannot add MCP servers. */
+  mcp_transports: McpTransport[];
+  /** The CLI has a command that updates an installed skill pack. */
+  skill_update: boolean;
+  /** The CLI installs skill packs from its own plugin marketplaces. */
+  skills: boolean;
+}
+
+/**
+ * One agent CLI that can carry skills and MCP servers.
+ */
+export interface ExtensionCliSummary {
+  /** The CLI binary was found on this computer. */
+  installed: boolean;
+  label: string;
+  provider_id: string;
+  support: ExtensionSupport;
+  /** @nullable */
+  version?: string | null;
+}
+
+export interface ExtensionClisResponse {
+  clis: ExtensionCliSummary[];
 }
 
 export interface FastModeSetOkPayload {
@@ -1597,6 +2175,12 @@ export interface Feature {
   is_pinned: boolean;
   /** @nullable */
   label?: string | null;
+  /**
+   * Latest user message across the conversation's sessions, else its
+   * creation time: the sidebar's sort key. Set by the list endpoints only.
+   * @nullable
+   */
+  last_activity_at?: string | null;
   /** @nullable */
   model_session?: string | null;
   /**
@@ -1693,6 +2277,19 @@ export interface SessionState {
 
 export interface FeatureAgentStateResponse {
   sessions: SessionState[];
+}
+
+/**
+ * Server → Client: auto-naming is starting or finished for a feature.
+ * Frontend replaces the title with a skeleton while `in_progress: true`.
+ */
+export interface FeatureAutoNamingPayload {
+  feature_id: number;
+  in_progress: boolean;
+}
+
+export interface FeatureBranchBody {
+  branch: string;
 }
 
 export type FeatureGateDecisionOneOfType =
@@ -1808,6 +2405,11 @@ export interface FeaturePorts {
   ports: AllocatedPort[];
 }
 
+export interface FeatureRenamedPayload {
+  feature_id: number;
+  title: string;
+}
+
 export interface FeatureRespondGateRequest {
   decision: FeatureGateDecision;
   request_id: string;
@@ -1816,11 +2418,41 @@ export interface FeatureRespondGateRequest {
 export interface FeatureRespondGateResponse {
   request_id: string;
   resolved: boolean;
+  warnings?: string[];
+}
+
+/**
+ * How many of the agent's todos are done, out of the whole list.
+ */
+export interface TodoProgress {
+  done: number;
+  total: number;
+}
+
+export type FeatureRowSummaryResponseTodos = null | TodoProgress;
+
+/**
+ * What a sidebar row previews of a conversation: its last agent reply and
+ * how far its todo list has come. Either is `None` until the agent has one.
+ */
+export interface FeatureRowSummaryResponse {
+  /** @nullable */
+  preview?: string | null;
+  todos?: FeatureRowSummaryResponseTodos;
 }
 
 export interface FeatureSetting {
   key: string;
   value: string;
+}
+
+/**
+ * Server → Client: one or more aspects of a feature changed.
+ * The frontend uses `changed` to selectively invalidate React Query caches.
+ */
+export interface FeatureUpdatedPayload {
+  changed: string[];
+  feature_id: number;
 }
 
 /**
@@ -2097,6 +2729,28 @@ export type GitOperationResponseOneOfThree = {
  */
 export type GitOperationResponse = GitOperationResponseOneOf | GitOperationResponseOneOfThree;
 
+/**
+ * Where the feature's directory sits in its checkout. Git tab paths are
+ * relative to the checkout root; editor paths are relative to the feature's
+ * directory, so the two differ by this prefix.
+ */
+export interface GitPathPrefixResponse {
+  /**
+   * The feature's directory relative to the checkout root, with `/`
+   * separators: empty at the root, `packages/app` for a monorepo project.
+   * `None` when the directory has no Git metadata.
+   * @nullable
+   */
+  prefix?: string | null;
+  /**
+   * Absolute path of the checkout root, where Git runs. Names a Git path
+   * outside the feature's directory without ambiguity. `None` when the
+   * directory has no Git metadata.
+   * @nullable
+   */
+  root?: string | null;
+}
+
 export interface GitStats {
   deletions: number;
   files_changed: number;
@@ -2115,6 +2769,29 @@ export type GitStatusSnapshotOperation = null | GitOperationKind;
 export interface SharedFeatureRef {
   feature_id: number;
   title: string;
+}
+
+/**
+ * A conversation branch as the header lists it.
+ */
+export interface ThreadBranch {
+  is_current: boolean;
+  /**
+   * `None` for a branch that has no row of its own (the provisioned branch
+   * before it ever carried a target, or the followed checkout).
+   * @nullable
+   */
+  last_seen_at?: string | null;
+  name: string;
+  origin: BranchOrigin;
+  /**
+   * The branch's compare target. For the current branch this is the
+   * resolved target (the snapshot's `target_branch`); for the others it is
+   * the one configured for them (their own, else the conversation-wide
+   * one), or `None` when they follow the default.
+   * @nullable
+   */
+  target_branch?: string | null;
 }
 
 /**
@@ -2141,6 +2818,9 @@ export interface SharedFeatureRef {
  * - `host` / `compare_url` / `action_label` are populated only when a remote
  *   exists. The frontend disables the open-PR button when `compare_url` is
  *   `None`.
+ * - `thread_branches` lists the conversation's branches; the current one
+ *   (first, `is_current`) can differ from `current_branch` when a
+ *   worktree-free conversation's branch is no longer checked out.
  * - `shared_with` lists OTHER features that point at the same worktree
  *   directory (reuse-branch flow). Filled in by the caller via
  *   `enrich_with_sharing` — `compute_status` itself leaves it empty.
@@ -2188,6 +2868,11 @@ export interface GitStatusSnapshot {
    * from a zero divergence count.
    */
   target_resolved?: boolean;
+  /**
+   * Every branch of the conversation, the current one first. Filled in
+   * by the caller via `enrich_snapshot`, like `shared_with`.
+   */
+  thread_branches?: ThreadBranch[];
   /** @minimum 0 */
   uncommitted_count: number;
   /** @minimum 0 */
@@ -2210,6 +2895,33 @@ export interface GitSuccessResponse {
   success: boolean;
 }
 
+/**
+ * A feature the installed Git is too old for.
+ */
+export interface UnsupportedGitFeature {
+  label: string;
+  /** The first Git release with it, as `2.38.0`. */
+  minimum_version: string;
+}
+
+/**
+ * The installed Git, for diagnostics.
+ */
+export interface GitVersionResponse {
+  /**
+   * Why the version is unknown.
+   * @nullable
+   */
+  error?: string | null;
+  /** What this Git is too old for. */
+  unsupported: UnsupportedGitFeature[];
+  /**
+   * `2.34.1`; `None` when Git is missing or its version unreadable.
+   * @nullable
+   */
+  version?: string | null;
+}
+
 export interface HasUncommittedChangesResponse {
   has_changes: boolean;
 }
@@ -2221,6 +2933,23 @@ export interface HealthResponse {
    */
   service: string;
   status: string;
+}
+
+export interface HistoryAddPayload {
+  content: string;
+  project_id: number;
+}
+
+export interface HistoryAddedPayload {
+  added: boolean;
+}
+
+export interface HistoryGetPayload {
+  project_id: number;
+}
+
+export interface HistoryResultPayload {
+  entries: string[];
 }
 
 /**
@@ -2337,95 +3066,23 @@ export interface ImportJobState {
   total: number;
 }
 
-/**
- * Algorithms accepted by index schema v1.
- */
-export type ManagedSignatureAlgorithm =
-  (typeof ManagedSignatureAlgorithm)[keyof typeof ManagedSignatureAlgorithm];
-
-export const ManagedSignatureAlgorithm = {
-  ed25519: "ed25519",
-} as const;
-
-/**
- * Detached index signature. Cryptographic verification is intentionally a
- * caller concern; contract validation only validates this envelope's shape.
- */
-export interface ManagedIndexSignature {
-  algorithm: ManagedSignatureAlgorithm;
-  key_id: string;
-  /** Standard padded base64. Ed25519 signatures decode to exactly 64 bytes. */
-  value: string;
-}
-
-/**
- * Package-owned files, all relative to the extracted package root.
- */
-export interface ManagedPackageAssets {
-  icon: string;
-  /** @nullable */
-  license?: string | null;
-  /** @nullable */
-  readme?: string | null;
-}
-
-/**
- * Inclusive Cadencr application compatibility bounds.
- */
-export interface ManagedAppCompatibility {
-  /** @nullable */
-  max_app_version?: string | null;
-  min_app_version: string;
-}
-
-/**
- * Strict host metadata that must never be moved into the portable ACP entry.
- */
-export interface ManagedProviderHost {
-  assets: ManagedPackageAssets;
-  compatibility: ManagedAppCompatibility;
-  /**
-   * Stable registry publisher identity. Signature trust is resolved from the
-   * index key separately; this field records who owns the package entry.
-   */
-  publisher: string;
-}
-
-/**
- * One versioned provider package in the signed index.
- */
-export interface ManagedProviderPackage {
-  /** Lossless ACP Registry v1 payload. */
-  agent: AcpAgentEntry;
-  /** Cadencr-only host and package policy. */
-  host: ManagedProviderHost;
-}
-
-/**
- * The deterministic payload covered by an index signature.
- */
-export interface ManagedProviderIndex {
-  /** Hard freshness boundary. Expired catalogs are never exposed or installed. */
-  expires_at: string;
-  /** Monotonic publication time used to reject replayed catalog snapshots. */
-  generated_at: string;
-  packages: ManagedProviderPackage[];
-  /** @minimum 0 */
-  schema_version: number;
-}
-
-/**
- * A detached signature over [`ManagedProviderIndex::signing_bytes`].
- */
-export interface SignedManagedProviderIndex {
-  signature: ManagedIndexSignature;
-  /** The exact payload covered by `signature`. */
-  signed: ManagedProviderIndex;
+export interface InstallLspRequest {
+  lsp_id: string;
+  version: string;
 }
 
 export interface InstallManagedProviderRequest {
-  index: SignedManagedProviderIndex;
   provider_id: string;
+  version: string;
+}
+
+export interface InstallManagedTabRequest {
+  tab_id: string;
+  version: string;
+}
+
+export interface InstallManagedThemeRequest {
+  theme_id: string;
   version: string;
 }
 
@@ -2438,6 +3095,14 @@ export interface InstalledProviderEntry {
    * env names, there is no generic way to redact one safely.
    */
   executable: string;
+  /**
+   * Why this process applies no host integration (compaction, worktree
+   * config copying, resume-in-terminal) for the provider: its package has
+   * no `host-integration` command, or its declaration was rejected. Absent
+   * when the declaration was accepted or has not been read yet.
+   * @nullable
+   */
+  host_integration_issue?: string | null;
   /**
    * A non-fatal packaging problem that prevented the declared icon from
    * loading. Runtime availability is independent from visual metadata.
@@ -2500,6 +3165,46 @@ export interface InstalledProvidersResponse {
   rejected: InstalledProviderRejection[];
 }
 
+/**
+ * Where an installed skill came from.
+ */
+export type SkillSource = (typeof SkillSource)[keyof typeof SkillSource];
+
+export const SkillSource = {
+  plugin: "plugin",
+  local: "local",
+} as const;
+
+/**
+ * A skill or skill pack installed in one CLI.
+ */
+export interface InstalledSkill {
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  enabled?: boolean | null;
+  /** Plugin selector, or the skill folder name for a local skill. */
+  id: string;
+  /** @nullable */
+  installed_at?: string | null;
+  name: string;
+  /** @nullable */
+  path?: string | null;
+  provider_id: string;
+  /** @nullable */
+  scope?: string | null;
+  source: SkillSource;
+  /**
+   * Newer marketplace version, when the CLI's catalog shows one.
+   * @nullable
+   */
+  update?: string | null;
+  /** @nullable */
+  updated_at?: string | null;
+  /** @nullable */
+  version?: string | null;
+}
+
 export interface IsEmptyResponse {
   empty: boolean;
 }
@@ -2514,6 +3219,12 @@ export interface KillTerminalsResponse {
 
 export interface ListImportConversationsResponse {
   conversations: ImportConversationSummary[];
+}
+
+export interface LspLanguage {
+  extensions: string[];
+  filenames: string[];
+  id: string;
 }
 
 /**
@@ -2536,42 +3247,29 @@ export type ServerProbeStatus = (typeof ServerProbeStatus)[keyof typeof ServerPr
 export const ServerProbeStatus = {
   on_path: "on_path",
   managed: "managed",
-  missing: "missing",
+  legacy: "legacy",
+  invalid: "invalid",
 } as const;
 
-/**
- * One catalog row's installation state.
- */
 export interface ServerProbe {
-  /** Bare binary name searched on `$PATH`. */
+  args: string[];
   bin_name: string;
-  /**
-   * `true` iff the catalog has a downloader recipe — i.e. opening a file
-   * in this language would trigger an automatic install.
-   */
+  description: string;
+  /** Installation is always explicit through the marketplace. */
   downloadable: boolean;
-  /** All LSP `languageId`s served by this entry. */
+  /** @nullable */
+  error?: string | null;
+  initialization_options: unknown;
   language_ids: string[];
-  /** Stable id (`typescript-language-server`, `rust-analyzer`, …). */
+  languages: LspLanguage[];
   lsp_id: string;
-  /**
-   * Absolute path on disk when found. `None` otherwise.
-   * @nullable
-   */
+  name: string;
+  /** @nullable */
   path?: string | null;
-  /**
-   * The role this server fills (type checker, linter, …). Lets the renderer
-   * build the per-file active-server set from this catalog data instead of
-   * duplicating the catalog client-side.
-   */
   role: ServerRole;
-  /** Where the binary was found, or `missing` if not installed. */
+  root_markers: string[];
   status: ServerProbeStatus;
-  /**
-   * Version string when reported by the binary itself (or pinned by the
-   * downloader recipe for managed installs). `None` if unknown.
-   * @nullable
-   */
+  /** @nullable */
   version?: string | null;
 }
 
@@ -2579,9 +3277,108 @@ export interface ListServersResponse {
   servers: ServerProbe[];
 }
 
+export type LspCatalogResponseBlockedVersions = { [key: string]: { [key: string]: string } };
+
+/**
+ * Algorithms accepted by index schema v1.
+ */
+export type ManagedSignatureAlgorithm =
+  (typeof ManagedSignatureAlgorithm)[keyof typeof ManagedSignatureAlgorithm];
+
+export const ManagedSignatureAlgorithm = {
+  ed25519: "ed25519",
+} as const;
+
+/**
+ * Detached index signature. Cryptographic verification is intentionally a
+ * caller concern; contract validation only validates this envelope's shape.
+ */
+export interface ManagedIndexSignature {
+  algorithm: ManagedSignatureAlgorithm;
+  key_id: string;
+  /** Standard padded base64. Ed25519 signatures decode to exactly 64 bytes. */
+  value: string;
+}
+
+export interface MixedCatalogPayload {
+  expires_at: string;
+  generated_at: string;
+  packages: unknown[];
+  provider_handoffs?: unknown[];
+  /** @minimum 0 */
+  schema_version: number;
+}
+
+export interface SignedMixedCatalog {
+  signature: ManagedIndexSignature;
+  signed: MixedCatalogPayload;
+}
+
+export type LspCatalogResponseIndex = null | SignedMixedCatalog;
+
+export type LspCatalogResponseRecommendedVersions = { [key: string]: string };
+
+export type LspVersionUnavailable =
+  (typeof LspVersionUnavailable)[keyof typeof LspVersionUnavailable];
+
+export const LspVersionUnavailable = {
+  platform: "platform",
+  protocol: "protocol",
+  node: "node",
+  policy: "policy",
+  compatibility: "compatibility",
+  operating_system: "operating_system",
+} as const;
+
+export type LspCatalogResponseUnavailableVersions = {
+  [key: string]: { [key: string]: LspVersionUnavailable };
+};
+
+export interface LspCatalogResponse {
+  blocked_versions: LspCatalogResponseBlockedVersions;
+  /** @nullable */
+  error?: string | null;
+  host_platform: string;
+  index?: LspCatalogResponseIndex;
+  recommended_versions: LspCatalogResponseRecommendedVersions;
+  unavailable_versions: LspCatalogResponseUnavailableVersions;
+  verified: boolean;
+}
+
+export interface LspSuggestion {
+  lsp_id: string;
+  reason: string;
+  version: string;
+}
+
+export interface LspResolveResponse {
+  candidates: ServerProbe[];
+  /** @nullable */
+  catalog_warning?: string | null;
+  /** @nullable */
+  error?: string | null;
+  ignored: boolean;
+  language_id: string;
+  linters: string[];
+  /** @nullable */
+  primary?: string | null;
+  primary_disabled: boolean;
+  servers: ServerProbe[];
+  suggestions: LspSuggestion[];
+}
+
 export interface LspRootResponse {
   /** Absolute resolved LSP root. The feature root when no marker matched. */
   root: string;
+}
+
+/**
+ * Inclusive Cadencr application compatibility bounds.
+ */
+export interface ManagedAppCompatibility {
+  /** @nullable */
+  max_app_version?: string | null;
+  min_app_version: string;
 }
 
 export type ManagedBlocklistCacheStatus =
@@ -2637,7 +3434,89 @@ export const ManagedCatalogCacheStatus = {
   expired: "expired",
 } as const;
 
-export type ManagedCatalogResponseIndex = null | SignedManagedProviderIndex;
+/**
+ * Package-owned files, all relative to the extracted package root.
+ */
+export interface ManagedPackageAssets {
+  icon: string;
+  /** @nullable */
+  license?: string | null;
+  /** @nullable */
+  readme?: string | null;
+}
+
+/**
+ * Strict host metadata that must never be moved into the portable ACP entry.
+ */
+export interface ManagedProviderHost {
+  assets: ManagedPackageAssets;
+  compatibility: ManagedAppCompatibility;
+  /**
+   * Stable registry publisher identity. Signature trust is resolved from the
+   * index key separately; this field records who owns the package entry.
+   */
+  publisher: string;
+}
+
+/**
+ * One versioned provider package in the signed index.
+ */
+export interface ManagedProviderPackage {
+  /** Lossless ACP Registry v1 payload. */
+  agent: AcpAgentEntry;
+  /** Cadencr-only host and package policy. */
+  host: ManagedProviderHost;
+}
+
+/**
+ * The deterministic payload covered by an index signature.
+ */
+export interface ManagedProviderIndex {
+  /** Hard freshness boundary. Expired catalogs are never exposed or installed. */
+  expires_at: string;
+  /** Monotonic publication time used to reject replayed catalog snapshots. */
+  generated_at: string;
+  packages: ManagedProviderPackage[];
+  /** @minimum 0 */
+  schema_version: number;
+}
+
+/**
+ * A detached signature over [`ManagedProviderIndex::signing_bytes`].
+ */
+export interface SignedManagedProviderIndex {
+  signature: ManagedIndexSignature;
+  /** The exact payload covered by `signature`. */
+  signed: ManagedProviderIndex;
+}
+
+export type SignedProviderCatalog = SignedManagedProviderIndex | SignedMixedCatalog;
+
+export type ManagedCatalogResponseIndex = null | SignedProviderCatalog;
+
+/**
+ * Host-compatible recommendation per provider, outside the signed payload.
+ */
+export type ManagedCatalogResponseRecommendedVersions = { [key: string]: string };
+
+/**
+ * Why a catalog tab or provider version does not install on this host.
+ */
+export type TabVersionUnavailable =
+  (typeof TabVersionUnavailable)[keyof typeof TabVersionUnavailable];
+
+export const TabVersionUnavailable = {
+  platform: "platform",
+  protocol: "protocol",
+} as const;
+
+/**
+ * Provider versions that cannot install on this host, by provider id then
+ * version: the installer would find no binary for it. Never recommended.
+ */
+export type ManagedCatalogResponseUnavailableVersions = {
+  [key: string]: { [key: string]: TabVersionUnavailable };
+};
 
 export interface ManagedCatalogResponse {
   cache_status: ManagedCatalogCacheStatus;
@@ -2650,10 +3529,17 @@ export interface ManagedCatalogResponse {
   /** @nullable */
   generated_at?: string | null;
   index?: ManagedCatalogResponseIndex;
+  /** Host-compatible recommendation per provider, outside the signed payload. */
+  recommended_versions?: ManagedCatalogResponseRecommendedVersions;
   refreshed: boolean;
   /** @nullable */
   signer_key_id?: string | null;
   source_configured: boolean;
+  /**
+   * Provider versions that cannot install on this host, by provider id then
+   * version: the installer would find no binary for it. Never recommended.
+   */
+  unavailable_versions?: ManagedCatalogResponseUnavailableVersions;
   used_cached_verified_catalog: boolean;
 }
 
@@ -2809,11 +3695,373 @@ export interface ManagedProvidersInventory {
   trust: ManagedTrustInventory;
 }
 
+/**
+ * One `backend.binary` key. Windows is not supported yet.
+ */
+export type TabPlatform = (typeof TabPlatform)[keyof typeof TabPlatform];
+
+export const TabPlatform = {
+  "darwin-aarch64": "darwin-aarch64",
+  "darwin-x86_64": "darwin-x86_64",
+  "linux-x86_64": "linux-x86_64",
+} as const;
+
+export type ManagedTabInventoryEntryPlatform = null | TabPlatform;
+
+export interface ManagedTabInventoryEntry {
+  /**
+   * Why Cadencr's signed revocation policy blocks the active revision: it
+   * cannot run, only be removed (or updated to a version not blocked).
+   * @nullable
+   */
+  blocked?: string | null;
+  /** @nullable */
+  error?: string | null;
+  id: string;
+  name: string;
+  /**
+   * A verified update staged beside the active revision, waiting for the
+   * user to accept what it may now run (`PUT /api/plugin-tabs/{id}/consent`
+   * with its permissions hash) or to discard it.
+   * @nullable
+   */
+  pending_version?: string | null;
+  platform?: ManagedTabInventoryEntryPlatform;
+  /** The active revision's version. */
+  version: string;
+}
+
+/**
+ * Whether the cached policy can vouch for new work.
+ */
+export type PolicyFreshness = (typeof PolicyFreshness)[keyof typeof PolicyFreshness];
+
+export const PolicyFreshness = {
+  not_configured: "not_configured",
+  fresh: "fresh",
+  stale: "stale",
+  missing: "missing",
+} as const;
+
+export interface ManagedTabPolicyStatus {
+  cache_status: PolicyFreshness;
+  /**
+   * Why the policy is not fresh, or the last feed failure.
+   * @nullable
+   */
+  detail?: string | null;
+  /** @nullable */
+  expires_at?: string | null;
+  /** @nullable */
+  generated_at?: string | null;
+  source_configured: boolean;
+}
+
+/**
+ * The custom-tab catalog only: the versions Cadencr's revocation policy
+ * blocks here, by tab id then version, with the policy's reason. They
+ * are never recommended, and installing one is refused.
+ */
+export type ManagedThemeCatalogResponseBlockedVersions = {
+  [key: string]: { [key: string]: string };
+};
+
+export type ManagedThemeCatalogResponseHostPlatform = null | TabPlatform;
+
+export type ManagedThemeCatalogResponseIndex = null | SignedMixedCatalog;
+
+export type ManagedThemeCatalogResponseRecommendedVersions = { [key: string]: string };
+
+/**
+ * The custom-tab catalog: the versions that cannot install here, by
+ * tab id then version, and why. They are never recommended.
+ */
+export type ManagedThemeCatalogResponseUnavailableVersions = {
+  [key: string]: { [key: string]: TabVersionUnavailable };
+};
+
+export interface ManagedThemeCatalogResponse {
+  /**
+   * The custom-tab catalog only: the versions Cadencr's revocation policy
+   * blocks here, by tab id then version, with the policy's reason. They
+   * are never recommended, and installing one is refused.
+   */
+  blocked_versions?: ManagedThemeCatalogResponseBlockedVersions;
+  /** @nullable */
+  error?: string | null;
+  host_platform?: ManagedThemeCatalogResponseHostPlatform;
+  index?: ManagedThemeCatalogResponseIndex;
+  recommended_versions: ManagedThemeCatalogResponseRecommendedVersions;
+  /**
+   * The custom-tab catalog: the versions that cannot install here, by
+   * tab id then version, and why. They are never recommended.
+   */
+  unavailable_versions?: ManagedThemeCatalogResponseUnavailableVersions;
+  verified: boolean;
+}
+
+export type ManagedThemeDuplicateResponseAllOf = {
+  /**
+   * Offline policy fallback diagnostic for a successfully created author copy.
+   * @nullable
+   */
+  warning?: string | null;
+};
+
+export type ManagedThemeDuplicateResponse = CreateThemeResponse &
+  ManagedThemeDuplicateResponseAllOf;
+
+export type ManagedThemeInventoryEntryTheme = null | UserTheme;
+
+export interface ManagedThemeInventoryEntry {
+  /**
+   * Referenced by any saved manual/light/dark selection, not necessarily displayed.
+   * The frontend owns OS appearance and resolves the effective displayed theme.
+   */
+  active: boolean;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  error_code?: string | null;
+  id: string;
+  name: string;
+  sha256: string;
+  theme?: ManagedThemeInventoryEntryTheme;
+  version: string;
+  /**
+   * Offline policy fallback diagnostic; the authenticated theme remains usable.
+   * @nullable
+   */
+  warning?: string | null;
+}
+
 export interface MarkViewedRequest {
   blob_sha: string;
   feature_id: number;
   file_path: string;
 }
+
+/**
+ * The way out of an invalid trust configuration.
+ */
+export type MarketplaceTrustRecovery =
+  (typeof MarketplaceTrustRecovery)[keyof typeof MarketplaceTrustRecovery];
+
+export const MarketplaceTrustRecovery = {
+  reinstall: "reinstall",
+  update_app: "update_app",
+  set_aside: "set_aside",
+  repair: "repair",
+} as const;
+
+export type MarketplaceTrustState =
+  (typeof MarketplaceTrustState)[keyof typeof MarketplaceTrustState];
+
+export const MarketplaceTrustState = {
+  configured: "configured",
+  unconfigured: "unconfigured",
+  invalid: "invalid",
+} as const;
+
+export type MarketplaceTrustStatusRecovery = null | MarketplaceTrustRecovery;
+
+export interface MarketplaceTrustStatus {
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  error_code?: string | null;
+  /**
+   * The file a `set_aside` recovery renames.
+   * @nullable
+   */
+  file?: string | null;
+  /**
+   * Where a set-aside file was kept, in the answer to that action.
+   * @nullable
+   */
+  kept_at?: string | null;
+  recovery?: MarketplaceTrustStatusRecovery;
+  status: MarketplaceTrustState;
+}
+
+/**
+ * Where one value the user provides at install time goes.
+ */
+export type McpInputKind = (typeof McpInputKind)[keyof typeof McpInputKind];
+
+export const McpInputKind = {
+  env: "env",
+  header: "header",
+  argument: "argument",
+  url_variable: "url_variable",
+} as const;
+
+/**
+ * A value the registry entry asks for (API key, path, header…).
+ */
+export interface McpInput {
+  /** @nullable */
+  default?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** Stable key the install request uses, e.g. `env:GITHUB_TOKEN`. */
+  key: string;
+  kind: McpInputKind;
+  label: string;
+  /**
+   * Format hint from the registry, e.g. `Bearer {api_key}`.
+   * @nullable
+   */
+  placeholder?: string | null;
+  required: boolean;
+  secret: boolean;
+}
+
+/**
+ * One way to run a registry server: a package launched locally or a remote endpoint.
+ */
+export interface McpInstallOption {
+  /** @nullable */
+  identifier?: string | null;
+  inputs: McpInput[];
+  /** `npm`, `pypi`, `oci` or `remote`. */
+  kind: string;
+  /** What the agent will run or reach, e.g. `npx -y pkg@1.2.0`. */
+  summary: string;
+  transport: McpTransport;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  version?: string | null;
+}
+
+/**
+ * Values keyed by [`McpInput::key`].
+ */
+export type McpInstallRequestValues = { [key: string]: string };
+
+export interface McpInstallRequest {
+  /**
+   * Index into the registry server's `options`.
+   * @minimum 0
+   */
+  option: number;
+  provider_id: string;
+  registry_name: string;
+  /** Name the CLI registers the server under. */
+  server_name: string;
+  /** Values keyed by [`McpInput::key`]. */
+  values?: McpInstallRequestValues;
+}
+
+/**
+ * A package an installed server runs, read from its launch command.
+ */
+export interface McpPackageRef {
+  identifier: string;
+  /** `npm` or `pypi`. */
+  registry_type: string;
+  /**
+   * Pinned version. `None`: the launcher resolves the newest one each run.
+   * @nullable
+   */
+  version?: string | null;
+}
+
+export type McpInstallationPackage = null | McpPackageRef;
+
+/**
+ * One server installed in one CLI.
+ */
+export interface McpInstallation {
+  package?: McpInstallationPackage;
+  provider_id: string;
+  server: CliMcpServer;
+  /**
+   * Newer registry version this pinned installation can move to.
+   * @nullable
+   */
+  update?: string | null;
+  /**
+   * Why Cadencr cannot apply `update` itself: the CLI could not re-add the
+   * server exactly as it is. The user updates it in the CLI's config.
+   * @nullable
+   */
+  update_blocked?: string | null;
+}
+
+/**
+ * A server listed in the official MCP Registry (latest version).
+ */
+export interface McpRegistryServer {
+  description: string;
+  /** Reverse-DNS registry name, e.g. `io.github.owner/server`. */
+  name: string;
+  options: McpInstallOption[];
+  /** @nullable */
+  published_at?: string | null;
+  /** @nullable */
+  repository?: string | null;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  updated_at?: string | null;
+  version: string;
+  /** @nullable */
+  website?: string | null;
+}
+
+export type McpListingRegistry = null | McpRegistryServer;
+
+/**
+ * Installed servers grouped by what they are: one registry server (or one
+ * unmatched name) across every CLI that carries it.
+ */
+export interface McpListing {
+  installations: McpInstallation[];
+  /** `registry:<name>` or `local:<server name>`. */
+  key: string;
+  name: string;
+  registry?: McpListingRegistry;
+}
+
+export interface McpInventoryResponse {
+  errors: ExtensionCliError[];
+  listings: McpListing[];
+}
+
+export interface McpRegistryPage {
+  /** @nullable */
+  next_cursor?: string | null;
+  servers: McpRegistryServer[];
+}
+
+export interface McpServerRequest {
+  provider_id: string;
+  server_name: string;
+}
+
+export interface McpServerStatusPayload {
+  name: string;
+  status: string;
+}
+
+export interface McpUpdateResponse {
+  version: string;
+}
+
+/**
+ * What the viewer can do to land the proposal, in the order the pane offers
+ * them — the first one is the primary button.
+ */
+export type MergeAction = (typeof MergeAction)[keyof typeof MergeAction];
+
+export const MergeAction = {
+  merge: "merge",
+  auto_merge: "auto_merge",
+  enqueue: "enqueue",
+  enqueue_when_ready: "enqueue_when_ready",
+} as const;
 
 export interface MergeConflictResult {
   conflict_files: string[];
@@ -2839,6 +4087,54 @@ export interface MergeFeatureBranchBody {
   save_as_default?: boolean;
 }
 
+export type MergeOutcome = (typeof MergeOutcome)[keyof typeof MergeOutcome];
+
+export const MergeOutcome = {
+  merged: "merged",
+  merging: "merging",
+  auto_merge_enabled: "auto_merge_enabled",
+  queued: "queued",
+} as const;
+
+export type MergeQueueEntryEnqueuedBy = null | ForgeUser;
+
+export interface MergeQueueEntry {
+  /**
+   * Entries that will land before this one; `None` when the forge does not
+   * report a position.
+   * @minimum 0
+   * @nullable
+   */
+  ahead?: number | null;
+  enqueued_by?: MergeQueueEntryEnqueuedBy;
+}
+
+/**
+ * A serialized landing lane the forge runs in front of the target branch:
+ * GitHub's merge queue, GitLab's merge trains.
+ */
+export type MergeQueueKind = (typeof MergeQueueKind)[keyof typeof MergeQueueKind];
+
+export const MergeQueueKind = {
+  merge_queue: "merge_queue",
+  merge_train: "merge_train",
+} as const;
+
+/**
+ * Where the proposal stands against the target branch's rules.
+ */
+export type MergeReadiness = (typeof MergeReadiness)[keyof typeof MergeReadiness];
+
+export const MergeReadiness = {
+  ready: "ready",
+  blocked: "blocked",
+  checking: "checking",
+  conflicts: "conflicts",
+  behind: "behind",
+  draft: "draft",
+  closed: "closed",
+} as const;
+
 export interface MergeResult {
   /**
    * Set when the merge failed because of a content conflict. Lists the
@@ -2851,6 +4147,14 @@ export interface MergeResult {
   /** @nullable */
   error?: string | null;
   success: boolean;
+  /**
+   * Set on a *successful* merge whose cleanup did not complete — e.g. the
+   * target worktree could not be switched back to the branch it had
+   * checked out before. The merge itself is committed; the UI must still
+   * tell the user the worktree was left on another branch.
+   * @nullable
+   */
+  warning?: string | null;
 }
 
 export interface MessageFullContentResponse {
@@ -2865,6 +4169,22 @@ export interface MessageFullContentResponse {
 export interface MessagePreviewResponse {
   /** @nullable */
   preview?: string | null;
+}
+
+/**
+ * The most recent message of one conversation that matches the query.
+ */
+export interface MessageSearchHit {
+  created_at: string;
+  feature_id: number;
+  feature_status: FeatureStatus;
+  feature_title: string;
+  message_id: number;
+  project_id: number;
+  /** `user` or `assistant`. */
+  role: string;
+  /** Text around the match; each matched word is wrapped in U+0002 … U+0003. */
+  snippet: string;
 }
 
 export interface ModeChangedPayload {
@@ -2980,6 +4300,7 @@ export interface OpenLspSessionRequest {
 }
 
 export interface OpenLspSessionResponse {
+  initialization_options: unknown;
   /**
    * Opaque single-use id. Connect within 30 s by upgrading
    * `GET /api/lsp/sessions/{session_id}/connect` to WebSocket.
@@ -3017,7 +4338,7 @@ export interface PairingCodeResponse {
   /** @minimum 0 */
   expires_in_secs: number;
   fingerprint: string;
-  /** `https://<lan-ip>:<port>/?code=<code>` for each interface. */
+  /** `https://<lan-ip>:<port>/#code=<code>` for each interface. */
   urls: string[];
 }
 
@@ -3084,52 +4405,744 @@ export interface PermissionRespondPayload {
   updated_input?: unknown;
 }
 
+/**
+ * Transcript durability is independent of provider-stream and turn health.
+ */
+export type PersistenceStatusState =
+  (typeof PersistenceStatusState)[keyof typeof PersistenceStatusState];
+
+export const PersistenceStatusState = {
+  degraded: "degraded",
+  recovered: "recovered",
+  failed: "failed",
+} as const;
+
+export interface PluginBackendCallError {
+  code: string;
+  message: string;
+}
+
+export type PluginBackendRequestParams = { [key: string]: unknown };
+
+/**
+ * `POST /api/plugin-tabs/self/backend`.
+ */
+export interface PluginBackendRequest {
+  /** The backend's own method name, 1–128 characters. */
+  method: string;
+  params?: PluginBackendRequestParams;
+  /**
+   * 1 ms – 120 s; 30 s when omitted.
+   * @minimum 0
+   * @nullable
+   */
+  timeout_ms?: number | null;
+}
+
+export type PluginBackendResponseError = null | PluginBackendCallError;
+
+export type PluginBackendResponseResultAnyOf = { [key: string]: unknown };
+
+/**
+ * @nullable
+ */
+export type PluginBackendResponseResult = PluginBackendResponseResultAnyOf | null;
+
+/**
+ * The backend's answer: exactly one of `result` and `error`. A backend
+ * error is the backend's own (`{code, message}`), passed through as is;
+ * failures of the relay itself are ordinary `{error, code}` HTTP errors.
+ */
+export interface PluginBackendResponse {
+  error?: PluginBackendResponseError;
+  /** @nullable */
+  result?: PluginBackendResponseResult;
+}
+
+/**
+ * `POST /api/plugin-tabs/self/exec`.
+ */
+export interface PluginExecRequest {
+  args?: string[];
+  /** Exactly as listed in the manifest's `commands[].program`. */
+  program: string;
+  /**
+   * 1 ms – 120 s; 30 s when omitted.
+   * @minimum 0
+   * @nullable
+   */
+  timeout_ms?: number | null;
+}
+
+/**
+ * The finished command. A non-zero exit is a result, not an error.
+ */
+export interface PluginExecResult {
+  /** @minimum 0 */
+  duration_ms: number;
+  /**
+   * `None` when the process was ended by a signal.
+   * @nullable
+   */
+  exit_code?: number | null;
+  stderr: string;
+  /** UTF-8, lossily decoded; each stream is at most 1 MiB. */
+  stdout: string;
+  success: boolean;
+}
+
+export type PluginTabBackendState =
+  (typeof PluginTabBackendState)[keyof typeof PluginTabBackendState];
+
+export const PluginTabBackendState = {
+  starting: "starting",
+  running: "running",
+  stopped: "stopped",
+  crashed: "crashed",
+} as const;
+
+/**
+ * One tab's backend in one conversation, as the Activity dialog shows it.
+ */
+export interface PluginTabBackendStatus {
+  /** @nullable */
+  exit_code?: number | null;
+  /**
+   * Why the last run ended, in words.
+   * @nullable
+   */
+  exit_reason?: string | null;
+  /** @nullable */
+  exited_at?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  pid?: number | null;
+  /**
+   * Cadencr refuses to start it until the user allows a restart (`DELETE
+   * /api/plugin-tabs/{id}/backends/{feature_id}`): it spoke another
+   * protocol, crashed 3 times in a minute, or could not start 3 times in
+   * a minute (that last one also lifts a minute after the first refusal).
+   */
+  restart_held: boolean;
+  /**
+   * Why the last start was refused before anything ran (tampered binary,
+   * policy unavailable, …), until a run starts again.
+   * @nullable
+   */
+  start_error?: string | null;
+  /**
+   * RFC 3339, of the current or last run.
+   * @nullable
+   */
+  started_at?: string | null;
+  /**
+   * How many times it was started since Cadencr launched.
+   * @minimum 0
+   */
+  starts: number;
+  state: PluginTabBackendState;
+  /** The last lines it wrote to stderr (its log), oldest first. */
+  stderr_tail: string[];
+}
+
+export type PluginTabActivityBackend = null | PluginTabBackendStatus;
+
+/**
+ * How one requested command ended.
+ */
+export type PluginTabExecOutcome = (typeof PluginTabExecOutcome)[keyof typeof PluginTabExecOutcome];
+
+export const PluginTabExecOutcome = {
+  exited: "exited",
+  refused: "refused",
+  timed_out: "timed_out",
+  failed: "failed",
+} as const;
+
+/**
+ * One command a tab asked Cadencr to run.
+ */
+export interface PluginTabExecRecord {
+  /**
+   * At most [`MAX_RECORDED_ARGS_CHARS`] characters; a cut argument ends
+   * with `…` and the ones after it are left out.
+   */
+  args: string[];
+  /** @minimum 0 */
+  duration_ms: number;
+  /**
+   * Why it was refused or failed.
+   * @nullable
+   */
+  error?: string | null;
+  /** @nullable */
+  exit_code?: number | null;
+  outcome: PluginTabExecOutcome;
+  program: string;
+  /** RFC 3339. */
+  started_at: string;
+}
+
+/**
+ * What a tab ran in one conversation since Cadencr started.
+ */
+export interface PluginTabActivity {
+  backend?: PluginTabActivityBackend;
+  /** The commands it asked Cadencr to run, newest first (at most 50). */
+  commands: PluginTabExecRecord[];
+}
+
+/**
+ * A backend's availability on the platform Cadencr runs on.
+ */
+export type PluginTabBackendAvailability =
+  (typeof PluginTabBackendAvailability)[keyof typeof PluginTabBackendAvailability];
+
+export const PluginTabBackendAvailability = {
+  available: "available",
+  unavailable_on_platform: "unavailable_on_platform",
+} as const;
+
+/**
+ * One installed (or staged) marketplace backend binary: the signed facts a
+ * binary-only update changes.
+ */
+export interface PluginTabBackendBinary {
+  /** The signed SHA-256 of the executable, checked before each launch. */
+  executable_sha256: string;
+  /** The platform it was installed for (`darwin-aarch64`, …). */
+  platform: TabPlatform;
+  /**
+   * The backend protocol version it speaks.
+   * @minimum 0
+   */
+  protocol: number;
+}
+
+export type PluginTabConfigurationGlobal = { [key: string]: unknown };
+
+/**
+ * The requested project's values; `None` when no project was given.
+ */
+export type PluginTabConfigurationProjectAnyOf = { [key: string]: unknown };
+
+/**
+ * The requested project's values; `None` when no project was given.
+ * @nullable
+ */
+export type PluginTabConfigurationProject = PluginTabConfigurationProjectAnyOf | null;
+
+/**
+ * Where a configuration value is stored: once for every project, or per project.
+ */
+export type TabConfigScope = (typeof TabConfigScope)[keyof typeof TabConfigScope];
+
+export const TabConfigScope = {
+  global: "global",
+  project: "project",
+} as const;
+
+export type TabConfigFieldType = (typeof TabConfigFieldType)[keyof typeof TabConfigFieldType];
+
+export const TabConfigFieldType = {
+  string: "string",
+  number: "number",
+  boolean: "boolean",
+  select: "select",
+  secret: "secret",
+} as const;
+
+export type TabConfigFieldDefaultAnyOf = { [key: string]: unknown };
+
+/**
+ * @nullable
+ */
+export type TabConfigFieldDefault = TabConfigFieldDefaultAnyOf | null;
+
+/**
+ * One settings-form field the plugin reads through `config.get`.
+ */
+export interface TabConfigField {
+  /** @nullable */
+  default?: TabConfigFieldDefault;
+  key: string;
+  label: string;
+  options?: string[];
+  scope: TabConfigScope;
+  type: TabConfigFieldType;
+}
+
+/**
+ * The settings form: the declared fields and the stored values. Secret values
+ * are never returned; a set secret reads `{ "is_set": true }`.
+ */
+export interface PluginTabConfiguration {
+  fields: TabConfigField[];
+  global: PluginTabConfigurationGlobal;
+  /**
+   * The requested project's values; `None` when no project was given.
+   * @nullable
+   */
+  project?: PluginTabConfigurationProject;
+}
+
+export interface PluginTabConsentRequest {
+  /** The hash the user was shown; must equal the current one. */
+  permissions_hash: string;
+  /**
+   * The user ticked "I trust this code to run on my computer". Required
+   * (422 `PLUGIN_TAB_TRUST_REQUIRED`) for a tab that runs commands or ships
+   * a backend; ignored for a read-only one.
+   */
+  trusts_code?: boolean;
+}
+
+export interface PluginTabEnablement {
+  /** No consent, or consent for an older permissions hash. */
+  consent_required: boolean;
+  /** Switched on, consented at the current hash, valid, and not blocked. */
+  effective: boolean;
+  /**
+   * The global switch; `None` when never set (off).
+   * @nullable
+   */
+  global?: boolean | null;
+  /**
+   * The requested project's override; `None` when unset or no project was given.
+   * @nullable
+   */
+  project?: boolean | null;
+}
+
+/**
+ * A plugin token for one tab instance. Opaque; send it as
+ * `x-cadencr-plugin-token` (HTTP) or the `cadencr-plugin.<token>`
+ * subprotocol (`/api/plugin-tabs/ws`). In memory only, never persisted.
+ */
+export interface PluginTabGrant {
+  /** @minimum 0 */
+  api_version: number;
+  /** RFC 3339; mint a new grant before then. */
+  expires_at: string;
+  /** The consented scopes (§6) the token carries. */
+  scopes: string[];
+  token: string;
+}
+
+export interface PluginTabNetwork {
+  allowed_origins: string[];
+  /** @nullable */
+  reasoning?: string | null;
+}
+
+/**
+ * Platform key (`darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`) →
+ * path of its native executable inside the tab folder. A platform left
+ * out cannot run the backend.
+ */
+export type TabBackendBinary = { [key: string]: string };
+
+/**
+ * The tab's native backend process (`backend`): one executable per
+ * platform, shipped inside the tab folder, speaking stdio protocol
+ * `protocol` (`docs/CUSTOM_TABS.md` §4.7).
+ */
+export interface TabBackend {
+  /**
+   * Platform key (`darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`) →
+   * path of its native executable inside the tab folder. A platform left
+   * out cannot run the backend.
+   */
+  binary: TabBackendBinary;
+  /**
+   * The stdio protocol version the backend speaks: `1` (the versions a
+   * Cadencr accepts are `SUPPORTED_BACKEND_PROTOCOLS`).
+   * @minimum 0
+   */
+  protocol: number;
+  /**
+   * Shown to the user at consent time; required.
+   * @nullable
+   */
+  reasoning?: string | null;
+}
+
+export type PluginTabPendingUpdateBackend = null | TabBackend;
+
+export type PluginTabPendingUpdateBackendBinary = null | PluginTabBackendBinary;
+
+/**
+ * How far a tab reaches beyond its page, from least to most. Shown on the
+ * tab's card and drives how insistent the consent dialog is.
+ */
+export type TabAccessLevel = (typeof TabAccessLevel)[keyof typeof TabAccessLevel];
+
+export const TabAccessLevel = {
+  ui: "ui",
+  commands: "commands",
+  backend: "backend",
+} as const;
+
+/**
+ * One program a tab may ask Cadencr to run (`commands[]`).
+ */
+export interface TabCommand {
+  /** A bare program name looked up on `PATH`, e.g. `git`. */
+  program: string;
+  /**
+   * Shown to the user at consent time; required.
+   * @nullable
+   */
+  reasoning?: string | null;
+}
+
+/**
+ * What a staged marketplace update would run, for the review dialog.
+ */
+export interface PluginTabPendingUpdate {
+  access_level: TabAccessLevel;
+  backend?: PluginTabPendingUpdateBackend;
+  backend_binary?: PluginTabPendingUpdateBackendBinary;
+  /**
+   * Why Cadencr's revocation policy blocks it: it cannot be accepted
+   * (403 `PLUGIN_TAB_BLOCKED`), only discarded.
+   * @nullable
+   */
+  blocked_reason?: string | null;
+  commands: TabCommand[];
+  network: PluginTabNetwork;
+  permissions: string[];
+  /** What accepting it records; differs from the installed revision's. */
+  permissions_hash: string;
+  version: string;
+}
+
+/**
+ * The conversation an open tab instance shows.
+ */
+export interface PluginTabPresenceRequest {
+  feature_id: number;
+}
+
+/**
+ * One project's switch for a tab, overriding the global one.
+ */
+export interface PluginTabProjectOverride {
+  enabled: boolean;
+  project_id: number;
+}
+
+export type PluginTabStatus = (typeof PluginTabStatus)[keyof typeof PluginTabStatus];
+
+export const PluginTabStatus = {
+  valid: "valid",
+  invalid: "invalid",
+  blocked: "blocked",
+} as const;
+
+export type PluginTabSummaryBackend = null | TabBackend;
+
+export type PluginTabSummaryBackendAvailability = null | PluginTabBackendAvailability;
+
+export type PluginTabSummaryBackendBinary = null | PluginTabBackendBinary;
+
+export type PluginTabSummaryPendingUpdate = null | PluginTabPendingUpdate;
+
+export type TabIssueCode = (typeof TabIssueCode)[keyof typeof TabIssueCode];
+
+export const TabIssueCode = {
+  MANIFEST_UNREADABLE: "MANIFEST_UNREADABLE",
+  MANIFEST_INVALID_JSON: "MANIFEST_INVALID_JSON",
+  SCHEMA_VERSION_UNSUPPORTED: "SCHEMA_VERSION_UNSUPPORTED",
+  KIND_INVALID: "KIND_INVALID",
+  ID_INVALID: "ID_INVALID",
+  ID_RESERVED: "ID_RESERVED",
+  ID_MISMATCH: "ID_MISMATCH",
+  NAME_INVALID: "NAME_INVALID",
+  VERSION_INVALID: "VERSION_INVALID",
+  DESCRIPTION_TOO_LONG: "DESCRIPTION_TOO_LONG",
+  LABEL_INVALID: "LABEL_INVALID",
+  API_VERSION_UNSUPPORTED: "API_VERSION_UNSUPPORTED",
+  PATH_INVALID: "PATH_INVALID",
+  ICON_INVALID: "ICON_INVALID",
+  ICON_MISSING: "ICON_MISSING",
+  PERMISSION_UNKNOWN: "PERMISSION_UNKNOWN",
+  PERMISSION_DUPLICATE: "PERMISSION_DUPLICATE",
+  ORIGIN_INVALID: "ORIGIN_INVALID",
+  ORIGIN_DUPLICATE: "ORIGIN_DUPLICATE",
+  ORIGINS_TOO_MANY: "ORIGINS_TOO_MANY",
+  ORIGIN_INSECURE_LOCALHOST: "ORIGIN_INSECURE_LOCALHOST",
+  NETWORK_REASONING_REQUIRED: "NETWORK_REASONING_REQUIRED",
+  CONFIG_TOO_MANY: "CONFIG_TOO_MANY",
+  CONFIG_KEY_INVALID: "CONFIG_KEY_INVALID",
+  CONFIG_KEY_DUPLICATE: "CONFIG_KEY_DUPLICATE",
+  CONFIG_LABEL_INVALID: "CONFIG_LABEL_INVALID",
+  CONFIG_OPTIONS_REQUIRED: "CONFIG_OPTIONS_REQUIRED",
+  CONFIG_OPTIONS_UNEXPECTED: "CONFIG_OPTIONS_UNEXPECTED",
+  CONFIG_OPTION_INVALID: "CONFIG_OPTION_INVALID",
+  CONFIG_SECRET_DEFAULT: "CONFIG_SECRET_DEFAULT",
+  CONFIG_DEFAULT_INVALID: "CONFIG_DEFAULT_INVALID",
+  COMMANDS_TOO_MANY: "COMMANDS_TOO_MANY",
+  COMMAND_INVALID: "COMMAND_INVALID",
+  COMMAND_DUPLICATE: "COMMAND_DUPLICATE",
+  COMMAND_NOT_ALLOWED: "COMMAND_NOT_ALLOWED",
+  COMMAND_REASONING_REQUIRED: "COMMAND_REASONING_REQUIRED",
+  BACKEND_COMMAND_REMOVED: "BACKEND_COMMAND_REMOVED",
+  BACKEND_PROTOCOL_UNSUPPORTED: "BACKEND_PROTOCOL_UNSUPPORTED",
+  BACKEND_BINARY_REQUIRED: "BACKEND_BINARY_REQUIRED",
+  BACKEND_PLATFORM_UNKNOWN: "BACKEND_PLATFORM_UNKNOWN",
+  BACKEND_REASONING_REQUIRED: "BACKEND_REASONING_REQUIRED",
+  BACKEND_UNAVAILABLE: "BACKEND_UNAVAILABLE",
+  SHORTCUTS_TOO_MANY: "SHORTCUTS_TOO_MANY",
+  SHORTCUT_ID_INVALID: "SHORTCUT_ID_INVALID",
+  SHORTCUT_ID_DUPLICATE: "SHORTCUT_ID_DUPLICATE",
+  SHORTCUT_KEYS_INVALID: "SHORTCUT_KEYS_INVALID",
+  SHORTCUT_KEYS_DUPLICATE: "SHORTCUT_KEYS_DUPLICATE",
+  SHORTCUT_DESCRIPTION_INVALID: "SHORTCUT_DESCRIPTION_INVALID",
+  REPLACES_INVALID: "REPLACES_INVALID",
+  REPLACES_DUPLICATE: "REPLACES_DUPLICATE",
+} as const;
+
+/**
+ * One finding. `field` is a dotted path into the manifest (`network.allowed_origins[0]`)
+ * or `None` for document-level problems.
+ */
+export interface TabIssue {
+  code: TabIssueCode;
+  /** @nullable */
+  field?: string | null;
+  message: string;
+}
+
+/**
+ * One keyboard shortcut a tab handles while it has focus (`shortcuts[]`),
+ * delivered to the page as a `shortcut` event naming its `id`.
+ */
+export interface TabShortcut {
+  /** What it does, for the shortcuts cheatsheet and the tab's settings. */
+  description: string;
+  /** Stable within the tab, e.g. `refresh`. */
+  id: string;
+  /**
+   * Shortcut tokens, e.g. `["mod", "shift", "r"]`: modifiers (`mod`,
+   * `ctrl`, `alt`, `shift`) and exactly one key; `mod`, `ctrl` or `alt`
+   * is required.
+   */
+  keys: string[];
+}
+
+/**
+ * One local custom tab, valid or not.
+ */
+export interface PluginTabSummary {
+  /**
+   * How far the tab reaches: its page only, commands, or a native backend.
+   * `ui` when the manifest is unreadable (such a tab cannot run).
+   */
+  access_level: TabAccessLevel;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  api_version?: number | null;
+  /**
+   * The project this tab is authored in, when Cadencr created one.
+   * @nullable
+   */
+  authoring_project_id?: number | null;
+  backend?: PluginTabSummaryBackend;
+  backend_availability?: PluginTabSummaryBackendAvailability;
+  backend_binary?: PluginTabSummaryBackendBinary;
+  /**
+   * Why Cadencr's signed revocation policy blocks this marketplace tab
+   * (`status` is then `blocked`): it cannot be enabled, opened or run its
+   * backend, only removed. `None` when not blocked.
+   * @nullable
+   */
+  blocked_reason?: string | null;
+  /** Programs the tab may ask Cadencr to run. */
+  commands: TabCommand[];
+  configuration: TabConfigField[];
+  /** @nullable */
+  description?: string | null;
+  /** Absolute path of the tab folder. */
+  dir: string;
+  enablement: PluginTabEnablement;
+  /** @nullable */
+  entry?: string | null;
+  /** Whether `entry` exists — `false` until the author first builds. */
+  entry_present: boolean;
+  errors: TabIssue[];
+  /**
+   * The icon's SVG markup, inlined so the renderer needs no extra request.
+   * @nullable
+   */
+  icon_svg?: string | null;
+  id: string;
+  /** The tab trigger text (`tab.label`, else the name). */
+  label: string;
+  /**
+   * Present for an immutable marketplace installation.
+   * @nullable
+   */
+  managed?: boolean | null;
+  /** The manifest name, or the id when `tab.json` could not be parsed. */
+  name: string;
+  network: PluginTabNetwork;
+  pending_update?: PluginTabSummaryPendingUpdate;
+  permissions: string[];
+  /**
+   * What consent is recorded against; `None` when the manifest is unreadable.
+   * @nullable
+   */
+  permissions_hash?: string | null;
+  /**
+   * Every project override, by project id; only on a list asked for them
+   * (`?project_overrides=true`), so the settings page needs one request.
+   * @nullable
+   */
+  project_overrides?: PluginTabProjectOverride[] | null;
+  /**
+   * Built-in tabs (`terminal`, `git`, `editor`, `preview`) the tab declares
+   * it can replace (`tab.replaces`); which one it does is a workspace
+   * setting (`custom_tab_replacements`).
+   */
+  replaces: string[];
+  /** Keyboard shortcuts the tab handles while it has focus. */
+  shortcuts: TabShortcut[];
+  status: PluginTabStatus;
+  /** @nullable */
+  version?: string | null;
+  warnings: TabIssue[];
+}
+
+/**
+ * Where a tab is authored. The renderer navigates to the conversation.
+ */
+export interface PluginTabWorkspace {
+  /** The tab folder — the project root and the agent's cwd. */
+  dir: string;
+  feature_id: number;
+  plugin_id: string;
+  project_id: number;
+}
+
+/**
+ * One reviewer's latest position on the proposal.
+ */
+export type ReviewerDecision = (typeof ReviewerDecision)[keyof typeof ReviewerDecision];
+
+export const ReviewerDecision = {
+  approved: "approved",
+  changes_requested: "changes_requested",
+  commented: "commented",
+  pending: "pending",
+} as const;
+
+export interface PrReviewer {
+  decision: ReviewerDecision;
+  user: ForgeUser;
+}
+
+export interface PrApprovals {
+  /** @minimum 0 */
+  approved_count: number;
+  /**
+   * Approvals the forge's rules demand before merging. `None` when the forge
+   * does not say (no rule, or the token cannot read the rule).
+   * @minimum 0
+   * @nullable
+   */
+  required?: number | null;
+  /** Approvers first, then requested changes, then everyone else. */
+  reviewers: PrReviewer[];
+  /**
+   * Whether the forge considers the approval requirement met. `None` when it
+   * has no opinion — no rule applies, or it cannot be read.
+   * @nullable
+   */
+  satisfied?: boolean | null;
+}
+
 export interface PrCommentsResponse {
   feature_id: number;
   fetched_at: number;
   threads: CommentThread[];
 }
 
-export type PrState = (typeof PrState)[keyof typeof PrState];
+export interface PrMergeCancelResponse {
+  cancelled: boolean;
+}
 
-export const PrState = {
-  open: "open",
-  draft: "draft",
-  merged: "merged",
-  closed: "closed",
-} as const;
+export type PrMergeRequestMethod = null | MergeMethod;
+
+export interface PrMergeRequest {
+  action: MergeAction;
+  delete_source_branch?: boolean;
+  /**
+   * The head the user confirmed (`PrMergeStatus::head_sha`). Cadencr
+   * refuses if the forge now reports another head; GitHub and GitLab also
+   * enforce it on their side, Bitbucket's merge API cannot.
+   */
+  expected_head_sha: string;
+  feature_id: number;
+  method?: PrMergeRequestMethod;
+  /** @minimum 0 */
+  pr_number: number;
+}
+
+export interface PrMergeResponse {
+  outcome: MergeOutcome;
+  /**
+   * Something the user should know even though the merge went through — a
+   * source branch that could not be deleted, say.
+   * @nullable
+   */
+  warning?: string | null;
+}
+
+export type PrMergeStatusAutoMerge = null | AutoMergeState;
+
+export type PrMergeStatusDefaultMethod = null | MergeMethod;
+
+export type PrMergeStatusQueue = null | MergeQueueKind;
+
+export type PrMergeStatusQueueEntry = null | MergeQueueEntry;
+
+export interface PrMergeStatus {
+  actions: MergeAction[];
+  approvals: PrApprovals;
+  auto_merge?: PrMergeStatusAutoMerge;
+  /**
+   * Whether the viewer is allowed to merge into the target branch. `None`
+   * when the forge would not say; the merge is then offered and the forge
+   * decides.
+   * @nullable
+   */
+  can_merge?: boolean | null;
+  /** Whether the viewer can take it off auto-merge or out of the queue. */
+  cancellable: boolean;
+  default_method?: PrMergeStatusDefaultMethod;
+  delete_source_branch: DeleteSourceBranch;
+  fetched_at: number;
+  /**
+   * The head the forge evaluated. Sent back with a merge so the forge
+   * refuses if someone pushed in between.
+   */
+  head_sha: string;
+  methods: MergeMethod[];
+  /** @minimum 0 */
+  pr_number: number;
+  queue?: PrMergeStatusQueue;
+  queue_entry?: PrMergeStatusQueueEntry;
+  readiness: MergeReadiness;
+  /** Why the proposal is not ready, in the forge's terms. Empty when ready. */
+  reasons: string[];
+}
 
 export type PrStatusSnapshotCi = null | CiRollup;
-
-export type ReviewState = (typeof ReviewState)[keyof typeof ReviewState];
-
-export const ReviewState = {
-  approved: "approved",
-  changes_requested: "changes_requested",
-  pending: "pending",
-  none: "none",
-} as const;
-
-export interface PrSummary {
-  author: ForgeUser;
-  body_markdown: string;
-  head_sha: string;
-  /** @minimum 0 */
-  number: number;
-  /**
-   * Provider-neutral display noun. Values are currently `Pull request` and
-   * `Merge request` — spelled out, because the abbreviations read as jargon
-   * in the UI surfaces that show them (Git sub-tab, sidebar menu, header).
-   */
-  pr_label: string;
-  review_state: ReviewState;
-  source_branch: string;
-  state: PrState;
-  target_branch: string;
-  title: string;
-  updated_at: string;
-  url: string;
-}
 
 export type PrStatusSnapshotPr = null | PrSummary;
 
@@ -3139,6 +5152,11 @@ export interface PrStatusSnapshot {
   error?: string | null;
   feature_id: number;
   fetched_at: number;
+  /**
+   * The proposals of the conversation's other branches — everything above
+   * describes the current branch's. Only branches that have one.
+   */
+  other_prs?: BranchPr[];
   pr?: PrStatusSnapshotPr;
   /**
    * The forge cannot be reached until the user finishes connecting it — no
@@ -3161,6 +5179,54 @@ export interface PrStatusSnapshot {
    * @nullable
    */
   unresolved_threads?: number | null;
+}
+
+export interface PreparePublicationContributionRequest {
+  bundle_id: string;
+  bundle_ids?: string[];
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  release_notes: string;
+}
+
+export interface PreparePublicationPackageRequest {
+  metadata_json: string;
+  staging_directory?: string;
+  target?: string;
+}
+
+export interface PreparedPublicationContribution {
+  output_directory: string;
+  package_path: string;
+  plugin_id: string;
+  project_id: number;
+  pull_request_path: string;
+  release_url: string;
+  submission_path: string;
+  version: string;
+}
+
+export interface PreparedPublicationPackage {
+  archive_path: string;
+  metadata_path: string;
+  plugin_id: string;
+  project_id: number;
+  sha256: string;
+  /** @minimum 0 */
+  size: number;
+  target?: string;
+}
+
+export interface PreviewPublicationRegistryRequest {
+  bundle_id: string;
+  bundle_ids?: string[];
+  release_notes: string;
+}
+
+export interface PreviewPublicationReleaseRequest {
+  bundle_id: string;
+  bundle_ids?: string[];
+  release_notes: string;
 }
 
 export interface RuntimeEffectiveConfig {
@@ -3208,6 +5274,7 @@ export type ProjectAuthoringTarget =
 export const ProjectAuthoringTarget = {
   theme: "theme",
   provider: "provider",
+  tab: "tab",
 } as const;
 
 export type ProjectAuthoringTargetProperty = null | ProjectAuthoringTarget;
@@ -3233,10 +5300,6 @@ export interface ProjectIconCandidate {
   /** Path relative to the project root, as git reported it. */
   path: string;
   size_bytes: number;
-}
-
-export interface ProjectModelSettings {
-  session: string;
 }
 
 export interface ProjectSetting {
@@ -3272,10 +5335,20 @@ export interface PromptAttachmentPayload {
 export interface PromptCommandsResponse {
   commands: SlashCommandPayload[];
   /**
+   * Why the provider's own commands are missing from `commands` (its
+   * discovery failed or timed out). Shown in the `/` menu.
+   * @nullable
+   */
+  error?: string | null;
+  /**
    * Which trigger characters mean what for this provider — `$` for skills on
    * Codex, `/` everywhere on Claude, and so on.
    */
   prompt_command_policy: PromptCommandPolicyPayload;
+}
+
+export interface PromptQueueOkResponse {
+  ok: boolean;
 }
 
 export type PromptReceiptState = (typeof PromptReceiptState)[keyof typeof PromptReceiptState];
@@ -3395,11 +5468,293 @@ export interface ProviderSettings {
 }
 
 /**
+ * Work currently running for a provider.
+ */
+export type ProviderUpdateActivity =
+  (typeof ProviderUpdateActivity)[keyof typeof ProviderUpdateActivity];
+
+export const ProviderUpdateActivity = {
+  checking: "checking",
+  updating: "updating",
+} as const;
+
+/**
+ * How a finished update ended. Carried once, on the event that closes it.
+ */
+export interface ProviderUpdateOutcome {
+  /** @nullable */
+  current_version?: string | null;
+  label: string;
+  /**
+   * Failure reason, or the provider's own summary on success.
+   * @nullable
+   */
+  message?: string | null;
+  /** @nullable */
+  previous_version?: string | null;
+  provider_id: string;
+  success: boolean;
+}
+
+export type ProviderUpdateEventOutcome = null | ProviderUpdateOutcome;
+
+/**
+ * Result of the latest version check.
+ */
+export type ProviderUpdateState = (typeof ProviderUpdateState)[keyof typeof ProviderUpdateState];
+
+export const ProviderUpdateState = {
+  unchecked: "unchecked",
+  up_to_date: "up_to_date",
+  update_available: "update_available",
+  not_installed: "not_installed",
+  unsupported: "unsupported",
+  check_failed: "check_failed",
+} as const;
+
+export type ProviderUpdateStatusActivity = null | ProviderUpdateActivity;
+
+export interface ProviderUpdateStatus {
+  activity?: ProviderUpdateStatusActivity;
+  /** Installable versions, newest first. */
+  available_versions: string[];
+  /** @nullable */
+  current_version?: string | null;
+  /**
+   * Why the last check failed, when `state` is `check_failed`.
+   * @nullable
+   */
+  error?: string | null;
+  label: string;
+  /** @nullable */
+  latest_version?: string | null;
+  origin: ProviderOrigin;
+  provider_id: string;
+  state: ProviderUpdateState;
+  /** Whether an explicit version may be requested instead of the latest. */
+  supports_target_version: boolean;
+}
+
+/**
+ * `app/provider_updates` WebSocket payload: the full status list plus, when
+ * an update just finished, its outcome.
+ */
+export interface ProviderUpdateEvent {
+  /** @nullable */
+  checked_at?: string | null;
+  outcome?: ProviderUpdateEventOutcome;
+  providers: ProviderUpdateStatus[];
+}
+
+export interface ProviderUpdateRequest {
+  /**
+   * Version to install. Omit for the latest version.
+   * @nullable
+   */
+  version?: string | null;
+}
+
+export interface ProviderUpdatesResponse {
+  /**
+   * RFC 3339 timestamp of the last completed full check.
+   * @nullable
+   */
+  checked_at?: string | null;
+  /** Every registered provider, in catalog order. */
+  providers: ProviderUpdateStatus[];
+}
+
+/**
  * The ordinary Cadencr project and conversation created for provider work.
  */
 export interface ProviderWorkspace {
   feature_id: number;
   project_id: number;
+}
+
+export type PublicationCheckStatus =
+  (typeof PublicationCheckStatus)[keyof typeof PublicationCheckStatus];
+
+export const PublicationCheckStatus = {
+  pass: "pass",
+  warning: "warning",
+  fail: "fail",
+} as const;
+
+export type PublicationOperationResultOneOfKind =
+  (typeof PublicationOperationResultOneOfKind)[keyof typeof PublicationOperationResultOneOfKind];
+
+export const PublicationOperationResultOneOfKind = {
+  release: "release",
+} as const;
+
+export interface PublishedProviderRelease {
+  already_published: boolean;
+  archive_sha256: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
+}
+
+export type PublicationOperationResultOneOfThreeKind =
+  (typeof PublicationOperationResultOneOfThreeKind)[keyof typeof PublicationOperationResultOneOfThreeKind];
+
+export const PublicationOperationResultOneOfThreeKind = {
+  registry: "registry",
+} as const;
+
+export interface PublicationRegistryResult {
+  branch: string;
+  /** @minimum 0 */
+  pull_request_number: number;
+  pull_request_url: string;
+  reused: boolean;
+}
+
+export type PublicationOperationResultOneOf = {
+  kind: PublicationOperationResultOneOfKind;
+  value: PublishedProviderRelease;
+};
+
+export type PublicationOperationResultOneOfThree = {
+  kind: PublicationOperationResultOneOfThreeKind;
+  value: PublicationRegistryResult;
+};
+
+export type PublicationOperationResult =
+  | PublicationOperationResultOneOf
+  | PublicationOperationResultOneOfThree;
+
+export type PublicationOperationResultProperty = null | PublicationOperationResult;
+
+export type PublicationOperationKind =
+  (typeof PublicationOperationKind)[keyof typeof PublicationOperationKind];
+
+export const PublicationOperationKind = {
+  release: "release",
+  registry: "registry",
+} as const;
+
+export type PublicationOperationStatus =
+  (typeof PublicationOperationStatus)[keyof typeof PublicationOperationStatus];
+
+export const PublicationOperationStatus = {
+  pending: "pending",
+  running: "running",
+  succeeded: "succeeded",
+  failed: "failed",
+  unknown: "unknown",
+} as const;
+
+export interface PublicationOperation {
+  /** @minimum 0 */
+  attempt: number;
+  created_at: string;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  error_code?: string | null;
+  kind: PublicationOperationKind;
+  operation_id: string;
+  plan_sha256: string;
+  project_id: number;
+  result?: PublicationOperationResultProperty;
+  status: PublicationOperationStatus;
+  updated_at: string;
+}
+
+export interface PublicationOperationsPage {
+  /** @nullable */
+  next_cursor?: string | null;
+  operations: PublicationOperation[];
+}
+
+export type PublicationPreparationStatus =
+  (typeof PublicationPreparationStatus)[keyof typeof PublicationPreparationStatus];
+
+export const PublicationPreparationStatus = {
+  prepared: "prepared",
+  blocked: "blocked",
+} as const;
+
+export interface PublicationReadinessCheck {
+  detail: string;
+  id: string;
+  label: string;
+  status: PublicationCheckStatus;
+}
+
+/**
+ * Result of read-only, local preparation checks for an authored provider.
+ */
+export interface PublicationReadinessResponse {
+  checks: PublicationReadinessCheck[];
+  local_preparation: PublicationPreparationStatus;
+  plugin_id: string;
+  project_id: number;
+  summary: string;
+  supported_package_targets: string[];
+}
+
+export interface PublicationRegistryPreview {
+  account: string;
+  base_branch: string;
+  base_commit: string;
+  branch: string;
+  bundle_id: string;
+  bundle_ids: string[];
+  operation_id: string;
+  package_path: string;
+  plan_sha256: string;
+  plugin_id: string;
+  project_id: number;
+  registry_repository: string;
+  release_notes: string;
+  submission_path: string;
+  version: string;
+}
+
+export interface PublicationReleaseArchive {
+  archive_name: string;
+  archive_sha256: string;
+  /** @minimum 0 */
+  archive_size: number;
+  bundle_id: string;
+  target?: string;
+}
+
+export interface PublicationReleasePreview {
+  account: string;
+  archive_name: string;
+  archive_sha256: string;
+  /** @minimum 0 */
+  archive_size: number;
+  archives: PublicationReleaseArchive[];
+  bundle_id: string;
+  metadata_sha256: string;
+  operation_id: string;
+  plan_sha256: string;
+  plugin_id: string;
+  prerelease: boolean;
+  project_id: number;
+  release_notes: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
+  target?: string;
+  version: string;
+}
+
+export interface PublishPublicationReleaseRequest {
+  bundle_id: string;
+  bundle_ids?: string[];
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  /** @nullable */
+  operation_id?: string | null;
+  release_notes: string;
 }
 
 /**
@@ -3462,6 +5817,48 @@ export interface PushSubscriptionResponse {
  */
 export interface PushUnsubscribeRequest {
   endpoint: string;
+}
+
+/**
+ * Key → new value; `null` removes the stored value. Keys not listed are
+ * left untouched, so a form can omit secrets it did not change.
+ */
+export type PutPluginTabConfigurationRequestValues = { [key: string]: unknown };
+
+export interface PutPluginTabConfigurationRequest {
+  /**
+   * Key → new value; `null` removes the stored value. Keys not listed are
+   * left untouched, so a form can omit secrets it did not change.
+   */
+  values: PutPluginTabConfigurationRequestValues;
+}
+
+export interface QueuePromptRequest {
+  content: string;
+}
+
+/**
+ * Where a queued prompt stands.
+ */
+export type QueuedPromptStatus = (typeof QueuedPromptStatus)[keyof typeof QueuedPromptStatus];
+
+export const QueuedPromptStatus = {
+  pending: "pending",
+  delivering: "delivering",
+  error: "error",
+} as const;
+
+/**
+ * A prompt waiting for the end of the agent's turn.
+ */
+export interface QueuedPrompt {
+  content: string;
+  created_at: string;
+  /** @nullable */
+  error?: string | null;
+  id: number;
+  session_id: number;
+  status: QueuedPromptStatus;
 }
 
 export interface ReadFileResponse {
@@ -3580,6 +5977,21 @@ export interface RemoteAuditEntry {
 }
 
 /**
+ * Listener metadata needed by the desktop browser's origin policy.
+ */
+export interface RemoteBrowserOrigins {
+  enabled: boolean;
+  lan_urls: string[];
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  port?: number | null;
+  /** @nullable */
+  tunnel_host?: string | null;
+}
+
+/**
  * A paired (non-revoked) remote device, as shown in the host UI.
  */
 export interface RemoteDevice {
@@ -3628,6 +6040,20 @@ export interface RemoteStatus {
   tunnel_host?: string | null;
 }
 
+export interface RemoveLspRequest {
+  lsp_id: string;
+}
+
+export interface RemoveManagedThemeRequest {
+  confirm_builtin_fallback?: boolean;
+}
+
+export interface RemoveManagedThemeResponse {
+  /** @nullable */
+  fallback?: string | null;
+  success: boolean;
+}
+
 export interface RemoveOrphanWorktreeBody {
   force?: boolean;
   project_id: number;
@@ -3647,6 +6073,13 @@ export interface RenamePathResponse {
 }
 
 /**
+ * New order for one list of actions (the globals, or one project's).
+ */
+export interface ReorderCustomActionsRequest {
+  ids: number[];
+}
+
+/**
  * An action's `${VAR}`-interpolated command and resolved working directory,
  * returned without running it. The frontend uses this to spawn the command in
  * a dedicated terminal split when `run_in_terminal` is set.
@@ -3656,9 +6089,75 @@ export interface ResolvedCommand {
   cwd: string;
 }
 
+export type RestartContinuationOutcome =
+  (typeof RestartContinuationOutcome)[keyof typeof RestartContinuationOutcome];
+
+export const RestartContinuationOutcome = {
+  resumed: "resumed",
+  skipped: "skipped",
+  failed: "failed",
+} as const;
+
+export interface RestartContinuationEntry {
+  feature_id: number;
+  feature_title: string;
+  outcome: RestartContinuationOutcome;
+  project_id: number;
+  /**
+   * Skip code (`disabled`, `no_resume_id`, `loop_guard`, `archived`,
+   * `already_running`), the delivery error, or — on a resumed entry —
+   * `lost_gate`: the agent was waiting on the user and will ask again.
+   * @nullable
+   */
+  reason?: string | null;
+  session_id: number;
+}
+
+/**
+ * `app/restart_continuations` WebSocket payload.
+ */
+export interface RestartContinuationReport {
+  app_version: string;
+  /** Identifies this service process: a client shows each report once. */
+  boot_id: string;
+  entries: RestartContinuationEntry[];
+  /**
+   * Set when the pass itself could not run (e.g. the database was
+   * unreadable); entries may then be incomplete.
+   * @nullable
+   */
+  error?: string | null;
+  /**
+   * Version that was running when the turns were cut off, when it differs
+   * from `app_version` (an update, as opposed to a plain restart).
+   * @nullable
+   */
+  previous_version?: string | null;
+}
+
+/**
+ * Resume an archive cleanup, forcing the steps the user confirmed.
+ */
+export interface RetryArchiveCleanupRequest {
+  /** Delete the branch even though it is not merged. */
+  force_remove_branch?: boolean;
+  /** Discard the worktree's uncommitted changes. */
+  force_remove_worktree?: boolean;
+}
+
 export interface RetryWorktreeBody {
   feature_id: number;
   project_id: number;
+}
+
+export interface RetryWorktreeSetupOkPayload {
+  feature_id: number;
+}
+
+export interface RetryWorktreeSetupPayload {
+  feature_id: number;
+  /** @nullable */
+  session_id?: string | null;
 }
 
 export interface RollbackManagedProviderRequest {
@@ -3793,6 +6292,24 @@ export interface SaveDraftResponse {
 }
 
 /**
+ * Gates a run on a shell command: at each firing the command runs in the
+ * target's working copy, and the prompt is only delivered when it exits
+ * non-zero — "every 15 minutes, if `cargo test` fails, fix it". The command's
+ * output rides along with the prompt so the agent sees what broke.
+ */
+export interface ScheduleCondition {
+  /** Run through the user's login shell, like a custom action. */
+  command: string;
+  /**
+   * Seconds before the evaluation is abandoned. Defaults to 300, at most 600.
+   * @nullable
+   */
+  timeout_seconds?: number | null;
+}
+
+export type SaveScheduleRequestCondition = null | ScheduleCondition;
+
+/**
  * What a schedule delivers into when it fires.
  */
 export type TargetKind = (typeof TargetKind)[keyof typeof TargetKind];
@@ -3800,6 +6317,7 @@ export type TargetKind = (typeof TargetKind)[keyof typeof TargetKind];
 export const TargetKind = {
   conversation: "conversation",
   new_conversation: "new_conversation",
+  custom_action: "custom_action",
 } as const;
 
 /**
@@ -3809,15 +6327,21 @@ export const TargetKind = {
  */
 export interface ScheduleTarget {
   /**
-   * Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+   * Provider access mode (e.g. Codex sandboxing). Ignored by providers that
    * don't offer one.
    * @nullable
    */
   access_mode?: string | null;
+  /**
+   * Required when `kind = custom_action`: the action to run.
+   * @nullable
+   */
+  action_id?: number | null;
   /** @nullable */
   base_branch?: string | null;
   /**
-   * Required when `kind = conversation`.
+   * Required when `kind = conversation` or `custom_action` (the conversation
+   * whose working copy the action runs in).
    * @nullable
    */
   feature_id?: number | null;
@@ -3869,6 +6393,7 @@ export interface ScheduleTarget {
  * counters are preserved), so the editor can send one shape for both.
  */
 export interface SaveScheduleRequest {
+  condition?: SaveScheduleRequestCondition;
   /**
    * Defaults to `true` on create; on update, omitting it leaves the current
    * paused/active state alone.
@@ -3881,6 +6406,35 @@ export interface SaveScheduleRequest {
   recurrence: RecurrenceInput;
   target: ScheduleTarget;
 }
+
+export type ScheduleConditionProperty = null | ScheduleCondition;
+
+/**
+ * What the latest condition evaluation concluded.
+ */
+export type ScheduleCheckStatus = (typeof ScheduleCheckStatus)[keyof typeof ScheduleCheckStatus];
+
+export const ScheduleCheckStatus = {
+  passed: "passed",
+  triggered: "triggered",
+  busy: "busy",
+  error: "error",
+} as const;
+
+/**
+ * Outcome of the most recent condition evaluation. Separate from
+ * [`ScheduleLastRun`]: a passing check delivers nothing, so it must not
+ * overwrite the record of the last message actually sent.
+ */
+export interface ScheduleLastCheck {
+  /** ISO-8601 UTC. */
+  at: string;
+  /** @nullable */
+  exit_code?: number | null;
+  status: ScheduleCheckStatus;
+}
+
+export type ScheduleLastCheckProperty = null | ScheduleLastCheck;
 
 /**
  * Outcome of the most recent run.
@@ -3906,6 +6460,11 @@ export type ScheduleLastRunProperty = null | ScheduleLastRun;
  * without one lookup per row.
  */
 export interface ScheduleContext {
+  /**
+   * Name of the action a `custom_action` schedule runs.
+   * @nullable
+   */
+  action_name?: string | null;
   /**
    * Title of the targeted conversation (`kind = conversation` only).
    * @nullable
@@ -3936,10 +6495,12 @@ export interface Schedule {
    * rather than being re-derived from two other fields on every render.
    */
   completed: boolean;
+  condition?: ScheduleConditionProperty;
   context: ScheduleContext;
   created_at: string;
   enabled: boolean;
   id: number;
+  last_check?: ScheduleLastCheckProperty;
   last_run?: ScheduleLastRunProperty;
   /** @nullable */
   name?: string | null;
@@ -3963,6 +6524,11 @@ export interface ScheduleDeleted {
  * Result of a manual "run now".
  */
 export interface ScheduleRunResult {
+  /**
+   * The schedule's command exited 0, so there was nothing to send. `ran` is
+   * false without that being a failure.
+   */
+  condition_passed: boolean;
   /** @nullable */
   error?: string | null;
   /**
@@ -3973,10 +6539,33 @@ export interface ScheduleRunResult {
   ran: boolean;
 }
 
+export interface SessionAcknowledgedPayload {
+  action: string;
+}
+
 export interface SessionActionPayload {
   /** @nullable */
   message_uuid?: string | null;
   session_id: string;
+}
+
+export interface SessionClearedPayload {
+  /** @nullable */
+  previous_session_id?: string | null;
+  session_id: string;
+}
+
+/**
+ * @nullable
+ */
+export type SessionCompactStartedPayload = null;
+
+/**
+ * `compact.stopped`: a Stop cancelled the manual compaction before it began.
+ * An intended outcome, not a failure; the transcript marker is persisted.
+ */
+export interface SessionCompactStoppedPayload {
+  [key: string]: unknown;
 }
 
 export interface SessionConfigSetPayload {
@@ -3988,6 +6577,45 @@ export interface SessionConfigSetPayload {
 export interface SessionConfigSnapshotPayload {
   config: RuntimeSessionConfigSnapshot;
   session_id: string;
+}
+
+export interface SessionDeletedPayload {
+  session_id: string;
+}
+
+export interface SessionEndedPayload {
+  reason: string;
+  /**
+   * Canonical message UUIDs whose prompt receipts were emitted during this turn. Repeating them on the
+   * terminal envelope lets clients reconcile a missed transient
+   * `prompt_received` without leaving a delivered steer pending forever.
+   */
+  received_prompt_message_uuids?: string[];
+}
+
+export interface SessionErrorPayload {
+  code: string;
+  message: string;
+  /**
+   * Optional context carrying the permission-mode wire id involved in
+   * the failure. Set only for mode-related rejections (e.g.
+   * `MODE_REJECTED_BY_CLI`) so the FE can advance past the rejected
+   * mode in the cycle without re-querying state.
+   * @nullable
+   */
+  mode?: string | null;
+  /**
+   * Prompt receipts observed before a terminal stream failure. Clients mark
+   * these received before failing any remaining pending prompts.
+   */
+  received_prompt_message_uuids?: string[];
+  /**
+   * Delay requested after a transient rate-limit response. Clients use this
+   * instead of immediately feeding a reconnect storm.
+   * @minimum 0
+   * @nullable
+   */
+  retry_after_ms?: number | null;
 }
 
 export interface SessionInitPayload {
@@ -4005,6 +6633,115 @@ export interface SessionInitPayload {
   system_prompt?: string | null;
   /** @nullable */
   thinking_effort?: string | null;
+}
+
+export interface SessionInitializedPayload {
+  /** @nullable */
+  access_mode?: string | null;
+  /** @nullable */
+  codex_permission_mode?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  context_window?: number | null;
+  fast_mode?: boolean;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  input_tokens?: number | null;
+  /** @nullable */
+  model?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  output_tokens?: number | null;
+  /**
+   * Permission mode the session will run with — the requested one when the
+   * provider supports it, else the provider default. `None` for providers
+   * that negotiate permissions themselves (installed ACP).
+   * @nullable
+   */
+  permission_mode?: string | null;
+  /** @nullable */
+  profile?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  runtime_overrides: RuntimeConfigOverrides;
+  session_id: string;
+  supports_prompt_receipts?: boolean;
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+/**
+ * Discriminant for `SessionLifecyclePayload`.
+ *
+ * Currently only carries OS-power-driven transitions. `SuspendRequested` is
+ * emitted after the WS handler has captured the runtime session id and
+ * interrupted the live process in response to a `session.suspend` envelope
+ * (driven by Electron's `powerMonitor.suspend`); `Resumed` is the matching
+ * acknowledgement after `session.resume`. The frontend turn-lifecycle state
+ * machine consumes these via `ws-envelope-handler` — UI never flips on the
+ * raw OS event, only on this backend-confirmed envelope (see
+ * `no-optimistic-updates.md`).
+ */
+export type SessionLifecycleKind = (typeof SessionLifecycleKind)[keyof typeof SessionLifecycleKind];
+
+export const SessionLifecycleKind = {
+  suspend_requested: "suspend_requested",
+  resumed: "resumed",
+} as const;
+
+/**
+ * Server → Client: a lifecycle transition driven outside the normal turn
+ * flow (today: OS suspend/resume). Provider-neutral — every adapter emits
+ * the same shape and the frontend renders the same banner regardless of
+ * which provider is active.
+ */
+export interface SessionLifecyclePayload {
+  kind: SessionLifecycleKind;
+  session_id: string;
+}
+
+export interface SessionMcpServersPayload {
+  mcp_servers: McpServerStatusPayload[];
+}
+
+export interface SessionMessagePayload {
+  blocks: unknown[];
+  /**
+   * Per-stream monotonic sequence number stamped by the stream reader so a
+   * client can detect a dropped envelope (a gap) and resync from the DB
+   * instead of silently rendering a truncated message. `None` on
+   * non-streamed `session.message` emitters.
+   * @minimum 0
+   * @nullable
+   */
+  seq?: number | null;
+}
+
+export interface SessionPersistenceStatusPayload {
+  message: string;
+  status: PersistenceStatusState;
+}
+
+export interface SessionPrompt {
+  attachment_count: number;
+  /** @nullable */
+  created_at?: string | null;
+  /** `agent_messages.id` — matches the transcript block's `messageDbId`. */
+  id: number;
+  image_count: number;
+  /** Start of the prompt's text, whitespace-collapsed. */
+  preview: string;
+}
+
+export interface SessionPromptsResponse {
+  /** Oldest first. */
+  prompts: SessionPrompt[];
 }
 
 /**
@@ -4038,18 +6775,46 @@ export interface SessionStreamStatusPayload {
   state: StreamStatusState;
 }
 
-export interface SetActiveProfileRequest {
-  name: string;
+/**
+ * A transcript row Cadencr wrote itself (a turn's closing line, a model
+ * switch), pushed to every device viewing the conversation.
+ */
+export interface SessionTranscriptBlockPayload {
+  block: AgentBlock;
+  session_id: string;
 }
 
-export interface SetCustomActionScheduleRequest {
-  /** @nullable */
-  enabled?: boolean | null;
+export interface SessionUsageUpdatePayload {
   /**
-   * `None` = clear the schedule.
+   * Authoritative context window for the active model. `None` means
+   * "unknown until the provider reports one" — distinct from 0.
+   *
+   * Each update carries the sender's *complete* usage snapshot, so an absent
+   * window means the window is currently unknown — not "unchanged". Clients
+   * must not fall back to one they saw earlier: that is how a retracted
+   * window (a mid-session model switch) would keep scaling the bar by a
+   * model that is no longer running.
+   * @minimum 0
    * @nullable
    */
-  interval_seconds?: number | null;
+  context_window?: number | null;
+  /** @minimum 0 */
+  input_tokens: number;
+  /** @minimum 0 */
+  output_tokens: number;
+}
+
+/**
+ * Non-terminal local warning after the provider accepted work. Receiving this
+ * event must preserve the live turn, pending receipts, and permission state.
+ */
+export interface SessionWarningPayload {
+  code: string;
+  message: string;
+}
+
+export interface SetActiveProfileRequest {
+  name: string;
 }
 
 export interface SetCustomActionVariableRequest {
@@ -4085,14 +6850,17 @@ export interface SetModelSettingRequest {
   model_id: string;
 }
 
-export interface SetProjectModelSettingRequest {
-  model: string;
-  model_type: string;
-}
-
-export interface SetProjectProviderSettingRequest {
-  provider: string;
-  provider_type: string;
+export interface SetPluginTabEnablementRequest {
+  /**
+   * `null` clears the switch (a project falls back to global, global to off).
+   * @nullable
+   */
+  enabled?: boolean | null;
+  /**
+   * `null` targets the global switch.
+   * @nullable
+   */
+  project_id?: number | null;
 }
 
 export interface SetProjectSettingRequest {
@@ -4111,6 +6879,16 @@ export interface SetScheduleEnabledRequest {
 
 export interface SetSettingRequest {
   value: string;
+}
+
+export type SetSettingsBatchRequestValues = { [key: string]: string | null };
+
+/**
+ * Several workspace keys written in one atomic pass. A `null` value removes the
+ * key, so its default applies again (the sidebar display options' reset).
+ */
+export interface SetSettingsBatchRequest {
+  values: SetSettingsBatchRequestValues;
 }
 
 export interface Setting {
@@ -4144,6 +6922,92 @@ export interface SettingsFileResponse {
   path: string;
   warnings: SettingWarning[];
 }
+
+export interface SideQuestionRequest {
+  /**
+   * The composer's access choice made before the source session joined.
+   * @nullable
+   */
+  access_mode?: string | null;
+  /**
+   * The composer's permission mode when the source session has not joined
+   * yet: a chip change made before then is not saved on its row.
+   * @nullable
+   */
+  permission_mode?: string | null;
+  question: string;
+}
+
+export interface SideQuestionResponse {
+  feature_id: number;
+  project_id: number;
+  session_id: number;
+}
+
+export type SkillCatalogFilter = (typeof SkillCatalogFilter)[keyof typeof SkillCatalogFilter];
+
+export const SkillCatalogFilter = {
+  all: "all",
+  installed: "installed",
+  updates: "updates",
+} as const;
+
+/**
+ * A skill pack as a CLI's plugin marketplace offers it.
+ */
+export interface SkillOffer {
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  install_count?: number | null;
+  marketplace: string;
+  /** The CLI's own selector, e.g. `name@marketplace`. */
+  plugin_id: string;
+  provider_id: string;
+  /** @nullable */
+  version?: string | null;
+}
+
+/**
+ * One skill name across every CLI: what each offers and what each has installed.
+ */
+export interface SkillListing {
+  /** @nullable */
+  description?: string | null;
+  installed: InstalledSkill[];
+  /** Lowercased name: the same skill pack in two CLIs shares it. */
+  key: string;
+  name: string;
+  offers: SkillOffer[];
+}
+
+export interface SkillCatalogResponse {
+  errors: ExtensionCliError[];
+  skills: SkillListing[];
+  /**
+   * Matches before `offset`/`limit` were applied.
+   * @minimum 0
+   */
+  total: number;
+}
+
+export interface SkillRequest {
+  /** The CLI's plugin selector (`name@marketplace`). */
+  plugin_id: string;
+  provider_id: string;
+}
+
+/**
+ * Where a spawned session works, relative to the invoking conversation.
+ */
+export type SkillWorktree = (typeof SkillWorktree)[keyof typeof SkillWorktree];
+
+export const SkillWorktree = {
+  same: "same",
+  new: "new",
+  project: "project",
+} as const;
 
 export interface StartImportRequest {
   session_ids: string[];
@@ -4194,8 +7058,111 @@ export interface StashPushBody {
   message?: string | null;
 }
 
+export type SubagentRunStatus = (typeof SubagentRunStatus)[keyof typeof SubagentRunStatus];
+
+export const SubagentRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  stopped: "stopped",
+} as const;
+
+/**
+ * One sub-agent as the desktop renders it: the transcript's sub-agent card
+ * for its carrier. `action_count` is observed by Cadencr from the
+ * sub-agent's transcript; every other field is a provider fact.
+ */
+export interface SubagentRun {
+  /**
+   * Tool calls Cadencr saw in the sub-agent's transcript.
+   * @nullable
+   */
+  actionCount?: number | null;
+  /** @nullable */
+  agentName?: string | null;
+  /** @nullable */
+  agentType?: string | null;
+  background: boolean;
+  /** @nullable */
+  childSessionId?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  endedAt?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** `model` is what the sub-agent ran on, not just what it was asked to use. */
+  modelResolved: boolean;
+  /**
+   * Carrier of the sub-agent that launched this one, when nested.
+   * @nullable
+   */
+  parentToolUseId?: string | null;
+  /** @nullable */
+  prompt?: string | null;
+  /** @nullable */
+  reasoningEffort?: string | null;
+  /** @nullable */
+  resultSummary?: string | null;
+  sessionId: number;
+  startedAt: string;
+  status: SubagentRunStatus;
+  /** @nullable */
+  statusReason?: string | null;
+  /**
+   * Tool calls the provider reports the sub-agent made.
+   * @nullable
+   */
+  toolUseCount?: number | null;
+  /** The carrier tool_use id: joins the run to its transcript block. */
+  toolUseId: string;
+  /** @nullable */
+  totalTokens?: number | null;
+}
+
+export interface SubmitPublicationRegistryRequest {
+  bundle_id: string;
+  bundle_ids?: string[];
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  /** @nullable */
+  operation_id?: string | null;
+  release_notes: string;
+}
+
 export interface SuccessResponse {
   success: boolean;
+}
+
+export interface TelemetryConsent {
+  /**
+   * Omit for a detailed telemetry decision to preserve the current counter setting.
+   * @nullable
+   */
+  audience_enabled?: boolean | null;
+  diagnostics_enabled: boolean;
+  usage_enabled: boolean;
+}
+
+export interface TelemetryPreferences {
+  audience_configured: boolean;
+  audience_enabled: boolean;
+  audience_status: DeliveryStatus;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  decision_version?: number | null;
+  diagnostics_configured: boolean;
+  diagnostics_enabled: boolean;
+  diagnostics_status: DeliveryStatus;
+  /** @nullable */
+  installation_id?: string | null;
+  usage_configured: boolean;
+  usage_enabled: boolean;
+  usage_status: DeliveryStatus;
 }
 
 /**
@@ -4355,7 +7322,6 @@ export interface UpdateLabelRequest {
 }
 
 export interface UpdateManagedProviderRequest {
-  index: SignedManagedProviderIndex;
   version: string;
 }
 
@@ -4368,6 +7334,13 @@ export interface UpdateStatusRequest {
 }
 
 export interface UpdateTargetBranchBody {
+  /**
+   * The conversation branch this target is for. Defaults to the current
+   * one: targets are per branch, so a stacked branch can target the branch
+   * it was cut from while the others keep theirs.
+   * @nullable
+   */
+  branch?: string | null;
   target_branch: string;
 }
 
@@ -4410,7 +7383,8 @@ export interface UsageRecordingIssue {
 
 /**
  * One bucket of the usage timeline: everything the user exchanged with a
- * single provider / model / thinking-effort combination on one UTC day.
+ * single provider / model / thinking-effort combination on one UTC day — the
+ * tokens and the prompts sent.
  *
  * `model_id` and `thinking_effort` are empty strings — never null — when the
  * provider reported none; see the migration for why.
@@ -4425,6 +7399,8 @@ export interface UsageStatsEntry {
   output_tokens: number;
   provider_id: string;
   thinking_effort: string;
+  /** Prompts the user sent, filed under the model selected when sending. */
+  user_messages: number;
 }
 
 export type UsageStatsResponseRecordingIssue = null | UsageRecordingIssue;
@@ -4475,6 +7451,26 @@ export interface VapidKeyResponse {
   public_key: string;
 }
 
+export interface VirtualSkillParametersPayload {
+  /** Provider, model, thinking level and permission mode are configurable. */
+  agent: boolean;
+  /**
+   * Offered worktree placements; the first is the default. Shown as a choice
+   * only when there are at least two.
+   */
+  worktrees: SkillWorktree[];
+}
+
+export interface VirtualSkillPayload {
+  /** @nullable */
+  argument_hint?: string | null;
+  /** The namespaced command, e.g. `cadencr:review`. */
+  command: string;
+  description: string;
+  details: string;
+  parameters: VirtualSkillParametersPayload;
+}
+
 export interface WorkingDirResponse {
   /** @nullable */
   path?: string | null;
@@ -4516,19 +7512,34 @@ export interface WriteThemeResponse {
 }
 
 /**
- * Authoritative list of session-domain server → client action names.
- *
- * Keep backend emitters and the generated frontend contract on this enum
- * instead of retyping bare strings at each call site.
+ * Envelope — every message in both directions uses this shape.
+ */
+export interface WsEnvelope {
+  action: string;
+  domain: string;
+  id: string;
+  payload: unknown;
+  /** @nullable */
+  ref?: string | null;
+}
+
+/**
+ * Canonical session-domain server action names. Legacy aliases are separate.
  */
 export type WsSessionAction = (typeof WsSessionAction)[keyof typeof WsSessionAction];
 
 export const WsSessionAction = {
   initialized: "initialized",
+  acknowledged: "acknowledged",
+  transcript_block: "transcript_block",
+  featurerenamed: "feature.renamed",
+  featureautonaming: "feature.autonaming",
+  branchneeds_confirm: "branch.needs_confirm",
   message: "message",
   usage_update: "usage_update",
   ended: "ended",
   error: "error",
+  warning: "warning",
   deleted: "deleted",
   cleared: "cleared",
   lifecycle: "lifecycle",
@@ -4543,6 +7554,7 @@ export const WsSessionAction = {
   access_modechanged: "access_mode.changed",
   providersetok: "provider.set.ok",
   compactstarted: "compact.started",
+  compactstopped: "compact.stopped",
   modelsetok: "model.set.ok",
   effortsetok: "effort.set.ok",
   configsnapshot: "config.snapshot",
@@ -4556,7 +7568,916 @@ export const WsSessionAction = {
   permissionrequest: "permission.request",
   prompt_received: "prompt_received",
   stream_status: "stream_status",
+  persistence_status: "persistence_status",
+  subagent_updated: "subagent_updated",
 } as const;
+
+export type WsSessionCommandOneOfAction =
+  (typeof WsSessionCommandOneOfAction)[keyof typeof WsSessionCommandOneOfAction];
+
+export const WsSessionCommandOneOfAction = {
+  init: "init",
+} as const;
+
+export type WsSessionCommandOneOf = {
+  action: WsSessionCommandOneOfAction;
+  payload: SessionInitPayload;
+};
+
+export type WsSessionCommandOneOfThreeAction =
+  (typeof WsSessionCommandOneOfThreeAction)[keyof typeof WsSessionCommandOneOfThreeAction];
+
+export const WsSessionCommandOneOfThreeAction = {
+  promptsend: "prompt.send",
+} as const;
+
+export type WsSessionCommandOneOfThree = {
+  action: WsSessionCommandOneOfThreeAction;
+  payload: PromptSendPayload;
+};
+
+export type WsSessionCommandOneOfFiveAction =
+  (typeof WsSessionCommandOneOfFiveAction)[keyof typeof WsSessionCommandOneOfFiveAction];
+
+export const WsSessionCommandOneOfFiveAction = {
+  permissionrespond: "permission.respond",
+} as const;
+
+export type WsSessionCommandOneOfFive = {
+  action: WsSessionCommandOneOfFiveAction;
+  payload: PermissionRespondPayload;
+};
+
+export type WsSessionCommandOneOfSevenAction =
+  (typeof WsSessionCommandOneOfSevenAction)[keyof typeof WsSessionCommandOneOfSevenAction];
+
+export const WsSessionCommandOneOfSevenAction = {
+  gateclose: "gate.close",
+} as const;
+
+export type WsSessionCommandOneOfSeven = {
+  action: WsSessionCommandOneOfSevenAction;
+  payload: GateClosePayload;
+};
+
+export type WsSessionCommandOneOfNineAction =
+  (typeof WsSessionCommandOneOfNineAction)[keyof typeof WsSessionCommandOneOfNineAction];
+
+export const WsSessionCommandOneOfNineAction = {
+  providerset: "provider.set",
+} as const;
+
+export type WsSessionCommandOneOfNine = {
+  action: WsSessionCommandOneOfNineAction;
+  payload: ProviderSetPayload;
+};
+
+export type WsSessionCommandOneOfOneoneAction =
+  (typeof WsSessionCommandOneOfOneoneAction)[keyof typeof WsSessionCommandOneOfOneoneAction];
+
+export const WsSessionCommandOneOfOneoneAction = {
+  modelset: "model.set",
+} as const;
+
+export type WsSessionCommandOneOfOneone = {
+  action: WsSessionCommandOneOfOneoneAction;
+  payload: ModelSetPayload;
+};
+
+export type WsSessionCommandOneOfOnethreeAction =
+  (typeof WsSessionCommandOneOfOnethreeAction)[keyof typeof WsSessionCommandOneOfOnethreeAction];
+
+export const WsSessionCommandOneOfOnethreeAction = {
+  modeset: "mode.set",
+} as const;
+
+export type WsSessionCommandOneOfOnethree = {
+  action: WsSessionCommandOneOfOnethreeAction;
+  payload: ModeSetPayload;
+};
+
+export type WsSessionCommandOneOfOnefiveAction =
+  (typeof WsSessionCommandOneOfOnefiveAction)[keyof typeof WsSessionCommandOneOfOnefiveAction];
+
+export const WsSessionCommandOneOfOnefiveAction = {
+  access_modeset: "access_mode.set",
+} as const;
+
+export type WsSessionCommandOneOfOnefive = {
+  action: WsSessionCommandOneOfOnefiveAction;
+  payload: AccessModeSetPayload;
+};
+
+export type WsSessionCommandOneOfOnesevenAction =
+  (typeof WsSessionCommandOneOfOnesevenAction)[keyof typeof WsSessionCommandOneOfOnesevenAction];
+
+export const WsSessionCommandOneOfOnesevenAction = {
+  effortset: "effort.set",
+} as const;
+
+export type WsSessionCommandOneOfOneseven = {
+  action: WsSessionCommandOneOfOnesevenAction;
+  payload: EffortSetPayload;
+};
+
+export type WsSessionCommandOneOfOnenineAction =
+  (typeof WsSessionCommandOneOfOnenineAction)[keyof typeof WsSessionCommandOneOfOnenineAction];
+
+export const WsSessionCommandOneOfOnenineAction = {
+  configget: "config.get",
+} as const;
+
+export type WsSessionCommandOneOfOnenine = {
+  action: WsSessionCommandOneOfOnenineAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfTwooneAction =
+  (typeof WsSessionCommandOneOfTwooneAction)[keyof typeof WsSessionCommandOneOfTwooneAction];
+
+export const WsSessionCommandOneOfTwooneAction = {
+  configset: "config.set",
+} as const;
+
+export type WsSessionCommandOneOfTwoone = {
+  action: WsSessionCommandOneOfTwooneAction;
+  payload: SessionConfigSetPayload;
+};
+
+export type WsSessionCommandOneOfTwothreeAction =
+  (typeof WsSessionCommandOneOfTwothreeAction)[keyof typeof WsSessionCommandOneOfTwothreeAction];
+
+export const WsSessionCommandOneOfTwothreeAction = {
+  fast_modeset: "fast_mode.set",
+} as const;
+
+export type WsSessionCommandOneOfTwothree = {
+  action: WsSessionCommandOneOfTwothreeAction;
+  payload: FastModeSetPayload;
+};
+
+export type WsSessionCommandOneOfTwofiveAction =
+  (typeof WsSessionCommandOneOfTwofiveAction)[keyof typeof WsSessionCommandOneOfTwofiveAction];
+
+export const WsSessionCommandOneOfTwofiveAction = {
+  profileset: "profile.set",
+} as const;
+
+export type WsSessionCommandOneOfTwofive = {
+  action: WsSessionCommandOneOfTwofiveAction;
+  payload: ProfileSetPayload;
+};
+
+export type WsSessionCommandOneOfTwosevenAction =
+  (typeof WsSessionCommandOneOfTwosevenAction)[keyof typeof WsSessionCommandOneOfTwosevenAction];
+
+export const WsSessionCommandOneOfTwosevenAction = {
+  runtime_overridesset: "runtime_overrides.set",
+} as const;
+
+export type WsSessionCommandOneOfTwoseven = {
+  action: WsSessionCommandOneOfTwosevenAction;
+  payload: RuntimeOverridesSetPayload;
+};
+
+export type WsSessionCommandOneOfTwonineAction =
+  (typeof WsSessionCommandOneOfTwonineAction)[keyof typeof WsSessionCommandOneOfTwonineAction];
+
+export const WsSessionCommandOneOfTwonineAction = {
+  interrupt: "interrupt",
+} as const;
+
+export type WsSessionCommandOneOfTwonine = {
+  action: WsSessionCommandOneOfTwonineAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfThreeoneAction =
+  (typeof WsSessionCommandOneOfThreeoneAction)[keyof typeof WsSessionCommandOneOfThreeoneAction];
+
+export const WsSessionCommandOneOfThreeoneAction = {
+  branchrewind: "branch.rewind",
+} as const;
+
+export type WsSessionCommandOneOfThreeone = {
+  action: WsSessionCommandOneOfThreeoneAction;
+  payload: BranchPayload;
+};
+
+export type WsSessionCommandOneOfThreethreeAction =
+  (typeof WsSessionCommandOneOfThreethreeAction)[keyof typeof WsSessionCommandOneOfThreethreeAction];
+
+export const WsSessionCommandOneOfThreethreeAction = {
+  branchfork: "branch.fork",
+} as const;
+
+export type WsSessionCommandOneOfThreethree = {
+  action: WsSessionCommandOneOfThreethreeAction;
+  payload: BranchPayload;
+};
+
+export type WsSessionCommandOneOfThreefiveAction =
+  (typeof WsSessionCommandOneOfThreefiveAction)[keyof typeof WsSessionCommandOneOfThreefiveAction];
+
+export const WsSessionCommandOneOfThreefiveAction = {
+  suspend: "suspend",
+} as const;
+
+export type WsSessionCommandOneOfThreefive = {
+  action: WsSessionCommandOneOfThreefiveAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfThreesevenAction =
+  (typeof WsSessionCommandOneOfThreesevenAction)[keyof typeof WsSessionCommandOneOfThreesevenAction];
+
+export const WsSessionCommandOneOfThreesevenAction = {
+  resume: "resume",
+} as const;
+
+export type WsSessionCommandOneOfThreeseven = {
+  action: WsSessionCommandOneOfThreesevenAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfThreenineAction =
+  (typeof WsSessionCommandOneOfThreenineAction)[keyof typeof WsSessionCommandOneOfThreenineAction];
+
+export const WsSessionCommandOneOfThreenineAction = {
+  destroy: "destroy",
+} as const;
+
+export type WsSessionCommandOneOfThreenine = {
+  action: WsSessionCommandOneOfThreenineAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFouroneAction =
+  (typeof WsSessionCommandOneOfFouroneAction)[keyof typeof WsSessionCommandOneOfFouroneAction];
+
+export const WsSessionCommandOneOfFouroneAction = {
+  compact: "compact",
+} as const;
+
+export type WsSessionCommandOneOfFourone = {
+  action: WsSessionCommandOneOfFouroneAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFourthreeAction =
+  (typeof WsSessionCommandOneOfFourthreeAction)[keyof typeof WsSessionCommandOneOfFourthreeAction];
+
+export const WsSessionCommandOneOfFourthreeAction = {
+  delete: "delete",
+} as const;
+
+export type WsSessionCommandOneOfFourthree = {
+  action: WsSessionCommandOneOfFourthreeAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFourfiveAction =
+  (typeof WsSessionCommandOneOfFourfiveAction)[keyof typeof WsSessionCommandOneOfFourfiveAction];
+
+export const WsSessionCommandOneOfFourfiveAction = {
+  clear: "clear",
+} as const;
+
+export type WsSessionCommandOneOfFourfive = {
+  action: WsSessionCommandOneOfFourfiveAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFoursevenAction =
+  (typeof WsSessionCommandOneOfFoursevenAction)[keyof typeof WsSessionCommandOneOfFoursevenAction];
+
+export const WsSessionCommandOneOfFoursevenAction = {
+  historyget: "history.get",
+} as const;
+
+export type WsSessionCommandOneOfFourseven = {
+  action: WsSessionCommandOneOfFoursevenAction;
+  payload: HistoryGetPayload;
+};
+
+export type WsSessionCommandOneOfFournineAction =
+  (typeof WsSessionCommandOneOfFournineAction)[keyof typeof WsSessionCommandOneOfFournineAction];
+
+export const WsSessionCommandOneOfFournineAction = {
+  historyadd: "history.add",
+} as const;
+
+export type WsSessionCommandOneOfFournine = {
+  action: WsSessionCommandOneOfFournineAction;
+  payload: HistoryAddPayload;
+};
+
+export type WsSessionCommandOneOfFiveoneAction =
+  (typeof WsSessionCommandOneOfFiveoneAction)[keyof typeof WsSessionCommandOneOfFiveoneAction];
+
+export const WsSessionCommandOneOfFiveoneAction = {
+  draftget: "draft.get",
+} as const;
+
+export type WsSessionCommandOneOfFiveone = {
+  action: WsSessionCommandOneOfFiveoneAction;
+  payload: DraftGetPayload;
+};
+
+export type WsSessionCommandOneOfFivethreeAction =
+  (typeof WsSessionCommandOneOfFivethreeAction)[keyof typeof WsSessionCommandOneOfFivethreeAction];
+
+export const WsSessionCommandOneOfFivethreeAction = {
+  draftsave: "draft.save",
+} as const;
+
+export type WsSessionCommandOneOfFivethree = {
+  action: WsSessionCommandOneOfFivethreeAction;
+  payload: DraftSavePayload;
+};
+
+export type WsSessionCommandOneOfFivefiveAction =
+  (typeof WsSessionCommandOneOfFivefiveAction)[keyof typeof WsSessionCommandOneOfFivefiveAction];
+
+export const WsSessionCommandOneOfFivefiveAction = {
+  retry_worktree_setup: "retry_worktree_setup",
+} as const;
+
+export type WsSessionCommandOneOfFivefive = {
+  action: WsSessionCommandOneOfFivefiveAction;
+  payload: RetryWorktreeSetupPayload;
+};
+
+/**
+ * Session-domain client commands, flattened beside the envelope id/domain.
+ */
+export type WsSessionCommand =
+  | WsSessionCommandOneOf
+  | WsSessionCommandOneOfThree
+  | WsSessionCommandOneOfFive
+  | WsSessionCommandOneOfSeven
+  | WsSessionCommandOneOfNine
+  | WsSessionCommandOneOfOneone
+  | WsSessionCommandOneOfOnethree
+  | WsSessionCommandOneOfOnefive
+  | WsSessionCommandOneOfOneseven
+  | WsSessionCommandOneOfOnenine
+  | WsSessionCommandOneOfTwoone
+  | WsSessionCommandOneOfTwothree
+  | WsSessionCommandOneOfTwofive
+  | WsSessionCommandOneOfTwoseven
+  | WsSessionCommandOneOfTwonine
+  | WsSessionCommandOneOfThreeone
+  | WsSessionCommandOneOfThreethree
+  | WsSessionCommandOneOfThreefive
+  | WsSessionCommandOneOfThreeseven
+  | WsSessionCommandOneOfThreenine
+  | WsSessionCommandOneOfFourone
+  | WsSessionCommandOneOfFourthree
+  | WsSessionCommandOneOfFourfive
+  | WsSessionCommandOneOfFourseven
+  | WsSessionCommandOneOfFournine
+  | WsSessionCommandOneOfFiveone
+  | WsSessionCommandOneOfFivethree
+  | WsSessionCommandOneOfFivefive;
+
+export type WsSessionEventOneOfAction =
+  (typeof WsSessionEventOneOfAction)[keyof typeof WsSessionEventOneOfAction];
+
+export const WsSessionEventOneOfAction = {
+  initialized: "initialized",
+} as const;
+
+export type WsSessionEventOneOf = {
+  action: WsSessionEventOneOfAction;
+  payload: SessionInitializedPayload;
+};
+
+export type WsSessionEventOneOfThreeAction =
+  (typeof WsSessionEventOneOfThreeAction)[keyof typeof WsSessionEventOneOfThreeAction];
+
+export const WsSessionEventOneOfThreeAction = {
+  acknowledged: "acknowledged",
+} as const;
+
+export type WsSessionEventOneOfThree = {
+  action: WsSessionEventOneOfThreeAction;
+  payload: SessionAcknowledgedPayload;
+};
+
+export type WsSessionEventOneOfFiveAction =
+  (typeof WsSessionEventOneOfFiveAction)[keyof typeof WsSessionEventOneOfFiveAction];
+
+export const WsSessionEventOneOfFiveAction = {
+  transcript_block: "transcript_block",
+} as const;
+
+export type WsSessionEventOneOfFive = {
+  action: WsSessionEventOneOfFiveAction;
+  payload: SessionTranscriptBlockPayload;
+};
+
+export type WsSessionEventOneOfSevenAction =
+  (typeof WsSessionEventOneOfSevenAction)[keyof typeof WsSessionEventOneOfSevenAction];
+
+export const WsSessionEventOneOfSevenAction = {
+  featurerenamed: "feature.renamed",
+} as const;
+
+export type WsSessionEventOneOfSeven = {
+  action: WsSessionEventOneOfSevenAction;
+  payload: FeatureRenamedPayload;
+};
+
+export type WsSessionEventOneOfNineAction =
+  (typeof WsSessionEventOneOfNineAction)[keyof typeof WsSessionEventOneOfNineAction];
+
+export const WsSessionEventOneOfNineAction = {
+  featureautonaming: "feature.autonaming",
+} as const;
+
+export type WsSessionEventOneOfNine = {
+  action: WsSessionEventOneOfNineAction;
+  payload: FeatureAutoNamingPayload;
+};
+
+export type WsSessionEventOneOfOneoneAction =
+  (typeof WsSessionEventOneOfOneoneAction)[keyof typeof WsSessionEventOneOfOneoneAction];
+
+export const WsSessionEventOneOfOneoneAction = {
+  branchneeds_confirm: "branch.needs_confirm",
+} as const;
+
+export type WsSessionEventOneOfOneone = {
+  action: WsSessionEventOneOfOneoneAction;
+  payload: BranchNeedsConfirmPayload;
+};
+
+export type WsSessionEventOneOfOnethreeAction =
+  (typeof WsSessionEventOneOfOnethreeAction)[keyof typeof WsSessionEventOneOfOnethreeAction];
+
+export const WsSessionEventOneOfOnethreeAction = {
+  message: "message",
+} as const;
+
+export type WsSessionEventOneOfOnethree = {
+  action: WsSessionEventOneOfOnethreeAction;
+  payload: SessionMessagePayload;
+};
+
+export type WsSessionEventOneOfOnefiveAction =
+  (typeof WsSessionEventOneOfOnefiveAction)[keyof typeof WsSessionEventOneOfOnefiveAction];
+
+export const WsSessionEventOneOfOnefiveAction = {
+  usage_update: "usage_update",
+} as const;
+
+export type WsSessionEventOneOfOnefive = {
+  action: WsSessionEventOneOfOnefiveAction;
+  payload: SessionUsageUpdatePayload;
+};
+
+export type WsSessionEventOneOfOnesevenAction =
+  (typeof WsSessionEventOneOfOnesevenAction)[keyof typeof WsSessionEventOneOfOnesevenAction];
+
+export const WsSessionEventOneOfOnesevenAction = {
+  ended: "ended",
+} as const;
+
+export type WsSessionEventOneOfOneseven = {
+  action: WsSessionEventOneOfOnesevenAction;
+  payload: SessionEndedPayload;
+};
+
+export type WsSessionEventOneOfOnenineAction =
+  (typeof WsSessionEventOneOfOnenineAction)[keyof typeof WsSessionEventOneOfOnenineAction];
+
+export const WsSessionEventOneOfOnenineAction = {
+  error: "error",
+} as const;
+
+export type WsSessionEventOneOfOnenine = {
+  action: WsSessionEventOneOfOnenineAction;
+  payload: SessionErrorPayload;
+};
+
+export type WsSessionEventOneOfTwooneAction =
+  (typeof WsSessionEventOneOfTwooneAction)[keyof typeof WsSessionEventOneOfTwooneAction];
+
+export const WsSessionEventOneOfTwooneAction = {
+  warning: "warning",
+} as const;
+
+export type WsSessionEventOneOfTwoone = {
+  action: WsSessionEventOneOfTwooneAction;
+  payload: SessionWarningPayload;
+};
+
+export type WsSessionEventOneOfTwothreeAction =
+  (typeof WsSessionEventOneOfTwothreeAction)[keyof typeof WsSessionEventOneOfTwothreeAction];
+
+export const WsSessionEventOneOfTwothreeAction = {
+  deleted: "deleted",
+} as const;
+
+export type WsSessionEventOneOfTwothree = {
+  action: WsSessionEventOneOfTwothreeAction;
+  payload: SessionDeletedPayload;
+};
+
+export type WsSessionEventOneOfTwofiveAction =
+  (typeof WsSessionEventOneOfTwofiveAction)[keyof typeof WsSessionEventOneOfTwofiveAction];
+
+export const WsSessionEventOneOfTwofiveAction = {
+  cleared: "cleared",
+} as const;
+
+export type WsSessionEventOneOfTwofive = {
+  action: WsSessionEventOneOfTwofiveAction;
+  payload: SessionClearedPayload;
+};
+
+export type WsSessionEventOneOfTwosevenAction =
+  (typeof WsSessionEventOneOfTwosevenAction)[keyof typeof WsSessionEventOneOfTwosevenAction];
+
+export const WsSessionEventOneOfTwosevenAction = {
+  lifecycle: "lifecycle",
+} as const;
+
+export type WsSessionEventOneOfTwoseven = {
+  action: WsSessionEventOneOfTwosevenAction;
+  payload: SessionLifecyclePayload;
+};
+
+export type WsSessionEventOneOfTwonineAction =
+  (typeof WsSessionEventOneOfTwonineAction)[keyof typeof WsSessionEventOneOfTwonineAction];
+
+export const WsSessionEventOneOfTwonineAction = {
+  retry_worktree_setupok: "retry_worktree_setup.ok",
+} as const;
+
+export type WsSessionEventOneOfTwonine = {
+  action: WsSessionEventOneOfTwonineAction;
+  payload: RetryWorktreeSetupOkPayload;
+};
+
+export type WsSessionEventOneOfThreeoneAction =
+  (typeof WsSessionEventOneOfThreeoneAction)[keyof typeof WsSessionEventOneOfThreeoneAction];
+
+export const WsSessionEventOneOfThreeoneAction = {
+  gateclosed: "gate.closed",
+} as const;
+
+export type WsSessionEventOneOfThreeone = {
+  action: WsSessionEventOneOfThreeoneAction;
+  payload: GateClosedPayload;
+};
+
+export type WsSessionEventOneOfThreethreeAction =
+  (typeof WsSessionEventOneOfThreethreeAction)[keyof typeof WsSessionEventOneOfThreethreeAction];
+
+export const WsSessionEventOneOfThreethreeAction = {
+  mcp_servers: "mcp_servers",
+} as const;
+
+export type WsSessionEventOneOfThreethree = {
+  action: WsSessionEventOneOfThreethreeAction;
+  payload: SessionMcpServersPayload;
+};
+
+export type WsSessionEventOneOfThreefiveAction =
+  (typeof WsSessionEventOneOfThreefiveAction)[keyof typeof WsSessionEventOneOfThreefiveAction];
+
+export const WsSessionEventOneOfThreefiveAction = {
+  user_message: "user_message",
+} as const;
+
+export type WsSessionEventOneOfThreefive = {
+  action: WsSessionEventOneOfThreefiveAction;
+  payload: UserMessagePayload;
+};
+
+export type WsSessionEventOneOfThreesevenAction =
+  (typeof WsSessionEventOneOfThreesevenAction)[keyof typeof WsSessionEventOneOfThreesevenAction];
+
+export const WsSessionEventOneOfThreesevenAction = {
+  historyresult: "history.result",
+} as const;
+
+export type WsSessionEventOneOfThreeseven = {
+  action: WsSessionEventOneOfThreesevenAction;
+  payload: HistoryResultPayload;
+};
+
+export type WsSessionEventOneOfThreenineAction =
+  (typeof WsSessionEventOneOfThreenineAction)[keyof typeof WsSessionEventOneOfThreenineAction];
+
+export const WsSessionEventOneOfThreenineAction = {
+  historyadded: "history.added",
+} as const;
+
+export type WsSessionEventOneOfThreenine = {
+  action: WsSessionEventOneOfThreenineAction;
+  payload: HistoryAddedPayload;
+};
+
+export type WsSessionEventOneOfFouroneAction =
+  (typeof WsSessionEventOneOfFouroneAction)[keyof typeof WsSessionEventOneOfFouroneAction];
+
+export const WsSessionEventOneOfFouroneAction = {
+  draftresult: "draft.result",
+} as const;
+
+export type WsSessionEventOneOfFourone = {
+  action: WsSessionEventOneOfFouroneAction;
+  payload: DraftResultPayload;
+};
+
+export type WsSessionEventOneOfFourthreeAction =
+  (typeof WsSessionEventOneOfFourthreeAction)[keyof typeof WsSessionEventOneOfFourthreeAction];
+
+export const WsSessionEventOneOfFourthreeAction = {
+  draftsaved: "draft.saved",
+} as const;
+
+export type WsSessionEventOneOfFourthree = {
+  action: WsSessionEventOneOfFourthreeAction;
+  payload: DraftSavedPayload;
+};
+
+export type WsSessionEventOneOfFourfiveAction =
+  (typeof WsSessionEventOneOfFourfiveAction)[keyof typeof WsSessionEventOneOfFourfiveAction];
+
+export const WsSessionEventOneOfFourfiveAction = {
+  access_modechanged: "access_mode.changed",
+} as const;
+
+export type WsSessionEventOneOfFourfive = {
+  action: WsSessionEventOneOfFourfiveAction;
+  payload: ModeChangedPayload;
+};
+
+export type WsSessionEventOneOfFoursevenAction =
+  (typeof WsSessionEventOneOfFoursevenAction)[keyof typeof WsSessionEventOneOfFoursevenAction];
+
+export const WsSessionEventOneOfFoursevenAction = {
+  providersetok: "provider.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFourseven = {
+  action: WsSessionEventOneOfFoursevenAction;
+  payload: ProviderSetOkPayload;
+};
+
+export type WsSessionEventOneOfFournineAction =
+  (typeof WsSessionEventOneOfFournineAction)[keyof typeof WsSessionEventOneOfFournineAction];
+
+export const WsSessionEventOneOfFournineAction = {
+  compactstarted: "compact.started",
+} as const;
+
+export type WsSessionEventOneOfFournine = {
+  action: WsSessionEventOneOfFournineAction;
+  payload: SessionCompactStartedPayload;
+};
+
+export type WsSessionEventOneOfFiveoneAction =
+  (typeof WsSessionEventOneOfFiveoneAction)[keyof typeof WsSessionEventOneOfFiveoneAction];
+
+export const WsSessionEventOneOfFiveoneAction = {
+  compactstopped: "compact.stopped",
+} as const;
+
+export type WsSessionEventOneOfFiveone = {
+  action: WsSessionEventOneOfFiveoneAction;
+  payload: SessionCompactStoppedPayload;
+};
+
+export type WsSessionEventOneOfFivethreeAction =
+  (typeof WsSessionEventOneOfFivethreeAction)[keyof typeof WsSessionEventOneOfFivethreeAction];
+
+export const WsSessionEventOneOfFivethreeAction = {
+  modelsetok: "model.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFivethree = {
+  action: WsSessionEventOneOfFivethreeAction;
+  payload: ModelSetOkPayload;
+};
+
+export type WsSessionEventOneOfFivefiveAction =
+  (typeof WsSessionEventOneOfFivefiveAction)[keyof typeof WsSessionEventOneOfFivefiveAction];
+
+export const WsSessionEventOneOfFivefiveAction = {
+  effortsetok: "effort.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFivefive = {
+  action: WsSessionEventOneOfFivefiveAction;
+  payload: EffortSetOkPayload;
+};
+
+export type WsSessionEventOneOfFivesevenAction =
+  (typeof WsSessionEventOneOfFivesevenAction)[keyof typeof WsSessionEventOneOfFivesevenAction];
+
+export const WsSessionEventOneOfFivesevenAction = {
+  configsnapshot: "config.snapshot",
+} as const;
+
+export type WsSessionEventOneOfFiveseven = {
+  action: WsSessionEventOneOfFivesevenAction;
+  payload: SessionConfigSnapshotPayload;
+};
+
+export type WsSessionEventOneOfFivenineAction =
+  (typeof WsSessionEventOneOfFivenineAction)[keyof typeof WsSessionEventOneOfFivenineAction];
+
+export const WsSessionEventOneOfFivenineAction = {
+  fast_modesetok: "fast_mode.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFivenine = {
+  action: WsSessionEventOneOfFivenineAction;
+  payload: FastModeSetOkPayload;
+};
+
+export type WsSessionEventOneOfSixoneAction =
+  (typeof WsSessionEventOneOfSixoneAction)[keyof typeof WsSessionEventOneOfSixoneAction];
+
+export const WsSessionEventOneOfSixoneAction = {
+  modechanged: "mode.changed",
+} as const;
+
+export type WsSessionEventOneOfSixone = {
+  action: WsSessionEventOneOfSixoneAction;
+  payload: ModeChangedPayload;
+};
+
+export type WsSessionEventOneOfSixthreeAction =
+  (typeof WsSessionEventOneOfSixthreeAction)[keyof typeof WsSessionEventOneOfSixthreeAction];
+
+export const WsSessionEventOneOfSixthreeAction = {
+  profilechanged: "profile.changed",
+} as const;
+
+export type WsSessionEventOneOfSixthree = {
+  action: WsSessionEventOneOfSixthreeAction;
+  payload: ProfileChangedPayload;
+};
+
+export type WsSessionEventOneOfSixfiveAction =
+  (typeof WsSessionEventOneOfSixfiveAction)[keyof typeof WsSessionEventOneOfSixfiveAction];
+
+export const WsSessionEventOneOfSixfiveAction = {
+  runtime_overrideschanged: "runtime_overrides.changed",
+} as const;
+
+export type WsSessionEventOneOfSixfive = {
+  action: WsSessionEventOneOfSixfiveAction;
+  payload: RuntimeOverridesChangedPayload;
+};
+
+export type WsSessionEventOneOfSixsevenAction =
+  (typeof WsSessionEventOneOfSixsevenAction)[keyof typeof WsSessionEventOneOfSixsevenAction];
+
+export const WsSessionEventOneOfSixsevenAction = {
+  branchrewound: "branch.rewound",
+} as const;
+
+export type WsSessionEventOneOfSixseven = {
+  action: WsSessionEventOneOfSixsevenAction;
+  payload: BranchRewoundPayload;
+};
+
+export type WsSessionEventOneOfSixnineAction =
+  (typeof WsSessionEventOneOfSixnineAction)[keyof typeof WsSessionEventOneOfSixnineAction];
+
+export const WsSessionEventOneOfSixnineAction = {
+  branchforked: "branch.forked",
+} as const;
+
+export type WsSessionEventOneOfSixnine = {
+  action: WsSessionEventOneOfSixnineAction;
+  payload: BranchForkedPayload;
+};
+
+export type WsSessionEventOneOfSevenoneAction =
+  (typeof WsSessionEventOneOfSevenoneAction)[keyof typeof WsSessionEventOneOfSevenoneAction];
+
+export const WsSessionEventOneOfSevenoneAction = {
+  runtime_session_id: "runtime_session_id",
+} as const;
+
+export type WsSessionEventOneOfSevenone = {
+  action: WsSessionEventOneOfSevenoneAction;
+  payload: RuntimeSessionIdPayload;
+};
+
+export type WsSessionEventOneOfSeventhreeAction =
+  (typeof WsSessionEventOneOfSeventhreeAction)[keyof typeof WsSessionEventOneOfSeventhreeAction];
+
+export const WsSessionEventOneOfSeventhreeAction = {
+  permissionrequest: "permission.request",
+} as const;
+
+export type WsSessionEventOneOfSeventhree = {
+  action: WsSessionEventOneOfSeventhreeAction;
+  payload: PermissionRequestPayload;
+};
+
+export type WsSessionEventOneOfSevenfiveAction =
+  (typeof WsSessionEventOneOfSevenfiveAction)[keyof typeof WsSessionEventOneOfSevenfiveAction];
+
+export const WsSessionEventOneOfSevenfiveAction = {
+  prompt_received: "prompt_received",
+} as const;
+
+export type WsSessionEventOneOfSevenfive = {
+  action: WsSessionEventOneOfSevenfiveAction;
+  payload: PromptReceivedPayload;
+};
+
+export type WsSessionEventOneOfSevensevenAction =
+  (typeof WsSessionEventOneOfSevensevenAction)[keyof typeof WsSessionEventOneOfSevensevenAction];
+
+export const WsSessionEventOneOfSevensevenAction = {
+  stream_status: "stream_status",
+} as const;
+
+export type WsSessionEventOneOfSevenseven = {
+  action: WsSessionEventOneOfSevensevenAction;
+  payload: SessionStreamStatusPayload;
+};
+
+export type WsSessionEventOneOfSevennineAction =
+  (typeof WsSessionEventOneOfSevennineAction)[keyof typeof WsSessionEventOneOfSevennineAction];
+
+export const WsSessionEventOneOfSevennineAction = {
+  persistence_status: "persistence_status",
+} as const;
+
+export type WsSessionEventOneOfSevennine = {
+  action: WsSessionEventOneOfSevennineAction;
+  payload: SessionPersistenceStatusPayload;
+};
+
+export type WsSessionEventOneOfEightoneAction =
+  (typeof WsSessionEventOneOfEightoneAction)[keyof typeof WsSessionEventOneOfEightoneAction];
+
+export const WsSessionEventOneOfEightoneAction = {
+  subagent_updated: "subagent_updated",
+} as const;
+
+export type WsSessionEventOneOfEightone = {
+  action: WsSessionEventOneOfEightoneAction;
+  payload: SubagentRun;
+};
+
+/**
+ * Session-domain server events, flattened beside the envelope id/domain/ref.
+ */
+export type WsSessionEvent =
+  | WsSessionEventOneOf
+  | WsSessionEventOneOfThree
+  | WsSessionEventOneOfFive
+  | WsSessionEventOneOfSeven
+  | WsSessionEventOneOfNine
+  | WsSessionEventOneOfOneone
+  | WsSessionEventOneOfOnethree
+  | WsSessionEventOneOfOnefive
+  | WsSessionEventOneOfOneseven
+  | WsSessionEventOneOfOnenine
+  | WsSessionEventOneOfTwoone
+  | WsSessionEventOneOfTwothree
+  | WsSessionEventOneOfTwofive
+  | WsSessionEventOneOfTwoseven
+  | WsSessionEventOneOfTwonine
+  | WsSessionEventOneOfThreeone
+  | WsSessionEventOneOfThreethree
+  | WsSessionEventOneOfThreefive
+  | WsSessionEventOneOfThreeseven
+  | WsSessionEventOneOfThreenine
+  | WsSessionEventOneOfFourone
+  | WsSessionEventOneOfFourthree
+  | WsSessionEventOneOfFourfive
+  | WsSessionEventOneOfFourseven
+  | WsSessionEventOneOfFournine
+  | WsSessionEventOneOfFiveone
+  | WsSessionEventOneOfFivethree
+  | WsSessionEventOneOfFivefive
+  | WsSessionEventOneOfFiveseven
+  | WsSessionEventOneOfFivenine
+  | WsSessionEventOneOfSixone
+  | WsSessionEventOneOfSixthree
+  | WsSessionEventOneOfSixfive
+  | WsSessionEventOneOfSixseven
+  | WsSessionEventOneOfSixnine
+  | WsSessionEventOneOfSevenone
+  | WsSessionEventOneOfSeventhree
+  | WsSessionEventOneOfSevenfive
+  | WsSessionEventOneOfSevenseven
+  | WsSessionEventOneOfSevennine
+  | WsSessionEventOneOfEightone;
 
 export type GetAgentCatalogParams = {
   /**
@@ -4573,6 +8494,46 @@ export type GetAgentCatalogParams = {
   profile?: string;
 };
 
+export type ListInstalledMcpServersParams = {
+  /**
+   * List every CLI again instead of the cached inventory.
+   */
+  refresh?: boolean;
+};
+
+export type SearchMcpRegistryParams = {
+  /**
+   * Substring of the registry name.
+   */
+  q?: string;
+  /**
+   * @nullable
+   */
+  cursor?: string | null;
+};
+
+export type GetMcpRegistryServerParams = {
+  name: string;
+};
+
+export type ListSkillsParams = {
+  q?: string;
+  filter?: SkillCatalogFilter;
+  /**
+   * @minimum 0
+   */
+  offset?: number;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  limit?: number | null;
+  /**
+   * Re-read every CLI's marketplaces from their sources first.
+   */
+  refresh?: boolean;
+};
+
 export type GetAgentProfilesParams = {
   /**
    * Registered provider id
@@ -4586,11 +8547,7 @@ export type GetAgentProfilesParams = {
 
 export type GetAgentSelectionParams = {
   /**
-   * Resolve at project scope
-   */
-  project_id?: number;
-  /**
-   * Resolve at feature scope; requires project_id
+   * Resolve at feature scope instead of the workspace
    */
   feature_id?: number;
   /**
@@ -4601,6 +8558,13 @@ export type GetAgentSelectionParams = {
    * Claude Code profile to scope the model lookup to
    */
   profile?: string;
+};
+
+export type GetAgentActivityDigestParams = {
+  /**
+   * Comma-separated feature ids (at most 32).
+   */
+  feature_ids: string;
 };
 
 export type GetUnifiedAgentsParams = {
@@ -4620,7 +8584,11 @@ export type GetUnifiedAgentsParams = {
 };
 
 export type ListCustomActionsParams = {
-  project_id: number;
+  /**
+   * Omit to list only the global actions (the Settings page).
+   * @nullable
+   */
+  project_id?: number | null;
   /**
    * Optional feature id to embed `last_run` summaries on each action.
    * @nullable
@@ -4642,16 +8610,6 @@ export type GetCustomActionRunsParams = {
    * @nullable
    */
   limit?: number | null;
-};
-
-export type GetCustomActionScheduleParams = {
-  feature_id: number;
-};
-
-export type GetCustomActionSchedule200 = null | CustomActionSchedule;
-
-export type SetCustomActionScheduleParams = {
-  feature_id: number;
 };
 
 export type GetCustomActionVariablesParams = {
@@ -4770,6 +8728,14 @@ export type ListFeaturesParams = {
 export type ListFeatureActivityParams = {
   project_id: number;
   include_archived?: boolean;
+};
+
+export type ListRecentFeaturesParams = {
+  /**
+   * How many conversations to return (1–50, default 5).
+   * @nullable
+   */
+  limit?: number | null;
 };
 
 export type GetFeatureAgentStateParams = {
@@ -4912,12 +8878,47 @@ export type GetOriginalBranchParams = {
   feature_id: number;
 };
 
+export type GetGitPathPrefixParams = {
+  feature_id: number;
+};
+
 export type GetPrParams = {
   feature_id: number;
 };
 
 export type GetPrCommentsParams = {
   feature_id: number;
+  /**
+   * One of the conversation's proposals (the current branch's or another
+   * branch's); the current branch's when absent.
+   * @minimum 0
+   * @nullable
+   */
+  pr_number?: number | null;
+};
+
+export type LookupFeatureRepoPrParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
+};
+
+export type DeletePrMergeParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
+};
+
+export type GetPrMergeStatusParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
 };
 
 export type ListStashesParams = {
@@ -4960,6 +8961,25 @@ export type ListProjectWorktreesParams = {
   project_id: number;
 };
 
+export type Catalog2Params = {
+  refresh?: boolean;
+};
+
+export type ResolveParams = {
+  /**
+   * @nullable
+   */
+  project_id?: number | null;
+  /**
+   * @nullable
+   */
+  language_id?: string | null;
+  /**
+   * @nullable
+   */
+  file_path?: string | null;
+};
+
 export type LspRootParams = {
   /**
    * Absolute feature working dir; the resolved root never escapes this.
@@ -4981,6 +9001,55 @@ export type LspRootParams = {
    * @nullable
    */
   lsp_id?: string | null;
+};
+
+export type PluginTabListParams = {
+  project_id?: number;
+  /**
+   * Fill each summary's `project_overrides`.
+   */
+  project_overrides?: boolean;
+};
+
+export type PluginTabSelfConfiguration200 = { [key: string]: unknown };
+
+export type PluginTabSelfNetFetchParams = {
+  /**
+   * Absolute URL whose origin is in the manifest's `network.allowed_origins`.
+   */
+  url: string;
+  /**
+   * HTTP method, `GET` when omitted.
+   */
+  method?: string;
+};
+
+export type PluginTabGetParams = {
+  project_id?: number;
+};
+
+export type PluginTabActivityParams = {
+  feature_id: number;
+};
+
+export type PluginTabGetConfigurationParams = {
+  project_id?: number;
+};
+
+export type PluginTabPutConfigurationParams = {
+  project_id?: number;
+};
+
+export type PluginTabConsentParams = {
+  project_id?: number;
+};
+
+export type ListPublicationOperationsParams = {
+  /**
+   * @minimum 0
+   */
+  limit?: number;
+  cursor?: string;
 };
 
 export type GetPromptCommandsParams = {
@@ -5005,6 +9074,27 @@ export type ListSchedulesParams = {
    * @nullable
    */
   project_id?: number | null;
+};
+
+export type SearchMessagesParams = {
+  /**
+   * Words to find; each one matches as a prefix, all of them must appear.
+   */
+  q: string;
+  /**
+   * How many conversations to return (1–30, default 8).
+   * @nullable
+   */
+  limit?: number | null;
+  /**
+   * Restrict the search to one project.
+   * @nullable
+   */
+  project_id?: number | null;
+  /**
+   * Leave archived conversations out (default: included).
+   */
+  active_only?: boolean;
 };
 
 export type ListConversationReferencesParams = {
@@ -5159,6 +9249,987 @@ export function useGetAgentCatalog<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export const listExtensionClis = (signal?: AbortSignal) => {
+  return customInstance<ExtensionClisResponse>({
+    url: `/api/agent-extensions/clis`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListExtensionClisQueryKey = () => {
+  return [`/api/agent-extensions/clis`] as const;
+};
+
+export const getListExtensionClisQueryOptions = <
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListExtensionClisQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listExtensionClis>>> = ({ signal }) =>
+    listExtensionClis(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listExtensionClis>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListExtensionClisQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listExtensionClis>>
+>;
+export type ListExtensionClisQueryError = ErrorType<unknown>;
+
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listExtensionClis>>,
+          TError,
+          Awaited<ReturnType<typeof listExtensionClis>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listExtensionClis>>,
+          TError,
+          Awaited<ReturnType<typeof listExtensionClis>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListExtensionClisQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installMcpServer = (mcpInstallRequest: McpInstallRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/mcp/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpInstallRequest,
+    signal,
+  });
+};
+
+export const getInstallMcpServerMutationKey = () => ["installMcpServer"] as const;
+
+export const getInstallMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installMcpServer>>,
+    TError,
+    InstallMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installMcpServer>>,
+  TError,
+  InstallMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installMcpServer>>,
+    InstallMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof installMcpServer>>
+>;
+export type InstallMcpServerMutationBody = McpInstallRequest;
+export type InstallMcpServerMutationError = ErrorType<void>;
+export type InstallMcpServerMutationVariables = { data: McpInstallRequest };
+
+export const useInstallMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installMcpServer>>,
+      TError,
+      InstallMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installMcpServer>>,
+  TError,
+  InstallMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallMcpServerMutationOptions(options), queryClient);
+};
+
+export const listInstalledMcpServers = (
+  params?: ListInstalledMcpServersParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<McpInventoryResponse>({
+    url: `/api/agent-extensions/mcp/installed`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListInstalledMcpServersQueryKey = (params?: ListInstalledMcpServersParams) => {
+  return [`/api/agent-extensions/mcp/installed`, ...(params ? [params] : [])] as const;
+};
+
+export const getListInstalledMcpServersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListInstalledMcpServersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listInstalledMcpServers>>> = ({
+    signal,
+  }) => listInstalledMcpServers(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInstalledMcpServers>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListInstalledMcpServersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInstalledMcpServers>>
+>;
+export type ListInstalledMcpServersQueryError = ErrorType<unknown>;
+
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListInstalledMcpServersParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInstalledMcpServers>>,
+          TError,
+          Awaited<ReturnType<typeof listInstalledMcpServers>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInstalledMcpServers>>,
+          TError,
+          Awaited<ReturnType<typeof listInstalledMcpServers>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListInstalledMcpServersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const searchMcpRegistry = (params?: SearchMcpRegistryParams, signal?: AbortSignal) => {
+  return customInstance<McpRegistryPage>({
+    url: `/api/agent-extensions/mcp/registry`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getSearchMcpRegistryQueryKey = (params?: SearchMcpRegistryParams) => {
+  return [`/api/agent-extensions/mcp/registry`, ...(params ? [params] : [])] as const;
+};
+
+export const getSearchMcpRegistryQueryOptions = <
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSearchMcpRegistryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof searchMcpRegistry>>> = ({ signal }) =>
+    searchMcpRegistry(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof searchMcpRegistry>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type SearchMcpRegistryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof searchMcpRegistry>>
+>;
+export type SearchMcpRegistryQueryError = ErrorType<void>;
+
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params: undefined | SearchMcpRegistryParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMcpRegistry>>,
+          TError,
+          Awaited<ReturnType<typeof searchMcpRegistry>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMcpRegistry>>,
+          TError,
+          Awaited<ReturnType<typeof searchMcpRegistry>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getSearchMcpRegistryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getMcpRegistryServer = (params: GetMcpRegistryServerParams, signal?: AbortSignal) => {
+  return customInstance<McpRegistryServer>({
+    url: `/api/agent-extensions/mcp/registry/server`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetMcpRegistryServerQueryKey = (params?: GetMcpRegistryServerParams) => {
+  return [`/api/agent-extensions/mcp/registry/server`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMcpRegistryServerQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMcpRegistryServerQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMcpRegistryServer>>> = ({ signal }) =>
+    getMcpRegistryServer(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMcpRegistryServer>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetMcpRegistryServerQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMcpRegistryServer>>
+>;
+export type GetMcpRegistryServerQueryError = ErrorType<void>;
+
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMcpRegistryServer>>,
+          TError,
+          Awaited<ReturnType<typeof getMcpRegistryServer>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMcpRegistryServer>>,
+          TError,
+          Awaited<ReturnType<typeof getMcpRegistryServer>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetMcpRegistryServerQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const removeMcpServer = (mcpServerRequest: McpServerRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/mcp/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpServerRequest,
+    signal,
+  });
+};
+
+export const getRemoveMcpServerMutationKey = () => ["removeMcpServer"] as const;
+
+export const getRemoveMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeMcpServer>>,
+    TError,
+    RemoveMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeMcpServer>>,
+  TError,
+  RemoveMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeMcpServer>>,
+    RemoveMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeMcpServer>>
+>;
+export type RemoveMcpServerMutationBody = McpServerRequest;
+export type RemoveMcpServerMutationError = ErrorType<void>;
+export type RemoveMcpServerMutationVariables = { data: McpServerRequest };
+
+export const useRemoveMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeMcpServer>>,
+      TError,
+      RemoveMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeMcpServer>>,
+  TError,
+  RemoveMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveMcpServerMutationOptions(options), queryClient);
+};
+
+export const updateMcpServer = (mcpServerRequest: McpServerRequest, signal?: AbortSignal) => {
+  return customInstance<McpUpdateResponse>({
+    url: `/api/agent-extensions/mcp/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpServerRequest,
+    signal,
+  });
+};
+
+export const getUpdateMcpServerMutationKey = () => ["updateMcpServer"] as const;
+
+export const getUpdateMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMcpServer>>,
+    TError,
+    UpdateMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMcpServer>>,
+  TError,
+  UpdateMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMcpServer>>,
+    UpdateMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMcpServer>>
+>;
+export type UpdateMcpServerMutationBody = McpServerRequest;
+export type UpdateMcpServerMutationError = ErrorType<void>;
+export type UpdateMcpServerMutationVariables = { data: McpServerRequest };
+
+export const useUpdateMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateMcpServer>>,
+      TError,
+      UpdateMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateMcpServer>>,
+  TError,
+  UpdateMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateMcpServerMutationOptions(options), queryClient);
+};
+
+export const listSkills = (params?: ListSkillsParams, signal?: AbortSignal) => {
+  return customInstance<SkillCatalogResponse>({
+    url: `/api/agent-extensions/skills`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListSkillsQueryKey = (params?: ListSkillsParams) => {
+  return [`/api/agent-extensions/skills`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSkillsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSkillsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSkills>>> = ({ signal }) =>
+    listSkills(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSkills>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListSkillsQueryResult = NonNullable<Awaited<ReturnType<typeof listSkills>>>;
+export type ListSkillsQueryError = ErrorType<unknown>;
+
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListSkillsParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListSkillsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getInstallSkillMutationKey = () => ["installSkill"] as const;
+
+export const getInstallSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installSkill>>,
+    TError,
+    InstallSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installSkill>>,
+  TError,
+  InstallSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installSkill>>,
+    InstallSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallSkillMutationResult = NonNullable<Awaited<ReturnType<typeof installSkill>>>;
+export type InstallSkillMutationBody = SkillRequest;
+export type InstallSkillMutationError = ErrorType<void>;
+export type InstallSkillMutationVariables = { data: SkillRequest };
+
+export const useInstallSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installSkill>>,
+      TError,
+      InstallSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installSkill>>,
+  TError,
+  InstallSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallSkillMutationOptions(options), queryClient);
+};
+
+export const removeSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getRemoveSkillMutationKey = () => ["removeSkill"] as const;
+
+export const getRemoveSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeSkill>>,
+    TError,
+    RemoveSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeSkill>>,
+  TError,
+  RemoveSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeSkill>>,
+    RemoveSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveSkillMutationResult = NonNullable<Awaited<ReturnType<typeof removeSkill>>>;
+export type RemoveSkillMutationBody = SkillRequest;
+export type RemoveSkillMutationError = ErrorType<void>;
+export type RemoveSkillMutationVariables = { data: SkillRequest };
+
+export const useRemoveSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeSkill>>,
+      TError,
+      RemoveSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeSkill>>,
+  TError,
+  RemoveSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveSkillMutationOptions(options), queryClient);
+};
+
+export const updateSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getUpdateSkillMutationKey = () => ["updateSkill"] as const;
+
+export const getUpdateSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSkill>>,
+    TError,
+    UpdateSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSkill>>,
+  TError,
+  UpdateSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSkill>>,
+    UpdateSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSkillMutationResult = NonNullable<Awaited<ReturnType<typeof updateSkill>>>;
+export type UpdateSkillMutationBody = SkillRequest;
+export type UpdateSkillMutationError = ErrorType<void>;
+export type UpdateSkillMutationVariables = { data: SkillRequest };
+
+export const useUpdateSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateSkill>>,
+      TError,
+      UpdateSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateSkill>>,
+  TError,
+  UpdateSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateSkillMutationOptions(options), queryClient);
+};
 
 export const getAgentProfiles = (params: GetAgentProfilesParams, signal?: AbortSignal) => {
   return customInstance<ProviderProfilesResponse>({
@@ -5364,6 +10435,126 @@ export function useGetAgentSelection<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetAgentSelectionQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAgentActivityDigest = (
+  params: GetAgentActivityDigestParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<AgentActivityDigestResponse>({
+    url: `/api/agents/activity-digest`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetAgentActivityDigestQueryKey = (params?: GetAgentActivityDigestParams) => {
+  return [`/api/agents/activity-digest`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetAgentActivityDigestQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAgentActivityDigest>>,
+  TError = ErrorType<void>,
+>(
+  params: GetAgentActivityDigestParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getAgentActivityDigest>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAgentActivityDigestQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentActivityDigest>>> = ({ signal }) =>
+    getAgentActivityDigest(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAgentActivityDigest>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetAgentActivityDigestQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAgentActivityDigest>>
+>;
+export type GetAgentActivityDigestQueryError = ErrorType<void>;
+
+export function useGetAgentActivityDigest<
+  TData = Awaited<ReturnType<typeof getAgentActivityDigest>>,
+  TError = ErrorType<void>,
+>(
+  params: GetAgentActivityDigestParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getAgentActivityDigest>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAgentActivityDigest>>,
+          TError,
+          Awaited<ReturnType<typeof getAgentActivityDigest>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetAgentActivityDigest<
+  TData = Awaited<ReturnType<typeof getAgentActivityDigest>>,
+  TError = ErrorType<void>,
+>(
+  params: GetAgentActivityDigestParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getAgentActivityDigest>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAgentActivityDigest>>,
+          TError,
+          Awaited<ReturnType<typeof getAgentActivityDigest>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetAgentActivityDigest<
+  TData = Awaited<ReturnType<typeof getAgentActivityDigest>>,
+  TError = ErrorType<void>,
+>(
+  params: GetAgentActivityDigestParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getAgentActivityDigest>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetAgentActivityDigest<
+  TData = Awaited<ReturnType<typeof getAgentActivityDigest>>,
+  TError = ErrorType<void>,
+>(
+  params: GetAgentActivityDigestParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getAgentActivityDigest>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetAgentActivityDigestQueryOptions(params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -5580,6 +10771,8 @@ export const installProvider = (providerDescriptor: ProviderDescriptor, signal?:
   });
 };
 
+export const getInstallProviderMutationKey = () => ["installProvider"] as const;
+
 export const getInstallProviderMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -5596,7 +10789,7 @@ export const getInstallProviderMutationOptions = <
   InstallProviderMutationVariables,
   TContext
 > => {
-  const mutationKey = ["installProvider"];
+  const mutationKey = getInstallProviderMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -5649,6 +10842,8 @@ export const removeProvider = (providerId: string, signal?: AbortSignal) => {
   });
 };
 
+export const getRemoveProviderMutationKey = () => ["removeProvider"] as const;
+
 export const getRemoveProviderMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -5665,7 +10860,7 @@ export const getRemoveProviderMutationOptions = <
   RemoveProviderMutationVariables,
   TContext
 > => {
-  const mutationKey = ["removeProvider"];
+  const mutationKey = getRemoveProviderMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -5722,6 +10917,8 @@ export const setProviderEnabled = (
   });
 };
 
+export const getSetProviderEnabledMutationKey = () => ["setProviderEnabled"] as const;
+
 export const getSetProviderEnabledMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -5738,7 +10935,7 @@ export const getSetProviderEnabledMutationOptions = <
   SetProviderEnabledMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setProviderEnabled"];
+  const mutationKey = getSetProviderEnabledMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -5896,6 +11093,8 @@ export const install = (
   });
 };
 
+export const getInstallMutationKey = () => ["install"] as const;
+
 export const getInstallMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -5912,7 +11111,7 @@ export const getInstallMutationOptions = <
   InstallMutationVariables,
   TContext
 > => {
-  const mutationKey = ["install"];
+  const mutationKey = getInstallMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -5963,6 +11162,8 @@ export const refreshBlocklist = (signal?: AbortSignal) => {
   });
 };
 
+export const getRefreshBlocklistMutationKey = () => ["refreshBlocklist"] as const;
+
 export const getRefreshBlocklistMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -5974,7 +11175,7 @@ export const getRefreshBlocklistMutationOptions = <
     TContext
   >;
 }): UseMutationOptions<Awaited<ReturnType<typeof refreshBlocklist>>, TError, void, TContext> => {
-  const mutationKey = ["refreshBlocklist"];
+  const mutationKey = getRefreshBlocklistMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6113,13 +11314,15 @@ export const refreshCatalog = (signal?: AbortSignal) => {
   });
 };
 
+export const getRefreshCatalogMutationKey = () => ["refreshCatalog"] as const;
+
 export const getRefreshCatalogMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<Awaited<ReturnType<typeof refreshCatalog>>, TError, void, TContext>;
 }): UseMutationOptions<Awaited<ReturnType<typeof refreshCatalog>>, TError, void, TContext> => {
-  const mutationKey = ["refreshCatalog"];
+  const mutationKey = getRefreshCatalogMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6159,6 +11362,8 @@ export const remove = (providerId: string, signal?: AbortSignal) => {
   });
 };
 
+export const getRemoveMutationKey = () => ["remove"] as const;
+
 export const getRemoveMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6175,7 +11380,7 @@ export const getRemoveMutationOptions = <
   RemoveMutationVariables,
   TContext
 > => {
-  const mutationKey = ["remove"];
+  const mutationKey = getRemoveMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6232,6 +11437,8 @@ export const enabled = (
   });
 };
 
+export const getEnabledMutationKey = () => ["enabled"] as const;
+
 export const getEnabledMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6248,7 +11455,7 @@ export const getEnabledMutationOptions = <
   EnabledMutationVariables,
   TContext
 > => {
-  const mutationKey = ["enabled"];
+  const mutationKey = getEnabledMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6308,6 +11515,8 @@ export const rollback = (
   });
 };
 
+export const getRollbackMutationKey = () => ["rollback"] as const;
+
 export const getRollbackMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6324,7 +11533,7 @@ export const getRollbackMutationOptions = <
   RollbackMutationVariables,
   TContext
 > => {
-  const mutationKey = ["rollback"];
+  const mutationKey = getRollbackMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6384,6 +11593,8 @@ export const update = (
   });
 };
 
+export const getUpdateMutationKey = () => ["update"] as const;
+
 export const getUpdateMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6400,7 +11611,7 @@ export const getUpdateMutationOptions = <
   UpdateMutationVariables,
   TContext
 > => {
-  const mutationKey = ["update"];
+  const mutationKey = getUpdateMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6443,6 +11654,245 @@ export const useUpdate = <TError = ErrorType<unknown>, TContext = unknown>(
   return useMutation(getUpdateMutationOptions(options), queryClient);
 };
 
+export const getProviderUpdates = (signal?: AbortSignal) => {
+  return customInstance<ProviderUpdatesResponse>({
+    url: `/api/agents/provider-updates`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetProviderUpdatesQueryKey = () => {
+  return [`/api/agents/provider-updates`] as const;
+};
+
+export const getGetProviderUpdatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProviderUpdates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getProviderUpdates>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetProviderUpdatesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getProviderUpdates>>> = ({ signal }) =>
+    getProviderUpdates(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProviderUpdates>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetProviderUpdatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProviderUpdates>>
+>;
+export type GetProviderUpdatesQueryError = ErrorType<unknown>;
+
+export function useGetProviderUpdates<
+  TData = Awaited<ReturnType<typeof getProviderUpdates>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getProviderUpdates>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProviderUpdates>>,
+          TError,
+          Awaited<ReturnType<typeof getProviderUpdates>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProviderUpdates<
+  TData = Awaited<ReturnType<typeof getProviderUpdates>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProviderUpdates>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProviderUpdates>>,
+          TError,
+          Awaited<ReturnType<typeof getProviderUpdates>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProviderUpdates<
+  TData = Awaited<ReturnType<typeof getProviderUpdates>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getProviderUpdates>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetProviderUpdates<
+  TData = Awaited<ReturnType<typeof getProviderUpdates>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getProviderUpdates>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetProviderUpdatesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const checkProviderUpdates = (signal?: AbortSignal) => {
+  return customInstance<ProviderUpdatesResponse>({
+    url: `/api/agents/provider-updates/check`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getCheckProviderUpdatesMutationKey = () => ["checkProviderUpdates"] as const;
+
+export const getCheckProviderUpdatesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof checkProviderUpdates>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof checkProviderUpdates>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getCheckProviderUpdatesMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof checkProviderUpdates>>,
+    void
+  > = () => {
+    return checkProviderUpdates();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CheckProviderUpdatesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof checkProviderUpdates>>
+>;
+
+export type CheckProviderUpdatesMutationError = ErrorType<unknown>;
+
+export const useCheckProviderUpdates = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof checkProviderUpdates>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof checkProviderUpdates>>, TError, void, TContext> => {
+  return useMutation(getCheckProviderUpdatesMutationOptions(options), queryClient);
+};
+
+export const updateProvider = (
+  providerId: string,
+  providerUpdateRequest: ProviderUpdateRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ProviderUpdateStatus>({
+    url: `/api/agents/provider-updates/${providerId}/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: providerUpdateRequest,
+    signal,
+  });
+};
+
+export const getUpdateProviderMutationKey = () => ["updateProvider"] as const;
+
+export const getUpdateProviderMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateProvider>>,
+    TError,
+    UpdateProviderMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateProvider>>,
+  TError,
+  UpdateProviderMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateProviderMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateProvider>>,
+    UpdateProviderMutationVariables
+  > = (props) => {
+    const { providerId, data } = props ?? {};
+
+    return updateProvider(providerId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateProviderMutationResult = NonNullable<Awaited<ReturnType<typeof updateProvider>>>;
+export type UpdateProviderMutationBody = ProviderUpdateRequest;
+export type UpdateProviderMutationError = ErrorType<void>;
+export type UpdateProviderMutationVariables = { providerId: string; data: ProviderUpdateRequest };
+
+export const useUpdateProvider = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateProvider>>,
+      TError,
+      UpdateProviderMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateProvider>>,
+  TError,
+  UpdateProviderMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateProviderMutationOptions(options), queryClient);
+};
+
 export const createProviderWorkspace = (
   createProviderWorkspaceRequest: CreateProviderWorkspaceRequest,
   signal?: AbortSignal,
@@ -6455,6 +11905,8 @@ export const createProviderWorkspace = (
     signal,
   });
 };
+
+export const getCreateProviderWorkspaceMutationKey = () => ["createProviderWorkspace"] as const;
 
 export const getCreateProviderWorkspaceMutationOptions = <
   TError = ErrorType<void>,
@@ -6472,7 +11924,7 @@ export const getCreateProviderWorkspaceMutationOptions = <
   CreateProviderWorkspaceMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createProviderWorkspace"];
+  const mutationKey = getCreateProviderWorkspaceMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6622,6 +12074,121 @@ export function useGetUnifiedAgents<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+/**
+ * @summary Archived conversations whose cleanup is not settled: in progress, waiting,
+interrupted, blocked or failed.
+ */
+export const listArchiveCleanups = (signal?: AbortSignal) => {
+  return customInstance<ArchiveCleanupStatus[]>({
+    url: `/api/archive-cleanups`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListArchiveCleanupsQueryKey = () => {
+  return [`/api/archive-cleanups`] as const;
+};
+
+export const getListArchiveCleanupsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListArchiveCleanupsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listArchiveCleanups>>> = ({ signal }) =>
+    listArchiveCleanups(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listArchiveCleanups>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListArchiveCleanupsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listArchiveCleanups>>
+>;
+export type ListArchiveCleanupsQueryError = ErrorType<unknown>;
+
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listArchiveCleanups>>,
+          TError,
+          Awaited<ReturnType<typeof listArchiveCleanups>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listArchiveCleanups>>,
+          TError,
+          Awaited<ReturnType<typeof listArchiveCleanups>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Archived conversations whose cleanup is not settled: in progress, waiting,
+interrupted, blocked or failed.
+ */
+
+export function useListArchiveCleanups<
+  TData = Awaited<ReturnType<typeof listArchiveCleanups>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listArchiveCleanups>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListArchiveCleanupsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const listCustomModels = (signal?: AbortSignal) => {
   return customInstance<CustomModelsResponse>({
     url: `/api/claude-code/custom-models`,
@@ -6733,6 +12300,8 @@ export const upsertCustomModel = (
   });
 };
 
+export const getUpsertCustomModelMutationKey = () => ["upsertCustomModel"] as const;
+
 export const getUpsertCustomModelMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6749,7 +12318,7 @@ export const getUpsertCustomModelMutationOptions = <
   UpsertCustomModelMutationVariables,
   TContext
 > => {
-  const mutationKey = ["upsertCustomModel"];
+  const mutationKey = getUpsertCustomModelMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6805,6 +12374,8 @@ export const deleteCustomModel = (modelId: string, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteCustomModelMutationKey = () => ["deleteCustomModel"] as const;
+
 export const getDeleteCustomModelMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6821,7 +12392,7 @@ export const getDeleteCustomModelMutationOptions = <
   DeleteCustomModelMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteCustomModel"];
+  const mutationKey = getDeleteCustomModelMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -6976,6 +12547,8 @@ export const setActiveProfile = (
   });
 };
 
+export const getSetActiveProfileMutationKey = () => ["setActiveProfile"] as const;
+
 export const getSetActiveProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -6992,7 +12565,7 @@ export const getSetActiveProfileMutationOptions = <
   SetActiveProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setActiveProfile"];
+  const mutationKey = getSetActiveProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7051,6 +12624,8 @@ export const upsertProfile = (
   });
 };
 
+export const getUpsertProfileMutationKey = () => ["upsertProfile"] as const;
+
 export const getUpsertProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7067,7 +12642,7 @@ export const getUpsertProfileMutationOptions = <
   UpsertProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["upsertProfile"];
+  const mutationKey = getUpsertProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7118,6 +12693,8 @@ export const deleteProfile = (name: string, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteProfileMutationKey = () => ["deleteProfile"] as const;
+
 export const getDeleteProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7134,7 +12711,7 @@ export const getDeleteProfileMutationOptions = <
   DeleteProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteProfile"];
+  const mutationKey = getDeleteProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7286,6 +12863,8 @@ export const codexCreateProfile = (codexProfileDraft: CodexProfileDraft, signal?
   });
 };
 
+export const getCodexCreateProfileMutationKey = () => ["codexCreateProfile"] as const;
+
 export const getCodexCreateProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7302,7 +12881,7 @@ export const getCodexCreateProfileMutationOptions = <
   CodexCreateProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["codexCreateProfile"];
+  const mutationKey = getCodexCreateProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7360,6 +12939,8 @@ export const codexSetActiveProfile = (
   });
 };
 
+export const getCodexSetActiveProfileMutationKey = () => ["codexSetActiveProfile"] as const;
+
 export const getCodexSetActiveProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7376,7 +12957,7 @@ export const getCodexSetActiveProfileMutationOptions = <
   CodexSetActiveProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["codexSetActiveProfile"];
+  const mutationKey = getCodexSetActiveProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7434,6 +13015,8 @@ export const codexValidateProfile = (
   });
 };
 
+export const getCodexValidateProfileMutationKey = () => ["codexValidateProfile"] as const;
+
 export const getCodexValidateProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7450,7 +13033,7 @@ export const getCodexValidateProfileMutationOptions = <
   CodexValidateProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["codexValidateProfile"];
+  const mutationKey = getCodexValidateProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7509,6 +13092,8 @@ export const codexUpdateProfile = (
   });
 };
 
+export const getCodexUpdateProfileMutationKey = () => ["codexUpdateProfile"] as const;
+
 export const getCodexUpdateProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7525,7 +13110,7 @@ export const getCodexUpdateProfileMutationOptions = <
   CodexUpdateProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["codexUpdateProfile"];
+  const mutationKey = getCodexUpdateProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7578,6 +13163,8 @@ export const codexDeleteProfile = (id: string, signal?: AbortSignal) => {
   });
 };
 
+export const getCodexDeleteProfileMutationKey = () => ["codexDeleteProfile"] as const;
+
 export const getCodexDeleteProfileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7594,7 +13181,7 @@ export const getCodexDeleteProfileMutationOptions = <
   CodexDeleteProfileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["codexDeleteProfile"];
+  const mutationKey = getCodexDeleteProfileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7639,7 +13226,7 @@ export const useCodexDeleteProfile = <TError = ErrorType<unknown>, TContext = un
   return useMutation(getCodexDeleteProfileMutationOptions(options), queryClient);
 };
 
-export const listCustomActions = (params: ListCustomActionsParams, signal?: AbortSignal) => {
+export const listCustomActions = (params?: ListCustomActionsParams, signal?: AbortSignal) => {
   return customInstance<CustomAction[]>({
     url: `/api/custom-actions`,
     method: "GET",
@@ -7656,7 +13243,7 @@ export const getListCustomActionsQueryOptions = <
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -7684,7 +13271,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params: undefined | ListCustomActionsParams,
   options: {
     query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -7702,7 +13289,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -7720,7 +13307,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -7731,7 +13318,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -7759,6 +13346,8 @@ export const createCustomAction = (
   });
 };
 
+export const getCreateCustomActionMutationKey = () => ["createCustomAction"] as const;
+
 export const getCreateCustomActionMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7775,7 +13364,7 @@ export const getCreateCustomActionMutationOptions = <
   CreateCustomActionMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createCustomAction"];
+  const mutationKey = getCreateCustomActionMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7820,6 +13409,82 @@ export const useCreateCustomAction = <TError = ErrorType<unknown>, TContext = un
   return useMutation(getCreateCustomActionMutationOptions(options), queryClient);
 };
 
+export const reorderCustomActions = (
+  reorderCustomActionsRequest: ReorderCustomActionsRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<SuccessResponse>({
+    url: `/api/custom-actions/order`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: reorderCustomActionsRequest,
+    signal,
+  });
+};
+
+export const getReorderCustomActionsMutationKey = () => ["reorderCustomActions"] as const;
+
+export const getReorderCustomActionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    TError,
+    ReorderCustomActionsMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReorderCustomActionsMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    ReorderCustomActionsMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderCustomActions(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderCustomActionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderCustomActions>>
+>;
+export type ReorderCustomActionsMutationBody = ReorderCustomActionsRequest;
+export type ReorderCustomActionsMutationError = ErrorType<unknown>;
+export type ReorderCustomActionsMutationVariables = { data: ReorderCustomActionsRequest };
+
+export const useReorderCustomActions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderCustomActions>>,
+      TError,
+      ReorderCustomActionsMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  return useMutation(getReorderCustomActionsMutationOptions(options), queryClient);
+};
+
 export const updateCustomAction = (
   id: number,
   updateCustomActionRequest: UpdateCustomActionRequest,
@@ -7833,6 +13498,8 @@ export const updateCustomAction = (
     signal,
   });
 };
+
+export const getUpdateCustomActionMutationKey = () => ["updateCustomAction"] as const;
 
 export const getUpdateCustomActionMutationOptions = <
   TError = ErrorType<unknown>,
@@ -7850,7 +13517,7 @@ export const getUpdateCustomActionMutationOptions = <
   UpdateCustomActionMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateCustomAction"];
+  const mutationKey = getUpdateCustomActionMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -7903,6 +13570,8 @@ export const deleteCustomAction = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteCustomActionMutationKey = () => ["deleteCustomAction"] as const;
+
 export const getDeleteCustomActionMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -7919,7 +13588,7 @@ export const getDeleteCustomActionMutationOptions = <
   DeleteCustomActionMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteCustomAction"];
+  const mutationKey = getDeleteCustomActionMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -8090,6 +13759,8 @@ export const runCustomAction = (
   });
 };
 
+export const getRunCustomActionMutationKey = () => ["runCustomAction"] as const;
+
 export const getRunCustomActionMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -8106,7 +13777,7 @@ export const getRunCustomActionMutationOptions = <
   RunCustomActionMutationVariables,
   TContext
 > => {
-  const mutationKey = ["runCustomAction"];
+  const mutationKey = getRunCustomActionMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -8288,6 +13959,8 @@ export const cancelCustomActionRun = (id: number, runId: number, signal?: AbortS
   });
 };
 
+export const getCancelCustomActionRunMutationKey = () => ["cancelCustomActionRun"] as const;
+
 export const getCancelCustomActionRunMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -8304,7 +13977,7 @@ export const getCancelCustomActionRunMutationOptions = <
   CancelCustomActionRunMutationVariables,
   TContext
 > => {
-  const mutationKey = ["cancelCustomActionRun"];
+  const mutationKey = getCancelCustomActionRunMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -8347,220 +14020,6 @@ export const useCancelCustomActionRun = <TError = ErrorType<unknown>, TContext =
   TContext
 > => {
   return useMutation(getCancelCustomActionRunMutationOptions(options), queryClient);
-};
-
-export const getCustomActionSchedule = (
-  id: number,
-  params: GetCustomActionScheduleParams,
-  signal?: AbortSignal,
-) => {
-  return customInstance<GetCustomActionSchedule200>({
-    url: `/api/custom-actions/${id}/schedule`,
-    method: "GET",
-    params,
-    signal,
-  });
-};
-
-export const getGetCustomActionScheduleQueryKey = (
-  id: number,
-  params?: GetCustomActionScheduleParams,
-) => {
-  return [`/api/custom-actions/${id}/schedule`, ...(params ? [params] : [])] as const;
-};
-
-export const getGetCustomActionScheduleQueryOptions = <
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetCustomActionScheduleQueryKey(id, params);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomActionSchedule>>> = ({
-    signal,
-  }) => getCustomActionSchedule(id, params, signal);
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: id !== null && id !== undefined,
-    ...queryOptions,
-  } as UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData> & {
-    queryKey: DataTag<QueryKey, TData, TError>;
-  };
-};
-
-export type GetCustomActionScheduleQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getCustomActionSchedule>>
->;
-export type GetCustomActionScheduleQueryError = ErrorType<unknown>;
-
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getCustomActionSchedule>>,
-          TError,
-          Awaited<ReturnType<typeof getCustomActionSchedule>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getCustomActionSchedule>>,
-          TError,
-          Awaited<ReturnType<typeof getCustomActionSchedule>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-  const queryOptions = getGetCustomActionScheduleQueryOptions(id, params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
-    queryKey: DataTag<QueryKey, TData, TError>;
-  };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-export const setCustomActionSchedule = (
-  id: number,
-  setCustomActionScheduleRequest: SetCustomActionScheduleRequest,
-  params: SetCustomActionScheduleParams,
-  signal?: AbortSignal,
-) => {
-  return customInstance<SuccessResponse>({
-    url: `/api/custom-actions/${id}/schedule`,
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    data: setCustomActionScheduleRequest,
-    params,
-    signal,
-  });
-};
-
-export const getSetCustomActionScheduleMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setCustomActionSchedule>>,
-    TError,
-    SetCustomActionScheduleMutationVariables,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>,
-  TError,
-  SetCustomActionScheduleMutationVariables,
-  TContext
-> => {
-  const mutationKey = ["setCustomActionSchedule"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof setCustomActionSchedule>>,
-    SetCustomActionScheduleMutationVariables
-  > = (props) => {
-    const { id, data, params } = props ?? {};
-
-    return setCustomActionSchedule(id, data, params);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type SetCustomActionScheduleMutationResult = NonNullable<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>
->;
-export type SetCustomActionScheduleMutationBody = SetCustomActionScheduleRequest;
-export type SetCustomActionScheduleMutationError = ErrorType<unknown>;
-export type SetCustomActionScheduleMutationVariables = {
-  id: number;
-  data: SetCustomActionScheduleRequest;
-  params: SetCustomActionScheduleParams;
-};
-
-export const useSetCustomActionSchedule = <TError = ErrorType<unknown>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof setCustomActionSchedule>>,
-      TError,
-      SetCustomActionScheduleMutationVariables,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>,
-  TError,
-  SetCustomActionScheduleMutationVariables,
-  TContext
-> => {
-  return useMutation(getSetCustomActionScheduleMutationOptions(options), queryClient);
 };
 
 export const getCustomActionVariables = (
@@ -8712,6 +14171,8 @@ export const setCustomActionVariable = (
   });
 };
 
+export const getSetCustomActionVariableMutationKey = () => ["setCustomActionVariable"] as const;
+
 export const getSetCustomActionVariableMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -8728,7 +14189,7 @@ export const getSetCustomActionVariableMutationOptions = <
   SetCustomActionVariableMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setCustomActionVariable"];
+  const mutationKey = getSetCustomActionVariableMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -8791,6 +14252,8 @@ export const updateDiffComment = (
   });
 };
 
+export const getUpdateDiffCommentMutationKey = () => ["updateDiffComment"] as const;
+
 export const getUpdateDiffCommentMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -8807,7 +14270,7 @@ export const getUpdateDiffCommentMutationOptions = <
   UpdateDiffCommentMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateDiffComment"];
+  const mutationKey = getUpdateDiffCommentMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -8860,6 +14323,8 @@ export const deleteDiffComment = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteDiffCommentMutationKey = () => ["deleteDiffComment"] as const;
+
 export const getDeleteDiffCommentMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -8876,7 +14341,7 @@ export const getDeleteDiffCommentMutationOptions = <
   DeleteDiffCommentMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteDiffComment"];
+  const mutationKey = getDeleteDiffCommentMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -9036,6 +14501,8 @@ export const createEditorFile = (createFileRequest: CreateFileRequest, signal?: 
   });
 };
 
+export const getCreateEditorFileMutationKey = () => ["createEditorFile"] as const;
+
 export const getCreateEditorFileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -9052,7 +14519,7 @@ export const getCreateEditorFileMutationOptions = <
   CreateEditorFileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createEditorFile"];
+  const mutationKey = getCreateEditorFileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -9110,6 +14577,8 @@ export const createEditorFolder = (
   });
 };
 
+export const getCreateEditorFolderMutationKey = () => ["createEditorFolder"] as const;
+
 export const getCreateEditorFolderMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -9126,7 +14595,7 @@ export const getCreateEditorFolderMutationOptions = <
   CreateEditorFolderMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createEditorFolder"];
+  const mutationKey = getCreateEditorFolderMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -9181,6 +14650,8 @@ export const format = (formatRequest: FormatRequest, signal?: AbortSignal) => {
   });
 };
 
+export const getFormatMutationKey = () => ["format"] as const;
+
 export const getFormatMutationOptions = <TError = ErrorType<void>, TContext = unknown>(options?: {
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof format>>,
@@ -9194,7 +14665,7 @@ export const getFormatMutationOptions = <TError = ErrorType<void>, TContext = un
   FormatMutationVariables,
   TContext
 > => {
-  const mutationKey = ["format"];
+  const mutationKey = getFormatMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -9247,6 +14718,8 @@ export const moveEditorPath = (movePathRequest: MovePathRequest, signal?: AbortS
   });
 };
 
+export const getMoveEditorPathMutationKey = () => ["moveEditorPath"] as const;
+
 export const getMoveEditorPathMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -9263,7 +14736,7 @@ export const getMoveEditorPathMutationOptions = <
   MoveEditorPathMutationVariables,
   TContext
 > => {
-  const mutationKey = ["moveEditorPath"];
+  const mutationKey = getMoveEditorPathMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -9421,6 +14894,8 @@ export const renameEditorPath = (renamePathRequest: RenamePathRequest, signal?: 
   });
 };
 
+export const getRenameEditorPathMutationKey = () => ["renameEditorPath"] as const;
+
 export const getRenameEditorPathMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -9437,7 +14912,7 @@ export const getRenameEditorPathMutationOptions = <
   RenameEditorPathMutationVariables,
   TContext
 > => {
-  const mutationKey = ["renameEditorPath"];
+  const mutationKey = getRenameEditorPathMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -9702,6 +15177,8 @@ export const trashEditorPath = (trashPathRequest: TrashPathRequest, signal?: Abo
   });
 };
 
+export const getTrashEditorPathMutationKey = () => ["trashEditorPath"] as const;
+
 export const getTrashEditorPathMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -9718,7 +15195,7 @@ export const getTrashEditorPathMutationOptions = <
   TrashEditorPathMutationVariables,
   TContext
 > => {
-  const mutationKey = ["trashEditorPath"];
+  const mutationKey = getTrashEditorPathMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10088,6 +15565,8 @@ export const writeFile = (writeFileRequest: WriteFileRequest, signal?: AbortSign
   });
 };
 
+export const getWriteFileMutationKey = () => ["writeFile"] as const;
+
 export const getWriteFileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -10104,7 +15583,7 @@ export const getWriteFileMutationOptions = <
   WriteFileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["writeFile"];
+  const mutationKey = getWriteFileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10253,6 +15732,8 @@ export const createLayout = (
   });
 };
 
+export const getCreateLayoutMutationKey = () => ["createLayout"] as const;
+
 export const getCreateLayoutMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -10269,7 +15750,7 @@ export const getCreateLayoutMutationOptions = <
   CreateLayoutMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createLayout"];
+  const mutationKey = getCreateLayoutMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10326,6 +15807,8 @@ export const updateLayout = (
   });
 };
 
+export const getUpdateLayoutMutationKey = () => ["updateLayout"] as const;
+
 export const getUpdateLayoutMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -10342,7 +15825,7 @@ export const getUpdateLayoutMutationOptions = <
   UpdateLayoutMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateLayout"];
+  const mutationKey = getUpdateLayoutMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10393,6 +15876,8 @@ export const deleteLayout = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteLayoutMutationKey = () => ["deleteLayout"] as const;
+
 export const getDeleteLayoutMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -10409,7 +15894,7 @@ export const getDeleteLayoutMutationOptions = <
   DeleteLayoutMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteLayout"];
+  const mutationKey = getDeleteLayoutMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10460,6 +15945,8 @@ export const setDefaultLayout = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getSetDefaultLayoutMutationKey = () => ["setDefaultLayout"] as const;
+
 export const getSetDefaultLayoutMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -10476,7 +15963,7 @@ export const getSetDefaultLayoutMutationOptions = <
   SetDefaultLayoutMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setDefaultLayout"];
+  const mutationKey = getSetDefaultLayoutMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10631,6 +16118,8 @@ export const createFeature = (createFeatureRequest: CreateFeatureRequest, signal
   });
 };
 
+export const getCreateFeatureMutationKey = () => ["createFeature"] as const;
+
 export const getCreateFeatureMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -10647,7 +16136,7 @@ export const getCreateFeatureMutationOptions = <
   CreateFeatureMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createFeature"];
+  const mutationKey = getCreateFeatureMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -10689,6 +16178,109 @@ export const useCreateFeature = <TError = ErrorType<unknown>, TContext = unknown
 > => {
   return useMutation(getCreateFeatureMutationOptions(options), queryClient);
 };
+
+/**
+ * @summary Every active conversation across all projects, most recently touched first.
+ */
+export const listActiveFeatures = (signal?: AbortSignal) => {
+  return customInstance<Feature[]>({ url: `/api/features/active`, method: "GET", signal });
+};
+
+export const getListActiveFeaturesQueryKey = () => {
+  return [`/api/features/active`] as const;
+};
+
+export const getListActiveFeaturesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listActiveFeatures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveFeatures>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListActiveFeaturesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listActiveFeatures>>> = ({ signal }) =>
+    listActiveFeatures(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listActiveFeatures>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListActiveFeaturesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listActiveFeatures>>
+>;
+export type ListActiveFeaturesQueryError = ErrorType<unknown>;
+
+export function useListActiveFeatures<
+  TData = Awaited<ReturnType<typeof listActiveFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveFeatures>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listActiveFeatures>>,
+          TError,
+          Awaited<ReturnType<typeof listActiveFeatures>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListActiveFeatures<
+  TData = Awaited<ReturnType<typeof listActiveFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listActiveFeatures>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listActiveFeatures>>,
+          TError,
+          Awaited<ReturnType<typeof listActiveFeatures>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListActiveFeatures<
+  TData = Awaited<ReturnType<typeof listActiveFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveFeatures>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Every active conversation across all projects, most recently touched first.
+ */
+
+export function useListActiveFeatures<
+  TData = Awaited<ReturnType<typeof listActiveFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listActiveFeatures>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListActiveFeaturesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const listFeatureActivity = (params: ListFeatureActivityParams, signal?: AbortSignal) => {
   return customInstance<FeatureActivity[]>({
@@ -11005,6 +16597,116 @@ export function useListFeaturePorts<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+/**
+ * @summary The active conversations touched most recently, across every project.
+ */
+export const listRecentFeatures = (params?: ListRecentFeaturesParams, signal?: AbortSignal) => {
+  return customInstance<Feature[]>({ url: `/api/features/recent`, method: "GET", params, signal });
+};
+
+export const getListRecentFeaturesQueryKey = (params?: ListRecentFeaturesParams) => {
+  return [`/api/features/recent`, ...(params ? [params] : [])] as const;
+};
+
+export const getListRecentFeaturesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listRecentFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListRecentFeaturesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listRecentFeatures>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListRecentFeaturesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listRecentFeatures>>> = ({ signal }) =>
+    listRecentFeatures(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listRecentFeatures>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListRecentFeaturesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listRecentFeatures>>
+>;
+export type ListRecentFeaturesQueryError = ErrorType<unknown>;
+
+export function useListRecentFeatures<
+  TData = Awaited<ReturnType<typeof listRecentFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListRecentFeaturesParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listRecentFeatures>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listRecentFeatures>>,
+          TError,
+          Awaited<ReturnType<typeof listRecentFeatures>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListRecentFeatures<
+  TData = Awaited<ReturnType<typeof listRecentFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListRecentFeaturesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listRecentFeatures>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listRecentFeatures>>,
+          TError,
+          Awaited<ReturnType<typeof listRecentFeatures>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListRecentFeatures<
+  TData = Awaited<ReturnType<typeof listRecentFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListRecentFeaturesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listRecentFeatures>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The active conversations touched most recently, across every project.
+ */
+
+export function useListRecentFeatures<
+  TData = Awaited<ReturnType<typeof listRecentFeatures>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListRecentFeaturesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listRecentFeatures>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListRecentFeaturesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getFeatureAgentState = (
   featureId: number,
   params?: GetFeatureAgentStateParams,
@@ -11258,6 +16960,8 @@ export const createDiffComment = (
   });
 };
 
+export const getCreateDiffCommentMutationKey = () => ["createDiffComment"] as const;
+
 export const getCreateDiffCommentMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11274,7 +16978,7 @@ export const getCreateDiffCommentMutationOptions = <
   CreateDiffCommentMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createDiffComment"];
+  const mutationKey = getCreateDiffCommentMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11330,6 +17034,8 @@ export const deletePendingDiffComments = (featureId: number, signal?: AbortSigna
   });
 };
 
+export const getDeletePendingDiffCommentsMutationKey = () => ["deletePendingDiffComments"] as const;
+
 export const getDeletePendingDiffCommentsMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11346,7 +17052,7 @@ export const getDeletePendingDiffCommentsMutationOptions = <
   DeletePendingDiffCommentsMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deletePendingDiffComments"];
+  const mutationKey = getDeletePendingDiffCommentsMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11399,6 +17105,8 @@ export const markDiffCommentsSent = (featureId: number, signal?: AbortSignal) =>
   });
 };
 
+export const getMarkDiffCommentsSentMutationKey = () => ["markDiffCommentsSent"] as const;
+
 export const getMarkDiffCommentsSentMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11415,7 +17123,7 @@ export const getMarkDiffCommentsSentMutationOptions = <
   MarkDiffCommentsSentMutationVariables,
   TContext
 > => {
-  const mutationKey = ["markDiffCommentsSent"];
+  const mutationKey = getMarkDiffCommentsSentMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11581,6 +17289,8 @@ export const markDiffViewed = (
   });
 };
 
+export const getMarkDiffViewedMutationKey = () => ["markDiffViewed"] as const;
+
 export const getMarkDiffViewedMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11597,7 +17307,7 @@ export const getMarkDiffViewedMutationOptions = <
   MarkDiffViewedMutationVariables,
   TContext
 > => {
-  const mutationKey = ["markDiffViewed"];
+  const mutationKey = getMarkDiffViewedMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11653,6 +17363,8 @@ export const unmarkDiffViewed = (
   });
 };
 
+export const getUnmarkDiffViewedMutationKey = () => ["unmarkDiffViewed"] as const;
+
 export const getUnmarkDiffViewedMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11669,7 +17381,7 @@ export const getUnmarkDiffViewedMutationOptions = <
   UnmarkDiffViewedMutationVariables,
   TContext
 > => {
-  const mutationKey = ["unmarkDiffViewed"];
+  const mutationKey = getUnmarkDiffViewedMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11725,6 +17437,8 @@ export const clearAllDiffViewed = (featureId: number, signal?: AbortSignal) => {
   });
 };
 
+export const getClearAllDiffViewedMutationKey = () => ["clearAllDiffViewed"] as const;
+
 export const getClearAllDiffViewedMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11741,7 +17455,7 @@ export const getClearAllDiffViewedMutationOptions = <
   ClearAllDiffViewedMutationVariables,
   TContext
 > => {
-  const mutationKey = ["clearAllDiffViewed"];
+  const mutationKey = getClearAllDiffViewedMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11914,6 +17628,8 @@ export const openFileRoute = (
   });
 };
 
+export const getOpenFileRouteMutationKey = () => ["openFileRoute"] as const;
+
 export const getOpenFileRouteMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -11930,7 +17646,7 @@ export const getOpenFileRouteMutationOptions = <
   OpenFileRouteMutationVariables,
   TContext
 > => {
-  const mutationKey = ["openFileRoute"];
+  const mutationKey = getOpenFileRouteMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -11984,6 +17700,8 @@ export const refreshSession = (featureId: number, signal?: AbortSignal) => {
   });
 };
 
+export const getRefreshSessionMutationKey = () => ["refreshSession"] as const;
+
 export const getRefreshSessionMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -12000,7 +17718,7 @@ export const getRefreshSessionMutationOptions = <
   RefreshSessionMutationVariables,
   TContext
 > => {
-  const mutationKey = ["refreshSession"];
+  const mutationKey = getRefreshSessionMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -12042,6 +17760,131 @@ export const useRefreshSession = <TError = ErrorType<void>, TContext = unknown>(
 > => {
   return useMutation(getRefreshSessionMutationOptions(options), queryClient);
 };
+
+/**
+ * @summary What the sidebar row previews: the last agent reply and the todo progress.
+ */
+export const getFeatureRowSummary = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<FeatureRowSummaryResponse>({
+    url: `/api/features/${featureId}/row-summary`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetFeatureRowSummaryQueryKey = (featureId: number) => {
+  return [`/api/features/${featureId}/row-summary`] as const;
+};
+
+export const getGetFeatureRowSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFeatureRowSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getFeatureRowSummary>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFeatureRowSummaryQueryKey(featureId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getFeatureRowSummary>>> = ({ signal }) =>
+    getFeatureRowSummary(featureId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: featureId !== null && featureId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getFeatureRowSummary>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type GetFeatureRowSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFeatureRowSummary>>
+>;
+export type GetFeatureRowSummaryQueryError = ErrorType<unknown>;
+
+export function useGetFeatureRowSummary<
+  TData = Awaited<ReturnType<typeof getFeatureRowSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getFeatureRowSummary>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getFeatureRowSummary>>,
+          TError,
+          Awaited<ReturnType<typeof getFeatureRowSummary>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetFeatureRowSummary<
+  TData = Awaited<ReturnType<typeof getFeatureRowSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getFeatureRowSummary>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getFeatureRowSummary>>,
+          TError,
+          Awaited<ReturnType<typeof getFeatureRowSummary>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetFeatureRowSummary<
+  TData = Awaited<ReturnType<typeof getFeatureRowSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getFeatureRowSummary>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary What the sidebar row previews: the last agent reply and the todo progress.
+ */
+
+export function useGetFeatureRowSummary<
+  TData = Awaited<ReturnType<typeof getFeatureRowSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getFeatureRowSummary>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetFeatureRowSummaryQueryOptions(featureId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getSessions = (featureId: number, signal?: AbortSignal) => {
   return customInstance<AgentSessionRow[]>({
@@ -12142,6 +17985,131 @@ export function useGetSessions<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetSessionsQueryOptions(featureId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary The sub-agents the feature's conversations launched, newest first.
+ */
+export const listFeatureSubagents = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<SubagentRun[]>({
+    url: `/api/features/${featureId}/subagents`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListFeatureSubagentsQueryKey = (featureId: number) => {
+  return [`/api/features/${featureId}/subagents`] as const;
+};
+
+export const getListFeatureSubagentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFeatureSubagentsQueryKey(featureId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listFeatureSubagents>>> = ({ signal }) =>
+    listFeatureSubagents(featureId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: featureId !== null && featureId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListFeatureSubagentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFeatureSubagents>>
+>;
+export type ListFeatureSubagentsQueryError = ErrorType<unknown>;
+
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeatureSubagents>>,
+          TError,
+          Awaited<ReturnType<typeof listFeatureSubagents>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeatureSubagents>>,
+          TError,
+          Awaited<ReturnType<typeof listFeatureSubagents>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The sub-agents the feature's conversations launched, newest first.
+ */
+
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListFeatureSubagentsQueryOptions(featureId, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -12261,6 +18229,8 @@ export const deleteFeature = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteFeatureMutationKey = () => ["deleteFeature"] as const;
+
 export const getDeleteFeatureMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -12277,7 +18247,7 @@ export const getDeleteFeatureMutationOptions = <
   DeleteFeatureMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteFeature"];
+  const mutationKey = getDeleteFeatureMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -12320,6 +18290,11 @@ export const useDeleteFeature = <TError = ErrorType<unknown>, TContext = unknown
   return useMutation(getDeleteFeatureMutationOptions(options), queryClient);
 };
 
+/**
+ * @summary Archive a conversation and run the cleanup the request asks for, all
+orchestrated here: the response carries each step's outcome. The cleanup
+keeps running if the client goes away, and is journaled for resumption.
+ */
 export const archiveFeature = (
   id: number,
   archiveRequest: ArchiveRequest,
@@ -12333,6 +18308,8 @@ export const archiveFeature = (
     signal,
   });
 };
+
+export const getArchiveFeatureMutationKey = () => ["archiveFeature"] as const;
 
 export const getArchiveFeatureMutationOptions = <
   TError = ErrorType<unknown>,
@@ -12350,7 +18327,7 @@ export const getArchiveFeatureMutationOptions = <
   ArchiveFeatureMutationVariables,
   TContext
 > => {
-  const mutationKey = ["archiveFeature"];
+  const mutationKey = getArchiveFeatureMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -12374,6 +18351,11 @@ export type ArchiveFeatureMutationBody = ArchiveRequest;
 export type ArchiveFeatureMutationError = ErrorType<unknown>;
 export type ArchiveFeatureMutationVariables = { id: number; data: ArchiveRequest };
 
+/**
+ * @summary Archive a conversation and run the cleanup the request asks for, all
+orchestrated here: the response carries each step's outcome. The cleanup
+keeps running if the client goes away, and is journaled for resumption.
+ */
 export const useArchiveFeature = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
     mutation?: UseMutationOptions<
@@ -12391,6 +18373,192 @@ export const useArchiveFeature = <TError = ErrorType<unknown>, TContext = unknow
   TContext
 > => {
   return useMutation(getArchiveFeatureMutationOptions(options), queryClient);
+};
+
+export const getArchiveCleanup = (id: number, signal?: AbortSignal) => {
+  return customInstance<ArchiveCleanupStatus>({
+    url: `/api/features/${id}/archive-cleanup`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetArchiveCleanupQueryKey = (id: number) => {
+  return [`/api/features/${id}/archive-cleanup`] as const;
+};
+
+export const getGetArchiveCleanupQueryOptions = <
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetArchiveCleanupQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getArchiveCleanup>>> = ({ signal }) =>
+    getArchiveCleanup(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type GetArchiveCleanupQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getArchiveCleanup>>
+>;
+export type GetArchiveCleanupQueryError = ErrorType<unknown>;
+
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getArchiveCleanup>>,
+          TError,
+          Awaited<ReturnType<typeof getArchiveCleanup>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getArchiveCleanup>>,
+          TError,
+          Awaited<ReturnType<typeof getArchiveCleanup>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetArchiveCleanup<
+  TData = Awaited<ReturnType<typeof getArchiveCleanup>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getArchiveCleanup>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetArchiveCleanupQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const retryArchiveCleanup = (
+  id: number,
+  retryArchiveCleanupRequest: RetryArchiveCleanupRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ArchiveCleanupStatus>({
+    url: `/api/features/${id}/archive-cleanup/retry`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: retryArchiveCleanupRequest,
+    signal,
+  });
+};
+
+export const getRetryArchiveCleanupMutationKey = () => ["retryArchiveCleanup"] as const;
+
+export const getRetryArchiveCleanupMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof retryArchiveCleanup>>,
+    TError,
+    RetryArchiveCleanupMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof retryArchiveCleanup>>,
+  TError,
+  RetryArchiveCleanupMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRetryArchiveCleanupMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof retryArchiveCleanup>>,
+    RetryArchiveCleanupMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return retryArchiveCleanup(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RetryArchiveCleanupMutationResult = NonNullable<
+  Awaited<ReturnType<typeof retryArchiveCleanup>>
+>;
+export type RetryArchiveCleanupMutationBody = RetryArchiveCleanupRequest;
+export type RetryArchiveCleanupMutationError = ErrorType<unknown>;
+export type RetryArchiveCleanupMutationVariables = { id: number; data: RetryArchiveCleanupRequest };
+
+export const useRetryArchiveCleanup = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof retryArchiveCleanup>>,
+      TError,
+      RetryArchiveCleanupMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof retryArchiveCleanup>>,
+  TError,
+  RetryArchiveCleanupMutationVariables,
+  TContext
+> => {
+  return useMutation(getRetryArchiveCleanupMutationOptions(options), queryClient);
 };
 
 export const getFeatureArchivePreview = (id: number, signal?: AbortSignal) => {
@@ -12529,6 +18697,8 @@ export const autoNameFeature = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getAutoNameFeatureMutationKey = () => ["autoNameFeature"] as const;
+
 export const getAutoNameFeatureMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -12545,7 +18715,7 @@ export const getAutoNameFeatureMutationOptions = <
   AutoNameFeatureMutationVariables,
   TContext
 > => {
-  const mutationKey = ["autoNameFeature"];
+  const mutationKey = getAutoNameFeatureMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -12593,6 +18763,160 @@ export const useAutoNameFeature = <TError = ErrorType<unknown>, TContext = unkno
   TContext
 > => {
   return useMutation(getAutoNameFeatureMutationOptions(options), queryClient);
+};
+
+export const linkFeatureBranch = (
+  id: number,
+  featureBranchBody: FeatureBranchBody,
+  signal?: AbortSignal,
+) => {
+  return customInstance<GitSuccessResponse>({
+    url: `/api/features/${id}/branches/link`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: featureBranchBody,
+    signal,
+  });
+};
+
+export const getLinkFeatureBranchMutationKey = () => ["linkFeatureBranch"] as const;
+
+export const getLinkFeatureBranchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof linkFeatureBranch>>,
+    TError,
+    LinkFeatureBranchMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof linkFeatureBranch>>,
+  TError,
+  LinkFeatureBranchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getLinkFeatureBranchMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof linkFeatureBranch>>,
+    LinkFeatureBranchMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return linkFeatureBranch(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type LinkFeatureBranchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof linkFeatureBranch>>
+>;
+export type LinkFeatureBranchMutationBody = FeatureBranchBody;
+export type LinkFeatureBranchMutationError = ErrorType<unknown>;
+export type LinkFeatureBranchMutationVariables = { id: number; data: FeatureBranchBody };
+
+export const useLinkFeatureBranch = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof linkFeatureBranch>>,
+      TError,
+      LinkFeatureBranchMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof linkFeatureBranch>>,
+  TError,
+  LinkFeatureBranchMutationVariables,
+  TContext
+> => {
+  return useMutation(getLinkFeatureBranchMutationOptions(options), queryClient);
+};
+
+export const unlinkFeatureBranch = (
+  id: number,
+  featureBranchBody: FeatureBranchBody,
+  signal?: AbortSignal,
+) => {
+  return customInstance<GitSuccessResponse>({
+    url: `/api/features/${id}/branches/unlink`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: featureBranchBody,
+    signal,
+  });
+};
+
+export const getUnlinkFeatureBranchMutationKey = () => ["unlinkFeatureBranch"] as const;
+
+export const getUnlinkFeatureBranchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unlinkFeatureBranch>>,
+    TError,
+    UnlinkFeatureBranchMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unlinkFeatureBranch>>,
+  TError,
+  UnlinkFeatureBranchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUnlinkFeatureBranchMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unlinkFeatureBranch>>,
+    UnlinkFeatureBranchMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return unlinkFeatureBranch(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnlinkFeatureBranchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unlinkFeatureBranch>>
+>;
+export type UnlinkFeatureBranchMutationBody = FeatureBranchBody;
+export type UnlinkFeatureBranchMutationError = ErrorType<unknown>;
+export type UnlinkFeatureBranchMutationVariables = { id: number; data: FeatureBranchBody };
+
+export const useUnlinkFeatureBranch = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof unlinkFeatureBranch>>,
+      TError,
+      UnlinkFeatureBranchMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof unlinkFeatureBranch>>,
+  TError,
+  UnlinkFeatureBranchMutationVariables,
+  TContext
+> => {
+  return useMutation(getUnlinkFeatureBranchMutationOptions(options), queryClient);
 };
 
 export const isFeatureEmpty = (id: number, signal?: AbortSignal) => {
@@ -12716,6 +19040,8 @@ export const updateFeatureLabel = (
   });
 };
 
+export const getUpdateFeatureLabelMutationKey = () => ["updateFeatureLabel"] as const;
+
 export const getUpdateFeatureLabelMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -12732,7 +19058,7 @@ export const getUpdateFeatureLabelMutationOptions = <
   UpdateFeatureLabelMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateFeatureLabel"];
+  const mutationKey = getUpdateFeatureLabelMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -12911,6 +19237,8 @@ export const setFeatureModelSetting = (
   });
 };
 
+export const getSetFeatureModelSettingMutationKey = () => ["setFeatureModelSetting"] as const;
+
 export const getSetFeatureModelSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -12927,7 +19255,7 @@ export const getSetFeatureModelSettingMutationOptions = <
   SetFeatureModelSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setFeatureModelSetting"];
+  const mutationKey = getSetFeatureModelSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13096,6 +19424,8 @@ export const updateFeaturePinned = (
   });
 };
 
+export const getUpdateFeaturePinnedMutationKey = () => ["updateFeaturePinned"] as const;
+
 export const getUpdateFeaturePinnedMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13112,7 +19442,7 @@ export const getUpdateFeaturePinnedMutationOptions = <
   UpdateFeaturePinnedMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateFeaturePinned"];
+  const mutationKey = getUpdateFeaturePinnedMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13291,6 +19621,8 @@ export const setFeatureProviderSetting = (
   });
 };
 
+export const getSetFeatureProviderSettingMutationKey = () => ["setFeatureProviderSetting"] as const;
+
 export const getSetFeatureProviderSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13307,7 +19639,7 @@ export const getSetFeatureProviderSettingMutationOptions = <
   SetFeatureProviderSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setFeatureProviderSetting"];
+  const mutationKey = getSetFeatureProviderSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13369,6 +19701,8 @@ export const respondGate = (
   });
 };
 
+export const getRespondGateMutationKey = () => ["respondGate"] as const;
+
 export const getRespondGateMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13385,7 +19719,7 @@ export const getRespondGateMutationOptions = <
   RespondGateMutationVariables,
   TContext
 > => {
-  const mutationKey = ["respondGate"];
+  const mutationKey = getRespondGateMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13553,6 +19887,8 @@ export const setFeatureSetting = (
   });
 };
 
+export const getSetFeatureSettingMutationKey = () => ["setFeatureSetting"] as const;
+
 export const getSetFeatureSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13569,7 +19905,7 @@ export const getSetFeatureSettingMutationOptions = <
   SetFeatureSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setFeatureSetting"];
+  const mutationKey = getSetFeatureSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13628,6 +19964,8 @@ export const updateFeatureStatus = (
   });
 };
 
+export const getUpdateFeatureStatusMutationKey = () => ["updateFeatureStatus"] as const;
+
 export const getUpdateFeatureStatusMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13644,7 +19982,7 @@ export const getUpdateFeatureStatusMutationOptions = <
   UpdateFeatureStatusMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateFeatureStatus"];
+  const mutationKey = getUpdateFeatureStatusMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13703,6 +20041,8 @@ export const updateTargetBranch = (
   });
 };
 
+export const getUpdateTargetBranchMutationKey = () => ["updateTargetBranch"] as const;
+
 export const getUpdateTargetBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13719,7 +20059,7 @@ export const getUpdateTargetBranchMutationOptions = <
   UpdateTargetBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateTargetBranch"];
+  const mutationKey = getUpdateTargetBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -13778,6 +20118,8 @@ export const updateFeatureTitle = (
   });
 };
 
+export const getUpdateFeatureTitleMutationKey = () => ["updateFeatureTitle"] as const;
+
 export const getUpdateFeatureTitleMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -13794,7 +20136,7 @@ export const getUpdateFeatureTitleMutationOptions = <
   UpdateFeatureTitleMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateFeatureTitle"];
+  const mutationKey = getUpdateFeatureTitleMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -14180,6 +20522,8 @@ export const deleteFeatureBranch = (params: DeleteFeatureBranchParams, signal?: 
   });
 };
 
+export const getDeleteFeatureBranchMutationKey = () => ["deleteFeatureBranch"] as const;
+
 export const getDeleteFeatureBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -14196,7 +20540,7 @@ export const getDeleteFeatureBranchMutationOptions = <
   DeleteFeatureBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteFeatureBranch"];
+  const mutationKey = getDeleteFeatureBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -14563,6 +20907,8 @@ export const checkoutBranch = (checkoutBody: CheckoutBody, signal?: AbortSignal)
   });
 };
 
+export const getCheckoutBranchMutationKey = () => ["checkoutBranch"] as const;
+
 export const getCheckoutBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -14579,7 +20925,7 @@ export const getCheckoutBranchMutationOptions = <
   CheckoutBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["checkoutBranch"];
+  const mutationKey = getCheckoutBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -14635,6 +20981,8 @@ export const validateCheckout = (
   });
 };
 
+export const getValidateCheckoutMutationKey = () => ["validateCheckout"] as const;
+
 export const getValidateCheckoutMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -14651,7 +20999,7 @@ export const getValidateCheckoutMutationOptions = <
   ValidateCheckoutMutationVariables,
   TContext
 > => {
-  const mutationKey = ["validateCheckout"];
+  const mutationKey = getValidateCheckoutMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -14706,6 +21054,8 @@ export const commit = (commitBody: CommitBody, signal?: AbortSignal) => {
   });
 };
 
+export const getCommitMutationKey = () => ["commit"] as const;
+
 export const getCommitMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -14722,7 +21072,7 @@ export const getCommitMutationOptions = <
   CommitMutationVariables,
   TContext
 > => {
-  const mutationKey = ["commit"];
+  const mutationKey = getCommitMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -15625,6 +21975,8 @@ export const getFileContentBatch = (
   });
 };
 
+export const getGetFileContentBatchMutationKey = () => ["getFileContentBatch"] as const;
+
 export const getGetFileContentBatchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -15641,7 +21993,7 @@ export const getGetFileContentBatchMutationOptions = <
   GetFileContentBatchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["getFileContentBatch"];
+  const mutationKey = getGetFileContentBatchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -15997,6 +22349,8 @@ export const putForgeToken = (forgeTokenRequest: ForgeTokenRequest, signal?: Abo
   });
 };
 
+export const getPutForgeTokenMutationKey = () => ["putForgeToken"] as const;
+
 export const getPutForgeTokenMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -16013,7 +22367,7 @@ export const getPutForgeTokenMutationOptions = <
   PutForgeTokenMutationVariables,
   TContext
 > => {
-  const mutationKey = ["putForgeToken"];
+  const mutationKey = getPutForgeTokenMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -16065,6 +22419,8 @@ export const deleteForgeToken = (params: DeleteForgeTokenParams, signal?: AbortS
   });
 };
 
+export const getDeleteForgeTokenMutationKey = () => ["deleteForgeToken"] as const;
+
 export const getDeleteForgeTokenMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -16081,7 +22437,7 @@ export const getDeleteForgeTokenMutationOptions = <
   DeleteForgeTokenMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteForgeToken"];
+  const mutationKey = getDeleteForgeTokenMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -16256,6 +22612,8 @@ export const resetFile = (fileMutationBody: FileMutationBody, signal?: AbortSign
   });
 };
 
+export const getResetFileMutationKey = () => ["resetFile"] as const;
+
 export const getResetFileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -16272,7 +22630,7 @@ export const getResetFileMutationOptions = <
   ResetFileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["resetFile"];
+  const mutationKey = getResetFileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -16325,6 +22683,8 @@ export const stageFile = (fileMutationBody: FileMutationBody, signal?: AbortSign
   });
 };
 
+export const getStageFileMutationKey = () => ["stageFile"] as const;
+
 export const getStageFileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -16341,7 +22701,7 @@ export const getStageFileMutationOptions = <
   StageFileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["stageFile"];
+  const mutationKey = getStageFileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -16397,6 +22757,8 @@ export const mergeFeatureBranch = (
   });
 };
 
+export const getMergeFeatureBranchMutationKey = () => ["mergeFeatureBranch"] as const;
+
 export const getMergeFeatureBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -16413,7 +22775,7 @@ export const getMergeFeatureBranchMutationOptions = <
   MergeFeatureBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["mergeFeatureBranch"];
+  const mutationKey = getMergeFeatureBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -16674,6 +23036,111 @@ export function useGetOriginalBranch<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetOriginalBranchQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGitPathPrefix = (params: GetGitPathPrefixParams, signal?: AbortSignal) => {
+  return customInstance<GitPathPrefixResponse>({
+    url: `/api/git/path-prefix`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetGitPathPrefixQueryKey = (params?: GetGitPathPrefixParams) => {
+  return [`/api/git/path-prefix`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetGitPathPrefixQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGitPathPrefixQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitPathPrefix>>> = ({ signal }) =>
+    getGitPathPrefix(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGitPathPrefix>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetGitPathPrefixQueryResult = NonNullable<Awaited<ReturnType<typeof getGitPathPrefix>>>;
+export type GetGitPathPrefixQueryError = ErrorType<unknown>;
+
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitPathPrefix>>,
+          TError,
+          Awaited<ReturnType<typeof getGitPathPrefix>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitPathPrefix>>,
+          TError,
+          Awaited<ReturnType<typeof getGitPathPrefix>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetGitPathPrefix<
+  TData = Awaited<ReturnType<typeof getGitPathPrefix>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetGitPathPrefixParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitPathPrefix>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetGitPathPrefixQueryOptions(params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -16962,6 +23429,364 @@ export function useGetPrComments<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const lookupFeatureRepoPr = (params: LookupFeatureRepoPrParams, signal?: AbortSignal) => {
+  return customInstance<PrSummary>({ url: `/api/git/pr/lookup`, method: "GET", params, signal });
+};
+
+export const getLookupFeatureRepoPrQueryKey = (params?: LookupFeatureRepoPrParams) => {
+  return [`/api/git/pr/lookup`, ...(params ? [params] : [])] as const;
+};
+
+export const getLookupFeatureRepoPrQueryOptions = <
+  TData = Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+  TError = ErrorType<unknown>,
+>(
+  params: LookupFeatureRepoPrParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof lookupFeatureRepoPr>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getLookupFeatureRepoPrQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof lookupFeatureRepoPr>>> = ({ signal }) =>
+    lookupFeatureRepoPr(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type LookupFeatureRepoPrQueryResult = NonNullable<
+  Awaited<ReturnType<typeof lookupFeatureRepoPr>>
+>;
+export type LookupFeatureRepoPrQueryError = ErrorType<unknown>;
+
+export function useLookupFeatureRepoPr<
+  TData = Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+  TError = ErrorType<unknown>,
+>(
+  params: LookupFeatureRepoPrParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof lookupFeatureRepoPr>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+          TError,
+          Awaited<ReturnType<typeof lookupFeatureRepoPr>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useLookupFeatureRepoPr<
+  TData = Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+  TError = ErrorType<unknown>,
+>(
+  params: LookupFeatureRepoPrParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof lookupFeatureRepoPr>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+          TError,
+          Awaited<ReturnType<typeof lookupFeatureRepoPr>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useLookupFeatureRepoPr<
+  TData = Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+  TError = ErrorType<unknown>,
+>(
+  params: LookupFeatureRepoPrParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof lookupFeatureRepoPr>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useLookupFeatureRepoPr<
+  TData = Awaited<ReturnType<typeof lookupFeatureRepoPr>>,
+  TError = ErrorType<unknown>,
+>(
+  params: LookupFeatureRepoPrParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof lookupFeatureRepoPr>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getLookupFeatureRepoPrQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const postPrMerge = (prMergeRequest: PrMergeRequest, signal?: AbortSignal) => {
+  return customInstance<PrMergeResponse>({
+    url: `/api/git/pr/merge`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: prMergeRequest,
+    signal,
+  });
+};
+
+export const getPostPrMergeMutationKey = () => ["postPrMerge"] as const;
+
+export const getPostPrMergeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postPrMerge>>,
+    TError,
+    PostPrMergeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postPrMerge>>,
+  TError,
+  PostPrMergeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPostPrMergeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postPrMerge>>,
+    PostPrMergeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postPrMerge(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostPrMergeMutationResult = NonNullable<Awaited<ReturnType<typeof postPrMerge>>>;
+export type PostPrMergeMutationBody = PrMergeRequest;
+export type PostPrMergeMutationError = ErrorType<unknown>;
+export type PostPrMergeMutationVariables = { data: PrMergeRequest };
+
+export const usePostPrMerge = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postPrMerge>>,
+      TError,
+      PostPrMergeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postPrMerge>>,
+  TError,
+  PostPrMergeMutationVariables,
+  TContext
+> => {
+  return useMutation(getPostPrMergeMutationOptions(options), queryClient);
+};
+
+export const deletePrMerge = (params: DeletePrMergeParams, signal?: AbortSignal) => {
+  return customInstance<PrMergeCancelResponse>({
+    url: `/api/git/pr/merge`,
+    method: "DELETE",
+    params,
+    signal,
+  });
+};
+
+export const getDeletePrMergeMutationKey = () => ["deletePrMerge"] as const;
+
+export const getDeletePrMergeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePrMerge>>,
+    TError,
+    DeletePrMergeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePrMerge>>,
+  TError,
+  DeletePrMergeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeletePrMergeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePrMerge>>,
+    DeletePrMergeMutationVariables
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return deletePrMerge(params);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeletePrMergeMutationResult = NonNullable<Awaited<ReturnType<typeof deletePrMerge>>>;
+
+export type DeletePrMergeMutationError = ErrorType<unknown>;
+export type DeletePrMergeMutationVariables = { params: DeletePrMergeParams };
+
+export const useDeletePrMerge = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deletePrMerge>>,
+      TError,
+      DeletePrMergeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deletePrMerge>>,
+  TError,
+  DeletePrMergeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeletePrMergeMutationOptions(options), queryClient);
+};
+
+export const getPrMergeStatus = (params: GetPrMergeStatusParams, signal?: AbortSignal) => {
+  return customInstance<PrMergeStatus>({
+    url: `/api/git/pr/merge-status`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetPrMergeStatusQueryKey = (params?: GetPrMergeStatusParams) => {
+  return [`/api/git/pr/merge-status`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPrMergeStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPrMergeStatusQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPrMergeStatus>>> = ({ signal }) =>
+    getPrMergeStatus(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPrMergeStatus>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetPrMergeStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getPrMergeStatus>>>;
+export type GetPrMergeStatusQueryError = ErrorType<unknown>;
+
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPrMergeStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getPrMergeStatus>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPrMergeStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getPrMergeStatus>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPrMergeStatusQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const push = (pushBody: PushBody, signal?: AbortSignal) => {
   return customInstance<GitSuccessResponse>({
     url: `/api/git/push`,
@@ -16971,6 +23796,8 @@ export const push = (pushBody: PushBody, signal?: AbortSignal) => {
     signal,
   });
 };
+
+export const getPushMutationKey = () => ["push"] as const;
 
 export const getPushMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
   mutation?: UseMutationOptions<
@@ -16985,7 +23812,7 @@ export const getPushMutationOptions = <TError = ErrorType<unknown>, TContext = u
   PushMutationVariables,
   TContext
 > => {
-  const mutationKey = ["push"];
+  const mutationKey = getPushMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17032,6 +23859,8 @@ export const pushInput = (pushInputBody: PushInputBody, signal?: AbortSignal) =>
   });
 };
 
+export const getPushInputMutationKey = () => ["pushInput"] as const;
+
 export const getPushInputMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17048,7 +23877,7 @@ export const getPushInputMutationOptions = <
   PushInputMutationVariables,
   TContext
 > => {
-  const mutationKey = ["pushInput"];
+  const mutationKey = getPushInputMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17201,6 +24030,8 @@ export const applyStash = (stashMutationBody: StashMutationBody, signal?: AbortS
   });
 };
 
+export const getApplyStashMutationKey = () => ["applyStash"] as const;
+
 export const getApplyStashMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17217,7 +24048,7 @@ export const getApplyStashMutationOptions = <
   ApplyStashMutationVariables,
   TContext
 > => {
-  const mutationKey = ["applyStash"];
+  const mutationKey = getApplyStashMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17270,6 +24101,8 @@ export const dropStash = (stashMutationBody: StashMutationBody, signal?: AbortSi
   });
 };
 
+export const getDropStashMutationKey = () => ["dropStash"] as const;
+
 export const getDropStashMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17286,7 +24119,7 @@ export const getDropStashMutationOptions = <
   DropStashMutationVariables,
   TContext
 > => {
-  const mutationKey = ["dropStash"];
+  const mutationKey = getDropStashMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17339,6 +24172,8 @@ export const popStash = (stashMutationBody: StashMutationBody, signal?: AbortSig
   });
 };
 
+export const getPopStashMutationKey = () => ["popStash"] as const;
+
 export const getPopStashMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17355,7 +24190,7 @@ export const getPopStashMutationOptions = <
   PopStashMutationVariables,
   TContext
 > => {
-  const mutationKey = ["popStash"];
+  const mutationKey = getPopStashMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17408,6 +24243,8 @@ export const pushStash = (stashPushBody: StashPushBody, signal?: AbortSignal) =>
   });
 };
 
+export const getPushStashMutationKey = () => ["pushStash"] as const;
+
 export const getPushStashMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17424,7 +24261,7 @@ export const getPushStashMutationOptions = <
   PushStashMutationVariables,
   TContext
 > => {
-  const mutationKey = ["pushStash"];
+  const mutationKey = getPushStashMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17799,6 +24636,8 @@ export const updateBranch = (updateBranchBody: UpdateBranchBody, signal?: AbortS
   });
 };
 
+export const getUpdateBranchMutationKey = () => ["updateBranch"] as const;
+
 export const getUpdateBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17815,7 +24654,7 @@ export const getUpdateBranchMutationOptions = <
   UpdateBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateBranch"];
+  const mutationKey = getUpdateBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17871,6 +24710,8 @@ export const abortUpdateBranch = (
   });
 };
 
+export const getAbortUpdateBranchMutationKey = () => ["abortUpdateBranch"] as const;
+
 export const getAbortUpdateBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17887,7 +24728,7 @@ export const getAbortUpdateBranchMutationOptions = <
   AbortUpdateBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["abortUpdateBranch"];
+  const mutationKey = getAbortUpdateBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -17945,6 +24786,8 @@ export const continueUpdateBranch = (
   });
 };
 
+export const getContinueUpdateBranchMutationKey = () => ["continueUpdateBranch"] as const;
+
 export const getContinueUpdateBranchMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -17961,7 +24804,7 @@ export const getContinueUpdateBranchMutationOptions = <
   ContinueUpdateBranchMutationVariables,
   TContext
 > => {
-  const mutationKey = ["continueUpdateBranch"];
+  const mutationKey = getContinueUpdateBranchMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -18006,6 +24849,107 @@ export const useContinueUpdateBranch = <TError = ErrorType<unknown>, TContext = 
   return useMutation(getContinueUpdateBranchMutationOptions(options), queryClient);
 };
 
+/**
+ * @summary The installed Git and the features it is too old for. Detected once at
+startup, so this never spawns Git again.
+ */
+export const getGitVersion = (signal?: AbortSignal) => {
+  return customInstance<GitVersionResponse>({ url: `/api/git/version`, method: "GET", signal });
+};
+
+export const getGetGitVersionQueryKey = () => {
+  return [`/api/git/version`] as const;
+};
+
+export const getGetGitVersionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetGitVersionQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitVersion>>> = ({ signal }) =>
+    getGitVersion(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getGitVersion>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetGitVersionQueryResult = NonNullable<Awaited<ReturnType<typeof getGitVersion>>>;
+export type GetGitVersionQueryError = ErrorType<unknown>;
+
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitVersion>>,
+          TError,
+          Awaited<ReturnType<typeof getGitVersion>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getGitVersion>>,
+          TError,
+          Awaited<ReturnType<typeof getGitVersion>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The installed Git and the features it is too old for. Detected once at
+startup, so this never spawns Git again.
+ */
+
+export function useGetGitVersion<
+  TData = Awaited<ReturnType<typeof getGitVersion>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getGitVersion>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetGitVersionQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const createWorktree = (createWorktreeBody: CreateWorktreeBody, signal?: AbortSignal) => {
   return customInstance<CreateWorktreeResponse>({
     url: `/api/git/worktree`,
@@ -18015,6 +24959,8 @@ export const createWorktree = (createWorktreeBody: CreateWorktreeBody, signal?: 
     signal,
   });
 };
+
+export const getCreateWorktreeMutationKey = () => ["createWorktree"] as const;
 
 export const getCreateWorktreeMutationOptions = <
   TError = ErrorType<unknown>,
@@ -18032,7 +24978,7 @@ export const getCreateWorktreeMutationOptions = <
   CreateWorktreeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createWorktree"];
+  const mutationKey = getCreateWorktreeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -18084,6 +25030,8 @@ export const removeWorktree = (params: RemoveWorktreeParams, signal?: AbortSigna
   });
 };
 
+export const getRemoveWorktreeMutationKey = () => ["removeWorktree"] as const;
+
 export const getRemoveWorktreeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -18100,7 +25048,7 @@ export const getRemoveWorktreeMutationOptions = <
   RemoveWorktreeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["removeWorktree"];
+  const mutationKey = getRemoveWorktreeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -18261,6 +25209,8 @@ export const removeOrphanWorktree = (
   });
 };
 
+export const getRemoveOrphanWorktreeMutationKey = () => ["removeOrphanWorktree"] as const;
+
 export const getRemoveOrphanWorktreeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -18277,7 +25227,7 @@ export const getRemoveOrphanWorktreeMutationOptions = <
   RemoveOrphanWorktreeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["removeOrphanWorktree"];
+  const mutationKey = getRemoveOrphanWorktreeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -18332,6 +25282,8 @@ export const retryWorktreeSetup = (retryWorktreeBody: RetryWorktreeBody, signal?
   });
 };
 
+export const getRetryWorktreeSetupMutationKey = () => ["retryWorktreeSetup"] as const;
+
 export const getRetryWorktreeSetupMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -18348,7 +25300,7 @@ export const getRetryWorktreeSetupMutationOptions = <
   RetryWorktreeSetupMutationVariables,
   TContext
 > => {
-  const mutationKey = ["retryWorktreeSetup"];
+  const mutationKey = getRetryWorktreeSetupMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -18402,6 +25354,8 @@ export const deleteWorktree = (params: DeleteWorktreeParams, signal?: AbortSigna
   });
 };
 
+export const getDeleteWorktreeMutationKey = () => ["deleteWorktree"] as const;
+
 export const getDeleteWorktreeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -18418,7 +25372,7 @@ export const getDeleteWorktreeMutationOptions = <
   DeleteWorktreeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteWorktree"];
+  const mutationKey = getDeleteWorktreeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -18761,6 +25715,358 @@ export function useGetImportJob<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const catalog2 = (params?: Catalog2Params, signal?: AbortSignal) => {
+  return customInstance<LspCatalogResponse>({
+    url: `/api/lsp/catalog`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getCatalog2QueryKey = (params?: Catalog2Params) => {
+  return [`/api/lsp/catalog`, ...(params ? [params] : [])] as const;
+};
+
+export const getCatalog2QueryOptions = <
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getCatalog2QueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof catalog2>>> = ({ signal }) =>
+    catalog2(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof catalog2>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type Catalog2QueryResult = NonNullable<Awaited<ReturnType<typeof catalog2>>>;
+export type Catalog2QueryError = ErrorType<unknown>;
+
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | Catalog2Params,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalog2>>,
+          TError,
+          Awaited<ReturnType<typeof catalog2>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalog2>>,
+          TError,
+          Awaited<ReturnType<typeof catalog2>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getCatalog2QueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const install2 = (installLspRequest: InstallLspRequest, signal?: AbortSignal) => {
+  return customInstance<ListServersResponse>({
+    url: `/api/lsp/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installLspRequest,
+    signal,
+  });
+};
+
+export const getInstall2MutationKey = () => ["install2"] as const;
+
+export const getInstall2MutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof install2>>,
+    TError,
+    Install2MutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof install2>>,
+  TError,
+  Install2MutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstall2MutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof install2>>,
+    Install2MutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return install2(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type Install2MutationResult = NonNullable<Awaited<ReturnType<typeof install2>>>;
+export type Install2MutationBody = InstallLspRequest;
+export type Install2MutationError = ErrorType<unknown>;
+export type Install2MutationVariables = { data: InstallLspRequest };
+
+export const useInstall2 = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof install2>>,
+      TError,
+      Install2MutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof install2>>,
+  TError,
+  Install2MutationVariables,
+  TContext
+> => {
+  return useMutation(getInstall2MutationOptions(options), queryClient);
+};
+
+export const remove2 = (removeLspRequest: RemoveLspRequest, signal?: AbortSignal) => {
+  return customInstance<ListServersResponse>({
+    url: `/api/lsp/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: removeLspRequest,
+    signal,
+  });
+};
+
+export const getRemove2MutationKey = () => ["remove2"] as const;
+
+export const getRemove2MutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof remove2>>,
+    TError,
+    Remove2MutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof remove2>>,
+  TError,
+  Remove2MutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemove2MutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof remove2>>,
+    Remove2MutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return remove2(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type Remove2MutationResult = NonNullable<Awaited<ReturnType<typeof remove2>>>;
+export type Remove2MutationBody = RemoveLspRequest;
+export type Remove2MutationError = ErrorType<unknown>;
+export type Remove2MutationVariables = { data: RemoveLspRequest };
+
+export const useRemove2 = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof remove2>>,
+      TError,
+      Remove2MutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof remove2>>,
+  TError,
+  Remove2MutationVariables,
+  TContext
+> => {
+  return useMutation(getRemove2MutationOptions(options), queryClient);
+};
+
+export const resolve = (params?: ResolveParams, signal?: AbortSignal) => {
+  return customInstance<LspResolveResponse>({
+    url: `/api/lsp/resolve`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getResolveQueryKey = (params?: ResolveParams) => {
+  return [`/api/lsp/resolve`, ...(params ? [params] : [])] as const;
+};
+
+export const getResolveQueryOptions = <
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getResolveQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof resolve>>> = ({ signal }) =>
+    resolve(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof resolve>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ResolveQueryResult = NonNullable<Awaited<ReturnType<typeof resolve>>>;
+export type ResolveQueryError = ErrorType<unknown>;
+
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ResolveParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof resolve>>,
+          TError,
+          Awaited<ReturnType<typeof resolve>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof resolve>>,
+          TError,
+          Awaited<ReturnType<typeof resolve>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getResolveQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 /**
  * @summary Resolve the nearest ancestor root for `file_path`, bounded by
 `workspace_root`. Pure + filesystem-reading, but takes no app state so it's
@@ -18970,6 +26276,8 @@ export const openSession = (openLspSessionRequest: OpenLspSessionRequest, signal
   });
 };
 
+export const getOpenSessionMutationKey = () => ["openSession"] as const;
+
 export const getOpenSessionMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -18986,7 +26294,7 @@ export const getOpenSessionMutationOptions = <
   OpenSessionMutationVariables,
   TContext
 > => {
-  const mutationKey = ["openSession"];
+  const mutationKey = getOpenSessionMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -19027,6 +26335,940 @@ export const useOpenSession = <TError = ErrorType<void>, TContext = unknown>(
   TContext
 > => {
   return useMutation(getOpenSessionMutationOptions(options), queryClient);
+};
+
+export const update2 = (installLspRequest: InstallLspRequest, signal?: AbortSignal) => {
+  return customInstance<ListServersResponse>({
+    url: `/api/lsp/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installLspRequest,
+    signal,
+  });
+};
+
+export const getUpdate2MutationKey = () => ["update2"] as const;
+
+export const getUpdate2MutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof update2>>,
+    TError,
+    Update2MutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof update2>>,
+  TError,
+  Update2MutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdate2MutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof update2>>,
+    Update2MutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return update2(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type Update2MutationResult = NonNullable<Awaited<ReturnType<typeof update2>>>;
+export type Update2MutationBody = InstallLspRequest;
+export type Update2MutationError = ErrorType<unknown>;
+export type Update2MutationVariables = { data: InstallLspRequest };
+
+export const useUpdate2 = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof update2>>,
+      TError,
+      Update2MutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof update2>>,
+  TError,
+  Update2MutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdate2MutationOptions(options), queryClient);
+};
+
+export const getManagedTabs = (signal?: AbortSignal) => {
+  return customInstance<ManagedTabInventoryEntry[]>({
+    url: `/api/marketplace/tabs`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedTabsQueryKey = () => {
+  return [`/api/marketplace/tabs`] as const;
+};
+
+export const getGetManagedTabsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedTabs>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabs>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedTabsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedTabs>>> = ({ signal }) =>
+    getManagedTabs(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedTabs>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedTabsQueryResult = NonNullable<Awaited<ReturnType<typeof getManagedTabs>>>;
+export type GetManagedTabsQueryError = ErrorType<unknown>;
+
+export function useGetManagedTabs<
+  TData = Awaited<ReturnType<typeof getManagedTabs>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabs>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedTabs>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedTabs>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedTabs<
+  TData = Awaited<ReturnType<typeof getManagedTabs>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabs>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedTabs>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedTabs>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedTabs<
+  TData = Awaited<ReturnType<typeof getManagedTabs>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabs>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetManagedTabs<
+  TData = Awaited<ReturnType<typeof getManagedTabs>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabs>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedTabsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installManagedTab = (
+  installManagedTabRequest: InstallManagedTabRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedTabInventoryEntry>({
+    url: `/api/marketplace/tabs`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedTabRequest,
+    signal,
+  });
+};
+
+export const getInstallManagedTabMutationKey = () => ["installManagedTab"] as const;
+
+export const getInstallManagedTabMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installManagedTab>>,
+    TError,
+    InstallManagedTabMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installManagedTab>>,
+  TError,
+  InstallManagedTabMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallManagedTabMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installManagedTab>>,
+    InstallManagedTabMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installManagedTab(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallManagedTabMutationResult = NonNullable<
+  Awaited<ReturnType<typeof installManagedTab>>
+>;
+export type InstallManagedTabMutationBody = InstallManagedTabRequest;
+export type InstallManagedTabMutationError = ErrorType<unknown>;
+export type InstallManagedTabMutationVariables = { data: InstallManagedTabRequest };
+
+export const useInstallManagedTab = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installManagedTab>>,
+      TError,
+      InstallManagedTabMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installManagedTab>>,
+  TError,
+  InstallManagedTabMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallManagedTabMutationOptions(options), queryClient);
+};
+
+export const getManagedTabCatalog = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeCatalogResponse>({
+    url: `/api/marketplace/tabs/catalog`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedTabCatalogQueryKey = () => {
+  return [`/api/marketplace/tabs/catalog`] as const;
+};
+
+export const getGetManagedTabCatalogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedTabCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabCatalog>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedTabCatalogQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedTabCatalog>>> = ({ signal }) =>
+    getManagedTabCatalog(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedTabCatalog>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedTabCatalogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getManagedTabCatalog>>
+>;
+export type GetManagedTabCatalogQueryError = ErrorType<unknown>;
+
+export function useGetManagedTabCatalog<
+  TData = Awaited<ReturnType<typeof getManagedTabCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabCatalog>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedTabCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedTabCatalog>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedTabCatalog<
+  TData = Awaited<ReturnType<typeof getManagedTabCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabCatalog>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedTabCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedTabCatalog>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedTabCatalog<
+  TData = Awaited<ReturnType<typeof getManagedTabCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabCatalog>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetManagedTabCatalog<
+  TData = Awaited<ReturnType<typeof getManagedTabCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabCatalog>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedTabCatalogQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const refreshManagedTabCatalog = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeCatalogResponse>({
+    url: `/api/marketplace/tabs/catalog/refresh`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getRefreshManagedTabCatalogMutationKey = () => ["refreshManagedTabCatalog"] as const;
+
+export const getRefreshManagedTabCatalogMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshManagedTabCatalog>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshManagedTabCatalog>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getRefreshManagedTabCatalogMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshManagedTabCatalog>>,
+    void
+  > = () => {
+    return refreshManagedTabCatalog();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshManagedTabCatalogMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshManagedTabCatalog>>
+>;
+
+export type RefreshManagedTabCatalogMutationError = ErrorType<unknown>;
+
+export const useRefreshManagedTabCatalog = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof refreshManagedTabCatalog>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof refreshManagedTabCatalog>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshManagedTabCatalogMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary The custom-tab revocation policy in force: whether this build has a feed,
+how fresh the cached policy is, and why not. Installing, updating and
+starting a backend need `cache_status` `fresh` (or `not_configured`).
+ */
+export const getManagedTabPolicy = (signal?: AbortSignal) => {
+  return customInstance<ManagedTabPolicyStatus>({
+    url: `/api/marketplace/tabs/policy`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedTabPolicyQueryKey = () => {
+  return [`/api/marketplace/tabs/policy`] as const;
+};
+
+export const getGetManagedTabPolicyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedTabPolicy>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedTabPolicy>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedTabPolicyQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedTabPolicy>>> = ({ signal }) =>
+    getManagedTabPolicy(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedTabPolicy>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedTabPolicyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getManagedTabPolicy>>
+>;
+export type GetManagedTabPolicyQueryError = ErrorType<unknown>;
+
+export function useGetManagedTabPolicy<
+  TData = Awaited<ReturnType<typeof getManagedTabPolicy>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabPolicy>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedTabPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedTabPolicy>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedTabPolicy<
+  TData = Awaited<ReturnType<typeof getManagedTabPolicy>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabPolicy>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedTabPolicy>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedTabPolicy>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedTabPolicy<
+  TData = Awaited<ReturnType<typeof getManagedTabPolicy>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabPolicy>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The custom-tab revocation policy in force: whether this build has a feed,
+how fresh the cached policy is, and why not. Installing, updating and
+starting a backend need `cache_status` `fresh` (or `not_configured`).
+ */
+
+export function useGetManagedTabPolicy<
+  TData = Awaited<ReturnType<typeof getManagedTabPolicy>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedTabPolicy>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedTabPolicyQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const removeManagedTab = (id: string, signal?: AbortSignal) => {
+  return customInstance<boolean>({ url: `/api/marketplace/tabs/${id}`, method: "DELETE", signal });
+};
+
+export const getRemoveManagedTabMutationKey = () => ["removeManagedTab"] as const;
+
+export const getRemoveManagedTabMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeManagedTab>>,
+    TError,
+    RemoveManagedTabMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeManagedTab>>,
+  TError,
+  RemoveManagedTabMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveManagedTabMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeManagedTab>>,
+    RemoveManagedTabMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return removeManagedTab(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveManagedTabMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeManagedTab>>
+>;
+
+export type RemoveManagedTabMutationError = ErrorType<unknown>;
+export type RemoveManagedTabMutationVariables = { id: string };
+
+export const useRemoveManagedTab = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeManagedTab>>,
+      TError,
+      RemoveManagedTabMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeManagedTab>>,
+  TError,
+  RemoveManagedTabMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveManagedTabMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Discard the update staged for review; the installed revision stays. 404
+`MANAGED_TAB_UPDATE_NOT_FOUND` when none is staged.
+ */
+export const discardManagedTabUpdate = (id: string, signal?: AbortSignal) => {
+  return customInstance<boolean>({
+    url: `/api/marketplace/tabs/${id}/pending`,
+    method: "DELETE",
+    signal,
+  });
+};
+
+export const getDiscardManagedTabUpdateMutationKey = () => ["discardManagedTabUpdate"] as const;
+
+export const getDiscardManagedTabUpdateMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof discardManagedTabUpdate>>,
+    TError,
+    DiscardManagedTabUpdateMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof discardManagedTabUpdate>>,
+  TError,
+  DiscardManagedTabUpdateMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDiscardManagedTabUpdateMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof discardManagedTabUpdate>>,
+    DiscardManagedTabUpdateMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return discardManagedTabUpdate(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DiscardManagedTabUpdateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof discardManagedTabUpdate>>
+>;
+
+export type DiscardManagedTabUpdateMutationError = ErrorType<unknown>;
+export type DiscardManagedTabUpdateMutationVariables = { id: string };
+
+/**
+ * @summary Discard the update staged for review; the installed revision stays. 404
+`MANAGED_TAB_UPDATE_NOT_FOUND` when none is staged.
+ */
+export const useDiscardManagedTabUpdate = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof discardManagedTabUpdate>>,
+      TError,
+      DiscardManagedTabUpdateMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof discardManagedTabUpdate>>,
+  TError,
+  DiscardManagedTabUpdateMutationVariables,
+  TContext
+> => {
+  return useMutation(getDiscardManagedTabUpdateMutationOptions(options), queryClient);
+};
+
+export const updateManagedTab = (
+  id: string,
+  installManagedTabRequest: InstallManagedTabRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedTabInventoryEntry>({
+    url: `/api/marketplace/tabs/${id}/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedTabRequest,
+    signal,
+  });
+};
+
+export const getUpdateManagedTabMutationKey = () => ["updateManagedTab"] as const;
+
+export const getUpdateManagedTabMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateManagedTab>>,
+    TError,
+    UpdateManagedTabMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateManagedTab>>,
+  TError,
+  UpdateManagedTabMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateManagedTabMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateManagedTab>>,
+    UpdateManagedTabMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateManagedTab(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateManagedTabMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateManagedTab>>
+>;
+export type UpdateManagedTabMutationBody = InstallManagedTabRequest;
+export type UpdateManagedTabMutationError = ErrorType<unknown>;
+export type UpdateManagedTabMutationVariables = { id: string; data: InstallManagedTabRequest };
+
+export const useUpdateManagedTab = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateManagedTab>>,
+      TError,
+      UpdateManagedTabMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateManagedTab>>,
+  TError,
+  UpdateManagedTabMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateManagedTabMutationOptions(options), queryClient);
+};
+
+export const getMarketplaceTrust = (signal?: AbortSignal) => {
+  return customInstance<MarketplaceTrustStatus>({
+    url: `/api/marketplace/trust`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetMarketplaceTrustQueryKey = () => {
+  return [`/api/marketplace/trust`] as const;
+};
+
+export const getGetMarketplaceTrustQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarketplaceTrustQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarketplaceTrust>>> = ({ signal }) =>
+    getMarketplaceTrust(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarketplaceTrust>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetMarketplaceTrustQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarketplaceTrust>>
+>;
+export type GetMarketplaceTrustQueryError = ErrorType<unknown>;
+
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMarketplaceTrust>>,
+          TError,
+          Awaited<ReturnType<typeof getMarketplaceTrust>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMarketplaceTrust>>,
+          TError,
+          Awaited<ReturnType<typeof getMarketplaceTrust>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetMarketplaceTrust<
+  TData = Awaited<ReturnType<typeof getMarketplaceTrust>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMarketplaceTrust>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetMarketplaceTrustQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const setAsideMarketplaceTrust = (signal?: AbortSignal) => {
+  return customInstance<MarketplaceTrustStatus>({
+    url: `/api/marketplace/trust/set-aside`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getSetAsideMarketplaceTrustMutationKey = () => ["setAsideMarketplaceTrust"] as const;
+
+export const getSetAsideMarketplaceTrustMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getSetAsideMarketplaceTrustMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+    void
+  > = () => {
+    return setAsideMarketplaceTrust();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetAsideMarketplaceTrustMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setAsideMarketplaceTrust>>
+>;
+
+export type SetAsideMarketplaceTrustMutationError = ErrorType<unknown>;
+
+export const useSetAsideMarketplaceTrust = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setAsideMarketplaceTrust>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getSetAsideMarketplaceTrustMutationOptions(options), queryClient);
 };
 
 export const detectRoute = (signal?: AbortSignal) => {
@@ -19132,6 +27374,8 @@ export const startRoute = (startRouteBody: number, signal?: AbortSignal) => {
   });
 };
 
+export const getStartRouteMutationKey = () => ["startRoute"] as const;
+
 export const getStartRouteMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -19148,7 +27392,7 @@ export const getStartRouteMutationOptions = <
   StartRouteMutationVariables,
   TContext
 > => {
-  const mutationKey = ["startRoute"];
+  const mutationKey = getStartRouteMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -19201,6 +27445,8 @@ export const stopRoute = (stopRouteBody: number, signal?: AbortSignal) => {
   });
 };
 
+export const getStopRouteMutationKey = () => ["stopRoute"] as const;
+
 export const getStopRouteMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -19217,7 +27463,7 @@ export const getStopRouteMutationOptions = <
   StopRouteMutationVariables,
   TContext
 > => {
-  const mutationKey = ["stopRoute"];
+  const mutationKey = getStopRouteMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -19353,6 +27599,2152 @@ export function useOpenapiSpec<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const pluginTabList = (params?: PluginTabListParams, signal?: AbortSignal) => {
+  return customInstance<PluginTabSummary[]>({
+    url: `/api/plugin-tabs`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getPluginTabListQueryKey = (params?: PluginTabListParams) => {
+  return [`/api/plugin-tabs`, ...(params ? [params] : [])] as const;
+};
+
+export const getPluginTabListQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabList>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: PluginTabListParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabList>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabListQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabList>>> = ({ signal }) =>
+    pluginTabList(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof pluginTabList>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type PluginTabListQueryResult = NonNullable<Awaited<ReturnType<typeof pluginTabList>>>;
+export type PluginTabListQueryError = ErrorType<unknown>;
+
+export function usePluginTabList<
+  TData = Awaited<ReturnType<typeof pluginTabList>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | PluginTabListParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabList>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabList>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabList>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabList<
+  TData = Awaited<ReturnType<typeof pluginTabList>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: PluginTabListParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabList>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabList>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabList>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabList<
+  TData = Awaited<ReturnType<typeof pluginTabList>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: PluginTabListParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabList>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function usePluginTabList<
+  TData = Awaited<ReturnType<typeof pluginTabList>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: PluginTabListParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabList>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabListQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Create a new custom tab and its authoring project (§8).
+ */
+export const pluginTabAuthoring = (
+  createPluginTabRequest: CreatePluginTabRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabWorkspace>({
+    url: `/api/plugin-tabs/authoring`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: createPluginTabRequest,
+    signal,
+  });
+};
+
+export const getPluginTabAuthoringMutationKey = () => ["pluginTabAuthoring"] as const;
+
+export const getPluginTabAuthoringMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabAuthoring>>,
+    TError,
+    PluginTabAuthoringMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabAuthoring>>,
+  TError,
+  PluginTabAuthoringMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabAuthoringMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabAuthoring>>,
+    PluginTabAuthoringMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return pluginTabAuthoring(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabAuthoringMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabAuthoring>>
+>;
+export type PluginTabAuthoringMutationBody = CreatePluginTabRequest;
+export type PluginTabAuthoringMutationError = ErrorType<unknown>;
+export type PluginTabAuthoringMutationVariables = { data: CreatePluginTabRequest };
+
+/**
+ * @summary Create a new custom tab and its authoring project (§8).
+ */
+export const usePluginTabAuthoring = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabAuthoring>>,
+      TError,
+      PluginTabAuthoringMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabAuthoring>>,
+  TError,
+  PluginTabAuthoringMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabAuthoringMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Revoke the presenting grant (plugin token). The instance is going away.
+ */
+export const pluginTabRevokeCurrentGrant = (signal?: AbortSignal) => {
+  return customInstance<void>({ url: `/api/plugin-tabs/grants/current`, method: "DELETE", signal });
+};
+
+export const getPluginTabRevokeCurrentGrantMutationKey = () =>
+  ["pluginTabRevokeCurrentGrant"] as const;
+
+export const getPluginTabRevokeCurrentGrantMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabRevokeCurrentGrant>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabRevokeCurrentGrant>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getPluginTabRevokeCurrentGrantMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabRevokeCurrentGrant>>,
+    void
+  > = () => {
+    return pluginTabRevokeCurrentGrant();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabRevokeCurrentGrantMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabRevokeCurrentGrant>>
+>;
+
+export type PluginTabRevokeCurrentGrantMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke the presenting grant (plugin token). The instance is going away.
+ */
+export const usePluginTabRevokeCurrentGrant = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabRevokeCurrentGrant>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabRevokeCurrentGrant>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getPluginTabRevokeCurrentGrantMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Send one request to the tab's native backend, starting it if it is not
+running (plugin token). A backend error is a 200 with `error`. 403
+`PLUGIN_BACKEND_UNDECLARED`, 422 `PLUGIN_BACKEND_UNAVAILABLE` /
+`PLUGIN_BACKEND_UNAVAILABLE_ON_PLATFORM`, 409 `PLUGIN_BACKEND_TAMPERED` (a
+marketplace binary that differs from its signed digest) /
+`MANAGED_TAB_POLICY_UNAVAILABLE` (a revocation feed is configured but no
+fresh policy is cached: the backend does not start), 429
+`PLUGIN_BACKEND_BUSY`, 503
+`PLUGIN_BACKEND_CRASHING`, 504 `PLUGIN_BACKEND_TIMEOUT`, 502
+`PLUGIN_BACKEND_EXITED`.
+ */
+export const pluginTabSelfBackend = (
+  pluginBackendRequest: PluginBackendRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginBackendResponse>({
+    url: `/api/plugin-tabs/self/backend`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: pluginBackendRequest,
+    signal,
+  });
+};
+
+export const getPluginTabSelfBackendMutationKey = () => ["pluginTabSelfBackend"] as const;
+
+export const getPluginTabSelfBackendMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabSelfBackend>>,
+    TError,
+    PluginTabSelfBackendMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabSelfBackend>>,
+  TError,
+  PluginTabSelfBackendMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabSelfBackendMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabSelfBackend>>,
+    PluginTabSelfBackendMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return pluginTabSelfBackend(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabSelfBackendMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfBackend>>
+>;
+export type PluginTabSelfBackendMutationBody = PluginBackendRequest;
+export type PluginTabSelfBackendMutationError = ErrorType<unknown>;
+export type PluginTabSelfBackendMutationVariables = { data: PluginBackendRequest };
+
+/**
+ * @summary Send one request to the tab's native backend, starting it if it is not
+running (plugin token). A backend error is a 200 with `error`. 403
+`PLUGIN_BACKEND_UNDECLARED`, 422 `PLUGIN_BACKEND_UNAVAILABLE` /
+`PLUGIN_BACKEND_UNAVAILABLE_ON_PLATFORM`, 409 `PLUGIN_BACKEND_TAMPERED` (a
+marketplace binary that differs from its signed digest) /
+`MANAGED_TAB_POLICY_UNAVAILABLE` (a revocation feed is configured but no
+fresh policy is cached: the backend does not start), 429
+`PLUGIN_BACKEND_BUSY`, 503
+`PLUGIN_BACKEND_CRASHING`, 504 `PLUGIN_BACKEND_TIMEOUT`, 502
+`PLUGIN_BACKEND_EXITED`.
+ */
+export const usePluginTabSelfBackend = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabSelfBackend>>,
+      TError,
+      PluginTabSelfBackendMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabSelfBackend>>,
+  TError,
+  PluginTabSelfBackendMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabSelfBackendMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary The tab's non-secret settings for its project: project values over global
+over declared defaults (plugin token).
+ */
+export const pluginTabSelfConfiguration = (signal?: AbortSignal) => {
+  return customInstance<PluginTabSelfConfiguration200>({
+    url: `/api/plugin-tabs/self/configuration`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getPluginTabSelfConfigurationQueryKey = () => {
+  return [`/api/plugin-tabs/self/configuration`] as const;
+};
+
+export const getPluginTabSelfConfigurationQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfConfiguration>>, TError, TData>
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabSelfConfigurationQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabSelfConfiguration>>> = ({
+    signal,
+  }) => pluginTabSelfConfiguration(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type PluginTabSelfConfigurationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfConfiguration>>
+>;
+export type PluginTabSelfConfigurationQueryError = ErrorType<unknown>;
+
+export function usePluginTabSelfConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfConfiguration>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabSelfConfiguration>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabSelfConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfConfiguration>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabSelfConfiguration>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabSelfConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfConfiguration>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The tab's non-secret settings for its project: project values over global
+over declared defaults (plugin token).
+ */
+
+export function usePluginTabSelfConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabSelfConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfConfiguration>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabSelfConfigurationQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Run one of the tab's declared `commands` in its conversation's folder,
+without a shell (plugin token). A non-zero exit is a 200 result. 403
+`PLUGIN_EXEC_DENIED` for an undeclared program, 422
+`PLUGIN_EXEC_NOT_FOUND`, 429 `PLUGIN_EXEC_BUSY`, 504 `PLUGIN_EXEC_TIMEOUT`,
+502 `PLUGIN_EXEC_OUTPUT_TOO_LARGE` / `PLUGIN_EXEC_FAILED`.
+ */
+export const pluginTabSelfExec = (pluginExecRequest: PluginExecRequest, signal?: AbortSignal) => {
+  return customInstance<PluginExecResult>({
+    url: `/api/plugin-tabs/self/exec`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: pluginExecRequest,
+    signal,
+  });
+};
+
+export const getPluginTabSelfExecMutationKey = () => ["pluginTabSelfExec"] as const;
+
+export const getPluginTabSelfExecMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabSelfExec>>,
+    TError,
+    PluginTabSelfExecMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabSelfExec>>,
+  TError,
+  PluginTabSelfExecMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabSelfExecMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabSelfExec>>,
+    PluginTabSelfExecMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return pluginTabSelfExec(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabSelfExecMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfExec>>
+>;
+export type PluginTabSelfExecMutationBody = PluginExecRequest;
+export type PluginTabSelfExecMutationError = ErrorType<unknown>;
+export type PluginTabSelfExecMutationVariables = { data: PluginExecRequest };
+
+/**
+ * @summary Run one of the tab's declared `commands` in its conversation's folder,
+without a shell (plugin token). A non-zero exit is a 200 result. 403
+`PLUGIN_EXEC_DENIED` for an undeclared program, 422
+`PLUGIN_EXEC_NOT_FOUND`, 429 `PLUGIN_EXEC_BUSY`, 504 `PLUGIN_EXEC_TIMEOUT`,
+502 `PLUGIN_EXEC_OUTPUT_TOO_LARGE` / `PLUGIN_EXEC_FAILED`.
+ */
+export const usePluginTabSelfExec = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabSelfExec>>,
+      TError,
+      PluginTabSelfExecMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabSelfExec>>,
+  TError,
+  PluginTabSelfExecMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabSelfExecMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary The egress relay (§4.5, plugin token). The body is sent upstream as is;
+outbound headers ride in `x-cadencr-net-headers` (a JSON object whose
+values may hold `{{secret:<key>}}`). Whatever the upstream answers comes
+back as a 200 whose body is the upstream body, with
+`x-cadencr-net-status` and `x-cadencr-net-headers`. Relay failures are
+plain errors: 403 `PLUGIN_NETWORK_DENIED` (origin not allowed, or a
+non-public address), 400 `PLUGIN_TAB_SECRET_UNKNOWN`, 429
+`PLUGIN_NETWORK_BUSY`, 504 `PLUGIN_NETWORK_TIMEOUT`, 502 `PLUGIN_NETWORK_*`.
+ */
+export const pluginTabSelfNetFetch = (
+  pluginTabSelfNetFetchBody: Blob,
+  params: PluginTabSelfNetFetchParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<Blob>({
+    url: `/api/plugin-tabs/self/net/fetch`,
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    data: pluginTabSelfNetFetchBody,
+    params,
+    responseType: "blob",
+    signal,
+  });
+};
+
+export const getPluginTabSelfNetFetchMutationKey = () => ["pluginTabSelfNetFetch"] as const;
+
+export const getPluginTabSelfNetFetchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabSelfNetFetch>>,
+    TError,
+    PluginTabSelfNetFetchMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabSelfNetFetch>>,
+  TError,
+  PluginTabSelfNetFetchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabSelfNetFetchMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabSelfNetFetch>>,
+    PluginTabSelfNetFetchMutationVariables
+  > = (props) => {
+    const { data, params } = props ?? {};
+
+    return pluginTabSelfNetFetch(data, params);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabSelfNetFetchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfNetFetch>>
+>;
+export type PluginTabSelfNetFetchMutationBody = Blob;
+export type PluginTabSelfNetFetchMutationError = ErrorType<unknown>;
+export type PluginTabSelfNetFetchMutationVariables = {
+  data: Blob;
+  params: PluginTabSelfNetFetchParams;
+};
+
+/**
+ * @summary The egress relay (§4.5, plugin token). The body is sent upstream as is;
+outbound headers ride in `x-cadencr-net-headers` (a JSON object whose
+values may hold `{{secret:<key>}}`). Whatever the upstream answers comes
+back as a 200 whose body is the upstream body, with
+`x-cadencr-net-status` and `x-cadencr-net-headers`. Relay failures are
+plain errors: 403 `PLUGIN_NETWORK_DENIED` (origin not allowed, or a
+non-public address), 400 `PLUGIN_TAB_SECRET_UNKNOWN`, 429
+`PLUGIN_NETWORK_BUSY`, 504 `PLUGIN_NETWORK_TIMEOUT`, 502 `PLUGIN_NETWORK_*`.
+ */
+export const usePluginTabSelfNetFetch = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabSelfNetFetch>>,
+      TError,
+      PluginTabSelfNetFetchMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabSelfNetFetch>>,
+  TError,
+  PluginTabSelfNetFetchMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabSelfNetFetchMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Every key in the tab's store for its project, sorted (plugin token).
+ */
+export const pluginTabSelfStorageList = (signal?: AbortSignal) => {
+  return customInstance<string[]>({ url: `/api/plugin-tabs/self/storage`, method: "GET", signal });
+};
+
+export const getPluginTabSelfStorageListQueryKey = () => {
+  return [`/api/plugin-tabs/self/storage`] as const;
+};
+
+export const getPluginTabSelfStorageListQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageList>>, TError, TData>
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabSelfStorageListQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabSelfStorageList>>> = ({
+    signal,
+  }) => pluginTabSelfStorageList(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type PluginTabSelfStorageListQueryResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfStorageList>>
+>;
+export type PluginTabSelfStorageListQueryError = ErrorType<unknown>;
+
+export function usePluginTabSelfStorageList<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageList>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabSelfStorageList>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabSelfStorageList<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageList>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabSelfStorageList>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabSelfStorageList<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageList>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Every key in the tab's store for its project, sorted (plugin token).
+ */
+
+export function usePluginTabSelfStorageList<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageList>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageList>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabSelfStorageListQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary One stored JSON value; 404 `PLUGIN_TAB_STORAGE_NOT_FOUND` (plugin token).
+ */
+export const pluginTabSelfStorageGet = (key: string, signal?: AbortSignal) => {
+  return customInstance<unknown>({
+    url: `/api/plugin-tabs/self/storage/${key}`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getPluginTabSelfStorageGetQueryKey = (key: string) => {
+  return [`/api/plugin-tabs/self/storage/${key}`] as const;
+};
+
+export const getPluginTabSelfStorageGetQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+  TError = ErrorType<unknown>,
+>(
+  key: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabSelfStorageGetQueryKey(key);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>> = ({
+    signal,
+  }) => pluginTabSelfStorageGet(key, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: key !== null && key !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type PluginTabSelfStorageGetQueryResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfStorageGet>>
+>;
+export type PluginTabSelfStorageGetQueryError = ErrorType<unknown>;
+
+export function usePluginTabSelfStorageGet<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+  TError = ErrorType<unknown>,
+>(
+  key: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabSelfStorageGet>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabSelfStorageGet<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+  TError = ErrorType<unknown>,
+>(
+  key: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabSelfStorageGet>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabSelfStorageGet<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+  TError = ErrorType<unknown>,
+>(
+  key: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary One stored JSON value; 404 `PLUGIN_TAB_STORAGE_NOT_FOUND` (plugin token).
+ */
+
+export function usePluginTabSelfStorageGet<
+  TData = Awaited<ReturnType<typeof pluginTabSelfStorageGet>>,
+  TError = ErrorType<unknown>,
+>(
+  key: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabSelfStorageGet>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabSelfStorageGetQueryOptions(key, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Store any JSON value (≤ 256 KiB, ≤ 500 keys) under `key` (plugin token).
+ */
+export const pluginTabSelfStoragePut = (
+  key: string,
+  pluginTabSelfStoragePutBody: unknown,
+  signal?: AbortSignal,
+) => {
+  return customInstance<void>({
+    url: `/api/plugin-tabs/self/storage/${key}`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: pluginTabSelfStoragePutBody,
+    signal,
+  });
+};
+
+export const getPluginTabSelfStoragePutMutationKey = () => ["pluginTabSelfStoragePut"] as const;
+
+export const getPluginTabSelfStoragePutMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabSelfStoragePut>>,
+    TError,
+    PluginTabSelfStoragePutMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabSelfStoragePut>>,
+  TError,
+  PluginTabSelfStoragePutMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabSelfStoragePutMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabSelfStoragePut>>,
+    PluginTabSelfStoragePutMutationVariables
+  > = (props) => {
+    const { key, data } = props ?? {};
+
+    return pluginTabSelfStoragePut(key, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabSelfStoragePutMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfStoragePut>>
+>;
+export type PluginTabSelfStoragePutMutationBody = unknown;
+export type PluginTabSelfStoragePutMutationError = ErrorType<unknown>;
+export type PluginTabSelfStoragePutMutationVariables = { key: string; data: unknown };
+
+/**
+ * @summary Store any JSON value (≤ 256 KiB, ≤ 500 keys) under `key` (plugin token).
+ */
+export const usePluginTabSelfStoragePut = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabSelfStoragePut>>,
+      TError,
+      PluginTabSelfStoragePutMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabSelfStoragePut>>,
+  TError,
+  PluginTabSelfStoragePutMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabSelfStoragePutMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Remove `key`; absent keys succeed too (plugin token).
+ */
+export const pluginTabSelfStorageDelete = (key: string, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/plugin-tabs/self/storage/${key}`,
+    method: "DELETE",
+    signal,
+  });
+};
+
+export const getPluginTabSelfStorageDeleteMutationKey = () =>
+  ["pluginTabSelfStorageDelete"] as const;
+
+export const getPluginTabSelfStorageDeleteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabSelfStorageDelete>>,
+    TError,
+    PluginTabSelfStorageDeleteMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabSelfStorageDelete>>,
+  TError,
+  PluginTabSelfStorageDeleteMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabSelfStorageDeleteMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabSelfStorageDelete>>,
+    PluginTabSelfStorageDeleteMutationVariables
+  > = (props) => {
+    const { key } = props ?? {};
+
+    return pluginTabSelfStorageDelete(key);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabSelfStorageDeleteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSelfStorageDelete>>
+>;
+
+export type PluginTabSelfStorageDeleteMutationError = ErrorType<unknown>;
+export type PluginTabSelfStorageDeleteMutationVariables = { key: string };
+
+/**
+ * @summary Remove `key`; absent keys succeed too (plugin token).
+ */
+export const usePluginTabSelfStorageDelete = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabSelfStorageDelete>>,
+      TError,
+      PluginTabSelfStorageDeleteMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabSelfStorageDelete>>,
+  TError,
+  PluginTabSelfStorageDeleteMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabSelfStorageDeleteMutationOptions(options), queryClient);
+};
+
+export const pluginTabGet = (id: string, params?: PluginTabGetParams, signal?: AbortSignal) => {
+  return customInstance<PluginTabSummary>({
+    url: `/api/plugin-tabs/${id}`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getPluginTabGetQueryKey = (id: string, params?: PluginTabGetParams) => {
+  return [`/api/plugin-tabs/${id}`, ...(params ? [params] : [])] as const;
+};
+
+export const getPluginTabGetQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabGet>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabGet>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabGetQueryKey(id, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabGet>>> = ({ signal }) =>
+    pluginTabGet(id, params, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof pluginTabGet>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type PluginTabGetQueryResult = NonNullable<Awaited<ReturnType<typeof pluginTabGet>>>;
+export type PluginTabGetQueryError = ErrorType<unknown>;
+
+export function usePluginTabGet<
+  TData = Awaited<ReturnType<typeof pluginTabGet>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: undefined | PluginTabGetParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabGet>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabGet>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabGet>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabGet<
+  TData = Awaited<ReturnType<typeof pluginTabGet>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabGet>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabGet>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabGet>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabGet<
+  TData = Awaited<ReturnType<typeof pluginTabGet>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabGet>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function usePluginTabGet<
+  TData = Awaited<ReturnType<typeof pluginTabGet>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabGet>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabGetQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const pluginTabActivity = (
+  id: string,
+  params: PluginTabActivityParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabActivity>({
+    url: `/api/plugin-tabs/${id}/activity`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getPluginTabActivityQueryKey = (id: string, params?: PluginTabActivityParams) => {
+  return [`/api/plugin-tabs/${id}/activity`, ...(params ? [params] : [])] as const;
+};
+
+export const getPluginTabActivityQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabActivity>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: PluginTabActivityParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabActivity>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabActivityQueryKey(id, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabActivity>>> = ({ signal }) =>
+    pluginTabActivity(id, params, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof pluginTabActivity>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type PluginTabActivityQueryResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabActivity>>
+>;
+export type PluginTabActivityQueryError = ErrorType<unknown>;
+
+export function usePluginTabActivity<
+  TData = Awaited<ReturnType<typeof pluginTabActivity>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: PluginTabActivityParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabActivity>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabActivity>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabActivity>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabActivity<
+  TData = Awaited<ReturnType<typeof pluginTabActivity>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: PluginTabActivityParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabActivity>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabActivity>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabActivity>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabActivity<
+  TData = Awaited<ReturnType<typeof pluginTabActivity>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: PluginTabActivityParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabActivity>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function usePluginTabActivity<
+  TData = Awaited<ReturnType<typeof pluginTabActivity>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: PluginTabActivityParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof pluginTabActivity>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabActivityQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Stop the tab's backend in one conversation and clear its crash history:
+the tab's next request starts it afresh.
+ */
+export const pluginTabStopBackend = (id: string, featureId: number, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/plugin-tabs/${id}/backends/${featureId}`,
+    method: "DELETE",
+    signal,
+  });
+};
+
+export const getPluginTabStopBackendMutationKey = () => ["pluginTabStopBackend"] as const;
+
+export const getPluginTabStopBackendMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabStopBackend>>,
+    TError,
+    PluginTabStopBackendMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabStopBackend>>,
+  TError,
+  PluginTabStopBackendMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabStopBackendMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabStopBackend>>,
+    PluginTabStopBackendMutationVariables
+  > = (props) => {
+    const { id, featureId } = props ?? {};
+
+    return pluginTabStopBackend(id, featureId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabStopBackendMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabStopBackend>>
+>;
+
+export type PluginTabStopBackendMutationError = ErrorType<unknown>;
+export type PluginTabStopBackendMutationVariables = { id: string; featureId: number };
+
+/**
+ * @summary Stop the tab's backend in one conversation and clear its crash history:
+the tab's next request starts it afresh.
+ */
+export const usePluginTabStopBackend = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabStopBackend>>,
+      TError,
+      PluginTabStopBackendMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabStopBackend>>,
+  TError,
+  PluginTabStopBackendMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabStopBackendMutationOptions(options), queryClient);
+};
+
+export const pluginTabGetConfiguration = (
+  id: string,
+  params?: PluginTabGetConfigurationParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabConfiguration>({
+    url: `/api/plugin-tabs/${id}/configuration`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getPluginTabGetConfigurationQueryKey = (
+  id: string,
+  params?: PluginTabGetConfigurationParams,
+) => {
+  return [`/api/plugin-tabs/${id}/configuration`, ...(params ? [params] : [])] as const;
+};
+
+export const getPluginTabGetConfigurationQueryOptions = <
+  TData = Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetConfigurationParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabGetConfiguration>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPluginTabGetConfigurationQueryKey(id, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof pluginTabGetConfiguration>>> = ({
+    signal,
+  }) => pluginTabGetConfiguration(id, params, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof pluginTabGetConfiguration>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type PluginTabGetConfigurationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabGetConfiguration>>
+>;
+export type PluginTabGetConfigurationQueryError = ErrorType<unknown>;
+
+export function usePluginTabGetConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params: undefined | PluginTabGetConfigurationParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabGetConfiguration>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabGetConfiguration>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabGetConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetConfigurationParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabGetConfiguration>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+          TError,
+          Awaited<ReturnType<typeof pluginTabGetConfiguration>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePluginTabGetConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetConfigurationParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabGetConfiguration>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function usePluginTabGetConfiguration<
+  TData = Awaited<ReturnType<typeof pluginTabGetConfiguration>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  params?: PluginTabGetConfigurationParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof pluginTabGetConfiguration>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPluginTabGetConfigurationQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Write settings at `project_id` (global when omitted); `null` removes a
+value. Returns the form as `GET` does, secrets masked.
+ */
+export const pluginTabPutConfiguration = (
+  id: string,
+  putPluginTabConfigurationRequest: PutPluginTabConfigurationRequest,
+  params?: PluginTabPutConfigurationParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabConfiguration>({
+    url: `/api/plugin-tabs/${id}/configuration`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: putPluginTabConfigurationRequest,
+    params,
+    signal,
+  });
+};
+
+export const getPluginTabPutConfigurationMutationKey = () => ["pluginTabPutConfiguration"] as const;
+
+export const getPluginTabPutConfigurationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabPutConfiguration>>,
+    TError,
+    PluginTabPutConfigurationMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabPutConfiguration>>,
+  TError,
+  PluginTabPutConfigurationMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabPutConfigurationMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabPutConfiguration>>,
+    PluginTabPutConfigurationMutationVariables
+  > = (props) => {
+    const { id, data, params } = props ?? {};
+
+    return pluginTabPutConfiguration(id, data, params);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabPutConfigurationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabPutConfiguration>>
+>;
+export type PluginTabPutConfigurationMutationBody = PutPluginTabConfigurationRequest;
+export type PluginTabPutConfigurationMutationError = ErrorType<unknown>;
+export type PluginTabPutConfigurationMutationVariables = {
+  id: string;
+  data: PutPluginTabConfigurationRequest;
+  params?: PluginTabPutConfigurationParams;
+};
+
+/**
+ * @summary Write settings at `project_id` (global when omitted); `null` removes a
+value. Returns the form as `GET` does, secrets masked.
+ */
+export const usePluginTabPutConfiguration = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabPutConfiguration>>,
+      TError,
+      PluginTabPutConfigurationMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabPutConfiguration>>,
+  TError,
+  PluginTabPutConfigurationMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabPutConfigurationMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Accept the tab's current permissions — or, with the hash of a staged
+marketplace update (`pending_update.permissions_hash`), accept that update:
+it becomes the installed revision and its backend restarts on it. 409
+`PLUGIN_TAB_CONSENT_STALE` when `permissions_hash` is neither (409
+`MANAGED_TAB_UPDATE_CHANGED` when the staged update was replaced
+meanwhile); 422 `PLUGIN_TAB_TRUST_REQUIRED` when what is accepted runs
+commands or a backend and `trusts_code` is not set. A changed consent
+revokes the tab's live grants.
+ */
+export const pluginTabConsent = (
+  id: string,
+  pluginTabConsentRequest: PluginTabConsentRequest,
+  params?: PluginTabConsentParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabSummary>({
+    url: `/api/plugin-tabs/${id}/consent`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: pluginTabConsentRequest,
+    params,
+    signal,
+  });
+};
+
+export const getPluginTabConsentMutationKey = () => ["pluginTabConsent"] as const;
+
+export const getPluginTabConsentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabConsent>>,
+    TError,
+    PluginTabConsentMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabConsent>>,
+  TError,
+  PluginTabConsentMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabConsentMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabConsent>>,
+    PluginTabConsentMutationVariables
+  > = (props) => {
+    const { id, data, params } = props ?? {};
+
+    return pluginTabConsent(id, data, params);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabConsentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabConsent>>
+>;
+export type PluginTabConsentMutationBody = PluginTabConsentRequest;
+export type PluginTabConsentMutationError = ErrorType<unknown>;
+export type PluginTabConsentMutationVariables = {
+  id: string;
+  data: PluginTabConsentRequest;
+  params?: PluginTabConsentParams;
+};
+
+/**
+ * @summary Accept the tab's current permissions — or, with the hash of a staged
+marketplace update (`pending_update.permissions_hash`), accept that update:
+it becomes the installed revision and its backend restarts on it. 409
+`PLUGIN_TAB_CONSENT_STALE` when `permissions_hash` is neither (409
+`MANAGED_TAB_UPDATE_CHANGED` when the staged update was replaced
+meanwhile); 422 `PLUGIN_TAB_TRUST_REQUIRED` when what is accepted runs
+commands or a backend and `trusts_code` is not set. A changed consent
+revokes the tab's live grants.
+ */
+export const usePluginTabConsent = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabConsent>>,
+      TError,
+      PluginTabConsentMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabConsent>>,
+  TError,
+  PluginTabConsentMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabConsentMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Set or clear the global switch or a project override. Turning a tab on
+requires a valid manifest (422 `PLUGIN_TAB_INVALID`) and a current consent
+(409 `PLUGIN_TAB_CONSENT_REQUIRED`). Anything but `enabled: true` revokes
+the tab's live grants.
+ */
+export const pluginTabSetEnablement = (
+  id: string,
+  setPluginTabEnablementRequest: SetPluginTabEnablementRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabSummary>({
+    url: `/api/plugin-tabs/${id}/enablement`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: setPluginTabEnablementRequest,
+    signal,
+  });
+};
+
+export const getPluginTabSetEnablementMutationKey = () => ["pluginTabSetEnablement"] as const;
+
+export const getPluginTabSetEnablementMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabSetEnablement>>,
+    TError,
+    PluginTabSetEnablementMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabSetEnablement>>,
+  TError,
+  PluginTabSetEnablementMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabSetEnablementMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabSetEnablement>>,
+    PluginTabSetEnablementMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return pluginTabSetEnablement(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabSetEnablementMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabSetEnablement>>
+>;
+export type PluginTabSetEnablementMutationBody = SetPluginTabEnablementRequest;
+export type PluginTabSetEnablementMutationError = ErrorType<unknown>;
+export type PluginTabSetEnablementMutationVariables = {
+  id: string;
+  data: SetPluginTabEnablementRequest;
+};
+
+/**
+ * @summary Set or clear the global switch or a project override. Turning a tab on
+requires a valid manifest (422 `PLUGIN_TAB_INVALID`) and a current consent
+(409 `PLUGIN_TAB_CONSENT_REQUIRED`). Anything but `enabled: true` revokes
+the tab's live grants.
+ */
+export const usePluginTabSetEnablement = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabSetEnablement>>,
+      TError,
+      PluginTabSetEnablementMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabSetEnablement>>,
+  TError,
+  PluginTabSetEnablementMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabSetEnablementMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Mint a plugin token for one tab instance in `feature_id`. 404 when the tab
+or feature does not exist, 422 `PLUGIN_TAB_INVALID` for an invalid
+manifest, 403 `PLUGIN_TAB_DISABLED` unless the tab is effective for the
+feature's project.
+ */
+export const pluginTabCreateGrant = (
+  id: string,
+  createPluginTabGrantRequest: CreatePluginTabGrantRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PluginTabGrant>({
+    url: `/api/plugin-tabs/${id}/grants`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: createPluginTabGrantRequest,
+    signal,
+  });
+};
+
+export const getPluginTabCreateGrantMutationKey = () => ["pluginTabCreateGrant"] as const;
+
+export const getPluginTabCreateGrantMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabCreateGrant>>,
+    TError,
+    PluginTabCreateGrantMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabCreateGrant>>,
+  TError,
+  PluginTabCreateGrantMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabCreateGrantMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabCreateGrant>>,
+    PluginTabCreateGrantMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return pluginTabCreateGrant(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabCreateGrantMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabCreateGrant>>
+>;
+export type PluginTabCreateGrantMutationBody = CreatePluginTabGrantRequest;
+export type PluginTabCreateGrantMutationError = ErrorType<unknown>;
+export type PluginTabCreateGrantMutationVariables = {
+  id: string;
+  data: CreatePluginTabGrantRequest;
+};
+
+/**
+ * @summary Mint a plugin token for one tab instance in `feature_id`. 404 when the tab
+or feature does not exist, 422 `PLUGIN_TAB_INVALID` for an invalid
+manifest, 403 `PLUGIN_TAB_DISABLED` unless the tab is effective for the
+feature's project.
+ */
+export const usePluginTabCreateGrant = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabCreateGrant>>,
+      TError,
+      PluginTabCreateGrantMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabCreateGrant>>,
+  TError,
+  PluginTabCreateGrantMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabCreateGrantMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Take or renew a presence lease: an instance of the tab is open in the
+conversation, so its backend keeps running, idle or not. The desktop
+renews it every minute; unrenewed it lapses after 3 minutes. 400 for a
+malformed lease id, 429 `PLUGIN_TAB_PRESENCE_FULL` past 1 024 leases, 404
+`PLUGIN_TAB_CONVERSATION_NOT_FOUND` once the conversation is deleted and
+409 `PLUGIN_TAB_CONVERSATION_ARCHIVED` while it is archived — possibly
+from another client, whose tabs still renew: every lease held in it goes
+too, so its backends stop.
+ */
+export const pluginTabRenewPresence = (
+  id: string,
+  leaseId: string,
+  pluginTabPresenceRequest: PluginTabPresenceRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<void>({
+    url: `/api/plugin-tabs/${id}/presence/${leaseId}`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: pluginTabPresenceRequest,
+    signal,
+  });
+};
+
+export const getPluginTabRenewPresenceMutationKey = () => ["pluginTabRenewPresence"] as const;
+
+export const getPluginTabRenewPresenceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabRenewPresence>>,
+    TError,
+    PluginTabRenewPresenceMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabRenewPresence>>,
+  TError,
+  PluginTabRenewPresenceMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabRenewPresenceMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabRenewPresence>>,
+    PluginTabRenewPresenceMutationVariables
+  > = (props) => {
+    const { id, leaseId, data } = props ?? {};
+
+    return pluginTabRenewPresence(id, leaseId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabRenewPresenceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabRenewPresence>>
+>;
+export type PluginTabRenewPresenceMutationBody = PluginTabPresenceRequest;
+export type PluginTabRenewPresenceMutationError = ErrorType<unknown>;
+export type PluginTabRenewPresenceMutationVariables = {
+  id: string;
+  leaseId: string;
+  data: PluginTabPresenceRequest;
+};
+
+/**
+ * @summary Take or renew a presence lease: an instance of the tab is open in the
+conversation, so its backend keeps running, idle or not. The desktop
+renews it every minute; unrenewed it lapses after 3 minutes. 400 for a
+malformed lease id, 429 `PLUGIN_TAB_PRESENCE_FULL` past 1 024 leases, 404
+`PLUGIN_TAB_CONVERSATION_NOT_FOUND` once the conversation is deleted and
+409 `PLUGIN_TAB_CONVERSATION_ARCHIVED` while it is archived — possibly
+from another client, whose tabs still renew: every lease held in it goes
+too, so its backends stop.
+ */
+export const usePluginTabRenewPresence = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabRenewPresence>>,
+      TError,
+      PluginTabRenewPresenceMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabRenewPresence>>,
+  TError,
+  PluginTabRenewPresenceMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabRenewPresenceMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Release a presence lease: that instance closed. Its backend stops 30 s
+after the conversation's last lease goes.
+ */
+export const pluginTabReleasePresence = (id: string, leaseId: string, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/plugin-tabs/${id}/presence/${leaseId}`,
+    method: "DELETE",
+    signal,
+  });
+};
+
+export const getPluginTabReleasePresenceMutationKey = () => ["pluginTabReleasePresence"] as const;
+
+export const getPluginTabReleasePresenceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabReleasePresence>>,
+    TError,
+    PluginTabReleasePresenceMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabReleasePresence>>,
+  TError,
+  PluginTabReleasePresenceMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabReleasePresenceMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabReleasePresence>>,
+    PluginTabReleasePresenceMutationVariables
+  > = (props) => {
+    const { id, leaseId } = props ?? {};
+
+    return pluginTabReleasePresence(id, leaseId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabReleasePresenceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabReleasePresence>>
+>;
+
+export type PluginTabReleasePresenceMutationError = ErrorType<unknown>;
+export type PluginTabReleasePresenceMutationVariables = { id: string; leaseId: string };
+
+/**
+ * @summary Release a presence lease: that instance closed. Its backend stops 30 s
+after the conversation's last lease goes.
+ */
+export const usePluginTabReleasePresence = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabReleasePresence>>,
+      TError,
+      PluginTabReleasePresenceMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabReleasePresence>>,
+  TError,
+  PluginTabReleasePresenceMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabReleasePresenceMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary The tab's authoring project, created if missing. Idempotent; also the retry
+for a `PLUGIN_TAB_PROJECT_SETUP_FAILED` creation, which it finishes.
+ */
+export const pluginTabWorkspace = (id: string, signal?: AbortSignal) => {
+  return customInstance<PluginTabWorkspace>({
+    url: `/api/plugin-tabs/${id}/workspace`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getPluginTabWorkspaceMutationKey = () => ["pluginTabWorkspace"] as const;
+
+export const getPluginTabWorkspaceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pluginTabWorkspace>>,
+    TError,
+    PluginTabWorkspaceMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pluginTabWorkspace>>,
+  TError,
+  PluginTabWorkspaceMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPluginTabWorkspaceMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pluginTabWorkspace>>,
+    PluginTabWorkspaceMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return pluginTabWorkspace(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PluginTabWorkspaceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pluginTabWorkspace>>
+>;
+
+export type PluginTabWorkspaceMutationError = ErrorType<unknown>;
+export type PluginTabWorkspaceMutationVariables = { id: string };
+
+/**
+ * @summary The tab's authoring project, created if missing. Idempotent; also the retry
+for a `PLUGIN_TAB_PROJECT_SETUP_FAILED` creation, which it finishes.
+ */
+export const usePluginTabWorkspace = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pluginTabWorkspace>>,
+      TError,
+      PluginTabWorkspaceMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pluginTabWorkspace>>,
+  TError,
+  PluginTabWorkspaceMutationVariables,
+  TContext
+> => {
+  return useMutation(getPluginTabWorkspaceMutationOptions(options), queryClient);
+};
+
 export const listProjects = (signal?: AbortSignal) => {
   return customInstance<Project[]>({ url: `/api/projects`, method: "GET", signal });
 };
@@ -19456,6 +29848,8 @@ export const createProject = (createProjectRequest: CreateProjectRequest, signal
   });
 };
 
+export const getCreateProjectMutationKey = () => ["createProject"] as const;
+
 export const getCreateProjectMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -19472,7 +29866,7 @@ export const getCreateProjectMutationOptions = <
   CreateProjectMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createProject"];
+  const mutationKey = getCreateProjectMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -19523,6 +29917,8 @@ export const deleteProject = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteProjectMutationKey = () => ["deleteProject"] as const;
+
 export const getDeleteProjectMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -19539,7 +29935,7 @@ export const getDeleteProjectMutationOptions = <
   DeleteProjectMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteProject"];
+  const mutationKey = getDeleteProjectMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -19580,6 +29976,77 @@ export const useDeleteProject = <TError = ErrorType<unknown>, TContext = unknown
   TContext
 > => {
   return useMutation(getDeleteProjectMutationOptions(options), queryClient);
+};
+
+export const archiveProjectSessions = (id: number, signal?: AbortSignal) => {
+  return customInstance<ArchiveProjectSessionsResponse>({
+    url: `/api/projects/${id}/archive-sessions`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getArchiveProjectSessionsMutationKey = () => ["archiveProjectSessions"] as const;
+
+export const getArchiveProjectSessionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof archiveProjectSessions>>,
+    TError,
+    ArchiveProjectSessionsMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof archiveProjectSessions>>,
+  TError,
+  ArchiveProjectSessionsMutationVariables,
+  TContext
+> => {
+  const mutationKey = getArchiveProjectSessionsMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof archiveProjectSessions>>,
+    ArchiveProjectSessionsMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return archiveProjectSessions(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ArchiveProjectSessionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof archiveProjectSessions>>
+>;
+
+export type ArchiveProjectSessionsMutationError = ErrorType<unknown>;
+export type ArchiveProjectSessionsMutationVariables = { id: number };
+
+export const useArchiveProjectSessions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof archiveProjectSessions>>,
+      TError,
+      ArchiveProjectSessionsMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof archiveProjectSessions>>,
+  TError,
+  ArchiveProjectSessionsMutationVariables,
+  TContext
+> => {
+  return useMutation(getArchiveProjectSessionsMutationOptions(options), queryClient);
 };
 
 export const scanProjectIcons = (id: number, signal?: AbortSignal) => {
@@ -19703,6 +30170,8 @@ export const startClaudeCodeImport = (
   });
 };
 
+export const getStartClaudeCodeImportMutationKey = () => ["startClaudeCodeImport"] as const;
+
 export const getStartClaudeCodeImportMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -19719,7 +30188,7 @@ export const getStartClaudeCodeImportMutationOptions = <
   StartClaudeCodeImportMutationVariables,
   TContext
 > => {
-  const mutationKey = ["startClaudeCodeImport"];
+  const mutationKey = getStartClaudeCodeImportMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -19899,6 +30368,8 @@ export const startProviderImport = (
   });
 };
 
+export const getStartProviderImportMutationKey = () => ["startProviderImport"] as const;
+
 export const getStartProviderImportMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -19915,7 +30386,7 @@ export const getStartProviderImportMutationOptions = <
   StartProviderImportMutationVariables,
   TContext
 > => {
-  const mutationKey = ["startProviderImport"];
+  const mutationKey = getStartProviderImportMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -20089,118 +30560,212 @@ export function useListProviderConversations<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
-export const getProjectModelSettings = (id: number, signal?: AbortSignal) => {
-  return customInstance<ProjectModelSettings>({
-    url: `/api/projects/${id}/model-settings`,
-    method: "GET",
+export const preparePublicationContribution = (
+  id: number,
+  preparePublicationContributionRequest: PreparePublicationContributionRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PreparedPublicationContribution>({
+    url: `/api/projects/${id}/publication-contribution`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: preparePublicationContributionRequest,
     signal,
   });
 };
 
-export const getGetProjectModelSettingsQueryKey = (id: number) => {
-  return [`/api/projects/${id}/model-settings`] as const;
+export const getPreparePublicationContributionMutationKey = () =>
+  ["preparePublicationContribution"] as const;
+
+export const getPreparePublicationContributionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof preparePublicationContribution>>,
+    TError,
+    PreparePublicationContributionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof preparePublicationContribution>>,
+  TError,
+  PreparePublicationContributionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPreparePublicationContributionMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof preparePublicationContribution>>,
+    PreparePublicationContributionMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return preparePublicationContribution(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
 };
 
-export const getGetProjectModelSettingsQueryOptions = <
-  TData = Awaited<ReturnType<typeof getProjectModelSettings>>,
-  TError = ErrorType<unknown>,
+export type PreparePublicationContributionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof preparePublicationContribution>>
+>;
+export type PreparePublicationContributionMutationBody = PreparePublicationContributionRequest;
+export type PreparePublicationContributionMutationError = ErrorType<void>;
+export type PreparePublicationContributionMutationVariables = {
+  id: number;
+  data: PreparePublicationContributionRequest;
+};
+
+export const usePreparePublicationContribution = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof preparePublicationContribution>>,
+      TError,
+      PreparePublicationContributionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof preparePublicationContribution>>,
+  TError,
+  PreparePublicationContributionMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreparePublicationContributionMutationOptions(options), queryClient);
+};
+
+export const listPublicationOperations = (
+  id: number,
+  params?: ListPublicationOperationsParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationOperationsPage>({
+    url: `/api/projects/${id}/publication-operations`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListPublicationOperationsQueryKey = (
+  id: number,
+  params?: ListPublicationOperationsParams,
+) => {
+  return [`/api/projects/${id}/publication-operations`, ...(params ? [params] : [])] as const;
+};
+
+export const getListPublicationOperationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  params?: ListPublicationOperationsParams,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectModelSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
     >;
   },
 ) => {
   const { query: queryOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetProjectModelSettingsQueryKey(id);
+  const queryKey = queryOptions?.queryKey ?? getListPublicationOperationsQueryKey(id, params);
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectModelSettings>>> = ({
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPublicationOperations>>> = ({
     signal,
-  }) => getProjectModelSettings(id, signal);
+  }) => listPublicationOperations(id, params, signal);
 
   return {
     queryKey,
     queryFn,
     enabled: id !== null && id !== undefined,
     ...queryOptions,
-  } as UseQueryOptions<Awaited<ReturnType<typeof getProjectModelSettings>>, TError, TData> & {
+  } as UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData> & {
     queryKey: DataTag<QueryKey, TData, TError>;
   };
 };
 
-export type GetProjectModelSettingsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getProjectModelSettings>>
+export type ListPublicationOperationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPublicationOperations>>
 >;
-export type GetProjectModelSettingsQueryError = ErrorType<unknown>;
+export type ListPublicationOperationsQueryError = ErrorType<void>;
 
-export function useGetProjectModelSettings<
-  TData = Awaited<ReturnType<typeof getProjectModelSettings>>,
-  TError = ErrorType<unknown>,
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  params: undefined | ListPublicationOperationsParams,
   options: {
     query: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectModelSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
     > &
       Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getProjectModelSettings>>,
+          Awaited<ReturnType<typeof listPublicationOperations>>,
           TError,
-          Awaited<ReturnType<typeof getProjectModelSettings>>
+          Awaited<ReturnType<typeof listPublicationOperations>>
         >,
         "initialData"
       >;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetProjectModelSettings<
-  TData = Awaited<ReturnType<typeof getProjectModelSettings>>,
-  TError = ErrorType<unknown>,
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  params?: ListPublicationOperationsParams,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectModelSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
     > &
       Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getProjectModelSettings>>,
+          Awaited<ReturnType<typeof listPublicationOperations>>,
           TError,
-          Awaited<ReturnType<typeof getProjectModelSettings>>
+          Awaited<ReturnType<typeof listPublicationOperations>>
         >,
         "initialData"
       >;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetProjectModelSettings<
-  TData = Awaited<ReturnType<typeof getProjectModelSettings>>,
-  TError = ErrorType<unknown>,
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  params?: ListPublicationOperationsParams,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectModelSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
     >;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
-export function useGetProjectModelSettings<
-  TData = Awaited<ReturnType<typeof getProjectModelSettings>>,
-  TError = ErrorType<unknown>,
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  params?: ListPublicationOperationsParams,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectModelSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
     >;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-  const queryOptions = getGetProjectModelSettingsQueryOptions(id, options);
+  const queryOptions = getListPublicationOperationsQueryOptions(id, params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -20209,196 +30774,123 @@ export function useGetProjectModelSettings<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
-export const setProjectModelSetting = (
-  id: number,
-  setProjectModelSettingRequest: SetProjectModelSettingRequest,
-  signal?: AbortSignal,
-) => {
-  return customInstance<ProjectsSuccessResponse>({
-    url: `/api/projects/${id}/model-settings`,
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    data: setProjectModelSettingRequest,
-    signal,
-  });
-};
-
-export const getSetProjectModelSettingMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setProjectModelSetting>>,
-    TError,
-    SetProjectModelSettingMutationVariables,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof setProjectModelSetting>>,
-  TError,
-  SetProjectModelSettingMutationVariables,
-  TContext
-> => {
-  const mutationKey = ["setProjectModelSetting"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof setProjectModelSetting>>,
-    SetProjectModelSettingMutationVariables
-  > = (props) => {
-    const { id, data } = props ?? {};
-
-    return setProjectModelSetting(id, data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type SetProjectModelSettingMutationResult = NonNullable<
-  Awaited<ReturnType<typeof setProjectModelSetting>>
->;
-export type SetProjectModelSettingMutationBody = SetProjectModelSettingRequest;
-export type SetProjectModelSettingMutationError = ErrorType<unknown>;
-export type SetProjectModelSettingMutationVariables = {
-  id: number;
-  data: SetProjectModelSettingRequest;
-};
-
-export const useSetProjectModelSetting = <TError = ErrorType<unknown>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof setProjectModelSetting>>,
-      TError,
-      SetProjectModelSettingMutationVariables,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof setProjectModelSetting>>,
-  TError,
-  SetProjectModelSettingMutationVariables,
-  TContext
-> => {
-  return useMutation(getSetProjectModelSettingMutationOptions(options), queryClient);
-};
-
-export const getProjectProviderSettings = (id: number, signal?: AbortSignal) => {
-  return customInstance<ProviderSettings>({
-    url: `/api/projects/${id}/provider-settings`,
+export const getPublicationOperation = (id: number, operationId: string, signal?: AbortSignal) => {
+  return customInstance<PublicationOperation>({
+    url: `/api/projects/${id}/publication-operations/${operationId}`,
     method: "GET",
     signal,
   });
 };
 
-export const getGetProjectProviderSettingsQueryKey = (id: number) => {
-  return [`/api/projects/${id}/provider-settings`] as const;
+export const getGetPublicationOperationQueryKey = (id: number, operationId: string) => {
+  return [`/api/projects/${id}/publication-operations/${operationId}`] as const;
 };
 
-export const getGetProjectProviderSettingsQueryOptions = <
-  TData = Awaited<ReturnType<typeof getProjectProviderSettings>>,
-  TError = ErrorType<unknown>,
+export const getGetPublicationOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  operationId: string,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectProviderSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
     >;
   },
 ) => {
   const { query: queryOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetProjectProviderSettingsQueryKey(id);
+  const queryKey = queryOptions?.queryKey ?? getGetPublicationOperationQueryKey(id, operationId);
 
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectProviderSettings>>> = ({
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicationOperation>>> = ({
     signal,
-  }) => getProjectProviderSettings(id, signal);
+  }) => getPublicationOperation(id, operationId, signal);
 
   return {
     queryKey,
     queryFn,
-    enabled: id !== null && id !== undefined,
+    enabled: id !== null && id !== undefined && operationId !== null && operationId !== undefined,
     ...queryOptions,
-  } as UseQueryOptions<Awaited<ReturnType<typeof getProjectProviderSettings>>, TError, TData> & {
+  } as UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData> & {
     queryKey: DataTag<QueryKey, TData, TError>;
   };
 };
 
-export type GetProjectProviderSettingsQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getProjectProviderSettings>>
+export type GetPublicationOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPublicationOperation>>
 >;
-export type GetProjectProviderSettingsQueryError = ErrorType<unknown>;
+export type GetPublicationOperationQueryError = ErrorType<void>;
 
-export function useGetProjectProviderSettings<
-  TData = Awaited<ReturnType<typeof getProjectProviderSettings>>,
-  TError = ErrorType<unknown>,
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  operationId: string,
   options: {
     query: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectProviderSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
     > &
       Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getProjectProviderSettings>>,
+          Awaited<ReturnType<typeof getPublicationOperation>>,
           TError,
-          Awaited<ReturnType<typeof getProjectProviderSettings>>
+          Awaited<ReturnType<typeof getPublicationOperation>>
         >,
         "initialData"
       >;
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetProjectProviderSettings<
-  TData = Awaited<ReturnType<typeof getProjectProviderSettings>>,
-  TError = ErrorType<unknown>,
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  operationId: string,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectProviderSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
     > &
       Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getProjectProviderSettings>>,
+          Awaited<ReturnType<typeof getPublicationOperation>>,
           TError,
-          Awaited<ReturnType<typeof getProjectProviderSettings>>
+          Awaited<ReturnType<typeof getPublicationOperation>>
         >,
         "initialData"
       >;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetProjectProviderSettings<
-  TData = Awaited<ReturnType<typeof getProjectProviderSettings>>,
-  TError = ErrorType<unknown>,
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  operationId: string,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectProviderSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
     >;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
-export function useGetProjectProviderSettings<
-  TData = Awaited<ReturnType<typeof getProjectProviderSettings>>,
-  TError = ErrorType<unknown>,
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
 >(
   id: number,
+  operationId: string,
   options?: {
     query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getProjectProviderSettings>>, TError, TData>
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
     >;
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-  const queryOptions = getGetProjectProviderSettingsQueryOptions(id, options);
+  const queryOptions = getGetPublicationOperationQueryOptions(id, operationId, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -20407,37 +30899,39 @@ export function useGetProjectProviderSettings<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
-export const setProjectProviderSetting = (
+export const preparePublicationPackage = (
   id: number,
-  setProjectProviderSettingRequest: SetProjectProviderSettingRequest,
+  preparePublicationPackageRequest: PreparePublicationPackageRequest,
   signal?: AbortSignal,
 ) => {
-  return customInstance<ProjectsSuccessResponse>({
-    url: `/api/projects/${id}/provider-settings`,
-    method: "PUT",
+  return customInstance<PreparedPublicationPackage>({
+    url: `/api/projects/${id}/publication-package`,
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    data: setProjectProviderSettingRequest,
+    data: preparePublicationPackageRequest,
     signal,
   });
 };
 
-export const getSetProjectProviderSettingMutationOptions = <
-  TError = ErrorType<unknown>,
+export const getPreparePublicationPackageMutationKey = () => ["preparePublicationPackage"] as const;
+
+export const getPreparePublicationPackageMutationOptions = <
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setProjectProviderSetting>>,
+    Awaited<ReturnType<typeof preparePublicationPackage>>,
     TError,
-    SetProjectProviderSettingMutationVariables,
+    PreparePublicationPackageMutationVariables,
     TContext
   >;
 }): UseMutationOptions<
-  Awaited<ReturnType<typeof setProjectProviderSetting>>,
+  Awaited<ReturnType<typeof preparePublicationPackage>>,
   TError,
-  SetProjectProviderSettingMutationVariables,
+  PreparePublicationPackageMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setProjectProviderSetting"];
+  const mutationKey = getPreparePublicationPackageMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -20445,44 +30939,487 @@ export const getSetProjectProviderSettingMutationOptions = <
     : { mutation: { mutationKey } };
 
   const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof setProjectProviderSetting>>,
-    SetProjectProviderSettingMutationVariables
+    Awaited<ReturnType<typeof preparePublicationPackage>>,
+    PreparePublicationPackageMutationVariables
   > = (props) => {
     const { id, data } = props ?? {};
 
-    return setProjectProviderSetting(id, data);
+    return preparePublicationPackage(id, data);
   };
 
   return { mutationFn, ...mutationOptions };
 };
 
-export type SetProjectProviderSettingMutationResult = NonNullable<
-  Awaited<ReturnType<typeof setProjectProviderSetting>>
+export type PreparePublicationPackageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof preparePublicationPackage>>
 >;
-export type SetProjectProviderSettingMutationBody = SetProjectProviderSettingRequest;
-export type SetProjectProviderSettingMutationError = ErrorType<unknown>;
-export type SetProjectProviderSettingMutationVariables = {
+export type PreparePublicationPackageMutationBody = PreparePublicationPackageRequest;
+export type PreparePublicationPackageMutationError = ErrorType<void>;
+export type PreparePublicationPackageMutationVariables = {
   id: number;
-  data: SetProjectProviderSettingRequest;
+  data: PreparePublicationPackageRequest;
 };
 
-export const useSetProjectProviderSetting = <TError = ErrorType<unknown>, TContext = unknown>(
+export const usePreparePublicationPackage = <TError = ErrorType<void>, TContext = unknown>(
   options?: {
     mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof setProjectProviderSetting>>,
+      Awaited<ReturnType<typeof preparePublicationPackage>>,
       TError,
-      SetProjectProviderSettingMutationVariables,
+      PreparePublicationPackageMutationVariables,
       TContext
     >;
   },
   queryClient?: QueryClient,
 ): UseMutationResult<
-  Awaited<ReturnType<typeof setProjectProviderSetting>>,
+  Awaited<ReturnType<typeof preparePublicationPackage>>,
   TError,
-  SetProjectProviderSettingMutationVariables,
+  PreparePublicationPackageMutationVariables,
   TContext
 > => {
-  return useMutation(getSetProjectProviderSettingMutationOptions(options), queryClient);
+  return useMutation(getPreparePublicationPackageMutationOptions(options), queryClient);
+};
+
+export const getProjectPublicationReadiness = (id: number, signal?: AbortSignal) => {
+  return customInstance<PublicationReadinessResponse>({
+    url: `/api/projects/${id}/publication-readiness`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetProjectPublicationReadinessQueryKey = (id: number) => {
+  return [`/api/projects/${id}/publication-readiness`] as const;
+};
+
+export const getGetProjectPublicationReadinessQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetProjectPublicationReadinessQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectPublicationReadiness>>> = ({
+    signal,
+  }) => getProjectPublicationReadiness(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetProjectPublicationReadinessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+>;
+export type GetProjectPublicationReadinessQueryError = ErrorType<void>;
+
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+          TError,
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+          TError,
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetProjectPublicationReadinessQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const submitPublicationRegistry = (
+  id: number,
+  submitPublicationRegistryRequest: SubmitPublicationRegistryRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationRegistryResult>({
+    url: `/api/projects/${id}/publication-registry`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: submitPublicationRegistryRequest,
+    signal,
+  });
+};
+
+export const getSubmitPublicationRegistryMutationKey = () => ["submitPublicationRegistry"] as const;
+
+export const getSubmitPublicationRegistryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitPublicationRegistry>>,
+    TError,
+    SubmitPublicationRegistryMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitPublicationRegistry>>,
+  TError,
+  SubmitPublicationRegistryMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSubmitPublicationRegistryMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitPublicationRegistry>>,
+    SubmitPublicationRegistryMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return submitPublicationRegistry(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitPublicationRegistryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitPublicationRegistry>>
+>;
+export type SubmitPublicationRegistryMutationBody = SubmitPublicationRegistryRequest;
+export type SubmitPublicationRegistryMutationError = ErrorType<void>;
+export type SubmitPublicationRegistryMutationVariables = {
+  id: number;
+  data: SubmitPublicationRegistryRequest;
+};
+
+export const useSubmitPublicationRegistry = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof submitPublicationRegistry>>,
+      TError,
+      SubmitPublicationRegistryMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof submitPublicationRegistry>>,
+  TError,
+  SubmitPublicationRegistryMutationVariables,
+  TContext
+> => {
+  return useMutation(getSubmitPublicationRegistryMutationOptions(options), queryClient);
+};
+
+export const previewPublicationRegistry = (
+  id: number,
+  previewPublicationRegistryRequest: PreviewPublicationRegistryRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationRegistryPreview>({
+    url: `/api/projects/${id}/publication-registry/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: previewPublicationRegistryRequest,
+    signal,
+  });
+};
+
+export const getPreviewPublicationRegistryMutationKey = () =>
+  ["previewPublicationRegistry"] as const;
+
+export const getPreviewPublicationRegistryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPublicationRegistry>>,
+    TError,
+    PreviewPublicationRegistryMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewPublicationRegistry>>,
+  TError,
+  PreviewPublicationRegistryMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPreviewPublicationRegistryMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewPublicationRegistry>>,
+    PreviewPublicationRegistryMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return previewPublicationRegistry(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewPublicationRegistryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewPublicationRegistry>>
+>;
+export type PreviewPublicationRegistryMutationBody = PreviewPublicationRegistryRequest;
+export type PreviewPublicationRegistryMutationError = ErrorType<void>;
+export type PreviewPublicationRegistryMutationVariables = {
+  id: number;
+  data: PreviewPublicationRegistryRequest;
+};
+
+export const usePreviewPublicationRegistry = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewPublicationRegistry>>,
+      TError,
+      PreviewPublicationRegistryMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewPublicationRegistry>>,
+  TError,
+  PreviewPublicationRegistryMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewPublicationRegistryMutationOptions(options), queryClient);
+};
+
+export const publishPublicationRelease = (
+  id: number,
+  publishPublicationReleaseRequest: PublishPublicationReleaseRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublishedProviderRelease>({
+    url: `/api/projects/${id}/publication-release`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: publishPublicationReleaseRequest,
+    signal,
+  });
+};
+
+export const getPublishPublicationReleaseMutationKey = () => ["publishPublicationRelease"] as const;
+
+export const getPublishPublicationReleaseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishPublicationRelease>>,
+    TError,
+    PublishPublicationReleaseMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof publishPublicationRelease>>,
+  TError,
+  PublishPublicationReleaseMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPublishPublicationReleaseMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof publishPublicationRelease>>,
+    PublishPublicationReleaseMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return publishPublicationRelease(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PublishPublicationReleaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof publishPublicationRelease>>
+>;
+export type PublishPublicationReleaseMutationBody = PublishPublicationReleaseRequest;
+export type PublishPublicationReleaseMutationError = ErrorType<void>;
+export type PublishPublicationReleaseMutationVariables = {
+  id: number;
+  data: PublishPublicationReleaseRequest;
+};
+
+export const usePublishPublicationRelease = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof publishPublicationRelease>>,
+      TError,
+      PublishPublicationReleaseMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof publishPublicationRelease>>,
+  TError,
+  PublishPublicationReleaseMutationVariables,
+  TContext
+> => {
+  return useMutation(getPublishPublicationReleaseMutationOptions(options), queryClient);
+};
+
+export const previewPublicationRelease = (
+  id: number,
+  previewPublicationReleaseRequest: PreviewPublicationReleaseRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationReleasePreview>({
+    url: `/api/projects/${id}/publication-release/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: previewPublicationReleaseRequest,
+    signal,
+  });
+};
+
+export const getPreviewPublicationReleaseMutationKey = () => ["previewPublicationRelease"] as const;
+
+export const getPreviewPublicationReleaseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPublicationRelease>>,
+    TError,
+    PreviewPublicationReleaseMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewPublicationRelease>>,
+  TError,
+  PreviewPublicationReleaseMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPreviewPublicationReleaseMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewPublicationRelease>>,
+    PreviewPublicationReleaseMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return previewPublicationRelease(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewPublicationReleaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewPublicationRelease>>
+>;
+export type PreviewPublicationReleaseMutationBody = PreviewPublicationReleaseRequest;
+export type PreviewPublicationReleaseMutationError = ErrorType<void>;
+export type PreviewPublicationReleaseMutationVariables = {
+  id: number;
+  data: PreviewPublicationReleaseRequest;
+};
+
+export const usePreviewPublicationRelease = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewPublicationRelease>>,
+      TError,
+      PreviewPublicationReleaseMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewPublicationRelease>>,
+  TError,
+  PreviewPublicationReleaseMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewPublicationReleaseMutationOptions(options), queryClient);
 };
 
 export const getProjectSettings = (id: number, signal?: AbortSignal) => {
@@ -20610,6 +31547,8 @@ export const setProjectSetting = (
   });
 };
 
+export const getSetProjectSettingMutationKey = () => ["setProjectSetting"] as const;
+
 export const getSetProjectSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -20626,7 +31565,7 @@ export const getSetProjectSettingMutationOptions = <
   SetProjectSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setProjectSetting"];
+  const mutationKey = getSetProjectSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -20804,6 +31743,8 @@ export const putProjectSettingsFile = (
   });
 };
 
+export const getPutProjectSettingsFileMutationKey = () => ["putProjectSettingsFile"] as const;
+
 export const getPutProjectSettingsFileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -20820,7 +31761,7 @@ export const getPutProjectSettingsFileMutationOptions = <
   PutProjectSettingsFileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["putProjectSettingsFile"];
+  const mutationKey = getPutProjectSettingsFileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -20985,6 +31926,8 @@ export const subscribe = (pushSubscribeRequest: PushSubscribeRequest, signal?: A
   });
 };
 
+export const getSubscribeMutationKey = () => ["subscribe"] as const;
+
 export const getSubscribeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -21001,7 +31944,7 @@ export const getSubscribeMutationOptions = <
   SubscribeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["subscribe"];
+  const mutationKey = getSubscribeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21057,6 +32000,8 @@ export const unsubscribe = (
   });
 };
 
+export const getUnsubscribeMutationKey = () => ["unsubscribe"] as const;
+
 export const getUnsubscribeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -21073,7 +32018,7 @@ export const getUnsubscribeMutationOptions = <
   UnsubscribeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["unsubscribe"];
+  const mutationKey = getUnsubscribeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21209,6 +32154,109 @@ export function useVapidKey<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+/**
+ * @summary Keep per-action browser authorization independent of device/audit database reads.
+ */
+export const browserOrigins = (signal?: AbortSignal) => {
+  return customInstance<RemoteBrowserOrigins>({
+    url: `/api/remote/browser-origins`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getBrowserOriginsQueryKey = () => {
+  return [`/api/remote/browser-origins`] as const;
+};
+
+export const getBrowserOriginsQueryOptions = <
+  TData = Awaited<ReturnType<typeof browserOrigins>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof browserOrigins>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getBrowserOriginsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof browserOrigins>>> = ({ signal }) =>
+    browserOrigins(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof browserOrigins>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type BrowserOriginsQueryResult = NonNullable<Awaited<ReturnType<typeof browserOrigins>>>;
+export type BrowserOriginsQueryError = ErrorType<unknown>;
+
+export function useBrowserOrigins<
+  TData = Awaited<ReturnType<typeof browserOrigins>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof browserOrigins>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof browserOrigins>>,
+          TError,
+          Awaited<ReturnType<typeof browserOrigins>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBrowserOrigins<
+  TData = Awaited<ReturnType<typeof browserOrigins>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof browserOrigins>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof browserOrigins>>,
+          TError,
+          Awaited<ReturnType<typeof browserOrigins>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBrowserOrigins<
+  TData = Awaited<ReturnType<typeof browserOrigins>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof browserOrigins>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Keep per-action browser authorization independent of device/audit database reads.
+ */
+
+export function useBrowserOrigins<
+  TData = Awaited<ReturnType<typeof browserOrigins>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof browserOrigins>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getBrowserOriginsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const remoteRevokeDevice = (id: number, signal?: AbortSignal) => {
   return customInstance<RemoteStatus>({
     url: `/api/remote/devices/${id}`,
@@ -21216,6 +32264,8 @@ export const remoteRevokeDevice = (id: number, signal?: AbortSignal) => {
     signal,
   });
 };
+
+export const getRemoteRevokeDeviceMutationKey = () => ["remoteRevokeDevice"] as const;
 
 export const getRemoteRevokeDeviceMutationOptions = <
   TError = ErrorType<unknown>,
@@ -21233,7 +32283,7 @@ export const getRemoteRevokeDeviceMutationOptions = <
   RemoteRevokeDeviceMutationVariables,
   TContext
 > => {
-  const mutationKey = ["remoteRevokeDevice"];
+  const mutationKey = getRemoteRevokeDeviceMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21282,13 +32332,15 @@ export const remoteDisable = (signal?: AbortSignal) => {
   return customInstance<RemoteStatus>({ url: `/api/remote/disable`, method: "POST", signal });
 };
 
+export const getRemoteDisableMutationKey = () => ["remoteDisable"] as const;
+
 export const getRemoteDisableMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<Awaited<ReturnType<typeof remoteDisable>>, TError, void, TContext>;
 }): UseMutationOptions<Awaited<ReturnType<typeof remoteDisable>>, TError, void, TContext> => {
-  const mutationKey = ["remoteDisable"];
+  const mutationKey = getRemoteDisableMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21324,13 +32376,15 @@ export const remoteEnable = (signal?: AbortSignal) => {
   return customInstance<RemoteStatus>({ url: `/api/remote/enable`, method: "POST", signal });
 };
 
+export const getRemoteEnableMutationKey = () => ["remoteEnable"] as const;
+
 export const getRemoteEnableMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<Awaited<ReturnType<typeof remoteEnable>>, TError, void, TContext>;
 }): UseMutationOptions<Awaited<ReturnType<typeof remoteEnable>>, TError, void, TContext> => {
-  const mutationKey = ["remoteEnable"];
+  const mutationKey = getRemoteEnableMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21367,6 +32421,8 @@ export const remotePair = (pairRequest: PairRequest, signal?: AbortSignal) => {
   });
 };
 
+export const getRemotePairMutationKey = () => ["remotePair"] as const;
+
 export const getRemotePairMutationOptions = <
   TError = ErrorType<void>,
   TContext = unknown,
@@ -21383,7 +32439,7 @@ export const getRemotePairMutationOptions = <
   RemotePairMutationVariables,
   TContext
 > => {
-  const mutationKey = ["remotePair"];
+  const mutationKey = getRemotePairMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21434,6 +32490,8 @@ export const remotePairingCode = (signal?: AbortSignal) => {
   });
 };
 
+export const getRemotePairingCodeMutationKey = () => ["remotePairingCode"] as const;
+
 export const getRemotePairingCodeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -21445,7 +32503,7 @@ export const getRemotePairingCodeMutationOptions = <
     TContext
   >;
 }): UseMutationOptions<Awaited<ReturnType<typeof remotePairingCode>>, TError, void, TContext> => {
-  const mutationKey = ["remotePairingCode"];
+  const mutationKey = getRemotePairingCodeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21582,6 +32640,8 @@ export const remoteSetTunnelHost = (tunnelHostRequest: TunnelHostRequest, signal
   });
 };
 
+export const getRemoteSetTunnelHostMutationKey = () => ["remoteSetTunnelHost"] as const;
+
 export const getRemoteSetTunnelHostMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -21598,7 +32658,7 @@ export const getRemoteSetTunnelHostMutationOptions = <
   RemoteSetTunnelHostMutationVariables,
   TContext
 > => {
-  const mutationKey = ["remoteSetTunnelHost"];
+  const mutationKey = getRemoteSetTunnelHostMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21759,6 +32819,8 @@ export const createSchedule = (saveScheduleRequest: SaveScheduleRequest, signal?
   });
 };
 
+export const getCreateScheduleMutationKey = () => ["createSchedule"] as const;
+
 export const getCreateScheduleMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -21775,7 +32837,7 @@ export const getCreateScheduleMutationOptions = <
   CreateScheduleMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createSchedule"];
+  const mutationKey = getCreateScheduleMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -21938,6 +33000,8 @@ export const updateSchedule = (
   });
 };
 
+export const getUpdateScheduleMutationKey = () => ["updateSchedule"] as const;
+
 export const getUpdateScheduleMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -21954,7 +33018,7 @@ export const getUpdateScheduleMutationOptions = <
   UpdateScheduleMutationVariables,
   TContext
 > => {
-  const mutationKey = ["updateSchedule"];
+  const mutationKey = getUpdateScheduleMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -22004,6 +33068,8 @@ export const deleteSchedule = (id: number, signal?: AbortSignal) => {
   return customInstance<ScheduleDeleted>({ url: `/api/schedules/${id}`, method: "DELETE", signal });
 };
 
+export const getDeleteScheduleMutationKey = () => ["deleteSchedule"] as const;
+
 export const getDeleteScheduleMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -22020,7 +33086,7 @@ export const getDeleteScheduleMutationOptions = <
   DeleteScheduleMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteSchedule"];
+  const mutationKey = getDeleteScheduleMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -22080,6 +33146,8 @@ export const setScheduleEnabled = (
   });
 };
 
+export const getSetScheduleEnabledMutationKey = () => ["setScheduleEnabled"] as const;
+
 export const getSetScheduleEnabledMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -22096,7 +33164,7 @@ export const getSetScheduleEnabledMutationOptions = <
   SetScheduleEnabledMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setScheduleEnabled"];
+  const mutationKey = getSetScheduleEnabledMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -22155,6 +33223,8 @@ export const runSchedule = (id: number, signal?: AbortSignal) => {
   });
 };
 
+export const getRunScheduleMutationKey = () => ["runSchedule"] as const;
+
 export const getRunScheduleMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -22171,7 +33241,7 @@ export const getRunScheduleMutationOptions = <
   RunScheduleMutationVariables,
   TContext
 > => {
-  const mutationKey = ["runSchedule"];
+  const mutationKey = getRunScheduleMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -22216,6 +33286,236 @@ export const useRunSchedule = <TError = ErrorType<unknown>, TContext = unknown>(
 > => {
   return useMutation(getRunScheduleMutationOptions(options), queryClient);
 };
+
+/**
+ * @summary Every conversation, active and archived, most recently touched first: the
+command palette ranks them client-side as the user types.
+ */
+export const listConversationIndex = (signal?: AbortSignal) => {
+  return customInstance<ConversationIndexEntry[]>({
+    url: `/api/search/conversations`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListConversationIndexQueryKey = () => {
+  return [`/api/search/conversations`] as const;
+};
+
+export const getListConversationIndexQueryOptions = <
+  TData = Awaited<ReturnType<typeof listConversationIndex>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof listConversationIndex>>, TError, TData>
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListConversationIndexQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listConversationIndex>>> = ({ signal }) =>
+    listConversationIndex(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listConversationIndex>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListConversationIndexQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listConversationIndex>>
+>;
+export type ListConversationIndexQueryError = ErrorType<unknown>;
+
+export function useListConversationIndex<
+  TData = Awaited<ReturnType<typeof listConversationIndex>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listConversationIndex>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listConversationIndex>>,
+          TError,
+          Awaited<ReturnType<typeof listConversationIndex>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListConversationIndex<
+  TData = Awaited<ReturnType<typeof listConversationIndex>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listConversationIndex>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listConversationIndex>>,
+          TError,
+          Awaited<ReturnType<typeof listConversationIndex>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListConversationIndex<
+  TData = Awaited<ReturnType<typeof listConversationIndex>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listConversationIndex>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Every conversation, active and archived, most recently touched first: the
+command palette ranks them client-side as the user types.
+ */
+
+export function useListConversationIndex<
+  TData = Awaited<ReturnType<typeof listConversationIndex>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listConversationIndex>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListConversationIndexQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Conversations whose prompts or replies contain every word of `q`, one hit
+(the newest matching message) per conversation, newest first.
+ */
+export const searchMessages = (params: SearchMessagesParams, signal?: AbortSignal) => {
+  return customInstance<MessageSearchHit[]>({
+    url: `/api/search/messages`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getSearchMessagesQueryKey = (params?: SearchMessagesParams) => {
+  return [`/api/search/messages`, ...(params ? [params] : [])] as const;
+};
+
+export const getSearchMessagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof searchMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params: SearchMessagesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMessages>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSearchMessagesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof searchMessages>>> = ({ signal }) =>
+    searchMessages(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof searchMessages>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type SearchMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof searchMessages>>>;
+export type SearchMessagesQueryError = ErrorType<unknown>;
+
+export function useSearchMessages<
+  TData = Awaited<ReturnType<typeof searchMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params: SearchMessagesParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMessages>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMessages>>,
+          TError,
+          Awaited<ReturnType<typeof searchMessages>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMessages<
+  TData = Awaited<ReturnType<typeof searchMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params: SearchMessagesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMessages>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMessages>>,
+          TError,
+          Awaited<ReturnType<typeof searchMessages>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMessages<
+  TData = Awaited<ReturnType<typeof searchMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params: SearchMessagesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMessages>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Conversations whose prompts or replies contain every word of `q`, one hit
+(the newest matching message) per conversation, newest first.
+ */
+
+export function useSearchMessages<
+  TData = Awaited<ReturnType<typeof searchMessages>>,
+  TError = ErrorType<unknown>,
+>(
+  params: SearchMessagesParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMessages>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getSearchMessagesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const listConversationReferences = (
   params: ListConversationReferencesParams,
@@ -22580,6 +33880,8 @@ export const saveSessionDraft = (
   });
 };
 
+export const getSaveSessionDraftMutationKey = () => ["saveSessionDraft"] as const;
+
 export const getSaveSessionDraftMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -22596,7 +33898,7 @@ export const getSaveSessionDraftMutationOptions = <
   SaveSessionDraftMutationVariables,
   TContext
 > => {
-  const mutationKey = ["saveSessionDraft"];
+  const mutationKey = getSaveSessionDraftMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -22641,6 +33943,772 @@ export const useSaveSessionDraft = <TError = ErrorType<unknown>, TContext = unkn
   return useMutation(getSaveSessionDraftMutationOptions(options), queryClient);
 };
 
+/**
+ * @summary Stop the session's running turn.
+ */
+export const interruptAgentSession = (sessionId: number, signal?: AbortSignal) => {
+  return customInstance<AgentSessionControlAck>({
+    url: `/api/sessions/${sessionId}/interrupt`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getInterruptAgentSessionMutationKey = () => ["interruptAgentSession"] as const;
+
+export const getInterruptAgentSessionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof interruptAgentSession>>,
+    TError,
+    InterruptAgentSessionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof interruptAgentSession>>,
+  TError,
+  InterruptAgentSessionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInterruptAgentSessionMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof interruptAgentSession>>,
+    InterruptAgentSessionMutationVariables
+  > = (props) => {
+    const { sessionId } = props ?? {};
+
+    return interruptAgentSession(sessionId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InterruptAgentSessionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof interruptAgentSession>>
+>;
+
+export type InterruptAgentSessionMutationError = ErrorType<void>;
+export type InterruptAgentSessionMutationVariables = { sessionId: number };
+
+/**
+ * @summary Stop the session's running turn.
+ */
+export const useInterruptAgentSession = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof interruptAgentSession>>,
+      TError,
+      InterruptAgentSessionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof interruptAgentSession>>,
+  TError,
+  InterruptAgentSessionMutationVariables,
+  TContext
+> => {
+  return useMutation(getInterruptAgentSessionMutationOptions(options), queryClient);
+};
+
+export const listSessionPromptQueue = (sessionId: number, signal?: AbortSignal) => {
+  return customInstance<QueuedPrompt[]>({
+    url: `/api/sessions/${sessionId}/prompt-queue`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListSessionPromptQueueQueryKey = (sessionId: number) => {
+  return [`/api/sessions/${sessionId}/prompt-queue`] as const;
+};
+
+export const getListSessionPromptQueueQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSessionPromptQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listSessionPromptQueue>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSessionPromptQueueQueryKey(sessionId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSessionPromptQueue>>> = ({ signal }) =>
+    listSessionPromptQueue(sessionId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: sessionId !== null && sessionId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listSessionPromptQueue>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListSessionPromptQueueQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSessionPromptQueue>>
+>;
+export type ListSessionPromptQueueQueryError = ErrorType<unknown>;
+
+export function useListSessionPromptQueue<
+  TData = Awaited<ReturnType<typeof listSessionPromptQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  sessionId: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listSessionPromptQueue>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSessionPromptQueue>>,
+          TError,
+          Awaited<ReturnType<typeof listSessionPromptQueue>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSessionPromptQueue<
+  TData = Awaited<ReturnType<typeof listSessionPromptQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listSessionPromptQueue>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSessionPromptQueue>>,
+          TError,
+          Awaited<ReturnType<typeof listSessionPromptQueue>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSessionPromptQueue<
+  TData = Awaited<ReturnType<typeof listSessionPromptQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listSessionPromptQueue>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListSessionPromptQueue<
+  TData = Awaited<ReturnType<typeof listSessionPromptQueue>>,
+  TError = ErrorType<unknown>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listSessionPromptQueue>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListSessionPromptQueueQueryOptions(sessionId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const enqueueSessionPrompt = (
+  sessionId: number,
+  queuePromptRequest: QueuePromptRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<QueuedPrompt>({
+    url: `/api/sessions/${sessionId}/prompt-queue`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: queuePromptRequest,
+    signal,
+  });
+};
+
+export const getEnqueueSessionPromptMutationKey = () => ["enqueueSessionPrompt"] as const;
+
+export const getEnqueueSessionPromptMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enqueueSessionPrompt>>,
+    TError,
+    EnqueueSessionPromptMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof enqueueSessionPrompt>>,
+  TError,
+  EnqueueSessionPromptMutationVariables,
+  TContext
+> => {
+  const mutationKey = getEnqueueSessionPromptMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof enqueueSessionPrompt>>,
+    EnqueueSessionPromptMutationVariables
+  > = (props) => {
+    const { sessionId, data } = props ?? {};
+
+    return enqueueSessionPrompt(sessionId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EnqueueSessionPromptMutationResult = NonNullable<
+  Awaited<ReturnType<typeof enqueueSessionPrompt>>
+>;
+export type EnqueueSessionPromptMutationBody = QueuePromptRequest;
+export type EnqueueSessionPromptMutationError = ErrorType<unknown>;
+export type EnqueueSessionPromptMutationVariables = { sessionId: number; data: QueuePromptRequest };
+
+export const useEnqueueSessionPrompt = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof enqueueSessionPrompt>>,
+      TError,
+      EnqueueSessionPromptMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof enqueueSessionPrompt>>,
+  TError,
+  EnqueueSessionPromptMutationVariables,
+  TContext
+> => {
+  return useMutation(getEnqueueSessionPromptMutationOptions(options), queryClient);
+};
+
+export const deleteSessionQueuedPrompt = (sessionId: number, id: number, signal?: AbortSignal) => {
+  return customInstance<PromptQueueOkResponse>({
+    url: `/api/sessions/${sessionId}/prompt-queue/${id}`,
+    method: "DELETE",
+    signal,
+  });
+};
+
+export const getDeleteSessionQueuedPromptMutationKey = () => ["deleteSessionQueuedPrompt"] as const;
+
+export const getDeleteSessionQueuedPromptMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSessionQueuedPrompt>>,
+    TError,
+    DeleteSessionQueuedPromptMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteSessionQueuedPrompt>>,
+  TError,
+  DeleteSessionQueuedPromptMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeleteSessionQueuedPromptMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteSessionQueuedPrompt>>,
+    DeleteSessionQueuedPromptMutationVariables
+  > = (props) => {
+    const { sessionId, id } = props ?? {};
+
+    return deleteSessionQueuedPrompt(sessionId, id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteSessionQueuedPromptMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteSessionQueuedPrompt>>
+>;
+
+export type DeleteSessionQueuedPromptMutationError = ErrorType<unknown>;
+export type DeleteSessionQueuedPromptMutationVariables = { sessionId: number; id: number };
+
+export const useDeleteSessionQueuedPrompt = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteSessionQueuedPrompt>>,
+      TError,
+      DeleteSessionQueuedPromptMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSessionQueuedPrompt>>,
+  TError,
+  DeleteSessionQueuedPromptMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeleteSessionQueuedPromptMutationOptions(options), queryClient);
+};
+
+export const updateSessionQueuedPrompt = (
+  sessionId: number,
+  id: number,
+  queuePromptRequest: QueuePromptRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<QueuedPrompt>({
+    url: `/api/sessions/${sessionId}/prompt-queue/${id}`,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    data: queuePromptRequest,
+    signal,
+  });
+};
+
+export const getUpdateSessionQueuedPromptMutationKey = () => ["updateSessionQueuedPrompt"] as const;
+
+export const getUpdateSessionQueuedPromptMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSessionQueuedPrompt>>,
+    TError,
+    UpdateSessionQueuedPromptMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSessionQueuedPrompt>>,
+  TError,
+  UpdateSessionQueuedPromptMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateSessionQueuedPromptMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSessionQueuedPrompt>>,
+    UpdateSessionQueuedPromptMutationVariables
+  > = (props) => {
+    const { sessionId, id, data } = props ?? {};
+
+    return updateSessionQueuedPrompt(sessionId, id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSessionQueuedPromptMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateSessionQueuedPrompt>>
+>;
+export type UpdateSessionQueuedPromptMutationBody = QueuePromptRequest;
+export type UpdateSessionQueuedPromptMutationError = ErrorType<unknown>;
+export type UpdateSessionQueuedPromptMutationVariables = {
+  sessionId: number;
+  id: number;
+  data: QueuePromptRequest;
+};
+
+export const useUpdateSessionQueuedPrompt = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateSessionQueuedPrompt>>,
+      TError,
+      UpdateSessionQueuedPromptMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateSessionQueuedPrompt>>,
+  TError,
+  UpdateSessionQueuedPromptMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateSessionQueuedPromptMutationOptions(options), queryClient);
+};
+
+export const sendSessionQueuedPromptNow = (sessionId: number, id: number, signal?: AbortSignal) => {
+  return customInstance<PromptQueueOkResponse>({
+    url: `/api/sessions/${sessionId}/prompt-queue/${id}/send`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getSendSessionQueuedPromptNowMutationKey = () =>
+  ["sendSessionQueuedPromptNow"] as const;
+
+export const getSendSessionQueuedPromptNowMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof sendSessionQueuedPromptNow>>,
+    TError,
+    SendSessionQueuedPromptNowMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof sendSessionQueuedPromptNow>>,
+  TError,
+  SendSessionQueuedPromptNowMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSendSessionQueuedPromptNowMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof sendSessionQueuedPromptNow>>,
+    SendSessionQueuedPromptNowMutationVariables
+  > = (props) => {
+    const { sessionId, id } = props ?? {};
+
+    return sendSessionQueuedPromptNow(sessionId, id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SendSessionQueuedPromptNowMutationResult = NonNullable<
+  Awaited<ReturnType<typeof sendSessionQueuedPromptNow>>
+>;
+
+export type SendSessionQueuedPromptNowMutationError = ErrorType<unknown>;
+export type SendSessionQueuedPromptNowMutationVariables = { sessionId: number; id: number };
+
+export const useSendSessionQueuedPromptNow = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof sendSessionQueuedPromptNow>>,
+      TError,
+      SendSessionQueuedPromptNowMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof sendSessionQueuedPromptNow>>,
+  TError,
+  SendSessionQueuedPromptNowMutationVariables,
+  TContext
+> => {
+  return useMutation(getSendSessionQueuedPromptNowMutationOptions(options), queryClient);
+};
+
+export const listSessionPrompts = (sessionId: number, signal?: AbortSignal) => {
+  return customInstance<SessionPromptsResponse>({
+    url: `/api/sessions/${sessionId}/prompts`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListSessionPromptsQueryKey = (sessionId: number) => {
+  return [`/api/sessions/${sessionId}/prompts`] as const;
+};
+
+export const getListSessionPromptsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSessionPrompts>>,
+  TError = ErrorType<void>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessionPrompts>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSessionPromptsQueryKey(sessionId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSessionPrompts>>> = ({ signal }) =>
+    listSessionPrompts(sessionId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: sessionId !== null && sessionId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listSessionPrompts>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListSessionPromptsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSessionPrompts>>
+>;
+export type ListSessionPromptsQueryError = ErrorType<void>;
+
+export function useListSessionPrompts<
+  TData = Awaited<ReturnType<typeof listSessionPrompts>>,
+  TError = ErrorType<void>,
+>(
+  sessionId: number,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessionPrompts>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSessionPrompts>>,
+          TError,
+          Awaited<ReturnType<typeof listSessionPrompts>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSessionPrompts<
+  TData = Awaited<ReturnType<typeof listSessionPrompts>>,
+  TError = ErrorType<void>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listSessionPrompts>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSessionPrompts>>,
+          TError,
+          Awaited<ReturnType<typeof listSessionPrompts>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSessionPrompts<
+  TData = Awaited<ReturnType<typeof listSessionPrompts>>,
+  TError = ErrorType<void>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessionPrompts>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListSessionPrompts<
+  TData = Awaited<ReturnType<typeof listSessionPrompts>>,
+  TError = ErrorType<void>,
+>(
+  sessionId: number,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessionPrompts>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListSessionPromptsQueryOptions(sessionId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const askSessionSideQuestion = (
+  sessionId: number,
+  sideQuestionRequest: SideQuestionRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<SideQuestionResponse>({
+    url: `/api/sessions/${sessionId}/side-question`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: sideQuestionRequest,
+    signal,
+  });
+};
+
+export const getAskSessionSideQuestionMutationKey = () => ["askSessionSideQuestion"] as const;
+
+export const getAskSessionSideQuestionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof askSessionSideQuestion>>,
+    TError,
+    AskSessionSideQuestionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof askSessionSideQuestion>>,
+  TError,
+  AskSessionSideQuestionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAskSessionSideQuestionMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof askSessionSideQuestion>>,
+    AskSessionSideQuestionMutationVariables
+  > = (props) => {
+    const { sessionId, data } = props ?? {};
+
+    return askSessionSideQuestion(sessionId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AskSessionSideQuestionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof askSessionSideQuestion>>
+>;
+export type AskSessionSideQuestionMutationBody = SideQuestionRequest;
+export type AskSessionSideQuestionMutationError = ErrorType<unknown>;
+export type AskSessionSideQuestionMutationVariables = {
+  sessionId: number;
+  data: SideQuestionRequest;
+};
+
+export const useAskSessionSideQuestion = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof askSessionSideQuestion>>,
+      TError,
+      AskSessionSideQuestionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof askSessionSideQuestion>>,
+  TError,
+  AskSessionSideQuestionMutationVariables,
+  TContext
+> => {
+  return useMutation(getAskSessionSideQuestionMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Pause the session for an OS sleep, keeping its resume point.
+ */
+export const suspendAgentSession = (sessionId: number, signal?: AbortSignal) => {
+  return customInstance<AgentSessionControlAck>({
+    url: `/api/sessions/${sessionId}/suspend`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getSuspendAgentSessionMutationKey = () => ["suspendAgentSession"] as const;
+
+export const getSuspendAgentSessionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suspendAgentSession>>,
+    TError,
+    SuspendAgentSessionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof suspendAgentSession>>,
+  TError,
+  SuspendAgentSessionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSuspendAgentSessionMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof suspendAgentSession>>,
+    SuspendAgentSessionMutationVariables
+  > = (props) => {
+    const { sessionId } = props ?? {};
+
+    return suspendAgentSession(sessionId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SuspendAgentSessionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof suspendAgentSession>>
+>;
+
+export type SuspendAgentSessionMutationError = ErrorType<void>;
+export type SuspendAgentSessionMutationVariables = { sessionId: number };
+
+/**
+ * @summary Pause the session for an OS sleep, keeping its resume point.
+ */
+export const useSuspendAgentSession = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof suspendAgentSession>>,
+      TError,
+      SuspendAgentSessionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof suspendAgentSession>>,
+  TError,
+  SuspendAgentSessionMutationVariables,
+  TContext
+> => {
+  return useMutation(getSuspendAgentSessionMutationOptions(options), queryClient);
+};
+
 export const runArchivedCleanup = (signal?: AbortSignal) => {
   return customInstance<ArchivedCleanupRunResponse>({
     url: `/api/storage-maintenance/archived-cleanup/run`,
@@ -22648,6 +34716,8 @@ export const runArchivedCleanup = (signal?: AbortSignal) => {
     signal,
   });
 };
+
+export const getRunArchivedCleanupMutationKey = () => ["runArchivedCleanup"] as const;
 
 export const getRunArchivedCleanupMutationOptions = <
   TError = ErrorType<void>,
@@ -22660,7 +34730,7 @@ export const getRunArchivedCleanupMutationOptions = <
     TContext
   >;
 }): UseMutationOptions<Awaited<ReturnType<typeof runArchivedCleanup>>, TError, void, TContext> => {
-  const mutationKey = ["runArchivedCleanup"];
+  const mutationKey = getRunArchivedCleanupMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -22692,6 +34762,330 @@ export const useRunArchivedCleanup = <TError = ErrorType<void>, TContext = unkno
   queryClient?: QueryClient,
 ): UseMutationResult<Awaited<ReturnType<typeof runArchivedCleanup>>, TError, void, TContext> => {
   return useMutation(getRunArchivedCleanupMutationOptions(options), queryClient);
+};
+
+export const getPreferences = (signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({ url: `/api/telemetry`, method: "GET", signal });
+};
+
+export const getGetPreferencesQueryKey = () => {
+  return [`/api/telemetry`] as const;
+};
+
+export const getGetPreferencesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPreferencesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPreferences>>> = ({ signal }) =>
+    getPreferences(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPreferences>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getPreferences>>>;
+export type GetPreferencesQueryError = ErrorType<unknown>;
+
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getPreferences>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getPreferences>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPreferencesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const putPreferences = (telemetryConsent: TelemetryConsent, signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({
+    url: `/api/telemetry`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: telemetryConsent,
+    signal,
+  });
+};
+
+export const getPutPreferencesMutationKey = () => ["putPreferences"] as const;
+
+export const getPutPreferencesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putPreferences>>,
+    TError,
+    PutPreferencesMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putPreferences>>,
+  TError,
+  PutPreferencesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPutPreferencesMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putPreferences>>,
+    PutPreferencesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return putPreferences(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof putPreferences>>>;
+export type PutPreferencesMutationBody = TelemetryConsent;
+export type PutPreferencesMutationError = ErrorType<unknown>;
+export type PutPreferencesMutationVariables = { data: TelemetryConsent };
+
+export const usePutPreferences = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof putPreferences>>,
+      TError,
+      PutPreferencesMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof putPreferences>>,
+  TError,
+  PutPreferencesMutationVariables,
+  TContext
+> => {
+  return useMutation(getPutPreferencesMutationOptions(options), queryClient);
+};
+
+export const activity = (signal?: AbortSignal) => {
+  return customInstance<void>({ url: `/api/telemetry/activity`, method: "POST", signal });
+};
+
+export const getActivityMutationKey = () => ["activity"] as const;
+
+export const getActivityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext>;
+}): UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext> => {
+  const mutationKey = getActivityMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof activity>>, void> = () => {
+    return activity();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ActivityMutationResult = NonNullable<Awaited<ReturnType<typeof activity>>>;
+
+export type ActivityMutationError = ErrorType<unknown>;
+
+export const useActivity = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof activity>>, TError, void, TContext> => {
+  return useMutation(getActivityMutationOptions(options), queryClient);
+};
+
+export const ingestDiagnostic = (diagnosticReport: DiagnosticReport, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/telemetry/diagnostics`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: diagnosticReport,
+    signal,
+  });
+};
+
+export const getIngestDiagnosticMutationKey = () => ["ingestDiagnostic"] as const;
+
+export const getIngestDiagnosticMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ingestDiagnostic>>,
+    TError,
+    IngestDiagnosticMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof ingestDiagnostic>>,
+  TError,
+  IngestDiagnosticMutationVariables,
+  TContext
+> => {
+  const mutationKey = getIngestDiagnosticMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof ingestDiagnostic>>,
+    IngestDiagnosticMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return ingestDiagnostic(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type IngestDiagnosticMutationResult = NonNullable<
+  Awaited<ReturnType<typeof ingestDiagnostic>>
+>;
+export type IngestDiagnosticMutationBody = DiagnosticReport;
+export type IngestDiagnosticMutationError = ErrorType<unknown>;
+export type IngestDiagnosticMutationVariables = { data: DiagnosticReport };
+
+export const useIngestDiagnostic = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof ingestDiagnostic>>,
+      TError,
+      IngestDiagnosticMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof ingestDiagnostic>>,
+  TError,
+  IngestDiagnosticMutationVariables,
+  TContext
+> => {
+  return useMutation(getIngestDiagnosticMutationOptions(options), queryClient);
+};
+
+export const resetIdentity = (signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({
+    url: `/api/telemetry/reset-identity`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getResetIdentityMutationKey = () => ["resetIdentity"] as const;
+
+export const getResetIdentityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext>;
+}): UseMutationOptions<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext> => {
+  const mutationKey = getResetIdentityMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetIdentity>>, void> = () => {
+    return resetIdentity();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetIdentityMutationResult = NonNullable<Awaited<ReturnType<typeof resetIdentity>>>;
+
+export type ResetIdentityMutationError = ErrorType<unknown>;
+
+export const useResetIdentity = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof resetIdentity>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext> => {
+  return useMutation(getResetIdentityMutationOptions(options), queryClient);
 };
 
 /**
@@ -22829,6 +35223,8 @@ export const killTerminalSessions = (params: KillTerminalSessionsParams, signal?
   });
 };
 
+export const getKillTerminalSessionsMutationKey = () => ["killTerminalSessions"] as const;
+
 export const getKillTerminalSessionsMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -22845,7 +35241,7 @@ export const getKillTerminalSessionsMutationOptions = <
   KillTerminalSessionsMutationVariables,
   TContext
 > => {
-  const mutationKey = ["killTerminalSessions"];
+  const mutationKey = getKillTerminalSessionsMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23127,6 +35523,8 @@ export const createTheme = (createThemeRequest: CreateThemeRequest, signal?: Abo
   });
 };
 
+export const getCreateThemeMutationKey = () => ["createTheme"] as const;
+
 export const getCreateThemeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -23143,7 +35541,7 @@ export const getCreateThemeMutationOptions = <
   CreateThemeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["createTheme"];
+  const mutationKey = getCreateThemeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23186,6 +35584,858 @@ export const useCreateTheme = <TError = ErrorType<unknown>, TContext = unknown>(
   return useMutation(getCreateThemeMutationOptions(options), queryClient);
 };
 
+export const getManagedThemes = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeInventoryEntry[]>({
+    url: `/api/themes/managed`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedThemesQueryKey = () => {
+  return [`/api/themes/managed`] as const;
+};
+
+export const getGetManagedThemesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedThemesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedThemes>>> = ({ signal }) =>
+    getManagedThemes(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedThemes>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedThemesQueryResult = NonNullable<Awaited<ReturnType<typeof getManagedThemes>>>;
+export type GetManagedThemesQueryError = ErrorType<unknown>;
+
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemes>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemes>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedThemesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installManagedTheme = (
+  installManagedThemeRequest: InstallManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getInstallManagedThemeMutationKey = () => ["installManagedTheme"] as const;
+
+export const getInstallManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installManagedTheme>>,
+    TError,
+    InstallManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installManagedTheme>>,
+  TError,
+  InstallManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallManagedThemeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installManagedTheme>>,
+    InstallManagedThemeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installManagedTheme(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof installManagedTheme>>
+>;
+export type InstallManagedThemeMutationBody = InstallManagedThemeRequest;
+export type InstallManagedThemeMutationError = ErrorType<unknown>;
+export type InstallManagedThemeMutationVariables = { data: InstallManagedThemeRequest };
+
+export const useInstallManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installManagedTheme>>,
+      TError,
+      InstallManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installManagedTheme>>,
+  TError,
+  InstallManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallManagedThemeMutationOptions(options), queryClient);
+};
+
+export const getManagedThemeCatalog = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeCatalogResponse>({
+    url: `/api/themes/managed/catalog`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedThemeCatalogQueryKey = () => {
+  return [`/api/themes/managed/catalog`] as const;
+};
+
+export const getGetManagedThemeCatalogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedThemeCatalogQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedThemeCatalog>>> = ({ signal }) =>
+    getManagedThemeCatalog(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedThemeCatalogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getManagedThemeCatalog>>
+>;
+export type GetManagedThemeCatalogQueryError = ErrorType<unknown>;
+
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedThemeCatalogQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const refreshManagedThemeCatalog = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeCatalogResponse>({
+    url: `/api/themes/managed/catalog/refresh`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getRefreshManagedThemeCatalogMutationKey = () =>
+  ["refreshManagedThemeCatalog"] as const;
+
+export const getRefreshManagedThemeCatalogMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getRefreshManagedThemeCatalogMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+    void
+  > = () => {
+    return refreshManagedThemeCatalog();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshManagedThemeCatalogMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshManagedThemeCatalog>>
+>;
+
+export type RefreshManagedThemeCatalogMutationError = ErrorType<unknown>;
+
+export const useRefreshManagedThemeCatalog = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshManagedThemeCatalogMutationOptions(options), queryClient);
+};
+
+export const previewManagedThemePackage = (
+  installManagedThemeRequest: InstallManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<UserTheme>({
+    url: `/api/themes/managed/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getPreviewManagedThemePackageMutationKey = () =>
+  ["previewManagedThemePackage"] as const;
+
+export const getPreviewManagedThemePackageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewManagedThemePackage>>,
+    TError,
+    PreviewManagedThemePackageMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewManagedThemePackage>>,
+  TError,
+  PreviewManagedThemePackageMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPreviewManagedThemePackageMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewManagedThemePackage>>,
+    PreviewManagedThemePackageMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return previewManagedThemePackage(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewManagedThemePackageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewManagedThemePackage>>
+>;
+export type PreviewManagedThemePackageMutationBody = InstallManagedThemeRequest;
+export type PreviewManagedThemePackageMutationError = ErrorType<unknown>;
+export type PreviewManagedThemePackageMutationVariables = { data: InstallManagedThemeRequest };
+
+export const usePreviewManagedThemePackage = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewManagedThemePackage>>,
+      TError,
+      PreviewManagedThemePackageMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewManagedThemePackage>>,
+  TError,
+  PreviewManagedThemePackageMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewManagedThemePackageMutationOptions(options), queryClient);
+};
+
+export const removeManagedTheme = (
+  id: string,
+  removeManagedThemeRequest: RemoveManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<RemoveManagedThemeResponse>({
+    url: `/api/themes/managed/${id}`,
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    data: removeManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getRemoveManagedThemeMutationKey = () => ["removeManagedTheme"] as const;
+
+export const getRemoveManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeManagedTheme>>,
+    TError,
+    RemoveManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeManagedTheme>>,
+  TError,
+  RemoveManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveManagedThemeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeManagedTheme>>,
+    RemoveManagedThemeMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return removeManagedTheme(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeManagedTheme>>
+>;
+export type RemoveManagedThemeMutationBody = RemoveManagedThemeRequest;
+export type RemoveManagedThemeMutationError = ErrorType<unknown>;
+export type RemoveManagedThemeMutationVariables = { id: string; data: RemoveManagedThemeRequest };
+
+export const useRemoveManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeManagedTheme>>,
+      TError,
+      RemoveManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeManagedTheme>>,
+  TError,
+  RemoveManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveManagedThemeMutationOptions(options), queryClient);
+};
+
+export const applyManagedTheme = (id: string, signal?: AbortSignal) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed/${id}/apply`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getApplyManagedThemeMutationKey = () => ["applyManagedTheme"] as const;
+
+export const getApplyManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyManagedTheme>>,
+    TError,
+    ApplyManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof applyManagedTheme>>,
+  TError,
+  ApplyManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getApplyManagedThemeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof applyManagedTheme>>,
+    ApplyManagedThemeMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return applyManagedTheme(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApplyManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof applyManagedTheme>>
+>;
+
+export type ApplyManagedThemeMutationError = ErrorType<unknown>;
+export type ApplyManagedThemeMutationVariables = { id: string };
+
+export const useApplyManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof applyManagedTheme>>,
+      TError,
+      ApplyManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof applyManagedTheme>>,
+  TError,
+  ApplyManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getApplyManagedThemeMutationOptions(options), queryClient);
+};
+
+export const duplicateManagedTheme = (
+  id: string,
+  duplicateManagedThemeRequest: DuplicateManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedThemeDuplicateResponse>({
+    url: `/api/themes/managed/${id}/duplicate`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: duplicateManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getDuplicateManagedThemeMutationKey = () => ["duplicateManagedTheme"] as const;
+
+export const getDuplicateManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof duplicateManagedTheme>>,
+    TError,
+    DuplicateManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof duplicateManagedTheme>>,
+  TError,
+  DuplicateManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDuplicateManagedThemeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof duplicateManagedTheme>>,
+    DuplicateManagedThemeMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return duplicateManagedTheme(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DuplicateManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof duplicateManagedTheme>>
+>;
+export type DuplicateManagedThemeMutationBody = DuplicateManagedThemeRequest;
+export type DuplicateManagedThemeMutationError = ErrorType<unknown>;
+export type DuplicateManagedThemeMutationVariables = {
+  id: string;
+  data: DuplicateManagedThemeRequest;
+};
+
+export const useDuplicateManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof duplicateManagedTheme>>,
+      TError,
+      DuplicateManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof duplicateManagedTheme>>,
+  TError,
+  DuplicateManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDuplicateManagedThemeMutationOptions(options), queryClient);
+};
+
+export const previewManagedTheme = (id: string, signal?: AbortSignal) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed/${id}/preview`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getPreviewManagedThemeQueryKey = (id: string) => {
+  return [`/api/themes/managed/${id}/preview`] as const;
+};
+
+export const getPreviewManagedThemeQueryOptions = <
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPreviewManagedThemeQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof previewManagedTheme>>> = ({ signal }) =>
+    previewManagedTheme(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type PreviewManagedThemeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof previewManagedTheme>>
+>;
+export type PreviewManagedThemeQueryError = ErrorType<unknown>;
+
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewManagedTheme>>,
+          TError,
+          Awaited<ReturnType<typeof previewManagedTheme>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewManagedTheme>>,
+          TError,
+          Awaited<ReturnType<typeof previewManagedTheme>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPreviewManagedThemeQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const updateManagedTheme = (
+  id: string,
+  installManagedThemeRequest: InstallManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed/${id}/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getUpdateManagedThemeMutationKey = () => ["updateManagedTheme"] as const;
+
+export const getUpdateManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateManagedTheme>>,
+    TError,
+    UpdateManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateManagedTheme>>,
+  TError,
+  UpdateManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateManagedThemeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateManagedTheme>>,
+    UpdateManagedThemeMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateManagedTheme(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateManagedTheme>>
+>;
+export type UpdateManagedThemeMutationBody = InstallManagedThemeRequest;
+export type UpdateManagedThemeMutationError = ErrorType<unknown>;
+export type UpdateManagedThemeMutationVariables = { id: string; data: InstallManagedThemeRequest };
+
+export const useUpdateManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateManagedTheme>>,
+      TError,
+      UpdateManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateManagedTheme>>,
+  TError,
+  UpdateManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateManagedThemeMutationOptions(options), queryClient);
+};
+
 export const writeTheme = (
   id: string,
   writeThemeRequest: WriteThemeRequest,
@@ -23199,6 +36449,8 @@ export const writeTheme = (
     signal,
   });
 };
+
+export const getWriteThemeMutationKey = () => ["writeTheme"] as const;
 
 export const getWriteThemeMutationOptions = <
   TError = ErrorType<unknown>,
@@ -23216,7 +36468,7 @@ export const getWriteThemeMutationOptions = <
   WriteThemeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["writeTheme"];
+  const mutationKey = getWriteThemeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23267,6 +36519,8 @@ export const deleteTheme = (id: string, signal?: AbortSignal) => {
   });
 };
 
+export const getDeleteThemeMutationKey = () => ["deleteTheme"] as const;
+
 export const getDeleteThemeMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -23283,7 +36537,7 @@ export const getDeleteThemeMutationOptions = <
   DeleteThemeMutationVariables,
   TContext
 > => {
-  const mutationKey = ["deleteTheme"];
+  const mutationKey = getDeleteThemeMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23339,6 +36593,8 @@ export const themeWorkspace = (id: string, signal?: AbortSignal) => {
   });
 };
 
+export const getThemeWorkspaceMutationKey = () => ["themeWorkspace"] as const;
+
 export const getThemeWorkspaceMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -23355,7 +36611,7 @@ export const getThemeWorkspaceMutationOptions = <
   ThemeWorkspaceMutationVariables,
   TContext
 > => {
-  const mutationKey = ["themeWorkspace"];
+  const mutationKey = getThemeWorkspaceMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23521,6 +36777,9 @@ export const dismissUsageRecordingIssue = (signal?: AbortSignal) => {
   });
 };
 
+export const getDismissUsageRecordingIssueMutationKey = () =>
+  ["dismissUsageRecordingIssue"] as const;
+
 export const getDismissUsageRecordingIssueMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -23537,7 +36796,7 @@ export const getDismissUsageRecordingIssueMutationOptions = <
   void,
   TContext
 > => {
-  const mutationKey = ["dismissUsageRecordingIssue"];
+  const mutationKey = getDismissUsageRecordingIssueMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23581,6 +36840,204 @@ export const useDismissUsageRecordingIssue = <TError = ErrorType<unknown>, TCont
 > => {
   return useMutation(getDismissUsageRecordingIssueMutationOptions(options), queryClient);
 };
+
+export const listVirtualSkills = (signal?: AbortSignal) => {
+  return customInstance<VirtualSkillPayload[]>({
+    url: `/api/virtual-skills`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListVirtualSkillsQueryKey = () => {
+  return [`/api/virtual-skills`] as const;
+};
+
+export const getListVirtualSkillsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListVirtualSkillsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listVirtualSkills>>> = ({ signal }) =>
+    listVirtualSkills(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listVirtualSkills>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListVirtualSkillsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listVirtualSkills>>
+>;
+export type ListVirtualSkillsQueryError = ErrorType<unknown>;
+
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listVirtualSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listVirtualSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listVirtualSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listVirtualSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListVirtualSkillsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAutoNamePrompt = (signal?: AbortSignal) => {
+  return customInstance<AutoNamePromptResponse>({
+    url: `/api/workspace/auto-name-prompt`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetAutoNamePromptQueryKey = () => {
+  return [`/api/workspace/auto-name-prompt`] as const;
+};
+
+export const getGetAutoNamePromptQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAutoNamePrompt>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getAutoNamePrompt>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAutoNamePromptQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAutoNamePrompt>>> = ({ signal }) =>
+    getAutoNamePrompt(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAutoNamePrompt>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetAutoNamePromptQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAutoNamePrompt>>
+>;
+export type GetAutoNamePromptQueryError = ErrorType<unknown>;
+
+export function useGetAutoNamePrompt<
+  TData = Awaited<ReturnType<typeof getAutoNamePrompt>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getAutoNamePrompt>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAutoNamePrompt>>,
+          TError,
+          Awaited<ReturnType<typeof getAutoNamePrompt>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetAutoNamePrompt<
+  TData = Awaited<ReturnType<typeof getAutoNamePrompt>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getAutoNamePrompt>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAutoNamePrompt>>,
+          TError,
+          Awaited<ReturnType<typeof getAutoNamePrompt>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetAutoNamePrompt<
+  TData = Awaited<ReturnType<typeof getAutoNamePrompt>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getAutoNamePrompt>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetAutoNamePrompt<
+  TData = Awaited<ReturnType<typeof getAutoNamePrompt>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getAutoNamePrompt>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetAutoNamePromptQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getWorkspaceModelSettings = (signal?: AbortSignal) => {
   return customInstance<ModelSettings>({
@@ -23705,6 +37162,8 @@ export const setWorkspaceModelSetting = (
   });
 };
 
+export const getSetWorkspaceModelSettingMutationKey = () => ["setWorkspaceModelSetting"] as const;
+
 export const getSetWorkspaceModelSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -23721,7 +37180,7 @@ export const getSetWorkspaceModelSettingMutationOptions = <
   SetWorkspaceModelSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setWorkspaceModelSetting"];
+  const mutationKey = getSetWorkspaceModelSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -23889,6 +37348,9 @@ export const setWorkspaceProviderSetting = (
   });
 };
 
+export const getSetWorkspaceProviderSettingMutationKey = () =>
+  ["setWorkspaceProviderSetting"] as const;
+
 export const getSetWorkspaceProviderSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -23905,7 +37367,7 @@ export const getSetWorkspaceProviderSettingMutationOptions = <
   SetWorkspaceProviderSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setWorkspaceProviderSetting"];
+  const mutationKey = getSetWorkspaceProviderSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -24055,6 +37517,82 @@ export function useListWorkspaceSettings<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const setWorkspaceSettingsBatch = (
+  setSettingsBatchRequest: SetSettingsBatchRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<Setting[]>({
+    url: `/api/workspace/settings`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: setSettingsBatchRequest,
+    signal,
+  });
+};
+
+export const getSetWorkspaceSettingsBatchMutationKey = () => ["setWorkspaceSettingsBatch"] as const;
+
+export const getSetWorkspaceSettingsBatchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setWorkspaceSettingsBatch>>,
+    TError,
+    SetWorkspaceSettingsBatchMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setWorkspaceSettingsBatch>>,
+  TError,
+  SetWorkspaceSettingsBatchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSetWorkspaceSettingsBatchMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setWorkspaceSettingsBatch>>,
+    SetWorkspaceSettingsBatchMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setWorkspaceSettingsBatch(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetWorkspaceSettingsBatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setWorkspaceSettingsBatch>>
+>;
+export type SetWorkspaceSettingsBatchMutationBody = SetSettingsBatchRequest;
+export type SetWorkspaceSettingsBatchMutationError = ErrorType<unknown>;
+export type SetWorkspaceSettingsBatchMutationVariables = { data: SetSettingsBatchRequest };
+
+export const useSetWorkspaceSettingsBatch = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setWorkspaceSettingsBatch>>,
+      TError,
+      SetWorkspaceSettingsBatchMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setWorkspaceSettingsBatch>>,
+  TError,
+  SetWorkspaceSettingsBatchMutationVariables,
+  TContext
+> => {
+  return useMutation(getSetWorkspaceSettingsBatchMutationOptions(options), queryClient);
+};
+
 export const getSettingsFile = (signal?: AbortSignal) => {
   return customInstance<SettingsFileResponse>({
     url: `/api/workspace/settings-file`,
@@ -24165,6 +37703,8 @@ export const putSettingsFile = (
   });
 };
 
+export const getPutSettingsFileMutationKey = () => ["putSettingsFile"] as const;
+
 export const getPutSettingsFileMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -24181,7 +37721,7 @@ export const getPutSettingsFileMutationOptions = <
   PutSettingsFileMutationVariables,
   TContext
 > => {
-  const mutationKey = ["putSettingsFile"];
+  const mutationKey = getPutSettingsFileMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
@@ -24359,6 +37899,8 @@ export const setWorkspaceSetting = (
   });
 };
 
+export const getSetWorkspaceSettingMutationKey = () => ["setWorkspaceSetting"] as const;
+
 export const getSetWorkspaceSettingMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
@@ -24375,7 +37917,7 @@ export const getSetWorkspaceSettingMutationOptions = <
   SetWorkspaceSettingMutationVariables,
   TContext
 > => {
-  const mutationKey = ["setWorkspaceSetting"];
+  const mutationKey = getSetWorkspaceSettingMutationKey();
   const { mutation: mutationOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options

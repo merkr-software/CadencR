@@ -6,14 +6,12 @@ import { ModelSelector } from "./ModelSelector";
 
 interface FeatureSettingsPopoverProps {
   featureId: number;
-  projectId: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 export function FeatureSettingsPopover({
   featureId,
-  projectId,
   open,
   onOpenChange,
 }: FeatureSettingsPopoverProps): ReactElement {
@@ -25,7 +23,7 @@ export function FeatureSettingsPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[820px] max-w-[calc(100vw-2rem)]" align="end">
-        <ModelSelector level="feature" featureId={featureId} projectId={projectId} />
+        <ModelSelector level="feature" featureId={featureId} />
       </PopoverContent>
     </Popover>
   );

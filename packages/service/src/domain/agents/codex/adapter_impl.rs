@@ -1,5 +1,10 @@
 #[async_trait]
 impl AgentRuntimeAdapter for CodexAdapter {
+    fn prompt_attachment_block(&self, attachment: &super::adapter::RuntimePromptAttachment<'_>) -> Value {
+        prompt_attachments::attachment_block(attachment)
+    }
+    fn legacy_access_mode_wire(&self, access_mode: Option<&str>) -> Option<String> { access_mode.map(ToOwned::to_owned) }
+
     async fn resolve_profile_for_selection(
         &self,
         selection: Option<&str>,
@@ -41,11 +46,7 @@ impl AgentRuntimeAdapter for CodexAdapter {
         cwd: Option<&std::path::Path>,
         profile: Option<&str>,
     ) -> ProviderCatalogEntry {
-        profile_runtime::catalog_for_profile(
-            profile,
-            cwd.unwrap_or_else(|| std::path::Path::new(".")),
-        )
-        .await
+        profile_runtime::catalog_for_profile(profile, cwd).await
     }
 
     fn user_shell_strategy(&self) -> RuntimeUserShellStrategy {
@@ -109,6 +110,13 @@ impl AgentRuntimeAdapter for CodexAdapter {
         commands::runtime_slash_commands(cwd, profile).await
     }
 
+    fn resume_command(&self) -> Option<crate::domain::agents::runtime::ProviderResumeCommand> {
+        Some(crate::domain::agents::runtime::ProviderResumeCommand::new(
+            "codex",
+            &["resume", "{session_id}"],
+        ))
+    }
+
     fn compaction_strategy(&self) -> Option<RuntimeCompactionStrategy> {
         Some(RuntimeCompactionStrategy::LiveRuntime)
     }
@@ -135,8 +143,10 @@ impl AgentRuntimeAdapter for CodexAdapter {
         Some(Cow::Borrowed(self::model::ACCESS_MODE_SETTING_KEY))
     }
 
-    fn applies_access_mode_in_place(&self) -> bool {
-        true
+    /// The app server adopts the policy live; the next prompt relaunches the
+    /// thread with the matching sandbox.
+    fn access_mode_change(&self) -> super::adapter::RuntimeAccessModeChange {
+        super::adapter::RuntimeAccessModeChange::LiveThenRespawn
     }
 
     fn default_permission_mode_wire(&self) -> Cow<'static, str> {
@@ -155,12 +165,24 @@ impl AgentRuntimeAdapter for CodexAdapter {
                 Some(config.cwd.clone()),
             ))
             .await?;
-        client.initialize().await?;
-        let mut effective_config = client
-            .config_read(&config.cwd)
-            .await
-            .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
-        let models = client.model_list().await?;
+        let startup = async {
+            client.initialize().await?;
+            let effective_config = client
+                .config_read(&config.cwd)
+                .await
+                .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
+            let models = client.model_list().await?;
+            Ok::<_, RuntimeError>((effective_config, models))
+        }
+        .await;
+        let (mut effective_config, models) = match startup {
+            Ok(started) => started,
+            Err(error) => {
+                client.shutdown().await;
+                let secrets = app_server_failure::secrets(config.env.as_ref());
+                return Err(app_server_failure::explain(&client, error, &secrets));
+            }
+        };
         profile_runtime::enrich_resume_config(
             &mut effective_config,
             &models,
@@ -173,14 +195,21 @@ impl AgentRuntimeAdapter for CodexAdapter {
             .thinking_effort
             .clone()
             .or(native_effective.thinking_effort);
-        let event_rx = client.subscribe();
+        let summary = native_config::reasoning_summary(&effective_config).map(ToOwned::to_owned);
+        tracing::debug!(
+            ?summary,
+            model_provider = ?effective_config.pointer("/config/model_provider").and_then(serde_json::Value::as_str),
+            native_summary = ?effective_config.pointer("/config/model_reasoning_summary").and_then(serde_json::Value::as_str),
+            "Codex reasoning summary configuration resolved"
+        );
+        let event_rx = client.subscribe_reliable();
         let mut mcp_status_rx = client.subscribe();
         let mcp_config = launch::effective_thread_config(&config, &effective_config);
         let mcp_server_names = mcp_server_names(&mcp_config);
+        let browser_trust = trusted_mcp::browser_trust(&config, &effective_config);
         let thread_id = launch::start_or_resume_thread(&client, &config, &mcp_config).await?;
-        let mcp_servers = mcp_server_statuses(&client, &mut mcp_status_rx, &mcp_server_names).await;
         let session = CodexSession::new(
-            client,
+            client.clone(),
             thread_id,
             event_rx,
             session::CodexSessionOptions {
@@ -188,18 +217,27 @@ impl AgentRuntimeAdapter for CodexAdapter {
                 effort: config.overrides.thinking_effort,
                 effective_model,
                 effective_effort,
+                summary,
                 fast_mode: config.overrides.fast_mode,
                 permission_mode: config.permission_mode,
                 access_mode: config.access_mode,
                 cwd: config.cwd,
-                mcp_servers,
                 context_window: None,
+                browser_trust,
             },
         );
-        session.send_init_event().await;
+        // Start the turn before reading MCP statuses: `mcpServerStatus/list`
+        // blocks until every MCP server has started (seconds for npx-launched
+        // ones), and Codex already holds the turn's first model request on that
+        // same startup. Awaiting the list first stacked the two waits. Turn
+        // events queue until the stream is taken, and `take_message_rx` puts
+        // the queued init event ahead of them.
         if !content.is_null() {
             session.start_initial_turn(content).await?;
         }
+        let mcp_servers = mcp_server_statuses(&client, &mut mcp_status_rx, &mcp_server_names).await;
+        session.set_mcp_servers(mcp_servers).await;
+        session.send_init_event().await;
         Ok(Box::new(session))
     }
 }

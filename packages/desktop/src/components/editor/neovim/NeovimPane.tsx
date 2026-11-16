@@ -4,7 +4,8 @@ import { Loader2Icon } from "lucide-react";
 import type { TerminalOptions } from "celeritty";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/useTheme";
-import { useCelerittyTerminal } from "@/components/terminal-core";
+import { useCelerittyTerminal, useTerminalOptions } from "@/components/terminal-core";
+import { useMonoFont } from "@/lib/fonts/mono-font-setting";
 import { useNeovimWebSocket } from "./useNeovimWebSocket";
 import { useNeovimTransport } from "./useNeovimTransport";
 
@@ -12,11 +13,56 @@ interface NeovimPaneProps {
   featureId: number;
 }
 
-const NEOVIM_FONT = {
-  family:
-    "'FiraCode Nerd Font', 'Fira Code', 'CaskaydiaCove Nerd Font', 'Cascadia Code', 'SF Mono', Menlo, Monaco, 'Courier New', monospace",
-  size: 13,
-};
+/**
+ * Terminal appearance for the Neovim pane, resolved exactly like the Terminal
+ * tab's (`useTerminalOptions`): the chosen Cadencr mono family, else the
+ * user's alacritty.toml, else the default stack. A pane-local font list here
+ * meant Neovim rendered in whatever happened to be installed, dropping Nerd
+ * Font glyphs the terminal drew fine.
+ *
+ * A config error is only fatal while nothing ever resolved. Once the pane is
+ * up the last good options are held rather than dropped: `useCelerittyTerminal`
+ * keys the engine on their presence, so letting them go would dispose it, and
+ * the replacement engine would start on a blank grid — the `attached` snapshot
+ * that restores the screen only arrives with a (re)connection, which a config
+ * error does not trigger.
+ */
+function useNeovimAppearance(featureId: number): {
+  options: TerminalOptions | undefined;
+  fatalError: string | null;
+} {
+  const { theme } = useTheme();
+  const { family, resolved } = useMonoFont();
+  const { options: terminalOptions, error } = useTerminalOptions({
+    palette: theme.xterm,
+    fontFamily: family ? resolved : undefined,
+  });
+
+  const resolvedOptions = useMemo<TerminalOptions | undefined>(
+    () =>
+      terminalOptions && {
+        ...terminalOptions,
+        // Only the shape Neovim starts from: it re-declares its own cursor
+        // per mode through DECSCUSR as soon as it draws.
+        cursor: { style: "block", blink: false },
+      },
+    [terminalOptions],
+  );
+
+  const lastGoodOptions = useRef(resolvedOptions);
+  if (resolvedOptions) lastGoodOptions.current = resolvedOptions;
+  const options = resolvedOptions ?? lastGoodOptions.current;
+
+  useEffect(() => {
+    if (!error || !options) return;
+    toast.error(`Terminal configuration error: ${error}`, {
+      id: `neovim-config:${featureId}`,
+    });
+  }, [error, options, featureId]);
+
+  const fatalError = options ? null : error;
+  return useMemo(() => ({ options, fatalError }), [options, fatalError]);
+}
 
 /**
  * Full-frame Neovim panel: no `EditorSubTabs`, no tab/file-tree sync — Neovim
@@ -32,7 +78,6 @@ const NEOVIM_FONT = {
  */
 function NeovimPane({ featureId }: NeovimPaneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const { theme } = useTheme();
 
   const socket = useNeovimWebSocket({
     featureId,
@@ -51,15 +96,7 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [featureId]);
 
-  const options = useMemo<TerminalOptions>(
-    () => ({
-      font: NEOVIM_FONT,
-      colors: theme.xterm,
-      cursor: { style: "block", blink: false },
-      scrollback: 10_000,
-    }),
-    [theme.xterm],
-  );
+  const { options, fatalError } = useNeovimAppearance(featureId);
 
   const { status, errorMessage } = useCelerittyTerminal({
     hostRef,
@@ -67,11 +104,23 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
     transport: socket.isConnected ? bridge.transport : undefined,
   });
 
+  // Same derivation as `TerminalCoreInstance`: a configuration that never
+  // resolved is fatal, not pending. Left as "loading" the pane waits for
+  // options that never arrive and offers a restart that only reconnects the
+  // socket.
+  const paneStatus = fatalError ? "error" : status;
+
   useEffect(() => {
+    // Fatal for the rendering, not for the session: a dead renderer ends the
+    // Neovim session, a bad config does not. `detach()` unregisters the
+    // reconnector, so detaching here would leave the pane disconnected with no
+    // automatic `connect()` once the file is repaired. Keeping the socket
+    // attached is what makes that repair recover on its own, the service
+    // re-pushes the config and `useTerminalOptions` re-resolves.
     if (status === "error") socket.detach();
   }, [status, socket.detach]);
 
-  const error = errorMessage ?? socket.lastError;
+  const error = errorMessage ?? fatalError ?? socket.lastError;
   // The host stays mounted in every non-fatal state: `Terminal` needs an
   // element to attach its canvas to, so gating it behind `status === "ready"`
   // would deadlock — no host, no engine, no ready. The loading state is an
@@ -85,7 +134,7 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
         data-neovim-feature-id={featureId}
         className="relative h-full w-full outline-none"
       />
-      {(status !== "ready" || !socket.isConnected || error) && (
+      {(paneStatus !== "ready" || !socket.isConnected || error) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background">
           {error ? (
             <p className="text-sm text-destructive">Neovim could not start: {error}</p>
@@ -95,7 +144,7 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
               <p className="text-sm text-muted-foreground">Connecting to Neovim…</p>
             </>
           )}
-          {status !== "error" && <RestartAction onRestart={socket.connect} />}
+          {paneStatus !== "error" && <RestartAction onRestart={socket.connect} />}
         </div>
       )}
     </div>

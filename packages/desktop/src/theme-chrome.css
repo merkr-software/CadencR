@@ -68,6 +68,15 @@
     [data-feature-layout-shell] {
     border-top-left-radius: 0;
   }
+  /* …unless the collapsed rail is there: it is a slim sidebar, so the page
+   * still tucks into it under the titlebar band. */
+  :root[data-chassis="rail"]
+    [data-sidebar-rail]
+    ~ *
+    [data-feature-chrome="standard"]
+    [data-feature-layout-shell] {
+    border-top-left-radius: 14px;
+  }
 
   /* The feature page header matches the sidebar header band: same height (the
    * `data-mac-controls` variant mirrors SidebarHeader's taller macOS layout),
@@ -100,22 +109,16 @@
     padding-bottom: 0.875rem;
   }
 
-  /* Collapsed sidebar: chrome is a short strip under the traffic lights — don't
-   * force the open-sidebar 4.5rem band (that left empty space under the lockup).
-   * Vertical padding stays on the header components (`pt-1.5 pb-1.5`). */
-  :root[data-chassis="rail"][data-sidebar-collapsed="true"]
-    [data-feature-header][data-mac-controls] {
-    min-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-  }
-
   /* Seamless chassis: the sidebar's own hairline would cut the shared band in
    * two. The page card's left border takes over as the content boundary. On
    * mobile the sidebar is a drawer floating over the content, so it keeps its
    * own hairline to separate itself from what's underneath. */
-  :root[data-chassis="rail"] [data-app-sidebar] {
+  :root[data-chassis="rail"] [data-app-sidebar],
+  :root[data-chassis="rail"] [data-sidebar-rail] {
     border-right-color: transparent;
+  }
+  :root[data-chassis="rail"] [data-sidebar-rail]::before {
+    display: none;
   }
 
   /* Collapse the app-shell sidebar↔main resize handle to zero layout width so
@@ -155,6 +158,15 @@
   border-bottom-color: var(--pane-border, var(--border));
   min-height: 0;
 }
+/* Pad a folded pop pane's side rail like the strip's ends, and drop the strip
+ * pop toggle's own inset, so a rail's toggle and a bottom strip's line up in
+ * one column. */
+:root[data-tabs="segmented"] [data-pop-pane-rail] {
+  padding-inline: 8px;
+}
+:root[data-tabs="segmented"] [data-pane-tab-strip] > [data-pop-toggle-slot] {
+  padding-right: 0;
+}
 :root[data-tabs="segmented"] [data-pane-tab-strip] [data-slot="tabs"] {
   flex: 0 1 auto;
   width: auto;
@@ -190,11 +202,13 @@
     background-color 150ms ease,
     box-shadow 150ms ease;
 }
-/* Reserve end space for the absolute dock-close control on floating panes. */
+/* Reserve end space for the absolute dock-close control on floating panes, and
+   for the close control of a closable (custom) tab in any pane. */
 :root[data-tabs="segmented"]
   [data-pane-frame="floating"]
   [data-pane-tab-strip]
-  [data-slot="tabs-trigger"] {
+  [data-slot="tabs-trigger"],
+:root[data-tabs="segmented"] [data-pane-tab-strip] [data-slot="tabs-trigger"][data-tab-closable] {
   padding-inline-end: 2rem;
 }
 :root[data-tabs="segmented"] [data-pane-tab-strip] [data-slot="tabs-trigger"]::after {
@@ -244,6 +258,38 @@
 }
 :root[data-texture-base] body {
   background-color: transparent;
+}
+
+/* Portable themes carry the ambient field without Frost's private stylesheet.
+ * Keep this fallback less specific than built-in material rules. */
+:root[data-texture-base]
+  :where(
+    [data-slot="popover-content"],
+    [data-slot="hover-card-content"],
+    [data-slot="dialog-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="context-menu-sub-content"],
+    [data-slot="tooltip-content"],
+    [data-slot="select-content"],
+    [data-slot="command"],
+    .cm-tooltip,
+    .glass-surface.absolute,
+    [data-sonner-toast][data-styled="true"]
+  ) {
+  backdrop-filter: blur(28px) saturate(140%);
+}
+
+:root[data-texture-base] [data-slot="dialog-overlay"] {
+  backdrop-filter: blur(2px) saturate(120%);
+}
+
+/* Use the overlay palette at near-opaque alpha, independent of page tint and
+ * GPU blur support. Relative color preserves the theme's popover hue. */
+:root[data-texture-base] [data-slot="dialog-content"] {
+  background-color: oklch(from var(--popover) l c h / 0.97);
+  color: var(--popover-foreground);
 }
 
 .ambient,

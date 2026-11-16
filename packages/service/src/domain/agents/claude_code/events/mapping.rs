@@ -43,37 +43,6 @@ pub(in crate::domain::agents::claude_code) fn context_window_for_model_from_raw(
     single.then_some(only).flatten()
 }
 
-/// Model families whose context window is 1,000,000 tokens *natively* — the
-/// maximum is also the default, so there is no 1M beta to opt into and the CLI
-/// never affixes the `[1m]` marker. Verified against the CLI: passing
-/// `--model claude-fable-5[1m]` makes it report `claude-fable-5` back on init,
-/// and its `result.modelUsage` entry reads `"contextWindow": 1000000`.
-const NATIVE_1M_MODEL_FAMILIES: &[&str] = &["claude-fable-5"];
-
-/// Early context-window hint from the init message's *resolved* model id, used
-/// to scale the live usage bar before the turn's authoritative
-/// `Result.modelUsage.contextWindow` arrives (init carries no window field).
-///
-/// Recognizes the `[1m]` marker (the 1M-context beta) and the families in
-/// [`NATIVE_1M_MODEL_FAMILIES`], both 1,000,000 tokens on every backend.
-/// Anything else returns `None` and defers to the CLI: we never guess a size
-/// that could be wrong for a custom/proxy/Bedrock-pinned model.
-///
-/// `contains` for the marker because Bedrock/Vertex ids affix region/routing
-/// (`us.anthropic.…-sonnet-4-5[1m]`). Family matching strips those same affixes
-/// but then demands a whole-id match, so a hypothetical `claude-fable-5-mini`
-/// is not silently claimed to be 1M.
-pub(in crate::domain::agents::claude_code) fn init_model_context_window(
-    model: &str,
-) -> Option<u64> {
-    let bare = model.rsplit(['/', ':']).next().unwrap_or(model);
-    let bare = bare.strip_suffix("[1m]").unwrap_or(bare);
-    let native_1m = NATIVE_1M_MODEL_FAMILIES
-        .iter()
-        .any(|family| bare == *family || bare.ends_with(&format!(".{family}")));
-    (model.contains("[1m]") || native_1m).then_some(1_000_000)
-}
-
 /// Human-readable text for an API-error assistant message: the joined text
 /// blocks (e.g. "API Error: 529 Overloaded…"). Falls back to the synthetic
 /// `error` category string, then a generic message, when the CLI sent no text.
@@ -181,6 +150,11 @@ pub(super) fn map_stream_event(event: &claude_agent_sdk_rs::StreamEventData) -> 
                         },
                     }
                 }
+                // A thinking block's signature: verification data the CLI keeps
+                // in its own transcript, with nothing to render.
+                claude_agent_sdk_rs::types::ContentDelta::SignatureDelta { .. } => {
+                    RuntimeStreamEvent::Other
+                }
                 // An unknown delta type carries nothing we can render; treat the
                 // whole event as `Other` rather than fabricating a delta — but
                 // log it: a CLI that starts streaming a new delta type would
@@ -250,46 +224,28 @@ pub(super) fn map_user_message(message: &Value) -> RuntimeUserMessage {
 mod tests {
     use serde_json::json;
 
-    use super::{context_window_for_model_from_raw, init_model_context_window};
+    use super::{context_window_for_model_from_raw, map_stream_event};
+    use crate::domain::agents::adapter::RuntimeStreamEvent;
 
     #[test]
-    fn init_model_context_window_resolves_1m_beta_marker() {
-        assert_eq!(
-            init_model_context_window("claude-opus-5[1m]"),
-            Some(1_000_000)
-        );
-        assert_eq!(
-            init_model_context_window("us.anthropic.claude-sonnet-5[1m]"),
-            Some(1_000_000)
-        );
-    }
-
-    #[test]
-    fn init_model_context_window_resolves_natively_1m_families_without_marker() {
-        // The CLI strips `[1m]` for Fable because 1M is its default, so the
-        // marker check alone left the whole turn without a window.
-        assert_eq!(init_model_context_window("claude-fable-5"), Some(1_000_000));
-        assert_eq!(
-            init_model_context_window("us.anthropic.claude-fable-5"),
-            Some(1_000_000)
-        );
-    }
-
-    #[test]
-    fn init_model_context_window_defers_for_unmarked_models() {
-        assert_eq!(init_model_context_window("claude-opus-5"), None);
-        assert_eq!(init_model_context_window("claude-haiku-4-5"), None);
-        assert_eq!(init_model_context_window("my-proxy/custom-model"), None);
-    }
-
-    #[test]
-    fn init_model_context_window_does_not_claim_1m_for_family_lookalikes() {
-        // A narrower sibling or a proxy's own variant is not the family.
-        assert_eq!(init_model_context_window("claude-fable-5-mini"), None);
-        assert_eq!(
-            init_model_context_window("myproxy/claude-fable-5-cheap"),
-            None
-        );
+    fn a_thinking_signature_delta_is_a_known_no_op() {
+        let event: claude_agent_sdk_rs::StreamEventData = serde_json::from_value(json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "signature_delta", "signature": "EqQBCkYIBRgC" }
+        }))
+        .unwrap();
+        assert!(matches!(
+            event,
+            claude_agent_sdk_rs::StreamEventData::ContentBlockDelta {
+                delta: claude_agent_sdk_rs::types::ContentDelta::SignatureDelta { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            map_stream_event(&event),
+            RuntimeStreamEvent::Other
+        ));
     }
 
     #[test]

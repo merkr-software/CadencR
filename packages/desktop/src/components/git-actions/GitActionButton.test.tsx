@@ -129,6 +129,16 @@ describe("GitActionButton shortcuts", () => {
     expect(screen.getByText("Merge")).toBeInTheDocument();
   });
 
+  it("names the checked-out branch on the mobile trigger", () => {
+    buttonMocks.isMobile = true;
+    useGitStatusStore.getState().setStatus(makeMergeableSnapshot(42));
+
+    render(<GitActionButton featureId={42} projectId={7} />);
+
+    const trigger = screen.getByRole("button", { name: /^Git actions, on / });
+    expect(trigger).toHaveTextContent(useGitStatusStore.getState().byFeature[42]!.current_branch);
+  });
+
   it("replaces the primary action with a clickable Pushing control", async () => {
     useGitStatusStore.getState().setStatus({ ...makeMergeableSnapshot(42), ahead_of_remote: 2 });
     usePushOutputStore.getState().start(42);
@@ -273,7 +283,7 @@ describe("GitActionButton shortcuts", () => {
     ).toBeInTheDocument();
   });
 
-  it("exposes the exact target selector in the desktop Git actions menu", async () => {
+  it("reaches the exact target selector through the branch chip in the Git actions menu", async () => {
     useGitStatusStore.getState().setStatus({
       ...makeMergeableSnapshot(42),
       behind_target: 3,
@@ -281,11 +291,11 @@ describe("GitActionButton shortcuts", () => {
 
     const { user } = render(<GitActionButton featureId={42} projectId={7} />);
     await user.click(screen.getByRole("button", { name: /more git actions/i }));
+    await user.click(await screen.findByRole("button", { name: /^Branch feature\/test/ }));
 
-    expect(await screen.findByRole("button", { name: "origin/main" })).toHaveAttribute(
-      "title",
-      "Change target branch (currently origin/main)",
-    );
+    expect(
+      await screen.findByRole("button", { name: "Change target of feature/test" }),
+    ).toHaveTextContent("origin/main");
   });
 
   it("shows Continue and Abort actions while a rebase is active", async () => {

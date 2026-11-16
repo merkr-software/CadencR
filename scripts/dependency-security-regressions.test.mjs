@@ -54,6 +54,7 @@ test("AJV consumes a hardened fast-uri while valid URI operations still work", a
   const uri = imported.default ?? imported;
 
   assert.equal(uri.normalize("HTTPS://Example.COM/a/../b"), "https://example.com/b");
+  assert.equal(uri.normalize("http://%45XAMPLE.com/"), "http://example.com/");
   assert.match(uri.parse("http://[::not-valid]/private").error, /host/i);
   assert.notEqual(
     uri.normalize("http://%256c%256f%2563%2561%256c%2568%256f%2573%2574/"),
@@ -63,6 +64,31 @@ test("AJV consumes a hardened fast-uri while valid URI operations still work", a
     () => uri.serialize({ scheme: "http", host: "trusted.example", port: "@evil.example" }),
     /port/i,
   );
+});
+
+test("Mermaid's DOMPurify neutralizes descendants detached by after-sanitize hooks", (context) => {
+  const { JSDOM } = rootRequire("jsdom");
+  const { window } = new JSDOM("<!DOCTYPE html><body></body>");
+  context.after(() => window.close());
+  const createDOMPurify = rootRequire(dependency("mermaid", "dompurify"));
+
+  for (const hook of ["afterSanitizeElements", "afterSanitizeAttributes"]) {
+    const purifier = createDOMPurify(window);
+    const root = window.document.createElement("div");
+    root.innerHTML = '<section id="detached"><img src="x" onerror="alert(1)"></section>';
+    window.document.body.append(root);
+    const image = root.querySelector("img");
+    purifier.addHook(hook, (node) => {
+      if (node.id === "detached") node.remove();
+    });
+
+    purifier.sanitize(root, { IN_PLACE: true });
+
+    assert.equal(root.querySelector("section"), null, `${hook} must detach the subtree`);
+    assert.equal(image.hasAttribute("onerror"), false, `${hook} left an armed handler`);
+    assert.equal(purifier.sanitize("<b>safe</b>"), "<b>safe</b>");
+    root.remove();
+  }
 });
 
 test("electron-updater consumes js-yaml with bounded omap and merge processing", () => {
@@ -161,4 +187,171 @@ if (parsed.title !== "Cadencr") process.exit(2);
 try { toml.parse("a=[1 #"); process.exit(3); } catch { console.log("rejected"); }`,
   );
   assert.equal(output, "rejected");
+});
+
+test("Excalidraw's replacement Sass still compiles nested SCSS with source maps", () => {
+  const sass = rootRequire(dependency("@excalidraw/excalidraw", "sass"));
+  const result = sass.compileString("$color: #10b981; .canvas { .label { color: $color; } }", {
+    sourceMap: true,
+  });
+  assert.match(result.css, /\.canvas \.label/);
+  assert.match(result.css, /color: #10b981/);
+  assert.equal(result.sourceMap.version, 3);
+  assert.ok(result.sourceMap.mappings.length > 0);
+});
+
+test("electron-builder's downloader still sends requests through global-agent v4", () => {
+  const entry = dependency("app-builder-lib", "@electron/get");
+  const output = runIsolated(
+    entry,
+    `import assert from "node:assert/strict";
+import http from "node:http";
+import { once } from "node:events";
+import { createRequire } from "node:module";
+const proxy = http.createServer((request, response) => {
+  assert.equal(request.url, "http://download.cadencr.invalid/artifact");
+  response.end("proxied artifact");
+});
+proxy.listen(0, "127.0.0.1");
+await once(proxy, "listening");
+process.env.GLOBAL_AGENT_HTTP_PROXY = "http://127.0.0.1:" + proxy.address().port;
+process.env.GLOBAL_AGENT_NO_PROXY = "";
+createRequire(import.meta.url)(process.argv[1]).initializeProxy();
+try {
+  const response = await new Promise((resolve, reject) => {
+    http.get("http://download.cadencr.invalid/artifact", resolve).on("error", reject);
+  });
+  let body = "";
+  for await (const chunk of response) body += chunk;
+  assert.equal(body, "proxied artifact");
+  console.log("ok");
+} finally {
+  proxy.closeAllConnections();
+  await new Promise((resolve, reject) => proxy.close((error) => error ? reject(error) : resolve()));
+}`,
+  );
+  assert.equal(output, "ok");
+});
+
+test("Mermaid's KaTeX ignores inherited trust while normal math still renders", () => {
+  const entry = dependency("mermaid", "katex");
+  const output = runIsolated(
+    entry,
+    `import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const katex = createRequire(import.meta.url)(process.argv[1]);
+Object.prototype.trust = true;
+try {
+  const html = katex.renderToString(String.raw\`\\href{javascript:alert(1)}{click}\`, { output: "html" });
+  assert.doesNotMatch(html, /href="javascript:/);
+  assert.match(katex.renderToString("x^2 + y^2"), /katex/);
+} finally {
+  delete Object.prototype.trust;
+}
+console.log("ok");`,
+  );
+  assert.equal(output, "ok");
+});
+
+test("HTTP cache consumers revalidate security-restricted responses despite max-stale", () => {
+  const request = { url: "/account", method: "GET", headers: {} };
+  const responses = [
+    { "cache-control": "max-age=3600", "set-cookie": "session=victim" },
+    { "cache-control": "max-age=0, proxy-revalidate" },
+    { "cache-control": "no-cache" },
+    { "cache-control": "private, max-age=3600" },
+    { "cache-control": "no-store" },
+  ];
+  for (const owner of ["astro", "cacheable-request"]) {
+    const CachePolicy = rootRequire(dependency(owner, "http-cache-semantics"));
+    for (const headers of responses) {
+      const policy = new CachePolicy(request, {
+        status: 200,
+        headers: {
+          ...headers,
+          "cache-control": `${headers["cache-control"]}, stale-while-revalidate=3600`,
+        },
+      });
+      for (const directive of ["max-stale", "max-stale=9999999", ""]) {
+        const incoming = { ...request, headers: { "cache-control": directive } };
+        const label = `${owner}: ${headers["cache-control"]} with ${directive || "no max-stale"}`;
+        assert.equal(policy.satisfiesWithoutRevalidation(incoming), false, label);
+        const result = policy.evaluateRequest(incoming);
+        assert.equal(result.response, undefined, label);
+        assert.equal(result.revalidation?.synchronous, true, label);
+      }
+    }
+  }
+});
+
+test("HTTP cache policy preserves public reuse and respects Vary with max-stale", () => {
+  const CachePolicy = rootRequire(dependency("astro", "http-cache-semantics"));
+  const request = { url: "/account", method: "GET", headers: { authorization: "Bearer first" } };
+  const policy = new CachePolicy(request, {
+    status: 200,
+    headers: { "cache-control": "private, max-age=0" },
+  });
+  assert.equal(policy.storable(), false);
+
+  const varyingPolicy = new CachePolicy(request, {
+    status: 200,
+    headers: { "cache-control": "public, max-age=0", vary: "authorization" },
+  });
+  assert.equal(varyingPolicy.storable(), true);
+  assert.equal(
+    varyingPolicy.satisfiesWithoutRevalidation({
+      ...request,
+      headers: { authorization: "Bearer second", "cache-control": "max-stale" },
+    }),
+    false,
+  );
+  assert.equal(
+    varyingPolicy.satisfiesWithoutRevalidation({
+      ...request,
+      headers: { ...request.headers, "cache-control": "max-stale" },
+    }),
+    true,
+  );
+  const publicPolicy = new CachePolicy(
+    { url: "/public", method: "GET", headers: {} },
+    { status: 200, headers: { "cache-control": "public, max-age=60" } },
+  );
+  assert.equal(
+    publicPolicy.satisfiesWithoutRevalidation({ url: "/public", method: "GET", headers: {} }),
+    true,
+  );
+  for (const [shared, directive] of [
+    [true, "public"],
+    [true, "immutable"],
+    [false, "private"],
+    [false, "proxy-revalidate"],
+  ]) {
+    const reusable = new CachePolicy(
+      { url: "/public", method: "GET", headers: {} },
+      {
+        status: 200,
+        headers: { "cache-control": `${directive}, max-age=0`, "set-cookie": "session=ok" },
+      },
+      { shared },
+    );
+    assert.equal(
+      reusable.satisfiesWithoutRevalidation({
+        url: "/public",
+        method: "GET",
+        headers: { "cache-control": "max-stale" },
+      }),
+      true,
+      `${directive} in a ${shared ? "shared" : "private"} cache`,
+    );
+  }
+});
+
+test("TanStack Router's Seroval preserves typed arrays and cyclic route data", () => {
+  const seroval = rootRequire(dependency("@tanstack/router-core", "seroval"));
+  const source = { bytes: new Uint8Array([1, 2, 3]), routes: new Map([["home", "/"]]) };
+  source.self = source;
+  const result = seroval.fromJSON(seroval.toJSON(source));
+  assert.deepEqual(result.bytes, source.bytes);
+  assert.deepEqual(result.routes, source.routes);
+  assert.equal(result.self, result);
 });

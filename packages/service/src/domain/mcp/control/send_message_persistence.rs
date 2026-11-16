@@ -42,7 +42,7 @@ pub(super) async fn persist_immediate_message(
     )
     .await?
     .ok_or_else(|| {
-        AppError::Internal(format!(
+        AppError::internal(format!(
             "message {} is missing canonical provenance",
             persisted.id
         ))

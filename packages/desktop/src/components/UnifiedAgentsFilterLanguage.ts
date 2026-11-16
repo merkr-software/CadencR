@@ -17,7 +17,7 @@ export { quoteFilterValue } from "@/components/unified-agents-filter-values";
 const UNIFIED_AGENTS_FILTER_KEYS = ["last", "project", "sort", "exclude", "pin"] as const;
 export type UnifiedAgentsFilterKey = (typeof UNIFIED_AGENTS_FILTER_KEYS)[number];
 const LAST_PRESETS = ["2", "5", "20", "60", "all"] as const;
-const SORT_VALUES = ["created", "-created", "message", "-message"] as const;
+const SORT_VALUES = ["attention", "created", "-created", "message", "-message"] as const;
 
 export interface UnifiedAgentsParsedFilter {
   mode: UnifiedAgentsFilterMode;
@@ -50,14 +50,16 @@ export interface UnifiedAgentsFilterPair {
   value: string;
 }
 
+/** An empty filter shows every agent, the ones that need you first. Anything
+ *  narrower is written out as a visible `/key:value` token. */
 export const DEFAULT_UNIFIED_AGENTS_PARSED_FILTER: UnifiedAgentsParsedFilter = {
-  mode: "recent",
+  mode: "all",
   freshMinutes: 5,
   projectIds: [],
   excludedTitles: [],
   pinnedOnly: false,
   query: "",
-  sortOrder: "created_desc",
+  sortOrder: "attention",
 };
 
 export function parseUnifiedAgentsFilterText(
@@ -223,17 +225,16 @@ function parseLastValue(
   return { mode: "recent", freshMinutes: amount * multiplier };
 }
 
+/** Every agent is the default; the minutes only mean something in a window. */
 function isDefaultLastFilter(filter: UnifiedAgentsParsedFilter): boolean {
-  return (
-    filter.mode === DEFAULT_UNIFIED_AGENTS_PARSED_FILTER.mode &&
-    filter.freshMinutes === DEFAULT_UNIFIED_AGENTS_PARSED_FILTER.freshMinutes
-  );
+  return filter.mode === DEFAULT_UNIFIED_AGENTS_PARSED_FILTER.mode;
 }
 
 function parseSortValue(value: string): UnifiedAgentsSortOrder | null {
   const normalized = normalizeFilterValue(value).toLowerCase();
   const ascending = normalized.startsWith("-");
   const sortName = ascending ? normalized.slice(1) : normalized;
+  if (["attention", "status", "urgent"].includes(sortName)) return "attention";
   if (["created", "creation", "date"].includes(sortName)) {
     return ascending ? "created_asc" : "created_desc";
   }
@@ -271,6 +272,7 @@ function serializeLastFilter(filter: UnifiedAgentsParsedFilter): string {
 }
 
 function serializeSortValue(sortOrder: UnifiedAgentsSortOrder): string {
+  if (sortOrder === "attention") return "attention";
   if (sortOrder === "created_asc") return "-created";
   if (sortOrder === "activity_desc") return "message";
   if (sortOrder === "activity_asc") return "-message";
@@ -299,27 +301,23 @@ function getKeySuggestions(token: string): UnifiedAgentsFilterSuggestion[] {
   const normalized = token.toLowerCase();
   return UNIFIED_AGENTS_FILTER_KEYS.filter((key: string): boolean =>
     key.startsWith(normalized),
-  ).map(
-    (key: UnifiedAgentsFilterKey): UnifiedAgentsFilterSuggestion => ({
-      label: `/${key}:`,
-      detail: keySuggestionDetail(key),
-      replacement: `/${key}:`,
-      key,
-    }),
-  );
+  ).map((key: UnifiedAgentsFilterKey): UnifiedAgentsFilterSuggestion => ({
+    label: `/${key}:`,
+    detail: keySuggestionDetail(key),
+    replacement: `/${key}:`,
+    key,
+  }));
 }
 
 function getLastSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
   return LAST_PRESETS.filter((preset: string): boolean =>
     preset.startsWith(normalizeFilterValue(value)),
-  ).map(
-    (preset: string): UnifiedAgentsFilterSuggestion => ({
-      label: `/last:${preset}`,
-      detail: preset === "all" ? "All agents" : `Last ${preset} minutes`,
-      replacement: `/last:${preset}`,
-      key: "last",
-    }),
-  );
+  ).map((preset: string): UnifiedAgentsFilterSuggestion => ({
+    label: `/last:${preset}`,
+    detail: preset === "all" ? "Every agent (default)" : `Active in the last ${preset} minutes`,
+    replacement: `/last:${preset}`,
+    key: "last",
+  }));
 }
 
 function getSortSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
@@ -327,11 +325,16 @@ function getSortSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
   return SORT_VALUES.filter((sortValue: string): boolean => sortValue.startsWith(normalized)).map(
     (sortValue: string): UnifiedAgentsFilterSuggestion => ({
       label: `/sort:${sortValue}`,
-      detail: sortValue.startsWith("-") ? "Ascending order" : "Descending order",
+      detail: sortDetail(sortValue),
       replacement: `/sort:${sortValue}`,
       key: "sort",
     }),
   );
+}
+
+function sortDetail(sortValue: string): string {
+  if (sortValue === "attention") return "Needs you first, then working, then unread";
+  return sortValue.startsWith("-") ? "Ascending order" : "Descending order";
 }
 
 function getPinSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
@@ -339,14 +342,12 @@ function getPinSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
     .filter((preset: string): boolean =>
       preset.startsWith(normalizeFilterValue(value).toLowerCase()),
     )
-    .map(
-      (preset: string): UnifiedAgentsFilterSuggestion => ({
-        label: `/pin:${preset}`,
-        detail: "Only pinned agents",
-        replacement: `/pin:${preset}`,
-        key: "pin",
-      }),
-    );
+    .map((preset: string): UnifiedAgentsFilterSuggestion => ({
+      label: `/pin:${preset}`,
+      detail: "Only pinned agents",
+      replacement: `/pin:${preset}`,
+      key: "pin",
+    }));
 }
 
 function getProjectSuggestions(
@@ -358,15 +359,13 @@ function getProjectSuggestions(
   return projects
     .filter((project: Project): boolean => project.name.toLowerCase().includes(currentValue))
     .slice(0, 8)
-    .map(
-      (project: Project): UnifiedAgentsFilterSuggestion => ({
-        label: project.name,
-        detail: project.path,
-        replacement: `/project:${prefix}${quoteFilterValue(project.name)}`,
-        key: "project",
-        projectId: project.id,
-      }),
-    );
+    .map((project: Project): UnifiedAgentsFilterSuggestion => ({
+      label: project.name,
+      detail: project.path,
+      replacement: `/project:${prefix}${quoteFilterValue(project.name)}`,
+      key: "project",
+      projectId: project.id,
+    }));
 }
 
 function keySuggestionDetail(key: UnifiedAgentsFilterKey): string {

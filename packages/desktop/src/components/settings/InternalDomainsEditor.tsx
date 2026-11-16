@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactElement } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import {
   INTERNAL_DOMAINS_SETTING_KEY,
   parseInternalDomains,
@@ -26,22 +26,26 @@ function normalizeDomain(input: string): string | null {
  * tab. Persists the list as a JSON array in one workspace setting.
  */
 export function InternalDomainsEditor(): ReactElement {
-  const { value, setValue, isLoading } = useDebouncedSetting(INTERNAL_DOMAINS_SETTING_KEY, 0);
+  const { value, setValue, isLoading, isSaving } = useSetting(INTERNAL_DOMAINS_SETTING_KEY);
+  const busy = isLoading || isSaving;
   const [draft, setDraft] = useState("");
   const domains = useMemo(() => parseInternalDomains(value), [value]);
 
   const addDomain = (): void => {
+    if (busy) return;
     const domain = normalizeDomain(draft);
     if (!domain || domains.includes(domain)) {
       setDraft("");
       return;
     }
-    setValue(serializeInternalDomains([...domains, domain]));
-    setDraft("");
+    // The domain joins the list once saved; a failed save keeps it in the field.
+    void setValue(serializeInternalDomains([...domains, domain])).then((saved) => {
+      if (saved) setDraft("");
+    });
   };
 
   const removeDomain = (domain: string): void => {
-    setValue(serializeInternalDomains(domains.filter((entry) => entry !== domain)));
+    void setValue(serializeInternalDomains(domains.filter((entry) => entry !== domain)));
   };
 
   return (
@@ -62,7 +66,7 @@ export function InternalDomainsEditor(): ReactElement {
                 type="button"
                 aria-label={`Remove ${domain}`}
                 onClick={() => removeDomain(domain)}
-                disabled={isLoading}
+                disabled={busy}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 <X className="size-3.5" />
@@ -85,7 +89,7 @@ export function InternalDomainsEditor(): ReactElement {
           disabled={isLoading}
           className="max-w-xs"
         />
-        <Button type="button" variant="outline" onClick={addDomain} disabled={isLoading}>
+        <Button type="button" variant="outline" onClick={addDomain} disabled={busy}>
           <Plus className="size-4" />
           Add
         </Button>

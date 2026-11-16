@@ -1,346 +1,166 @@
-import { useEffect, useRef } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, ChevronLeft } from "lucide-react";
 import { useShortcut } from "@/hooks/useShortcut";
-import { ArrowLeft, ChevronRight, Files, History, Save, Settings2 } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { NotificationsSection } from "@/components/settings/NotificationsSection";
-import { BrowserSection } from "@/components/settings/BrowserSection";
-import { StorageSection } from "@/components/settings/StorageSection";
-import { McpSection } from "@/components/settings/McpSection";
-import { InterfaceSection } from "@/components/settings/InterfaceSection";
-import { GitSection } from "@/components/settings/GitSection";
-import { ProvidersSection } from "@/components/settings/ProvidersSection";
-import { AboutSection } from "@/components/settings/AboutSection";
-import { StatsSection } from "@/components/settings/StatsSection";
-import { AgentVerbositySettings } from "@/components/settings/AgentVerbositySettings";
-import { AgentSummaryModeToggle } from "@/components/settings/AgentSummaryModeToggle";
-import { ThemeSelector } from "@/components/settings/ThemeSelector";
-import { FontSelector } from "@/components/settings/FontSelector";
-import { ThemeLibrary } from "@/components/theme/ThemeLibrary";
-import { FileTreeIconSetSelector } from "@/components/settings/FileTreeIconSetSelector";
-import { LspServerList } from "@/components/settings/LspServerList";
-import { AnimationsToggle } from "@/components/settings/AnimationsToggle";
-import { SettingsSection } from "@/components/settings/SettingsSection";
-import { SettingsCard } from "@/components/settings/SettingsCard";
-import { WorkspaceJsonSettings } from "@/components/settings/SettingsJsonControls";
-import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
-import { SettingsRow } from "@/components/settings/SettingsRow";
-import { SettingsSwitchRow } from "@/components/settings/SettingsSwitchRow";
+import { cn } from "@/lib/utils";
+import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
+import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { SettingsNavSidebar } from "@/components/settings/SettingsNavSidebar";
-import { NAV_GROUPS } from "@/components/settings/settings-nav-groups";
-import { IconTile } from "@/components/settings/IconTile";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
-import { APP_VERSION } from "@/lib/app-version";
-import { RuntimeSettingsSection } from "@/components/settings/RuntimeSettingsSection";
-import { RadioCardGroup, type RadioCardOption } from "@/components/settings/RadioCardGroup";
-import { parseVimModeLevel, type VimModeLevel } from "@/lib/vim-mode-level";
+import { SettingsPageContent } from "@/components/settings/SettingsPageContent";
+import {
+  DEFAULT_SETTINGS_PAGE,
+  resolveSettingsTarget,
+  settingsPageMeta,
+} from "@/components/settings/settings-catalog";
+import { showSettingsTarget } from "@/components/settings/reveal-settings-anchor";
+import {
+  availableSettingsGroups,
+  currentSettingsPlatform,
+} from "@/components/settings/settings-availability";
+import {
+  isLegacyMarketplaceLink,
+  parseSettingsSearch,
+} from "@/components/settings/settings-navigation";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
-  validateSearch: (search: Record<string, unknown>): { section?: string } => {
-    if (typeof search.section === "string") return { section: search.section };
-    return {};
+  validateSearch: parseSettingsSearch,
+  beforeLoad: ({ search }) => {
+    if (isLegacyMarketplaceLink(search)) throw redirect({ to: "/marketplace" });
   },
 });
 
+/**
+ * One settings page at a time, picked from the rail or by `?section=`: a page
+ * id, a retired section's id, or the anchor of one setting (scrolled to and
+ * briefly outlined). With no section, desktop opens General and phones show
+ * the list of pages.
+ */
 function SettingsPage() {
-  const { section } = Route.useSearch();
+  const search = Route.useSearch();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const mainRef = useRef<HTMLElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
+  const queryRef = useRef(query);
+  queryRef.current = query;
 
-  const goBack = () => {
-    void navigate({ to: "/" });
-  };
+  const target = resolveSettingsTarget(search.section);
+  const pageId = target?.page.id ?? DEFAULT_SETTINGS_PAGE;
+  const showIndex = isMobile && !target;
+  // Phones show the rail only as the index; on a page its search is hidden.
+  const railShown = !isMobile || showIndex;
+  const railShownRef = useRef(railShown);
+  railShownRef.current = railShown;
+  const groups = useMemo(
+    () => availableSettingsGroups(currentSettingsPlatform(isMobile)),
+    [isMobile],
+  );
+  const wide = settingsPageMeta(pageId).wide === true;
 
-  // Escape leaves the settings page. `useShortcut` defaults to firing from
-  // inside form controls so users don't have to defocus first.
+  const goBack = useCallback(() => void navigate({ to: "/" }), [navigate]);
+
+  // Escape first clears a visible search, then leaves Settings — including
+  // from inside form controls, as it always has.
   useShortcut("settings-back", (e) => {
     e.preventDefault();
-    goBack();
+    if (queryRef.current && railShownRef.current) setQuery("");
+    else goBack();
+  });
+  useShortcut("settings-search", (e) => {
+    const input = searchRef.current;
+    // A hidden field can't take focus; leave the keystroke alone.
+    if (!input || !railShownRef.current) return;
+    e.preventDefault();
+    input.focus();
+    input.select();
   });
 
-  // Honor `?section=...` deep links. Anchors carry their own `scroll-mt-*`
-  // gutter, so the browser places them — the target can be a card nested inside
-  // a section, which an `offsetTop` measurement could not reach.
+  // A new page starts at its top; a setting's anchor is scrolled to instead.
+  const anchor = target?.anchor ?? null;
   useEffect(() => {
-    if (!section) return;
-    document.getElementById(section)?.scrollIntoView({ block: "start" });
-  }, [section]);
+    const main = mainRef.current;
+    if (!main) return;
+    if (main) showSettingsTarget(main, anchor);
+  }, [pageId, anchor]);
+
+  const openSection = useCallback(
+    (section: string) => {
+      // Picking what is already shown changes no dependency of the effect
+      // above, so show it again here: back to the page's top, or the anchor
+      // outlined once more.
+      const next = resolveSettingsTarget(section);
+      const main = mainRef.current;
+      if (main && next?.page.id === pageId && next.anchor === anchor) {
+        showSettingsTarget(main, anchor);
+      }
+      void navigate({ to: "/settings", search: { section } });
+    },
+    [navigate, pageId, anchor],
+  );
 
   return (
-    <div className="flex h-full bg-background text-foreground">
-      <SettingsNavSidebar
-        groups={NAV_GROUPS}
-        scrollRef={mainRef}
-        header={<SidebarHeader />}
-        footer={<SidebarFooter onBack={goBack} />}
-      />
-
-      <main ref={mainRef} className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[820px] space-y-6 px-4 py-6 md:px-10 md:py-8">
-          <header className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <Breadcrumbs />
-              <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-              <p className="text-sm text-muted-foreground">
-                Configure how Cadencr looks, runs, and orchestrates agents.
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={goBack}
-              className="shrink-0 gap-1.5"
-              title="Back to workspace (Esc)"
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      <SettingsPageHeader onBack={goBack} />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <SettingsNavSidebar
+          variant={showIndex ? "index" : "rail"}
+          activePageId={showIndex ? null : pageId}
+          query={query}
+          onQueryChange={setQuery}
+          onNavigate={openSection}
+          searchRef={searchRef}
+          groups={groups}
+        />
+        {showIndex ? null : (
+          <main ref={mainRef} className="relative min-w-0 flex-1 overflow-y-auto">
+            <div
+              key={pageId}
+              className={cn(
+                "mx-auto px-4 pt-4 pb-20 animate-in fade-in-0 duration-200 ease-out md:px-10 md:pt-10",
+                wide ? "max-w-[1120px]" : "max-w-[800px]",
+              )}
             >
-              <ArrowLeft className="size-3.5" />
-              Back
-            </Button>
-          </header>
-
-          <SettingsCard padded>
-            <WorkspaceJsonSettings />
-          </SettingsCard>
-
-          <AppearanceSection />
-          <EditorSection />
-          <InterfaceSection />
-          <NotificationsSection />
-          <BrowserSection />
-          <StorageSection />
-          <McpSection />
-          <RuntimeSettingsSection />
-          <GitSection />
-          <ProvidersSection />
-          <StatsSection />
-          <AboutSection />
-
-          <div className="h-12" />
-        </div>
-      </main>
-    </div>
-  );
-}
-
-function SidebarHeader(): React.JSX.Element {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="grid size-7 place-items-center rounded-md bg-primary text-[var(--primary-foreground)]">
-        <Settings2 className="size-4" />
-      </div>
-      <div className="min-w-0">
-        <div className="text-sm font-semibold">Settings</div>
-        <div className="truncate text-[11px] text-muted-foreground">Cadencr v{APP_VERSION}</div>
+              {isMobile ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 mb-3 h-8 gap-1 px-2 text-muted-foreground"
+                  onClick={() => void navigate({ to: "/settings", search: {} })}
+                >
+                  <ChevronLeft aria-hidden className="size-4" />
+                  All settings
+                </Button>
+              ) : null}
+              <SettingsPageContent pageId={pageId} />
+            </div>
+          </main>
+        )}
       </div>
     </div>
   );
 }
 
-function SidebarFooter({ onBack }: { onBack: () => void }): React.JSX.Element {
+function SettingsPageHeader({ onBack }: { onBack: () => void }): React.JSX.Element {
+  const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span>Changes save automatically.</span>
-      <button
-        type="button"
+    <header className="titlebar-drag flex min-h-11 shrink-0 items-center gap-3 border-b border-border px-4 md:px-6">
+      <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
+      <h1 className="min-w-0 flex-1 text-sm font-semibold">Settings</h1>
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={onBack}
         title="Back to workspace (Esc)"
-        className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label="Back to workspace"
+        className="h-7 shrink-0 gap-1.5 px-2"
       >
-        <ArrowLeft className="size-3" />
-        Esc
-      </button>
-    </div>
-  );
-}
-
-function Breadcrumbs(): React.JSX.Element {
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span>Cadencr</span>
-      <ChevronRight className="size-3" />
-      <span>Settings</span>
-    </div>
-  );
-}
-
-/* ─── Appearance ─────────────────────────────────────────────────────── */
-
-function AppearanceSection(): React.JSX.Element {
-  return (
-    <SettingsSection id="appearance" title="Appearance" subtitle="Theme · Animations · Verbosity">
-      <SettingsCard>
-        <SettingsSubsection padded={false}>
-          <ThemeSelector />
-          <AnimationsToggle divided />
-        </SettingsSubsection>
-        <FontSelector />
-        <SettingsSubsection
-          title="Theme library"
-          description="Start from any theme you like and make it your own. Each theme gets a project of its own in the sidebar: change the JSON by hand or ask the agent for it, keep working anywhere in the app, and watch it restyle itself as you go. Your themes appear in the picker alongside the built-ins."
-        >
-          <ThemeLibrary />
-        </SettingsSubsection>
-        <SettingsSubsection
-          title="Agent output verbosity"
-          description="Control how much of each agent turn stays expanded in the stream. Switching modes does not affect what the agent does. It only changes how the output is rendered."
-        >
-          <AgentVerbositySettings />
-          <AgentSummaryModeToggle />
-        </SettingsSubsection>
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
-/* ─── Editor ─────────────────────────────────────────────────────────── */
-
-function MaxOpenTabsControl(): React.JSX.Element {
-  const maxTabs = useDebouncedSetting("editor_max_tabs");
-  const maxTabsValue = maxTabs.value ?? "10";
-  const isLimited = maxTabsValue !== "0";
-  const maxTabsNum = isLimited ? parseInt(maxTabsValue, 10) || 10 : 10;
-  const setMaxTabsNum = (value: number): void => {
-    const clamped = Math.max(1, Math.min(50, value));
-    maxTabs.setValue(String(clamped));
-  };
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => setMaxTabsNum(maxTabsNum - 1)}
-        disabled={!isLimited}
-        className="grid size-7 place-items-center rounded-md border border-border bg-card text-sm transition-colors hover:bg-accent disabled:opacity-40"
-        aria-label="Decrease max tabs"
-      >
-        −
-      </button>
-      <Input
-        type="number"
-        min={1}
-        max={50}
-        disabled={!isLimited}
-        value={maxTabsNum}
-        onChange={(event) => setMaxTabsNum(parseInt(event.target.value, 10) || 1)}
-        className="h-7 w-14 text-center disabled:opacity-50"
-      />
-      <button
-        type="button"
-        onClick={() => setMaxTabsNum(maxTabsNum + 1)}
-        disabled={!isLimited}
-        className="grid size-7 place-items-center rounded-md border border-border bg-card text-sm transition-colors hover:bg-accent disabled:opacity-40"
-        aria-label="Increase max tabs"
-      >
-        +
-      </button>
-      <label
-        htmlFor="max-tabs-unlimited"
-        className="ml-2 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-      >
-        Unlimited
-        <Switch
-          id="max-tabs-unlimited"
-          size="sm"
-          checked={!isLimited}
-          onCheckedChange={(checked) => maxTabs.setValue(checked ? "0" : "10")}
-        />
-      </label>
-    </div>
-  );
-}
-
-function useVimModeLevelOptions(): RadioCardOption<VimModeLevel>[] {
-  return [
-    {
-      value: "0",
-      label: "Off",
-      description: "Standard editing, no vim motions.",
-    },
-    {
-      value: "1",
-      label: "Vim motion",
-      description: "Modal editing via the built-in vim emulation.",
-    },
-    {
-      value: "2",
-      label: "Full Neovim",
-      description:
-        "A real Neovim instance with your own config, plugins and UI, rendered in the editor panel.",
-    },
-  ];
-}
-
-function EditorSection(): React.JSX.Element {
-  const vimModeLevel = useDebouncedSetting("editor_vim_mode_level");
-  const autoSave = useDebouncedSetting("editor_auto_save");
-  const gitBlame = useDebouncedSetting("editor_git_blame");
-  const vimModeLevelOptions = useVimModeLevelOptions();
-
-  const currentVimModeLevel = parseVimModeLevel(vimModeLevel.value);
-  const isAutoSaveEnabled = (autoSave.value ?? "false") === "true";
-  const isGitBlameEnabled = (gitBlame.value ?? "false") === "true";
-
-  return (
-    <SettingsSection id="editor" title="Editor" subtitle="CodeMirror · File tree">
-      <SettingsCard>
-        <SettingsSubsection
-          title="File tree icons"
-          description="Controls the icon density of the editor's file tree. Affects every project."
-        >
-          <FileTreeIconSetSelector />
-        </SettingsSubsection>
-        <SettingsSubsection
-          title="Language servers"
-          description="Cmd-click and F12 jump-to-definition use these. Servers launch on demand the first time you open a matching file."
-        >
-          <LspServerList />
-        </SettingsSubsection>
-        <SettingsSubsection
-          title="Vim mode"
-          description="Choose how vim motions apply to the built-in code editor."
-        >
-          <RadioCardGroup<VimModeLevel>
-            ariaLabel="Vim mode level"
-            value={currentVimModeLevel}
-            onChange={(next) => vimModeLevel.setValue(next)}
-            options={vimModeLevelOptions}
-            layout="stack"
-          />
-        </SettingsSubsection>
-        <SettingsSubsection padded={false}>
-          <SettingsSwitchRow
-            icon={<Save className="size-4" />}
-            iconTint="green"
-            label="Auto-save"
-            description="Automatically save files after a short delay."
-            checked={isAutoSaveEnabled}
-            onCheckedChange={(checked) => autoSave.setValue(checked ? "true" : "false")}
-            divided
-          />
-          <SettingsSwitchRow
-            icon={<History className="size-4" />}
-            iconTint="orange"
-            label="Git blame"
-            description="Show blame annotation on the current line."
-            checked={isGitBlameEnabled}
-            onCheckedChange={(checked) => gitBlame.setValue(checked ? "true" : "false")}
-            divided
-          />
-          <SettingsRow
-            divided
-            align="start"
-            icon={
-              <IconTile tint="pink">
-                <Files className="size-4" />
-              </IconTile>
-            }
-            label="Max open tabs"
-            description="Older tabs are closed once you exceed the cap. Disable to keep them all."
-            control={<MaxOpenTabsControl />}
-          />
-        </SettingsSubsection>
-      </SettingsCard>
-    </SettingsSection>
+        <ArrowLeft aria-hidden="true" className="size-3.5" />
+        <span className="hidden sm:inline">Back</span>
+      </Button>
+    </header>
   );
 }

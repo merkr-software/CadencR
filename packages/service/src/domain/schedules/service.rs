@@ -1,16 +1,18 @@
 use chrono::Utc;
 
+use super::fire::{self, FireOutcome};
 use super::models::{ScheduleRanEvent, ScheduleRunResult};
-use super::{dispatch, repository};
+use super::repository;
 use crate::app_state::AppState;
 use crate::error::AppError;
 
 /// Run a schedule on demand.
 ///
 /// A manual run is a preview: it delivers the prompt exactly as the scheduler
-/// would, but leaves `next_run_at` alone so testing a daily message at 3pm
-/// doesn't move tomorrow's 9am run. The failure is reported in the response
-/// *and* recorded on the row, so it shows up in the list like any other run.
+/// would — evaluating the condition first, if there is one — but leaves
+/// `next_run_at` alone so testing a daily message at 3pm doesn't move
+/// tomorrow's 9am run. The failure is reported in the response *and* recorded
+/// on the row, so it shows up in the list like any other run.
 pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, AppError> {
     let schedule = repository::get(&state.read_pool, id)
         .await?
@@ -19,8 +21,8 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
     // Distinct per invocation: a manual run is a genuinely new message, not a
     // redelivery of the occurrence the timer owns.
     let occurrence = format!("manual:{}", Utc::now().to_rfc3339());
-    let result = match dispatch::run(state, &schedule, &occurrence).await {
-        Ok(feature_id) => {
+    let result = match fire::fire(state, &schedule, &occurrence, false).await {
+        FireOutcome::Delivered { feature_id } => {
             // Logged, not propagated: the prompt has already been delivered, so
             // failing the request would invite a retry that sends the user's
             // conversation a second real message. Losing the history row is the
@@ -37,20 +39,29 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
             }
             ScheduleRunResult {
                 ran: true,
+                condition_passed: false,
                 feature_id: Some(feature_id),
                 error: None,
             }
         }
-        Err(error) => {
-            let message = error.to_string();
-            repository::record_manual_run(&state.write_pool, id, "failed", Some(&message), None)
+        FireOutcome::Failed { error } => {
+            repository::record_manual_run(&state.write_pool, id, "failed", Some(&error), None)
                 .await?;
             ScheduleRunResult {
                 ran: false,
+                condition_passed: false,
                 feature_id: None,
-                error: Some(message),
+                error: Some(error),
             }
         }
+        // Not a run: nothing reached the agent. (A manual run never skips for
+        // a busy agent, so `Busy` doesn't occur here.)
+        outcome @ (FireOutcome::Passed | FireOutcome::Busy) => ScheduleRunResult {
+            ran: false,
+            condition_passed: matches!(outcome, FireOutcome::Passed),
+            feature_id: None,
+            error: None,
+        },
     };
 
     // A manual run leaves `next_run_at` alone but still writes a history row,

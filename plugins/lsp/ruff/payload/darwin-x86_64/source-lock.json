@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "id": "ruff",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "ruff",
+  "target": "darwin-x86_64",
+  "sources": [
+    {
+      "name": "ruff",
+      "version": "0.17.3",
+      "url": "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-x86_64-apple-darwin.tar.gz",
+      "sha256": "17f95b1bee24d70de62ffe5beec7f71bb541c7e3d147a1c3d84f7cd6525f6fdf",
+      "destination": ".",
+      "expanded_size": 23518800,
+      "files": [
+        {
+          "path": "ruff",
+          "sha256": "d7347873e4fdb385ea0a730c0227497e7cc313d94942e143c99f49e8c36ef8ea",
+          "size": 23518800,
+          "mode": "100755"
+        }
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -7,7 +8,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::sessions::models::AgentMessageOrigin;
 pub use crate::domain::sessions::models::UserMessageDeliveryState;
 
-use super::{GateCloseReason, PermissionDecision, WsEnvelope, WsSessionAction};
+use super::{GateCloseReason, PermissionDecision, WsEnvelope};
 
 // --- Server → Client payloads ---
 
@@ -41,6 +42,11 @@ pub struct SessionInitializedPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
     pub runtime_overrides: crate::domain::agents::adapter::RuntimeConfigOverrides,
+    /// Permission mode the session will run with — the requested one when the
+    /// provider supports it, else the provider default. `None` for providers
+    /// that negotiate permissions themselves (installed ACP).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,8 +101,10 @@ pub fn clear_question_permission_chrome(payload: &mut PermissionRequestPayload) 
     payload.pattern = None;
 }
 
-pub fn permission_request_envelope(payload: impl Serialize) -> serde_json::Result<WsEnvelope> {
-    WsEnvelope::session_event(WsSessionAction::PermissionRequest, payload)
+pub fn permission_request_envelope(
+    payload: PermissionRequestPayload,
+) -> serde_json::Result<WsEnvelope> {
+    WsEnvelope::session_event(&WsSessionEvent::PermissionRequest(payload))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -130,6 +138,14 @@ impl From<RuntimePermissionOption> for PermissionOptionPayload {
             collect_feedback: option.collect_feedback,
         }
     }
+}
+
+/// Non-terminal local warning after the provider accepted work. Receiving this
+/// event must preserve the live turn, pending receipts, and permission state.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionWarningPayload {
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]

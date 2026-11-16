@@ -52,7 +52,7 @@ async fn spawn<T: Send + 'static>(
 ) -> Result<T, AppError> {
     tokio::task::spawn_blocking(task)
         .await
-        .map_err(|error| AppError::Internal(format!("{operation} task failed: {error}")))?
+        .map_err(|error| AppError::internal(format!("{operation} task failed: {error}")))?
 }
 
 #[cfg(test)]
@@ -67,7 +67,7 @@ mod tests {
         let task = tokio::spawn(spawn("test blocking work", move || {
             started.send(()).unwrap();
             wait.recv_timeout(Duration::from_secs(2))
-                .map_err(|error| AppError::Internal(error.to_string()))
+                .map_err(|error| AppError::internal(error.to_string()))
         }));
         tokio::time::timeout(Duration::from_secs(1), ready)
             .await

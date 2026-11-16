@@ -1,12 +1,22 @@
-import { mkdirSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   removeEmptyBrowserDownloadReservation,
+  releaseBrowserDownloadReservation,
   reserveBrowserDownloadPath,
   sanitizeBrowserDownloadFilename,
 } from "./browser-download-path";
+import { descriptorReleased } from "./test-descriptor";
 
 const roots: string[] = [];
 
@@ -50,10 +60,14 @@ describe("browser download paths", () => {
     expect(readFileSync(filled.path, "utf8")).toBe("downloaded");
 
     const replaced = reserveBrowserDownloadPath(directory, "replaced.bin");
+    const originalDescriptor = replaced.descriptor!;
     rmSync(replaced.path);
+    expect(fstatSync(originalDescriptor).nlink).toBe(0);
     const descriptor = openSync(replaced.path, "wx");
+    expect(fstatSync(descriptor).ino).not.toBe(replaced.inode);
     closeSync(descriptor);
     removeEmptyBrowserDownloadReservation(replaced);
+    expect(descriptorReleased(originalDescriptor, replaced)).toBe(true);
     expect(readFileSync(replaced.path)).toHaveLength(0);
   });
 
@@ -63,6 +77,7 @@ describe("browser download paths", () => {
     for (let index = 0; index < 101; index += 1) {
       const reservation = reserveBrowserDownloadPath(directory, hostile);
       expect(Buffer.byteLength(path.basename(reservation.path))).toBeLessThanOrEqual(180);
+      releaseBrowserDownloadReservation(reservation);
     }
   });
 

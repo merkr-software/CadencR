@@ -7,9 +7,13 @@ use crate::app_state::AppState;
 use crate::domain::agents::claude_code::routes as claude_code_routes;
 use crate::domain::agents::codex::routes as codex_routes;
 use crate::domain::agents::discovery::routes as discovery_routes;
+use crate::domain::agents::extensions as agent_extensions;
+use crate::domain::agents::extensions::routes as agent_extension_routes;
+use crate::domain::agents::orchestration_skills::routes as virtual_skills_routes;
 use crate::domain::agents::providers::development::routes as provider_development_routes;
 use crate::domain::agents::providers::installed::managed::routes as managed_provider_routes;
 use crate::domain::agents::providers::installed::routes as installed_provider_routes;
+use crate::domain::agents::updates::routes as provider_update_routes;
 use crate::domain::custom_actions::models as custom_actions_models;
 use crate::domain::custom_actions::routes as custom_actions_routes;
 use crate::domain::diff_comments::models as diff_comments_models;
@@ -21,7 +25,9 @@ use crate::domain::feature_layouts::routes as feature_layouts_routes;
 use crate::domain::features::archive_routes as features_archive_routes;
 use crate::domain::features::auto_name_route as features_auto_name_route;
 use crate::domain::features::models as features_models;
+use crate::domain::features::recent_routes as features_recent_routes;
 use crate::domain::features::routes as features_routes;
+use crate::domain::features::settings_routes as features_settings_routes;
 use crate::domain::imports::models as imports_models;
 use crate::domain::imports::routes as imports_routes;
 use crate::domain::lsp::routes as lsp_routes;
@@ -32,6 +38,8 @@ use crate::domain::ports::routes as ports_routes;
 use crate::domain::projects::icon as projects_icon;
 use crate::domain::projects::models as projects_models;
 use crate::domain::projects::routes as projects_routes;
+use crate::domain::prompt_queue::routes as prompt_queue_routes;
+use crate::domain::prompt_queue::store as prompt_queue_store;
 use crate::domain::push::models as push_models;
 use crate::domain::push::routes as push_routes;
 use crate::domain::remote::models as remote_models;
@@ -39,7 +47,9 @@ use crate::domain::remote::routes as remote_routes;
 use crate::domain::schedules::models as schedules_models;
 use crate::domain::schedules::recurrence as schedules_recurrence;
 use crate::domain::schedules::routes as schedules_routes;
+use crate::domain::sessions::activity_digest as sessions_activity_digest;
 use crate::domain::sessions::models as sessions_models;
+use crate::domain::sessions::prompt_index as sessions_prompt_index;
 use crate::domain::sessions::routes as sessions_routes;
 use crate::domain::terminal::alacritty_config as terminal_alacritty_config;
 use crate::domain::terminal::routes as terminal_routes;
@@ -51,6 +61,7 @@ use crate::domain::usage_stats::models as usage_stats_models;
 use crate::domain::usage_stats::routes as usage_stats_routes;
 use crate::domain::workspace::models as workspace_models;
 use crate::domain::workspace::routes as workspace_routes;
+use crate::domain::ws_session::control_routes as ws_control_routes;
 use crate::domain::ws_session::protocol as ws_protocol;
 use crate::domain::ws_session::routes as ws_routes;
 
@@ -59,6 +70,11 @@ use crate::domain::ws_session::routes as ws_routes;
     info(title = "Cadencr Service API", version = "0.1.0"),
     paths(
         health,
+        crate::domain::telemetry::routes::get_preferences,
+        crate::domain::telemetry::routes::put_preferences,
+        crate::domain::telemetry::routes::reset_identity,
+        crate::domain::telemetry::routes::ingest_diagnostic,
+        crate::domain::telemetry::routes::activity,
         openapi_spec,
         editor_routes::read_file_handler,
         // `read-image` and `diff-image` are intentionally NOT exposed to orval: their responses
@@ -81,28 +97,39 @@ use crate::domain::ws_session::routes as ws_routes;
         workspace_routes::list_settings_handler,
         workspace_routes::get_setting_handler,
         workspace_routes::set_setting_handler,
+        workspace_routes::set_workspace_settings_batch_handler,
         workspace_routes::get_settings_file_handler,
         workspace_routes::put_settings_file_handler,
         workspace_routes::get_model_settings_handler,
         workspace_routes::set_model_setting_handler,
         workspace_routes::get_provider_settings_handler,
         workspace_routes::set_provider_setting_handler,
+        workspace_routes::get_auto_name_prompt_handler,
         projects_routes::list_projects_handler,
         projects_routes::create_project_handler,
         projects_routes::delete_project_handler,
+        projects_routes::get_project_publication_readiness_handler,
+        crate::domain::projects::publication_package::prepare_publication_package_handler,
+        crate::domain::projects::publication_release::preview_publication_release_handler,
+        crate::domain::projects::publication_release::publish_publication_release_handler,
+        crate::domain::projects::publication_operations::routes::get_publication_operation_handler,
+        crate::domain::projects::publication_operations::routes::list_publication_operations_handler,
+        crate::domain::projects::publication_release::contribution::prepare_publication_contribution_handler,
+        crate::domain::projects::publication_release::registry::preview_publication_registry_handler,
+        crate::domain::projects::publication_release::registry::submit_publication_registry_handler,
         projects_routes::get_project_settings_handler,
         projects_routes::set_project_setting_handler,
         projects_routes::get_project_settings_file_handler,
         projects_routes::put_project_settings_file_handler,
-        projects_routes::get_project_model_settings_handler,
-        projects_routes::set_project_model_setting_handler,
-        projects_routes::get_project_provider_settings_handler,
-        projects_routes::set_project_provider_setting_handler,
         projects_icon::scan_project_icons_handler,
         features_routes::list_features_handler,
         features_routes::list_feature_activity_handler,
         ports_routes::list_feature_ports_handler,
         features_routes::list_pinned_features_handler,
+        features_recent_routes::list_recent_features_handler,
+        features_recent_routes::list_active_features_handler,
+        crate::domain::search::routes::list_conversation_index_handler,
+        crate::domain::search::routes::search_messages_handler,
         features_routes::create_feature_handler,
         features_routes::get_feature_handler,
         features_routes::delete_feature_handler,
@@ -110,15 +137,19 @@ use crate::domain::ws_session::routes as ws_routes;
         features_routes::update_feature_status_handler,
         features_archive_routes::archive_preview_handler,
         features_archive_routes::archive_feature_handler,
+        features_archive_routes::archive_project_sessions_handler,
+        crate::domain::features::archive_cleanup::routes::get_archive_cleanup_handler,
+        crate::domain::features::archive_cleanup::routes::retry_archive_cleanup_handler,
+        crate::domain::features::archive_cleanup::routes::list_archive_cleanups_handler,
         features_routes::update_feature_label_handler,
         features_routes::update_feature_pinned_handler,
         features_routes::is_empty_handler,
-        features_routes::get_feature_settings_handler,
-        features_routes::set_feature_setting_handler,
-        features_routes::get_feature_model_settings_handler,
-        features_routes::set_feature_model_setting_handler,
-        features_routes::get_feature_provider_settings_handler,
-        features_routes::set_feature_provider_setting_handler,
+        features_settings_routes::get_feature_settings_handler,
+        features_settings_routes::set_feature_setting_handler,
+        features_settings_routes::get_feature_model_settings_handler,
+        features_settings_routes::set_feature_model_setting_handler,
+        features_settings_routes::get_feature_provider_settings_handler,
+        features_settings_routes::set_feature_provider_setting_handler,
         features_routes::get_working_dir_handler,
         crate::domain::features::pending_gate::get_pending_gate_handler,
         crate::domain::features::pending_gate::respond_gate_handler,
@@ -126,6 +157,7 @@ use crate::domain::ws_session::routes as ws_routes;
         custom_actions_routes::list_actions_handler,
         custom_actions_routes::create_action_handler,
         custom_actions_routes::update_action_handler,
+        custom_actions_routes::reorder_custom_actions_handler,
         custom_actions_routes::delete_action_handler,
         custom_actions_routes::list_variables_handler,
         custom_actions_routes::set_variable_handler,
@@ -133,8 +165,6 @@ use crate::domain::ws_session::routes as ws_routes;
         custom_actions_routes::resolve_command_handler,
         custom_actions_routes::list_runs_handler,
         custom_actions_routes::cancel_run_handler,
-        custom_actions_routes::get_schedule_handler,
-        custom_actions_routes::set_schedule_handler,
         schedules_routes::list_schedules_handler,
         schedules_routes::create_schedule_handler,
         schedules_routes::get_schedule_by_id_handler,
@@ -143,11 +173,21 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_routes::set_schedule_enabled_handler,
         schedules_routes::run_schedule_handler,
         ws_routes::get_prompt_commands,
+        ws_control_routes::interrupt_agent_session,
+        ws_control_routes::suspend_agent_session,
+        virtual_skills_routes::list_virtual_skills,
         feature_layouts_routes::list_layouts_handler,
         feature_layouts_routes::create_layout_handler,
         feature_layouts_routes::update_layout_handler,
         feature_layouts_routes::delete_layout_handler,
         feature_layouts_routes::set_default_layout_handler,
+        crate::domain::mcp::control::side_question::ask_session_side_question,
+        prompt_queue_routes::list_session_prompt_queue,
+        prompt_queue_routes::enqueue_session_prompt,
+        prompt_queue_routes::update_session_queued_prompt,
+        prompt_queue_routes::delete_session_queued_prompt,
+        prompt_queue_routes::send_session_queued_prompt_now,
+        crate::domain::subagents::routes::list_feature_subagents,
         diff_comments_routes::list_diff_comments_handler,
         diff_comments_routes::create_diff_comment_handler,
         diff_comments_routes::update_diff_comment_handler,
@@ -162,11 +202,14 @@ use crate::domain::ws_session::routes as ws_routes;
         sessions_routes::list_conversation_references_handler,
         sessions_routes::get_feature_agent_state_handler,
         sessions_routes::get_unified_agents_handler,
+        sessions_routes::get_agent_activity_digest_handler,
+        sessions_routes::list_session_prompts_handler,
         sessions_routes::get_draft_handler,
         sessions_routes::save_draft_handler,
         sessions_routes::refresh_session_handler,
         sessions_routes::get_message_full_content_handler,
         sessions_routes::get_message_preview_handler,
+        sessions_routes::get_feature_row_summary_handler,
         terminal_routes::list_terminal_sessions_handler,
         terminal_routes::kill_terminal_sessions_handler,
         terminal_routes::alacritty_config_route,
@@ -180,6 +223,20 @@ use crate::domain::ws_session::routes as ws_routes;
         codex_routes::validate_profile_handler,
         super::get_agent_selection,
         discovery_routes::binary_discovery_handler,
+        provider_update_routes::get_provider_updates,
+        provider_update_routes::check_provider_updates,
+        provider_update_routes::update_provider,
+        agent_extension_routes::list_extension_clis,
+        agent_extension_routes::search_mcp_registry,
+        agent_extension_routes::get_mcp_registry_server,
+        agent_extension_routes::list_installed_mcp_servers,
+        agent_extension_routes::install_mcp_server,
+        agent_extension_routes::remove_mcp_server,
+        agent_extension_routes::update_mcp_server,
+        agent_extension_routes::list_skills,
+        agent_extension_routes::install_skill,
+        agent_extension_routes::remove_skill,
+        agent_extension_routes::update_skill,
         provider_development_routes::create_provider_workspace_handler,
         installed_provider_routes::installed_providers_handler,
         installed_provider_routes::install_provider_handler,
@@ -203,6 +260,11 @@ use crate::domain::ws_session::routes as ws_routes;
         claude_code_routes::delete_custom_model_handler,
         lsp_routes::open_session_handler,
         lsp_routes::list_servers_handler,
+        crate::domain::lsp::marketplace_routes::catalog_handler,
+        crate::domain::lsp::marketplace_routes::install_handler,
+        crate::domain::lsp::marketplace_routes::update_handler,
+        crate::domain::lsp::marketplace_routes::remove_handler,
+        crate::domain::lsp::selection::resolve_handler,
         usage_stats_routes::get_usage_stats_handler,
         usage_stats_routes::dismiss_usage_recording_issue_handler,
         crate::domain::maintenance::routes::run_archived_cleanup_handler,
@@ -213,17 +275,60 @@ use crate::domain::ws_session::routes as ws_routes;
         imports_routes::start_provider_import_handler,
         imports_routes::get_import_job_handler,
         remote_routes::status_handler,
+        remote_routes::browser_origins_handler,
         remote_routes::enable_handler,
         remote_routes::disable_handler,
         remote_routes::pairing_code_handler,
         remote_routes::revoke_handler,
         remote_routes::set_tunnel_host_handler,
         remote_routes::pair_handler,
+        crate::domain::marketplace::trust::get_marketplace_trust,
+        crate::domain::marketplace::trust::set_aside_marketplace_trust,
+        crate::domain::themes::managed::routes::get_managed_themes,
+        crate::domain::themes::managed::routes::get_managed_theme_catalog,
+        crate::domain::themes::managed::routes::refresh_managed_theme_catalog,
+        crate::domain::themes::managed::routes::install_managed_theme,
+        crate::domain::themes::managed::routes::preview_managed_theme_package,
+        crate::domain::themes::managed::routes::preview_managed_theme,
+        crate::domain::themes::managed::routes::apply_managed_theme,
+        crate::domain::themes::managed::routes::update_managed_theme,
+        crate::domain::themes::managed::routes::remove_managed_theme,
+        crate::domain::themes::managed::routes::duplicate_managed_theme,
         themes_routes::list_themes_handler,
         themes_routes::create_theme_handler,
         themes_routes::write_theme_handler,
         themes_routes::delete_theme_handler,
         themes_routes::theme_workspace_handler,
+        crate::domain::plugin_tabs::managed::routes::get_managed_tabs,
+        crate::domain::plugin_tabs::managed::routes::get_managed_tab_catalog,
+        crate::domain::plugin_tabs::managed::routes::refresh_managed_tab_catalog,
+        crate::domain::plugin_tabs::managed::routes::get_managed_tab_policy,
+        crate::domain::plugin_tabs::managed::routes::install_managed_tab,
+        crate::domain::plugin_tabs::managed::routes::update_managed_tab,
+        crate::domain::plugin_tabs::managed::routes::remove_managed_tab,
+        crate::domain::plugin_tabs::managed::routes::discard_managed_tab_update,
+        crate::domain::plugin_tabs::routes::plugin_tab_list_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_get_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_set_enablement_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_consent_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_get_configuration_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_put_configuration_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_authoring_handler,
+        crate::domain::plugin_tabs::routes::plugin_tab_workspace_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_create_grant_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_revoke_current_grant_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_self_configuration_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_self_storage_list_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_self_storage_get_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_self_storage_put_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_self_storage_delete_handler,
+        crate::domain::plugin_tabs::plugin_routes::plugin_tab_self_net_fetch_handler,
+        crate::domain::plugin_tabs::runtime_routes::plugin_tab_self_exec_handler,
+        crate::domain::plugin_tabs::runtime_routes::plugin_tab_self_backend_handler,
+        crate::domain::plugin_tabs::runtime_routes::plugin_tab_activity_handler,
+        crate::domain::plugin_tabs::runtime_routes::plugin_tab_stop_backend_handler,
+        crate::domain::plugin_tabs::runtime_routes::plugin_tab_renew_presence_handler,
+        crate::domain::plugin_tabs::runtime_routes::plugin_tab_release_presence_handler,
         push_routes::vapid_key_handler,
         push_routes::subscribe_handler,
         push_routes::unsubscribe_handler,
@@ -233,7 +338,34 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_routes::open_file_route,
     ),
     components(schemas(
+        crate::domain::telemetry::models::TelemetryConsent,
+        crate::domain::telemetry::models::TelemetryPreferences,
+        crate::domain::telemetry::models::DeliveryStatus,
+        crate::domain::telemetry::models::DiagnosticReport,
+        crate::domain::telemetry::models::DiagnosticCategory,
+        crate::domain::telemetry::models::DiagnosticFrame,
+        prompt_queue_store::QueuedPrompt,
+        prompt_queue_store::QueuedPromptStatus,
+        crate::domain::subagents::SubagentRun,
+        crate::domain::subagents::SubagentRunStatus,
+        crate::domain::mcp::control::side_question::SideQuestionRequest,
+        crate::domain::mcp::control::side_question::SideQuestionResponse,
+        prompt_queue_routes::QueuePromptRequest,
+        prompt_queue_routes::PromptQueueOkResponse,
         HealthResponse,
+        crate::domain::marketplace::trust::MarketplaceTrustStatus,
+        crate::domain::marketplace::trust::MarketplaceTrustState,
+        crate::domain::marketplace::trust::MarketplaceTrustRecovery,
+        crate::domain::marketplace::models::SignedMixedCatalog,
+        crate::domain::marketplace::models::MixedCatalogPayload,
+        crate::domain::themes::managed::models::InstallManagedThemeRequest,
+        crate::domain::themes::managed::models::ManagedThemeInventoryEntry,
+        crate::domain::themes::managed::models::RemoveManagedThemeRequest,
+        crate::domain::themes::managed::models::RemoveManagedThemeResponse,
+        crate::domain::themes::managed::models::DuplicateManagedThemeRequest,
+        crate::domain::themes::managed::models::ManagedThemeDuplicateResponse,
+        crate::domain::marketplace::models::ManagedThemeCatalogResponse,
+        crate::domain::marketplace::models::TabVersionUnavailable,
         themes_models::UserTheme,
         themes_models::ThemeDocument,
         themes_models::ThemeAppearance,
@@ -254,9 +386,52 @@ use crate::domain::ws_session::routes as ws_routes;
         themes_models::WriteThemeResponse,
         themes_models::DeleteThemeResponse,
         crate::domain::themes::workspace::ThemeWorkspace,
+        crate::domain::plugin_tabs::managed::InstallManagedTabRequest,
+        crate::domain::plugin_tabs::managed::ManagedTabInventoryEntry,
+        crate::domain::plugin_tabs::managed::policy::ManagedTabPolicyStatus,
+        crate::domain::plugin_tabs::managed::policy::PolicyFreshness,
+        crate::domain::plugin_tabs::models::PluginTabSummary,
+        crate::domain::plugin_tabs::models::PluginTabNetwork,
+        crate::domain::plugin_tabs::models::PluginTabStatus,
+        crate::domain::plugin_tabs::models::PluginTabEnablement,
+        crate::domain::plugin_tabs::models::PluginTabProjectOverride,
+        crate::domain::plugin_tabs::models::SetPluginTabEnablementRequest,
+        crate::domain::plugin_tabs::models::PluginTabConsentRequest,
+        crate::domain::plugin_tabs::models::PluginTabConfiguration,
+        crate::domain::plugin_tabs::models::PutPluginTabConfigurationRequest,
+        crate::domain::plugin_tabs::models::CreatePluginTabRequest,
+        crate::domain::plugin_tabs::models::PluginTabWorkspace,
+        crate::domain::plugin_tabs::models::CreatePluginTabGrantRequest,
+        crate::domain::plugin_tabs::models::PluginTabGrant,
+        crate::domain::plugin_tabs::models::TabConfigField,
+        crate::domain::plugin_tabs::models::TabShortcut,
+        crate::domain::plugin_tabs::models::TabConfigFieldType,
+        crate::domain::plugin_tabs::models::TabConfigScope,
+        crate::domain::plugin_tabs::models::TabIssue,
+        crate::domain::plugin_tabs::models::TabIssueCode,
+        crate::domain::plugin_tabs::models::TabAccessLevel,
+        crate::domain::plugin_tabs::models::TabCommand,
+        crate::domain::plugin_tabs::models::TabBackend,
+        crate::domain::plugin_tabs::models::PluginTabBackendAvailability,
+        crate::domain::plugin_tabs::models::PluginTabPendingUpdate,
+        crate::domain::plugin_tabs::models::PluginTabBackendBinary,
+        crate::domain::plugin_tabs::models::TabPlatform,
+        crate::domain::plugin_tabs::exec::PluginExecRequest,
+        crate::domain::plugin_tabs::exec::PluginExecResult,
+        crate::domain::plugin_tabs::backend::models::PluginBackendRequest,
+        crate::domain::plugin_tabs::backend::models::PluginBackendResponse,
+        crate::domain::plugin_tabs::backend::models::PluginBackendCallError,
+        crate::domain::plugin_tabs::backend::models::PluginTabBackendState,
+        crate::domain::plugin_tabs::backend::models::PluginTabBackendStatus,
+        crate::domain::plugin_tabs::activity::PluginTabExecRecord,
+        crate::domain::plugin_tabs::activity::PluginTabExecOutcome,
+        crate::domain::plugin_tabs::runtime_routes::PluginTabActivity,
+        crate::domain::plugin_tabs::runtime_routes::PluginTabPresenceRequest,
         crate::domain::agents::runtime::AgentCatalogResponse,
         crate::domain::agents::runtime::ProviderCatalogResponseEntry,
         crate::domain::agents::runtime::ProviderProfileCapability,
+        crate::domain::agents::runtime::ProviderResumeCommand,
+        crate::domain::agents::runtime::ProviderPromptCapabilities,
         crate::domain::agents::runtime::ProviderProfileEntry,
         crate::domain::agents::runtime::ProviderProfilesResponse,
         crate::domain::agents::adapter::RuntimeConfigOverrides,
@@ -276,6 +451,41 @@ use crate::domain::ws_session::routes as ws_routes;
         discovery_routes::ProviderDiscovery,
         discovery_routes::DiscoveredCandidate,
         discovery_routes::DiscoveredSource,
+        crate::domain::agents::updates::ProviderUpdatesResponse,
+        agent_extensions::ExtensionClisResponse,
+        agent_extensions::ExtensionCliSummary,
+        agent_extensions::ExtensionSupport,
+        agent_extensions::McpTransport,
+        agent_extensions::McpRegistryPage,
+        agent_extensions::McpRegistryServer,
+        agent_extensions::McpInstallOption,
+        agent_extensions::McpInput,
+        agent_extensions::McpInputKind,
+        agent_extensions::McpInventoryResponse,
+        agent_extensions::McpListing,
+        agent_extensions::McpInstallation,
+        agent_extensions::CliMcpServer,
+        agent_extensions::McpPackageRef,
+        agent_extensions::McpInstallRequest,
+        agent_extensions::McpServerRequest,
+        agent_extension_routes::McpUpdateResponse,
+        agent_extension_routes::SkillCatalogFilter,
+        agent_extensions::ExtensionCliError,
+        agent_extensions::SkillCatalogResponse,
+        agent_extensions::SkillListing,
+        agent_extensions::SkillOffer,
+        agent_extensions::InstalledSkill,
+        agent_extensions::SkillSource,
+        agent_extensions::SkillRequest,
+        crate::domain::agents::updates::ProviderUpdateStatus,
+        crate::domain::agents::updates::ProviderUpdateState,
+        crate::domain::agents::updates::ProviderUpdateActivity,
+        crate::domain::agents::updates::ProviderUpdateEvent,
+        crate::domain::agents::updates::ProviderUpdateOutcome,
+        crate::domain::agents::updates::ProviderUpdateRequest,
+        crate::domain::restart_continuations::RestartContinuationReport,
+        crate::domain::restart_continuations::RestartContinuationEntry,
+        crate::domain::restart_continuations::RestartContinuationOutcome,
         crate::domain::agents::providers::development::CreateProviderWorkspaceRequest,
         crate::domain::agents::providers::development::ProviderWorkspace,
         installed_provider_routes::InstalledProvidersResponse,
@@ -305,6 +515,7 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::agents::providers::installed::managed::process_policy::ManagedProcessPolicyOutcome,
         crate::domain::agents::providers::installed::managed::process_policy::ManagedProcessControlOutcome,
         crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex,
+        crate::domain::agents::providers::installed::managed::SignedProviderCatalog,
         crate::domain::agents::providers::installed::managed::ManagedProviderIndex,
         crate::domain::agents::providers::installed::managed::ManagedProviderPackage,
         crate::domain::agents::providers::installed::managed::ManagedProviderHost,
@@ -345,30 +556,58 @@ use crate::domain::ws_session::routes as ws_routes;
         workspace_models::ModelSettings,
         workspace_models::AgentProviderSettings,
         workspace_models::SetSettingRequest,
+        workspace_models::SetSettingsBatchRequest,
         workspace_models::SetModelSettingRequest,
         workspace_models::SetProviderSettingRequest,
         workspace_routes::SettingValueResponse,
+        workspace_routes::AutoNamePromptResponse,
         workspace_routes::SettingsFileResponse,
         workspace_routes::WriteSettingsFileRequest,
         workspace_routes::WriteSettingsFileResponse,
         crate::domain::settings_store::SettingWarning,
         projects_models::Project,
+        projects_models::PublicationReadinessResponse,
+        crate::domain::projects::publication_package::PreparePublicationPackageRequest,
+        crate::domain::projects::publication_package::PreparedPublicationPackage,
+        crate::domain::projects::publication_release::PreviewPublicationReleaseRequest,
+        crate::domain::projects::publication_release::PublishPublicationReleaseRequest,
+        crate::domain::projects::publication_release::PublicationReleasePreview,
+        crate::domain::projects::publication_release::PublicationReleaseArchive,
+        crate::domain::projects::publication_operations::PublicationOperationKind,
+        crate::domain::projects::publication_operations::PublicationOperationStatus,
+        crate::domain::projects::publication_operations::PublicationOperationResult,
+        crate::domain::projects::publication_operations::PublicationOperation,
+        crate::domain::projects::publication_operations::PublicationOperationsPage,
+        crate::domain::projects::publication_release::PublishedProviderRelease,
+        crate::domain::projects::publication_release::contribution::PreparePublicationContributionRequest,
+        crate::domain::projects::publication_release::contribution::PreparedPublicationContribution,
+        crate::domain::projects::publication_release::registry::PreviewPublicationRegistryRequest,
+        crate::domain::projects::publication_release::registry::SubmitPublicationRegistryRequest,
+        crate::domain::projects::publication_release::registry::PublicationRegistryPreview,
+        crate::domain::projects::publication_release::registry::PublicationRegistryResult,
+        projects_models::PublicationPreparationStatus,
+        projects_models::PublicationReadinessCheck,
+        projects_models::PublicationCheckStatus,
         projects_models::CreateProjectRequest,
         projects_models::ProjectSetting,
         projects_models::SetProjectSettingRequest,
-        projects_models::ProjectModelSettings,
-        projects_models::ProjectProviderSettings,
-        projects_models::SetProjectModelSettingRequest,
-        projects_models::SetProjectProviderSettingRequest,
         projects_routes::SuccessResponse,
         projects_icon::ProjectIconCandidate,
         features_models::Feature,
         features_models::FeatureStatus,
+        crate::domain::search::models::ConversationIndexEntry,
+        crate::domain::search::models::MessageSearchHit,
         features_models::CreateFeatureRequest,
         features_models::CreateFeatureResponse,
         features_models::ArchivePreview,
         features_models::ArchiveRequest,
         features_models::ArchiveResponse,
+        features_models::ArchiveProjectSessionsResponse,
+        crate::domain::features::archive_cleanup::CleanupReport,
+        crate::domain::features::archive_cleanup::StepOutcome,
+        crate::domain::features::archive_cleanup::StepStatus,
+        crate::domain::features::archive_cleanup::routes::ArchiveCleanupStatus,
+        crate::domain::features::archive_cleanup::routes::RetryArchiveCleanupRequest,
         features_models::UpdateTitleRequest,
         features_models::UpdateStatusRequest,
         features_models::UpdateLabelRequest,
@@ -394,11 +633,10 @@ use crate::domain::ws_session::routes as ws_routes;
         custom_actions_models::CustomAction,
         custom_actions_models::CustomActionVariable,
         custom_actions_models::CustomActionRun,
-        custom_actions_models::CustomActionSchedule,
         custom_actions_models::CreateCustomActionRequest,
         custom_actions_models::UpdateCustomActionRequest,
+        custom_actions_models::ReorderCustomActionsRequest,
         custom_actions_models::SetCustomActionVariableRequest,
-        custom_actions_models::SetCustomActionScheduleRequest,
         custom_actions_models::LastRunSummary,
         custom_actions_models::RunResponse,
         custom_actions_models::ResolvedCommand,
@@ -409,6 +647,9 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_models::ScheduleTarget,
         schedules_models::ScheduleContext,
         schedules_models::ScheduleLastRun,
+        schedules_models::ScheduleCondition,
+        schedules_models::ScheduleCheckStatus,
+        schedules_models::ScheduleLastCheck,
         schedules_models::TargetKind,
         schedules_models::SaveScheduleRequest,
         schedules_models::RecurrenceInput,
@@ -416,6 +657,10 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_models::ScheduleDeleted,
         schedules_models::ScheduleRunResult,
         ws_routes::PromptCommandsResponse,
+        ws_control_routes::AgentSessionControlAck,
+        virtual_skills_routes::VirtualSkillPayload,
+        virtual_skills_routes::VirtualSkillParametersPayload,
+        crate::domain::agents::orchestration_skills::SkillWorktree,
         ws_protocol::SlashCommandPayload,
         ws_protocol::SlashCommandKindPayload,
         ws_protocol::PromptCommandPolicyPayload,
@@ -441,11 +686,19 @@ use crate::domain::ws_session::routes as ws_routes;
         sessions_models::UnifiedAgentFeature,
         sessions_models::UnifiedAgentEntry,
         sessions_models::UnifiedAgentsResponse,
+        sessions_activity_digest::AgentDigestToolCall,
+        sessions_activity_digest::AgentDigestToolOutcome,
+        sessions_activity_digest::AgentActivityDigestEntry,
+        sessions_activity_digest::AgentActivityDigestResponse,
+        sessions_prompt_index::SessionPrompt,
+        sessions_prompt_index::SessionPromptsResponse,
         sessions_models::DraftResponse,
         sessions_models::SaveDraftRequest,
         sessions_models::SaveDraftResponse,
         sessions_models::MessageFullContentResponse,
         sessions_models::MessagePreviewResponse,
+        sessions_models::FeatureRowSummaryResponse,
+        sessions_models::TodoProgress,
         sessions_models::RefreshSessionResponse,
         terminal_routes::TerminalSessionInfo,
         terminal_routes::KillTerminalsResponse,
@@ -477,6 +730,13 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::maintenance::routes::ArchivedCleanupRunResponse,
         crate::domain::lsp::root::LspRootResponse,
         crate::domain::lsp::probe::ServerProbe,
+        crate::domain::lsp::probe::LspLanguage,
+        crate::domain::lsp::managed::LspCatalogResponse,
+        crate::domain::lsp::managed::LspVersionUnavailable,
+        crate::domain::lsp::managed::InstallLspRequest,
+        crate::domain::lsp::managed::RemoveLspRequest,
+        crate::domain::lsp::selection::LspResolveResponse,
+        crate::domain::lsp::selection::LspSuggestion,
         crate::domain::lsp::probe::ServerProbeStatus,
         crate::domain::lsp::catalog::ServerRole,
         imports_models::ImportConversationSummary,
@@ -489,6 +749,7 @@ use crate::domain::ws_session::routes as ws_routes;
         imports_models::SkippedRecord,
         imports_models::SkipReason,
         remote_models::RemoteStatus,
+        remote_models::RemoteBrowserOrigins,
         crate::remote::pairing::PairingState,
         remote_models::RemoteDevice,
         remote_models::RemoteAuditEntry,
@@ -504,7 +765,42 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_protocol::NeovimStartResponse,
         neovim_protocol::NeovimDetectResponse,
         neovim_protocol::OpenFileRequest,
+        ws_protocol::WsEnvelope,
+        ws_protocol::SessionInitializedPayload,
+        ws_protocol::SessionMessagePayload,
+        ws_protocol::SessionUsageUpdatePayload,
+        ws_protocol::SessionErrorPayload,
+        ws_protocol::SessionWarningPayload,
+        ws_protocol::SessionEndedPayload,
+        ws_protocol::SessionLifecyclePayload,
+        ws_protocol::SessionLifecycleKind,
+        ws_protocol::FeatureRenamedPayload,
+        ws_protocol::FeatureAutoNamingPayload,
+        ws_protocol::FeatureUpdatedPayload,
         ws_protocol::WsSessionAction,
+        ws_protocol::WsSessionEvent,
+        ws_protocol::SessionAcknowledgedPayload,
+        ws_protocol::SessionTranscriptBlockPayload,
+        ws_protocol::SessionCompactStartedPayload,
+        ws_protocol::SessionCompactStoppedPayload,
+        ws_protocol::SessionDeletedPayload,
+        ws_protocol::SessionClearedPayload,
+        ws_protocol::SessionMcpServersPayload,
+        ws_protocol::McpServerStatusPayload,
+        ws_protocol::HistoryResultPayload,
+        ws_protocol::HistoryAddedPayload,
+        ws_protocol::DraftResultPayload,
+        ws_protocol::DraftSavedPayload,
+        ws_protocol::BranchNeedsConfirmPayload,
+        ws_protocol::WsSessionCommand,
+        ws_protocol::AccessModeSetPayload,
+        ws_protocol::BranchPayload,
+        ws_protocol::HistoryGetPayload,
+        ws_protocol::HistoryAddPayload,
+        ws_protocol::DraftGetPayload,
+        ws_protocol::DraftSavePayload,
+        ws_protocol::RetryWorktreeSetupPayload,
+        ws_protocol::RetryWorktreeSetupOkPayload,
         ws_protocol::PermissionDecision,
         ws_protocol::SessionInitPayload,
         ws_protocol::PromptSendPayload,
@@ -536,6 +832,8 @@ use crate::domain::ws_session::routes as ws_routes;
         ws_protocol::RuntimeSessionIdPayload,
         ws_protocol::BranchRewoundPayload,
         ws_protocol::BranchForkedPayload,
+        ws_protocol::SessionPersistenceStatusPayload,
+        ws_protocol::PersistenceStatusState,
         ws_protocol::SessionStreamStatusPayload,
         ws_protocol::StreamStatusState,
         ws_protocol::CommandsGetPayload,
@@ -594,6 +892,107 @@ pub fn routes() -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::api_doc;
+
+    #[test]
+    fn session_commands_export_discriminated_payloads_used_by_runtime_routing() {
+        use crate::domain::ws_session::protocol::canonical_session_command_action;
+
+        let document = serde_json::to_value(api_doc()).unwrap();
+        let schemas = &document["components"]["schemas"];
+        let variants = schemas["WsSessionCommand"]["oneOf"].as_array().unwrap();
+        assert_eq!(variants.len(), 28);
+        for variant in variants {
+            let action = variant["properties"]["action"]["enum"][0].as_str().unwrap();
+            assert!(
+                canonical_session_command_action(action).is_some(),
+                "{action}"
+            );
+            assert!(variant["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("payload")));
+            let payload_ref = variant["properties"]["payload"]["$ref"].as_str().unwrap();
+            let payload_name = payload_ref.strip_prefix("#/components/schemas/").unwrap();
+            assert!(
+                schemas.get(payload_name).is_some(),
+                "{action}: {payload_ref}"
+            );
+        }
+        for (action, payload) in [
+            ("prompt.send", "PromptSendPayload"),
+            ("access_mode.set", "AccessModeSetPayload"),
+            ("branch.rewind", "BranchPayload"),
+            ("history.add", "HistoryAddPayload"),
+            ("draft.save", "DraftSavePayload"),
+            ("retry_worktree_setup", "RetryWorktreeSetupPayload"),
+        ] {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["action"]["enum"][0] == action)
+                .unwrap();
+            assert_eq!(
+                variant["properties"]["payload"]["$ref"],
+                format!("#/components/schemas/{payload}")
+            );
+        }
+        for (schema, optional_fields) in [
+            (
+                "PromptSendPayload",
+                &[
+                    "images",
+                    "attachments",
+                    "message_uuid",
+                    "track_prompt_receipt",
+                ][..],
+            ),
+            ("BranchPayload", &["confirm_discard"][..]),
+        ] {
+            let required = schemas[schema]["required"].as_array().unwrap();
+            for field in optional_fields {
+                assert!(
+                    !required.contains(&serde_json::json!(field)),
+                    "{schema}.{field}"
+                );
+            }
+        }
+        assert!(schemas["WsEnvelope"]["properties"].get("ref").is_some());
+        assert!(!schemas["WsEnvelope"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("ref")));
+    }
+
+    #[test]
+    fn session_events_export_each_canonical_action_with_its_payload() {
+        use crate::domain::ws_session::protocol::WsSessionAction;
+
+        let document = serde_json::to_value(api_doc()).unwrap();
+        let schemas = &document["components"]["schemas"];
+        let variants = schemas["WsSessionEvent"]["oneOf"].as_array().unwrap();
+        let mut actions: std::collections::HashSet<_> = WsSessionAction::all()
+            .iter()
+            .map(|action| action.as_str())
+            .collect();
+        assert_eq!(variants.len(), actions.len());
+        for variant in variants {
+            let action = variant["properties"]["action"]["enum"][0].as_str().unwrap();
+            assert!(actions.remove(action), "unknown or repeated event {action}");
+            assert!(variant["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("payload")));
+            let payload_ref = variant["properties"]["payload"]["$ref"].as_str().unwrap();
+            let payload_name = payload_ref.strip_prefix("#/components/schemas/").unwrap();
+            assert!(
+                schemas.get(payload_name).is_some(),
+                "{action}: {payload_ref}"
+            );
+            if action == "compact.started" {
+                assert_eq!(schemas[payload_name]["type"], "null");
+            }
+        }
+        assert!(actions.is_empty());
+    }
 
     #[test]
     fn descriptor_optional_properties_are_not_advertised_as_nullable() {

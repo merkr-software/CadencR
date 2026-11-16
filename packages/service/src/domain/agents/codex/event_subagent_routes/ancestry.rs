@@ -36,7 +36,7 @@ fn parent_id(value: Option<&Value>) -> Result<Option<&str>, RuntimeError> {
     }
 }
 
-pub(super) fn subagent_spawn_source(source: &Value) -> Option<&Value> {
+pub(in crate::domain::agents::codex) fn subagent_spawn_source(source: &Value) -> Option<&Value> {
     let subagent = source.get("subAgent").or_else(|| source.get("subagent"))?;
     subagent
         .get("thread_spawn")

@@ -9,4 +9,3 @@
 export const CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY = "claude_bypass_permissions_enabled";
 
 export const CODEX_PERMISSION_MODE_SETTING_KEY = "codex_permission_mode";
-export const CURSOR_ACCESS_MODE_SETTING_KEY = "cursor_access_mode";

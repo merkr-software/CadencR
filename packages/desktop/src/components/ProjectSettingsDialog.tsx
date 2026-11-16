@@ -2,13 +2,14 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  type Project,
   useGetProjectSettings,
   useSetProjectSetting,
   getGetProjectSettingsQueryKey,
 } from "../api/generated";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ModelSelector } from "./ModelSelector";
 import { WorktreeList } from "./WorktreeList";
+import { CustomActionsManager } from "./custom-actions/CustomActionsManager";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { ProjectColorField } from "@/components/settings/ProjectColorField";
@@ -18,6 +19,9 @@ import { ProjectJsonSettings } from "@/components/settings/SettingsJsonControls"
 import { ProjectEditorToolingSettings } from "@/components/settings/ProjectEditorToolingSettings";
 import { WorktreeSetupFields } from "@/components/settings/WorktreeSetupFields";
 import { settingsArrayToMap } from "@/api/settings";
+import { ProviderPublicationPreparation } from "./ProviderPublicationPreparation";
+import { ProviderPublicationPackagePreparation } from "./ProviderPublicationPackagePreparation";
+import { ThemePublicationPackagePreparation } from "./ThemePublicationPackagePreparation";
 
 const PROJECT_SETTING_KEYS = {
   branchPrefix: "branch_prefix",
@@ -31,11 +35,13 @@ type ProjectSettingKey = (typeof PROJECT_SETTING_KEYS)[keyof typeof PROJECT_SETT
 export function ProjectSettingsDialog({
   projectId,
   projectName,
+  authoringTarget,
   open,
   onOpenChange,
 }: {
   projectId: number;
   projectName: string;
+  authoringTarget?: Project["authoring_target"];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
@@ -65,7 +71,7 @@ export function ProjectSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] w-[90vw] flex-col gap-0 p-0 sm:max-w-6xl">
+      <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] w-[90vw] flex-col gap-0 p-0 sm:max-w-6xl">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">
             Project settings — <span className="text-muted-foreground">{projectName}</span>
@@ -75,14 +81,42 @@ export function ProjectSettingsDialog({
 
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <ConfigurationSection projectId={projectId} enabled={open} />
+          {authoringTarget === "provider" ? (
+            <>
+              <ProviderPublicationPreparation projectId={projectId} enabled={open} />
+              <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
+            </>
+          ) : authoringTarget === "theme" || authoringTarget === "tab" ? (
+            <>
+              <ProviderPublicationPreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind={authoringTarget}
+              />
+              <ThemePublicationPackagePreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind={authoringTarget}
+              />
+            </>
+          ) : null}
           <IdentitySection
             projectId={projectId}
             color={settings[PROJECT_SETTING_KEYS.color]}
             iconPath={settings[PROJECT_SETTING_KEYS.iconPath]}
             saveProjectSetting={saveProjectSetting}
           />
+          <SettingsSection
+            size="sm"
+            title="Custom actions"
+            subtitle="Header launcher"
+            description="This project's own actions, shown in its header before the global ones (Settings → Custom actions)."
+          >
+            <SettingsCard padded>
+              <CustomActionsManager scope="project" projectId={projectId} />
+            </SettingsCard>
+          </SettingsSection>
           <EditorToolingSection projectId={projectId} enabled={open} />
-          <RuntimeModelsSection projectId={projectId} />
           <GitAutomationSection
             projectId={projectId}
             branchPrefix={settings[PROJECT_SETTING_KEYS.branchPrefix]}
@@ -156,21 +190,6 @@ function EditorToolingSection({
     >
       <SettingsCard padded>
         <ProjectEditorToolingSettings projectId={projectId} enabled={enabled} />
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
-function RuntimeModelsSection({ projectId }: { projectId: number }): React.JSX.Element {
-  return (
-    <SettingsSection
-      size="sm"
-      title="Runtime & Models"
-      subtitle="Per-agent model picks"
-      description="Override the runtime/model used for each agent inside this project."
-    >
-      <SettingsCard>
-        <ModelSelector level="project" projectId={projectId} />
       </SettingsCard>
     </SettingsSection>
   );

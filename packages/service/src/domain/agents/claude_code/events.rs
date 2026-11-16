@@ -3,22 +3,27 @@ mod mapping;
 mod token_usage;
 
 use serde_json::Value;
+use tracing::warn;
 
 use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventMetadata, RuntimeUsage};
 use classification::classify_message;
-pub(super) use mapping::{
-    context_window_for_model_from_raw, init_model_context_window, model_usage_windows,
-};
+pub(super) use mapping::{context_window_for_model_from_raw, model_usage_windows};
 use token_usage::claude_token_usage;
 
 pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEvent {
     let background_agent = super::background_agents::background_agent_signal(&msg);
+    let background_tasks = super::background_agents::background_task_count(&msg);
     let token_usage = claude_token_usage(&msg);
     let provider_message_id = match &msg {
         claude_agent_sdk_rs::SdkMessage::Assistant { message, .. } => Some(message.id.clone()),
         _ => None,
     };
-    let raw = serde_json::to_value(&msg).unwrap_or(Value::Null);
+    // Every SDK variant serializes to its wire payload (raw-preserving variants
+    // as the payload itself), so this only fails on a broken SDK invariant.
+    let raw = serde_json::to_value(&msg).unwrap_or_else(|error| {
+        warn!(%error, "claude adapter: SDK message did not serialize; raw payload unavailable");
+        Value::Null
+    });
     let metadata = RuntimeEventMetadata {
         session_id: msg.session_id().map(ToOwned::to_owned),
         usage: msg.usage().map(|usage| RuntimeUsage {
@@ -31,11 +36,14 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
 
     let (kind, result_error) = classify_message(msg);
 
-    RuntimeEvent::new(metadata, kind)
+    let event = RuntimeEvent::new(metadata, kind)
         .with_background_agent(background_agent)
+        .with_background_task_count(background_tasks)
         .with_result_error(result_error)
         .with_token_usage(token_usage)
-        .with_provider_message_id(provider_message_id)
+        .with_provider_message_id(provider_message_id);
+    let scheduled_wakeup = super::scheduled_wakeup::scheduled_wakeup(&event);
+    event.with_scheduled_wakeup(scheduled_wakeup)
 }
 
 #[cfg(test)]
@@ -117,29 +125,128 @@ mod tests {
     }
 
     #[test]
-    fn normalize_event_does_not_surface_unknown_system_messages_as_errors() {
-        // The run-in-background agent protocol (issue #58) and any untyped
-        // `system` subtype arrive as `SdkMessage::Unknown` by design. They are
-        // operational metadata and must NOT become visible `UNKNOWN_MESSAGE`
-        // errors — otherwise every background-agent run would spam the
-        // conversation. They stay silent (`Other`) while still driving
-        // background-agent tracking via the independently-derived signal.
+    fn normalize_event_keeps_task_lifecycle_frames_out_of_the_conversation() {
+        // The run-in-background agent protocol (issue #58) is typed by the SDK
+        // as `TaskLifecycle`. Those frames are operational metadata and must
+        // NOT become visible `UNKNOWN_MESSAGE` errors, while still driving
+        // background-agent tracking — and their raw payload must survive.
         let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
             "type": "system", "subtype": "task_started", "uuid": "u", "session_id": "s",
             "task_id": "task-abc", "task_type": "local_agent"
         }))
-        .expect("unknown system subtype deserializes infallibly");
-        assert!(matches!(msg, claude_agent_sdk_rs::SdkMessage::Unknown(_)));
+        .expect("task frames deserialize infallibly");
+        assert!(matches!(
+            msg,
+            claude_agent_sdk_rs::SdkMessage::TaskLifecycle(_)
+        ));
 
         let event = normalize_event(msg);
+        assert!(event.unknown_message().is_none());
+        assert!(event.is_operational_only());
+        assert!(event.background_agent_signal().is_some());
+        assert_eq!(event.session_id(), Some("s"));
+        let raw = event.raw_json();
+        assert_eq!(raw["type"], "system");
+        assert_eq!(raw["subtype"], "task_started");
+        assert_eq!(raw["task_id"], "task-abc");
+    }
+
+    #[test]
+    fn normalize_event_counts_background_tasks_with_raw_preserved() {
+        let msg = claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "system", "subtype": "background_tasks_changed", "uuid": "u",
+            "session_id": "s", "tasks": [{ "task_id": "a" }, { "task_id": "b" }]
+        }));
+        let event = normalize_event(msg);
+        assert_eq!(event.background_task_count(), Some(2));
+        assert!(event.unknown_message().is_none());
+        assert_eq!(event.raw_json()["subtype"], "background_tasks_changed");
+    }
+
+    #[test]
+    fn normalize_event_keeps_untyped_system_subtypes_silent() {
+        let event = normalize_event(claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "system", "subtype": "api_retry", "session_id": "s", "attempt": 1
+        })));
+        assert!(event.unknown_message().is_none());
+        assert!(event.is_operational_only());
+        assert_eq!(event.raw_json()["subtype"], "api_retry");
+    }
+
+    #[test]
+    fn normalize_event_ends_the_turn_on_a_drifted_result() {
+        // Counters renamed, nulled or retyped by a future CLI must cost those
+        // counters only: the turn still ends, and successfully.
+        let event = normalize_event(claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "result", "subtype": "success", "session_id": "s",
+            "is_error": false, "duration_api_ms": null, "total_cost_usd": "0.1",
+            "usage": { "inputTokens": 1 },
+            "permission_denials": [{ "tool_name": "Bash", "input": {} }]
+        })));
+        assert!(event.is_result());
+        assert!(event.result_error().is_none());
+        assert_eq!(event.raw_json()["type"], "result");
+    }
+
+    #[test]
+    fn normalize_event_ends_the_turn_with_a_visible_error_on_a_malformed_result() {
+        let msg = claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "result", "subtype": null, "session_id": "s",
+            "result": "Bedrock throttled the request"
+        }));
+        assert!(matches!(msg, claude_agent_sdk_rs::SdkMessage::Malformed(_)));
+
+        let event = normalize_event(msg);
+        assert!(event.is_result(), "a malformed result still ends the turn");
+        assert!(event.unknown_message().is_none());
+        assert_eq!(event.session_id(), Some("s"));
+        let error = event.result_error().expect("visible error");
+        assert_eq!(error.code, "MALFORMED_RESULT");
         assert!(
-            event.unknown_message().is_none(),
-            "an unknown `system` message must not surface as a visible error"
+            error.message.contains("Bedrock throttled the request"),
+            "{}",
+            error.message
         );
-        assert!(
-            event.background_agent_signal().is_some(),
-            "the background-agent signal must still be derived from the raw message"
-        );
+        assert_eq!(event.raw_json()["result"], "Bedrock throttled the request");
+    }
+
+    #[test]
+    fn normalize_event_ends_the_turn_quietly_on_a_malformed_successful_result() {
+        let event = normalize_event(claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "result", "session_id": "s", "is_error": false
+        })));
+        assert!(event.is_result());
+        assert!(event.result_error().is_none());
+    }
+
+    #[test]
+    fn normalize_event_surfaces_malformed_conversation_messages_with_raw() {
+        // A known non-system kind failing its schema renders like an unknown
+        // message (visible, raw kept) rather than vanishing.
+        let event = normalize_event(claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "assistant", "session_id": "s", "message": { "content": "text" }
+        })));
+        let raw = event.unknown_message().expect("visible malformed message");
+        assert_eq!(raw["type"], "assistant");
+        assert_eq!(event.raw_json()["message"]["content"], "text");
+    }
+
+    #[test]
+    fn normalize_event_drops_malformed_system_messages_silently() {
+        let event = normalize_event(claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "system", "subtype": "compact_boundary", "session_id": "s"
+        })));
+        assert!(event.unknown_message().is_none());
+        assert!(event.is_operational_only());
+    }
+
+    #[test]
+    fn normalize_event_keeps_the_rate_limit_wire_tag_in_raw() {
+        let event = normalize_event(claude_agent_sdk_rs::SdkMessage::from_raw(json!({
+            "type": "rate_limit_event", "uuid": "u", "session_id": "s",
+            "rate_limit_info": { "status": "allowed" }
+        })));
+        assert_eq!(event.raw_json()["type"], "rate_limit_event");
     }
 
     #[test]
@@ -161,6 +268,8 @@ mod tests {
             .expect("an unknown non-system message must surface verbatim");
         assert_eq!(raw["type"], "some_future_message_type");
         assert_eq!(raw["payload"]["text"], "hi");
+        // The event's own raw (diagnostics, raw consumers) is never `null`.
+        assert_eq!(event.raw_json()["payload"]["text"], "hi");
     }
 
     #[test]
@@ -233,50 +342,22 @@ mod tests {
     }
 
     #[test]
-    fn normalize_event_resolves_1m_context_window_from_init_model() {
-        // Regression: the usage bar divided by the session's stale 200k
-        // default for the whole first turn of a 1M-context model, climbing
-        // to 100% until the turn's Result corrected the window.
-        let event = normalize_event(init_message("claude-fable-5[1m]"));
-        let init = event.init().expect("init kind");
-        assert_eq!(init.context_window, Some(1_000_000));
-        assert_eq!(init.model.as_deref(), Some("claude-fable-5[1m]"));
-    }
-
-    #[test]
-    fn normalize_event_resolves_1m_window_for_bedrock_vertex_style_id() {
-        // Under Bedrock/Vertex the resolved id carries region/routing affixes,
-        // so the `[1m]` marker is not at the end. The 1M beta is still 1M
-        // tokens on every backend, so the hint must fire regardless of affix.
-        let event = normalize_event(init_message("us.anthropic.claude-sonnet-4-5[1m]"));
-        assert_eq!(
-            event.init().expect("init kind").context_window,
-            Some(1_000_000)
-        );
-    }
-
-    #[test]
-    fn normalize_event_resolves_1m_window_for_natively_1m_model_without_marker() {
-        // The CLI reports `claude-fable-5` on init even when Cadencr passes
-        // `claude-fable-5[1m]`, because 1M is Fable's default and there is no
-        // beta to mark. Keying only off `[1m]` left every Fable turn with no
-        // window at all, so the bar divided by whatever the session last
-        // persisted (200k in the common case) and read ~5x too high until the
-        // turn's Result landed.
-        let event = normalize_event(init_message("claude-fable-5"));
-        assert_eq!(
-            event.init().expect("init kind").context_window,
-            Some(1_000_000)
-        );
-    }
-
-    #[test]
-    fn normalize_event_leaves_context_window_unresolved_without_1m_marker() {
-        // No guess for plain ids: a hardcoded 200k would override a window
-        // learned from a previous turn's Result, and would be wrong for a
-        // Bedrock-pinned or custom/proxy model. Defer to the CLI's Result.
-        let event = normalize_event(init_message("us.anthropic.claude-sonnet-4-5"));
-        assert_eq!(event.init().expect("init kind").context_window, None);
+    fn normalize_event_never_guesses_a_window_from_the_init_model_id() {
+        // The CLI reports no window on init, and an id is not a window: the
+        // `[1m]` marker is absent for natively-1M models (Fable, Opus 5.5) and
+        // a hardcoded family list lags every new model. The adapter answers
+        // from windows the CLI actually reported instead.
+        for model in [
+            "claude-fable-5[1m]",
+            "us.anthropic.claude-sonnet-4-5[1m]",
+            "claude-opus-5-5",
+            "us.anthropic.claude-sonnet-4-5",
+        ] {
+            let event = normalize_event(init_message(model));
+            let init = event.init().expect("init kind");
+            assert_eq!(init.model.as_deref(), Some(model));
+            assert_eq!(init.context_window, None, "{model}");
+        }
     }
 
     #[test]

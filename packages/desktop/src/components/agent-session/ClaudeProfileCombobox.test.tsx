@@ -30,7 +30,7 @@ describe("ClaudeProfileCombobox", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("bedrock"));
   });
 
-  it("opens and selects profiles in the compact first-prompt variant", async () => {
+  it("opens and selects profiles in the composer instrument variant", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -40,7 +40,7 @@ describe("ClaudeProfileCombobox", () => {
         isLoading={false}
         isError={false}
         onChange={onChange}
-        variant="compact"
+        variant="instrument"
         label="Profile"
       />,
     );

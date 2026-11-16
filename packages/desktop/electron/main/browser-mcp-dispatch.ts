@@ -2,11 +2,13 @@ import type {
   BrowserBounds,
   BrowserElementContext,
   BrowserNetworkEntry,
+  BrowserAutomationState,
   BrowserOpenUrlOptions,
   BrowserStateSnapshot,
   BrowserTabMetadata,
 } from "./browser-types";
 import type { BrowserTarget } from "./browser-interactions";
+import { refreshBrowserOriginPolicy } from "./runtime-config";
 import {
   optionalBoolean,
   optionalNumber,
@@ -19,12 +21,14 @@ import {
 export interface BrowserMcpTarget {
   state(scopeId?: number | null): BrowserStateSnapshot;
   automation: {
-    state(scopeId?: number | null): BrowserStateSnapshot;
+    state(scopeId?: number | null): BrowserAutomationState;
     assert(tabId: string, scopeId?: number | null): unknown;
     guard(tabId: string, scopeId?: number | null): () => void;
   };
   openUrl(url: string, options?: BrowserOpenUrlOptions): Promise<BrowserTabMetadata>;
   openExternalUrl(url: string, options?: BrowserOpenUrlOptions): Promise<BrowserTabMetadata>;
+  restoreScopeMetadata(scopeId: number): Promise<BrowserStateSnapshot>;
+  closeTabsForScope(scopeId: number): Promise<BrowserStateSnapshot>;
   inspection: {
     snapshot(
       tabId: string,
@@ -46,7 +50,11 @@ export interface BrowserMcpTarget {
     ): Promise<unknown>;
     typeText(tabId: string, text: string): Promise<void>;
     keypress(tabId: string, keyCode: string): Promise<void>;
-    selectElementContext(tabId: string): Promise<BrowserElementContext | unknown>;
+    selectElementContext(
+      tabId: string,
+      anchorId?: string,
+      authorize?: () => void,
+    ): Promise<BrowserElementContext | unknown>;
   };
 }
 
@@ -60,11 +68,10 @@ export async function dispatchBrowserMcpTool(
   target: BrowserMcpTarget,
   toolName: string,
   args: Record<string, unknown>,
-  // Browser scope (the calling feature). New agent tabs are created in this
-  // scope so they appear in the feature's Browser panel; active-tab resolution
-  // and list/console/network views are scoped to it too. Undefined = scopeless.
+  // Calling feature scope; undefined means scopeless.
   scopeId?: number | null,
 ): Promise<BrowserBridgeResult> {
+  if (toolName !== "browser_close_scope_tabs") await refreshBrowserOriginPolicy();
   switch (toolName) {
     case "browser_list_tabs":
       return text(target.automation.state(scopeId));
@@ -141,15 +148,40 @@ export async function dispatchBrowserMcpTool(
         );
       }
       return text({ ok: true });
-    case "browser_select_element_context": {
-      const id = tabId(target, args, scopeId);
-      return text(
-        await authorized(target, id, scopeId, () => target.inspection.selectElementContext(id)),
-      );
-    }
+    case "browser_close_scope_tabs":
+      return closeScopeTabs(target, scopeId);
+    case "browser_select_element_context":
+      return selectContext(target, args, scopeId);
     default:
       throw new Error(`Unknown Browser MCP tool: ${toolName}`);
   }
+}
+
+async function selectContext(
+  target: BrowserMcpTarget,
+  args: Record<string, unknown>,
+  scopeId?: number | null,
+): Promise<BrowserBridgeResult> {
+  const id = tabId(target, args, scopeId);
+  const authorize = target.automation.guard(id, scopeId ?? null);
+  return text(
+    await authorized(target, id, scopeId, () =>
+      target.inspection.selectElementContext(id, undefined, authorize),
+    ),
+  );
+}
+
+/** Service-only archive cleanup, excluded from the browser MCP tool surface. */
+async function closeScopeTabs(
+  target: BrowserMcpTarget,
+  scopeId?: number | null,
+): Promise<BrowserBridgeResult> {
+  if (scopeId == null) throw new Error("browser_close_scope_tabs needs a feature scope.");
+  // Like the sidebar's close (`browser:close-tabs-for-scope`): restore the
+  // scope's persisted tabs first, or a never-opened scope keeps them.
+  const before = (await target.restoreScopeMetadata(scopeId)).tabs.length;
+  const after = (await target.closeTabsForScope(scopeId)).tabs.length;
+  return text({ closed_tabs: before - after });
 }
 
 function parseOpenUrlArgs(
@@ -185,10 +217,7 @@ async function screenshot(
           ),
         )
       : await authorized(target, id, scopeId, () => target.inspection.screenshot(id, region));
-  // A hidden/blank/not-yet-rendered tab composites to nothing, so capturePage
-  // returns "". Never forward an empty image: an `input_image` with no data is a
-  // malformed data URI that some agents (codex) reject on every later turn,
-  // wedging the whole conversation. Fail with a useful hint instead.
+  // Empty captures produce malformed image data that can wedge later agent turns.
   if (!data) {
     throw new Error(
       "Screenshot returned no image data — the tab is blank or not rendered yet. " +
@@ -354,15 +383,15 @@ async function authorized<T>(
   scopeId: number | null | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
-  target.automation.assert(id, scopeId ?? null);
+  const authorize = target.automation.guard(id, scopeId ?? null);
   try {
     const result = await operation();
     // Discard results if sharing was revoked while an async read/wait was in flight.
-    target.automation.assert(id, scopeId ?? null);
+    authorize();
     return result;
   } catch (error) {
     // A page-supplied error can contain private content. Hide it after revocation.
-    target.automation.assert(id, scopeId ?? null);
+    authorize();
     throw error;
   }
 }

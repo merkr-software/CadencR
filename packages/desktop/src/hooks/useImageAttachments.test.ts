@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
@@ -37,6 +38,11 @@ function bridge(): CadencrDesktopBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     setZoom: vi.fn(),
     currentTheme: vi.fn(),
     onThemeChange: vi.fn(() => () => undefined),
@@ -44,10 +50,12 @@ function bridge(): CadencrDesktopBridge {
     setRemoteHostAwake: vi.fn(() => Promise.resolve()),
     onPowerSuspend: vi.fn(() => () => undefined),
     onPowerResume: vi.fn(() => () => undefined),
-    checkForUpdates: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
+    fetchChangelogImage: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
   };
 }
 

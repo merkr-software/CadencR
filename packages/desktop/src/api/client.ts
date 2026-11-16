@@ -5,28 +5,27 @@ import Axios, {
   type InternalAxiosRequestConfig,
 } from "axios";
 import { desktopBridge } from "@/lib/desktop-bridge";
+import { developmentApiBaseUrl } from "./runtime-origin";
 import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
+import {
+  agentExtensionOperationTimeout,
+  archiveOperationTimeout,
+  managedProviderOperationTimeout,
+  neovimOperationTimeout,
+  NO_TIMEOUT_PATHS,
+  publicationOperationTimeout,
+} from "./operation-timeouts";
+export { managedProviderOperationTimeout, publicationOperationTimeout } from "./operation-timeouts";
 
 export interface RuntimeConfig {
   baseUrl: string;
-  authToken: string | null;
 }
-
-const DEFAULT_DEV_BASE_URL = "http://127.0.0.1:5005";
 
 let runtimeConfig: RuntimeConfig | null = null;
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
 
 function envFallback(): RuntimeConfig {
-  const baseUrl = import.meta.env.VITE_API_URL;
-  const authToken = import.meta.env.VITE_API_TOKEN;
-  return {
-    baseUrl:
-      typeof baseUrl === "string" && baseUrl.length > 0
-        ? baseUrl.replace(/\/$/, "")
-        : DEFAULT_DEV_BASE_URL,
-    authToken: typeof authToken === "string" && authToken.length > 0 ? authToken : null,
-  };
+  return { baseUrl: developmentApiBaseUrl() };
 }
 
 async function loadRuntimeConfig(): Promise<RuntimeConfig> {
@@ -36,17 +35,14 @@ async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   // at the local dev port (`127.0.0.1:5005`), which a remote device can't reach
   // and which would leak the wrong base URL into every request.
   if (isBrowserRemote()) {
-    return { baseUrl: location.origin, authToken: readDeviceToken() };
+    return { baseUrl: location.origin };
   }
 
   const fallback = envFallback();
   try {
     const result = await desktopBridge.runtimeConfig();
     if (result && typeof result.baseUrl === "string") {
-      return {
-        baseUrl: result.baseUrl,
-        authToken: result.authToken ?? fallback.authToken,
-      };
+      return { baseUrl: result.baseUrl };
     }
   } catch (err) {
     console.warn("[runtime-config] desktop runtime config unavailable:", err);
@@ -77,10 +73,10 @@ export function resolveApiBaseUrlSync(): string {
 export function getAuthTokenSync(): string | null {
   // In a remote browser the device token can change mid-session — revoked on
   // the host (→ 401 → cleared) or re-paired — so read it live instead of the
-  // value frozen into the runtime config at boot. The loopback launch token
-  // never changes, so there the cached value is correct.
+  // value frozen into the runtime config at boot. Desktop launch credentials
+  // are supplied by the main process and are never readable here.
   if (isBrowserRemote()) return readDeviceToken();
-  return getRuntimeConfigSync().authToken;
+  return null;
 }
 
 /** Reset cached runtime config. Tests only. */
@@ -110,26 +106,26 @@ axiosInstance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // where the launch token never 401s mid-session.
 axiosInstance.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     if (error.response?.status === 401 && isBrowserRemote()) {
       clearDeviceToken();
     }
+    await decodeBlobErrorBody(error);
     return Promise.reject(error);
   },
 );
 
 /**
- * Endpoints that drive long-running processes. The 30 s default is way too
- * tight for these:
- * - `/api/git/commit` fires pre-commit hooks (full test suite easily ≥ minutes).
- * - `/api/git/push` waits on remote network.
- * - `/api/lsp/sessions` may trigger a 30 MB+ rust-analyzer download on the
- *   first open in a Rust workspace. The backend has its own 5-min download
- *   timeout; the renderer just needs to not give up on the POST first.
- *
- * For these calls we disable the timeout entirely.
+ * A `responseType: "blob"` request receives its `{error, code}` body as a Blob
+ * too. Decode it, so `apiErrorMessage` / `apiErrorCode` name the service's
+ * reason instead of falling back to axios's bare status line.
  */
-const NO_TIMEOUT_PATHS = ["/api/git/commit", "/api/git/push", "/api/lsp/sessions"];
+async function decodeBlobErrorBody(error: AxiosError): Promise<void> {
+  const response = error.response;
+  if (!(response?.data instanceof Blob) || response.data.type !== "application/json") return;
+  response.data = JSON.parse(await response.data.text());
+}
+
 const STRICT_MODE_STABLE_GET_PATHS = ["/api/git/", "/api/feature-layouts"];
 const STRICT_MODE_STABLE_RESULT_TTL_MS = 250;
 const stableReadRequests = new Map<string, Promise<unknown>>();
@@ -139,6 +135,14 @@ const WORKSPACE_SETTINGS_SINGLE_PREFIX = `${WORKSPACE_SETTINGS_PATH}/`;
 const WORKSPACE_SETTINGS_BULK_RESULT_TTL_MS = 500;
 let workspaceSettingsBulkRequest: Promise<unknown> | null = null;
 let workspaceSettingsBulkResult: { expiresAt: number; value: unknown } | null = null;
+/** Bumped around every settings write so a bulk read that raced it is never cached. */
+let workspaceSettingsGeneration = 0;
+
+function invalidateWorkspaceSettingsBulk(): void {
+  workspaceSettingsGeneration += 1;
+  workspaceSettingsBulkRequest = null;
+  workspaceSettingsBulkResult = null;
+}
 
 interface WorkspaceSettingEntry {
   key: string;
@@ -168,12 +172,31 @@ export function strictModeStableReadRequestKey(
 }
 
 export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> {
-  let finalConfig =
+  const operationTimeout =
+    publicationOperationTimeout(config) ??
+    managedProviderOperationTimeout(config) ??
+    neovimOperationTimeout(config) ??
+    agentExtensionOperationTimeout(config) ??
+    archiveOperationTimeout(config);
+  let finalConfig: AxiosRequestConfig =
     typeof config.url === "string" && NO_TIMEOUT_PATHS.some((p) => config.url!.startsWith(p))
       ? { ...config, timeout: 0 }
-      : config;
+      : operationTimeout === undefined
+        ? config
+        : { ...config, timeout: operationTimeout };
   if (!shouldAttachAbortSignal(finalConfig)) {
     finalConfig = { ...finalConfig, signal: undefined };
+  }
+  // A write makes the short-lived bulk snapshot stale: the refetch it triggers
+  // must reach the server, not replay the values from before the write. A bulk
+  // read sent before the write lands is dropped too, on both sides of it.
+  if (isWorkspaceSettingsWrite(finalConfig)) {
+    invalidateWorkspaceSettingsBulk();
+    try {
+      return (await axiosInstance(finalConfig)).data as T;
+    } finally {
+      invalidateWorkspaceSettingsBulk();
+    }
   }
   const workspaceSettingKey = workspaceSingleSettingKey(finalConfig);
   if (workspaceSettingKey) {
@@ -211,6 +234,20 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
   return response.data;
 }
 
+/**
+ * A plain GET through the authenticated client that resolves the whole
+ * response, for byte routes whose headers describe the body. None of
+ * `customInstance`'s caching or dedupe applies to these.
+ */
+export function customInstanceResponse<T>(config: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+  return axiosInstance<T>({ ...config, method: "GET" });
+}
+
+function isWorkspaceSettingsWrite(config: Pick<AxiosRequestConfig, "method" | "url">): boolean {
+  const method = config.method?.toUpperCase() ?? "GET";
+  return method !== "GET" && config.url?.startsWith(WORKSPACE_SETTINGS_PATH) === true;
+}
+
 function isWorkspaceSettingsBulkGet(config: Pick<AxiosRequestConfig, "method" | "url">): boolean {
   const method = config.method?.toUpperCase() ?? "GET";
   return method === "GET" && config.url === WORKSPACE_SETTINGS_PATH;
@@ -237,17 +274,20 @@ async function workspaceSettingFromBulkRequest(
 
 async function fetchWorkspaceSettingsBulk(config: AxiosRequestConfig): Promise<unknown> {
   if (workspaceSettingsBulkRequest) return workspaceSettingsBulkRequest;
+  const generation = workspaceSettingsGeneration;
   const request = axiosInstance(config).then((response) => response.data as unknown);
   workspaceSettingsBulkRequest = request;
   try {
     const result = await request;
-    workspaceSettingsBulkResult = {
-      expiresAt: Date.now() + WORKSPACE_SETTINGS_BULK_RESULT_TTL_MS,
-      value: result,
-    };
+    if (generation === workspaceSettingsGeneration) {
+      workspaceSettingsBulkResult = {
+        expiresAt: Date.now() + WORKSPACE_SETTINGS_BULK_RESULT_TTL_MS,
+        value: result,
+      };
+    }
     return result;
   } finally {
-    workspaceSettingsBulkRequest = null;
+    if (workspaceSettingsBulkRequest === request) workspaceSettingsBulkRequest = null;
   }
 }
 

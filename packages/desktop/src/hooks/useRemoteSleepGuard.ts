@@ -1,7 +1,7 @@
 /**
- * Holds a macOS idle-system-sleep block while ALL of these are true:
- *   - running in the desktop shell, on macOS, on the host (not a remote tab);
- *   - the user enabled "Prevent Mac sleep while hosting";
+ * Holds an idle-system-sleep block while ALL of these are true:
+ *   - running in the desktop shell on the host (not a remote tab);
+ *   - the user enabled "Prevent sleep while hosting";
  *   - remote access is currently on.
  *
  * The actual `powerSaveBlocker('prevent-app-suspension')` lives in the Electron
@@ -16,8 +16,7 @@ import { useEffect } from "react";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { isBrowserRemote } from "@/lib/remote/device-token";
-import { useRemotePreventSleep } from "@/lib/remote/sleep-prevention";
-import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
+import { canPreventHostSleep, useRemotePreventSleep } from "@/lib/remote/sleep-prevention";
 import { useRemoteStore } from "@/stores/remote-store";
 
 export function useRemoteSleepGuard(): void {
@@ -25,7 +24,7 @@ export function useRemoteSleepGuard(): void {
   const [preventSleep] = useRemotePreventSleep();
 
   useEffect(() => {
-    if (!desktopBridge.isElectron || !PLATFORM_IS_MAC || isBrowserRemote()) return;
+    if (!canPreventHostSleep(desktopBridge.isElectron, isBrowserRemote())) return;
 
     const shouldPrevent = preventSleep && remoteEnabled;
     void desktopBridge.setRemoteHostAwake(shouldPrevent).catch((error: unknown) => {

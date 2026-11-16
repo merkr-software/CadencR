@@ -53,8 +53,8 @@ pub async fn remove_worktree(
 
     if get_worktree_info(repo_path, &target).await?.is_some() {
         return git_result.and_then(|_| {
-            Err(AppError::Internal(
-                "Git reported success but the worktree is still registered".into(),
+            Err(AppError::internal(
+                "Git reported success but the worktree is still registered",
             ))
         });
     }
@@ -134,8 +134,8 @@ fn managed_child_root(root: &Path, path: &Path) -> Option<PathBuf> {
 
 fn ensure_path_removed(path: &Path) -> Result<(), AppError> {
     if path.exists() {
-        return Err(AppError::Internal(
-            "Git detached the worktree but its folder still exists".into(),
+        return Err(AppError::internal(
+            "Git detached the worktree but its folder still exists",
         ));
     }
     Ok(())
@@ -147,7 +147,7 @@ async fn remove_residual_path(path: &Path) -> Result<(), AppError> {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
-                return Err(AppError::Internal(format!(
+                return Err(AppError::internal(format!(
                     "Failed to inspect residual worktree files: {error}"
                 )))
             }
@@ -157,7 +157,7 @@ async fn remove_residual_path(path: &Path) -> Result<(), AppError> {
             Ok(()) => remove_dir_all_retry(&trash).await?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
-                return Err(AppError::Internal(format!(
+                return Err(AppError::internal(format!(
                     "Failed to isolate residual worktree files: {error}"
                 )))
             }
@@ -170,7 +170,7 @@ async fn remove_residual_path(path: &Path) -> Result<(), AppError> {
 fn removal_sibling(path: &Path, attempt: usize) -> Result<PathBuf, AppError> {
     let parent = path
         .parent()
-        .ok_or_else(|| AppError::Internal("Worktree path has no parent".into()))?;
+        .ok_or_else(|| AppError::internal("Worktree path has no parent"))?;
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -192,7 +192,7 @@ async fn remove_dir_all_retry(path: &Path) -> Result<(), AppError> {
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    Err(AppError::Internal(format!(
+    Err(AppError::internal(format!(
         "Failed to delete residual worktree files: {}",
         last_error.expect("cleanup attempts always set an error")
     )))

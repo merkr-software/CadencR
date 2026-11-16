@@ -7,7 +7,6 @@ use super::history::ManagedProviderState;
 use super::installer::ManagedStorage;
 use super::receipt::{ManagedPackageReceipt, ManagedRevision};
 use super::trust::{pinned_index_trust_store, ManagedTrustStore};
-use super::SignedManagedProviderIndex;
 use crate::error::AppError;
 
 mod install;
@@ -39,7 +38,7 @@ impl ManagedProviderService {
             .timeout(Duration::from_secs(60))
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
-            .map_err(|error| AppError::Internal(format!("build provider HTTP client: {error}")))?;
+            .map_err(|error| AppError::internal(format!("build provider HTTP client: {error}")))?;
         Ok(Self {
             client,
             storage: ManagedStorage::production(),
@@ -52,34 +51,16 @@ impl ManagedProviderService {
         &self,
         provider_id: &str,
         version: &str,
-        index: SignedManagedProviderIndex,
     ) -> Result<ManagedMutation, AppError> {
-        ensure_current_catalog(&index)?;
-        install::ingest(
-            self,
-            provider_id,
-            version,
-            index,
-            install::IngestKind::Install,
-        )
-        .await
+        install::ingest(self, provider_id, version, install::IngestKind::Install).await
     }
 
     pub async fn update(
         &self,
         provider_id: &str,
         version: &str,
-        index: SignedManagedProviderIndex,
     ) -> Result<ManagedMutation, AppError> {
-        ensure_current_catalog(&index)?;
-        install::ingest(
-            self,
-            provider_id,
-            version,
-            index,
-            install::IngestKind::Update,
-        )
-        .await
+        install::ingest(self, provider_id, version, install::IngestKind::Update).await
     }
 
     pub async fn rollback(
@@ -121,7 +102,7 @@ impl ManagedProviderService {
         tokio::task::spawn_blocking(move || inventory::inventory(&storage, &descriptors, &boot))
             .await
             .map_err(|error| {
-                AppError::Internal(format!("managed inventory task failed: {error}"))
+                AppError::internal(format!("managed inventory task failed: {error}"))
             })?
     }
 
@@ -137,7 +118,7 @@ impl ManagedProviderService {
             inventory::inventory_entry(&storage, &descriptors, &provider_id, &boot)
         })
         .await
-        .map_err(|error| AppError::Internal(format!("managed inventory task failed: {error}")))
+        .map_err(|error| AppError::internal(format!("managed inventory task failed: {error}")))
     }
 
     pub async fn catalog(&self, force_refresh: bool) -> super::catalog::ManagedCatalogResponse {
@@ -219,16 +200,14 @@ impl ManagedProviderService {
     }
 }
 
-fn ensure_current_catalog(index: &SignedManagedProviderIndex) -> Result<(), AppError> {
-    super::validation::validate_publication_window(&index.signed, chrono::Utc::now()).map_err(
-        |error| {
-            AppError::coded(
-                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                "MANAGED_CATALOG_STALE",
-                error.message,
-            )
-        },
-    )
+fn ensure_current_catalog(index: &super::ManagedProviderIndex) -> Result<(), AppError> {
+    super::validation::validate_publication_window(index, chrono::Utc::now()).map_err(|error| {
+        AppError::coded(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "MANAGED_CATALOG_STALE",
+            error.message,
+        )
+    })
 }
 
 /// Refresh the release-owned blocklist without delaying service startup.

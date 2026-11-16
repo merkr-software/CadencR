@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 import { MONO_FONT_SETTING_KEY, resolveMonoStack } from "@/lib/fonts/constants";
 
 interface UseMonoFontResult {
@@ -17,7 +17,7 @@ interface UseMonoFontResult {
  * `mono_font_family` in packages/service settings allowlist.
  */
 export function useMonoFont(): UseMonoFontResult {
-  const setting = useDebouncedSetting(MONO_FONT_SETTING_KEY, 250);
+  const setting = useSetting(MONO_FONT_SETTING_KEY);
   const family = setting.value || null;
   return useMemo(
     () => ({

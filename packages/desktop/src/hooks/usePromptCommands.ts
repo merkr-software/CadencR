@@ -23,6 +23,8 @@ const STALE_MS = 60 * 1000;
 export interface PromptCommandCatalog {
   commands: SlashCommand[];
   isLoading: boolean;
+  /** Why the provider's own commands (or the whole catalog) could not load. */
+  error: string | null;
   policy: PromptCommandPolicy;
 }
 
@@ -47,9 +49,16 @@ export function usePromptCommands(
           }))
         : EMPTY_COMMANDS,
       isLoading: enabled && query.isLoading,
+      error: payload?.error ?? catalogRequestError(query.error),
       policy: payload
         ? promptCommandPolicyFromPayload(payload.prompt_command_policy)
         : DEFAULT_PROMPT_COMMAND_POLICY,
     };
-  }, [enabled, query.data, query.isLoading]);
+  }, [enabled, query.data, query.error, query.isLoading]);
+}
+
+function catalogRequestError(error: unknown): string | null {
+  if (!error) return null;
+  const detail = error instanceof Error ? error.message : String(error);
+  return `Commands could not be loaded: ${detail}`;
 }

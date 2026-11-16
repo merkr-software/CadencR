@@ -48,7 +48,7 @@ sqlite3 /private/tmp/cadencr-migration-check.db -cmd "PRAGMA foreign_keys=ON" -c
 sqlite3 /private/tmp/cadencr-migration-check.db "PRAGMA foreign_keys=ON; PRAGMA foreign_key_check;"
 ```
 
-For packaged DBs, use a temp copy of `~/.cadencr/database/cadencr.db`.
+For packaged DBs, use a temp copy of the production DB — `~/.cadencr/database/cadencr.db` on macOS, `$XDG_DATA_HOME/cadencr/database/cadencr.db` (default `~/.local/share/cadencr/database/cadencr.db`) on Linux.
 
 ## Red Flags
 

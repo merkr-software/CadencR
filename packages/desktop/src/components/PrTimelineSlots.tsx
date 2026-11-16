@@ -2,7 +2,7 @@ import { useMemo, type ReactElement } from "react";
 import type { Components } from "react-virtuoso";
 import type { CommentThread, PrStatusSnapshot } from "@/api/generated";
 import type { PrCommentFilter } from "@/components/PrCommentsFilter";
-import { CommentsHeader, type CommentsHeaderProps } from "@/components/FeaturePrComments";
+import { CommentsHeader, type CommentsHeaderProps } from "@/components/PrCommentsHeader";
 import { PrDescription } from "@/components/FeaturePrViewParts";
 
 /** The slice of the PR timeline's props that its header is built from. */

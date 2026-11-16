@@ -1,5 +1,11 @@
+pub mod authoring_workspace;
 pub mod icon;
 pub mod models;
+pub mod publication_operations;
+pub mod publication_package;
+pub mod publication_readiness;
+pub mod publication_release;
+mod publication_storage;
 pub mod repository;
 pub mod routes;
 pub mod service;

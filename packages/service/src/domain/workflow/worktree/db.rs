@@ -31,46 +31,32 @@ pub async fn get_project_directory(pool: &SqlitePool, project_id: i64) -> Result
 }
 
 /// Resolve the directory a feature's agent actually runs in: its worktree when
-/// one is provisioned, otherwise the project directory (features can run "on
-/// branch" directly in the project folder). This mirrors how the first-turn
-/// checkpoint resolves cwd, so checkpoints and rewind/fork behave the same with
-/// or without a worktree.
+/// one is provisioned and live, otherwise the project directory (features can
+/// run "on branch" directly in the project folder). Delegates to the single
+/// resolver in [`crate::domain::git::feature_dir`] so checkpoints, rewind/fork,
+/// terminals, and Git endpoints all agree.
 pub async fn resolve_feature_cwd(pool: &SqlitePool, feature_id: i64) -> Result<String, String> {
-    let project_id = get_project_id_for_feature(pool, feature_id).await?;
-    let project_path = get_project_directory(pool, project_id).await?;
-    Ok(resolve_live_worktree(pool, feature_id, &project_path)
-        .await?
-        .unwrap_or(project_path))
+    crate::domain::git::feature_dir::resolve_feature_dir(pool, feature_id)
+        .await
+        .map_err(|error| format!("Failed to resolve directory for feature {feature_id}: {error}"))?
+        .map(|dir| dir.cwd)
+        .ok_or_else(|| format!("Failed to look up project for feature {feature_id}: not found"))
 }
 
 /// Resolve the recorded worktree only when it still exists and is registered
-/// by the owning project repository. Verification failures are surfaced rather
-/// than silently routing work into a different directory. Plain projects have
-/// no Git worktree; callers keep using the project directory.
+/// by the owning project repository. Verification and database failures are
+/// surfaced rather than silently routing work into a different directory.
+/// Plain projects have no Git worktree; callers keep using the project
+/// directory.
 pub async fn resolve_live_worktree(
     pool: &SqlitePool,
     feature_id: i64,
     project_path: &str,
 ) -> Result<Option<String>, String> {
-    let Some(path) = get_setting(pool, feature_id, "worktree_path").await else {
-        return Ok(None);
-    };
-    if path.trim().is_empty() {
-        return Ok(None);
-    }
-    if !crate::shared::git_context::has_git_metadata(std::path::Path::new(project_path))
+    crate::domain::git::feature_dir::resolve_feature_dir_in_project(pool, feature_id, project_path)
         .await
-        .map_err(|error| error.to_string())?
-    {
-        return Ok(None);
-    }
-    crate::domain::git::commands::is_live_worktree(
-        std::path::Path::new(project_path),
-        std::path::Path::new(&path),
-    )
-    .await
-    .map(|live| live.then_some(path))
-    .map_err(|error| format!("Failed to verify feature worktree: {error}"))
+        .map(|dir| dir.live_worktree_cwd().map(str::to_string))
+        .map_err(|error| format!("Failed to verify feature worktree: {error}"))
 }
 
 pub async fn get_setting(pool: &SqlitePool, feature_id: i64, key: &str) -> Option<String> {

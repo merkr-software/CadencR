@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import React from "react";
 
@@ -22,10 +22,18 @@ const mocks = vi.hoisted(() => {
 vi.mock("@tanstack/react-router", () => ({
   createRootRoute: (opts: { component: unknown }) => ({ options: opts }),
   Outlet: () => <div data-testid="outlet">outlet content</div>,
+  useMatch: () => undefined,
   useNavigate: () => mocks.mockNavigate,
-  useRouterState: () => ({
-    location: { pathname: "/" },
-  }),
+  useRouterState: (options?: {
+    select?: (state: {
+      location: { pathname: string; search?: Record<string, unknown> };
+    }) => unknown;
+  }) => {
+    const state = {
+      location: { pathname: "/" },
+    };
+    return options?.select ? options.select(state) : state;
+  },
   Link: ({ children, to }: { children: unknown; to: string }) => {
     const React = require("react");
     return React.createElement("a", { href: to }, children);
@@ -33,13 +41,9 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn(() => ({ value: "256", setValue: vi.fn(), isLoading: false })),
-  useDebouncedSettingFromMap: vi.fn(() => ({
-    value: "256",
-    setValue: vi.fn(),
-    isLoading: false,
-  })),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: vi.fn(() => ({ value: "256", setValue: vi.fn(), isLoading: false })),
+  useSettingWriter: vi.fn(() => ({ setValue: vi.fn(), isSaving: false })),
 }));
 
 vi.mock("@/api/settings", () => ({
@@ -68,6 +72,18 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { Route } from "./__root";
+import { cleanup } from "@testing-library/react";
+import { installSessionIntegration } from "@/lib/session-integration";
+
+// These fixtures mount the route without main.tsx's application composition.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => {
+  cleanup();
+  disposeSessionIntegration();
+});
 
 function RootLayout() {
   const Component = (Route as unknown as { options: { component: React.ComponentType } }).options

@@ -25,7 +25,7 @@ async fn setup_interrupted_session(
     sdk_sessions.lock().await.insert(db_session_id, runtime);
     app_state
         .active_turns
-        .begin_turn(db_session_id, sdk_sessions, 1_000)
+        .begin_turn(db_session_id, sdk_sessions)
         .await;
     app_state
         .active_turns
@@ -128,6 +128,15 @@ async fn assert_benign_stop_state(app_state: &AppState, session_id: i64) {
     .await
     .unwrap();
     assert_eq!(state, ("completed".into(), 0, "armed".into()));
+    // The transcript says the user stopped the turn, exactly once.
+    let markers: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND message_type = 'turn_interrupted'",
+    )
+    .bind(session_id)
+    .fetch_one(&app_state.write_pool)
+    .await
+    .unwrap();
+    assert_eq!(markers, 1);
 }
 
 #[tokio::test]
@@ -149,8 +158,10 @@ async fn interrupt_control_keeps_completion_follow_armed() {
     sdk_sessions.lock().await.insert(session_id, runtime);
     app_state
         .active_turns
-        .begin_turn(session_id, &sdk_sessions, 1_000)
+        .begin_turn(session_id, &sdk_sessions)
         .await;
+    // As `mark_agent_running` announces every turn it starts.
+    app_state.session_status_tx.broadcast_running(session_id, 1);
     seed_armed_reply_wait(&app_state, session_id).await;
 
     dispatch_envelope(
@@ -212,6 +223,42 @@ async fn intentional_stop_with_stream_close_is_benign_and_keeps_parent_wait_arme
 }
 
 #[tokio::test]
+async fn a_stop_that_had_to_kill_the_runtime_is_shown() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let session_id = 615;
+    setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
+
+    let (msg_tx, msg_rx) = mpsc::channel(2);
+    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Err(RuntimeError::stop_escalated(
+            "The agent did not stop within 15s after Stop; its process was terminated.",
+        )))
+        .await
+        .unwrap();
+    drop(msg_tx);
+    spawn_test_stream_reader(
+        &app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        DEFAULT_PROVIDER,
+    );
+
+    let actions = drain_actions(&mut ws_rx).await;
+    assert!(actions
+        .iter()
+        .any(|(action, payload)| { action == "ended" && payload["reason"] == "turn_interrupted" }));
+    assert!(actions.iter().any(|(action, payload)| {
+        action == "error" && payload["code"] == "AGENT_STOP_ESCALATED"
+    }));
+}
+
+#[tokio::test]
 async fn intentional_stop_suppresses_provider_error_result_and_parent_failure() {
     let app_state = make_test_app_state().await;
     let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
@@ -257,16 +304,16 @@ async fn ended_reader_cannot_replace_a_newly_resumed_runtime() {
         .insert(session_id, make_active_handle(1, Some("old".into())));
 
     let (msg_tx, msg_rx) = mpsc::channel(1);
-    spawn_test_stream_reader_with_cleanup(
-        &app_state,
-        session_id,
-        1,
-        msg_rx,
-        ws_tx,
-        sdk_sessions.clone(),
-        DEFAULT_PROVIDER,
-        true,
-    );
+    spawn_test_stream_reader_with_cleanup()
+        .app_state(&app_state)
+        .db_session_id(session_id)
+        .feature_id(1)
+        .msg_rx(msg_rx)
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions.clone())
+        .runtime_provider(DEFAULT_PROVIDER)
+        .cleanup_session_on_end(true)
+        .call();
     let replacement = make_active_handle(1, Some("new".into()));
     let QueryState::Active {
         query: replacement_query,
@@ -311,7 +358,7 @@ async fn replacement_reader_cannot_consume_an_old_interruption_or_receive_its_en
     sdk_sessions.lock().await.insert(session_id, old);
     app_state
         .active_turns
-        .begin_turn(session_id, &sdk_sessions, 1_000)
+        .begin_turn(session_id, &sdk_sessions)
         .await;
     app_state
         .active_turns
@@ -326,22 +373,22 @@ async fn replacement_reader_cannot_consume_an_old_interruption_or_receive_its_en
         .insert(session_id, make_active_handle(1, Some("new".into())));
     app_state
         .active_turns
-        .begin_turn(session_id, &sdk_sessions, 2_000)
+        .begin_turn(session_id, &sdk_sessions)
         .await;
     let (msg_tx, msg_rx) = mpsc::channel(1);
     msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
     drop(msg_tx);
-    spawn_test_stream_reader_for_runtime(
-        &app_state,
-        session_id,
-        1,
-        msg_rx,
-        Some(Arc::downgrade(&old_query)),
-        ws_tx,
-        sdk_sessions,
-        DEFAULT_PROVIDER,
-        false,
-    );
+    spawn_test_stream_reader_for_runtime()
+        .app_state(&app_state)
+        .db_session_id(session_id)
+        .feature_id(1)
+        .msg_rx(msg_rx)
+        .runtime_session_handle(Arc::downgrade(&old_query))
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions)
+        .runtime_provider(DEFAULT_PROVIDER)
+        .cleanup_session_on_end(false)
+        .call();
 
     assert!(drain_actions(&mut ws_rx).await.is_empty());
     let state: (String, String) = sqlx::query_as(
@@ -354,4 +401,60 @@ async fn replacement_reader_cannot_consume_an_old_interruption_or_receive_its_en
     .await
     .unwrap();
     assert_eq!(state, ("running".into(), "armed".into()));
+}
+
+#[tokio::test]
+async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    sqlx::raw_sql("CREATE TABLE agent_session_message_queue (id INTEGER, target_session_id INTEGER, status TEXT, error TEXT, claim_token TEXT, claimed_at TEXT, attempt_count INTEGER, source_session_id INTEGER, content TEXT, message_uuid TEXT);")
+        .execute(&app_state.write_pool).await.unwrap();
+    let session_id = 616;
+    sqlx::query("INSERT INTO agent_sessions (id, feature_id, status, pending_permission) VALUES (?, 1, 'awaiting_user', ?)")
+        .bind(session_id)
+        .bind(serde_json::json!({ "request_id": "question-350", "tool_name": "AskUserQuestion", "tool_input": { "questions": [] } }).to_string())
+        .execute(&app_state.write_pool).await.unwrap();
+    sdk_sessions
+        .lock()
+        .await
+        .insert(session_id, make_in_place_effort_handle(1));
+    app_state
+        .active_turns
+        .begin_turn(session_id, &sdk_sessions)
+        .await;
+    seed_armed_reply_wait(&app_state, session_id).await;
+    dispatch_envelope(
+        make_envelope(
+            "session",
+            "gate.close",
+            serde_json::json!({
+                "session_id": session_id.to_string(),
+                "request_id": "question-350", "reason": "escape"
+            }),
+        ),
+        &ws_tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+    let (msg_tx, msg_rx) = mpsc::channel(2);
+    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
+    spawn_test_stream_reader(
+        &app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        DEFAULT_PROVIDER,
+    );
+    let actions = drain_actions(&mut ws_rx).await;
+    assert!(actions.iter().any(|(action, _)| action == "gate.closed"));
+    assert!(actions
+        .iter()
+        .any(|(action, payload)| action == "ended" && payload["reason"] == "turn_interrupted"));
+    assert!(actions.iter().all(|(action, _)| action != "error"));
+    assert_benign_stop_state(&app_state, session_id).await;
 }

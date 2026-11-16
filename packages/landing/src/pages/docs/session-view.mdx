@@ -1,137 +1,66 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Session view"
-description: "Read a single agent session, follow progress, and jump back in without getting buried in every tiny update."
+description: "Read, navigate, copy, and continue an agent conversation."
+lastReviewed: "2026-10-13"
+version: "0.13.0"
 ---
 
-import DocCallout from "@/components/docs/DocCallout.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import pageImage from "@/assets/docs/v0.13.0/session-view.png";
 
-## What this page is for
+Session view is the transcript and composer for one conversation. Use it to follow progress, inspect outputs, and decide what the agent should do next.
 
-Session view is the close-up view of one agent session.
+<DocScreenshot
+  src={pageImage}
+  alt="A current conversation with example prompts, a code block, and a review summary."
+  caption="A current conversation with example prompts, a code block, and a review summary."
+  bordered={false}
+  rounded
+  elevated
+/>
 
-It helps you:
+## Read at the level you need
 
-- follow what the agent is doing right now
-- understand what already happened
-- decide whether to nudge, redirect, or continue the work
-- come back later without needing a memory palace
+Normal conversation mode shows the running transcript. Optional **Summary** mode folds completed turns into a tool recap and final answer. Expand a turn to read its intermediate actions, then collapse it again from the footer.
 
-<DocCallout title="Good news" variant="tip">
-  You do **not** need to read every token. Most of the time, you can scan for intent, progress, and
-  blockers.
-</DocCallout>
+Tool cards expose commands, results, file changes, and reasoning when the provider reports them. Sub-agent activity appears in compact timelines; expand a timeline for its detailed history. Large outputs can show a preview with an explicit action to load the full content.
 
-## How to read the session without getting lost
+## Find an earlier prompt
 
-Think of the session as a work log, not a novel.
+- Use `Cmd/Ctrl+F` for in-conversation text search. `Enter` and `Shift+Enter` move between matches.
+- Use the **message navigator** on the right edge to preview a user prompt on hover and jump to it.
+- `Alt+Up` and `Alt+Down` move between user prompts, including older prompts that are not in the current history window.
+- Disable the navigator in **Settings → Appearance** if you prefer.
 
-A good skim usually looks like this:
+Scrolling upward preserves your reading position while the agent continues. The auto-scroll control returns you to following the latest output.
 
-1. **Search first if you remember a word.** <kbd>⌘ F</kbd> / <kbd>Ctrl F</kbd> opens in-conversation search and jumps between matches.
-2. **Start with the latest update.** See what the agent thinks it is doing now.
-3. **Look for visible progress.** Check for completed steps, tool results, edits, or a clear next move.
-4. **Watch for blockers.** Errors, repeated retries, confusion, or "I need input" moments are your cue to jump in.
-5. **Only scroll back when needed.** Go upward if you want the reason behind a change, not because you owe the transcript your full devotion.
+## Inspect rich content
 
-### What is worth paying attention to
+Code blocks, inline changes, diagrams, and images are rendered in the transcript. Mermaid blocks offer source/diagram controls and a zoomable viewer. Rendered HTML is sanitized. File-and-line references can open the relevant location in Editor or Neovim; Auto layout can keep it beside the agent.
 
-| If you want to know...           | Look for...                                                               |
-| -------------------------------- | ------------------------------------------------------------------------- |
-| What the session is trying to do | The most recent assistant summary or prompt                               |
-| Whether it is making progress    | New files, edits, completed steps, or a concise recap                     |
-| Whether it is stuck              | Repeated attempts, errors, compaction status, or questions waiting on you |
-| Where something was mentioned    | The in-conversation search bar and its match count                        |
-| Whether you trust the direction  | Clear reasoning, sensible changes, and results that match your goal       |
+Supported local document links can open in their default application. Missing or unsupported targets report an error instead of launching silently.
 
-## Approvals, permissions, and questions
+## Copy a useful result
 
-Most sessions will pause occasionally and ask for input. Each prompt has its own keyboard scope so you can clear them without leaving the keyboard.
+Use **Copy as** for a selection or message block to choose plain text, Markdown, Slack formatting, or email formatting. On touch devices, long press supports text selection and the mobile copy menu.
 
-### Plan approval
+## Understand context usage
 
-When an agent finishes planning, an approval bar appears:
+The context indicator shows provider-reported token information. Open its details for input, output, total tokens, and compaction information. If the provider has not reported its context-window size, CadencR shows known counts with a pending state instead of guessing a percentage.
 
-- <kbd>⌘ Y</kbd> — approve and let the agent execute
-- <kbd>⌘ N</kbd> — request changes (leaves room for feedback before execution)
-- <kbd>Esc</kbd> — reject the plan entirely
+Context usage describes the current conversation. [Usage Stats](../usage-stats/) records durable activity across conversations.
 
-### Tool permission prompts
+## Continue, stop, or branch
 
-When an agent wants to run a tool that needs your say-so, CadencR surfaces a permission card:
+Send a follow-up to refine the current task. A prompt sent while the agent is working can steer that turn; its receipt indicates delivery. Answer plan, permission, or question requests using the available controls.
 
-- <kbd>⌘ Y</kbd> — allow once
-- <kbd>⌘ L</kbd> — allow for the rest of the session
-- <kbd>⌘ N</kbd> — deny
+`Esc` stops the current agent in its conversation scope. The global stop command can stop all running agents; see [Shortcuts](../shortcuts/) for its binding.
 
-If you prefer the agent to fly without these prompts inside a sandboxed worktree, the permission-mode cycle (<kbd><ShiftIcon /> Tab</kbd> in the prompt) and the “bypass permissions” settings in **Settings → Runtime & Models** are how you opt in deliberately.
+Use [Rewind & Fork](../rewind-and-fork/) on an eligible persisted user message to return to an earlier point or create a conversation branch. **Sync from CLI** in Session Info appends missing events from supported provider conversations continued outside CadencR.
 
-### Multiple-choice questions
+## Related guides
 
-When the agent asks a multi-option question, the question drawer takes over the keyboard:
-
-- <kbd>1</kbd>–<kbd>9</kbd> — pick an option by number
-- <kbd>⌘ O</kbd> — toggle the **Other…** free-text answer
-- <kbd>Enter</kbd> — submit and continue
-- <kbd>←</kbd> / <kbd>→</kbd> — jump between questions in a multi-step batch
-
-### Stopping a runaway
-
-- <kbd>Esc</kbd> stops the current agent.
-- <kbd>⌘ Esc</kbd> stops **every** running agent across the workspace — useful when something
-  hot-loops or you want to bail before a costly tool call lands.
-- <kbd>⌘ Enter</kbd> (when the prompt is unfocused) maximizes the session into a full-screen view;
-  <kbd>
-    ⌘ <ShiftIcon /> Z
-  </kbd>
-  collapses it again.
-- <kbd>
-    ⌘ <ShiftIcon /> S
-  </kbd>
-  re-enables auto-scroll if you scrolled up to read history and the stream kept moving.
-
-## Ways to steer or continue the work
-
-You are still in charge here. The agent is helping, not freelancing with your afternoon.
-
-You can step in when you want to:
-
-- **tighten the goal** — "Focus only on the docs page, not the sidebar"
-- **change direction** — "Skip the refactor and just fix the bug"
-- **add context** — "This needs to make sense for beginners"
-- **resume later** — continue from the current thread instead of starting over from scratch
-
-A few practical habits help a lot:
-
-- give one clear instruction at a time when the session starts wobbling
-- mention constraints plainly, like deadlines, file limits, or tone
-- use <kbd>⌘ F</kbd> / <kbd>Ctrl F</kbd> before manually scanning a long session
-- ask for a short summary if the session has become long
-- start a new session when the goal has changed completely
-
-<DocCallout title="When to interrupt" variant="note">
-  Interrupt when the agent is stuck, drifting, or solving the wrong problem. Let it run when the
-  direction is good and the updates are boring in a healthy way.
-</DocCallout>
-
-## When to stay here vs go back to the feature workspace
-
-Use session view when you want to understand or steer **one** thread of work.
-
-Use the feature workspace when you want the wider picture: files, related sessions, Git changes,
-editor context, or the next thing to work on.
-
-| Stay in session view when you need to... | Go back to feature workspace when you need to... |
-| ---------------------------------------- | ------------------------------------------------ |
-| follow one agent conversation            | compare multiple sessions                        |
-| answer a question or give a correction   | browse files or inspect broader changes          |
-| check whether the agent is blocked       | switch tools and work across the whole feature   |
-| resume a paused thread                   | decide what to do next across the feature        |
-
-## Related docs
-
-- [Feature workspace](../feature-workspace/) — your bigger home base around the session
-- [Unified agent list](../unified-agent-list/) — find the right session when you have several going
-- [Prompt](../prompting/) — write clearer requests and guide the agent more effectively
-- [Docs home](../) — the quick product overview if you are still getting oriented
+- [Prompt](../prompting/) — context, models, and shell commands.
+- [Approvals & permissions](../approvals/) — answer requests and choose access modes.
+- [MCP & orchestration](../mcp/) — follow delegated work.

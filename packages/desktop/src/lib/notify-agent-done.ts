@@ -9,7 +9,10 @@ import {
 } from "@/api/generated";
 import { desktopBridge, type NotificationFallbackPayload } from "@/lib/desktop-bridge";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { scopedToastDescription } from "@/components/ToastScope";
 import { NOTIFICATION_MODE_KEY, parseNotificationMode } from "@/lib/notification-mode";
+import { plainPreview } from "@/lib/notch/notch-action";
+import { notchSupportedHere } from "@/lib/notch/notch-capabilities";
 import { queryClient } from "@/lib/queryClient";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 
@@ -35,9 +38,9 @@ export async function initNotificationPermission(): Promise<void> {
 
 /**
  * Read the user's notification-mode preference from React Query's
- * workspace-settings cache. `useDebouncedSetting` writes through to this
- * cache synchronously on every change, so non-React callers stay in sync
- * without a separate module-level cache.
+ * workspace-settings cache. Every settings write puts the confirmed value in
+ * this cache, so non-React callers stay in sync without a separate
+ * module-level cache.
  */
 export function readNotificationMode() {
   const cached = queryClient.getQueryData<SettingValueResponse>(
@@ -111,8 +114,17 @@ async function fetchMessagePreview(featureId: number): Promise<string | null> {
 }
 
 /**
+ * The user is looking at this conversation right now: Cadencr is the focused
+ * app and shows it. With Cadencr in the background the same route is not
+ * "seen", so the notification still fires.
+ */
+function isWatchingFeature(featureId: number): boolean {
+  return document.hasFocus() && isViewingFeature(featureId);
+}
+
+/**
  * Send a native desktop notification for agent events (completion, error,
- * or waiting for user input), unless the user is already viewing that feature.
+ * or waiting for user input), unless the user is already watching that feature.
  * Title is `<emoji> | <feature title>`; the body is the start of the agent's
  * latest reply (falling back to the feature title). Clicking navigates to the
  * route and focuses the prompt.
@@ -121,10 +133,17 @@ async function fetchMessagePreview(featureId: number): Promise<string | null> {
  * never hit the network for a notification that won't show.
  */
 export function notifyAgentDone(opts: NotifyOptions): void {
+  const chosen = readNotificationMode();
+  if (chosen === "off") return;
+  if (isWatchingFeature(opts.featureId)) return;
+  if (chosen === "notch" && notchSupportedHere()) {
+    void notifyThroughNotch(opts);
+    return;
+  }
+  // The destination is shared across devices; one that can't host the notch
+  // falls back to the system banner.
+  const mode = chosen === "notch" ? "native" : chosen;
   if (!permissionCache) return;
-  const mode = readNotificationMode();
-  if (mode === "off") return;
-  if (isViewingFeature(opts.featureId)) return;
 
   void (async () => {
     const preview = await fetchMessagePreview(opts.featureId);
@@ -142,6 +161,28 @@ export function notifyAgentDone(opts: NotifyOptions): void {
       toast.error("Couldn't send notification", { description: message });
     }
   })();
+}
+
+/**
+ * Peek the notification out of the macOS notch island instead of a banner.
+ * The island fills in the provider and project from its own snapshot.
+ */
+async function notifyThroughNotch(opts: NotifyOptions): Promise<void> {
+  const preview = await fetchMessagePreview(opts.featureId);
+  try {
+    await desktopBridge.notchNotify({
+      id: crypto.randomUUID(),
+      featureId: opts.featureId,
+      projectId: opts.projectId,
+      status: opts.status,
+      title: opts.featureTitle.trim().slice(0, 200) || "Untitled conversation",
+      body: plainPreview(preview ?? "").slice(0, 600),
+    });
+  } catch (e: unknown) {
+    toast.error("Couldn't show the notch notification", {
+      description: apiErrorMessage(e, String(e)),
+    });
+  }
 }
 
 /**
@@ -190,7 +231,8 @@ export function listenForNotificationFallbacks(
   return desktopBridge.onNotificationFallback((payload: NotificationFallbackPayload) => {
     const click = payload.click;
     toast.message(payload.title, {
-      description: payload.body,
+      // The title already names the conversation; the scope adds its project.
+      description: scopedToastDescription({ projectId: click?.project_id }, payload.body),
       action: click
         ? {
             label: "Open",

@@ -1,5 +1,5 @@
 import { memo, type ReactElement, type Ref } from "react";
-import { ActivityIcon, BotIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { Loader2Icon, RefreshCwIcon } from "lucide-react";
 import type { Project } from "@/api/generated";
 import {
   UnifiedAgentsDynamicFilter,
@@ -9,6 +9,8 @@ import { UnifiedAgentsCounterPill } from "@/components/UnifiedAgentsCounterPill"
 import { UnifiedAgentsNewFeatureButton } from "@/components/UnifiedAgentsNewFeatureButton";
 import { UnifiedAgentsPerRowStepper } from "@/components/UnifiedAgentsPerRowStepper";
 import type { UnifiedAgentsPerRowSetting } from "@/components/UnifiedAgentsPerRowSetting";
+import type { UnifiedAgentsAttentionSummary } from "@/components/useUnifiedAgentsViewState";
+import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { Button } from "@/components/ui/button";
 
 export type UnifiedAgentsFilterMode = "recent" | "all";
@@ -16,8 +18,7 @@ export type UnifiedAgentsFilterMode = "recent" | "all";
 interface UnifiedAgentsFiltersProps {
   filterText: string;
   projects: Project[];
-  agentsCount: number;
-  runningAgentsCount: number;
+  summary: UnifiedAgentsAttentionSummary;
   agentsPerRowSetting: UnifiedAgentsPerRowSetting;
   searchInputRef?: Ref<UnifiedAgentsFilterInputHandle>;
   isFetching: boolean;
@@ -29,8 +30,7 @@ interface UnifiedAgentsFiltersProps {
 export const UnifiedAgentsFilters = memo(function UnifiedAgentsFilters({
   filterText,
   projects,
-  agentsCount,
-  runningAgentsCount,
+  summary,
   agentsPerRowSetting,
   searchInputRef,
   isFetching,
@@ -39,27 +39,24 @@ export const UnifiedAgentsFilters = memo(function UnifiedAgentsFilters({
   onRefresh,
 }: UnifiedAgentsFiltersProps): ReactElement {
   return (
-    <div className="grid grid-cols-[auto_minmax(260px,1fr)_auto_auto] items-center gap-3">
-      <div className="justify-self-start">
-        <UnifiedAgentsHeaderCounters
-          agentsCount={agentsCount}
-          runningAgentsCount={runningAgentsCount}
+    <div className="flex min-w-0 items-center gap-3">
+      <UnifiedAgentsSummary summary={summary} />
+      <div className="min-w-[240px] flex-1">
+        <UnifiedAgentsDynamicFilter
+          value={filterText}
+          projects={projects}
+          inputRef={searchInputRef}
+          onValueChange={onFilterTextChange}
+          onEnter={onSearchEnter}
         />
       </div>
-      <UnifiedAgentsDynamicFilter
-        value={filterText}
-        projects={projects}
-        inputRef={searchInputRef}
-        onValueChange={onFilterTextChange}
-        onEnter={onSearchEnter}
-      />
-      <UnifiedAgentsPerRowStepper
-        value={agentsPerRowSetting.value}
-        isLoading={agentsPerRowSetting.isLoading}
-        isSaving={agentsPerRowSetting.isSaving}
-        onChange={agentsPerRowSetting.setValue}
-      />
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <UnifiedAgentsPerRowStepper
+          value={agentsPerRowSetting.value}
+          isLoading={agentsPerRowSetting.isLoading}
+          isSaving={agentsPerRowSetting.isSaving}
+          onChange={agentsPerRowSetting.setValue}
+        />
         <RefreshButton isFetching={isFetching} onRefresh={onRefresh} />
         <UnifiedAgentsNewFeatureButton projects={projects} />
       </div>
@@ -67,6 +64,7 @@ export const UnifiedAgentsFilters = memo(function UnifiedAgentsFilters({
   );
 });
 
+/** The grid updates itself as agents change state; this forces a reload. */
 function RefreshButton({
   isFetching,
   onRefresh,
@@ -75,45 +73,47 @@ function RefreshButton({
   onRefresh: () => void;
 }): ReactElement {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className="h-9 gap-2 rounded-lg border border-border/80 bg-background/90 px-3 text-xs text-foreground shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)] hover:bg-accent/70"
-      onClick={onRefresh}
-      disabled={isFetching}
-    >
-      {isFetching ? (
-        <Loader2Icon className="size-3.5 animate-spin" />
-      ) : (
-        <RefreshCwIcon className="size-3.5" />
-      )}
-      Refresh
-    </Button>
+    <ShortcutTooltip label={isFetching ? "Reloading agents…" : "Reload agents"} alignRight>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="titlebar-no-drag size-9 rounded-lg text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+        onClick={onRefresh}
+        disabled={isFetching}
+        aria-label="Reload agents"
+        aria-busy={isFetching}
+      >
+        {isFetching ? (
+          <Loader2Icon className="size-3.5 animate-spin" />
+        ) : (
+          <RefreshCwIcon className="size-3.5" />
+        )}
+      </Button>
+    </ShortcutTooltip>
   );
 }
 
-function UnifiedAgentsHeaderCounters({
-  agentsCount,
-  runningAgentsCount,
+/**
+ * How many agents the grid shows, then only the states that ask for a look.
+ * Colors and shapes are the sidebar's, so "waiting" means the same amber
+ * everywhere.
+ */
+function UnifiedAgentsSummary({
+  summary,
 }: {
-  agentsCount: number;
-  runningAgentsCount: number;
+  summary: UnifiedAgentsAttentionSummary;
 }): ReactElement {
   return (
-    <div className="flex justify-start pt-0.5">
-      <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
-        <UnifiedAgentsCounterPill
-          icon={<BotIcon className="size-3" />}
-          count={agentsCount}
-          label="agents"
-        />
-        <UnifiedAgentsCounterPill
-          icon={<ActivityIcon className="size-3 text-primary" />}
-          count={runningAgentsCount}
-          label="running"
-        />
-      </div>
+    <div className="flex shrink-0 items-center gap-3 text-xs whitespace-nowrap text-muted-foreground">
+      <span>
+        <span className="font-semibold text-foreground tabular-nums">{summary.total}</span>{" "}
+        {summary.total === 1 ? "agent" : "agents"}
+      </span>
+      <UnifiedAgentsCounterPill state="waiting" count={summary.waiting} />
+      <UnifiedAgentsCounterPill state="failed" count={summary.failed} />
+      <UnifiedAgentsCounterPill state="working" count={summary.working} />
+      <UnifiedAgentsCounterPill state="unread" count={summary.unread} />
     </div>
   );
 }

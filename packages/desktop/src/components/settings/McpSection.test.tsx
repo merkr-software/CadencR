@@ -1,14 +1,14 @@
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render, screen } from "@/test-utils";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting, type Setting } from "@/hooks/useSetting";
 import { McpSection } from "./McpSection";
 
-vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn(),
+vi.mock("@/hooks/useSetting", () => ({
+  useSetting: vi.fn(),
 }));
 
-type SettingSetter = (value: string) => void;
+type SettingSetter = Setting["setValue"];
 type SettingSetterMock = Mock<SettingSetter>;
 
 const setValueByKey = new Map<string, SettingSetterMock>();
@@ -16,7 +16,7 @@ const setValueByKey = new Map<string, SettingSetterMock>();
 function settingSetter(key: string): SettingSetterMock {
   const existing = setValueByKey.get(key);
   if (existing) return existing;
-  const setter = vi.fn<SettingSetter>();
+  const setter = vi.fn<SettingSetter>().mockResolvedValue(true);
   setValueByKey.set(key, setter);
   return setter;
 }
@@ -24,23 +24,24 @@ function settingSetter(key: string): SettingSetterMock {
 describe("McpSection", () => {
   beforeEach(() => {
     setValueByKey.clear();
-    vi.mocked(useDebouncedSetting).mockImplementation((key: string) => ({
+    vi.mocked(useSetting).mockImplementation((key: string) => ({
       value: null,
       setValue: settingSetter(key),
       isLoading: false,
+      isFetched: true,
       isSaving: false,
     }));
   });
 
-  it("shows each MCP family in its own settings section without per-row MCP chips", () => {
+  it("shows each MCP family as a plain row, without per-row chips or decorative icons", () => {
     const { container } = render(<McpSection />);
 
-    expect(screen.getByRole("heading", { name: "MCP" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "MCP servers" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /browser tools for agents/i })).toBeChecked();
     expect(screen.getByRole("switch", { name: /project coordination for agents/i })).toBeChecked();
     expect(screen.getByRole("switch", { name: /workspace memory for agents/i })).toBeChecked();
     expect(screen.queryByTestId("mcp-row-tag")).not.toBeInTheDocument();
-    expect(container.querySelectorAll(".lucide")).toHaveLength(3);
+    expect(container.querySelectorAll(".lucide")).toHaveLength(0);
   });
 
   it("persists project and workspace MCP toggle changes", async () => {

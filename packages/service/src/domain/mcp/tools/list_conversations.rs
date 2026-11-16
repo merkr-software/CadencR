@@ -28,7 +28,7 @@ impl ListConversationsTool {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT id, agent_type, status, started_at FROM agent_sessions WHERE feature_id = ? ORDER BY started_at DESC"
         )
-        .bind(self.ctx.feature_id())
+        .bind(self.ctx.feature_id)
         .fetch_all(&self.ctx.read_pool)
         .await
         .map_err(|e| format!("Failed to list conversations: {e}"))?;

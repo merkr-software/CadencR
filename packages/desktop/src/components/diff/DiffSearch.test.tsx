@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@/test-utils";
 import { useRef } from "react";
 import { DiffSearch } from "./DiffSearch";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
 
 // Wrapper that provides a containerRef
 function DiffSearchWrapper({ container }: { container?: HTMLElement }) {
@@ -19,7 +20,9 @@ describe("DiffSearch", () => {
     render(<DiffSearchWrapper />);
     const input = screen.getByPlaceholderText("Search in diff");
     fireEvent.change(input, { target: { value: "hello" } });
-    expect(screen.getByTitle("Previous match (Shift+Enter)")).toBeInTheDocument();
+    expect(
+      screen.getByTitle(`Previous match (${formatCompactCombo(["shift", "enter"])})`),
+    ).toBeInTheDocument();
     expect(screen.getByTitle("Next match (Enter)")).toBeInTheDocument();
     expect(screen.getByTitle("Clear search (Escape)")).toBeInTheDocument();
   });

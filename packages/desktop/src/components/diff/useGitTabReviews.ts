@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CommentThread, PrSummary } from "@/api/generated";
 import type { PrReviewThreads } from "@/hooks/usePrReviewThreads";
 import { useSendUnresolvedPrComments } from "@/hooks/useSendUnresolvedPrComments";
+import type { AgentPathMapper } from "@/lib/git-paths";
 import {
   isThreadAnchored,
   type PrThreadLine,
@@ -136,11 +137,13 @@ export function useGitTabReviews(
   pr: PrSummary | null | undefined,
   onSendComments: ((message: string) => void) | undefined,
   reviews: PrReviewThreads,
+  toAgentPath: AgentPathMapper | undefined,
 ): GitTabReviews {
   const visible = (viewMode === "pr" || viewMode === "vs-target") && pr != null;
   const sendReviews = useSendUnresolvedPrComments({
     unresolved: reviews.unresolved,
     pr,
+    toAgentPath,
     onSend: onSendComments,
   });
   const sendReviewThreads = sendReviews.send;
@@ -148,6 +151,9 @@ export function useGitTabReviews(
   const navigation = useReviewThreadNavigation(reviews.navigationTargets);
   const canSend = sendReviews.shouldRender && visible;
   const sendDisabled = sendReviews.disabled || selection.selectedThreads.length === 0;
+  // A card's own button is not offered while the paths cannot be named for the
+  // agent yet: it would send nothing and drop the thread's pick.
+  const canSendThread = canSend && !sendReviews.disabled;
   const sendSelected = useCallback((): void => {
     if (sendDisabled) return;
     sendReviewThreads(selection.selectedThreads);
@@ -192,12 +198,13 @@ export function useGitTabReviews(
       setThreadSelected: selection.setThreadSelected,
       setAllThreadsSelected: selection.setAllSelected,
       sendSelected,
-      sendThread: canSend ? sendOne : undefined,
+      sendThread: canSendThread ? sendOne : undefined,
       sendDisabled,
       canSend,
     }),
     [
       canSend,
+      canSendThread,
       sendOne,
       navigation.activeIndex,
       navigation.activeTarget,

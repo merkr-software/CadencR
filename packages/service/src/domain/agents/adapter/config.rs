@@ -181,6 +181,19 @@ pub enum RuntimeAccessMode {
     AutoReview,
 }
 
+/// How a live runtime takes an access-mode change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeAccessModeChange {
+    /// Only a respawn applies it: the mode lives in launch flags.
+    Respawn,
+    /// The live runtime adopts it now; the next prompt still respawns with
+    /// matching launch flags (Codex's app server).
+    LiveThenRespawn,
+    /// The live runtime adopts all of it (an installed connector's config
+    /// option, which restarts its own agent when the launch flags differ).
+    Live,
+}
+
 pub fn parse_access_mode_wire(mode: &str) -> Option<RuntimeAccessMode> {
     match mode {
         "default" => Some(RuntimeAccessMode::Default),
@@ -250,6 +263,13 @@ pub struct RuntimeEffectiveConfig {
     pub fast_mode: bool,
 }
 
+/// One-shot work performed by a runtime instead of an interactive coding turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimePurpose {
+    AutoName,
+}
+
+#[derive(Clone)]
 pub struct RuntimeSpawnConfig {
     pub cwd: PathBuf,
     pub permission_mode: Option<RuntimePermissionMode>,
@@ -258,6 +278,8 @@ pub struct RuntimeSpawnConfig {
     pub thinking_effort: Option<String>,
     pub fast_mode: bool,
     pub system_prompt: Option<String>,
+    /// Optional task hint for runtimes that support specialized launch modes.
+    pub purpose: Option<RuntimePurpose>,
     pub resume_session_id: Option<String>,
     /// Allows a provider process to switch into its dangerous Bypass mode
     /// later without starting in that mode. Providers that do not have a
@@ -289,6 +311,7 @@ impl Default for RuntimeSpawnConfig {
             thinking_effort: None,
             fast_mode: false,
             system_prompt: None,
+            purpose: None,
             resume_session_id: None,
             allow_bypass_permissions: false,
             mcp_servers: None,

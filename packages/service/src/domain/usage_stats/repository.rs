@@ -18,16 +18,33 @@ const UPSERT_SQL: &str = "
         updated_at = datetime('now')
 ";
 
+/// Count one sent prompt in today's bucket, under the session's provider, model
+/// and effort as they stand — the ones the prompt goes out with. A session
+/// without a provider has nothing to chart and counts nothing. The `WHERE`
+/// also lets SQLite parse the upsert after a `SELECT`.
+const COUNT_USER_MESSAGE_SQL: &str = "
+    INSERT INTO provider_usage_stats
+        (day, provider_id, model_id, thinking_effort, user_messages, updated_at)
+    SELECT strftime('%Y-%m-%d', 'now'), runtime_provider, COALESCE(model, ''),
+           COALESCE(thinking_effort, ''), 1, datetime('now')
+    FROM agent_sessions
+    WHERE id = ? AND COALESCE(runtime_provider, '') <> ''
+    ON CONFLICT(day, provider_id, model_id, thinking_effort) DO UPDATE SET
+        user_messages = user_messages + 1,
+        updated_at = datetime('now')
+";
+
 /// Both bounds are derived from the caller's captured end day rather than from
 /// `now`, so the rows can never describe a window other than the one the client
 /// is told it is looking at — a request that straddles UTC midnight would
 /// otherwise pair yesterday's `end_day` with a window shifted a day later.
 const SELECT_WINDOW_SQL: &str = "
-    SELECT day, provider_id, model_id, thinking_effort, input_tokens, output_tokens
+    SELECT day, provider_id, model_id, thinking_effort, input_tokens, output_tokens,
+           user_messages
     FROM provider_usage_stats
     WHERE day >= date(?, ?)
       AND day <= ?
-      AND (input_tokens > 0 OR output_tokens > 0)
+      AND (input_tokens > 0 OR output_tokens > 0 OR user_messages > 0)
     ORDER BY day ASC, provider_id ASC, model_id ASC, thinking_effort ASC
 ";
 
@@ -91,6 +108,19 @@ where
     Ok(())
 }
 
+/// Run inside the transaction that persists the prompt, so a prompt is counted
+/// exactly when it is stored — a retried delivery of the same message is not.
+pub async fn count_user_message<'e, E>(executor: E, session_id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query(COUNT_USER_MESSAGE_SQL)
+        .bind(session_id)
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
 /// Every bucket from the `days`-day window ending on `end_day`, oldest first.
 pub async fn list_window(
     read_pool: &SqlitePool,
@@ -132,7 +162,7 @@ pub(crate) async fn list_recent(
 
 #[cfg(test)]
 mod tests {
-    use super::{add_tokens, list_recent, list_window};
+    use super::{add_tokens, count_user_message, list_recent, list_window};
     use crate::domain::usage_stats::models::UsageAttribution;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
@@ -216,6 +246,53 @@ mod tests {
 
         assert!(window(&pool, 30).await.is_empty());
         assert_eq!(window(&pool, 90).await.len(), 1);
+    }
+
+    async fn session(pool: &SqlitePool, provider: Option<&str>, model: Option<&str>) -> i64 {
+        sqlx::query("INSERT OR IGNORE INTO projects (id, name, path) VALUES (1, 'p', '/tmp/p')")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT OR IGNORE INTO features (id, project_id, title) VALUES (1, 1, 'f')")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query_scalar(
+            "INSERT INTO agent_sessions (feature_id, agent_type, runtime_provider, model, thinking_effort)
+             VALUES (1, 'session', ?, ?, 'high') RETURNING id",
+        )
+        .bind(provider)
+        .bind(model)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn counts_sent_prompts_under_the_sessions_current_model() {
+        let pool = pool().await;
+        let claude = session(&pool, Some("claude_code"), Some("opus")).await;
+        add_tokens(&pool, &attribution("claude_code", "opus", "high"), 10, 20)
+            .await
+            .unwrap();
+        count_user_message(&pool, claude).await.unwrap();
+        count_user_message(&pool, claude).await.unwrap();
+        // A prompt whose turn has not reported tokens yet still shows up.
+        let codex = session(&pool, Some("codex"), None).await;
+        count_user_message(&pool, codex).await.unwrap();
+        // Nothing to chart for a session without a provider.
+        let unassigned = session(&pool, None, None).await;
+        count_user_message(&pool, unassigned).await.unwrap();
+
+        let entries = window(&pool, 30).await;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].provider_id, "claude_code");
+        assert_eq!((entries[0].user_messages, entries[0].input_tokens), (2, 10));
+        assert_eq!(
+            (entries[1].model_id.as_str(), entries[1].user_messages),
+            ("", 1)
+        );
+        assert_eq!(entries[1].input_tokens + entries[1].output_tokens, 0);
     }
 
     // The read hands the client an `end_day` and the rows behind it. A request

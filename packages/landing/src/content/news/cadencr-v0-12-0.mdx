@@ -1,0 +1,88 @@
+---
+title: "CadencR v0.12.0 brings more of your workflow into one workspace"
+date: 2026-09-21
+summary: "A more capable browser, a new terminal engine, real Neovim, and local provider connectors: CadencR v0.12.0 gives your tools and coding agents more room to work together."
+author: "Raphaël - RLE - Le Minor"
+tags: ["release", "workspace", "browser", "terminal", "neovim", "plugins"]
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import localProviderScreenshot from "@/assets/news/v0.12.0/local-provider.png";
+import codexProfileScreenshot from "@/assets/news/v0.12.0/codex-profile.png";
+import terminalScreenshot from "@/assets/news/v0.12.0/celeritty-terminal.png";
+
+**CadencR v0.12.0 brings more of your everyday development workflow into the workspace: browsing, editing, running commands, and working with the agents you choose.**
+
+The embedded browser gains the controls you need to check your work. The terminal moves to CeleriTTY, and the editor can run your own Neovim. Local provider connectors extend the plugin story beyond themes, so you can bring another coding agent into the same workflow.
+
+## A browser you can keep working in
+
+Build a page with an agent, open it beside the conversation, and check how it behaves at different screen sizes. Responsive viewport controls let you inspect layouts while keeping screenshots and element annotations aligned with what you see.
+
+The browser also gains the everyday tools that make it easier to stay in the workspace:
+
+- History, bookmarks, and address-bar suggestions to return to useful pages.
+- Tab organization and lazy restoration of saved tabs.
+- Find-in-page and zoom controls.
+- Downloads with progress, pause, resume, cancel, and reveal-in-folder actions.
+- Popup controls and familiar secondary-click link handling.
+- Browser profiles and site controls for permissions, stored data, and agent access.
+
+Together, these additions keep more of the build-and-check loop beside the code and the conversation.
+
+## Your terminal, your Neovim
+
+The terminal now uses **CeleriTTY**, with WebGPU rendering and a Rust/WASM engine. Shell sessions reconnect across pane changes, split terminals keep their place, and copy/paste stays close at hand. If you use Alacritty, CadencR reads its font, colors, cursor, and scrollback settings and follows changes live.
+
+<DocScreenshot
+  src={terminalScreenshot}
+  alt="CeleriTTY terminal in the native CadencR development app using CadencR Dark, displaying the Git history for v0.12.0 beneath the workspace tabs"
+  caption="The new CeleriTTY terminal keeps your shell alongside the agent, editor, browser, and Git workspace."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+For modal editing, enable **Neovim in Settings → Editor**. CadencR runs a real Neovim instance with your configuration and plugins. Open files from the file tree or quick-open dialog, follow file-and-line references, and use the editing habits you already know while your agent works alongside you.
+
+Thanks to [@edjubert](https://github.com/edjubert) for the CeleriTTY and Neovim integration, and for the provider/model selection fixes included in this release.
+
+## Bring your own local provider
+
+Custom themes introduced a way to shape CadencR from a project inside the app. **v0.12.0 extends that approach to local ACP provider connectors.**
+
+Use **Add provider** to create a connector project with instructions your coding agent can work from, or import an existing Git repository containing a built connector. You can develop the integration in the same workspace where you will use it.
+
+<DocScreenshot
+  src={localProviderScreenshot}
+  alt="Add provider dialog in the official CadencR Dark theme, showing a sample connector name and the choices to create a project or import an existing folder"
+  caption="Start a local connector project or bring an existing implementation into CadencR."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Once the connector is built and registered, restart CadencR to discover its models. Supported session settings and resume capabilities come from the connector, allowing it to participate in the conversation workflow with its own controls.
+
+This release focuses on local authoring and use. Public marketplace browsing and publishing remain planned for a later release.
+
+## More control over everyday agent work
+
+**Codex profiles** let you name and reuse configurations, choose an optional native `config.toml`, and set environment overrides. Manage profiles in Settings, choose a default, or select one for a conversation from Info.
+
+<DocScreenshot
+  src={codexProfileScreenshot}
+  alt="New Codex profile dialog in CadencR Dark, with an example project configuration path and controls for environment overrides"
+  caption="Give a Codex configuration a name and keep its source file and environment overrides together."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Long conversations receive a performance pass across search, large code blocks, nested agent activity, and sidebar rendering. Large outputs open through explicit previews, with Bash output keeping its command card and access to earlier lines.
+
+The sidebar makes activity easier to read: a blue ring marks an agent at work, while a green check marks a finished response with unread messages. When a task spans several conversations, archiving can now include its parent and descendants, with counts shown before you confirm.
+
+The release also keeps provider and model selections in sync, corrects Codex parent/subagent routing and completion state, preserves unsaved editor buffers across formatting and disk updates, and clears stale port badges after reconnects. Dependency security updates round out the release.
+
+**CadencR v0.12.0 is available now.** [Download the release or read the complete changelog](https://github.com/merkr-software/CadencR/releases/tag/v0.12.0).

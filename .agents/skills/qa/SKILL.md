@@ -179,7 +179,7 @@ document.querySelector('YOUR_SELECTOR').blur();
 
 ## Step 5: Report Results
 
-After running all test cases, produce a concise report:
+After running all test cases, produce a concise report in your reply (and the PR description when there is one). Never write it, its screenshots or check scripts to a tracked file such as `docs/qa/`; keep artifacts in your scratch directory.
 
 ```
 ## QA Report: [Feature Name]

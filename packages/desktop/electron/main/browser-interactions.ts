@@ -1,3 +1,4 @@
+import { executeBrowserScript } from "./browser-document-security";
 import type { WebContents } from "electron";
 import { flashHighlight } from "./browser-dom";
 import { scaleBrowserInputPoint } from "./browser-input-geometry";
@@ -28,7 +29,7 @@ export async function resolveTarget(
   wc: WebContents,
   target: BrowserTarget,
 ): Promise<ResolvedTarget> {
-  const result = await wc.executeJavaScript(resolveTargetScript(target), true);
+  const result = await executeBrowserScript(wc, resolveTargetScript(target));
   return expectScriptResult<ResolvedTarget>(
     result,
     (r) => r.found === true && isRecord(r.boundingBox) && isRecord(r.center),
@@ -77,7 +78,7 @@ export async function fillTarget(
   target: BrowserTarget,
   value: string,
 ): Promise<void> {
-  const result = await wc.executeJavaScript(fillTargetScript(target, value), true);
+  const result = await executeBrowserScript(wc, fillTargetScript(target, value));
   expectScriptResult(result, (r) => r.ok === true, "Browser fill failed.");
 }
 
@@ -86,10 +87,7 @@ export async function waitFor(
   opts: { selector?: string; text?: string },
   timeoutMs: number = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<BrowserWaitResult> {
-  const result = await wc.executeJavaScript(
-    waitForScript(opts.selector, opts.text, timeoutMs),
-    true,
-  );
+  const result = await executeBrowserScript(wc, waitForScript(opts.selector, opts.text, timeoutMs));
   return expectScriptResult<BrowserWaitResult>(
     result,
     (r) => typeof r.found === "boolean" && typeof r.elapsedMs === "number",

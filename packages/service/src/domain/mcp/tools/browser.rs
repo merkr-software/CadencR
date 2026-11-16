@@ -6,6 +6,12 @@ use reqwest::Url;
 /// permission flow (see `is_auto_trusted_browser_tool`).
 pub const BROWSER_OPEN_EXTERNAL_URL: &str = "browser_open_external_url";
 
+/// Service → desktop bridge command closing every browser tab of one feature
+/// scope (`project_archive_session`'s browser cleanup). Deliberately absent
+/// from [`BROWSER_TOOL_NAMES`]: the browser MCP server refuses it, so agents
+/// can only reach it through the archive tool's own checks.
+pub const BROWSER_CLOSE_SCOPE_TABS: &str = "browser_close_scope_tabs";
+
 pub const BROWSER_TOOL_NAMES: [&str; 15] = [
     "browser_list_tabs",
     "browser_open_url",
@@ -26,10 +32,11 @@ pub const BROWSER_TOOL_NAMES: [&str; 15] = [
 
 /// Browser tools that are auto-approved without prompting the user (Cadencr's
 /// special trust for its own dev-server tooling). The external-URL opener is the
-/// one exclusion: opening arbitrary remote sites must follow the provider's
-/// normal permission flow instead.
+/// exclusions: external navigation and arbitrary JavaScript must follow the
+/// provider's normal permission flow instead.
 pub fn is_auto_trusted_browser_tool(tool: &str) -> bool {
-    BROWSER_TOOL_NAMES.contains(&tool) && tool != BROWSER_OPEN_EXTERNAL_URL
+    BROWSER_TOOL_NAMES.contains(&tool)
+        && !matches!(tool, BROWSER_OPEN_EXTERNAL_URL | "browser_evaluate")
 }
 
 pub fn is_localhost_automation_url(raw_url: &str) -> bool {
@@ -39,23 +46,21 @@ pub fn is_localhost_automation_url(raw_url: &str) -> bool {
     matches!(url.scheme(), "http" | "https") && is_loopback_host(url.host_str())
 }
 
-pub fn is_local_file_url(raw_url: &str) -> bool {
-    Url::parse(raw_url).is_ok_and(|url| url.scheme() == "file")
-}
-
 pub fn open_url_allowed(target_url: &str) -> Result<(), String> {
-    // Loopback pages can be fully automated; local files can be opened and
-    // inspected but not mutated (the desktop bridge denies automation on them).
-    if is_localhost_automation_url(target_url) || is_local_file_url(target_url) {
+    // The desktop additionally denies its own runtime origins and aliases.
+    if is_localhost_automation_url(target_url) {
         Ok(())
     } else {
-        Err("Browser MCP can open only localhost or file:// URLs.".to_string())
+        Err(
+            "Browser MCP can open only localhost web URLs outside Cadencr's own origins."
+                .to_string(),
+        )
     }
 }
 
 /// Validates the target of `browser_open_external_url`: any web (`http`/`https`)
 /// URL, remote or local. Non-web schemes (`file:`, `javascript:`, …) are
-/// rejected — local files belong on the loopback `browser_open_url` tool.
+/// rejected. The desktop also rejects Cadencr's own runtime origins.
 pub fn external_open_url_allowed(target_url: &str) -> Result<(), String> {
     match Url::parse(target_url) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => Ok(()),
@@ -111,18 +116,10 @@ mod tests {
     }
 
     #[test]
-    fn browser_open_url_policy_allows_localhost_and_file_targets() {
+    fn browser_open_url_policy_allows_only_localhost_web_targets() {
         assert!(super::open_url_allowed("http://localhost:3000").is_ok());
-        assert!(super::open_url_allowed("file:///tmp/index.html").is_ok());
+        assert!(super::open_url_allowed("file:///tmp/index.html").is_err());
         assert!(super::open_url_allowed("https://example.com").is_err());
-    }
-
-    #[test]
-    fn file_url_is_openable_but_not_localhost_automation() {
-        // file: URLs may be opened, but they are not "localhost automation"
-        // targets, so the desktop bridge still denies click/fill/evaluate on them.
-        assert!(super::is_local_file_url("file:///tmp/index.html"));
-        assert!(!is_localhost_automation_url("file:///tmp/index.html"));
     }
 
     #[test]
@@ -131,6 +128,7 @@ mod tests {
         // follows each provider's normal permission flow.
         assert!(BROWSER_TOOL_NAMES.contains(&BROWSER_OPEN_EXTERNAL_URL));
         assert!(!is_auto_trusted_browser_tool(BROWSER_OPEN_EXTERNAL_URL));
+        assert!(!is_auto_trusted_browser_tool("browser_evaluate"));
         assert!(is_auto_trusted_browser_tool("browser_open_url"));
         assert!(is_auto_trusted_browser_tool("browser_click"));
     }

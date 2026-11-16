@@ -110,7 +110,7 @@ pub fn read_state(path: &Path, provider_id: &str) -> Result<ManagedProviderState
 
 pub fn write_state(path: &Path, state: &ManagedProviderState) -> Result<(), AppError> {
     let mut json = serde_json::to_string_pretty(state)
-        .map_err(|error| AppError::Internal(format!("serialize managed state: {error}")))?;
+        .map_err(|error| AppError::internal(format!("serialize managed state: {error}")))?;
     json.push('\n');
     atomic_file::write_atomic_private(path, &json)
 }

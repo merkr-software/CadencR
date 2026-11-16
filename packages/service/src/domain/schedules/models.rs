@@ -12,22 +12,31 @@ pub enum TargetKind {
     Conversation,
     /// Create a fresh conversation for every run.
     NewConversation,
+    /// Run a custom action in an existing conversation's working copy instead
+    /// of sending a prompt. Stored as a `conversation` row with
+    /// `custom_action_id` set (see the 20261029100000 migration).
+    CustomAction,
 }
 
 impl TargetKind {
-    pub fn as_str(self) -> &'static str {
+    /// The `target_kind` column value. A custom-action schedule is stored as a
+    /// `conversation` row (the column's CHECK predates it); `custom_action_id`
+    /// is what tells the two apart — see [`TargetKind::from_storage`].
+    pub fn storage_str(self) -> &'static str {
         match self {
-            Self::Conversation => "conversation",
+            Self::Conversation | Self::CustomAction => "conversation",
             Self::NewConversation => "new_conversation",
         }
     }
 
-    pub fn parse(raw: &str) -> Result<Self, AppError> {
-        match raw {
-            "conversation" => Ok(Self::Conversation),
-            "new_conversation" => Ok(Self::NewConversation),
-            other => Err(AppError::BadRequest(format!(
-                "unknown schedule target '{other}'"
+    /// Inverse of [`TargetKind::storage_str`].
+    pub fn from_storage(raw: &str, custom_action_id: Option<i64>) -> Result<Self, AppError> {
+        match (raw, custom_action_id) {
+            ("conversation", Some(_)) => Ok(Self::CustomAction),
+            ("conversation", None) => Ok(Self::Conversation),
+            ("new_conversation", None) => Ok(Self::NewConversation),
+            (other, _) => Err(AppError::internal(format!(
+                "schedule row has an unreadable target '{other}' (custom action {custom_action_id:?})"
             ))),
         }
     }
@@ -39,9 +48,13 @@ impl TargetKind {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScheduleTarget {
     pub kind: TargetKind,
-    /// Required when `kind = conversation`.
+    /// Required when `kind = conversation` or `custom_action` (the conversation
+    /// whose working copy the action runs in).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature_id: Option<i64>,
+    /// Required when `kind = custom_action`: the action to run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<i64>,
     /// Required when `kind = new_conversation`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<i64>,
@@ -61,7 +74,7 @@ pub struct ScheduleTarget {
     /// may run in plan mode inside a conversation the user drives normally.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
-    /// Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+    /// Provider access mode (e.g. Codex sandboxing). Ignored by providers that
     /// don't offer one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_mode: Option<String>,
@@ -76,6 +89,28 @@ pub struct ScheduleTarget {
     pub reuse_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
+}
+
+impl ScheduleTarget {
+    /// Run `action_id` in `feature_id`'s working copy. No agent runs, so every
+    /// agent option stays unset.
+    pub fn custom_action(feature_id: i64, action_id: i64) -> Self {
+        Self {
+            kind: TargetKind::CustomAction,
+            feature_id: Some(feature_id),
+            action_id: Some(action_id),
+            project_id: None,
+            provider: None,
+            model: None,
+            thinking_level: None,
+            permission_mode: None,
+            access_mode: None,
+            profile: None,
+            worktree_mode: None,
+            reuse_branch: None,
+            base_branch: None,
+        }
+    }
 }
 
 /// Read-only context resolved by join so the schedules list can render a target
@@ -93,6 +128,9 @@ pub struct ScheduleContext {
     /// Title of the conversation the most recent run landed in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_feature_title: Option<String>,
+    /// Name of the action a `custom_action` schedule runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_name: Option<String>,
 }
 
 /// Outcome of the most recent run.
@@ -109,6 +147,47 @@ pub struct ScheduleLastRun {
     pub feature_id: Option<i64>,
 }
 
+/// Gates a run on a shell command: at each firing the command runs in the
+/// target's working copy, and the prompt is only delivered when it exits
+/// non-zero — "every 15 minutes, if `cargo test` fails, fix it". The command's
+/// output rides along with the prompt so the agent sees what broke.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleCondition {
+    /// Run through the user's login shell, like a custom action.
+    pub command: String,
+    /// Seconds before the evaluation is abandoned. Defaults to 300, at most 600.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<i64>,
+}
+
+/// What the latest condition evaluation concluded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+pub enum ScheduleCheckStatus {
+    /// Exit 0 — nothing was sent.
+    Passed,
+    /// Non-zero exit — the prompt was handed to dispatch.
+    Triggered,
+    /// The target conversation's agent was still working, so the command
+    /// wasn't run: it is most likely still on the previous failure.
+    Busy,
+    /// The command could not be evaluated (timeout, spawn failure, …).
+    Error,
+}
+
+/// Outcome of the most recent condition evaluation. Separate from
+/// [`ScheduleLastRun`]: a passing check delivers nothing, so it must not
+/// overwrite the record of the last message actually sent.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ScheduleLastCheck {
+    /// ISO-8601 UTC.
+    pub at: String,
+    pub status: ScheduleCheckStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+}
+
 /// A configured schedule. Timestamps are ISO-8601 UTC (trailing `Z`) so the
 /// frontend parses them unambiguously and renders in the viewer's timezone.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -119,6 +198,9 @@ pub struct Schedule {
     pub prompt: String,
     pub target: ScheduleTarget,
     pub recurrence: Recurrence,
+    /// Set when the schedule only delivers after a failing command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<ScheduleCondition>,
     pub enabled: bool,
     /// A one-shot schedule that has already fired. It is neither upcoming nor
     /// paused — a third state the UI has to name, so it ships on the wire
@@ -129,6 +211,8 @@ pub struct Schedule {
     pub next_run_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_run: Option<ScheduleLastRun>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_check: Option<ScheduleLastCheck>,
     pub run_count: i64,
     pub context: ScheduleContext,
     pub created_at: String,
@@ -144,6 +228,9 @@ pub struct SaveScheduleRequest {
     pub prompt: String,
     pub target: ScheduleTarget,
     pub recurrence: RecurrenceInput,
+    /// Omit (or send `null`) for a schedule that always delivers.
+    #[serde(default)]
+    pub condition: Option<ScheduleCondition>,
     /// Defaults to `true` on create; on update, omitting it leaves the current
     /// paused/active state alone.
     #[serde(default)]
@@ -216,6 +303,9 @@ pub struct ScheduleRanEvent {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ScheduleRunResult {
     pub ran: bool,
+    /// The schedule's command exited 0, so there was nothing to send. `ran` is
+    /// false without that being a failure.
+    pub condition_passed: bool,
     /// Conversation the run delivered into.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feature_id: Option<i64>,

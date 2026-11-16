@@ -27,6 +27,21 @@ pub fn permission_response_value(
     value
 }
 
+/// Host convention for input-collecting gates: the user's `updatedInput`
+/// travels under `_meta.updatedInput`, beside any `_meta.feedback`. A JSON
+/// `null` means "no edited input" and is not forwarded.
+pub fn attach_updated_input(value: &mut Value, updated_input: &Value) {
+    if updated_input.is_null() {
+        return;
+    }
+    match value.get_mut("_meta").and_then(Value::as_object_mut) {
+        Some(meta) => {
+            meta.insert("updatedInput".to_string(), updated_input.clone());
+        }
+        None => value["_meta"] = serde_json::json!({ "updatedInput": updated_input }),
+    }
+}
+
 pub struct ResolvedPermissionOption {
     pub decision: RuntimePermissionDecision,
     pub option_id: Option<String>,
@@ -95,7 +110,7 @@ fn from_value<T: DeserializeOwned>(value: Value) -> serde_json::Result<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{permission_response_value, resolve_permission_option};
+    use super::{attach_updated_input, permission_response_value, resolve_permission_option};
     use agent_client_protocol::schema::v1::RequestPermissionResponse;
     use serde_json::json;
 
@@ -113,6 +128,30 @@ mod tests {
         assert_eq!(value["outcome"]["outcome"], "selected");
         assert_eq!(value["outcome"]["optionId"], "allow_once");
         assert!(parsed.meta.is_none());
+    }
+
+    #[test]
+    fn updated_input_rides_meta_beside_feedback() {
+        let mut value = permission_response_value(
+            RuntimePermissionDecision::Deny,
+            Some("reject"),
+            Some("not yet"),
+        );
+        attach_updated_input(&mut value, &json!({ "answers": { "Color?": "Blue" } }));
+        let parsed: RequestPermissionResponse = serde_json::from_value(value.clone()).unwrap();
+
+        assert_eq!(value["_meta"]["feedback"], "not yet");
+        assert_eq!(value["_meta"]["updatedInput"]["answers"]["Color?"], "Blue");
+        assert!(parsed
+            .meta
+            .is_some_and(|meta| meta.contains_key("updatedInput")));
+    }
+
+    #[test]
+    fn null_updated_input_is_not_forwarded() {
+        let mut value = permission_response_value(RuntimePermissionDecision::AllowOnce, None, None);
+        attach_updated_input(&mut value, &serde_json::Value::Null);
+        assert!(value.get("_meta").is_none());
     }
 
     #[test]

@@ -44,6 +44,9 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
+}));
 vi.mock("@/api/generated", async (importOriginal) => {
   // `PushForceMode` is a plain const object in the generated client; the
   // dialog indexes it, so keep the real value and stub only the hooks.
@@ -188,7 +191,7 @@ describe("PushDialog picker affordances", () => {
 
     const group = screen.getByRole("radiogroup", { name: /push mode/i });
     const badges = [...group.querySelectorAll("kbd")].map((k) => k.textContent?.trim());
-    expect(badges).toEqual(["p", "l", "f"]);
+    expect(badges).toEqual(["P", "L", "F"]);
   });
 
   it("shows the exact command each mode will run", async () => {

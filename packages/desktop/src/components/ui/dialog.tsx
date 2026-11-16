@@ -62,7 +62,7 @@ function DialogContent({
         aria-describedby={undefined}
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full grid-cols-1 max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] max-h-(--dialog-max-h) gap-4 overflow-y-auto rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
           className,
         )}
         {...props}
@@ -88,6 +88,21 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      {...props}
+    />
+  );
+}
+
+// Scrolling middle of a dialog whose header and footer stay pinned. Pair it
+// with `grid-rows-[auto_minmax(0,1fr)_auto]` on `DialogContent` (header, body,
+// footer) so this row absorbs the height cap. The negative margins mirror the
+// content's `p-6`: the scrollbar sits on the dialog's edge and focus rings on
+// the first and last rows are not clipped.
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn("-mx-6 -my-1 overflow-y-auto px-6 py-1", className)}
       {...props}
     />
   );
@@ -142,6 +157,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,

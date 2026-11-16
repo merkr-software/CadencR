@@ -5,6 +5,15 @@ import { act, fireEvent, render as renderWithProviders, screen } from "@/test-ut
 import userEvent from "@testing-library/user-event";
 import { ProjectTree } from "./ProjectTree";
 import { resetMockIds } from "@/test-fixtures";
+import { clearProjectAutoExpandSkip, skipProjectAutoExpand } from "@/lib/project-auto-expand";
+import { resetPersistedIdSets } from "@/test/persisted-id-set-mock";
+import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
+
+vi.mock("@/hooks/usePersistedIdSet", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...(await import("@/test/persisted-id-set-mock")),
+}));
 
 // Numeric hints are now owned by Sidebar so pinned and project rows share one registry.
 function render(ui: ReactElement) {
@@ -20,13 +29,15 @@ const mockNavigate = vi.fn();
 const mockCreateProject = vi.fn();
 const mockDeleteProject = vi.fn();
 const mockCreateFeature = vi.fn();
+const mockArchiveProjectSessions = vi.fn();
 const _mockCreateSession = vi.fn();
+const mockProjectSettingsDialog = vi.hoisted(() => vi.fn(() => null));
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-// Keep the workspace-settings plumbing (useDebouncedSetting → useGetWorkspaceSetting)
+// Keep the workspace-settings plumbing (useSetting → useGetWorkspaceSetting)
 // out of the ProjectTree render tree; the per-project onboarding modal is exercised
 // in project-onboarding.test.ts.
 vi.mock("@/lib/project-onboarding", () => ({
@@ -45,6 +56,10 @@ vi.mock("@/lib/project-onboarding", () => ({
 vi.mock("../api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/generated")>()),
   useArchiveFeature: vi.fn(() => ({ mutateAsync: vi.fn() })),
+  useArchiveProjectSessions: vi.fn(() => ({
+    mutateAsync: mockArchiveProjectSessions,
+    isPending: false,
+  })),
   useGetFeatureArchivePreview: vi.fn(() => ({
     data: { parent_ids: [], descendant_ids: [], has_relations: false },
     isLoading: false,
@@ -53,7 +68,7 @@ vi.mock("../api/generated", async (importOriginal) => ({
   })),
   useListProjects: vi.fn(() => ({
     data: [
-      { id: 1, name: "Alpha Project", path: "/alpha" },
+      { id: 1, name: "Alpha Project", path: "/alpha", authoring_target: "provider" },
       { id: 2, name: "Beta Project", path: "/beta" },
     ],
   })),
@@ -139,7 +154,7 @@ vi.mock("@/components/ProjectBadge", () => ({
 
 // Mock ProjectSettingsDialog
 vi.mock("./ProjectSettingsDialog", () => ({
-  ProjectSettingsDialog: () => null,
+  ProjectSettingsDialog: mockProjectSettingsDialog,
 }));
 
 function visibleShortcutBadgeTexts(container: HTMLElement): string[] {
@@ -163,9 +178,22 @@ function mockKeyboardLayout(
 
 describe("ProjectTree", () => {
   beforeEach(() => {
+    // Fixture dates are fixed in the past: keep every conversation out of "Dormant".
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never" },
+    });
+    resetPersistedIdSets();
     resetMockIds();
     mockNavigate.mockClear();
     mockCreateFeature.mockClear();
+    clearProjectAutoExpandSkip();
+    mockProjectSettingsDialog.mockClear();
+    mockArchiveProjectSessions.mockReset();
+    mockArchiveProjectSessions.mockResolvedValue({
+      archived_ids: [10],
+      skipped_pinned: 0,
+      skipped_running: 0,
+    });
   });
 
   afterEach(() => {
@@ -200,6 +228,55 @@ describe("ProjectTree", () => {
     expect(screen.getByText("Feature One")).toBeInTheDocument();
   });
 
+  it("does not auto-expand the active project when navigation came from a pinned row", () => {
+    skipProjectAutoExpand(1);
+    render(<ProjectTree activeProjectId={1} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+    expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+  });
+
+  it("ignores the skip marker when it targets a different project", () => {
+    skipProjectAutoExpand(2);
+    render(<ProjectTree activeProjectId={1} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+    expect(screen.getByText("Feature One")).toBeInTheDocument();
+  });
+
+  it("auto-expands again once the active project changes away from the skipped one", () => {
+    skipProjectAutoExpand(1);
+    const { rerender } = render(
+      <ProjectTree activeProjectId={1} activeFeatureId={null} onSelectFeature={vi.fn()} />,
+    );
+    expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+    // The useListFeatures mock returns the same feature for every project, so
+    // "Feature One" reappearing means the second project expanded.
+    rerender(
+      <ShortcutHintsProvider enabled>
+        <ProjectTree activeProjectId={2} activeFeatureId={null} onSelectFeature={vi.fn()} />
+      </ShortcutHintsProvider>,
+    );
+    expect(screen.getByText("Feature One")).toBeInTheDocument();
+  });
+
+  it("clears the skip marker when the active project becomes null, so returning expands it", () => {
+    skipProjectAutoExpand(1);
+    const { rerender } = render(
+      <ProjectTree activeProjectId={1} activeFeatureId={null} onSelectFeature={vi.fn()} />,
+    );
+    expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+    // Leaving the project list (e.g. opening Settings) clears the marker.
+    rerender(
+      <ShortcutHintsProvider enabled>
+        <ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />
+      </ShortcutHintsProvider>,
+    );
+    // Returning to the project is an ordinary navigation: it expands again.
+    rerender(
+      <ShortcutHintsProvider enabled>
+        <ProjectTree activeProjectId={1} activeFeatureId={null} onSelectFeature={vi.fn()} />
+      </ShortcutHintsProvider>,
+    );
+    expect(screen.getByText("Feature One")).toBeInTheDocument();
+  });
+
   it("toggles project expansion on click", async () => {
     const user = userEvent.setup();
     render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
@@ -209,6 +286,19 @@ describe("ProjectTree", () => {
     // Click again to collapse
     await user.click(screen.getByText("Alpha Project"));
     expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+  });
+
+  it("carries project authoring identity into the settings dialog", async () => {
+    const user = userEvent.setup();
+    render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+
+    await user.pointer({ target: screen.getByText("Alpha Project"), keys: "[MouseRight]" });
+    await user.click(await screen.findByText("Project Settings"));
+
+    expect(mockProjectSettingsDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 1, authoringTarget: "provider" }),
+      undefined,
+    );
   });
 
   it("uses command-number to activate visible sidebar rows", async () => {
@@ -343,5 +433,45 @@ describe("ProjectTree", () => {
     act(() => vi.runOnlyPendingTimers());
 
     expect(badges()).toEqual([]);
+  });
+
+  it("archives all project sessions after confirmation", async () => {
+    const user = userEvent.setup();
+    render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+
+    await user.click(screen.getAllByLabelText("Project actions")[0]);
+    await user.click(await screen.findByText("Archive all sessions"));
+
+    expect(await screen.findByText('Archive all sessions in "Alpha Project"?')).toBeInTheDocument();
+    expect(screen.getByText(/cannot be undone/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await vi.waitFor(() => expect(mockArchiveProjectSessions).toHaveBeenCalledWith({ id: 1 }));
+  });
+
+  it("does not archive sessions when the confirmation is cancelled", async () => {
+    const user = userEvent.setup();
+    render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+
+    await user.click(screen.getAllByLabelText("Project actions")[0]);
+    await user.click(await screen.findByText("Archive all sessions"));
+    await screen.findByText('Archive all sessions in "Alpha Project"?');
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockArchiveProjectSessions).not.toHaveBeenCalled();
+  });
+
+  it("does not archive sessions when Enter is pressed while Cancel is focused", async () => {
+    const user = userEvent.setup();
+    render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+
+    await user.click(screen.getAllByLabelText("Project actions")[0]);
+    await user.click(await screen.findByText("Archive all sessions"));
+    await screen.findByText('Archive all sessions in "Alpha Project"?');
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    cancelButton.focus();
+    await user.keyboard("{Enter}");
+    expect(mockArchiveProjectSessions).not.toHaveBeenCalled();
   });
 });

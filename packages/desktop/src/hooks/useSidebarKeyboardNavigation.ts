@@ -83,10 +83,16 @@ function activateSidebarItem(
     });
   } else if (type === "project" && id) {
     focused.click();
+  } else if (type === "marketplace") {
+    void navigate({ to: "/marketplace" });
   } else if (type === "agents") {
     void navigate({ to: "/agents" });
   } else if (type === "schedules") {
     void navigate({ to: "/schedules" });
+  } else if (type === null && focused instanceof HTMLButtonElement) {
+    // Fold headers have no route type; dispatch their click because the
+    // shortcut prevents Enter's native button activation.
+    focused.click();
   }
 }
 
@@ -95,7 +101,11 @@ export function collectSidebarNavItems(sidebar: HTMLElement): HTMLElement[] {
     sidebar.querySelectorAll<HTMLElement>("[data-nav-item], [data-virtual-nav-list]"),
   ).filter(
     (element) =>
-      element.hasAttribute("data-virtual-nav-list") ||
-      element.closest("[data-virtual-nav-list]") == null,
+      // Rows inside a closing CollapsibleSection stay mounted for the close
+      // animation (200 ms) under aria-hidden; exclude them so keyboard focus
+      // never lands on a row that is about to unmount.
+      element.closest('[aria-hidden="true"]') == null &&
+      (element.hasAttribute("data-virtual-nav-list") ||
+        element.closest("[data-virtual-nav-list]") == null),
   );
 }

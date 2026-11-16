@@ -1,9 +1,10 @@
 import { useState, type ReactElement } from "react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
-import { ClipboardCheck, Play, MessageSquare, Send, AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Loader2, MessageSquare, Play, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { KbdShortcut } from "@/components/KbdShortcut";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 
 interface PlanApprovalBarProps {
   allowedPrompts?: Array<{ tool: string; prompt: string }>;
@@ -13,6 +14,8 @@ interface PlanApprovalBarProps {
   onRequestChanges: (feedback: string) => void;
   onReject?: () => void;
   error?: string | null;
+  /** The decision was sent and the backend has not confirmed it yet. */
+  isSubmitting?: boolean;
 }
 
 interface FeedbackEditorProps {
@@ -34,6 +37,8 @@ function FeedbackEditor({
         value={feedback}
         onChange={(event) => onFeedbackChange(event.target.value)}
         onKeyDown={(event) => {
+          // An IME's confirming Enter belongs to the composition, not to send.
+          if (event.nativeEvent.isComposing) return;
           if (event.key === "Enter" && !event.shiftKey && feedback.trim()) {
             event.preventDefault();
             onSend();
@@ -66,6 +71,7 @@ interface PlanActionsProps {
   onApprove: () => void;
   onRequestChanges: () => void;
   onReject?: () => void;
+  isSubmitting: boolean;
 }
 
 function PlanActions({
@@ -73,34 +79,51 @@ function PlanActions({
   onApprove,
   onRequestChanges,
   onReject,
+  isSubmitting,
 }: PlanActionsProps): ReactElement {
+  const approveKeys = useShortcutKeys("plan-approve");
+  const feedbackKeys = useShortcutKeys("plan-feedback");
+  const rejectKeys = useShortcutKeys("plan-reject");
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="default" size="sm" onClick={onApprove} className="gap-1.5">
-        <Play className="size-3.5" />
+      <Button
+        variant="default"
+        size="sm"
+        onClick={onApprove}
+        disabled={isSubmitting}
+        aria-busy={isSubmitting}
+        className="gap-1.5"
+      >
+        {isSubmitting ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Play className="size-3.5" />
+        )}
         {approveLabel ?? "Approve & Execute"}
-        <KbdShortcut keys={["cmd", "Y"]} scope="agent" />
+        <KbdShortcut keys={approveKeys} scope="agent" />
       </Button>
       <Button
         variant="ghost"
         size="sm"
         onClick={onRequestChanges}
+        disabled={isSubmitting}
         className="gap-1.5 text-muted-foreground"
       >
         <MessageSquare className="size-3.5" />
         Request Changes
-        <KbdShortcut keys={["cmd", "N"]} scope="agent" />
+        <KbdShortcut keys={feedbackKeys} scope="agent" />
       </Button>
       {onReject && (
         <Button
           variant="ghost"
           size="sm"
           onClick={onReject}
+          disabled={isSubmitting}
           className="gap-1.5 text-muted-foreground"
         >
           <X className="size-3.5" />
           Reject & Stop
-          <KbdShortcut keys={["esc"]} scope="agent" />
+          <KbdShortcut keys={rejectKeys} scope="agent" />
         </Button>
       )}
     </div>
@@ -141,6 +164,7 @@ export function PlanApprovalBar({
   onRequestChanges,
   onReject,
   error,
+  isSubmitting = false,
 }: PlanApprovalBarProps) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState(initialFeedback ?? "");
@@ -157,7 +181,7 @@ export function PlanApprovalBar({
       onApprove();
     },
     "agent",
-    { enabled: !showFeedback },
+    { enabled: !showFeedback && !isSubmitting },
   );
 
   useScopedGlobalShortcutById(
@@ -167,7 +191,7 @@ export function PlanApprovalBar({
       openFeedback();
     },
     "agent",
-    { enabled: !showFeedback },
+    { enabled: !showFeedback && !isSubmitting },
   );
 
   useScopedGlobalShortcutById(
@@ -178,7 +202,9 @@ export function PlanApprovalBar({
       onReject!();
     },
     "agent",
-    { enabled: !!onReject },
+    // While the feedback field is open, Esc only closes the field (it is a
+    // capture-phase binding, so it would otherwise win over the textarea).
+    { enabled: !!onReject && !showFeedback && !isSubmitting },
   );
 
   const handleSendFeedback = () => {
@@ -203,13 +229,11 @@ export function PlanApprovalBar({
           feedback={feedback}
           onFeedbackChange={setFeedback}
           onSend={handleSendFeedback}
+          // Backing out of the feedback field never rejects the plan: Esc
+          // means "close this", and rejecting stays an explicit button.
           onCancel={() => {
-            if (onReject) {
-              onReject();
-            } else {
-              setShowFeedback(false);
-              setFeedback(initialFeedback ?? "");
-            }
+            setShowFeedback(false);
+            setFeedback(initialFeedback ?? "");
           }}
         />
       ) : (
@@ -218,6 +242,7 @@ export function PlanApprovalBar({
           onApprove={onApprove}
           onRequestChanges={openFeedback}
           onReject={onReject}
+          isSubmitting={isSubmitting}
         />
       )}
     </div>

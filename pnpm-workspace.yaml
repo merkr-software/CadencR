@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "plugins/providers/*"
 
 nodeLinker: hoisted
 engineStrict: true
@@ -9,9 +10,88 @@ minimumReleaseAge: 20160
 minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeExclude:
-  # GHSA-qw65-cvwx-89v3: reject authority injection through an unvalidated
-  # URI port. Remove after 2026-09-16T11:06:42Z (14 days after publication).
-  - "fast-uri@3.1.7"
+  # GHSA-mrwp-f3q8-3g9p: preserve cross-realm sensitive header lists.
+  # Remove after 2026-11-08T21:32:25.963Z (14 days after publication).
+  - "follow-redirects@1.16.2"
+  # GHSA-f86p-h4j2-7qgj, GHSA-9wx9-5pv9-3349: escape serialized values.
+  # Remove after 2026-11-01T11:47:50.822Z (14 days after publication).
+  - "seroval@1.6.11"
+  # GHSA-8g5g-mxqh-grgj: enforce fs.deny for query-bearing requests.
+  # Remove after 2026-11-04T05:35:48.976Z (14 days after publication).
+  - "vite@6.4.5"
+  # GHSA-g3hv-75wg-m249: bound glob preprocessing and use the safe matcher.
+  # Remove after 2026-11-10T22:26:03.755Z (14 days after latest publication).
+  - "minimatch@11.0.1"
+  - "@isaacs/nonrecursive-glob-match@1.0.1"
+  # GHSA-mrhx-c7xc-m3w5: bound validation of oversized collections.
+  # Remove after 2026-10-25T16:18:23.878Z (14 days after publication).
+  - "zod@4.6.6"
+  # GHSA-jr5w-w6x2-84p9: distrust compromised intermediate certificates.
+  # Remove after 2026-11-03T02:53:45.996Z (14 days after publication).
+  - "electron@42.11.16"
+  # GHSA-834v-8h66-3h79: validate imported local bindings before compilation.
+  # Remove after 2026-11-03T18:05:53.295Z (14 days after publication).
+  - "happy-dom@21.0.4"
+  # GHSA-w74x-v6f9-j3xg, GHSA-xhq7-xmqj-769h, GHSA-wjr9-j795-jxcr,
+  # GHSA-333x-w4r6-6crp: fix URI scheme, host and path normalization.
+  # Remove after 2026-11-02T23:05:26.357Z (14 days after publication).
+  - "fast-uri@3.1.9"
+  # GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472, GHSA-xjj6-f33q-929c.
+  # Remove after 2026-10-29T15:05:34.415Z (14 days after the latest publication).
+  - "undici@6.29.1 || 7.30.1 || 8.12.2"
+  # GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp: keep the fixed Vitest suite aligned.
+  # Remove after 2026-10-29T15:00:00Z (14 days after publication).
+  - "vitest@4.1.12"
+  - "@vitest/coverage-v8@4.1.12"
+  - "@vitest/expect@4.1.12"
+  - "@vitest/mocker@4.1.12"
+  - "@vitest/pretty-format@4.1.12"
+  - "@vitest/runner@4.1.12"
+  - "@vitest/snapshot@4.1.12"
+  - "@vitest/spy@4.1.12"
+  - "@vitest/utils@4.1.12"
+  # GHSA-r7fv-28h4-cvq7, GHSA-gfr2-rv44-r23c, GHSA-vfgh-jcmw-g37q.
+  # Remove after 2026-10-30T01:47:54.675Z (14 days after publication).
+  - "markdown-it@14.3.3"
+  # GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f.
+  # Remove after 2026-10-26T12:41:28.880Z (14 days after publication).
+  - "dompurify@3.4.17"
+  # GHSA-ch52-4w7c-c8xp: 4.3.0 is outside the published affected range,
+  # but still needs the local max-stale patch declared below.
+  # Remove after 2026-10-18T02:56:05.593Z (14 days after publication).
+  - "http-cache-semantics@4.3.0"
+  # GHSA-68fv-2mgg-jv7q: reject pathological indexed source-map offsets.
+  # Remove after 2026-10-14T14:08:09.382Z (14 days after publication).
+  - "source-map-js@1.2.2"
+  # GHSA-wq5f-xc86-pv6w: include the fixed librsvg in every native bundle.
+  # Remove after 2026-10-11T13:46:24.509Z (14 days after publication).
+  - "sharp@0.35.5"
+  - "@img/sharp-darwin-arm64@0.35.5"
+  - "@img/sharp-darwin-x64@0.35.5"
+  - "@img/sharp-freebsd-wasm32@0.35.5"
+  - "@img/sharp-linux-arm@0.35.5"
+  - "@img/sharp-linux-arm64@0.35.5"
+  - "@img/sharp-linux-ppc64@0.35.5"
+  - "@img/sharp-linux-riscv64@0.35.5"
+  - "@img/sharp-linux-s390x@0.35.5"
+  - "@img/sharp-linux-x64@0.35.5"
+  - "@img/sharp-linuxmusl-arm64@0.35.5"
+  - "@img/sharp-linuxmusl-x64@0.35.5"
+  - "@img/sharp-wasm32@0.35.5"
+  - "@img/sharp-webcontainers-wasm32@0.35.5"
+  - "@img/sharp-win32-arm64@0.35.5"
+  - "@img/sharp-win32-ia32@0.35.5"
+  - "@img/sharp-win32-x64@0.35.5"
+  - "@img/sharp-libvips-darwin-arm64@1.3.4"
+  - "@img/sharp-libvips-darwin-x64@1.3.4"
+  - "@img/sharp-libvips-linux-arm@1.3.4"
+  - "@img/sharp-libvips-linux-arm64@1.3.4"
+  - "@img/sharp-libvips-linux-ppc64@1.3.4"
+  - "@img/sharp-libvips-linux-riscv64@1.3.4"
+  - "@img/sharp-libvips-linux-s390x@1.3.4"
+  - "@img/sharp-libvips-linux-x64@1.3.4"
+  - "@img/sharp-libvips-linuxmusl-arm64@1.3.4"
+  - "@img/sharp-libvips-linuxmusl-x64@1.3.4"
   # First-party dependency, published from a repository we control
   # (github.com/edjubert/celeritty). The 14-day soak exists to catch a
   # compromised upstream release; it does not apply to a package whose
@@ -25,41 +105,78 @@ trustPolicy: no-downgrade
 trustPolicyIgnoreAfter: 525600
 
 overrides:
+  # CodeMirror extensions and Lezer parsers share state, facets, props and tags.
+  # Duplicate copies crash editor creation or silently drop highlighting.
+  # Keep direct and transitive consumers on the same release.
+  "@codemirror/language": 6.13.1
+  "@codemirror/state": 6.7.6
+  "@codemirror/view": 6.43.14
+  "@lezer/common": 1.5.3
+  "@lezer/highlight": 1.2.5
+  # Apply the HTML tag-closing fix inside Markdown as well as standalone HTML.
+  "@codemirror/lang-markdown>@codemirror/lang-html": 6.4.12
   "@stoplight/spectral-functions": 1.10.2
   "@stoplight/spectral-rulesets": 1.22.2
   "@xmldom/xmldom@>=0.8.0 <0.8.15": 0.8.15
   "baseline-browser-mapping@>=2.0.0 <2.11.0": 2.11.0
-  "brace-expansion@>=1.0.0 <1.1.18": 1.1.18
-  "brace-expansion@>=2.0.0 <2.1.4": 2.1.4
-  "brace-expansion@>=5.0.0 <5.0.9": 5.0.9
+  "brace-expansion@>=1.0.0 <1.1.21": 1.1.21
+  "brace-expansion@>=2.0.0 <2.1.7": 2.1.7
+  "brace-expansion@>=5.0.0 <5.0.12": 5.0.12
   "browserslist@>=4.0.0 <4.28.7": 4.28.7
-  "dompurify@>=3.0.0 <3.4.13": 3.4.13
-  "fast-uri@>=3.0.0 <3.1.7": 3.1.7
+  "devalue@>=5.0.0 <5.9.3": 5.9.3
+  "dompurify@>=3.0.0 <3.4.17": 3.4.17
+  "fast-uri@>=3.0.0 <3.1.9": 3.1.9
+  "follow-redirects@>=1.16.0 <1.16.2": 1.16.2
+  # global-agent v4 preserves bootstrap() and removes roarr/sprintf-js,
+  # which has no published fix for GHSA-hp3w-g68c-fv3c.
+  "@electron/get@3>global-agent": 4.1.3
+  # Keep the security patch below until upstream fixes restricted cache reuse.
+  "http-cache-semantics@>=4.0.0 <4.3.0": 4.3.0
   "immutable@>=4.0.0 <4.3.9": 4.3.9
   "js-yaml@>=4.0.0 <4.3.2": 4.3.2
+  "katex@>=0.11.0 <0.18.2": 0.18.2
   "linkify-it@>=5.0.0 <5.0.2": 5.0.2
   "lodash-es@>=4.0.0 <4.18.0": 4.18.0
-  "markdown-it@>=14.0.0 <14.2.0": 14.2.0
+  "markdown-it@>=14.0.0 <14.3.3": 14.3.3
+  # Legacy default-import consumers are adapted by the patches below.
+  "minimatch@<11.0.1": 11.0.1
   "nanoid@>=3.0.0 <3.3.18": 3.3.18
   # Upstream pins vulnerable Nano ID 4.0.2 exactly. Scope the required v5
   # replacement to its ESM consumer instead of rewriting every Nano ID edge.
   "@excalidraw/mermaid-to-excalidraw@2.2.2>nanoid": 5.1.16
   "postcss@>=8.0.0 <8.5.23": 8.5.23
-  "sharp@>=0.35.0 <0.35.4": 0.35.4
-  "smol-toml@>=1.0.0 <1.7.1": 1.7.1
+  # Excalidraw pins Sass 1.51.0, pulling in chokidar 3 and unpatched braces
+  # (GHSA-vfj7-8cjw-p6xm). A modern Sass removes that dependency chain.
+  "@excalidraw/excalidraw@0.18.1>sass": 1.104.0
+  "seroval@>=0.12.0 <1.6.11": 1.6.11
+  "sharp@>=0.35.0 <0.35.5": 0.35.5
+  "smol-toml@>=1.0.0 <1.9.0": 1.9.0
+  "source-map-js@>=1.0.0 <1.2.2": 1.2.2
   "svgo@>=4.0.0 <4.1.0": 4.1.0
   "tar@>=7.0.0 <=7.5.20": 7.5.21
-  "undici@>=6.0.0 <6.28.0": 6.28.0
-  "undici@>=7.0.0 <7.29.0": 7.29.0
+  "tinypool@>=2.0.0 <2.1.2": 2.1.2
+  "undici@>=6.0.0 <6.29.1": 6.29.1
+  "undici@>=7.0.0 <7.30.1": 7.30.1
+  "undici@>=8.0.0 <8.12.2": 8.12.2
+  "vite@>=6.0.0 <6.4.5": 6.4.5
+  "vite@>=8.0.0 <8.1.6": 8.1.6
   volar-service-yaml: 0.0.71
+  "zod@>=4.0.0 <4.6.6": 4.6.6
 
 allowBuilds:
   # Keep dependency lifecycle scripts disabled by default. If a package truly
   # needs install-time native setup, review it explicitly before flipping it.
+  "@parcel/watcher": true
   electron-winstaller: false
   esbuild: false
   msw: false
   sharp: false
 
 patchedDependencies:
-  '@pierre/trees@1.0.0-beta.4': patches/@pierre__trees@1.0.0-beta.4.patch
+  "@pierre/trees@1.0.0-beta.4": patches/@pierre__trees@1.0.0-beta.4.patch
+  http-cache-semantics@4.3.0: patches/http-cache-semantics@4.3.0.patch
+  # Use the named minimatch export with the security-fixed v11 implementation.
+  "@electron/asar@3.4.1": patches/@electron__asar@3.4.1.patch
+  "dir-compare@4.2.0": patches/dir-compare@4.2.0.patch
+  # Glob 7 walks minimatch.set directly; v11 entries are safe Matcher objects.
+  "glob@7.2.3": patches/glob@7.2.3.patch

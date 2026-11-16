@@ -1,0 +1,160 @@
+name: Release a crate to crates.io
+
+# Manual release of the independently versioned public crates. Bump the
+# crate's `version` in its Cargo.toml on main first; this workflow refuses a
+# version that is already on crates.io.
+#
+# Publishing uses the `CARGO_REGISTRY_TOKEN` secret of the `crates-io`
+# environment, whose required reviewers gate every real publish. After a
+# crate's first publish, crates.io trusted publishing (OIDC, with
+# rust-lang/crates-io-auth-action and `id-token: write`) can replace the
+# long-lived token.
+#
+# The publish job uploads with `--no-verify`, so no build runs while
+# `CARGO_REGISTRY_TOKEN` is in the environment (dependency build scripts
+# never see it). The verification build is the check job's
+# `publish --dry-run`, on the same commit: both jobs check out the run's
+# `github.sha` (a fixed commit, never a branch that could move in between).
+
+on:
+  workflow_dispatch:
+    inputs:
+      crate:
+        description: Crate to release
+        required: true
+        type: choice
+        options:
+          - cadencr-tab-backend
+          - cadencr-provider-sdk
+      dry_run:
+        description: Package and verify only, without uploading or tagging
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-release-${{ inputs.crate }}
+  cancel-in-progress: false
+
+env:
+  CRATE: ${{ inputs.crate }}
+  CARGO_INCREMENTAL: "0"
+  # crates.io rejects API requests without an identifying User-Agent.
+  CRATES_IO_USER_AGENT: "CadencR crates release (https://github.com/merkr-software/CadencR)"
+
+jobs:
+  check:
+    name: Test and verify ${{ inputs.crate }}
+    if: github.repository == 'merkr-software/CadencR'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # actions/setup-node@v7.1.0 (only to run the cargo wrapper)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - name: Read the crate version
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(node scripts/cargo-env.mjs cargo metadata --locked --no-deps --format-version 1 \
+            | jq -r --arg crate "$CRATE" '.packages[] | select(.name == $crate) | .version')
+          echo "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' \
+            || { echo "::error::cannot read a semver version for $CRATE (got '$version')"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "$CRATE $version"
+
+      - name: Refuse a version already on crates.io
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -A "$CRATES_IO_USER_AGENT" \
+            "https://crates.io/api/v1/crates/$CRATE/$VERSION")
+          case "$status" in
+            404) echo "$CRATE $VERSION is not published yet" ;;
+            200) echo "::error::$CRATE $VERSION is already on crates.io; bump the version first"; exit 1 ;;
+            # Anything else is not a definitive answer: fail closed.
+            *) echo "::error::crates.io answered HTTP $status"; exit 1 ;;
+          esac
+
+      - name: Test
+        run: node scripts/cargo-env.mjs cargo test --locked -p "$CRATE" --all-features
+
+      - name: Clippy
+        run: node scripts/cargo-env.mjs cargo clippy --locked -p "$CRATE" --all-features --all-targets -- -D warnings
+
+      - name: Package and verify (dry run)
+        run: node scripts/cargo-env.mjs cargo publish --locked --dry-run -p "$CRATE"
+
+  publish:
+    name: Publish ${{ inputs.crate }} ${{ needs.check.outputs.version }}
+    needs: check
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: crates-io
+    permissions:
+      # Only to create the release tag.
+      contents: write
+    steps:
+      # actions/checkout@v7.0.1 — the commit the check job verified.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # actions/setup-node@v7.1.0 (only to run the cargo wrapper)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - name: Refuse an existing release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.crate }}-v${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          # An API error other than a definitive 404 must fail closed.
+          if status=$(gh api --include "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2>&1); then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+          printf '%s\n' "$status" | grep -q 'HTTP 404' || { printf '%s\n' "$status"; exit 1; }
+
+      # Verified by the check job's dry run on this same commit; nothing is
+      # built while the token is set.
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: node scripts/cargo-env.mjs cargo publish --locked --no-verify -p "$CRATE"
+
+      - name: Tag the published source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.crate }}-v${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$GITHUB_SHA"
+          echo "Published $CRATE and tagged $TAG at $GITHUB_SHA"

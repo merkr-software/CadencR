@@ -3,14 +3,34 @@ import { create } from "zustand";
 import {
   EMPTY_LAYOUT_STATE,
   flatLayoutState,
+  isPluginTabKind,
+  isTabKind,
   ROOT_LEAF_ID,
   type FeatureLayoutState,
   type LayoutLeaf,
   type LayoutNode,
-  type LayoutSplit,
-  type SplitOrientation,
   type TabKind,
 } from "./feature-layout-schema";
+import {
+  findLeafById,
+  findPaneContaining,
+  getFirstLeafId,
+  getLeaves,
+  isPopLeaf,
+  makeLeaf,
+  mapLeaf,
+  mapSplitsAtPath,
+  pluckTab,
+  setLeafPop,
+  splitLeafAt,
+  survivingFocus,
+  withFocus,
+  type SplitEdge,
+  type SplitPath,
+} from "./feature-layout-tree";
+import { rememberAutoShares } from "./feature-layout-reveal";
+
+export { findLeafById, findPaneContaining, getLeaves, type SplitEdge, type SplitPath };
 
 /**
  * Per-feature layout state, keyed by feature id. Modeled after `editor-store.ts`
@@ -25,141 +45,6 @@ import {
  */
 
 // ---------------------------------------------------------------------------
-// Tree helpers (mirrors patterns from editor-store.ts)
-// ---------------------------------------------------------------------------
-
-export type SplitEdge = "top" | "right" | "bottom" | "left";
-export type SplitPath = ReadonlyArray<0 | 1>;
-
-export function getLeaves(node: LayoutNode): LayoutLeaf[] {
-  if (node.type === "leaf") return [node];
-  return [...getLeaves(node.children[0]), ...getLeaves(node.children[1])];
-}
-
-export function findLeafById(node: LayoutNode, leafId: string): LayoutLeaf | null {
-  if (node.type === "leaf") return node.id === leafId ? node : null;
-  return findLeafById(node.children[0], leafId) ?? findLeafById(node.children[1], leafId);
-}
-
-export function findPaneContaining(node: LayoutNode, tab: TabKind): LayoutLeaf | null {
-  if (node.type === "leaf") return node.tabIds.includes(tab) ? node : null;
-  return findPaneContaining(node.children[0], tab) ?? findPaneContaining(node.children[1], tab);
-}
-
-function edgeToSplit(edge: SplitEdge): { orientation: SplitOrientation; newAtIndex: 0 | 1 } {
-  switch (edge) {
-    case "top":
-      return { orientation: "vertical", newAtIndex: 0 };
-    case "bottom":
-      return { orientation: "vertical", newAtIndex: 1 };
-    case "left":
-      return { orientation: "horizontal", newAtIndex: 0 };
-    case "right":
-      return { orientation: "horizontal", newAtIndex: 1 };
-  }
-}
-
-function splitLeafAt(
-  node: LayoutNode,
-  targetLeafId: string,
-  edge: SplitEdge,
-  newLeaf: LayoutLeaf,
-): LayoutNode {
-  if (node.type === "leaf") {
-    if (node.id !== targetLeafId) return node;
-    const { orientation, newAtIndex } = edgeToSplit(edge);
-    const children: [LayoutNode, LayoutNode] = newAtIndex === 0 ? [newLeaf, node] : [node, newLeaf];
-    return { type: "split", orientation, children };
-  }
-  const [a, b] = node.children;
-  const newA = splitLeafAt(a, targetLeafId, edge, newLeaf);
-  if (newA !== a) return { ...node, children: [newA, b] };
-  const newB = splitLeafAt(b, targetLeafId, edge, newLeaf);
-  if (newB !== b) return { ...node, children: [a, newB] };
-  return node;
-}
-
-/**
- * Remove a leaf by id; collapses parent split when one side empties.
- * The root leaf is *kept* even when empty — caller code must not pass it
- * as a removal target.
- */
-function removeLeafById(node: LayoutNode, leafId: string): LayoutNode {
-  if (node.type === "leaf") {
-    // We never reach here with the root id (caller guards), but be defensive.
-    return node;
-  }
-  const [a, b] = node.children;
-  if (a.type === "leaf" && a.id === leafId) return b;
-  if (b.type === "leaf" && b.id === leafId) return a;
-  const newA = removeLeafById(a, leafId);
-  const newB = removeLeafById(b, leafId);
-  if (newA === a && newB === b) return node;
-  return { ...node, children: [newA, newB] };
-}
-
-function mapLeaf(
-  node: LayoutNode,
-  leafId: string,
-  fn: (leaf: LayoutLeaf) => LayoutLeaf,
-): LayoutNode {
-  if (node.type === "leaf") return node.id === leafId ? fn(node) : node;
-  const [a, b] = node.children;
-  const newA = mapLeaf(a, leafId, fn);
-  if (newA !== a) return { ...node, children: [newA, b] };
-  const newB = mapLeaf(b, leafId, fn);
-  if (newB !== b) return { ...node, children: [a, newB] };
-  return node;
-}
-
-function mapSplitsAtPath(
-  node: LayoutNode,
-  path: SplitPath,
-  depth: number,
-  fn: (split: LayoutSplit) => LayoutSplit,
-): LayoutNode {
-  if (node.type === "leaf") return node;
-  if (depth === path.length) return fn(node);
-  const idx = path[depth];
-  const child = node.children[idx];
-  const newChild = mapSplitsAtPath(child, path, depth + 1, fn);
-  if (newChild === child) return node;
-  const newChildren: [LayoutNode, LayoutNode] = [...node.children];
-  newChildren[idx] = newChild;
-  return { ...node, children: newChildren };
-}
-
-function makeLeaf(tabs: TabKind[], active: TabKind): LayoutLeaf {
-  return {
-    type: "leaf",
-    id:
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2),
-    tabIds: tabs,
-    activeTabId: active,
-  };
-}
-
-/**
- * Strip a tab from the entire tree. Non-root leaves collapse when empty.
- * The root leaf stays (possibly empty).
- */
-function pluckTab(root: LayoutNode, tab: TabKind): LayoutNode {
-  const containing = findPaneContaining(root, tab);
-  if (containing === null) return root;
-  const remainingTabs = containing.tabIds.filter((t) => t !== tab);
-  if (remainingTabs.length === 0 && containing.id !== ROOT_LEAF_ID) {
-    return removeLeafById(root, containing.id);
-  }
-  return mapLeaf(root, containing.id, (leaf) => {
-    const nextActive: TabKind | null =
-      leaf.activeTabId === tab ? (remainingTabs[0] ?? null) : leaf.activeTabId;
-    return { ...leaf, tabIds: remainingTabs, activeTabId: nextActive };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
@@ -172,18 +57,42 @@ interface FeatureLayoutStore {
   // ---- moves ----
   /** Drag a tab onto a pane edge; creates a new sibling pane next to `targetPaneId`. */
   splitTabAt(featureId: number, tab: TabKind, targetPaneId: string, edge: SplitEdge): void;
-  /** Drop a tab into an existing pane (center drop or strip insertion). */
-  moveTabToPane(featureId: number, tab: TabKind, targetPaneId: string, index?: number): void;
-  /** Convenience: move a tab back to the root pane's strip. */
-  dockTab(featureId: number, tab: TabKind, index?: number): void;
+  /**
+   * Drop a tab into an existing pane (center drop or strip insertion). With
+   * `activate: false` the pane keeps its current tab unless it had none.
+   */
+  moveTabToPane(
+    featureId: number,
+    tab: TabKind,
+    targetPaneId: string,
+    options?: { index?: number; activate?: boolean },
+  ): void;
+  /** Move a tab back to the root strip; the root takes focus but keeps its active tab. */
+  dockTab(featureId: number, tab: TabKind): void;
+  /**
+   * Place a tab that isn't in the layout yet (a plugin tab): appended to
+   * `opts.paneId` when that pane exists, else the focused pane, else root.
+   * Activates it (and focuses its pane) unless `activate: false`. A tab that is
+   * already placed is just activated where it is.
+   */
+  addTab(featureId: number, tab: TabKind, opts?: AddTabOptions): void;
+  /** Take a plugin tab out of the layout. Built-ins can't be removed (no-op). */
+  removeTab(featureId: number, tab: TabKind): void;
   /** Set which tab is shown inside a pane's strip. */
   setPaneActiveTab(featureId: number, paneId: string, tab: TabKind): void;
+  /** Make a non-root pane a pop pane (folded to its header until focused), or pin it open again. */
+  setPanePop(featureId: number, paneId: string, pop: boolean): void;
   // ---- resize ----
   setSplitSizes(featureId: number, splitPath: SplitPath, sizes: [number, number]): void;
   // ---- focus ----
   setFocusedPane(featureId: number, paneId: string | null): void;
   // ---- saved layouts metadata ----
   setAppliedLayoutId(featureId: number, layoutId: number | null): void;
+}
+
+export interface AddTabOptions {
+  paneId?: string;
+  activate?: boolean;
 }
 
 function update(
@@ -207,7 +116,11 @@ export const useFeatureLayoutStore = create<FeatureLayoutStore>((set, get) => ({
   setState: (featureId, state) => set((s) => ({ features: { ...s.features, [featureId]: state } })),
 
   resetToFlat: (featureId) =>
-    set((s) => ({ features: { ...s.features, [featureId]: flatLayoutState() } })),
+    set((s) => {
+      // Resetting is about panes: auto layout's size memory survives it.
+      const autoShares = s.features[featureId]?.autoShares;
+      return { features: { ...s.features, [featureId]: { ...flatLayoutState(), autoShares } } };
+    }),
 
   ensureInitialized: (featureId) => {
     const existing = get().features[featureId];
@@ -235,7 +148,7 @@ export const useFeatureLayoutStore = create<FeatureLayoutStore>((set, get) => ({
       return { ...st, splitRoot, focusedPaneId: newLeaf.id };
     }),
 
-  moveTabToPane: (featureId, tab, targetPaneId, index) =>
+  moveTabToPane: (featureId, tab, targetPaneId, { index, activate = true } = {}) =>
     update(set, featureId, (st) => {
       const after = pluckTab(st.splitRoot, tab);
       const target = findLeafById(after, targetPaneId);
@@ -244,23 +157,37 @@ export const useFeatureLayoutStore = create<FeatureLayoutStore>((set, get) => ({
         const at = index ?? leaf.tabIds.length;
         const tabIds = [...leaf.tabIds];
         tabIds.splice(at, 0, tab);
-        return { ...leaf, tabIds, activeTabId: tab };
+        return { ...leaf, tabIds, activeTabId: activate ? tab : (leaf.activeTabId ?? tab) };
       });
       return { ...st, splitRoot, focusedPaneId: targetPaneId };
     }),
 
-  dockTab: (featureId, tab, index) => get().moveTabToPane(featureId, tab, ROOT_LEAF_ID, index),
+  addTab: (featureId, tab, opts) =>
+    update(set, featureId, (st) => (isTabKind(tab) ? withTabAdded(st, tab, opts) : st)),
+
+  removeTab: (featureId, tab) =>
+    update(set, featureId, (st) => {
+      if (!isPluginTabKind(tab)) return st;
+      const splitRoot = pluckTab(st.splitRoot, tab);
+      if (splitRoot === st.splitRoot) return st;
+      return {
+        ...st,
+        splitRoot,
+        focusedPaneId: survivingFocus(splitRoot, st.focusedPaneId, ROOT_LEAF_ID),
+      };
+    }),
+
+  // Docking puts a tab back where it came from; it is not a request to look at it.
+  dockTab: (featureId, tab) =>
+    get().moveTabToPane(featureId, tab, ROOT_LEAF_ID, { activate: false }),
 
   setPaneActiveTab: (featureId, paneId, tab) =>
+    update(set, featureId, (st) => withPaneActiveTab(st, paneId, tab)),
+
+  setPanePop: (featureId, paneId, pop) =>
     update(set, featureId, (st) => {
-      const splitRoot = mapLeaf(st.splitRoot, paneId, (leaf) =>
-        leaf.tabIds.includes(tab) && leaf.activeTabId !== tab
-          ? { ...leaf, activeTabId: tab }
-          : leaf,
-      );
-      // Skip the rebuild entirely if neither the active tab nor focus changed.
-      if (splitRoot === st.splitRoot && st.focusedPaneId === paneId) return st;
-      return { ...st, splitRoot, focusedPaneId: paneId };
+      const splitRoot = setLeafPop(st.splitRoot, paneId, pop);
+      return splitRoot === st.splitRoot ? st : { ...st, splitRoot };
     }),
 
   setSplitSizes: (featureId, splitPath, sizes) =>
@@ -269,7 +196,7 @@ export const useFeatureLayoutStore = create<FeatureLayoutStore>((set, get) => ({
         ...split,
         sizes,
       }));
-      return { ...st, splitRoot };
+      return rememberAutoShares({ ...st, splitRoot }, splitPath);
     }),
 
   setFocusedPane: (featureId, paneId) =>
@@ -281,8 +208,37 @@ export const useFeatureLayoutStore = create<FeatureLayoutStore>((set, get) => ({
     update(set, featureId, (st) => ({ ...st, appliedLayoutId: layoutId })),
 }));
 
-function getFirstLeafId(node: LayoutNode): string {
-  return node.type === "leaf" ? node.id : getFirstLeafId(node.children[0]);
+function withPaneActiveTab(
+  st: FeatureLayoutState,
+  paneId: string,
+  tab: TabKind,
+): FeatureLayoutState {
+  const splitRoot = mapLeaf(st.splitRoot, paneId, (leaf) =>
+    leaf.tabIds.includes(tab) && leaf.activeTabId !== tab ? { ...leaf, activeTabId: tab } : leaf,
+  );
+  // Skip the rebuild entirely if neither the active tab nor focus changed.
+  if (splitRoot === st.splitRoot && st.focusedPaneId === paneId) return st;
+  return { ...st, splitRoot, focusedPaneId: paneId };
+}
+
+/** `addTab` as a pure function, for a caller that saves the layout before applying it. */
+export function withTabAdded(
+  st: FeatureLayoutState,
+  tab: TabKind,
+  opts: AddTabOptions = {},
+): FeatureLayoutState {
+  const activate = opts.activate ?? true;
+  const host = findPaneContaining(st.splitRoot, tab);
+  if (host) return activate ? withPaneActiveTab(st, host.id, tab) : st;
+  const requested = opts.paneId ? findLeafById(st.splitRoot, opts.paneId) : null;
+  const targetId = (requested ?? getFocusedLeaf(st))?.id ?? ROOT_LEAF_ID;
+  const splitRoot = mapLeaf(st.splitRoot, targetId, (leaf) => ({
+    ...leaf,
+    tabIds: [...leaf.tabIds, tab],
+    // Even unactivated, a tab landing in an empty pane is what it shows.
+    activeTabId: activate ? tab : (leaf.activeTabId ?? tab),
+  }));
+  return withFocus(st, splitRoot, targetId, activate);
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +270,13 @@ export function activateFeatureTab(featureId: number, tab: TabKind): boolean {
   return true;
 }
 
+/** Id of the feature's focused pane (see `getFocusedLeaf`). */
+export function useFocusedPaneId(featureId: number): string {
+  return useFeatureLayoutStore(
+    (s) => getFocusedLeaf(selectFeatureLayout(featureId)(s))?.id ?? ROOT_LEAF_ID,
+  );
+}
+
 /** Pane whose active tab should be treated as globally focused. */
 export function getFocusedLeaf(state: FeatureLayoutState): LayoutLeaf | null {
   const focusedLeaf = state.focusedPaneId
@@ -332,8 +295,30 @@ export function getFocusedTab(state: FeatureLayoutState): TabKind | null {
   return getFocusedLeaf(state)?.activeTabId ?? null;
 }
 
-/** Whether the given tab is currently visible (it's the host pane's active tab). */
+/** Whether a pop pane is folded to its header: it pops only while it holds focus. */
+export function isPopCollapsed(state: FeatureLayoutState, paneId: string): boolean {
+  return isPopLeaf(state.splitRoot, paneId) && getFocusedLeaf(state)?.id !== paneId;
+}
+
+/**
+ * Whether the agent is the only open pane of a split layout: the root pane
+ * shows it and every other pane is a folded pop pane.
+ */
+export function isAgentAlone(state: FeatureLayoutState): boolean {
+  const leaves = getLeaves(state.splitRoot);
+  return (
+    leaves.length > 1 &&
+    leaves.every((leaf) =>
+      leaf.id === ROOT_LEAF_ID ? leaf.activeTabId === "agent" : isPopCollapsed(state, leaf.id),
+    )
+  );
+}
+
+/**
+ * Whether the given tab is currently visible: it's the host pane's active tab,
+ * and that pane isn't a folded pop pane.
+ */
 export function isTabVisible(state: FeatureLayoutState, tab: TabKind): boolean {
   const leaf = findPaneContaining(state.splitRoot, tab);
-  return leaf?.activeTabId === tab;
+  return leaf?.activeTabId === tab && !isPopCollapsed(state, leaf.id);
 }

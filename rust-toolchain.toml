@@ -1,0 +1,8 @@
+# Pinned so a new stable release can't turn `clippy -D warnings` red or reset
+# every Rust cache on its own; bump it deliberately in its own commit.
+# rustfmt + clippy make `pnpm --filter @cadencr/service run lint` /
+# `format:check` work everywhere, CI included.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

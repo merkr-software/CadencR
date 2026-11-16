@@ -18,7 +18,9 @@ impl ManagedStorage {
     }
 
     pub fn production() -> Self {
-        Self::new(settings_store::dir::sibling_dir("provider-installations"))
+        Self::new(settings_store::dir::data_sibling_dir(
+            "provider-installations",
+        ))
     }
 
     pub fn root(&self) -> &Path {
@@ -61,7 +63,7 @@ impl ManagedStorage {
         create_secure_dir(&root)?;
         let staging = root.join(uuid::Uuid::new_v4().to_string());
         std::fs::create_dir(&staging).map_err(|error| {
-            AppError::Internal(format!("create managed staging directory: {error}"))
+            AppError::internal(format!("create managed staging directory: {error}"))
         })?;
         set_private_directory(&staging)?;
         Ok(staging)
@@ -72,7 +74,10 @@ impl ManagedStorage {
     }
 
     pub fn catalog_cache_path(&self) -> PathBuf {
-        self.root.join("catalog.json")
+        crate::shared::registry_catalog_cache::path(
+            &self.root,
+            super::super::catalog::pinned_catalog_url(),
+        )
     }
 
     pub(crate) fn provider_ids(&self) -> Vec<String> {
@@ -114,7 +119,7 @@ fn validate_revision(revision: &ManagedRevision) -> Result<(), AppError> {
 
 pub(super) fn create_secure_dir(path: &Path) -> Result<(), AppError> {
     std::fs::create_dir_all(path)
-        .map_err(|error| AppError::Internal(format!("create {}: {error}", path.display())))?;
+        .map_err(|error| AppError::internal(format!("create {}: {error}", path.display())))?;
     set_private_directory(path)
 }
 
@@ -122,7 +127,7 @@ pub(super) fn create_secure_dir(path: &Path) -> Result<(), AppError> {
 fn set_private_directory(path: &Path) -> Result<(), AppError> {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-        .map_err(|error| AppError::Internal(format!("chmod {}: {error}", path.display())))
+        .map_err(|error| AppError::internal(format!("chmod {}: {error}", path.display())))
 }
 
 #[cfg(not(unix))]

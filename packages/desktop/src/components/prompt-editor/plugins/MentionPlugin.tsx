@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useId, useRef } from "react";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import { $createMentionNode } from "../nodes/MentionNode";
@@ -8,8 +8,8 @@ import {
   getTriggerMatch,
   replaceTriggerWithNode,
   usePopoverKeyboardCommands,
-  useCursorRect,
-  CursorPopover,
+  useComposerPopoverAnchor,
+  AnchoredPopover,
 } from "./trigger-utils";
 
 interface MentionPluginProps {
@@ -22,7 +22,7 @@ export function MentionPlugin({ projectId, featureId }: MentionPluginProps) {
   const mention = useFileMention({ projectId, featureId });
   const mentionRef = useRef(mention);
   mentionRef.current = mention;
-  const [cursorRect, updateCursorRect] = useCursorRect();
+  const listId = useId();
 
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
@@ -48,10 +48,9 @@ export function MentionPlugin({ projectId, featureId }: MentionPluginProps) {
         }
 
         m.handleChange(node.getTextContent(), anchor.offset);
-        updateCursorRect();
       });
     });
-  }, [editor, updateCursorRect]);
+  }, [editor]);
 
   const handleSelect = useCallback(
     (path: string) => {
@@ -65,21 +64,28 @@ export function MentionPlugin({ projectId, featureId }: MentionPluginProps) {
     return m.filteredItems.length > 0 ? m.filteredItems[m.selectedIndex].path : undefined;
   }, []);
 
-  usePopoverKeyboardCommands(editor, mention.isOpen, mentionRef, getSelectedValue, handleSelect);
+  usePopoverKeyboardCommands(
+    editor,
+    mention.isOpen,
+    mentionRef,
+    getSelectedValue,
+    handleSelect,
+    listId,
+  );
+  const popoverOpen = mention.isOpen && mention.filteredItems.length > 0;
+  const popoverAnchor = useComposerPopoverAnchor(editor, popoverOpen);
 
-  if (!mention.isOpen || mention.filteredItems.length === 0 || !cursorRect) return null;
+  if (!popoverOpen || !popoverAnchor) return null;
 
   return (
-    <CursorPopover cursorRect={cursorRect}>
+    <AnchoredPopover anchor={popoverAnchor}>
       <FileMentionPopover
-        open={true}
+        listId={listId}
         items={mention.filteredItems}
         selectedIndex={mention.selectedIndex}
         onSelect={handleSelect}
-        onClose={mention.close}
-      >
-        <span />
-      </FileMentionPopover>
-    </CursorPopover>
+        maxHeight={popoverAnchor.maxHeight}
+      />
+    </AnchoredPopover>
   );
 }

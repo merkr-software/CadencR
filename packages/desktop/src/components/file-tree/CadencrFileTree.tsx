@@ -16,6 +16,7 @@ import { useFileTreeIconSet, type FileTreeIconSet } from "@/hooks/useFileTreeIco
 import { useFileTreeShadowStylesheet } from "@/components/file-tree/useFileTreeShadowStylesheet";
 import { cn } from "@/lib/utils";
 import { resetFileTreePathsPreservingState } from "./cadencrFileTreeModel";
+import { CADENCR_FILE_TREE_BASE_CSS } from "./fileTreeBaseCss";
 export {
   buildPierreInputs,
   fromPierrePath,
@@ -131,7 +132,7 @@ export function useCadencrFileTree({
   initialSelectedPaths,
   initialExpansion,
   composition,
-  density,
+  density = "compact",
   stickyFolders,
   filesOnly = false,
   sort,
@@ -172,6 +173,7 @@ export function useCadencrFileTree({
       onSelectionChange: (selectedPaths) => onSelectionChangeRef.current?.(selectedPaths),
       renderRowDecoration: (context) => renderRowDecorationRef.current?.(context) ?? null,
       icons: effectiveIconSet,
+      unsafeCSS: CADENCR_FILE_TREE_BASE_CSS,
     }),
     // We intentionally only seed once. Updates flow through model methods
     // (see effects below) so we don't tear down and re-create the model.

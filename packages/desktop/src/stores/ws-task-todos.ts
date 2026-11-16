@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isTaskTodoTool } from "@/lib/tool-adapter";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 import type { TodoItem } from "@/types/agent";

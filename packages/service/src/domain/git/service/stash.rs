@@ -10,7 +10,7 @@ use crate::domain::git::models::{
 use crate::domain::git::mutation_guard::{GitMutationGuardError, GitMutationPermit};
 use crate::error::AppError;
 
-use super::resolve_feature_git_path;
+use super::{resolve_feature_git_dir, resolve_feature_git_path};
 
 pub async fn list_stashes(
     state: &AppState,
@@ -80,19 +80,21 @@ async fn acquire_stash_permits(
     state: &AppState,
     feature_id: i64,
 ) -> Result<(PathBuf, StashMutationPermits), AppError> {
-    let git_path = resolve_feature_git_path(state, feature_id)
+    // Stash commands name no repository-relative paths; they run in the
+    // feature's own directory, the key its post-write refresh needs.
+    let repo = resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    let repo = PathBuf::from(git_path);
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
+        .cwd;
     let worktree = state
         .git_mutations
         .try_acquire(&repo)
-        .map_err(map_guard_error)?;
+        .map_err(|error| map_guard_error(error))?;
     let common_dir = commands::stash::stash_common_dir(&repo).await?;
     let repository = state
         .git_mutations
         .try_acquire(&common_dir)
-        .map_err(map_guard_error)?;
+        .map_err(|error| map_guard_error(error))?;
     Ok((
         repo,
         StashMutationPermits {
@@ -102,11 +104,12 @@ async fn acquire_stash_permits(
     ))
 }
 
+#[track_caller]
 fn map_guard_error(error: GitMutationGuardError) -> AppError {
     match error {
         GitMutationGuardError::Busy { .. } => AppError::Conflict(error.to_string()),
         GitMutationGuardError::InvalidWorktree { .. } => AppError::BadRequest(error.to_string()),
-        GitMutationGuardError::RegistryUnavailable => AppError::Internal(error.to_string()),
+        GitMutationGuardError::RegistryUnavailable => AppError::internal(error.to_string()),
     }
 }
 

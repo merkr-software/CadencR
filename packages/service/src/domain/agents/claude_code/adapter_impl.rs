@@ -7,22 +7,27 @@ use std::path::Path;
 use super::catalog::fallback_models;
 use super::custom_models;
 use super::events::context_window_for_model_from_raw;
-use super::prompt_receipts::ClaudePromptReceipts;
-use super::session::{
-    map_mcp_server_config, map_permission_mode, ClaudeCanUseToolAdapter, ClaudeCodeSession,
-};
 use super::worktree_config;
 use super::{ClaudeCodeAdapter, CLAUDE_CODE_ADAPTER};
 use crate::domain::agents::adapter::{
     static_config_paths, AgentRuntimeAdapter, AgentRuntimeSession, RuntimeError, RuntimeEvent,
-    RuntimePermissionMode, RuntimePromptCommandPlacement, RuntimePromptCommandPolicy,
-    RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSlashCommandKind, RuntimeSpawnConfig,
-    RuntimeUserShellStrategy,
+    RuntimePermissionMode, RuntimePermissionResponseRoute, RuntimePromptCommandPlacement,
+    RuntimePromptCommandPolicy, RuntimeSkillReferenceTrigger, RuntimeSlashCommand,
+    RuntimeSpawnConfig, RuntimeUserShellStrategy,
 };
 use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry, ProviderStatus};
 
 #[async_trait]
 impl AgentRuntimeAdapter for ClaudeCodeAdapter {
+    async fn bypass_permission_opt_in(
+        &self,
+        pool: &SqlitePool,
+        feature_id: i64,
+        project_id: Option<i64>,
+    ) -> Option<bool> {
+        Some(super::bypass_permissions::enabled(pool, Some(feature_id), project_id).await)
+    }
+
     async fn profile_catalog(
         &self,
         _cwd: Option<&Path>,
@@ -76,6 +81,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
+            refresh_error: None,
             models,
             modes: Vec::new(),
             access_modes: Vec::new(),
@@ -100,6 +106,13 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         static_config_paths(worktree_config::CONFIG_PATHS)
     }
 
+    fn resume_command(&self) -> Option<crate::domain::agents::runtime::ProviderResumeCommand> {
+        Some(crate::domain::agents::runtime::ProviderResumeCommand::new(
+            "claude",
+            &["--resume", "{session_id}"],
+        ))
+    }
+
     fn supports_builtin_compact_command(&self) -> bool {
         false
     }
@@ -108,46 +121,42 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         true
     }
 
-    fn uses_legacy_permission_channel_on_response_error(&self) -> bool {
-        true
+    /// Claude Code blocks inside the `can_use_tool` callback until the
+    /// user's answer for that control request id is routed to it.
+    fn permission_response_route(&self) -> RuntimePermissionResponseRoute {
+        RuntimePermissionResponseRoute::PermissionCallback
     }
 
     async fn runtime_slash_commands(
         &self,
         cwd: &str,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-        // Filesystem entries are cwd-specific and re-scanned per call;
-        // built-ins are cwd-invariant and cached. The two probes are
-        // independent, so run them concurrently. Filesystem entries come
-        // first so `resolve_commands`'s downstream first-seen dedup keeps
-        // user-defined commands over identically-named built-ins.
-        let (filesystem, builtins) = tokio::join!(
-            claude_agent_sdk_rs::list_filesystem_commands(cwd),
-            self.load_builtin_slash_commands(),
-        );
-        let filesystem = filesystem.map_err(RuntimeError::from)?;
+        self.discover_runtime_slash_commands(cwd, None).await
+    }
 
-        let mut commands: Vec<RuntimeSlashCommand> = filesystem
-            .into_iter()
-            .map(|command| RuntimeSlashCommand {
-                name: command.name,
-                description: command.description,
-                kind: RuntimeSlashCommandKind::Command,
-            })
-            .collect();
-        commands.extend(builtins);
-        Ok(commands)
+    async fn runtime_slash_commands_for_profile(
+        &self,
+        cwd: &str,
+        profile: Option<&str>,
+    ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
+        self.discover_runtime_slash_commands(cwd, profile).await
     }
 
     fn supports_permission_mode(&self, mode: &RuntimePermissionMode) -> bool {
         // Claude Code accepts its SDK permission modes, but not provider-level
-        // collaboration modes such as Cursor Ask or OpenCode custom agents.
+        // collaboration modes such as Ask or OpenCode custom agents.
         !matches!(
             mode,
             RuntimePermissionMode::Ask | RuntimePermissionMode::OpenCodeAgent(_)
         )
     }
-    // Default edit mode maps to Claude Code's primary edit mode.
+
+    /// New sessions start in the classifier-backed `auto` mode, matching the
+    /// Claude Code CLI's own default; `spawn_mode_fallback` covers models
+    /// without auto support.
+    fn default_permission_mode_wire(&self) -> Cow<'static, str> {
+        Cow::Borrowed("auto")
+    }
 
     /// Post-plan-approval target: prefer the classifier-backed `auto` mode
     /// when the active model can run it (Sonnet 4.6+ / Opus 4.6+), fall back
@@ -182,6 +191,13 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         } else {
             None
         }
+    }
+
+    async fn spawn_mode_fallback(
+        &self,
+        config: &RuntimeSpawnConfig,
+    ) -> Option<RuntimePermissionMode> {
+        self.auto_spawn_fallback(config).await
     }
 
     async fn catalog_entry_live(&self) -> ProviderCatalogEntry {
@@ -254,7 +270,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
     /// Used by the model-switch path to reseed the session window instead of
     /// leaving the previous model's in place.
     async fn context_window_for_model(&self, model_id: &str) -> Option<u64> {
-        self.context_window_for_model_id(model_id)
+        self.learned_context_window(model_id)
     }
 
     fn context_window_for_event(
@@ -279,14 +295,14 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
 
         runtime_event.context_window().or_else(|| {
             // The init model id is fully qualified (it keeps the `[1m]` marker,
-            // unlike `message_start`), so it can be resolved exactly. This is
-            // what makes the *first* turn correct for a model whose id
-            // advertises nothing: without it the window stays unknown until the
-            // turn's `result` lands.
+            // unlike `message_start`), so it matches the learned windows'
+            // keys exactly. This is what scales the bar from the first event of
+            // a turn on any model a previous `result` already reported; a model
+            // never seen before stays unknown until this turn's `result`.
             runtime_event
                 .init()
                 .and_then(|init| init.model.as_deref())
-                .and_then(|model| self.context_window_for_model_id(model))
+                .and_then(|model| self.learned_context_window(model))
         })
     }
 
@@ -295,71 +311,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         content: Value,
         config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
-        // Resolve a stored bare alias (sonnet/opus/haiku) to the concrete model
-        // the active profile's catalog advertises. Under Bedrock/Vertex the
-        // bare alias is pinned by the CLI to a legacy version (e.g. `sonnet` →
-        // Sonnet 4.5), while the catalog/picker uses concrete ids. Probing with
-        // `config.env` (the active profile env) hits the same cache key the
-        // settings catalog populated, so this is a cache read in the common
-        // case. No-op under the default Anthropic backend, where the alias is
-        // itself the catalog id.
-        let model = match config.model {
-            Some(requested) => {
-                let catalog = self.load_models_with_env(config.env.clone()).await;
-                let resolved = super::model_alias::resolve_model_alias(&requested, &catalog);
-                if resolved != requested {
-                    tracing::debug!(
-                        %requested,
-                        %resolved,
-                        "rewrote Claude model alias to concrete catalog id for active profile"
-                    );
-                }
-                Some(resolved)
-            }
-            None => None,
-        };
-
-        // Claude Code CLI v2.1.x parses `--effort` but drops it before building
-        // the API request (anthropics/claude-code#41028). The CLI does honor
-        // `CLAUDE_CODE_EFFORT_LEVEL`, so set both: the env var is what actually
-        // reaches the model today, while `--effort` will start working once
-        // the upstream bug is fixed.
-        let env = match config.thinking_effort.as_ref() {
-            Some(effort) => {
-                let mut env = config.env.unwrap_or_default();
-                env.insert("CLAUDE_CODE_EFFORT_LEVEL".to_string(), effort.clone());
-                Some(env)
-            }
-            None => config.env,
-        };
-        let options = claude_agent_sdk_rs::Options::builder()
-            .cwd(config.cwd)
-            .maybe_permission_mode(config.permission_mode.map(map_permission_mode))
-            .maybe_model(model)
-            .maybe_effort(config.thinking_effort)
-            .maybe_system_prompt(config.system_prompt)
-            .maybe_resume(config.resume_session_id)
-            .allow_dangerously_skip_permissions(config.allow_bypass_permissions)
-            .maybe_mcp_servers(config.mcp_servers.map(|servers| {
-                servers
-                    .into_iter()
-                    .map(|(name, cfg)| (name, map_mcp_server_config(cfg)))
-                    .collect()
-            }))
-            .maybe_can_use_tool(config.permission_handler.map(|handler| {
-                std::sync::Arc::new(ClaudeCanUseToolAdapter { inner: handler })
-                    as std::sync::Arc<dyn claude_agent_sdk_rs::CanUseTool>
-            }))
-            .maybe_env(env)
-            .build();
-
-        let query = claude_agent_sdk_rs::query(content, options)
-            .await
-            .map_err(RuntimeError::from)?;
-        Ok(Box::new(ClaudeCodeSession {
-            query,
-            prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
-        }))
+        self.spawn_session(content, config).await
     }
 }
 
@@ -371,6 +323,7 @@ fn provider_catalog_entry_from_models(models: Vec<ModelCatalogEntry>) -> Provide
         icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
+        refresh_error: None,
         models,
         modes: Vec::new(),
         access_modes: Vec::new(),
@@ -389,8 +342,9 @@ mod tests {
     use super::super::events::normalize_event;
     use super::super::test_support::new_test_adapter;
     use crate::domain::agents::adapter::{
-        AgentRuntimeAdapter, RuntimePromptCommandPlacement, RuntimeSkillReferenceTrigger,
-        RuntimeSlashCommand, RuntimeSlashCommandKind, RuntimeUserShellStrategy,
+        AgentRuntimeAdapter, RuntimePermissionResponseRoute, RuntimePromptCommandPlacement,
+        RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSlashCommandKind,
+        RuntimeUserShellStrategy,
     };
 
     #[test]
@@ -464,15 +418,18 @@ mod tests {
     }
 
     #[test]
-    fn resolves_1m_window_at_init_for_a_natively_1m_model() {
-        // The bug: the CLI reports `claude-fable-5` (no `[1m]` — 1M is its
-        // default), so the whole turn ran with no window and the bar divided
-        // by the session's stale one until the turn's result landed.
+    fn never_infers_a_window_from_the_init_model_id() {
+        // Neither the `[1m]` marker nor a "natively 1M" family name is a
+        // window: both went stale (Opus 5.5 is 1M with no marker). Unknown
+        // until the CLI reports it beats a confident guess.
         let adapter = new_test_adapter();
-        assert_eq!(
-            adapter.context_window_for_event(&init_event("claude-fable-5"), None),
-            Some(1_000_000)
-        );
+        for model in ["claude-fable-5", "claude-opus-5-5", "claude-sonnet-5[1m]"] {
+            assert_eq!(
+                adapter.context_window_for_event(&init_event(model), None),
+                None,
+                "{model}"
+            );
+        }
     }
 
     #[test]
@@ -514,11 +471,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn answers_context_window_for_model_from_marker_and_learned_history() {
+    async fn answers_context_window_for_model_from_learned_history_only() {
         let adapter = new_test_adapter();
         assert_eq!(
             adapter.context_window_for_model("claude-fable-5[1m]").await,
-            Some(1_000_000)
+            None
         );
         assert_eq!(adapter.context_window_for_model("seed-unknown").await, None);
 
@@ -536,8 +493,11 @@ mod tests {
     }
 
     #[test]
-    fn adapter_owns_the_legacy_permission_channel_fallback() {
-        assert!(new_test_adapter().uses_legacy_permission_channel_on_response_error());
+    fn adapter_routes_permission_answers_to_the_callback() {
+        assert_eq!(
+            new_test_adapter().permission_response_route(),
+            RuntimePermissionResponseRoute::PermissionCallback
+        );
     }
 
     #[test]

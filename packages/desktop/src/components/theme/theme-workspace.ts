@@ -1,5 +1,5 @@
 import {
-  ALL_TAB_KINDS,
+  BUILTIN_TAB_KINDS,
   ROOT_LEAF_ID,
   type FeatureLayoutState,
   type LayoutLeaf,
@@ -31,7 +31,7 @@ export function themeLayoutState(): FeatureLayoutState {
   const agent: LayoutLeaf = {
     type: "leaf",
     id: ROOT_LEAF_ID,
-    tabIds: ALL_TAB_KINDS.filter((kind) => kind !== "editor"),
+    tabIds: BUILTIN_TAB_KINDS.filter((kind) => kind !== "editor"),
     activeTabId: "agent",
   };
   return {

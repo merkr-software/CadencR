@@ -1,0 +1,73 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "lsp",
+        "stdio"
+      ],
+      "description": "TOML validation, formatting and code intelligence using Taplo 0.10.0.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-taplo-v0.1.0/lsp-taplo-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "taplo",
+            "entry_sha256": "13cd257c1cadb003b40daf82b3fb1451e012e2463b760bdd33df07a07970c604",
+            "entry_size": 10522288,
+            "macos_min_version": "11.0.0",
+            "runtime": "native",
+            "sha256": "d2b28a9944f9fa4f6d27527c9f8b531f0297eadd2c3020e68546cc345f03204f",
+            "size": 4607018
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-taplo-v0.1.0/lsp-taplo-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "taplo",
+            "entry_sha256": "9fd7a2872ea154df61a2c7e9ca69fc19ac08e29f2e2dc2f866e299bdc789c1a1",
+            "entry_size": 11367780,
+            "macos_min_version": "10.12.0",
+            "runtime": "native",
+            "sha256": "2b0e579cd22f7a1120fa46e66d54bc2418a68ad70125db3b68ef480b7cb7c4f7",
+            "size": 4908517
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-taplo-v0.1.0/lsp-taplo-0.1.0-linux-x86_64.tar.gz",
+            "entry": "taplo",
+            "entry_sha256": "dad2faf6377d2daa4f4fabf459fe7ccfb98a5448f0d4bca8270ca9acb0409bfe",
+            "entry_size": 12647136,
+            "runtime": "native",
+            "sha256": "df5797ee10fe3c3ea13274c906a0418314e04bf06d1c4f167f9265283e251362",
+            "size": 5090282
+          }
+        }
+      },
+      "id": "taplo",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "toml"
+          ],
+          "filenames": [],
+          "id": "toml"
+        }
+      ],
+      "license": "MIT",
+      "name": "Taplo",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        ".taplo.toml",
+        "taplo.toml",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

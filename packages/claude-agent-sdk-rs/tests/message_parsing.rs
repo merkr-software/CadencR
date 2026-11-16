@@ -395,10 +395,9 @@ fn system_status_compacting_started() {
     assert!(system.is_compaction_started());
 }
 
-/// The critical regression guard for issue #60: an untyped `system/status`
-/// degrades to `SdkMessage::Unknown`, whose `raw` serializes to `null` and is
-/// dropped before reaching the frontend. A typed variant must round-trip with
-/// `type` / `subtype` / `status` intact so the raw passthrough survives.
+/// The critical regression guard for issue #60: the typed `system/status`
+/// must round-trip with `type` / `subtype` / `status` intact so the raw
+/// passthrough reaches the frontend.
 #[test]
 fn roundtrip_system_status_preserves_raw_shape() {
     let raw = json!({
@@ -483,6 +482,45 @@ fn unknown_type_falls_back_to_unknown() {
     assert!(!msg.is_content_delta());
     assert!(msg.usage().is_none());
     assert!(!msg.is_compaction());
+}
+
+#[test]
+fn command_lifecycle_keeps_unknown_states_typed() {
+    for state in ["started", "some_future_state"] {
+        let msg: SdkMessage = serde_json::from_value(json!({
+            "type": "command_lifecycle",
+            "command_uuid": "cmd1",
+            "state": state,
+            "uuid": "u1",
+            "session_id": "s1"
+        }))
+        .unwrap();
+        match msg {
+            SdkMessage::CommandLifecycle {
+                command_uuid,
+                state: parsed,
+                ..
+            } => {
+                assert_eq!(command_uuid, "cmd1");
+                assert_eq!(parsed, state);
+            }
+            other => panic!("expected CommandLifecycle, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn roundtrip_command_lifecycle() {
+    let raw = json!({
+        "type": "command_lifecycle",
+        "command_uuid": "cmd1",
+        "state": "completed",
+        "uuid": "u1",
+        "session_id": "s1"
+    });
+    let msg: SdkMessage = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(msg.session_id(), Some("s1"));
+    assert_eq!(serde_json::to_value(&msg).unwrap(), raw);
 }
 
 // ── Malformed JSON ───────────────────────────────────────────────────────────
@@ -672,7 +710,7 @@ fn assistant_with_unknown_content_block_keeps_known_text() {
 
 #[test]
 fn stream_event_with_unknown_delta_stays_stream_event() {
-    // e.g. a `signature_delta` for thinking blocks.
+    // e.g. a `citations_delta`, which the SDK does not model.
     let raw = json!({
         "type": "stream_event",
         "uuid": "u1",
@@ -680,7 +718,7 @@ fn stream_event_with_unknown_delta_stays_stream_event() {
         "event": {
             "type": "content_block_delta",
             "index": 0,
-            "delta": { "type": "signature_delta", "signature": "abc" }
+            "delta": { "type": "citations_delta", "citation": "abc" }
         }
     });
     let msg: SdkMessage = serde_json::from_value(raw).unwrap();
@@ -690,8 +728,8 @@ fn stream_event_with_unknown_delta_stays_stream_event() {
             ..
         } => match delta {
             ContentDelta::Other(raw) => {
-                assert_eq!(raw["type"], "signature_delta");
-                assert_eq!(raw["signature"], "abc");
+                assert_eq!(raw["type"], "citations_delta");
+                assert_eq!(raw["citation"], "abc");
             }
             other => panic!("expected raw-preserving Other, got {other:?}"),
         },
@@ -739,11 +777,10 @@ fn system_init_survives_missing_noncritical_fields() {
 }
 
 #[test]
-fn unknown_system_subtype_falls_back_to_unknown_for_background_agent_protocol() {
-    // Intentional: `system/task_started` & `task_notification` MUST stay
-    // `Unknown(raw)` so the run-in-background agent protocol can read their raw
-    // fields (issue #58). So a system message with an untyped subtype is the
-    // one place we deliberately do NOT add a catch-all.
+fn background_task_system_frames_are_typed_lifecycle_events() {
+    // `system/task_started` & co. are recognized explicitly (with their raw
+    // payload) for the run-in-background agent protocol (issue #58), instead
+    // of relying on a decoding failure to route them to `Unknown`.
     let raw = json!({
         "type": "system",
         "subtype": "task_started",
@@ -751,6 +788,17 @@ fn unknown_system_subtype_falls_back_to_unknown_for_background_agent_protocol() 
         "uuid": "u1",
         "task_id": "t1"
     });
+    let msg: SdkMessage = serde_json::from_value(raw.clone()).unwrap();
+    let SdkMessage::TaskLifecycle(event) = &msg else {
+        panic!("got {msg:?}");
+    };
+    assert_eq!(event.task_id(), Some("t1"));
+    assert_eq!(event.raw(), &raw);
+}
+
+#[test]
+fn untyped_system_subtype_falls_back_to_unknown() {
+    let raw = json!({ "type": "system", "subtype": "api_retry", "session_id": "s1" });
     let msg: SdkMessage = serde_json::from_value(raw).unwrap();
     assert!(matches!(msg, SdkMessage::Unknown(_)), "got {msg:?}");
 }

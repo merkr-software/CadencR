@@ -24,6 +24,24 @@ test("Astro and brand generation load a patched native libheif", () => {
   }
 });
 
+test("Astro and brand generation load a patched librsvg and still render SVG", async () => {
+  const input = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="16"><rect width="32" height="16" fill="#10b981"/></svg>',
+  );
+  for (const owner of [fromAstro, fromBrand]) {
+    const sharp = owner("sharp");
+    assert.ok(
+      semver.gte(sharp.versions.rsvg, "2.63.2"),
+      `unpatched librsvg ${sharp.versions.rsvg}`,
+    );
+    const output = await sharp(input).png().toBuffer();
+    const metadata = await sharp(output).metadata();
+    assert.equal(metadata.width, 32);
+    assert.equal(metadata.height, 16);
+    assert.equal(metadata.format, "png");
+  }
+});
+
 test("Astro strips only complete base-path segments", () => {
   for (const base of ["/docs", "/docs/"]) {
     assert.equal(stripRequestBase("/docs", base), "/");

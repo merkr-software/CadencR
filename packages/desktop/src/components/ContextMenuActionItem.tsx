@@ -5,7 +5,8 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
-import { formatCombo } from "@/lib/shortcuts/format";
+import { KbdKeySequence } from "@/components/kbd-key";
+import { formatCombo, PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import type { ShortcutId, ShortcutKey } from "@/lib/shortcuts/registry";
 
@@ -14,7 +15,6 @@ export type ContextMenuIcon = ComponentType<{ className?: string }>;
 interface ShortcutHintProps {
   shortcutId?: ShortcutId;
   shortcutKeys?: ShortcutKey[];
-  shortcutLabel?: string;
   destructive?: boolean;
   className?: string;
 }
@@ -40,27 +40,15 @@ interface ContextMenuActionButtonProps extends SharedActionProps {
 export function ContextMenuShortcutHint({
   shortcutId,
   shortcutKeys,
-  shortcutLabel,
   destructive,
   className,
 }: ShortcutHintProps): ReactNode {
-  if (shortcutLabel) {
-    return (
-      <ContextMenuShortcut className={cn(destructive && "text-destructive/70", className)}>
-        {shortcutLabel}
-      </ContextMenuShortcut>
-    );
-  }
   if (shortcutKeys) {
-    return (
-      <ContextMenuShortcut className={cn(destructive && "text-destructive/70", className)}>
-        {formatCombo(shortcutKeys).join("")}
-      </ContextMenuShortcut>
-    );
+    return <ShortcutKeysHint keys={shortcutKeys} destructive={destructive} className={className} />;
   }
   if (shortcutId) {
     return (
-      <ResolvedShortcutHint
+      <ResolvedMenuShortcut
         shortcutId={shortcutId}
         destructive={destructive}
         className={className}
@@ -70,7 +58,7 @@ export function ContextMenuShortcutHint({
   return null;
 }
 
-function ResolvedShortcutHint({
+function ResolvedMenuShortcut({
   shortcutId,
   destructive,
   className,
@@ -80,11 +68,29 @@ function ResolvedShortcutHint({
   className?: string;
 }): ReactNode {
   const resolved = useResolvedShortcut(shortcutId);
-  const label = formatCombo(resolved.keys).join("");
-  if (!label) return null;
+  return <ShortcutKeysHint keys={resolved.keys} destructive={destructive} className={className} />;
+}
+
+/** Menu-style hint: muted glyphs, same key rendering as `KbdShortcut`. */
+function ShortcutKeysHint({
+  keys,
+  destructive,
+  className,
+}: {
+  keys: ShortcutKey[];
+  destructive?: boolean;
+  className?: string;
+}): ReactNode {
+  if (keys.length === 0) return null;
   return (
-    <ContextMenuShortcut className={cn(destructive && "text-destructive/70", className)}>
-      {label}
+    <ContextMenuShortcut
+      className={cn(
+        "inline-flex items-center gap-px tracking-normal",
+        destructive && "text-destructive/70",
+        className,
+      )}
+    >
+      <KbdKeySequence keys={formatCombo(keys)} isMac={PLATFORM_IS_MAC} />
     </ContextMenuShortcut>
   );
 }
@@ -94,7 +100,6 @@ export function ContextMenuActionItem({
   children,
   shortcutId,
   shortcutKeys,
-  shortcutLabel,
   className,
   variant,
   ...props
@@ -107,7 +112,6 @@ export function ContextMenuActionItem({
       <ContextMenuShortcutHint
         shortcutId={shortcutId}
         shortcutKeys={shortcutKeys}
-        shortcutLabel={shortcutLabel}
         destructive={isDestructive}
       />
     </ContextMenuItem>
@@ -119,7 +123,6 @@ export function ContextMenuSubActionTrigger({
   children,
   shortcutId,
   shortcutKeys,
-  shortcutLabel,
   className,
   ...props
 }: ContextMenuSubActionTriggerProps): ReactNode {
@@ -127,11 +130,7 @@ export function ContextMenuSubActionTrigger({
     <ContextMenuSubTrigger className={className} {...props}>
       {Icon ? <Icon className="size-4" /> : null}
       <span className="min-w-0 truncate">{children}</span>
-      <ContextMenuShortcutHint
-        shortcutId={shortcutId}
-        shortcutKeys={shortcutKeys}
-        shortcutLabel={shortcutLabel}
-      />
+      <ContextMenuShortcutHint shortcutId={shortcutId} shortcutKeys={shortcutKeys} />
     </ContextMenuSubTrigger>
   );
 }
@@ -141,7 +140,6 @@ export function ContextMenuActionButton({
   children,
   shortcutId,
   shortcutKeys,
-  shortcutLabel,
   destructive,
   disabled,
   className,
@@ -168,7 +166,6 @@ export function ContextMenuActionButton({
       <ContextMenuShortcutHint
         shortcutId={shortcutId}
         shortcutKeys={shortcutKeys}
-        shortcutLabel={shortcutLabel}
         destructive={destructive}
       />
     </button>

@@ -3,23 +3,24 @@
 //! map at session close.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use serde_json::Value;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 
 use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimePermissionDecision,
-    RuntimePermissionRequest,
+    RuntimePermissionRequest, RuntimePermissionResponse, RuntimePermissionResponseKind,
 };
 
 use super::permission_events::permission_raw_event;
-use super::provider_hooks::AcpProviderHooks;
+use super::permissions::acp_permission_response_payload;
 use super::schema_bridge::permission_response_value;
 use super::session_permissions::PermissionKey;
 use super::session_permissions::SessionPermissions;
 use super::trusted_mcp_permissions::try_auto_allow_trusted_cadencr_browser_permission;
+use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 /// One pending `session/request_permission` server request awaiting the
 /// user's decision. Tracks the raw ACP server-request id so we can echo the
@@ -27,13 +28,46 @@ use super::trusted_mcp_permissions::try_auto_allow_trusted_cadencr_browser_permi
 #[derive(Debug, Clone)]
 pub struct PendingPermission {
     pub server_id: Value,
-    pub method: String,
     pub request: RuntimePermissionRequest,
     pub params: Value,
 }
 
 /// Map keyed by Cadencr `request_id` (the ACP server-request id, stringified).
+/// A synchronous lock: guards are never held across an `.await`, and the
+/// response-kind lookup (`AgentRuntimeSession::permission_response_kind`) is
+/// synchronous.
 pub type PendingPermissions = Arc<RwLock<HashMap<String, PendingPermission>>>;
+
+pub(super) fn read_pending(
+    pending: &PendingPermissions,
+) -> RwLockReadGuard<'_, HashMap<String, PendingPermission>> {
+    pending
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub(super) fn write_pending(
+    pending: &PendingPermissions,
+) -> RwLockWriteGuard<'_, HashMap<String, PendingPermission>> {
+    pending
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Host convention: a standard permission request whose tool is
+/// `ExitPlanMode` is a plan-approval gate, whichever provider raised it.
+/// Rejecting it keeps the agent planning instead of ending the turn.
+pub fn pending_permission_response_kind(
+    pending: &PendingPermissions,
+    request_id: &str,
+) -> RuntimePermissionResponseKind {
+    match read_pending(pending).get(request_id) {
+        Some(entry) if entry.request.tool_name == "ExitPlanMode" => {
+            RuntimePermissionResponseKind::PlanApproval
+        }
+        _ => RuntimePermissionResponseKind::Normal,
+    }
+}
 
 /// Send a permission event upstream and stash the ACP server-request id in
 /// the pending map so `respond_permission()` can answer later.
@@ -46,38 +80,10 @@ pub async fn dispatch_permission_request(
     params: &Value,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> Result<(), RuntimeError> {
-    dispatch_permission_request_for_method(
-        pending,
-        session_id,
-        request_id,
-        raw_id,
-        "session/request_permission",
-        request,
-        params,
-        tx,
-    )
-    .await
-}
-
-/// Provider-extension variant of [`dispatch_permission_request`]. The method
-/// is retained so the adapter can encode the eventual response in its native
-/// schema rather than receiving a canonical ACP permission payload.
-#[allow(clippy::too_many_arguments)]
-pub async fn dispatch_permission_request_for_method(
-    pending: &PendingPermissions,
-    session_id: Option<String>,
-    request_id: &str,
-    raw_id: Value,
-    method: &str,
-    request: RuntimePermissionRequest,
-    params: &Value,
-    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
-) -> Result<(), RuntimeError> {
-    pending.write().await.insert(
+    write_pending(pending).insert(
         request_id.to_string(),
         PendingPermission {
             server_id: raw_id,
-            method: method.to_string(),
             request: request.clone(),
             params: params.clone(),
         },
@@ -91,7 +97,7 @@ pub async fn dispatch_permission_request_for_method(
     };
     let event = RuntimeEvent::new(metadata, RuntimeEventKind::Other);
     if tx.send(Ok(event)).await.is_err() {
-        pending.write().await.remove(request_id);
+        write_pending(pending).remove(request_id);
         return Err(RuntimeError::new(
             "ACP permission request could not be surfaced because the runtime channel is closed",
         ));
@@ -99,11 +105,12 @@ pub async fn dispatch_permission_request_for_method(
     Ok(())
 }
 
+#[bon::builder]
 pub async fn dispatch_permission_request_with_cache(
     client: &AcpClient,
-    hooks: &dyn AcpProviderHooks,
     pending: &PendingPermissions,
     session_permissions: &SessionPermissions,
+    browser_trust: CadencrBrowserTrust,
     session_id: Option<String>,
     request_id: &str,
     raw_id: Value,
@@ -111,22 +118,15 @@ pub async fn dispatch_permission_request_with_cache(
     params: &Value,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> Result<(), RuntimeError> {
-    if try_auto_allow_trusted_cadencr_browser_permission(client, raw_id.clone(), &request).await? {
+    if try_auto_allow_trusted_cadencr_browser_permission(
+        client,
+        browser_trust,
+        raw_id.clone(),
+        &request,
+    )
+    .await?
+    {
         return Ok(());
-    }
-
-    if let Some(decision) = hooks.automatic_permission_decision(&request, params) {
-        if let Some(option_id) = option_id_for_decision(&request, decision) {
-            let payload = permission_response_value(decision, Some(option_id), None);
-            match client.respond_server_request(raw_id.clone(), payload).await {
-                Ok(()) => return Ok(()),
-                Err(error) => tracing::warn!(
-                    %error,
-                    request_id,
-                    "provider ACP permission preflight failed; surfacing prompt"
-                ),
-            }
-        }
     }
 
     let key = PermissionKey::new(&request.tool_name, &request.tool_input);
@@ -155,6 +155,23 @@ pub async fn dispatch_permission_request_with_cache(
     dispatch_permission_request(pending, session_id, request_id, raw_id, request, params, tx).await
 }
 
+/// Encode the user's answer to a pending request. A response without an
+/// explicit option (question answers and plan gates carry only a decision)
+/// selects the option the agent offered for that decision, so the agent sees
+/// one of its own ids instead of a canonical fallback.
+pub fn pending_permission_response_payload(
+    pending: &PendingPermission,
+    response: &RuntimePermissionResponse,
+) -> Value {
+    if response.option_id.is_some() {
+        return acp_permission_response_payload(response);
+    }
+    let mut response = response.clone();
+    response.option_id =
+        option_id_for_decision(&pending.request, response.decision).map(ToOwned::to_owned);
+    acp_permission_response_payload(&response)
+}
+
 fn option_id_for_decision(
     request: &RuntimePermissionRequest,
     decision: RuntimePermissionDecision,
@@ -170,7 +187,7 @@ fn option_id_for_decision(
 /// requests so the agent receives explicit cancellation rather than a hang.
 pub async fn reject_all_pending(client: &AcpClient, pending: &PendingPermissions) {
     let drained = {
-        let mut pending = pending.write().await;
+        let mut pending = write_pending(pending);
         pending
             .drain()
             .map(|(_, pending)| pending.server_id)
@@ -193,7 +210,7 @@ pub async fn take_pending(
     pending: &PendingPermissions,
     request_id: &str,
 ) -> Option<PendingPermission> {
-    pending.write().await.remove(request_id)
+    write_pending(pending).remove(request_id)
 }
 
 #[cfg(test)]
@@ -206,7 +223,6 @@ mod tests {
 
     use super::{dispatch_permission_request_with_cache, PendingPermissions, SessionPermissions};
     use crate::domain::agents::acp::runtime::session_permissions::PermissionKey;
-    use crate::domain::agents::acp::runtime::StandardAcpHooks;
     use crate::domain::agents::acp::{AcpClient, AcpClientInfo, AcpEvent};
     use crate::domain::agents::adapter::{
         RuntimePermissionDecision, RuntimePermissionOption, RuntimePermissionRequest,
@@ -261,10 +277,78 @@ mod tests {
         }
     }
 
+    #[test]
+    fn decision_only_answers_select_the_offered_option_and_carry_updated_input() {
+        use super::{pending_permission_response_payload, PendingPermission};
+        use crate::domain::agents::adapter::RuntimePermissionResponse;
+
+        let pending = PendingPermission {
+            server_id: json!("q-1"),
+            request: permission_request(),
+            params: json!({}),
+        };
+        let mut answer = RuntimePermissionResponse {
+            request_id: "q-1".to_string(),
+            decision: RuntimePermissionDecision::AllowForSession,
+            option_id: None,
+            feedback: None,
+            updated_input: Some(json!({ "answers": { "Color?": "Blue" } })),
+        };
+        let payload = pending_permission_response_payload(&pending, &answer);
+        assert_eq!(payload["outcome"]["optionId"], "session");
+        assert_eq!(
+            payload["_meta"]["updatedInput"]["answers"]["Color?"],
+            "Blue"
+        );
+
+        answer.option_id = Some("explicit".to_string());
+        let payload = pending_permission_response_payload(&pending, &answer);
+        assert_eq!(payload["outcome"]["optionId"], "explicit");
+
+        // No offered option for the decision: the canonical id is the fallback.
+        answer.option_id = None;
+        answer.decision = RuntimePermissionDecision::Deny;
+        let payload = pending_permission_response_payload(&pending, &answer);
+        assert_eq!(payload["outcome"]["optionId"], "reject_once");
+    }
+
+    #[test]
+    fn exit_plan_mode_requests_are_plan_approval_gates() {
+        use super::{pending_permission_response_kind, write_pending, PendingPermission};
+        use crate::domain::agents::adapter::RuntimePermissionResponseKind;
+
+        let pending = PendingPermissions::default();
+        for (request_id, tool_name) in [("plan-1", "ExitPlanMode"), ("bash-1", "Bash")] {
+            let mut request = permission_request();
+            request.tool_name = tool_name.to_string();
+            write_pending(&pending).insert(
+                request_id.to_string(),
+                PendingPermission {
+                    server_id: json!(request_id),
+                    request,
+                    params: json!({}),
+                },
+            );
+        }
+
+        assert_eq!(
+            pending_permission_response_kind(&pending, "plan-1"),
+            RuntimePermissionResponseKind::PlanApproval
+        );
+        assert_eq!(
+            pending_permission_response_kind(&pending, "bash-1"),
+            RuntimePermissionResponseKind::Normal
+        );
+        assert_eq!(
+            pending_permission_response_kind(&pending, "unknown"),
+            RuntimePermissionResponseKind::Normal
+        );
+    }
+
     #[tokio::test]
     async fn cached_session_permission_answers_agent_without_prompt_event() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
-        let mut subscriber = client.subscribe();
+        let mut subscriber = client.subscribe_reliable();
         write_frame(
             &mut agent_stdout,
             json!({
@@ -292,20 +376,20 @@ mod tests {
         let pending = PendingPermissions::default();
         let (tx, mut rx) = mpsc::channel(1);
 
-        dispatch_permission_request_with_cache(
-            &client,
-            &StandardAcpHooks,
-            &pending,
-            &session_permissions,
-            Some("s-cache".to_string()),
-            "perm-cache",
-            json!("perm-cache"),
-            request,
-            &json!({}),
-            &tx,
-        )
-        .await
-        .unwrap();
+        dispatch_permission_request_with_cache()
+            .client(&client)
+            .pending(&pending)
+            .session_permissions(&session_permissions)
+            .browser_trust(Default::default())
+            .session_id("s-cache".to_string())
+            .request_id("perm-cache")
+            .raw_id(json!("perm-cache"))
+            .request(request)
+            .params(&json!({}))
+            .tx(&tx)
+            .call()
+            .await
+            .unwrap();
 
         let response = tokio::time::timeout(Duration::from_secs(1), read_frame(&mut agent_stdin))
             .await
@@ -313,7 +397,7 @@ mod tests {
         assert_eq!(response["id"], "perm-cache");
         assert_eq!(response["result"]["outcome"]["outcome"], "selected");
         assert_eq!(response["result"]["outcome"]["optionId"], "session");
-        assert!(pending.read().await.is_empty());
+        assert!(super::read_pending(&pending).is_empty());
         assert!(rx.try_recv().is_err());
     }
 
@@ -338,20 +422,20 @@ mod tests {
         let pending = PendingPermissions::default();
         let (tx, mut rx) = mpsc::channel(1);
 
-        dispatch_permission_request_with_cache(
-            &client,
-            &StandardAcpHooks,
-            &pending,
-            &session_permissions,
-            Some("s-cache".to_string()),
-            "perm-cache-missing-option",
-            json!("perm-cache-missing-option"),
-            request,
-            &json!({}),
-            &tx,
-        )
-        .await
-        .unwrap();
+        dispatch_permission_request_with_cache()
+            .client(&client)
+            .pending(&pending)
+            .session_permissions(&session_permissions)
+            .browser_trust(Default::default())
+            .session_id("s-cache".to_string())
+            .request_id("perm-cache-missing-option")
+            .raw_id(json!("perm-cache-missing-option"))
+            .request(request)
+            .params(&json!({}))
+            .tx(&tx)
+            .call()
+            .await
+            .unwrap();
 
         let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
             .await
@@ -359,10 +443,7 @@ mod tests {
             .expect("runtime channel should stay open")
             .expect("runtime event should be ok");
         assert_eq!(event.raw_json()["type"], "acp_permission_request");
-        assert!(pending
-            .read()
-            .await
-            .contains_key("perm-cache-missing-option"));
+        assert!(super::read_pending(&pending).contains_key("perm-cache-missing-option"));
     }
 
     #[tokio::test]
@@ -373,22 +454,22 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         drop(rx);
 
-        let error = dispatch_permission_request_with_cache(
-            &client,
-            &StandardAcpHooks,
-            &pending,
-            &session_permissions,
-            Some("s-closed".to_string()),
-            "perm-closed",
-            json!("perm-closed"),
-            permission_request(),
-            &json!({}),
-            &tx,
-        )
-        .await
-        .expect_err("closed runtime channel should surface an error");
+        let error = dispatch_permission_request_with_cache()
+            .client(&client)
+            .pending(&pending)
+            .session_permissions(&session_permissions)
+            .browser_trust(Default::default())
+            .session_id("s-closed".to_string())
+            .request_id("perm-closed")
+            .raw_id(json!("perm-closed"))
+            .request(permission_request())
+            .params(&json!({}))
+            .tx(&tx)
+            .call()
+            .await
+            .expect_err("closed runtime channel should surface an error");
 
         assert!(error.to_string().contains("runtime channel is closed"));
-        assert!(pending.read().await.is_empty());
+        assert!(super::read_pending(&pending).is_empty());
     }
 }

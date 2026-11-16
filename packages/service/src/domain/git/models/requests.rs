@@ -128,6 +128,11 @@ pub struct GetFileBlobShasParams {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+pub struct GetGitPathPrefixParams {
+    pub feature_id: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ListStashesParams {
     pub feature_id: i64,
 }

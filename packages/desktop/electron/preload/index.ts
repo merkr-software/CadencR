@@ -1,3 +1,4 @@
+import type { DiagnosticContext } from "../../src/shared/renderer-diagnostics";
 import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 import type {
   BrowserBounds,
@@ -9,7 +10,6 @@ import type {
   BrowserGuestShortcutBindings,
   BrowserLibraryChange,
   BrowserOmniboxQueryResult,
-  BrowserProfileMetadata,
   BrowserResponsiveRequest,
   BrowserPopupRequest,
   BrowserSiteInfo,
@@ -19,14 +19,22 @@ import type {
   BrowserShortcut,
   BrowserStateSnapshot,
   BrowserTabMetadata,
+  BrowserAgentActivity,
 } from "../main/browser-types";
+import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
+import type { RendererErrorReportPayload } from "../../src/shared/renderer-error";
+import type { AppCloseChoice, AppCloseRequest } from "../../src/shared/app-close";
+import type { ServiceStatus } from "../../src/shared/service-status";
+import { UPDATE_STATE_CHANNEL, type UpdateSnapshot } from "../../src/shared/update-state";
+import { cliHostBridge } from "./cli-host-bridge";
+import { notchHostBridge } from "./notch-host-bridge";
+import { installPluginTabPortRelay, pluginTabsHostBridge } from "./plugin-tabs-host-bridge";
 
 type RouteType = "workflow" | "session";
 type DesktopTheme = "light" | "dark";
 
 interface RuntimeConfig {
   baseUrl: string;
-  authToken: string | null;
 }
 
 interface NotificationClickPayload {
@@ -52,16 +60,6 @@ interface NotifyOptions {
   mode: NotifyMode;
 }
 
-interface RendererErrorReportPayload {
-  source: "error" | "unhandledrejection" | "react-boundary";
-  message: string;
-  stack?: string | null;
-  componentStack?: string | null;
-  url?: string | null;
-  line?: number | null;
-  column?: number | null;
-}
-
 interface FileDropItem {
   handle: string;
   name: string;
@@ -72,40 +70,6 @@ interface FileDropPayload {
   files: FileDropItem[];
   targetPromptId?: string;
   message?: string;
-}
-
-type UpdateEvent =
-  | { kind: "checking" }
-  | { kind: "available"; version: string }
-  | { kind: "changelog"; version: string; markdown: string | null }
-  | { kind: "not-available"; version: string }
-  | { kind: "error"; message: string }
-  | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string };
-
-function onUpdateEvent(cb: (event: UpdateEvent) => void): () => void {
-  const unsubs = [
-    onIpc<void>("update:checking", () => cb({ kind: "checking" })),
-    onIpc<{ version: string }>("update:available", (p) =>
-      cb({ kind: "available", version: p.version }),
-    ),
-    onIpc<{ version: string; markdown: string | null }>("update:changelog", (p) =>
-      cb({ kind: "changelog", version: p.version, markdown: p.markdown }),
-    ),
-    onIpc<{ version: string }>("update:not-available", (p) =>
-      cb({ kind: "not-available", version: p.version }),
-    ),
-    onIpc<{ message: string }>("update:error", (p) => cb({ kind: "error", message: p.message })),
-    onIpc<{ percent: number; bytesPerSecond: number }>("update:download-progress", (p) =>
-      cb({ kind: "download-progress", percent: p.percent, bytesPerSecond: p.bytesPerSecond }),
-    ),
-    onIpc<{ version: string }>("update:downloaded", (p) =>
-      cb({ kind: "downloaded", version: p.version }),
-    ),
-  ];
-  return () => {
-    for (const off of unsubs) off();
-  };
 }
 
 function onIpc<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -185,6 +149,7 @@ function onFileDrop(cb: (payload: FileDropPayload) => void): () => void {
 
 contextBridge.exposeInMainWorld("cadencr", {
   isElectron: true,
+  usesCustomWindowControls: process.platform === "linux",
   runtimeConfig: (): Promise<RuntimeConfig> => ipcRenderer.invoke("runtime-config"),
   readFileBase64: (handle: string): Promise<string> =>
     ipcRenderer.invoke("fs:read-file-base64", handle),
@@ -213,12 +178,29 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("notification-failed", cb),
   onNotificationFallback: (cb: (payload: NotificationFallbackPayload) => void): (() => void) =>
     onIpc("notification-fallback", cb),
-  onCloseRequested: (cb: () => void): (() => void) => onIpc("app:close-requested", cb),
-  confirmClose: (): Promise<void> => ipcRenderer.invoke("app:confirm-close"),
+  onCloseRequested: (cb: (request: AppCloseRequest) => void): (() => void) =>
+    onIpc("app:close-requested", cb),
+  confirmClose: (choice?: AppCloseChoice): Promise<void> =>
+    ipcRenderer.invoke("app:confirm-close", choice),
+  acknowledgeCloseRequest: (): Promise<void> => ipcRenderer.invoke("app:acknowledge-close"),
+  cancelClose: (): Promise<void> => ipcRenderer.invoke("app:cancel-close"),
   requestQuit: (): Promise<void> => ipcRenderer.invoke("app:request-quit"),
+  serviceStatus: (): Promise<ServiceStatus> => ipcRenderer.invoke("service:status"),
+  restartService: (): Promise<void> => ipcRenderer.invoke("service:restart"),
+  onServiceStatus: (cb: (status: ServiceStatus) => void): (() => void) =>
+    onIpc("service:status", cb),
+  windowMinimize: (): Promise<void> => ipcRenderer.invoke("app:window-minimize"),
+  windowToggleMaximize: (): Promise<void> => ipcRenderer.invoke("app:window-toggle-maximize"),
+  windowClose: (): Promise<void> => ipcRenderer.invoke("app:window-close"),
+  exportRendererDiagnostics: (context: DiagnosticContext): Promise<{ canceled: boolean }> =>
+    ipcRenderer.invoke("app:export-renderer-diagnostics", context),
+  telemetryRelayStatus: (): Promise<"idle" | "unavailable" | "frames_unavailable"> =>
+    ipcRenderer.invoke("app:telemetry-relay-status"),
   reportRendererError: (payload: RendererErrorReportPayload): Promise<void> =>
     ipcRenderer.invoke("app:renderer-error", payload),
   setZoom: (factor: number): Promise<void> => ipcRenderer.invoke("webview:set-zoom", factor),
+  setTrafficLightsCenter: (center: number | null): Promise<void> =>
+    ipcRenderer.invoke("window:set-traffic-lights-center", center),
   currentTheme: (): Promise<DesktopTheme> => ipcRenderer.invoke("theme:current"),
   onThemeChange: (cb: (appearance: DesktopTheme) => void): (() => void) =>
     onIpc("theme:updated", cb),
@@ -227,6 +209,9 @@ contextBridge.exposeInMainWorld("cadencr", {
     ipcRenderer.invoke("power:set-remote-host", enabled),
   onPowerSuspend: (cb: () => void): (() => void) => onIpc("power:suspend", cb),
   onPowerResume: (cb: () => void): (() => void) => onIpc("power:resume", cb),
+  isWindowFocused: (): Promise<boolean> => ipcRenderer.invoke("window:is-focused"),
+  onWindowFocusChange: (cb: (focused: boolean) => void): (() => void) =>
+    onIpc("window:focus-changed", cb),
 
   createBrowserTab: (
     url?: string,
@@ -289,16 +274,6 @@ contextBridge.exposeInMainWorld("cadencr", {
     ipcRenderer.invoke("browser:set-bounds", bounds, scopeId, webFrame.getZoomFactor()),
   setBrowserSuppressed: (value: boolean): Promise<void> =>
     ipcRenderer.invoke("browser:set-suppressed", value),
-  listBrowserProfiles: (): Promise<BrowserProfileMetadata[]> =>
-    ipcRenderer.invoke("browser:list-profiles"),
-  clearBrowserStorage: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke("browser:clear-storage", profileId),
-  createBrowserProfile: (profileId: string): Promise<BrowserProfileMetadata> =>
-    ipcRenderer.invoke("browser:create-profile", profileId),
-  duplicateBrowserProfile: (sourceId: string, newId: string): Promise<BrowserProfileMetadata> =>
-    ipcRenderer.invoke("browser:duplicate-profile", sourceId, newId),
-  deleteBrowserProfile: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke("browser:delete-profile", profileId),
   getBrowserSiteInfo: (tabId: string): Promise<BrowserSiteInfo> =>
     ipcRenderer.invoke("browser:get-site-info", tabId),
   setBrowserSitePermission: (
@@ -347,18 +322,8 @@ contextBridge.exposeInMainWorld("cadencr", {
     tabId: string,
     request: BrowserResponsiveRequest,
   ): Promise<BrowserTabMetadata> => ipcRenderer.invoke("browser:set-responsive", tabId, request),
-  getBrowserConsole: (): Promise<unknown[]> => ipcRenderer.invoke("browser:get-console"),
-  getBrowserNetwork: (): Promise<unknown[]> => ipcRenderer.invoke("browser:get-network"),
-  getBrowserSnapshot: (tabId: string): Promise<unknown> =>
-    ipcRenderer.invoke("browser:get-snapshot", tabId),
   getBrowserScreenshot: (tabId: string): Promise<string> =>
     ipcRenderer.invoke("browser:screenshot", tabId),
-  browserClick: (tabId: string, x: number, y: number): Promise<void> =>
-    ipcRenderer.invoke("browser:click", tabId, x, y),
-  browserType: (tabId: string, text: string): Promise<void> =>
-    ipcRenderer.invoke("browser:type", tabId, text),
-  browserKeypress: (tabId: string, keyCode: string): Promise<void> =>
-    ipcRenderer.invoke("browser:keypress", tabId, keyCode),
   selectBrowserElementContext: (tabId: string, anchorId: string): Promise<unknown> =>
     ipcRenderer.invoke("browser:select-element-context", tabId, anchorId),
   removeBrowserCommentBadge: (tabId: string, anchorId: string): Promise<void> =>
@@ -369,6 +334,8 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("browser:state", cb),
   onBrowserTabCounts: (cb: (counts: Record<number, number>) => void): (() => void) =>
     onIpc("browser:tab-counts", cb),
+  onBrowserAgentActivity: (cb: (activity: BrowserAgentActivity) => void): (() => void) =>
+    onIpc("browser:agent-activity", cb),
   onBrowserShortcut: (cb: (shortcut: BrowserShortcut) => void): (() => void) =>
     onIpc("browser:shortcut", cb),
   onBrowserFindResult: (cb: (result: BrowserFindResult) => void): (() => void) =>
@@ -387,9 +354,18 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("browser:downloads-changed", cb),
   onBrowserDownloadCounts: (cb: (counts: Record<number, number>) => void): (() => void) =>
     onIpc("browser:download-counts", cb),
-  checkForUpdates: (): Promise<void> => ipcRenderer.invoke("app:check-for-updates"),
+  getUpdateState: (): Promise<UpdateSnapshot> => ipcRenderer.invoke("app:update-state"),
+  onUpdateState: (cb: (snapshot: UpdateSnapshot) => void): (() => void) =>
+    onIpc(UPDATE_STATE_CHANNEL, cb),
+  checkForUpdates: (): Promise<UpdateSnapshot> => ipcRenderer.invoke("app:check-for-updates"),
   installUpdate: (): Promise<void> => ipcRenderer.invoke("app:install-update"),
   fetchChangelog: (version: string): Promise<string | null> =>
     ipcRenderer.invoke("app:fetch-changelog", version),
-  onUpdateEvent,
+  fetchChangelogImage: (src: string): Promise<ChangelogImageBytes> =>
+    ipcRenderer.invoke("app:fetch-changelog-image", src),
+  ...notchHostBridge(onIpc),
+  ...cliHostBridge(onIpc),
+  ...pluginTabsHostBridge(onIpc),
 });
+
+installPluginTabPortRelay();

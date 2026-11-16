@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
@@ -21,20 +22,37 @@ const safeVersions = {
   "@vitest/mocker": ">=4.1.11",
   "@xmldom/xmldom": ">=0.8.15",
   astro: ">=7.2.8",
+  axios: ">=1.20.0",
   "baseline-browser-mapping": ">=2.11.0",
-  "brace-expansion": "^1.1.18 || ^2.1.4 || >=5.0.9",
+  "brace-expansion": "^1.1.21 || ^2.1.7 || >=5.0.12",
   browserslist: ">=4.28.7",
-  dompurify: ">=3.4.13",
-  "fast-uri": "^2.4.6 || ^3.1.7 || >=4.1.4",
+  dompurify: ">=3.4.16",
+  electron: "^42.11.16 || ^43.8.1 || >=44.9.1",
+  "fast-uri": "^2.4.8 || ^3.1.9 || >=4.2.3",
+  "follow-redirects": ">=1.16.2",
+  "happy-dom": ">=21.0.4",
+  "http-cache-semantics": ">=4.3.0",
   "js-yaml": ">=4.3.2",
+  katex: ">=0.18.2",
+  "markdown-it": ">=14.3.1",
+  minimatch: ">=11.0.1",
   nanoid: "^3.3.18 || >=5.1.16",
   orval: ">=8.22.0",
   postcss: ">=8.5.23",
-  sharp: ">=0.35.4",
-  "smol-toml": ">=1.7.1",
+  seroval: ">=1.6.11",
+  sharp: ">=0.35.5",
+  "smol-toml": ">=1.9.0",
+  "source-map-js": ">=1.2.2",
   svgo: ">=4.1.0",
-  undici: "^6.28.0 || >=7.29.0",
+  tinypool: ">=2.1.2",
+  undici: "^6.29.1 || ^7.30.1 || >=8.12.2",
+  vite: "^6.4.5 || ^7.3.2 || >=8.1.6",
+  zod: ">=4.6.6",
 };
+
+// Orval 8.34 made TypeDoc optional, removing its Markdown parser from our tree.
+// Keep the security floor if another dependency brings markdown-it back.
+const optionalPackages = new Set(["markdown-it"]);
 
 function versionsFor(entries, name) {
   assert.ok(entries && typeof entries === "object", "missing pnpm lockfile section");
@@ -55,7 +73,10 @@ for (const name of Object.keys(safeVersions)) {
   test(`every locked ${name} copy is patched, including peer-specific snapshots`, () => {
     for (const section of ["packages", "snapshots"]) {
       const versions = versionsFor(lock[section], name);
-      assert.ok(versions.length > 0, `${name} missing from lockfile ${section}`);
+      assert.ok(
+        optionalPackages.has(name) || versions.length > 0,
+        `${name} missing from lockfile ${section}`,
+      );
       for (const version of versions) assertSafe(name, version);
     }
   });
@@ -68,10 +89,30 @@ test("Sharp's native packages include patched binaries on every locked platform"
     for (const key of binaries) {
       const packageKey = key.split("(")[0];
       const version = packageKey.slice(packageKey.lastIndexOf("@") + 1);
-      const floor = key.startsWith("@img/sharp-libvips-") ? "1.3.3" : "0.35.4";
-      assert.ok(semver.gte(version, floor), `${key} predates the patched libheif bundle`);
+      const floor = key.startsWith("@img/sharp-libvips-") ? "1.3.4" : "0.35.5";
+      assert.ok(semver.gte(version, floor), `${key} predates the patched native image bundle`);
     }
   }
+});
+
+test("unpatched braces and sprintf-js are absent from every dependency snapshot", () => {
+  for (const section of ["packages", "snapshots"]) {
+    for (const name of ["braces", "sprintf-js"]) {
+      assert.deepEqual(versionsFor(lock[section], name), [], `${name} must stay out of ${section}`);
+    }
+  }
+});
+
+test("http-cache-semantics retains its required max-stale security patch", () => {
+  const name = "http-cache-semantics@4.3.0";
+  const path = workspace.patchedDependencies[name];
+  assert.equal(path, `patches/${name}.patch`);
+  const hash = createHash("sha256").update(read(path)).digest("hex");
+  assert.equal(lock.patchedDependencies[name], hash, "the cache patch must be locked");
+  assert.deepEqual(
+    Object.keys(lock.snapshots).filter((key) => key.startsWith(`${name}(`) || key === name),
+    [`${name}(patch_hash=${hash})`],
+  );
 });
 
 test("workspace overrides cannot reintroduce an old vulnerable transitive", () => {
@@ -132,4 +173,6 @@ test("the gate detects vulnerable nested copies even when a direct copy is patch
     () => assertSafe("@vitest/mocker", versionsFor(entries, "@vitest/mocker")[0]),
     /vulnerable/,
   );
+  assert.throws(() => assertSafe("markdown-it", "14.3.0"), /vulnerable/);
+  assert.doesNotThrow(() => assertSafe("markdown-it", "14.3.3"));
 });

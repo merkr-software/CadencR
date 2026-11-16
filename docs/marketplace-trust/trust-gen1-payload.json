@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "registry-trust",
+  "generation": 1,
+  "keys": [
+    {
+      "key_id": "cadencr-registry-1",
+      "public_key_base64": "Ox20iUMpTdJ0sUYaZ9ydino9SAXS4hf2NKddLZy1FeQ="
+    }
+  ],
+  "revoked_key_ids": [],
+  "recovery_catalog_sha256": []
+}

@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { KbdShortcut } from "@/components/KbdShortcut";
+import { useShortcutKeys } from "@/hooks/useShortcutLabel";
+import type { ShortcutId } from "@/lib/shortcuts/registry";
 import { SendIcon, Loader2 } from "lucide-react";
 import { getPermissionPreview } from "./permission-preview";
 import { ToolPermissionPromptHeader } from "./ToolPermissionPromptHeader";
@@ -14,25 +16,11 @@ import {
   AGENT_OPTION_CARD_HIGHLIGHTED,
 } from "./agent-prompt-option-card";
 
-export type PermissionDecisionValue = "allow_once" | "allow_future" | "deny";
-
-export interface PermissionOption {
-  decision: PermissionDecisionValue;
-  optionId?: string;
-  label: string;
-  description: string;
-  collectFeedback?: boolean;
-}
-
-export interface PendingPermission {
-  toolName: string;
-  input: Record<string, unknown>;
-  description: string;
-  pattern: string;
-  preview?: string;
-  options?: PermissionOption[];
-  requestId?: string;
-}
+import type {
+  PendingPermission,
+  PermissionDecisionValue,
+  PermissionOption,
+} from "@/types/agent-permission";
 
 interface ToolPermissionPromptProps {
   /** The pending permission request to display */
@@ -144,10 +132,6 @@ interface PermissionOptionButtonProps {
   showSpinner: boolean;
 }
 
-const ALLOW_ONCE_SHORTCUT = ["cmd", "Y"];
-const ALLOW_FUTURE_SHORTCUT = ["cmd", "L"];
-const DENY_SHORTCUT = ["cmd", "N"];
-
 function optionLabel(option: PermissionOption): string {
   return option.label.trim().toLowerCase();
 }
@@ -170,14 +154,20 @@ function shouldShortcutDeny(option: PermissionOption): boolean {
   return label === "deny" || label.includes("deny and continue");
 }
 
-function shortcutKeysForOption(
+function shortcutIdForOption(
   option: PermissionOption,
   options: PermissionOption[],
-): string[] | undefined {
-  if (option.decision === "allow_once") return ALLOW_ONCE_SHORTCUT;
-  if (shouldShortcutAllowFuture(option, options)) return ALLOW_FUTURE_SHORTCUT;
-  if (shouldShortcutDeny(option)) return DENY_SHORTCUT;
+): ShortcutId | undefined {
+  if (option.decision === "allow_once") return "perm-allow-once";
+  if (shouldShortcutAllowFuture(option, options)) return "perm-allow-future";
+  if (shouldShortcutDeny(option)) return "perm-deny";
   return undefined;
+}
+
+/** Resolves the key hint through the registry so a rebind updates the badge. */
+function PermissionShortcutBadge({ shortcutId }: { shortcutId: ShortcutId }) {
+  const keys = useShortcutKeys(shortcutId);
+  return <KbdShortcut keys={keys} variant="square" scope="agent" />;
 }
 
 function PermissionOptionButton({
@@ -189,7 +179,7 @@ function PermissionOptionButton({
   disabled,
   showSpinner,
 }: PermissionOptionButtonProps) {
-  const shortcutKeys = shortcutKeysForOption(option, options);
+  const shortcutId = shortcutIdForOption(option, options);
   return (
     <button
       type="button"
@@ -204,7 +194,7 @@ function PermissionOptionButton({
       onClick={() => onClick(index)}
     >
       <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-        {shortcutKeys && <KbdShortcut keys={shortcutKeys} variant="square" scope="agent" />}
+        {shortcutId && <PermissionShortcutBadge shortcutId={shortcutId} />}
         {option.label}
         {showSpinner && <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" />}
       </span>
@@ -234,7 +224,7 @@ function DenyFeedbackInput({
         value={feedback}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") onSubmit();
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) onSubmit();
         }}
         placeholder="Reason for denying (optional)..."
         className="h-8 border-border/50 bg-muted/40 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring/40"

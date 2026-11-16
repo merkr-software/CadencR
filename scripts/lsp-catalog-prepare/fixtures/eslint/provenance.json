@@ -1,0 +1,1899 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "0ff3e8f230ccae5ed68341ae9d1fc11dddfe55fff4b87569fa70018f7c0e7f20",
+  "source_lock_sha256": "ae01bb35eb1494dd3697ac3a92e7ad82dbcacdab62564cd7832a04338da35244",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "@eslint-community/eslint-utils",
+      "version": "4.10.1",
+      "destination": "node_modules/@eslint-community/eslint-utils",
+      "integrity": "sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==",
+      "compressed_size": 80357,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/eslint-community/eslint-utils"
+      },
+      "engines": {
+        "node": "^12.22.0 || ^14.17.0 || >=16.0.0"
+      },
+      "scripts": {
+        "prebuild": "npm run -s clean",
+        "build": "npm run build:dts && npm run build:rollup",
+        "build:dts": "tsc -p tsconfig.build.json",
+        "build:rollup": "rollup -c",
+        "clean": "rimraf .nyc_output coverage index.* dist",
+        "coverage": "opener ./coverage/lcov-report/index.html",
+        "docs:build": "vitepress build docs",
+        "docs:watch": "vitepress dev docs",
+        "format": "npm run -s format:prettier -- --write",
+        "format:prettier": "prettier .",
+        "format:check": "npm run -s format:prettier -- --check",
+        "lint:eslint": "eslint .",
+        "lint:format": "npm run -s format:check",
+        "lint:installed-check": "installed-check -v -i installed-check -i npm-run-all2 -i knip -i rollup-plugin-dts",
+        "lint:knip": "knip",
+        "lint": "run-p lint:*",
+        "test-coverage": "c8 mocha --reporter dot \"test/*.mjs\"",
+        "test": "mocha --reporter dot \"test/*.mjs\"",
+        "preversion": "npm run test-coverage && npm run -s build",
+        "postversion": "git push && git push --tags",
+        "prewatch": "npm run -s clean",
+        "watch": "warun \"{src,test}/**/*.mjs\" -- npm run -s test:mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "eslint-visitor-keys",
+      "version": "3.4.3",
+      "destination": "node_modules/@eslint-community/eslint-utils/node_modules/eslint-visitor-keys",
+      "integrity": "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag==",
+      "compressed_size": 8109,
+      "license": "Apache-2.0",
+      "repository": "eslint/eslint-visitor-keys",
+      "engines": {
+        "node": "^12.22.0 || ^14.17.0 || >=16.0.0"
+      },
+      "scripts": {
+        "build": "npm run build:cjs && npm run build:types",
+        "build:cjs": "rollup -c",
+        "build:debug": "npm run build:cjs -- -m && npm run build:types",
+        "build:keys": "node tools/build-keys-from-ts",
+        "build:types": "tsc",
+        "lint": "eslint .",
+        "prepare": "npm run build",
+        "release:generate:latest": "eslint-generate-release",
+        "release:generate:alpha": "eslint-generate-prerelease alpha",
+        "release:generate:beta": "eslint-generate-prerelease beta",
+        "release:generate:rc": "eslint-generate-prerelease rc",
+        "release:publish": "eslint-publish-release",
+        "test": "mocha tests/lib/**/*.cjs && c8 mocha tests/lib/**/*.js && npm run test:types",
+        "test:open-coverage": "c8 report --reporter lcov && opener coverage/lcov-report/index.html",
+        "test:types": "tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint-community/regexpp",
+      "version": "4.12.2",
+      "destination": "node_modules/@eslint-community/regexpp",
+      "integrity": "sha512-EriSTlt5OC9/7SXkRSCAhfSxxoSUgBm33OH+IkwbdpgoqsSsUg7y3uh+IICI/Qg4BBWr3U2i39RpmycbxMq4ew==",
+      "compressed_size": 73417,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/eslint-community/regexpp"
+      },
+      "engines": {
+        "node": "^12.0.0 || ^14.0.0 || >=16.0.0"
+      },
+      "scripts": {
+        "prebuild": "npm run -s clean",
+        "build": "run-s build:*",
+        "build:tsc": "tsc --module es2015",
+        "build:rollup": "rollup -c",
+        "build:dts": "npm run -s build:tsc -- --removeComments false && dts-bundle --name @eslint-community/regexpp --main .temp/index.d.ts --out ../index.d.ts && prettier --write index.d.ts",
+        "clean": "rimraf .temp index.*",
+        "lint": "eslint . --ext .ts",
+        "test": "nyc _mocha \"test/*.ts\" --reporter dot --timeout 10000",
+        "debug": "mocha --require ts-node/register/transpile-only \"test/*.ts\" --reporter dot --timeout 10000",
+        "update:test": "ts-node scripts/update-fixtures.ts",
+        "update:unicode": "run-s update:unicode:*",
+        "update:unicode:ids": "ts-node scripts/update-unicode-ids.ts",
+        "update:unicode:props": "ts-node scripts/update-unicode-properties.ts",
+        "update:test262:extract": "ts-node -T scripts/extract-test262.ts",
+        "preversion": "npm test && npm run -s build",
+        "postversion": "git push && git push --tags",
+        "prewatch": "npm run -s clean",
+        "watch": "_mocha \"test/*.ts\" --require ts-node/register --reporter dot --timeout 10000 --watch-extensions ts --watch --growl"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/config-array",
+      "version": "0.21.2",
+      "destination": "node_modules/@eslint/config-array",
+      "integrity": "sha512-nJl2KGTlrf9GjLimgIru+V/mzgSK0ABCDQRvxw5BjURL7WfH5uoWmizbH7QB6MmnMBd8cIC9uceWnezL1VZWWw==",
+      "compressed_size": 74929,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eslint/rewrite.git",
+        "directory": "packages/config-array"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build:dedupe-types": "node ../../tools/dedupe-types.js dist/cjs/index.cjs dist/esm/index.js",
+        "build:cts": "node ../../tools/build-cts.js dist/esm/index.d.ts dist/cjs/index.d.cts",
+        "build:std__path": "rollup -c rollup.std__path-config.js && node fix-std__path-imports",
+        "build": "rollup -c && npm run build:dedupe-types && tsc -p tsconfig.esm.json && npm run build:cts && npm run build:std__path",
+        "pretest": "npm run build",
+        "test": "mocha \"tests/**/*.test.js\"",
+        "test:coverage": "c8 npm test",
+        "test:jsr": "npx jsr@latest publish --dry-run",
+        "test:types": "tsc -p tests/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/config-helpers",
+      "version": "0.4.2",
+      "destination": "node_modules/@eslint/config-helpers",
+      "integrity": "sha512-gBrxN88gOIf3R7ja5K9slwNayVcZgK6SOUORm2uBzTeIEfeVaIhOpCtTox3P6R7o2jLFwLFTLnC7kU/RGcYEgw==",
+      "compressed_size": 11377,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eslint/rewrite.git",
+        "directory": "packages/config-helpers"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build:dedupe-types": "node ../../tools/dedupe-types.js dist/cjs/index.cjs dist/esm/index.js",
+        "build:cts": "node ../../tools/build-cts.js dist/esm/index.d.ts dist/cjs/index.d.cts",
+        "build": "rollup -c && npm run build:dedupe-types && tsc -p tsconfig.esm.json && npm run build:cts",
+        "test": "mocha \"tests/**/*.test.js\"",
+        "test:coverage": "c8 npm test",
+        "test:jsr": "npx jsr@latest publish --dry-run",
+        "test:pnpm": "cd tests/pnpm && pnpm install && pnpm exec tsc",
+        "test:types": "tsc -p tests/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/core",
+      "version": "0.17.0",
+      "destination": "node_modules/@eslint/core",
+      "integrity": "sha512-yL/sLrpmtDaFEiUj1osRP4TI2MDz1AddJL+jZ7KSqvBuliN4xqYY54IfdN8qD8Toa6g1iloph1fxQNkjOxrrpQ==",
+      "compressed_size": 22400,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eslint/rewrite.git",
+        "directory": "packages/core"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build:cts": "node -e \"fs.cpSync('dist/esm/types.d.ts', 'dist/cjs/types.d.cts')\"",
+        "build": "tsc && npm run build:cts",
+        "test:jsr": "npx jsr@latest publish --dry-run",
+        "test:types": "tsc -p tests/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/eslintrc",
+      "version": "3.3.7",
+      "destination": "node_modules/@eslint/eslintrc",
+      "integrity": "sha512-F42g89Qd5oAWtp0k0nnSrjziAKza7w8SVT4mStc18LZMaRb4J1HQAHLCalEtDCxrTuksx7NU9qsmeLwpOfPqWw==",
+      "compressed_size": 135823,
+      "license": "MIT",
+      "repository": "eslint/eslintrc",
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build": "rollup -c && node -e \"fs.copyFileSync('./lib/types/index.d.ts', './dist/eslintrc.d.cts')\"",
+        "lint": "eslint . --report-unused-disable-directives",
+        "lint:fix": "npm run lint -- --fix",
+        "prepare": "npm run build",
+        "test": "mocha -R progress -c \"tests/lib/*.cjs\" && mocha -R progress -c \"tests/lib/**/*.js\"",
+        "test:coverage": "c8 npm test",
+        "test:types": "tsc -p tests/lib/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/js",
+      "version": "9.39.4",
+      "destination": "node_modules/@eslint/js",
+      "integrity": "sha512-nE7DEIchvtiFTwBw4Lfbu59PG+kCofhjsKaCWzxTpt4lfRjRMqG6uMBzKXuEcyXhOHoUp9riAm7/aWYGhXZ9cw==",
+      "compressed_size": 4234,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/eslint/eslint.git",
+        "directory": "packages/js"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "test:types": "tsc -p tests/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/object-schema",
+      "version": "2.1.7",
+      "destination": "node_modules/@eslint/object-schema",
+      "integrity": "sha512-VtAOaymWVfZcmZbp6E2mympDIHvyjXs/12LqWYjVw6qjrfF+VK+fyG33kChz3nnK+SU5/NeHOqrTEHS8sXO3OA==",
+      "compressed_size": 11106,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eslint/rewrite.git",
+        "directory": "packages/object-schema"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build:dedupe-types": "node ../../tools/dedupe-types.js dist/cjs/index.cjs dist/esm/index.js",
+        "build:cts": "node ../../tools/build-cts.js dist/esm/index.d.ts dist/cjs/index.d.cts",
+        "build": "rollup -c && npm run build:dedupe-types && tsc -p tsconfig.esm.json && npm run build:cts",
+        "test": "mocha \"tests/**/*.test.js\"",
+        "test:coverage": "c8 npm test",
+        "test:jsr": "npx jsr@latest publish --dry-run",
+        "test:types": "tsc -p tests/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@eslint/plugin-kit",
+      "version": "0.4.1",
+      "destination": "node_modules/@eslint/plugin-kit",
+      "integrity": "sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==",
+      "compressed_size": 22477,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eslint/rewrite.git",
+        "directory": "packages/plugin-kit"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build:dedupe-types": "node ../../tools/dedupe-types.js dist/cjs/index.cjs dist/esm/index.js",
+        "build:cts": "node ../../tools/build-cts.js dist/esm/index.d.ts dist/cjs/index.d.cts",
+        "build": "rollup -c && npm run build:dedupe-types && tsc -p tsconfig.esm.json && npm run build:cts",
+        "pretest": "npm run build",
+        "test": "mocha \"tests/**/*.test.js\"",
+        "test:coverage": "c8 npm test",
+        "test:jsr": "npx jsr@latest publish --dry-run",
+        "test:types": "tsc -p tests/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@humanfs/core",
+      "version": "0.19.2",
+      "destination": "node_modules/@humanfs/core",
+      "integrity": "sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==",
+      "compressed_size": 14260,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/humanwhocodes/humanfs.git"
+      },
+      "engines": {
+        "node": ">=18.18.0"
+      },
+      "scripts": {
+        "build": "tsc",
+        "prepare": "npm run build",
+        "pretest": "npm run build",
+        "test": "c8 mocha tests"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@humanfs/node",
+      "version": "0.16.8",
+      "destination": "node_modules/@humanfs/node",
+      "integrity": "sha512-gE1eQNZ3R++kTzFUpdGlpmy8kDZD/MLyHqDwqjkVQI0JMdI1D51sy1H958PNXYkM2rAac7e5/CnIKZrHtPh3BQ==",
+      "compressed_size": 9398,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/humanwhocodes/humanfs.git",
+        "directory": "packages/node"
+      },
+      "engines": {
+        "node": ">=18.18.0"
+      },
+      "scripts": {
+        "build": "tsc",
+        "prepare": "npm run build",
+        "pretest": "npm run build",
+        "test": "mocha ./tests/"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@humanfs/types",
+      "version": "0.15.0",
+      "destination": "node_modules/@humanfs/types",
+      "integrity": "sha512-ZZ1w0aoQkwuUuC7Yf+7sdeaNfqQiiLcSRbfI08oAxqLtpXQr9AIVX7Ay7HLDuiLYAaFPu8oBYNq/QIi9URHJ3Q==",
+      "compressed_size": 3866,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/humanwhocodes/humanfs.git"
+      },
+      "engines": {
+        "node": ">=18.18.0"
+      },
+      "scripts": {
+        "build": "tsc",
+        "prepare": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@humanwhocodes/module-importer",
+      "version": "1.0.1",
+      "destination": "node_modules/@humanwhocodes/module-importer",
+      "integrity": "sha512-bxveV4V8v5Yb4ncFTT3rPSgZBOpCkjfK0y4oVVVJwIuDVBRMDXrPyXRL988i5ap9m9bnyEEjWfm5WkBmtffLfA==",
+      "compressed_size": 7090,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/humanwhocodes/module-importer.git"
+      },
+      "engines": {
+        "node": ">=12.22"
+      },
+      "scripts": {
+        "build": "rollup -c && tsc",
+        "prepare": "npm run build",
+        "lint": "eslint src/ tests/",
+        "test:unit": "c8 mocha tests/module-importer.test.js",
+        "test:build": "node tests/pkg.test.cjs && node tests/pkg.test.mjs",
+        "test": "npm run test:unit && npm run test:build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@humanwhocodes/retry",
+      "version": "0.4.3",
+      "destination": "node_modules/@humanwhocodes/retry",
+      "integrity": "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==",
+      "compressed_size": 11398,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/humanwhocodes/retry.git"
+      },
+      "engines": {
+        "node": ">=18.18"
+      },
+      "scripts": {
+        "build:cts-types": "node -e \"fs.copyFileSync('dist/retrier.d.ts', 'dist/retrier.d.cts')\"",
+        "build": "rollup -c && tsc && npm run build:cts-types",
+        "prepare": "npm run build",
+        "lint": "eslint src/ tests/",
+        "pretest": "npm run build",
+        "test:unit": "mocha tests/retrier.test.js",
+        "test:build": "node tests/pkg.test.cjs && node tests/pkg.test.mjs",
+        "test:jsr": "npx jsr@latest publish --dry-run",
+        "test:emfile": "node tools/check-emfile-handling.js",
+        "test": "npm run test:unit && npm run test:build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@types/estree",
+      "version": "1.0.10",
+      "destination": "node_modules/@types/estree",
+      "integrity": "sha512-lTyOMnOcmRBzdCv6/4zUZCrEhV0xrqQiUZBZtVcbmLHBXKLnN8q89v/wKRF/Q0HbwVsqbIG3o5HDoFl9sduM+g==",
+      "compressed_size": 5956,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/estree"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@types/json-schema",
+      "version": "7.0.15",
+      "destination": "node_modules/@types/json-schema",
+      "integrity": "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==",
+      "compressed_size": 6145,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/json-schema"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "acorn",
+      "version": "8.19.0",
+      "destination": "node_modules/acorn",
+      "integrity": "sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==",
+      "compressed_size": 134282,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/acornjs/acorn.git"
+      },
+      "engines": {
+        "node": ">=0.4.0"
+      },
+      "scripts": {
+        "prepare": "cd ..; npm run build:main"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "acorn-jsx",
+      "version": "5.3.2",
+      "destination": "node_modules/acorn-jsx",
+      "integrity": "sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==",
+      "compressed_size": 7635,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/acornjs/acorn-jsx"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node test/run.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "ajv",
+      "version": "6.15.0",
+      "destination": "node_modules/ajv",
+      "integrity": "sha512-fgFx7Hfoq60ytK2c7DhnF8jIvzYgOMxfugjLOSMHjLIPgenqa7S7oaagATUq99mV6IYvN2tRmC0wnTYX6iPbMw==",
+      "compressed_size": 202724,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/ajv-validator/ajv.git"
+      },
+      "engines": {},
+      "scripts": {
+        "eslint": "eslint lib/{compile/,}*.js spec/{**/,}*.js scripts --ignore-pattern spec/JSON-Schema-Test-Suite",
+        "jshint": "jshint lib/{compile/,}*.js",
+        "lint": "npm run jshint && npm run eslint",
+        "test-spec": "mocha spec/{**/,}*.spec.js -R spec",
+        "test-fast": "AJV_FAST_TEST=true npm run test-spec",
+        "test-debug": "npm run test-spec -- --inspect-brk",
+        "test-cov": "nyc npm run test-spec",
+        "test-ts": "tsc --target ES5 --noImplicitAny --noEmit spec/typescript/index.ts",
+        "bundle": "del-cli dist && node ./scripts/bundle.js . Ajv pure_getters",
+        "bundle-beautify": "node ./scripts/bundle.js js-beautify",
+        "build": "del-cli lib/dotjs/*.js \"!lib/dotjs/index.js\" && node scripts/compile-dots.js",
+        "test-karma": "karma start",
+        "test-browser": "del-cli .browser && npm run bundle && scripts/prepare-tests && npm run test-karma",
+        "test-all": "npm run test-cov && if-node-version 10 npm run test-browser",
+        "test": "npm run lint && npm run build && npm run test-all",
+        "prepublish": "npm run build && npm run bundle",
+        "watch": "watch \"npm run build\" ./lib/dot"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "ansi-styles",
+      "version": "4.3.0",
+      "destination": "node_modules/ansi-styles",
+      "integrity": "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg==",
+      "compressed_size": 5849,
+      "license": "MIT",
+      "repository": "chalk/ansi-styles",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd",
+        "screenshot": "svg-term --command='node screenshot' --out=screenshot.svg --padding=3 --width=55 --height=3 --at=1000 --no-cursor"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "argparse",
+      "version": "2.0.1",
+      "destination": "node_modules/argparse",
+      "integrity": "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==",
+      "compressed_size": 39740,
+      "license": "Python-2.0",
+      "repository": "nodeca/argparse",
+      "engines": {},
+      "scripts": {
+        "lint": "eslint .",
+        "test": "npm run lint && nyc mocha",
+        "coverage": "npm run test && nyc report --reporter html"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "balanced-match",
+      "version": "1.0.2",
+      "destination": "node_modules/balanced-match",
+      "integrity": "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==",
+      "compressed_size": 2668,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/juliangruber/balanced-match.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tape test/test.js",
+        "bench": "matcha test/bench.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "brace-expansion",
+      "version": "1.1.21",
+      "destination": "node_modules/brace-expansion",
+      "integrity": "sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==",
+      "compressed_size": 7924,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/juliangruber/brace-expansion.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tape test/*.js",
+        "gentest": "bash test/generate.sh",
+        "bench": "matcha test/perf/bench.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "callsites",
+      "version": "3.1.0",
+      "destination": "node_modules/callsites",
+      "integrity": "sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==",
+      "compressed_size": 2433,
+      "license": "MIT",
+      "repository": "sindresorhus/callsites",
+      "engines": {
+        "node": ">=6"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "chalk",
+      "version": "4.1.2",
+      "destination": "node_modules/chalk",
+      "integrity": "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==",
+      "compressed_size": 11577,
+      "license": "MIT",
+      "repository": "chalk/chalk",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && nyc ava && tsd",
+        "bench": "matcha benchmark.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "color-convert",
+      "version": "2.0.1",
+      "destination": "node_modules/color-convert",
+      "integrity": "sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==",
+      "compressed_size": 8996,
+      "license": "MIT",
+      "repository": "Qix-/color-convert",
+      "engines": {
+        "node": ">=7.0.0"
+      },
+      "scripts": {
+        "pretest": "xo",
+        "test": "node test/basic.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "color-name",
+      "version": "1.1.4",
+      "destination": "node_modules/color-name",
+      "integrity": "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==",
+      "compressed_size": 2868,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:colorjs/color-name.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node test.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "concat-map",
+      "version": "0.0.1",
+      "destination": "node_modules/concat-map",
+      "integrity": "sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==",
+      "compressed_size": 2263,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/substack/node-concat-map.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tape test/*.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "cross-spawn",
+      "version": "7.0.6",
+      "destination": "node_modules/cross-spawn",
+      "integrity": "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==",
+      "compressed_size": 6255,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:moxystudio/node-cross-spawn.git"
+      },
+      "engines": {
+        "node": ">= 8"
+      },
+      "scripts": {
+        "lint": "eslint .",
+        "test": "jest --env node --coverage",
+        "prerelease": "npm t && npm run lint",
+        "release": "standard-version",
+        "postrelease": "git push --follow-tags origin HEAD && npm publish"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "debug",
+      "version": "4.4.3",
+      "destination": "node_modules/debug",
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "compressed_size": 13449,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/debug-js/debug.git"
+      },
+      "engines": {
+        "node": ">=6.0"
+      },
+      "scripts": {
+        "lint": "xo",
+        "test": "npm run test:node && npm run test:browser && npm run lint",
+        "test:node": "mocha test.js test.node.js",
+        "test:browser": "karma start --single-run",
+        "test:coverage": "cat ./coverage/lcov.info | coveralls"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "deep-is",
+      "version": "0.1.4",
+      "destination": "node_modules/deep-is",
+      "integrity": "sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==",
+      "compressed_size": 3400,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/thlorenz/deep-is.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tape test/*.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "escape-string-regexp",
+      "version": "4.0.0",
+      "destination": "node_modules/escape-string-regexp",
+      "integrity": "sha512-TtpcNJ3XAzx3Gq8sWRzJaVajRs0uVxA2YAkdb1jm2YkPz4G6egUFAyA3n5vtEIZefPk5Wa4UXbKuS5fKkJWdgA==",
+      "compressed_size": 2017,
+      "license": "MIT",
+      "repository": "sindresorhus/escape-string-regexp",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "eslint",
+      "version": "9.39.4",
+      "destination": "node_modules/eslint",
+      "integrity": "sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==",
+      "compressed_size": 639638,
+      "license": "MIT",
+      "repository": "eslint/eslint",
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build:docs:update-links": "node tools/fetch-docs-links.js",
+        "build:site": "node Makefile.js gensite",
+        "build:webpack": "node Makefile.js webpack",
+        "build:readme": "node tools/update-readme.js",
+        "build:rules-index": "node Makefile.js generateRuleIndexPage",
+        "lint": "trunk check --no-fix --ignore=docs/**/*.js -a --filter=eslint && trunk check --no-fix --ignore=docs/**/*.js",
+        "lint:docs:js": "trunk check --no-fix --ignore=** --ignore=!docs/**/*.js -a --filter=eslint && trunk check --no-fix --ignore=** --ignore=!docs/**/*.js",
+        "lint:docs:rule-examples": "node Makefile.js checkRuleExamples",
+        "lint:unused": "knip",
+        "lint:fix": "trunk check -y --ignore=docs/**/*.js -a --filter=eslint && trunk check -y --ignore=docs/**/*.js",
+        "lint:fix:docs:js": "trunk check -y --ignore=** --ignore=!docs/**/*.js -a --filter=eslint && trunk check -y --ignore=** --ignore=!docs/**/*.js",
+        "lint:rule-types": "node tools/update-rule-type-headers.js --check",
+        "lint:types": "attw --pack",
+        "release:generate:alpha": "node Makefile.js generatePrerelease -- alpha",
+        "release:generate:beta": "node Makefile.js generatePrerelease -- beta",
+        "release:generate:latest": "node Makefile.js generateRelease -- latest",
+        "release:generate:maintenance": "node Makefile.js generateRelease -- maintenance",
+        "release:generate:rc": "node Makefile.js generatePrerelease -- rc",
+        "release:publish": "node Makefile.js publishRelease",
+        "test": "node Makefile.js test",
+        "test:browser": "node Makefile.js cypress",
+        "test:cli": "mocha",
+        "test:emfile": "node tools/check-emfile-handling.js",
+        "test:fuzz": "node Makefile.js fuzz",
+        "test:performance": "node Makefile.js perf",
+        "test:pnpm": "cd tests/pnpm && node check.js && pnpm install && pnpm exec tsc",
+        "test:types": "tsc -p tests/lib/types/tsconfig.json"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "eslint-scope",
+      "version": "8.4.0",
+      "destination": "node_modules/eslint-scope",
+      "integrity": "sha512-sNXOfKCn74rt8RICKMvJS7XKV/Xk9kA7DyJr8mJik3S7Cwgy3qlkkmyS2uQB3jiJg6VNdZd/pDBJu0nvG2NlTg==",
+      "compressed_size": 30023,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/eslint/js.git",
+        "directory": "packages/eslint-scope"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build": "rollup -c",
+        "build:update-version": "node tools/update-version.js",
+        "prepublishOnly": "npm run build:update-version && npm run build",
+        "pretest": "npm run build",
+        "release:generate:latest": "eslint-generate-release",
+        "release:generate:alpha": "eslint-generate-prerelease alpha",
+        "release:generate:beta": "eslint-generate-prerelease beta",
+        "release:generate:rc": "eslint-generate-prerelease rc",
+        "release:publish": "eslint-publish-release",
+        "test": "node Makefile.js test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "eslint-visitor-keys",
+      "version": "4.2.1",
+      "destination": "node_modules/eslint-visitor-keys",
+      "integrity": "sha512-Uhdk5sfqcee/9H/rCOJikYz67o0a2Tw2hGRPOG2Y1R2dg7brRe1uG0yaNQDHu+TO/uQPF/5eCapvYSmHUjt7JQ==",
+      "compressed_size": 9146,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/eslint/js.git",
+        "directory": "packages/eslint-visitor-keys"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build": "npm run build:cjs && npm run build:types",
+        "build:cjs": "rollup -c",
+        "build:debug": "npm run build:cjs -- -m && npm run build:types",
+        "build:types": "tsc -v && tsc",
+        "release:generate:latest": "eslint-generate-release",
+        "release:generate:alpha": "eslint-generate-prerelease alpha",
+        "release:generate:beta": "eslint-generate-prerelease beta",
+        "release:generate:rc": "eslint-generate-prerelease rc",
+        "release:publish": "eslint-publish-release",
+        "test": "mocha tests/lib/**/*.cjs && c8 mocha tests/lib/**/*.js && npm run test:types",
+        "test:open-coverage": "c8 report --reporter lcov && opener coverage/lcov-report/index.html",
+        "test:types": "tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "espree",
+      "version": "10.4.0",
+      "destination": "node_modules/espree",
+      "integrity": "sha512-j6PAQ2uUr79PZhBjP5C5fhl8e39FmRnOjsD5lGnWrFU8i2G776tBK7+nP8KuQUTTyAZUwfQqXAgrVH5MbH9CYQ==",
+      "compressed_size": 17313,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/eslint/js.git",
+        "directory": "packages/espree"
+      },
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "scripts": {
+        "build": "rollup -c rollup.config.js",
+        "build:debug": "npm run build -- -m",
+        "build:docs": "node tools/sync-docs.js",
+        "build:update-version": "node tools/update-version.js",
+        "prepublishOnly": "npm run build:update-version && npm run build",
+        "pretest": "npm run build",
+        "release:generate:latest": "eslint-generate-release",
+        "release:generate:alpha": "eslint-generate-prerelease alpha",
+        "release:generate:beta": "eslint-generate-prerelease beta",
+        "release:generate:rc": "eslint-generate-prerelease rc",
+        "release:publish": "eslint-publish-release",
+        "test": "npm-run-all -s test:*",
+        "test:cjs": "mocha --color --reporter progress --timeout 30000 tests/lib/commonjs.cjs",
+        "test:esm": "c8 mocha --color --reporter progress --timeout 30000 tests/lib/**/*.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "esquery",
+      "version": "1.7.0",
+      "destination": "node_modules/esquery",
+      "integrity": "sha512-Ap6G0WQwcU/LHsvLwON1fAQX9Zp0A2Y6Y/cJBl9r/JbW90Zyg4/zbG6zzKa2OTALELarYHmKu0GhpM5EO+7T0g==",
+      "compressed_size": 166185,
+      "license": "BSD-3-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/estools/esquery.git"
+      },
+      "engines": {
+        "node": ">=0.10"
+      },
+      "scripts": {
+        "prepublishOnly": "npm run build && npm test",
+        "build:parser": "rm parser.js && pegjs --cache --format umd -o \"parser.js\" \"grammar.pegjs\"",
+        "build:browser": "rollup -c",
+        "build": "npm run build:parser && npm run build:browser",
+        "mocha": "mocha --require chai/register-assert --require @babel/register tests",
+        "test": "nyc npm run mocha && npm run lint",
+        "test:ci": "npm run mocha",
+        "lint": "eslint ."
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "esrecurse",
+      "version": "4.3.0",
+      "destination": "node_modules/esrecurse",
+      "integrity": "sha512-KmfKL3b6G+RXvP8N1vr3Tq1kL/oCFgn2NYXEtqP8/L3pKapUA4G8cFVaoF3SU323CD4XypR/ffioHmkti6/Tag==",
+      "compressed_size": 4053,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/estools/esrecurse.git"
+      },
+      "engines": {
+        "node": ">=4.0"
+      },
+      "scripts": {
+        "test": "gulp travis",
+        "unit-test": "gulp test",
+        "lint": "gulp lint"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "estraverse",
+      "version": "5.3.0",
+      "destination": "node_modules/estraverse",
+      "integrity": "sha512-MMdARuVEQziNTeJD8DgMqmhwR11BRQ/cBP+pLtYdSTnf3MIO8fFeiINEbX36ZdNlfU/7A9f3gUw49B3oQsvwBA==",
+      "compressed_size": 8052,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/estools/estraverse.git"
+      },
+      "engines": {
+        "node": ">=4.0"
+      },
+      "scripts": {
+        "test": "npm run-script lint && npm run-script unit-test",
+        "lint": "jshint estraverse.js",
+        "unit-test": "mocha --compilers js:babel-register"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "esutils",
+      "version": "2.0.3",
+      "destination": "node_modules/esutils",
+      "integrity": "sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==",
+      "compressed_size": 9542,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/estools/esutils.git"
+      },
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "npm run-script lint && npm run-script unit-test",
+        "lint": "jshint lib/*.js",
+        "unit-test": "mocha --compilers coffee:coffee-script -R spec",
+        "generate-regex": "node tools/generate-identifier-regex.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "fast-deep-equal",
+      "version": "3.1.3",
+      "destination": "node_modules/fast-deep-equal",
+      "integrity": "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==",
+      "compressed_size": 3656,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/epoberezkin/fast-deep-equal.git"
+      },
+      "engines": {},
+      "scripts": {
+        "eslint": "eslint *.js benchmark/*.js spec/*.js",
+        "build": "node build",
+        "benchmark": "npm i && npm run build && cd ./benchmark && npm i && node ./",
+        "test-spec": "mocha spec/*.spec.js -R spec",
+        "test-cov": "nyc npm run test-spec",
+        "test-ts": "tsc --target ES5 --noImplicitAny index.d.ts",
+        "test": "npm run build && npm run eslint && npm run test-ts && npm run test-cov",
+        "prepublish": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "fast-json-stable-stringify",
+      "version": "2.1.0",
+      "destination": "node_modules/fast-json-stable-stringify",
+      "integrity": "sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==",
+      "compressed_size": 6318,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/epoberezkin/fast-json-stable-stringify.git"
+      },
+      "engines": {},
+      "scripts": {
+        "eslint": "eslint index.js test",
+        "test-spec": "tape test/*.js",
+        "test": "npm run eslint && nyc npm run test-spec"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "fast-levenshtein",
+      "version": "2.0.6",
+      "destination": "node_modules/fast-levenshtein",
+      "integrity": "sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==",
+      "compressed_size": 3699,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/hiddentao/fast-levenshtein.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "grunt build",
+        "prepublish": "npm run build",
+        "benchmark": "grunt benchmark",
+        "test": "mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "file-entry-cache",
+      "version": "8.0.0",
+      "destination": "node_modules/file-entry-cache",
+      "integrity": "sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==",
+      "compressed_size": 5512,
+      "license": "MIT",
+      "repository": "jaredwray/file-entry-cache",
+      "engines": {
+        "node": ">=16.0.0"
+      },
+      "scripts": {
+        "eslint": "eslint --cache --cache-location=node_modules/.cache/ 'cache.js' 'test/**/*.js' 'perf.js'",
+        "autofix": "npm run eslint -- --fix",
+        "clean": "rimraf ./node_modules ./package-lock.json ./yarn.lock",
+        "test": "npm run eslint --silent && c8 mocha -R spec test/specs",
+        "test:ci": "npm run eslint --silent && c8 --reporter=lcov mocha -R spec test/specs",
+        "perf": "node perf.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "find-up",
+      "version": "5.0.0",
+      "destination": "node_modules/find-up",
+      "integrity": "sha512-78/PXT1wlLLDgTzDs7sjq9hzz0vXD+zn+7wypEe4fXQxCmdmqfGsEPQxmiCSQI3ajFV91bVSsvNtrJRiW6nGng==",
+      "compressed_size": 3806,
+      "license": "MIT",
+      "repository": "sindresorhus/find-up",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "flat-cache",
+      "version": "4.0.1",
+      "destination": "node_modules/flat-cache",
+      "integrity": "sha512-f7ccFPK3SXFHpx15UIGyRJ/FJQctuKZ0zVuN3frBo4HnK3cay9VEW0R6yPYFHC0AgqhukPzKjq22t5DmAyqGyw==",
+      "compressed_size": 8903,
+      "license": "MIT",
+      "repository": "jaredwray/flat-cache",
+      "engines": {
+        "node": ">=16"
+      },
+      "scripts": {
+        "eslint": "eslint --cache --cache-location=node_modules/.cache/ ./src/**/*.js ./test/**/*.js",
+        "clean": "rimraf ./node_modules ./package-lock.json ./yarn.lock ./coverage",
+        "eslint-fix": "npm run eslint -- --fix",
+        "autofix": "npm run eslint-fix",
+        "check": "npm run eslint",
+        "verify": "npm run eslint && npm run test:cache",
+        "test:cache": "c8 mocha -R spec test/specs",
+        "test:ci:cache": "c8 --reporter=lcov mocha -R spec test/specs",
+        "test": "npm run verify --silent",
+        "format": "prettier --write ."
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "flatted",
+      "version": "3.4.4",
+      "destination": "node_modules/flatted",
+      "integrity": "sha512-5+ybhBZANEJxaH3X5evAFatUxLfEHSr7n6kYJ+1Qd0mUqr4eu9gIf6GDbWHf8RJijHrjjO8G+la14SlL2SeS1Q==",
+      "compressed_size": 11683,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/WebReflection/flatted.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "npm run cjs && npm run rollup:esm && npm run rollup:es && npm run rollup:babel && npm run min && npm run test && npm run size",
+        "cjs": "ascjs esm cjs",
+        "rollup:es": "rollup --config rollup/es.config.js && sed -i.bck 's/^var /self./' es.js && rm -rf es.js.bck",
+        "rollup:esm": "rollup --config rollup/esm.config.js",
+        "rollup:babel": "rollup --config rollup/babel.config.js && sed -i.bck 's/^var /self./' index.js && rm -rf index.js.bck",
+        "min": "terser index.js -c -m -o min.js",
+        "size": "cat index.js | wc -c;cat min.js | wc -c;gzip -c9 min.js | wc -c;cat min.js | brotli | wc -c; cat es.js | brotli | wc -c; cat esm.js | brotli | wc -c",
+        "test": "c8 node test/index.js",
+        "test:php": "php php/test.php",
+        "test:py": "python python/test.py",
+        "ts": "tsc -p .",
+        "coverage": "mkdir -p ./coverage; c8 report --reporter=text-lcov > ./coverage/lcov.info"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "glob-parent",
+      "version": "6.0.2",
+      "destination": "node_modules/glob-parent",
+      "integrity": "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A==",
+      "compressed_size": 3449,
+      "license": "ISC",
+      "repository": "gulpjs/glob-parent",
+      "engines": {
+        "node": ">=10.13.0"
+      },
+      "scripts": {
+        "lint": "eslint .",
+        "pretest": "npm run lint",
+        "test": "nyc mocha --async-only"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "globals",
+      "version": "14.0.0",
+      "destination": "node_modules/globals",
+      "integrity": "sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==",
+      "compressed_size": 17235,
+      "license": "MIT",
+      "repository": "sindresorhus/globals",
+      "engines": {
+        "node": ">=18"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd",
+        "prepare": "npm run --silent update-types",
+        "update-builtin-globals": "node scripts/get-builtin-globals.mjs",
+        "update-types": "node scripts/generate-types.mjs > index.d.ts"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "has-flag",
+      "version": "4.0.0",
+      "destination": "node_modules/has-flag",
+      "integrity": "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==",
+      "compressed_size": 2206,
+      "license": "MIT",
+      "repository": "sindresorhus/has-flag",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "ignore",
+      "version": "5.3.2",
+      "destination": "node_modules/ignore",
+      "integrity": "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==",
+      "compressed_size": 15266,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:kaelzhang/node-ignore.git"
+      },
+      "engines": {
+        "node": ">= 4"
+      },
+      "scripts": {
+        "prepublishOnly": "npm run build",
+        "build": "babel -o legacy.js index.js",
+        "test:lint": "eslint .",
+        "test:tsc": "tsc ./test/ts/simple.ts --lib ES6",
+        "test:ts": "node ./test/ts/simple.js",
+        "tap": "tap --reporter classic",
+        "test:git": "npm run tap test/git-check-ignore.js",
+        "test:ignore": "npm run tap test/ignore.js",
+        "test:ignore:only": "IGNORE_ONLY_IGNORES=1 npm run tap test/ignore.js",
+        "test:others": "npm run tap test/others.js",
+        "test:cases": "npm run tap test/*.js -- --coverage",
+        "test:no-coverage": "npm run tap test/*.js -- --no-check-coverage",
+        "test:only": "npm run test:lint && npm run test:tsc && npm run test:ts && npm run test:cases",
+        "test": "npm run test:only",
+        "test:win32": "IGNORE_TEST_WIN32=1 npm run test",
+        "report": "tap --coverage-report=html",
+        "posttest": "npm run report && codecov"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "import-fresh",
+      "version": "3.3.1",
+      "destination": "node_modules/import-fresh",
+      "integrity": "sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==",
+      "compressed_size": 2225,
+      "license": "MIT",
+      "repository": "sindresorhus/import-fresh",
+      "engines": {
+        "node": ">=6"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd",
+        "heapdump": "node heapdump.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "imurmurhash",
+      "version": "0.1.4",
+      "destination": "node_modules/imurmurhash",
+      "integrity": "sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA==",
+      "compressed_size": 4312,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/jensyt/imurmurhash-js"
+      },
+      "engines": {
+        "node": ">=0.8.19"
+      },
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "is-extglob",
+      "version": "2.1.1",
+      "destination": "node_modules/is-extglob",
+      "integrity": "sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==",
+      "compressed_size": 2663,
+      "license": "MIT",
+      "repository": "jonschlinkert/is-extglob",
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "is-glob",
+      "version": "4.0.3",
+      "destination": "node_modules/is-glob",
+      "integrity": "sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg==",
+      "compressed_size": 4255,
+      "license": "MIT",
+      "repository": "micromatch/is-glob",
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "mocha && node benchmark.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "isexe",
+      "version": "2.0.0",
+      "destination": "node_modules/isexe",
+      "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==",
+      "compressed_size": 3756,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/isaacs/isexe.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tap test/*.js --100",
+        "preversion": "npm test",
+        "postversion": "npm publish",
+        "postpublish": "git push origin --all; git push origin --tags"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "js-yaml",
+      "version": "4.3.2",
+      "destination": "node_modules/js-yaml",
+      "integrity": "sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==",
+      "compressed_size": 227545,
+      "license": "MIT",
+      "repository": "nodeca/js-yaml",
+      "engines": {},
+      "scripts": {
+        "lint": "eslint .",
+        "lint-fix": "eslint . --fix",
+        "test": "npm run lint && npm run test:core && npm run test:build",
+        "test:core": "node --test test/core/*.test.*",
+        "test:build": "npm run build && node --test test/build/*.test.*",
+        "coverage": "npm run build && c8 --include 'lib/**' -r text -r html -r lcov node --test test/core/*.test.*",
+        "build": "node support/build-dist.mjs",
+        "build:demo": "npm run lint && node support/build_demo.mjs",
+        "gh-demo": "npm run build:demo && gh-pages -d demo -f",
+        "prepack": "npm test && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "json-buffer",
+      "version": "3.0.1",
+      "destination": "node_modules/json-buffer",
+      "integrity": "sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==",
+      "compressed_size": 2618,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/dominictarr/json-buffer.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "set -e; for t in test/*.js; do node $t; done"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "json-schema-traverse",
+      "version": "0.4.1",
+      "destination": "node_modules/json-schema-traverse",
+      "integrity": "sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==",
+      "compressed_size": 5141,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/epoberezkin/json-schema-traverse.git"
+      },
+      "engines": {},
+      "scripts": {
+        "eslint": "eslint index.js spec",
+        "test-spec": "mocha spec -R spec",
+        "test": "npm run eslint && nyc npm run test-spec"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "json-stable-stringify-without-jsonify",
+      "version": "1.0.1",
+      "destination": "node_modules/json-stable-stringify-without-jsonify",
+      "integrity": "sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw==",
+      "compressed_size": 4621,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/samn/json-stable-stringify.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tape test/*.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "keyv",
+      "version": "4.5.4",
+      "destination": "node_modules/keyv",
+      "integrity": "sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==",
+      "compressed_size": 8620,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jaredwray/keyv.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "echo 'No build step required.'",
+        "prepare": "yarn build",
+        "test": "xo && c8 ava --serial",
+        "test:ci": "xo && ava --serial",
+        "clean": "rm -rf node_modules && rm -rf ./coverage && rm -rf ./test/testdb.sqlite"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "levn",
+      "version": "0.4.1",
+      "destination": "node_modules/levn",
+      "integrity": "sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==",
+      "compressed_size": 7465,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/gkz/levn.git"
+      },
+      "engines": {
+        "node": ">= 0.8.0"
+      },
+      "scripts": {
+        "test": "make test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "locate-path",
+      "version": "6.0.0",
+      "destination": "node_modules/locate-path",
+      "integrity": "sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==",
+      "compressed_size": 2954,
+      "license": "MIT",
+      "repository": "sindresorhus/locate-path",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "lodash.merge",
+      "version": "4.6.2",
+      "destination": "node_modules/lodash.merge",
+      "integrity": "sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==",
+      "compressed_size": 13081,
+      "license": "MIT",
+      "repository": "lodash/lodash",
+      "engines": {},
+      "scripts": {
+        "test": "echo \"See https://travis-ci.org/lodash/lodash-cli for testing details.\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "minimatch",
+      "version": "3.1.5",
+      "destination": "node_modules/minimatch",
+      "integrity": "sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w==",
+      "compressed_size": 12860,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/isaacs/minimatch.git"
+      },
+      "engines": {
+        "node": "*"
+      },
+      "scripts": {
+        "test": "tap",
+        "preversion": "npm test",
+        "postversion": "npm publish",
+        "postpublish": "git push origin --all; git push origin --tags"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "ms",
+      "version": "2.1.3",
+      "destination": "node_modules/ms",
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+      "compressed_size": 2967,
+      "license": "MIT",
+      "repository": "vercel/ms",
+      "engines": {},
+      "scripts": {
+        "precommit": "lint-staged",
+        "lint": "eslint lib/* bin/*",
+        "test": "mocha tests.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "natural-compare",
+      "version": "1.4.0",
+      "destination": "node_modules/natural-compare",
+      "integrity": "sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==",
+      "compressed_size": 2510,
+      "license": "MIT",
+      "repository": "git://github.com/litejs/natural-compare-lite.git",
+      "engines": {},
+      "scripts": {
+        "build": "node node_modules/buildman/index.js --all",
+        "test": "node tests/index.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "optionator",
+      "version": "0.9.4",
+      "destination": "node_modules/optionator",
+      "integrity": "sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==",
+      "compressed_size": 14017,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/gkz/optionator.git"
+      },
+      "engines": {
+        "node": ">= 0.8.0"
+      },
+      "scripts": {
+        "test": "make test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "p-limit",
+      "version": "3.1.0",
+      "destination": "node_modules/p-limit",
+      "integrity": "sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==",
+      "compressed_size": 3265,
+      "license": "MIT",
+      "repository": "sindresorhus/p-limit",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "p-locate",
+      "version": "5.0.0",
+      "destination": "node_modules/p-locate",
+      "integrity": "sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==",
+      "compressed_size": 3151,
+      "license": "MIT",
+      "repository": "sindresorhus/p-locate",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "parent-module",
+      "version": "1.0.1",
+      "destination": "node_modules/parent-module",
+      "integrity": "sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==",
+      "compressed_size": 2008,
+      "license": "MIT",
+      "repository": "sindresorhus/parent-module",
+      "engines": {
+        "node": ">=6"
+      },
+      "scripts": {
+        "test": "xo && ava"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "path-exists",
+      "version": "4.0.0",
+      "destination": "node_modules/path-exists",
+      "integrity": "sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==",
+      "compressed_size": 2073,
+      "license": "MIT",
+      "repository": "sindresorhus/path-exists",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "path-key",
+      "version": "3.1.1",
+      "destination": "node_modules/path-key",
+      "integrity": "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==",
+      "compressed_size": 2258,
+      "license": "MIT",
+      "repository": "sindresorhus/path-key",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "prelude-ls",
+      "version": "1.2.1",
+      "destination": "node_modules/prelude-ls",
+      "integrity": "sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==",
+      "compressed_size": 9408,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/gkz/prelude-ls.git"
+      },
+      "engines": {
+        "node": ">= 0.8.0"
+      },
+      "scripts": {
+        "test": "make test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "punycode",
+      "version": "2.3.1",
+      "destination": "node_modules/punycode",
+      "integrity": "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==",
+      "compressed_size": 7603,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/punycode.js.git"
+      },
+      "engines": {
+        "node": ">=6"
+      },
+      "scripts": {
+        "test": "mocha tests",
+        "build": "node scripts/prepublish.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "resolve-from",
+      "version": "4.0.0",
+      "destination": "node_modules/resolve-from",
+      "integrity": "sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g==",
+      "compressed_size": 2149,
+      "license": "MIT",
+      "repository": "sindresorhus/resolve-from",
+      "engines": {
+        "node": ">=4"
+      },
+      "scripts": {
+        "test": "xo && ava"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "shebang-command",
+      "version": "2.0.0",
+      "destination": "node_modules/shebang-command",
+      "integrity": "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==",
+      "compressed_size": 1506,
+      "license": "MIT",
+      "repository": "kevva/shebang-command",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "shebang-regex",
+      "version": "3.0.0",
+      "destination": "node_modules/shebang-regex",
+      "integrity": "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==",
+      "compressed_size": 1503,
+      "license": "MIT",
+      "repository": "sindresorhus/shebang-regex",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "strip-json-comments",
+      "version": "3.1.1",
+      "destination": "node_modules/strip-json-comments",
+      "integrity": "sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==",
+      "compressed_size": 2847,
+      "license": "MIT",
+      "repository": "sindresorhus/strip-json-comments",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd",
+        "bench": "matcha benchmark.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "supports-color",
+      "version": "7.2.0",
+      "destination": "node_modules/supports-color",
+      "integrity": "sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==",
+      "compressed_size": 3210,
+      "license": "MIT",
+      "repository": "chalk/supports-color",
+      "engines": {
+        "node": ">=8"
+      },
+      "scripts": {
+        "test": "xo && ava"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "type-check",
+      "version": "0.4.0",
+      "destination": "node_modules/type-check",
+      "integrity": "sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==",
+      "compressed_size": 6779,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/gkz/type-check.git"
+      },
+      "engines": {
+        "node": ">= 0.8.0"
+      },
+      "scripts": {
+        "test": "make test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "uri-js",
+      "version": "4.4.1",
+      "destination": "node_modules/uri-js",
+      "integrity": "sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==",
+      "compressed_size": 132003,
+      "license": "BSD-2-Clause",
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/garycourt/uri-js"
+      },
+      "engines": {},
+      "scripts": {
+        "build:esnext": "tsc",
+        "build:es5": "rollup -c && cp dist/esnext/uri.d.ts dist/es5/uri.all.d.ts && npm run build:es5:fix-sourcemap",
+        "build:es5:fix-sourcemap": "sorcery -i dist/es5/uri.all.js",
+        "build:es5:min": "uglifyjs dist/es5/uri.all.js --support-ie8 --output dist/es5/uri.all.min.js --in-source-map dist/es5/uri.all.js.map --source-map uri.all.min.js.map --comments --compress --mangle --pure-funcs merge subexp && mv uri.all.min.js.map dist/es5/ && cp dist/es5/uri.all.d.ts dist/es5/uri.all.min.d.ts",
+        "build": "npm run build:esnext && npm run build:es5 && npm run build:es5:min",
+        "clean": "rm -rf dist",
+        "test": "mocha -u mocha-qunit-ui dist/es5/uri.all.js tests/tests.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "which",
+      "version": "2.0.2",
+      "destination": "node_modules/which",
+      "integrity": "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==",
+      "compressed_size": 4496,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/isaacs/node-which.git"
+      },
+      "engines": {
+        "node": ">= 8"
+      },
+      "scripts": {
+        "test": "tap",
+        "preversion": "npm test",
+        "postversion": "npm publish",
+        "prepublish": "npm run changelog",
+        "prechangelog": "bash gen-changelog.sh",
+        "changelog": "git add CHANGELOG.md",
+        "postchangelog": "git commit -m 'update changelog - '${npm_package_version}",
+        "postpublish": "git push origin --follow-tags"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "word-wrap",
+      "version": "1.2.5",
+      "destination": "node_modules/word-wrap",
+      "integrity": "sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==",
+      "compressed_size": 4409,
+      "license": "MIT",
+      "repository": "jonschlinkert/word-wrap",
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "yocto-queue",
+      "version": "0.1.0",
+      "destination": "node_modules/yocto-queue",
+      "integrity": "sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==",
+      "compressed_size": 2765,
+      "license": "MIT",
+      "repository": "sindresorhus/yocto-queue",
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "xo && ava && tsd"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

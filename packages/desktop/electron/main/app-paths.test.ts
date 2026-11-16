@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import type { AppPathsOverrides } from "./app-paths";
+import {
+  resolveCacheDir,
+  resolveConfigDir,
+  resolveDatabasePath,
+  resolveDataDir,
+  resolveLogsDir,
+  resolveRendererDiagnosticHistory,
+  resolveWorktreesDir,
+} from "./app-paths";
+
+function linux(env: NodeJS.ProcessEnv = {}): AppPathsOverrides {
+  return { platform: "linux", homedir: "/home/u", env };
+}
+
+function macos(env: NodeJS.ProcessEnv = {}): AppPathsOverrides {
+  return { platform: "darwin", homedir: "/Users/u", env };
+}
+
+describe("app-paths on macOS", () => {
+  it("keeps the legacy ~/.cadencr root for data and namespaces config/cache", () => {
+    // Data stays at the legacy root — moving it would orphan every
+    // existing macOS user's database and worktrees.
+    expect(resolveDataDir(macos())).toBe("/Users/u/.cadencr");
+    // Config/cache get dedicated subroots so they can't collide.
+    expect(resolveConfigDir(macos())).toBe("/Users/u/.cadencr/config");
+    expect(resolveCacheDir(macos())).toBe("/Users/u/.cadencr/cache");
+  });
+
+  it("places derived paths under the right subroot", () => {
+    expect(resolveDatabasePath(macos())).toBe("/Users/u/.cadencr/database/cadencr.db");
+    expect(resolveWorktreesDir(macos())).toBe("/Users/u/.cadencr/worktrees");
+    expect(resolveLogsDir(macos())).toBe("/Users/u/.cadencr/cache/logs");
+  });
+
+  it("ignores XDG env vars on macOS", () => {
+    expect(resolveDataDir(macos({ XDG_DATA_HOME: "/should/be/ignored" }))).toBe(
+      "/Users/u/.cadencr",
+    );
+  });
+});
+
+describe("renderer diagnostic history location", () => {
+  it("uses the platform cache and respects Linux XDG overrides for installed apps", () => {
+    expect(resolveRendererDiagnosticHistory(true, "/unused", macos())).toBe(
+      "/Users/u/.cadencr/cache/logs/renderer-diagnostics.json",
+    );
+    expect(resolveRendererDiagnosticHistory(true, "/unused", linux())).toBe(
+      "/home/u/.cache/cadencr/logs/renderer-diagnostics.json",
+    );
+    expect(
+      resolveRendererDiagnosticHistory(
+        true,
+        "/unused",
+        linux({ XDG_CACHE_HOME: "/tmp/custom-cache" }),
+      ),
+    ).toBe("/tmp/custom-cache/cadencr/logs/renderer-diagnostics.json");
+  });
+
+  it.each([macos(), linux()])(
+    "keeps development crashes isolated in their Electron profile",
+    (platform) => {
+      expect(resolveRendererDiagnosticHistory(false, "/tmp/worktree-profile", platform)).toBe(
+        "/tmp/worktree-profile/renderer-diagnostics.json",
+      );
+    },
+  );
+});
+
+describe("app-paths on Linux", () => {
+  it("falls back to ~/.local/share, ~/.config, ~/.cache when XDG is unset", () => {
+    expect(resolveDataDir(linux())).toBe("/home/u/.local/share/cadencr");
+    expect(resolveConfigDir(linux())).toBe("/home/u/.config/cadencr");
+    expect(resolveCacheDir(linux())).toBe("/home/u/.cache/cadencr");
+  });
+
+  it("honours XDG_DATA_HOME / XDG_CONFIG_HOME / XDG_CACHE_HOME when absolute", () => {
+    const env = linux({
+      XDG_DATA_HOME: "/tmp/xdg-data",
+      XDG_CONFIG_HOME: "/tmp/xdg-config",
+      XDG_CACHE_HOME: "/tmp/xdg-cache",
+    });
+    expect(resolveDataDir(env)).toBe("/tmp/xdg-data/cadencr");
+    expect(resolveConfigDir(env)).toBe("/tmp/xdg-config/cadencr");
+    expect(resolveCacheDir(env)).toBe("/tmp/xdg-cache/cadencr");
+  });
+
+  it("ignores non-absolute XDG values per the spec", () => {
+    expect(resolveDataDir(linux({ XDG_DATA_HOME: "relative/path" }))).toBe(
+      "/home/u/.local/share/cadencr",
+    );
+  });
+
+  it("derives database/worktrees/logs paths from the resolved roots", () => {
+    const env = linux({ XDG_DATA_HOME: "/tmp/xdg" });
+    expect(resolveDatabasePath(env)).toBe("/tmp/xdg/cadencr/database/cadencr.db");
+    expect(resolveWorktreesDir(env)).toBe("/tmp/xdg/cadencr/worktrees");
+    expect(resolveLogsDir(linux())).toBe("/home/u/.cache/cadencr/logs");
+  });
+});

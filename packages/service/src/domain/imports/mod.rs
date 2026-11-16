@@ -12,6 +12,8 @@ pub(crate) use codex_rollout::{
 };
 pub mod jobs;
 pub mod models;
+mod opencode_paths;
+pub(crate) use opencode_paths::opencode_data_dir;
 mod opencode_sqlite;
 mod persistence;
 pub mod refresh;

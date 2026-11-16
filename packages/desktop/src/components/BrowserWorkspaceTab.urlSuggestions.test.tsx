@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@/test-utils";
 import {
   clearDesktopBridgeOverrideForTests,
+  noopPluginTabs,
   setDesktopBridgeOverrideForTests,
   type BrowserStateSnapshot,
   type CadencrBrowserBridge,
@@ -42,9 +43,6 @@ const SNAPSHOT: BrowserStateSnapshot = {
   ],
   activeTabId: "tab-1",
   scopeId: 1,
-  consoleEntries: [],
-  networkEntries: [],
-  knownOrigins: ["https://www.google.com", "http://localhost:5173"],
   error: null,
 };
 
@@ -71,8 +69,25 @@ function bridge(): CadencrBrowserBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
+    exportRendererDiagnostics: vi.fn(async () => ({ canceled: false })),
     reportRendererError: vi.fn(() => Promise.resolve()),
+    notchCapabilities: vi.fn(() => Promise.resolve({ supported: false, hardware: false })),
+    notchConfigure: vi.fn(() => Promise.resolve()),
+    notchPushSnapshot: vi.fn(() => Promise.resolve()),
+    notchNotify: vi.fn(() => Promise.resolve()),
+    onNotchDismissed: vi.fn(() => () => undefined),
+    drainCliRequests: vi.fn(() => Promise.resolve([])),
+    onCliRequestsPending: vi.fn(() => () => undefined),
+    cliInstallStatus: vi.fn(),
+    installCli: vi.fn(),
+    uninstallCli: vi.fn(),
     setZoom: vi.fn(),
+    setTrafficLightsCenter: vi.fn(() => Promise.resolve()),
     currentTheme: vi.fn(),
     onThemeChange: vi.fn(() => () => undefined),
     setBusy: vi.fn(),
@@ -106,11 +121,6 @@ function bridge(): CadencrBrowserBridge {
     dismissBrowserPopup: vi.fn(() => Promise.resolve()),
     setBrowserBounds: vi.fn(() => Promise.resolve(SNAPSHOT)),
     setBrowserSuppressed: vi.fn(() => Promise.resolve()),
-    listBrowserProfiles: vi.fn(() => Promise.resolve([])),
-    clearBrowserStorage: vi.fn(),
-    createBrowserProfile: vi.fn(),
-    duplicateBrowserProfile: vi.fn(),
-    deleteBrowserProfile: vi.fn(),
     getBrowserSiteInfo: vi.fn(),
     setBrowserSitePermission: vi.fn(),
     clearBrowserSiteData: vi.fn(),
@@ -136,18 +146,13 @@ function bridge(): CadencrBrowserBridge {
     setBrowserBookmark: vi.fn(() => Promise.resolve(null)),
     toggleBrowserDevTools: vi.fn(),
     setBrowserResponsive: vi.fn(),
-    getBrowserConsole: vi.fn(),
-    getBrowserNetwork: vi.fn(),
-    getBrowserSnapshot: vi.fn(),
     getBrowserScreenshot: vi.fn(() => Promise.resolve("browser-png")),
-    browserClick: vi.fn(),
-    browserType: vi.fn(),
-    browserKeypress: vi.fn(),
     selectBrowserElementContext: vi.fn(),
     removeBrowserCommentBadge: vi.fn(() => Promise.resolve()),
     clearBrowserCommentBadges: vi.fn(() => Promise.resolve()),
     onBrowserState: vi.fn(() => () => undefined),
     onBrowserTabCounts: vi.fn(() => () => undefined),
+    onBrowserAgentActivity: vi.fn(() => () => undefined),
     onBrowserDownloadsChanged: vi.fn(() => () => undefined),
     onBrowserDownloadCounts: vi.fn(() => () => undefined),
     onBrowserShortcut: vi.fn(() => () => undefined),
@@ -159,7 +164,10 @@ function bridge(): CadencrBrowserBridge {
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(),
     fetchChangelog: vi.fn(),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    fetchChangelogImage: vi.fn(),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
+    pluginTabs: noopPluginTabs,
   };
 }
 
@@ -209,7 +217,7 @@ describe("BrowserWorkspaceTab URL suggestions", () => {
 
     await userEvent.clear(input);
     await userEvent.type(input, "loc");
-    act(() => onBrowserState?.({ ...SNAPSHOT, knownOrigins: [] }));
+    act(() => onBrowserState?.({ ...SNAPSHOT }));
 
     expect(input).toHaveValue("loc");
   });

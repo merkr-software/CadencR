@@ -97,4 +97,53 @@ describe("shortcut registry", () => {
     expect(editorSearch?.keys).toEqual(["mod", "f"]);
     expect(editorSearch?.scope).not.toBe(conversationSearch?.scope);
   });
+
+  it("binds the attention jumps globally and the row actions to the sidebar", () => {
+    expect(shortcutKeys("attention-next-needs-you")).toEqual(["mod", "j"]);
+    expect(shortcutKeys("attention-next-unread")).toEqual(["mod", "alt", "j"]);
+    const rowActions = SHORTCUTS.filter((shortcut) => shortcut.id.startsWith("sidebar-row-"));
+    expect(rowActions.map((shortcut) => shortcut.id)).toEqual([
+      "sidebar-row-pin",
+      "sidebar-row-archive",
+      "sidebar-row-rename",
+      "sidebar-row-label",
+      "sidebar-row-toggle-unread",
+    ]);
+    expect(rowActions.every((shortcut) => shortcut.scope === "sidebar")).toBe(true);
+    // No global chord may collide with them: a global binding would fire too.
+    const globalChords = new Set(
+      SHORTCUTS.filter((shortcut) => shortcut.scope === "global").map((s) => s.keys.join("+")),
+    );
+    for (const shortcut of rowActions)
+      expect(globalChords.has(shortcut.keys.join("+"))).toBe(false);
+  });
+});
+
+describe("answer-newest-request shortcut", () => {
+  it("is global on a free chord (⌘⇧A is the Agent tab's)", () => {
+    expect(shortcutKeys("answer-newest-request")).toEqual(["mod", "alt", "a"]);
+    const chord = "mod+alt+a";
+    const clashes = SHORTCUTS.filter(
+      (shortcut) => shortcut.id !== "answer-newest-request" && shortcut.keys.join("+") === chord,
+    );
+    expect(clashes).toEqual([]);
+    expect(SHORTCUTS.find((s) => s.id === "answer-newest-request")?.scope).toBe("global");
+  });
+});
+
+describe("sidebar reorder shortcuts", () => {
+  it("add Shift to the focus moves and collide with no global or sidebar chord", () => {
+    expect(shortcutKeys("sidebar-reorder-up")).toEqual(["mod", "alt", "shift", "up"]);
+    expect(shortcutKeys("sidebar-reorder-down")).toEqual(["mod", "alt", "shift", "down"]);
+    for (const id of ["sidebar-reorder-up", "sidebar-reorder-down"]) {
+      const chord = shortcutKeys(id).join("+");
+      const clashes = SHORTCUTS.filter(
+        (shortcut) =>
+          shortcut.id !== id &&
+          (shortcut.scope === "global" || shortcut.scope === "sidebar") &&
+          shortcut.keys.join("+") === chord,
+      );
+      expect(clashes).toEqual([]);
+    }
+  });
 });

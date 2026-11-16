@@ -3,6 +3,7 @@ import type { BrowserInspectionController } from "./browser-inspection-controlle
 import { originOf } from "./browser-manager-utils";
 import type { BrowserOpenUrlOptions, BrowserTabMetadata } from "./browser-types";
 import type { ManagedTab } from "./browser-tab-events";
+import { assertBrowserAgentUrl } from "./browser-policy";
 
 interface BrowserOpenHost {
   activeTabId(scopeId: number | null): string | null;
@@ -20,14 +21,33 @@ export class BrowserOpenController {
   ) {}
 
   async open(url: string, options: BrowserOpenUrlOptions = {}): Promise<BrowserTabMetadata> {
+    return this.openAllowed(assertBrowserAgentUrl(url), options);
+  }
+
+  private async openAllowed(
+    url: string,
+    options: BrowserOpenUrlOptions,
+    approvedOrigin: string | null = null,
+  ): Promise<BrowserTabMetadata> {
     const scopeId = options.scopeId ?? null;
     const activeTabId = options.newTab === true ? null : this.host.activeTabId(scopeId);
     const targetTabId = options.tabId ?? activeTabId;
-    if (targetTabId) this.automation.assert(targetTabId, scopeId);
+    if (targetTabId) this.automation.assertShared(targetTabId, scopeId);
     const metadata = targetTabId
       ? this.host.navigate(targetTabId, url)
       : this.host.createAgentTab(url, scopeId);
+    const tab = this.host.requireTab(metadata.id);
+    // Approval belongs to the requested origin, never a redirect destination.
+    tab.externalAutomationOrigin = approvedOrigin;
     await this.inspection.waitForLoad(metadata.id);
+    const finalUrl = tab.webContents.getURL();
+    assertBrowserAgentUrl(finalUrl, approvedOrigin !== null);
+    if (approvedOrigin !== null && originOf(finalUrl) !== approvedOrigin) {
+      tab.externalAutomationOrigin = null;
+      throw new Error(
+        "Browser redirected outside the approved origin. Approve the final URL to automate it.",
+      );
+    }
     this.automation.assert(metadata.id, scopeId);
     return this.host.requireTab(metadata.id).metadata;
   }
@@ -36,10 +56,7 @@ export class BrowserOpenController {
     url: string,
     options: BrowserOpenUrlOptions = {},
   ): Promise<BrowserTabMetadata> {
-    const metadata = await this.open(url, options);
-    const tab = this.host.requireTab(metadata.id);
-    this.automation.assert(metadata.id, options.scopeId ?? null);
-    tab.externalAutomationOrigin = originOf(tab.webContents.getURL());
-    return tab.metadata;
+    const approvedUrl = assertBrowserAgentUrl(url, true);
+    return this.openAllowed(approvedUrl, options, originOf(approvedUrl));
   }
 }

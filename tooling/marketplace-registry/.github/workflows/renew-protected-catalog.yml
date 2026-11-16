@@ -1,0 +1,181 @@
+name: Renew protected marketplace catalog
+
+# Unattended, renewal-only. The scheduled run re-signs the authenticated current
+# catalog with `publications: []`; it can never publish, mirror or change a
+# package. It then renews each of the three signed revocation policies (provider,
+# theme, custom tab) that is due: same entries, new window, strictly newer
+# generation, published to its fixed path with no rollback and no bootstrap, and
+# only if the branch still holds exactly the entries that were renewed (a
+# revocation published meanwhile is never overwritten). The catalog and the
+# policies are independent: each runs even if the other failed, and the job
+# still fails at the end. Reviewed publications and any change to policy
+# entries stay reviewed and manual (publish-protected-catalog.yml; OPERATIONS.md
+# runbook).
+# It is inert until the repository variables in OPERATIONS.md are configured.
+on:
+  schedule:
+    # Daily, UTC. `prepare` and `prepare-policies` are no-ops while more than 8
+    # days of validity remain, so a healthy registry renews the catalog and each
+    # policy about every 5 days (each window lasts 13).
+    # Running daily doubles as the retry: a failed renewal is attempted again
+    # on each following run, for roughly five days, before the expiry watch
+    # alerts at 72 hours remaining.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Same lane as the reviewed publisher and its preparation job: a renewal and
+  # a publication must never race. Never cancel an in-flight run. Trade-off:
+  # GitHub keeps one pending run per group, so a renewal that arrives while a
+  # dispatched publication is still queued behind a running job supersedes that
+  # pending publication, which must then be re-dispatched. Separate groups
+  # would avoid that but would allow the two to race, which is worse.
+  group: marketplace-publication
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # Only the default branch may reach the renewal environment. Scheduled runs
+    # always execute on the default branch; ref_name is populated for every
+    # event, unlike some event-specific context fields.
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check renewal configuration
+        id: gate
+        env:
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+          CADENCR_REGISTRY_TRUST_MANIFEST_JSON: ${{ vars.CADENCR_REGISTRY_TRUST_MANIFEST_JSON }}
+          CADENCR_REGISTRY_ROOT_KEY_ID: ${{ vars.CADENCR_REGISTRY_ROOT_KEY_ID }}
+          CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM }}
+        run: sh scripts/ci/registry-feeds.sh gate renewal
+
+  renew:
+    needs: gate
+    if: needs.gate.outputs.configured == 'true'
+    # Holds the signing key and publication token as environment secrets. Restrict
+    # it to the default branch; it needs no reviewers because nothing here can
+    # publish a package. The workflow cannot provision that protection itself.
+    environment: protected-marketplace-renewal
+    runs-on: ubuntu-latest
+    # Publishes up to four files (the catalog and three policies); each public
+    # read-back may wait out the raw CDN's 300 s cache, about six minutes each.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.19.0
+      - name: Select verified publisher runtime
+        id: publisher_runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/marketplace-released-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+      # From here on every stage is `!cancelled()` with its own prerequisites, so
+      # a failure in the catalog stages never skips the policy stages and vice
+      # versa; the failed step itself still fails the job.
+      - name: Download the current published catalog
+        id: fetch_catalog
+        env:
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+        run: sh scripts/ci/registry-feeds.sh fetch "$RUNNER_TEMP/marketplace-renewal-snapshot" catalog
+      - name: Download the current published revocation policies
+        id: fetch_policies
+        if: ${{ !cancelled() && steps.publisher_runtime.outcome == 'success' }}
+        env:
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+        run: sh scripts/ci/registry-feeds.sh fetch "$RUNNER_TEMP/marketplace-renewal-policy-snapshot" policies
+      - name: Build renewal-only request
+        id: request
+        if: ${{ !cancelled() && steps.fetch_catalog.outcome == 'success' }}
+        env:
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+          CADENCR_REGISTRY_TRUST_MANIFEST_JSON: ${{ vars.CADENCR_REGISTRY_TRUST_MANIFEST_JSON }}
+          CADENCR_REGISTRY_ROOT_KEY_ID: ${{ vars.CADENCR_REGISTRY_ROOT_KEY_ID }}
+          CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM }}
+          CADENCR_REGISTRY_TRUST_MIN_GENERATION: ${{ vars.CADENCR_REGISTRY_TRUST_MIN_GENERATION }}
+        run: >-
+          sh scripts/ci/registry-feeds.sh prepare
+          "$RUNNER_TEMP/marketplace-renewal-snapshot"
+          "$RUNNER_TEMP/marketplace-renewal-request"
+      - name: Plan revocation policy renewals
+        id: policies
+        if: ${{ !cancelled() && steps.fetch_policies.outcome == 'success' }}
+        env:
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+          CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_THEME_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_TAB_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+        run: >-
+          sh scripts/ci/registry-feeds.sh prepare-policies
+          "$RUNNER_TEMP/marketplace-renewal-policy-snapshot"
+          "$RUNNER_TEMP/marketplace-renewal-policies"
+      - name: Materialize protected signing key
+        id: materialize_key
+        if: ${{ !cancelled() && steps.publisher_runtime.outcome == 'success' && (steps.request.outputs.needed == 'true' || steps.policies.outputs.needed == 'true') }}
+        env:
+          CADENCR_REGISTRY_PRIVATE_KEY_PEM: ${{ secrets.CADENCR_REGISTRY_PRIVATE_KEY_PEM }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: sh scripts/ci/registry-feeds.sh materialize-key marketplace-renewal-secret-
+      - name: Renew the signed catalog
+        if: ${{ !cancelled() && steps.request.outputs.needed == 'true' && steps.materialize_key.outputs.private_key_file != '' }}
+        env:
+          CADENCR_REGISTRY_GITHUB_TOKEN: ${{ secrets.CADENCR_REGISTRY_GITHUB_TOKEN }}
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          VERIFIED_CLI: ${{ steps.publisher_runtime.outputs.cli_file }}
+        run: >-
+          sh scripts/ci/registry-feeds.sh publish
+          "$RUNNER_TEMP/marketplace-renewal-request"
+          "$RUNNER_TEMP/marketplace-renewal-state"
+      # Independent of the catalog stages in both directions: a failed catalog
+      # download, request or renewal must not leave the policies to expire, and
+      # a failed policy download, plan or renewal must not stop the catalog
+      # (its steps above run first). Either failure still fails the run.
+      - name: Renew the revocation policies
+        if: ${{ !cancelled() && steps.policies.outputs.needed == 'true' && steps.materialize_key.outputs.private_key_file != '' }}
+        env:
+          CADENCR_REGISTRY_LSP_BLOCKLIST_URL: ${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}
+          CADENCR_REGISTRY_GITHUB_TOKEN: ${{ secrets.CADENCR_REGISTRY_GITHUB_TOKEN }}
+          CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_CATALOG_URL }}
+          CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          VERIFIED_CLI: ${{ steps.publisher_runtime.outputs.cli_file }}
+        run: >-
+          sh scripts/ci/registry-feeds.sh renew-policies
+          "$RUNNER_TEMP/marketplace-renewal-policies"
+      - name: Remove materialized signing key
+        if: ${{ always() && steps.materialize_key.outputs.private_key_file != '' }}
+        env:
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: sh scripts/ci/registry-feeds.sh remove-key marketplace-renewal-secret-
+      # Like the reviewed publisher, raw state is never uploaded. A rerun builds
+      # a new renewal-only request from the then-current public catalog and
+      # re-plans each policy from its then-current public bytes, then renews it
+      # from the branch head read through the authenticated API.

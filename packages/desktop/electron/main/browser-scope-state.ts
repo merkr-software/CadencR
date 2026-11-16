@@ -1,5 +1,6 @@
+import { BrowserScopeErrors } from "./browser-scope-errors";
 import type { ManagedTab } from "./browser-tab-events";
-import type { BrowserBounds, BrowserStateSnapshot } from "./browser-types";
+import type { BrowserAutomationState, BrowserBounds, BrowserStateSnapshot } from "./browser-types";
 
 /**
  * Per-feature-scope bookkeeping for the browser: which tab is active in each
@@ -8,12 +9,14 @@ import type { BrowserBounds, BrowserStateSnapshot } from "./browser-types";
  * Tabs are isolated by scope (see `BrowserTabMetadata.scopeId`) so a tab opened
  * in one feature's Browser never leaks into another's. A scope enters these
  * maps once its workspace opens a tab or reports non-empty viewport bounds.
- * Scopeless (`null`) tabs are agent/MCP automation targets with no UI workspace.
+ * Agent/MCP tabs carry their feature's scope; scopeless (`null`) tabs only come
+ * from automation calls without a feature and have no UI workspace.
  */
 export class BrowserScopeState {
   readonly active = new Map<number | null, string>();
   readonly bounds = new Map<number | null, BrowserBounds>();
   readonly rendererZoom = new Map<number | null, number>();
+  readonly errors = new BrowserScopeErrors();
   // Most-recently activated tab across every scope — drives the unscoped
   // snapshot consumed by agent/MCP automation.
   globalActiveTabId: string | null = null;
@@ -52,6 +55,7 @@ export class BrowserScopeState {
    * another feature's tab), or `null` when nothing needs re-activating.
    */
   forget(scope: number | null, tabId: string, tabs: Map<string, ManagedTab>): string | null {
+    this.errors.releaseTab(tabId);
     // Keep the unscoped (agent/MCP) view coherent: fall back to any surviving
     // tab rather than stranding it at null when this scope had nothing to
     // promote. `tabs` already excludes the closed tab.
@@ -84,24 +88,31 @@ export class BrowserScopeState {
   snapshot(
     scopeId: number | null | undefined,
     tabs: Map<string, ManagedTab>,
-    knownOrigins: string[],
-    error: string | null,
     orderedMetadata?: BrowserStateSnapshot["tabs"],
   ): BrowserStateSnapshot {
     const scoped = scopeId !== undefined;
     const visible = scoped
       ? [...tabs.values()].filter((tab) => tab.metadata.scopeId === scopeId)
       : [...tabs.values()];
-    const activeTabId = scoped ? (this.active.get(scopeId) ?? null) : this.globalActiveTabId;
-    const activeTab = activeTabId ? tabs.get(activeTabId) : null;
+    const activeTabId = this.activeTabId(scopeId);
     return {
       scopeId: scoped ? scopeId : null,
       tabs: orderedMetadata ?? visible.map((tab) => tab.metadata),
       activeTabId,
+      error: this.errors.get(scopeId, activeTabId),
+    };
+  }
+
+  /** The snapshot plus its active tab's console and network logs. */
+  withActiveTabLogs(
+    snapshot: BrowserStateSnapshot,
+    tabs: Map<string, ManagedTab>,
+  ): BrowserAutomationState {
+    const activeTab = snapshot.activeTabId ? tabs.get(snapshot.activeTabId) : null;
+    return {
+      ...snapshot,
       consoleEntries: activeTab?.consoleEntries ?? [],
       networkEntries: activeTab?.networkEntries ?? [],
-      knownOrigins,
-      error,
     };
   }
 }

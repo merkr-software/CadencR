@@ -1,12 +1,18 @@
 [workspace]
 members = [
+    "packages/app-paths-rs",
+    "packages/cli",
+    "packages/plugin-core",
+    "packages/registry-core",
+    "packages/registry-publisher",
     "packages/service",
     "packages/claude-agent-sdk-rs",
     "packages/cli-discovery",
     "packages/codex-app-server-sdk-rs",
-    "packages/cursor-agent-sdk-rs",
     "packages/opencode-sdk-rs",
     "packages/provider-plugin-sdk-rs",
+    "packages/tab-backend-sdk-rs",
+    "plugins/providers/cursor",
 ]
 resolver = "2"
 
@@ -21,9 +27,15 @@ dead_code = "deny"
 unused_imports = "deny"
 unused_variables = "deny"
 
+# Disable incremental compilation to avoid accumulating several GB of cache
+# per worktree across development, test, and clippy builds.
 [profile.dev]
 debug = false
 incremental = false
+# Cargo otherwise strips debuginfo implicitly when debug is disabled. Rust/LLVM
+# can misalign Mach-O dylibs during stripping, so macOS 27 rejects proc macros.
+# https://github.com/rust-lang/rust/issues/157750
+strip = "none"
 
 [profile.test]
 debug = false
@@ -31,6 +43,9 @@ incremental = false
 
 [profile.test.package."*"]
 debug = false
+# A package override's `debug = false` re-arms the implicit strip for every
+# dependency, proc macros included; see [profile.dev].
+strip = "none"
 
 [profile.test-debug]
 inherits = "test"
@@ -44,3 +59,15 @@ opt-level = "s"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# Proc macros must load on the build host; only strip the shipped binaries.
+[profile.release.build-override]
+strip = "none"
+
+# Packaged local builds keep release behavior (no debug assertions / dev .env)
+# without paying for cross-crate LTO and single-unit code generation.
+# Artifacts live in target/local, separate from the distributed release build.
+[profile.local]
+inherits = "release"
+lto = false
+codegen-units = 16

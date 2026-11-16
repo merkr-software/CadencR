@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useGetWorkspaceSetting } from "@/api/generated";
-import { useSetWorkspaceSettingWithCache } from "@/hooks/useSetWorkspaceSettingWithCache";
+import { useSettingWriter } from "@/hooks/useSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 export type GitDiffTreeDisplayMode = "tree" | "filenames";
@@ -22,9 +22,7 @@ interface GitDiffTreeDisplaySetting {
 
 export function useGitDiffTreeDisplaySetting(): GitDiffTreeDisplaySetting {
   const setting = useGetWorkspaceSetting(GIT_DIFF_TREE_DISPLAY_MODE_KEY);
-  const { setValue, isPending: isSaving } = useSetWorkspaceSettingWithCache(
-    GIT_DIFF_TREE_DISPLAY_MODE_KEY,
-  );
+  const { setValue, isSaving } = useSettingWriter(GIT_DIFF_TREE_DISPLAY_MODE_KEY);
   const errorMessage = setting.error
     ? apiErrorMessage(setting.error, "Unknown settings error")
     : null;
@@ -32,11 +30,7 @@ export function useGitDiffTreeDisplaySetting(): GitDiffTreeDisplaySetting {
     if (errorMessage) toast.error(`Could not load Git file-list setting: ${errorMessage}`);
   }, [errorMessage]);
   const setDisplayMode = useCallback(
-    (displayMode: GitDiffTreeDisplayMode): void => {
-      setValue(displayMode).catch((error: unknown) => {
-        console.warn("Git file-list setting save failed after user-facing toast", error);
-      });
-    },
+    (displayMode: GitDiffTreeDisplayMode): void => void setValue(displayMode),
     [setValue],
   );
   const displayMode = parseGitDiffTreeDisplayMode(setting.data?.value);

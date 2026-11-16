@@ -25,7 +25,10 @@ function Boom(): never {
 }
 
 describe("RootErrorBoundary", () => {
+  let clock = Date.now();
   beforeEach(() => {
+    clock += 10_001;
+    vi.spyOn(Date, "now").mockReturnValue(clock);
     window.localStorage.clear();
     clearDesktopBridgeOverrideForTests();
     mocks.navigate.mockReset();
@@ -67,13 +70,13 @@ describe("RootErrorBoundary", () => {
     );
     // The stack names the throwing component ("Boom") and is labelled so the
     // user knows what to screenshot/copy when reporting a crash.
-    expect(screen.getByText(/Component stack:/)).toBeInTheDocument();
+    expect(screen.getByText(/"componentStack":/)).toBeInTheDocument();
     expect(screen.getByText(/Boom/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy error details/i })).toBeInTheDocument();
     errSpy.mockRestore();
   });
 
-  it("reports route crashes to the renderer diagnostics bridge", () => {
+  it("reports route crashes to the renderer diagnostics bridge", async () => {
     const reportRendererError = vi.fn<(_payload: unknown) => Promise<void>>(() =>
       Promise.resolve(),
     );
@@ -86,6 +89,7 @@ describe("RootErrorBoundary", () => {
       </RootErrorBoundary>,
     );
 
+    await Promise.resolve();
     expect(reportRendererError).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "react-boundary",

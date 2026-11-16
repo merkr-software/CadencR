@@ -1,54 +1,94 @@
+use super::message_store::insert_message;
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+use tracing::error;
+
+/// `turn_interrupted` content of a manual compaction a Stop cancelled.
+pub(crate) const COMPACTION_STOPPED_MARKER: &str = "compact";
+
+/// A `turn_interrupted` transcript row; `content` names its cause.
+async fn insert_turn_interrupted(
+    pool: &SqlitePool,
+    session_id: i64,
+    content: &str,
+) -> Result<(), sqlx::Error> {
+    insert_message()
+        .pool(pool)
+        .session_id(session_id)
+        .role("system")
+        .content(content)
+        .message_type("turn_interrupted")
+        .call()
+        .await
+        .map(|_| ())
+}
+
 impl WsSessionPersistence {
     /// Archive the current session id and clear the active runtime ids.
+    ///
+    /// One transaction: a failure leaves the conversation as it was (the next
+    /// prompt still resumes it), never half cleared, and is returned for the
+    /// caller to report.
     pub async fn archive_and_clear(
         pool: &SqlitePool,
         session_id: i64,
         known_cli_sid: Option<&str>,
-    ) {
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = pool.begin().await?;
         let cli_sid = match known_cli_sid {
             Some(sid) => Some(sid.to_string()),
-            None => sqlx::query_as::<_, (Option<String>,)>(
+            None => sqlx::query_scalar::<_, Option<String>>(
                 "SELECT runtime_session_id FROM agent_sessions WHERE id = ?",
             )
             .bind(session_id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|(sid,)| sid),
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten(),
         };
-
         if let Some(ref cli_sid) = cli_sid {
             let now = chrono::Utc::now().to_rfc3339();
-            let _ = sqlx::query(
+            sqlx::query(
                 "INSERT INTO session_runtime_ids (session_id, runtime_session_id, created_at) VALUES (?, ?, ?)",
             )
             .bind(session_id)
             .bind(cli_sid)
             .bind(&now)
-            .execute(pool)
-            .await;
+            .execute(&mut *tx)
+            .await?;
         }
+        insert_message()
+            .pool(&mut *tx)
+            .session_id(session_id)
+            .role("system")
+            .content("clear_divider")
+            .message_type("clear_divider")
+            .call()
+            .await?;
+        sqlx::query("UPDATE agent_sessions SET runtime_session_id = NULL WHERE id = ?")
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await
+    }
 
-        let _ = Self::insert_message(
-            pool,
-            session_id,
-            "system",
-            "clear_divider",
-            "clear_divider",
-            None,
-            None,
-            None,
-            None,
-        )
-        .await;
+    /// Mark in the transcript that the user stopped the turn, so the
+    /// conversation reads "stopped by you" (with a resume affordance) instead
+    /// of whatever the provider wrote for the aborted tool call — on every
+    /// device and after a reload.
+    pub async fn persist_turn_interrupted_static(pool: &SqlitePool, session_id: i64) {
+        if let Err(error) = insert_turn_interrupted(pool, session_id, "").await {
+            tracing::error!(session_id, error = %error, "failed to persist the turn-interrupted marker");
+        }
+    }
 
-        let _ = sqlx::query(
-            "UPDATE agent_sessions SET runtime_session_id = NULL WHERE id = ?",
-        )
-        .bind(session_id)
-        .execute(pool)
-        .await;
+    /// Mark in the transcript that a Stop cancelled the manual compaction
+    /// before it began: after a reload, and on the other devices once they
+    /// load it, the `/compact` row reads "compaction stopped", not a failure.
+    pub async fn persist_compaction_stopped_static(
+        pool: &SqlitePool,
+        session_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        insert_turn_interrupted(pool, session_id, COMPACTION_STOPPED_MARKER).await
     }
 
     pub async fn persist_runtime_session_id_static(
@@ -56,18 +96,16 @@ impl WsSessionPersistence {
         session_id: i64,
         runtime_provider: &str,
         runtime_session_id: &str,
-    ) {
-        if let Err(e) = sqlx::query(
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
             "UPDATE agent_sessions SET runtime_provider = ?, runtime_session_id = ? WHERE id = ?",
         )
         .bind(runtime_provider)
         .bind(runtime_session_id)
         .bind(session_id)
         .execute(pool)
-        .await
-        {
-            error!(error = %e, "failed to persist runtime session_id");
-        }
+        .await?;
+        Ok(())
     }
 
     /// Persist only the runtime_session_id without changing the provider column.
@@ -77,13 +115,11 @@ impl WsSessionPersistence {
         session_id: i64,
         runtime_session_id: &str,
     ) {
-        if let Err(e) = sqlx::query(
-            "UPDATE agent_sessions SET runtime_session_id = ? WHERE id = ?",
-        )
-        .bind(runtime_session_id)
-        .bind(session_id)
-        .execute(pool)
-        .await
+        if let Err(e) = sqlx::query("UPDATE agent_sessions SET runtime_session_id = ? WHERE id = ?")
+            .bind(runtime_session_id)
+            .bind(session_id)
+            .execute(pool)
+            .await
         {
             error!(error = %e, "failed to persist runtime session_id");
         }
@@ -125,7 +161,7 @@ mod session_archiving_tests {
                 has_file_changes INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 started_at TEXT,
                 ended_at TEXT
             )"#,
@@ -173,7 +209,9 @@ mod session_archiving_tests {
         let id = p.find_or_create_session(None, None).await.unwrap();
 
         WsSessionPersistence::persist_runtime_session_id_only(&pool, id, "cli-sess-123").await;
-        WsSessionPersistence::archive_and_clear(&pool, id, None).await;
+        WsSessionPersistence::archive_and_clear(&pool, id, None)
+            .await
+            .unwrap();
 
         let row: (Option<String>,) =
             sqlx::query_as("SELECT runtime_session_id FROM agent_sessions WHERE id = ?")
@@ -183,12 +221,13 @@ mod session_archiving_tests {
                 .unwrap();
         assert!(row.0.is_none());
 
-        let archived: (String,) =
-            sqlx::query_as("SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let archived: (String,) = sqlx::query_as(
+            "SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(archived.0, "cli-sess-123");
 
         let msg: (String, String) = sqlx::query_as(
@@ -208,14 +247,17 @@ mod session_archiving_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::archive_and_clear(&pool, id, Some("directly-passed-sid")).await;
+        WsSessionPersistence::archive_and_clear(&pool, id, Some("directly-passed-sid"))
+            .await
+            .unwrap();
 
-        let archived: (String,) =
-            sqlx::query_as("SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let archived: (String,) = sqlx::query_as(
+            "SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(archived.0, "directly-passed-sid");
 
         let row: (Option<String>,) =
@@ -279,7 +321,9 @@ mod session_archiving_tests {
         let id = p.find_or_create_session(None, None).await.unwrap();
         WsSessionPersistence::persist_runtime_session_id_only(&pool, id, "pre-clear-sid").await;
 
-        WsSessionPersistence::archive_and_clear(&pool, id, None).await;
+        WsSessionPersistence::archive_and_clear(&pool, id, None)
+            .await
+            .unwrap();
 
         let row: (Option<String>,) =
             sqlx::query_as("SELECT runtime_session_id FROM agent_sessions WHERE id = ?")
@@ -291,5 +335,33 @@ mod session_archiving_tests {
 
         let found = WsSessionPersistence::get_latest_runtime_session_id(&pool, 1).await;
         assert_eq!(found, Some("pre-clear-sid".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_failed_archive_is_returned_and_clears_nothing() {
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::new(pool.clone(), 1);
+        let id = p.find_or_create_session(None, None).await.unwrap();
+        WsSessionPersistence::persist_runtime_session_id_only(&pool, id, "keep-me").await;
+        sqlx::query("DROP TABLE agent_messages")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = WsSessionPersistence::archive_and_clear(&pool, id, None).await;
+
+        assert!(result.is_err(), "the failed divider write must be returned");
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT runtime_session_id FROM agent_sessions WHERE id = ?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0.as_deref(), Some("keep-me"), "still resumable");
+        let archived: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM session_runtime_ids")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(archived, 0, "nothing half written");
     }
 }

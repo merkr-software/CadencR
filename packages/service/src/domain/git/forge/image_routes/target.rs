@@ -14,7 +14,7 @@ use crate::error::AppError;
 #[path = "public_address.rs"]
 mod public_address;
 
-pub use public_address::{ensure_fetchable, ensure_public_ip};
+pub use public_address::ensure_fetchable;
 
 /// Resolve an image source from a PR body into an absolute URL.
 ///

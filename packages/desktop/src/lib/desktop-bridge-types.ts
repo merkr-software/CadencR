@@ -1,19 +1,28 @@
+import type { DiagnosticContext } from "@/shared/renderer-diagnostics";
+import type {
+  NotchCapabilities,
+  NotchConfig,
+  NotchFeatureRef,
+  NotchNotification,
+  NotchSnapshot,
+} from "@/shared/notch";
+import type { CliInstallOptions, CliInstallStatus, CliRendererItem } from "@/shared/cli-bridge";
+import type { ChangelogImageBytes } from "@/shared/changelog-image";
+import type { RendererErrorReportPayload } from "@/shared/renderer-error";
+import type { UpdateSnapshot } from "@/shared/update-state";
 import type { LinkHoverContext, LinkMenuOpenPayload } from "@/lib/link-routing";
 import type {
   BrowserBounds,
   BrowserBookmark,
   BrowserCommentBadgeClick,
-  BrowserConsoleEntry,
   BrowserDownloadSnapshot,
   BrowserElementContext,
   BrowserFindRequest,
   BrowserFindResult,
   BrowserGuestShortcutBindings,
   BrowserLibraryChange,
-  BrowserNetworkEntry,
   BrowserOmniboxQueryResult,
   BrowserPopupRequest,
-  BrowserProfileMetadata,
   BrowserShortcut,
   BrowserSiteInfo,
   BrowserSitePermission,
@@ -21,12 +30,13 @@ import type {
   BrowserSitePermissionRequest,
   BrowserStateSnapshot,
   BrowserTabMetadata,
+  BrowserAgentActivity,
 } from "@/shared/browser-types";
 import type { BrowserResponsiveRequest } from "@/shared/browser-responsive";
+import type { PluginTabsBridge } from "@/shared/plugin-tab-host";
 
 export interface RuntimeConfig {
   baseUrl: string;
-  authToken: string | null;
 }
 
 export type RouteType = "session";
@@ -72,32 +82,13 @@ export interface FileDropPayload {
   message?: string;
 }
 
-export type UpdateEvent =
-  | { kind: "checking" }
-  | { kind: "available"; version: string }
-  | {
-      /** Markdown body for `version`, fetched from GitHub. `null` on miss/failure. */
-      kind: "changelog";
-      version: string;
-      markdown: string | null;
-    }
-  | { kind: "not-available"; version: string }
-  | { kind: "error"; message: string }
-  | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string };
-
-export interface RendererErrorReportPayload {
-  source: "error" | "unhandledrejection" | "react-boundary";
-  message: string;
-  stack?: string | null;
-  componentStack?: string | null;
-  url?: string | null;
-  line?: number | null;
-  column?: number | null;
-}
+export type { RendererErrorReportPayload } from "@/shared/renderer-error";
+import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
+import type { ServiceStatus } from "@/shared/service-status";
 
 export interface CadencrDesktopBridge {
   isElectron: boolean;
+  usesCustomWindowControls?: boolean;
   runtimeConfig: () => Promise<RuntimeConfig>;
   readFileBase64: (handle: string) => Promise<string>;
   suppressNextNativeContextMenu?: () => void;
@@ -117,25 +108,67 @@ export interface CadencrDesktopBridge {
   onNotificationClicked: (cb: (payload: NotificationClickPayload) => void) => () => void;
   onNotificationFailed: (cb: (payload: { reason: string }) => void) => () => void;
   onNotificationFallback: (cb: (payload: NotificationFallbackPayload) => void) => () => void;
-  onCloseRequested: (cb: () => void) => () => void;
-  confirmClose: () => Promise<void>;
+  onCloseRequested: (cb: (request: AppCloseRequest) => void) => () => void;
+  confirmClose: (choice?: AppCloseChoice) => Promise<void>;
+  /** The close request arrived and the confirmation is on screen. */
+  acknowledgeCloseRequest: () => Promise<void>;
+  /** The user kept the app open: main forgets the close it was waiting on. */
+  cancelClose: () => Promise<void>;
   requestQuit: () => Promise<void>;
+  /** The packaged service as main supervises it (always running off the shell). */
+  serviceStatus: () => Promise<ServiceStatus>;
+  restartService: () => Promise<void>;
+  onServiceStatus: (cb: (status: ServiceStatus) => void) => () => void;
+  windowMinimize?: () => Promise<void>;
+  windowToggleMaximize?: () => Promise<void>;
+  windowClose?: () => Promise<void>;
+  exportRendererDiagnostics?: (context: DiagnosticContext) => Promise<{ canceled: boolean }>;
+  telemetryRelayStatus?: () => Promise<"idle" | "unavailable" | "frames_unavailable">;
   reportRendererError?: (payload: RendererErrorReportPayload) => Promise<void>;
   setZoom: (factor: number) => Promise<void>;
+  /** Centers the macOS traffic lights on a band `center` CSS px from the top; null restores them. */
+  setTrafficLightsCenter?: (center: number | null) => Promise<void>;
   currentTheme: () => Promise<DesktopTheme>;
   onThemeChange: (cb: (appearance: DesktopTheme) => void) => () => void;
   setBusy: (busy: boolean) => Promise<void>;
   setRemoteHostAwake: (enabled: boolean) => Promise<void>;
   onPowerSuspend: (cb: () => void) => () => void;
   onPowerResume: (cb: () => void) => () => void;
-  checkForUpdates: () => Promise<void>;
+  /**
+   * Whether the app window has focus, also while a guest view inside it (a
+   * custom tab, a browser pane) holds it. Desktop only: in a browser the
+   * document's own focus is the window's.
+   */
+  isWindowFocused?: () => Promise<boolean>;
+  onWindowFocusChange?: (cb: (focused: boolean) => void) => () => void;
+  /** The main process's update state: read it on mount, then follow `onUpdateState`. */
+  getUpdateState: () => Promise<UpdateSnapshot>;
+  onUpdateState: (cb: (snapshot: UpdateSnapshot) => void) => () => void;
+  /** Starts a check; resolves with the state the main process moved to. */
+  checkForUpdates: () => Promise<UpdateSnapshot>;
   installUpdate: () => Promise<void>;
   fetchChangelog: (version: string) => Promise<string | null>;
-  onUpdateEvent: (cb: (event: UpdateEvent) => void) => () => void;
+  /** Bytes of an image committed to Cadencr's repo and referenced by release notes. */
+  fetchChangelogImage: (src: string) => Promise<ChangelogImageBytes>;
 }
 
 export interface CadencrBrowserBridge extends CadencrDesktopBridge {
+  exportRendererDiagnostics: (context: DiagnosticContext) => Promise<{ canceled: boolean }>;
+  telemetryRelayStatus?: () => Promise<"idle" | "unavailable" | "frames_unavailable">;
   reportRendererError: (payload: RendererErrorReportPayload) => Promise<void>;
+  setTrafficLightsCenter: (center: number | null) => Promise<void>;
+  // The macOS notch island; the browser fallback resolves them as unsupported.
+  notchCapabilities: () => Promise<NotchCapabilities>;
+  notchConfigure: (config: NotchConfig) => Promise<void>;
+  notchPushSnapshot: (snapshot: NotchSnapshot) => Promise<void>;
+  notchNotify: (notification: NotchNotification) => Promise<void>;
+  onNotchDismissed: (cb: (ref: NotchFeatureRef) => void) => () => void;
+  // The `cadencr` command line; off the shell no request ever arrives.
+  drainCliRequests: () => Promise<CliRendererItem[]>;
+  onCliRequestsPending: (cb: () => void) => () => void;
+  cliInstallStatus: () => Promise<CliInstallStatus>;
+  installCli: (options: CliInstallOptions) => Promise<CliInstallStatus>;
+  uninstallCli: () => Promise<CliInstallStatus>;
   createBrowserTab: (
     url?: string,
     profileId?: string,
@@ -168,11 +201,6 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
     scopeId?: number | null,
   ) => Promise<BrowserStateSnapshot>;
   setBrowserSuppressed: (value: boolean) => Promise<void>;
-  listBrowserProfiles: () => Promise<BrowserProfileMetadata[]>;
-  clearBrowserStorage: (profileId: string) => Promise<void>;
-  createBrowserProfile: (profileId: string) => Promise<BrowserProfileMetadata>;
-  duplicateBrowserProfile: (sourceId: string, newId: string) => Promise<BrowserProfileMetadata>;
-  deleteBrowserProfile: (profileId: string) => Promise<void>;
   getBrowserSiteInfo: (tabId: string) => Promise<BrowserSiteInfo>;
   setBrowserSitePermission: (
     tabId: string,
@@ -207,18 +235,13 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
     tabId: string,
     request: BrowserResponsiveRequest,
   ) => Promise<BrowserTabMetadata>;
-  getBrowserConsole: () => Promise<BrowserConsoleEntry[]>;
-  getBrowserNetwork: () => Promise<BrowserNetworkEntry[]>;
-  getBrowserSnapshot: (tabId: string) => Promise<unknown>;
   getBrowserScreenshot: (tabId: string) => Promise<string>;
-  browserClick: (tabId: string, x: number, y: number) => Promise<void>;
-  browserType: (tabId: string, text: string) => Promise<void>;
-  browserKeypress: (tabId: string, keyCode: string) => Promise<void>;
   selectBrowserElementContext: (tabId: string, anchorId: string) => Promise<BrowserElementContext>;
   removeBrowserCommentBadge: (tabId: string, anchorId: string) => Promise<void>;
   clearBrowserCommentBadges: (tabId: string) => Promise<void>;
   onBrowserState: (cb: (state: BrowserStateSnapshot) => void) => () => void;
   onBrowserTabCounts: (cb: (counts: Record<number, number>) => void) => () => void;
+  onBrowserAgentActivity: (cb: (activity: BrowserAgentActivity) => void) => () => void;
   onBrowserShortcut: (cb: (shortcut: BrowserShortcut) => void) => () => void;
   onBrowserFindResult: (cb: (result: BrowserFindResult) => void) => () => void;
   onBrowserLibraryChanged: (cb: (change: BrowserLibraryChange) => void) => () => void;
@@ -228,6 +251,16 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
   onBrowserPopupRequestsChanged: (cb: (event: { scopeId: number }) => void) => () => void;
   onBrowserDownloadsChanged: (cb: (snapshot: BrowserDownloadSnapshot) => void) => () => void;
   onBrowserDownloadCounts: (cb: (counts: Record<number, number>) => void) => () => void;
+  /**
+   * Native guest views for custom tabs (docs/CUSTOM_TABS.md §5); no-ops off the
+   * desktop shell. Each guest load also delivers the renderer's end of that
+   * instance's MessageChannel — not through this object (contextBridge can't
+   * carry ports) but as a `window` "message" event whose `data` is a
+   * `PluginTabPortMessage` (`type === PLUGIN_TAB_PORT_MESSAGE_TYPE`; both live in
+   * `@/shared/plugin-tab-host`) with `event.source === window` and the port
+   * in `event.ports[0]`.
+   */
+  pluginTabs: PluginTabsBridge;
 }
 
 declare global {

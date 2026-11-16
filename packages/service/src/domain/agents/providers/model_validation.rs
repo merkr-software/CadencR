@@ -292,6 +292,20 @@ fn suggested_provider_id(provider_id: &str) -> Option<String> {
         .map(|provider| provider.id().to_string())
 }
 
+fn available_model_ids(
+    catalog: &ProviderCatalogEntry,
+    static_catalog: &ProviderCatalogEntry,
+) -> Vec<String> {
+    catalog
+        .models
+        .iter()
+        .chain(static_catalog.models.iter())
+        .map(|model| model.id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 #[cfg(test)]
 mod alias_resolution_tests {
     use super::canonical_provider_id;
@@ -311,18 +325,4 @@ mod alias_resolution_tests {
             Some("codex_cli")
         );
     }
-}
-
-fn available_model_ids(
-    catalog: &ProviderCatalogEntry,
-    static_catalog: &ProviderCatalogEntry,
-) -> Vec<String> {
-    catalog
-        .models
-        .iter()
-        .chain(static_catalog.models.iter())
-        .map(|model| model.id.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
 }

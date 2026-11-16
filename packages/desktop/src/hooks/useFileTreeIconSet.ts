@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 
 /**
  * Workspace-scoped icon set for the @pierre/trees-based file tree. Mirrors
@@ -35,7 +35,7 @@ interface UseFileTreeIconSetResult {
  * the picker feels instant and the value survives reload.
  */
 export function useFileTreeIconSet(): UseFileTreeIconSetResult {
-  const { value, setValue, isLoading } = useDebouncedSetting(FILE_TREE_ICON_SET_KEY, 0);
+  const { value, setValue, isLoading } = useSetting(FILE_TREE_ICON_SET_KEY);
   return useMemo<UseFileTreeIconSetResult>(
     () => ({ iconSet: parseIconSet(value), setIconSet: setValue, isLoading }),
     [value, setValue, isLoading],

@@ -5,9 +5,10 @@ use super::event_types::{
     BackgroundAgentSignal, RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeEvent,
     RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeProviderError,
     RuntimeResultError, RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource,
-    RuntimeUserMessage,
+    RuntimeUserMessage, ScheduledWakeup,
 };
 use super::permission::RuntimeSlashCommand;
+use super::subagent::RuntimeSubagentUpdate;
 
 /// Identity of one root or nested runtime stream within a provider session.
 ///
@@ -38,10 +39,34 @@ impl RuntimeEvent {
             metadata,
             kind,
             background_agent: None,
+            background_tasks: None,
+            scheduled_wakeup: None,
             result_error: None,
             token_usage: None,
             provider_message_id: None,
+            subagent_updates: Vec::new(),
         }
+    }
+
+    /// Attach sub-agent facts (see [`RuntimeSubagentUpdate`]).
+    pub fn with_subagent_updates(mut self, updates: Vec<RuntimeSubagentUpdate>) -> Self {
+        self.subagent_updates.extend(updates);
+        self
+    }
+
+    /// A standalone sub-agent fact with no transcript block of its own.
+    pub fn subagent_signal(updates: Vec<RuntimeSubagentUpdate>) -> Self {
+        Self::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
+            .with_subagent_updates(updates)
+    }
+
+    pub fn subagent_updates(&self) -> &[RuntimeSubagentUpdate] {
+        &self.subagent_updates
+    }
+
+    /// Carries only sub-agent facts: nothing to persist or forward as a block.
+    pub fn is_subagent_signal_only(&self) -> bool {
+        !self.subagent_updates.is_empty() && matches!(self.kind, RuntimeEventKind::Other)
     }
 
     /// Attach a [`BackgroundAgentSignal`] to this event. Used by adapters that
@@ -54,6 +79,28 @@ impl RuntimeEvent {
 
     pub fn background_agent_signal(&self) -> Option<&BackgroundAgentSignal> {
         self.background_agent.as_ref()
+    }
+
+    /// Attach a snapshot of how many background tasks the runtime still runs.
+    /// Used by adapters whose provider reports them (today only Claude Code).
+    pub fn with_background_task_count(mut self, live: Option<usize>) -> Self {
+        self.background_tasks = live;
+        self
+    }
+
+    pub fn background_task_count(&self) -> Option<usize> {
+        self.background_tasks
+    }
+
+    /// Attach an agent-scheduled wake-up. Used by adapters whose runtime can
+    /// re-invoke the agent on a timer (today only Claude Code).
+    pub fn with_scheduled_wakeup(mut self, wakeup: Option<ScheduledWakeup>) -> Self {
+        self.scheduled_wakeup = wakeup;
+        self
+    }
+
+    pub fn scheduled_wakeup(&self) -> Option<&ScheduledWakeup> {
+        self.scheduled_wakeup.as_ref()
     }
 
     /// Attach failure detail to a turn-ending `Result`. Used by adapters whose
@@ -294,35 +341,6 @@ impl RuntimeEvent {
             RuntimeEventKind::SlashCommandsUpdated(commands) => Some(commands.as_slice()),
             _ => None,
         }
-    }
-
-    pub fn prompt_received_client_message_id(&self) -> Option<&str> {
-        match &self.kind {
-            RuntimeEventKind::PromptReceived { client_message_id } => Some(client_message_id),
-            _ => None,
-        }
-    }
-
-    pub fn prompt_received_event(client_message_id: String) -> Self {
-        Self::prompt_received_event_with_provider_message_id(client_message_id, None)
-    }
-
-    pub fn prompt_received_event_with_provider_message_id(
-        client_message_id: String,
-        provider_message_id: Option<String>,
-    ) -> Self {
-        Self::new(
-            RuntimeEventMetadata {
-                raw: serde_json::json!({
-                    "type": "prompt_received",
-                    "client_message_id": client_message_id,
-                    "provider_message_id": provider_message_id.clone(),
-                }),
-                ..RuntimeEventMetadata::default()
-            },
-            RuntimeEventKind::PromptReceived { client_message_id },
-        )
-        .with_provider_message_id(provider_message_id)
     }
 
     /// Convenience constructor for stream-status events. Emitters don't

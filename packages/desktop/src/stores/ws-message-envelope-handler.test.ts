@@ -1,3 +1,4 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it } from "vitest";
 import { TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import { handleMessageBatch } from "./ws-message-envelope-handler";
@@ -11,6 +12,7 @@ function createTestContext(session: SessionEntry): StoreAccessors {
     set: (partial) => {
       state = { ...state, ...partial };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId) => state.sessions[sessionId],
   };
 }

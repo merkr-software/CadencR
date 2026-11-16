@@ -1,3 +1,7 @@
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+use tracing::error;
+
 impl WsSessionPersistence {
     pub async fn delete_session_static(
         pool: &SqlitePool,
@@ -90,7 +94,7 @@ mod session_cleanup_tests {
                 has_file_changes INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 started_at TEXT,
                 ended_at TEXT
             )"#,
@@ -148,7 +152,9 @@ mod session_cleanup_tests {
 
         let mut p1 = WsSessionPersistence::new(pool.clone(), 1);
         let id1 = p1.find_or_create_session(None, None).await.unwrap();
-        WsSessionPersistence::mark_running_static(&pool, id1).await;
+        WsSessionPersistence::mark_running_static(&pool, id1)
+            .await
+            .unwrap();
 
         let mut p2 = WsSessionPersistence::new(pool.clone(), 2);
         p2.find_or_create_session(None, None).await.unwrap();
@@ -171,13 +177,17 @@ mod session_cleanup_tests {
         p.persist_user_message("hello", uuid::Uuid::new_v4())
             .await
             .unwrap();
-        WsSessionPersistence::mark_paused_static(&pool, id).await;
-        sqlx::query("INSERT INTO session_runtime_ids (session_id, runtime_session_id) VALUES (?, ?)")
-            .bind(id)
-            .bind("archived-session")
-            .execute(&pool)
+        WsSessionPersistence::mark_paused_static(&pool, id)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO session_runtime_ids (session_id, runtime_session_id) VALUES (?, ?)",
+        )
+        .bind(id)
+        .bind("archived-session")
+        .execute(&pool)
+        .await
+        .unwrap();
         let result = WsSessionPersistence::delete_session_static(&pool, id).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().0, 1);
@@ -204,7 +214,6 @@ mod session_cleanup_tests {
                 .await
                 .unwrap();
         assert!(archived_ids.is_empty());
-
     }
 
     #[tokio::test]
@@ -212,7 +221,9 @@ mod session_cleanup_tests {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
-        WsSessionPersistence::mark_running_static(&pool, id).await;
+        WsSessionPersistence::mark_running_static(&pool, id)
+            .await
+            .unwrap();
 
         let result = WsSessionPersistence::delete_session_static(&pool, id).await;
         assert!(result.is_err());

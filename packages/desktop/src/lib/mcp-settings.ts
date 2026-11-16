@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { useSetting } from "@/hooks/useSetting";
 
 /** Workspace setting toggling whether agents get the `cadencr-browser` MCP. */
 export const BROWSER_MCP_ENABLED_SETTING_KEY = "browser_mcp_enabled";
@@ -14,10 +14,11 @@ export interface UseMcpEnabledResult {
   enabled: boolean;
   setEnabled: (next: boolean) => void;
   isLoading: boolean;
+  isSaving: boolean;
 }
 
 function useMcpEnabledSetting(key: string): UseMcpEnabledResult {
-  const setting = useDebouncedSetting(key, 0);
+  const setting = useSetting(key);
   const setEnabled = useCallback(
     (next: boolean) => setting.setValue(next ? "true" : "false"),
     [setting.setValue],
@@ -28,8 +29,9 @@ function useMcpEnabledSetting(key: string): UseMcpEnabledResult {
       enabled: setting.value !== "false",
       setEnabled,
       isLoading: setting.isLoading,
+      isSaving: setting.isSaving,
     }),
-    [setEnabled, setting.isLoading, setting.value],
+    [setEnabled, setting.isLoading, setting.isSaving, setting.value],
   );
 }
 

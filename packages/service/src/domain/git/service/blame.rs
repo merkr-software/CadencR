@@ -54,9 +54,10 @@ pub async fn get_blame(
 /// treated as "not tracked" — we'd rather skip blame than surface a noisy
 /// error to the user.
 async fn is_path_tracked(cwd: &Path, relative: &str) -> bool {
-    let out = crate::shared::git_cli::run_git_safe_background(&["ls-files"], &[], &[relative], cwd)
-        .await
-        .unwrap_or_default();
+    let out =
+        crate::shared::git_cli::run_git_safe_background(&["ls-files", "-z"], &[], &[relative], cwd)
+            .await
+            .unwrap_or_default();
     !out.trim().is_empty()
 }
 
@@ -136,7 +137,7 @@ mod tests {
         let canonical = std::fs::canonicalize(&repo).unwrap();
         // `git init` requires the dir to exist; we then set user.* locally
         // so `commit` doesn't blow up on minimal CI images with no global
-        // identity configured.
+        // identity configured, and so developer signing config is ignored.
         for args in [
             vec!["init", "-q"],
             vec!["config", "user.email", "t@example.com"],

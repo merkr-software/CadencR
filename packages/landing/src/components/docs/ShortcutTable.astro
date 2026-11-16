@@ -8,10 +8,9 @@
  * ordering. The doc page only has to pass the scope id.
  */
 import { SHORTCUTS, SHORTCUT_SCOPES } from "@desktop-shortcuts/registry";
-import type { Shortcut, ShortcutKey, ShortcutScopeId } from "@desktop-shortcuts/registry";
+import type { Shortcut, ShortcutScopeId } from "@desktop-shortcuts/registry";
 import { formatKey } from "@/lib/formatShortcut";
 import Kbd from "@/components/ui/Kbd.astro";
-import ShiftIcon from "@/components/icons/ShiftIcon.astro";
 
 interface Props {
   scope: ShortcutScopeId;
@@ -31,9 +30,6 @@ const items: readonly Shortcut[] = (SHORTCUTS as readonly Shortcut[]).filter(
   (s) => s.scope === scope,
 );
 
-function renderKeys(keys: readonly ShortcutKey[]): { key: ShortcutKey; label: string }[] {
-  return keys.map((k) => ({ key: k, label: formatKey(k) }));
-}
 ---
 
 {
@@ -58,16 +54,16 @@ function renderKeys(keys: readonly ShortcutKey[]): { key: ShortcutKey; label: st
         <tr>
           <td>
             <span class="inline-flex flex-wrap items-center gap-1">
-              {renderKeys(s.keys).map(({ key, label }) => (
-                <Kbd>{key === "shift" ? <ShiftIcon /> : label}</Kbd>
+              {s.keys.map((key) => (
+                <Kbd>{formatKey(key)}</Kbd>
               ))}
               {s.altKeys && (
                 <>
                   <span class="px-1 text-[12px] text-[color:var(--color-muted-foreground)]">
                     or
                   </span>
-                  {renderKeys(s.altKeys).map(({ key, label }) => (
-                    <Kbd>{key === "shift" ? <ShiftIcon /> : label}</Kbd>
+                  {s.altKeys.map((key) => (
+                    <Kbd>{formatKey(key)}</Kbd>
                   ))}
                 </>
               )}

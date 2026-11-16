@@ -21,6 +21,24 @@ pub(super) async fn handle_app_action(
             super::app_notifications::subscribe_settings_events(sender, app_state)
         }
         "subscribe.theme_events" => handle_subscribe_theme_events(sender, app_state),
+        "subscribe.plugin_tab_events" => forward_app_events(
+            sender,
+            app_state.plugin_tab_events_tx.subscribe(),
+            "plugin_tab_changed",
+            OnLag::ResendBare,
+        ),
+        "subscribe.prompt_queue_events" => forward_app_events(
+            sender,
+            app_state.prompt_queue_events_tx.subscribe(),
+            "prompt_queue_changed",
+            OnLag::ResendBare,
+        ),
+        "subscribe.custom_action_events" => forward_app_events(
+            sender,
+            app_state.custom_action_events_tx.subscribe(),
+            "custom_action_event",
+            OnLag::ResendBare,
+        ),
         "subscribe.alacritty_config_events" => {
             handle_subscribe_alacritty_config_events(sender, app_state).await
         }
@@ -30,14 +48,26 @@ pub(super) async fn handle_app_action(
         "forge_visibility" => {
             super::app_forge::update_forge_visibility(envelope, sender, app_state).await
         }
+        "subscribe.agent_archived_events" => {
+            super::app_notifications::subscribe_agent_archived_events(sender, app_state)
+        }
+        "subscribe.archive_cleanup_events" => {
+            super::app_notifications::subscribe_archive_cleanup_events(sender, app_state)
+        }
         "subscribe.remote_events" => {
             super::app_notifications::subscribe_remote_events(sender, app_state)
+        }
+        "subscribe.provider_update_events" => {
+            super::app_notifications::subscribe_provider_update_events(sender, app_state)
+        }
+        "subscribe.restart_continuation_events" => {
+            super::app_notifications::subscribe_restart_continuation_events(sender)
         }
         "subscribe.storage_maintenance_events" => {
             super::app_notifications::subscribe_storage_maintenance(sender, app_state)
         }
         "subscribe.file_watcher" => {
-            handle_subscribe_file_watcher(envelope, sender, app_state).await
+            super::app_file_watcher::subscribe_file_watcher(envelope, sender, app_state).await
         }
         "subscribe.git_status" => handle_subscribe_git_status(envelope, sender, app_state).await,
         "unsubscribe.git_status" => {
@@ -50,9 +80,9 @@ pub(super) async fn handle_app_action(
 }
 
 /// Subscribe the client to real-time `git.status` envelopes for a feature's
-/// worktree. Sends an initial snapshot synchronously (as the first
-/// `git.status` event), then the watcher pushes updates whenever the worktree
-/// changes.
+/// worktree. Sends an initial snapshot (as the first `git.status` event) once
+/// it is computed, in the background, then the watcher pushes updates
+/// whenever the worktree changes.
 async fn handle_subscribe_git_status(
     envelope: WsEnvelope,
     sender: &WsSender,
@@ -66,24 +96,29 @@ async fn handle_subscribe_git_status(
         }
     };
 
-    match app_state
-        .git_watcher
-        .subscribe(app_state, feature_id, sender.clone())
-        .await
-    {
-        Ok(snapshot) => {
-            let env = WsEnvelope::new(
-                "git",
-                "status",
-                serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({})),
-            );
-            let _ = sender.send(Message::Text(String::from(env).into()));
-        }
-        Err(e) => {
-            warn!(error = %e, feature_id, "failed to subscribe git watcher");
-            super::send_error(sender, &envelope.id, "WATCHER_ERROR", &e.to_string());
-        }
-    }
+    // Git can hang on one repository (network filesystem, locked index): the
+    // subscription runs beside this socket's ordered lane so it never holds up
+    // the commands after it, other features' subscriptions included.
+    let reply = sender.clone();
+    app_state.git_watcher.subscribe_in_background(
+        app_state,
+        feature_id,
+        sender.clone(),
+        move |result| match result {
+            Ok(snapshot) => {
+                let env = WsEnvelope::new(
+                    "git",
+                    "status",
+                    serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({})),
+                );
+                let _ = reply.send(Message::Text(String::from(env).into()));
+            }
+            Err(e) => {
+                warn!(error = %e, feature_id, "failed to subscribe git watcher");
+                super::send_error(&reply, &envelope.id, "WATCHER_ERROR", &e.to_string());
+            }
+        },
+    );
 }
 
 /// Drop one feature's `git.status` subscription on this connection.
@@ -106,36 +141,20 @@ async fn handle_unsubscribe_git_status(
         .await;
 }
 
-/// Build the per-session status snapshot and enrich each running entry with
-/// the server-stamped turn start from the active-turn registry, so a
-/// (re)connecting client anchors its elapsed timer to the same instant the
-/// host did. The DB has no per-turn start column, so this is the only place
-/// the snapshot picks the timestamp up.
-async fn session_status_snapshot_with_timers(
-    app_state: &AppState,
-) -> std::collections::HashMap<String, crate::domain::sessions::models::SessionStatusSnapshotEntry>
-{
-    let mut states =
-        crate::domain::sessions::repository::get_session_status_snapshot(&app_state.read_pool)
-            .await
-            .unwrap_or_default();
-    for entry in states.values_mut() {
-        if entry.status == crate::domain::session_status::AgentStatus::Agent {
-            entry.turn_started_at_ms = app_state.active_turns.started_at(entry.session_id).await;
-        }
-    }
-    states
+fn session_status_snapshot(
+    broadcaster: &crate::domain::session_status::SessionStatusBroadcaster,
+) -> serde_json::Value {
+    serde_json::to_value(broadcaster.snapshot()).expect("status snapshot serializes")
 }
 
 /// Subscribe the client to real-time per-session status updates.
 /// Sends an initial snapshot keyed by `session_id`, then streams
 /// incremental [`SessionStatusEvent`]s.
 ///
-/// Every envelope carries a monotonic `seq` (stamped at send time by
-/// `SessionStatusBroadcaster`). Snapshots include the current counter so the
-/// frontend can reject any snapshot whose seq is older than an update
-/// already applied for a session — that's how we close the lag-recovery
-/// race where a snapshot would otherwise wipe a fresh live update.
+/// Every envelope carries a monotonic `seq` and the server `epoch` (stamped by
+/// `SessionStatusBroadcaster`). A snapshot is read from the same live book as
+/// the events, under the same lock, and carries its seq: the frontend drops
+/// any update it already folded in and resets on a new epoch.
 async fn handle_subscribe_session_status(
     envelope: WsEnvelope,
     sender: &WsSender,
@@ -145,23 +164,18 @@ async fn handle_subscribe_session_status(
     // subscribe is queued in the broadcast buffer rather than lost.
     let mut rx = app_state.session_status_tx.subscribe();
 
-    // Read snapshot AFTER subscribing. Seq is read first so the snapshot's
-    // stamped seq is a lower bound: every event with seq > snapshot.seq is
-    // guaranteed to flow through `rx` (either because it was emitted after
-    // subscribe, or because it was buffered before this line).
-    let seq = app_state.session_status_tx.current_seq();
-    let states = session_status_snapshot_with_timers(app_state).await;
-
+    // Read the snapshot AFTER subscribing: every event with seq >
+    // snapshot.seq is then guaranteed to flow through `rx`, and every event
+    // up to it (possibly also buffered in `rx`) is already folded in.
     let snapshot = WsEnvelope::reply(
         &envelope.id,
         "app",
         "session_status.snapshot",
-        serde_json::json!({ "states": states, "seq": seq }),
+        session_status_snapshot(&app_state.session_status_tx),
     );
     let _ = sender.send(Message::Text(String::from(snapshot).into()));
 
     let sender = sender.clone();
-    let app_state = app_state.clone();
     let broadcaster = app_state.session_status_tx.clone();
 
     tokio::spawn(async move {
@@ -186,12 +200,10 @@ async fn handle_subscribe_session_status(
                         skipped = n,
                         "session status broadcast lagged, sending fresh snapshot",
                     );
-                    let states = session_status_snapshot_with_timers(&app_state).await;
-                    let seq = broadcaster.current_seq();
                     let snapshot = WsEnvelope::new(
                         "app",
                         "session_status.snapshot",
-                        serde_json::json!({ "states": states, "seq": seq }),
+                        session_status_snapshot(&broadcaster),
                     );
                     if sender
                         .send(Message::Text(String::from(snapshot).into()))
@@ -333,114 +345,6 @@ async fn handle_subscribe_alacritty_config_events(sender: &WsSender, app_state: 
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-}
-
-/// Subscribe the client to file-system change events for an editor root.
-/// The client supplies database ids, never a filesystem path; the backend
-/// resolves and validates the authoritative project/worktree root.
-async fn handle_subscribe_file_watcher(
-    envelope: WsEnvelope,
-    sender: &WsSender,
-    app_state: &AppState,
-) {
-    let project_id = match envelope
-        .payload
-        .get("project_id")
-        .and_then(|value| value.as_i64())
-    {
-        Some(id) => id,
-        None => {
-            super::send_error(sender, &envelope.id, "BAD_REQUEST", "missing project_id");
-            return;
-        }
-    };
-    let feature_id = envelope
-        .payload
-        .get("feature_id")
-        .and_then(|value| value.as_i64());
-    let project_path = match crate::domain::projects::service::resolve_feature_editor_root(
-        &app_state.read_pool,
-        project_id,
-        feature_id,
-    )
-    .await
-    {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(error) => {
-            warn!(project_id, feature_id, error = %error, "invalid file watcher root");
-            super::send_error(
-                sender,
-                &envelope.id,
-                "BAD_REQUEST",
-                "invalid project or feature",
-            );
-            return;
-        }
-    };
-
-    // Start or replace the file watcher
-    {
-        let mut watcher = match app_state.file_watcher.lock() {
-            Ok(watcher) => watcher,
-            Err(poisoned) => {
-                warn!("file watcher lock was poisoned; recovering state");
-                app_state.file_watcher.clear_poison();
-                poisoned.into_inner()
-            }
-        };
-        if let Err(e) = watcher.start(&project_path, app_state.file_change_tx.clone()) {
-            warn!(error = %e, "failed to start file watcher");
-            super::send_error(sender, &envelope.id, "WATCHER_ERROR", &e);
-            return;
-        }
-    }
-
-    // ACK subscription
-    let ack = WsEnvelope::reply(
-        &envelope.id,
-        "app",
-        "file_watcher.subscribed",
-        serde_json::json!({}),
-    );
-    let _ = sender.send(Message::Text(String::from(ack).into()));
-
-    // Forward file change events to this WS client
-    let mut rx = app_state.file_change_tx.subscribe();
-    let sender = sender.clone();
-
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let update = WsEnvelope::new(
-                        "editor",
-                        "file_tree.changed",
-                        serde_json::json!({ "project_path": event.project_path }),
-                    );
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    // Just send one notification — the frontend will refetch anyway
-                    let update =
-                        WsEnvelope::new("editor", "file_tree.changed", serde_json::json!({}));
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    break;
-                }
             }
         }
     });

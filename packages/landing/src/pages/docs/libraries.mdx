@@ -1,0 +1,97 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Cadencr libraries for custom tabs and providers"
+description: "Choose an npm package or Rust crate to build a Cadencr custom tab or agent provider."
+lastReviewed: "2026-10-31"
+---
+
+Cadencr publishes libraries for extending the desktop app with **custom tabs** and **agent providers**. Start with the packages below; each has its own version, independent of the desktop release.
+
+## Choose a library
+
+| Library                                     | Registry                                                   | Use it to                                                                          |
+| ------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [@cadencr/tab-sdk](/docs/tab-sdk/)          | [npm](https://www.npmjs.com/package/@cadencr/tab-sdk)      | Connect a tab's web UI to context, theme, scoped APIs, streams, and host services. |
+| [@cadencr/tab-kit](/docs/tab-kit/)          | [npm](https://www.npmjs.com/package/@cadencr/tab-kit)      | Give a React tab Cadencr's components, fonts, and live theme.                      |
+| [cadencr-tab-backend](/docs/tab-backend/)   | [crates.io](https://crates.io/crates/cadencr-tab-backend)  | Add a native Rust process to a custom tab.                                         |
+| [cadencr-provider-sdk](/docs/provider-sdk/) | [crates.io](https://crates.io/crates/cadencr-provider-sdk) | Wrap an agent as a native provider speaking ACP v1.                                |
+
+The other Rust packages in this monorepo, including the built-in agent transport SDKs, are internal implementation packages. They are outside this public library guide. The [Cadencr CLI](https://github.com/merkr-software/CadencR/tree/main/packages/cli) is distributed as a separate binary for plugin validation and packaging.
+
+## Create your first custom tab
+
+1. In the desktop app, open **Settings → Custom tabs → Create** and choose a name. Cadencr creates an authoring project with a React, Vite, and Tailwind CSS v4 scaffold.
+2. Open that project's terminal and install its dependencies with `npm install`.
+3. Run `npm run dev`. In the scaffold this means **`vite build --watch`**: Cadencr loads the generated static files and reloads when the build changes.
+4. Open the tab in that project's conversation. Use [the SDK](/docs/tab-sdk/) to read the current feature and [the kit](/docs/tab-kit/) for UI components.
+
+The scaffold may reference vendored package tarballs. To switch an existing project to registry dependencies, install the npm packages explicitly:
+
+```bash
+npm install @cadencr/tab-sdk @cadencr/tab-kit react@^19 react-dom@^19
+```
+
+A custom tab needs a host to connect. Opening its HTML in an ordinary browser or Vite dev server does not provide the Cadencr `MessagePort`; use [the SDK's test host](/docs/tab-sdk/#test-without-the-desktop-app) for isolated tests.
+
+### Manifest and build
+
+The tab folder contains a `tab.json` manifest and a static web bundle. Here is a minimal manifest for a folder named `example-tab`:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "example-tab",
+  "name": "Example tab",
+  "version": "0.1.0",
+  "description": "A small Cadencr custom tab.",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "Example" },
+  "permissions": ["features:read", "git:read"]
+}
+```
+
+For a hand-built Vite app, set `base: "./"` so scripts and styles resolve relative to the entry. Bundle fonts, images, and dependencies locally: the guest page has no direct network access. Changing permissions, allowed network origins, commands, or backend declarations requires renewed consent in Settings.
+
+The SDK and UI kit are JavaScript dependencies of the web bundle. A [native backend](/docs/tab-backend/) is a separate executable, declared in `tab.json` and called through `client.backend.request()`.
+
+### Validate a tab
+
+With the Cadencr CLI installed:
+
+```bash
+cadencr plugin validate /absolute/path/to/example-tab --kind tab
+```
+
+Validation checks the manifest and reports missing build outputs. When a backend for the current platform is present, it also checks the executable and runs protocol conformance. `--no-run` skips execution. A missing entry is a warning, so also confirm that `dist/index.html` exists after building.
+
+Custom tab web views run in the **desktop app**. Remote/mobile clients show a placeholder. Native backends need separate binaries for every supported platform: macOS Apple Silicon, macOS Intel, and Linux x86-64.
+
+## Build an agent provider
+
+A provider is an executable that discovers models before a session starts, then adapts the agent's runtime to ACP v1. Use [cadencr-provider-sdk](/docs/provider-sdk/) for command parsing and output formatting. You implement model discovery and the ACP runtime, and users authenticate through the agent's native CLI.
+
+The provider harness and the custom tab backend have different protocols and lifecycles. Choose the provider harness for an agent connector and the tab backend for native functionality behind a web tab.
+
+## Versions and contracts
+
+| Contract                                       | Version                 |
+| ---------------------------------------------- | ----------------------- |
+| Custom tab host API (`tab.json` `api_version`) | `1`                     |
+| Native tab backend stdio (`backend.protocol`)  | `1`                     |
+| Provider model discovery                       | `acp-config-options-v1` |
+| Provider runtime                               | `acp-v1`                |
+
+Package versions follow their own semver. In particular, `cadencr-provider-sdk` **0.2** uses `agent-client-protocol` **3.4**, while the wire protocol is still ACP **v1**. Check the host capabilities and the manifest permissions before using a feature; generated API operations marked `proposed` may still change.
+
+All four libraries are Apache-2.0 licensed. The UI kit also ships notices for bundled third-party code and the Inter font.
+
+## Further reference
+
+- [Publish to the marketplace](../marketplace-publishing/) — package your extension, publish its author release, and submit it for registry review.
+- [Custom tab manifest, scopes, and host protocol](https://github.com/merkr-software/CadencR/blob/main/docs/CUSTOM_TABS.md)
+- [Native tab backend protocol](https://github.com/merkr-software/CadencR/blob/main/docs/TAB_BACKEND_PROTOCOL.md)
+- [Provider package contract](https://github.com/merkr-software/CadencR/blob/main/docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md)
+
+The README in each package gives a quick start and package-level reference. These guides explain how to integrate the libraries into an extension; the linked specifications define the underlying contracts.

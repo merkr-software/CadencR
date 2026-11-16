@@ -24,4 +24,19 @@ describe("navigation policy", () => {
     expect(approvedExternalUrl("https://localhost/path")).toBeNull();
     expect(approvedExternalUrl("not-a-url")).toBeNull();
   });
+
+  it.each([
+    "https://[::1]/",
+    "https://[0:0:0:0:0:0:0:1]/",
+    "https://127.42.0.8/",
+    "https://localhost./",
+    "https://LOCALHOST./",
+    "https://dev.localhost/",
+    "https://2130706433/",
+    "https://0x7f000001/",
+    "https://127.1/",
+    "https://[::ffff:127.0.0.1]/",
+  ])("rejects normalized loopback external URL %s", (url) => {
+    expect(approvedExternalUrl(url)).toBeNull();
+  });
 });

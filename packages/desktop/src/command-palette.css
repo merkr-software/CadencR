@@ -1,0 +1,376 @@
+/* -------------------------------------------------------------------------
+ * Command palette (⌘K) — components/CommandPalette.tsx + command-palette/
+ *
+ * One fixed-size shell for every state (results, actions, steps), so typing,
+ * switching mode or stepping into "New conversation…" never moves the box.
+ * Results list on the left, preview of the selection on the right (hidden
+ * below 768px). Rows are dense (34px) and single-line; the preview carries
+ * the detail. Selection is the neutral `--accent` wash, like every list.
+ * Preview, footer, steps and phones: command-palette-panels.css.
+ * ------------------------------------------------------------------------- */
+
+[data-slot="dialog-content"].cp-dialog {
+  --cp-row-height: 34px;
+  --cp-preview-width: 340px;
+  top: 12vh;
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(880px, calc(100vw - 32px));
+  max-width: none;
+  height: min(600px, calc(100dvh - 18vh));
+  /* Sized by its own heights (here and in command-palette-panels.css), not
+     the generic dialog cap. */
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.1),
+    0 24px 60px -24px rgb(0 0 0 / 0.55);
+}
+
+:root:is([data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-slot="dialog-content"].cp-dialog {
+  box-shadow: var(--glass-shadow-overlay);
+}
+
+.cp-dialog [cmdk-root] {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* ─── Input row ──────────────────────────────────────────────────────── */
+
+.cp-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cp-input-row > svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.cp-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: transparent;
+  font-size: 15px;
+  color: var(--foreground);
+  outline: none;
+}
+
+.cp-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+/* A mode or step, shown as the input's leading chip ("Commands", "cadencr ›"). */
+.cp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  max-width: 220px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cp-chip svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.cp-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cp-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+  font-weight: 500;
+  transition:
+    color 100ms ease,
+    border-color 100ms ease;
+}
+
+.cp-scope:hover,
+.cp-scope:focus-visible {
+  color: var(--foreground);
+  border-color: color-mix(in oklab, var(--foreground) 30%, var(--border));
+}
+
+.cp-scope:focus-visible {
+  outline: 2px solid var(--control-focus-ring);
+  outline-offset: 1px;
+}
+
+.cp-scope[data-scope="project"],
+.cp-scope[data-scope="active"] {
+  color: var(--foreground);
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+  background: color-mix(in oklab, var(--primary) 9%, transparent);
+}
+
+/* ─── Body: results + preview ────────────────────────────────────────── */
+
+.cp-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) var(--cp-preview-width);
+}
+
+.cp-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  scroll-padding: 32px 0 6px;
+}
+
+.cp-preview {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: color-mix(in oklab, var(--foreground) 2.5%, transparent);
+}
+
+.cp-group + .cp-group {
+  margin-top: 6px;
+}
+
+.cp-group [cmdk-group-heading] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 4px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cp-group-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* ─── Rows ───────────────────────────────────────────────────────────── */
+
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--cp-row-height);
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  font-size: 13px;
+  cursor: default;
+  user-select: none;
+}
+
+.cp-row[data-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.cp-row > svg,
+.cp-row-icon svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.cp-row-icon {
+  display: inline-flex;
+  width: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.cp-row-status {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.cp-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-row[data-archived="true"] .cp-row-title {
+  color: color-mix(in oklab, var(--foreground) 58%, transparent);
+}
+
+.cp-row-meta {
+  display: inline-flex;
+  max-width: 40%;
+  min-width: 0;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+}
+
+.cp-row-meta-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-row-time {
+  width: 30px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cp-label {
+  max-width: 110px;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  color: color-mix(in oklab, var(--foreground) 75%, transparent);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Matched characters: full contrast and weight; the rest of the title is 88%. */
+.cp-hl {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+/* A message snippet's matched words. */
+.cp-snippet mark {
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+  color: var(--foreground);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.cp-keys {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+}
+
+.cp-key {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.cp-row[data-selected="true"] .cp-key {
+  border-color: color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+
+.cp-verb {
+  flex-shrink: 0;
+  font-size: 11.5px;
+}
+
+.cp-section-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--cp-row-height);
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.cp-section-note[data-tone="error"] {
+  color: var(--acc-red);
+}
+
+.cp-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--cp-row-height);
+  padding: 0 10px;
+}
+
+/* ─── Empty results ──────────────────────────────────────────────────── */
+
+.cp-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 10px 8px;
+}
+
+.cp-empty-title {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cp-empty-hint {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}

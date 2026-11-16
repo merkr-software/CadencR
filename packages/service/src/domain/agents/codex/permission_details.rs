@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 use super::event_inputs::mcp_tool_name_from_parts;
 use super::legacy_permissions::legacy_permission_details;
 use super::permissions::supports_accept_for_session;
+use super::server_request_method::CodexServerRequestMethod;
 
 pub(super) struct PermissionDetails {
     pub(super) tool_name: String,
@@ -11,27 +12,22 @@ pub(super) struct PermissionDetails {
     pub(super) supports_allow_future: bool,
 }
 
-pub(super) fn permission_details(method: &str, params: &Value) -> PermissionDetails {
-    if let Some(details) = legacy_permission_details(method, params) {
-        return details;
-    }
+pub(super) fn permission_details(
+    method: CodexServerRequestMethod,
+    params: &Value,
+) -> PermissionDetails {
     match method {
-        "item/commandExecution/requestApproval" => command_permission_details(params),
-        "item/fileChange/requestApproval" => file_permission_details(params),
-        "item/permissions/requestApproval" => permissions_permission_details(params),
-        "item/tool/requestUserInput" => PermissionDetails {
+        CodexServerRequestMethod::Legacy(legacy) => legacy_permission_details(legacy, params),
+        CodexServerRequestMethod::CommandExecutionApproval => command_permission_details(params),
+        CodexServerRequestMethod::FileChangeApproval => file_permission_details(params),
+        CodexServerRequestMethod::PermissionsApproval => permissions_permission_details(params),
+        CodexServerRequestMethod::ToolUserInput => PermissionDetails {
             tool_name: "AskUserQuestion".to_string(),
             tool_input: params.clone(),
             description: Some("Codex question".to_string()),
             supports_allow_future: false,
         },
-        "mcpServer/elicitation/request" => elicitation_permission_details(params),
-        _ => PermissionDetails {
-            tool_name: method.to_string(),
-            tool_input: params.clone(),
-            description: Some("Codex approval request".to_string()),
-            supports_allow_future: false,
-        },
+        CodexServerRequestMethod::McpElicitation => elicitation_permission_details(params),
     }
 }
 

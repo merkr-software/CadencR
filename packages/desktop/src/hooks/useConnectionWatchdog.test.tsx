@@ -49,6 +49,11 @@ function bridge(isElectron: boolean): CadencrDesktopBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(() => Promise.resolve()),
     requestQuit: vi.fn(() => Promise.resolve()),
+    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
+    cancelClose: vi.fn(() => Promise.resolve()),
+    serviceStatus: vi.fn(() => Promise.resolve({ state: "running" as const })),
+    restartService: vi.fn(() => Promise.resolve()),
+    onServiceStatus: vi.fn(() => () => undefined),
     setZoom: vi.fn(() => Promise.resolve()),
     currentTheme: vi.fn<() => Promise<DesktopTheme>>(() => Promise.resolve("light")),
     onThemeChange: vi.fn(() => () => undefined),
@@ -56,10 +61,12 @@ function bridge(isElectron: boolean): CadencrDesktopBridge {
     setRemoteHostAwake: vi.fn(() => Promise.resolve()),
     onPowerSuspend: vi.fn(() => () => undefined),
     onPowerResume: vi.fn(() => () => undefined),
-    checkForUpdates: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    fetchChangelogImage: vi.fn(),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
   };
 }
 

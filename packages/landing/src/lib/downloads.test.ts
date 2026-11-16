@@ -3,6 +3,10 @@ import landingPackage from "../../package.json";
 import {
   archFromRenderer,
   DOWNLOAD_ASSETS,
+  LINUX_ALPHA_RELEASE,
+  LINUX_AVAILABLE,
+  linuxReleaseAssets,
+  macReleaseAssetName,
   normalizeArch,
   resolveMacArch,
   selectRecommendedDownload,
@@ -20,7 +24,7 @@ describe("selectRecommendedDownload", () => {
   it("recommends the Intel DMG for macOS x64 browsers", () => {
     const result = selectRecommendedDownload({ os: "macos", arch: "x64" });
 
-    expect(result?.assetName).toBe(`Cadencr-${appVersion}.dmg`);
+    expect(result?.assetName).toBe(macReleaseAssetName(appVersion, "x64", "installer"));
   });
 
   it("defaults to Apple Silicon when the arch is unknown", () => {
@@ -29,13 +33,47 @@ describe("selectRecommendedDownload", () => {
     expect(result?.assetName).toBe(`Cadencr-${appVersion}-arm64.dmg`);
   });
 
+  it("recommends the x64 AppImage to Linux browsers once the Linux alpha has shipped", () => {
+    const expected = LINUX_AVAILABLE ? `Cadencr-${LINUX_ALPHA_RELEASE}-x86_64.AppImage` : undefined;
+
+    expect(selectRecommendedDownload({ os: "linux", arch: "x64" })?.assetName).toBe(expected);
+    expect(selectRecommendedDownload({ os: "linux", arch: "unknown" })?.assetName).toBe(expected);
+  });
+
+  it("does not recommend the x64 Linux build to ARM browsers", () => {
+    expect(selectRecommendedDownload({ os: "linux", arch: "arm64" })).toBeUndefined();
+  });
+
   it("does not recommend a download for operating systems not shipped yet", () => {
-    expect(selectRecommendedDownload({ os: "linux", arch: "x64" })).toBeUndefined();
     expect(selectRecommendedDownload({ os: "windows", arch: "x64" })).toBeUndefined();
   });
 
-  it("keeps asset URLs pinned to the current landing version", () => {
-    expect(DOWNLOAD_ASSETS.every((asset) => asset.url.includes(`/v${appVersion}/`))).toBe(true);
+  it("keeps macOS asset URLs pinned to the current landing version", () => {
+    const macAssets = DOWNLOAD_ASSETS.filter((asset) => asset.os === "macos");
+    expect(macAssets).toHaveLength(4);
+    expect(macAssets.every((asset) => asset.url.includes(`/v${appVersion}/`))).toBe(true);
+  });
+
+  it("lists exactly the Linux targets of the release carrying the alpha", () => {
+    expect(LINUX_AVAILABLE).toBe(LINUX_ALPHA_RELEASE !== null);
+    expect(DOWNLOAD_ASSETS.filter((asset) => asset.os === "linux")).toEqual(
+      linuxReleaseAssets(LINUX_ALPHA_RELEASE),
+    );
+  });
+});
+
+describe("macReleaseAssetName", () => {
+  it("names both architectures explicitly after v0.13.0", () => {
+    expect(macReleaseAssetName("0.14.0", "x64", "installer")).toBe("Cadencr-0.14.0-x64.dmg");
+    expect(macReleaseAssetName("0.14.0", "x64", "archive")).toBe("Cadencr-0.14.0-x64-mac.zip");
+    expect(macReleaseAssetName("0.14.0", "arm64", "installer")).toBe("Cadencr-0.14.0-arm64.dmg");
+    expect(macReleaseAssetName("0.14.0", "arm64", "archive")).toBe("Cadencr-0.14.0-arm64-mac.zip");
+  });
+
+  it("keeps the unsuffixed Intel names of v0.13.0", () => {
+    expect(macReleaseAssetName("0.13.0", "x64", "installer")).toBe("Cadencr-0.13.0.dmg");
+    expect(macReleaseAssetName("0.13.0", "x64", "archive")).toBe("Cadencr-0.13.0-mac.zip");
+    expect(macReleaseAssetName("0.13.0", "arm64", "installer")).toBe("Cadencr-0.13.0-arm64.dmg");
   });
 });
 
@@ -91,5 +129,24 @@ describe("resolveMacArch", () => {
 
   it("stays unknown when no signal is definitive (caller defaults to arm64)", () => {
     expect(resolveMacArch({ renderer: "unknown", userAgentData: "unknown" })).toBe("unknown");
+  });
+});
+
+describe("linuxReleaseAssets", () => {
+  it("links no Linux assets while no release carries the alpha", () => {
+    expect(linuxReleaseAssets(null)).toEqual([]);
+  });
+
+  it("links the arch-named targets of the release carrying the alpha", () => {
+    for (const version of ["0.15.0", "0.15.2", "1.0.0"]) {
+      expect(linuxReleaseAssets(version).map((asset) => asset.assetName)).toEqual([
+        `Cadencr-${version}-x86_64.AppImage`,
+        `Cadencr-${version}-amd64.deb`,
+        `Cadencr-${version}-x86_64.rpm`,
+      ]);
+      expect(
+        linuxReleaseAssets(version).every((asset) => asset.url.includes(`/v${version}/`)),
+      ).toBe(true);
+    }
   });
 });

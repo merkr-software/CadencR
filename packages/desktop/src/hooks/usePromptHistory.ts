@@ -106,7 +106,9 @@ export function usePromptHistory(projectId: number, wsSessionId?: string) {
       addEntry,
       resetNavigation: navigation.resetNavigation,
       historyIndex: navigation.historyIndex,
+      /** Newest first, up to 100 — the history search lists these. */
+      entries: history,
     }),
-    [addEntry, navigation],
+    [addEntry, history, navigation],
   );
 }

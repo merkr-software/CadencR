@@ -89,8 +89,8 @@ mod tests {
             None
         }
 
-        fn compact_prompt(&self) -> Option<&'static str> {
-            Some("/compact")
+        fn compact_prompt(&self) -> Option<String> {
+            Some("/compact".to_string())
         }
     }
 
@@ -141,16 +141,15 @@ mod tests {
     async fn compact_returns_before_prompt_response() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let (tx, rx) = mpsc::channel(8);
-        let session = AcpRuntimeSession::assemble(
-            &client,
-            &negotiated("s-compact-fast"),
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        );
+        let session = AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated("s-compact-fast"))
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call();
 
         tokio::time::timeout(std::time::Duration::from_millis(100), session.compact())
             .await
@@ -170,16 +169,15 @@ mod tests {
     async fn compact_clears_resume_replay_suppression_and_emits_turn_started() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let (tx, rx) = mpsc::channel(8);
-        let mut session = AcpRuntimeSession::assemble(
-            &client,
-            &negotiated("s-compact-resume"),
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        );
+        let mut session = AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated("s-compact-resume"))
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call();
         session.replay_suppression.store(true, Ordering::SeqCst);
         let mut runtime_rx = session.take_message_rx();
 
@@ -209,16 +207,15 @@ mod tests {
     async fn compact_rejects_duplicate_manual_turn_while_running() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let (tx, rx) = mpsc::channel(8);
-        let session = AcpRuntimeSession::assemble(
-            &client,
-            &negotiated("s-compact-single"),
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        );
+        let session = AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated("s-compact-single"))
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call();
 
         session.compact().await.unwrap();
         let error = session.compact().await.unwrap_err();
@@ -245,7 +242,7 @@ mod tests {
         let mode = Arc::new(RwLock::new("build".to_string()));
         let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
         let (tx, rx) = mpsc::channel(16);
-        let event_rx = client.subscribe();
+        let event_rx = client.subscribe_reliable();
         let hooks = Arc::new(PlainHooks);
         let cfg = EventLoopConfig {
             session_id,
@@ -265,19 +262,19 @@ mod tests {
             hooks,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
+            browser_trust: Default::default(),
             indexer: Arc::clone(&indexer),
         };
         let _loop_task = spawn_event_loop(client.clone(), event_rx, tx.clone(), cfg);
-        let mut session = AcpRuntimeSession::assemble(
-            &client,
-            &negotiated("s-compact-dedupe"),
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            indexer,
-        );
+        let mut session = AcpRuntimeSession::assemble()
+            .client(&client)
+            .negotiated(&negotiated("s-compact-dedupe"))
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(indexer)
+            .call();
         let mut runtime_rx = session.take_message_rx();
 
         session.compact().await.unwrap();

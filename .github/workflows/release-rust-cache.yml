@@ -1,0 +1,72 @@
+name: Warm release Rust dependencies
+
+# A tag can read main's cache, but not another tag's cache. Compile release
+# dependencies before tagging, only when their inputs change. This job never
+# signs, packages or publishes an app and needs no release secrets.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "scripts/cargo-env.mjs"
+      - ".github/workflows/release-rust-cache.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rust-cache-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      pnpm_config_verify_deps_before_run: "false"
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      # No node_modules needed to run the Cargo environment wrapper.
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+
+      # The shared key and runner must match the release workflows. Defaults
+      # retain dependencies only, excluding workspace crates and binaries.
+      # Swatinem/rust-cache@v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        id: rust-cache
+        with:
+          shared-key: desktop-release-${{ matrix.os }}
+
+      - name: Compile release dependencies
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            for target in aarch64-apple-darwin x86_64-apple-darwin; do
+              pnpm rust -- build --locked --release -p cadencr-service --lib --target "$target"
+            done
+          else
+            pnpm rust -- build --locked --release -p cadencr-service --lib
+          fi

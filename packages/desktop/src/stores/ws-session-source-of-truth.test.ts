@@ -1,3 +1,4 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it } from "vitest";
 
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
@@ -11,6 +12,7 @@ function createTestContext(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>): void => {
       state = { ...state, ...partial };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string): SessionEntry => state.sessions[sessionId],
   };
 }
@@ -96,5 +98,29 @@ describe("session running source of truth", () => {
     expect(updated.compactRequestPending).toBe(false);
     expect(updated.pendingManualCompact).toBe(true);
     expect(updated.lifecycle).toEqual({ phase: "idle" });
+  });
+
+  it("ends a compaction stopped before it began as stopped, not as an error", () => {
+    const session = createSessionEntry();
+    session.compactRequestPending = true;
+    session.lifecycle = { phase: "active" };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "compact.stopped",
+      payload: {},
+    });
+
+    const updated = ctx.getSession("s1");
+    expect(updated.compactRequestPending).toBe(false);
+    expect(updated.pendingManualCompact).toBe(false);
+    // Not a failed turn: whether the agent still works is the status book's.
+    expect(updated.lifecycle).toEqual({ phase: "active" });
+    expect(updated.blocks.some((block) => block.type === "error")).toBe(false);
+    expect(updated.blocks.at(-1)).toMatchObject({
+      type: "turn_interrupted",
+      content: "compact",
+    });
   });
 });

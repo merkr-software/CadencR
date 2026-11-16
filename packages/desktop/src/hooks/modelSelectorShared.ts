@@ -2,7 +2,7 @@ import type { AgentCatalog, RuntimeModelOption } from "@/api/agentRuntime";
 import type { AgentTypeSetting } from "@/shared/models";
 import type { ModelSelectorRowProvider } from "@/components/ModelSelectorRow";
 
-export type ModelSelectorLevel = "global" | "project" | "feature";
+export type ModelSelectorLevel = "global" | "feature";
 
 export const INHERIT_VALUE = "__inherit__";
 
@@ -29,8 +29,9 @@ export interface ModelSelectorRowState {
 
 export interface UseModelSelectorStateParams {
   level: ModelSelectorLevel;
-  projectId?: number;
   featureId?: number;
+  /** Rows to show; defaults to every agent type the level supports. */
+  agentTypes?: readonly AgentTypeSetting[];
 }
 
 export interface UseModelSelectorStateResult {

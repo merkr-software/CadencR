@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Feature } from "@/api/generated";
-import { buildFeatureForest } from "./feature-hierarchy";
+import { buildFeatureForest, descendantIdsOf } from "./feature-hierarchy";
 
 function feature(id: number, parent?: number): Feature {
   return {
@@ -32,5 +32,11 @@ describe("feature hierarchy", () => {
 
     expect(forest.map((node) => node.feature.id)).toEqual([1, 2, 3, 4]);
     expect(forest.every((node) => node.children.length === 0)).toBe(true);
+  });
+
+  it("lists every descendant depth first, the same array on every call", () => {
+    const [root] = buildFeatureForest([feature(1), feature(2, 1), feature(3, 2), feature(4, 1)]);
+    expect(descendantIdsOf(root!)).toEqual([2, 3, 4]);
+    expect(descendantIdsOf(root!)).toBe(descendantIdsOf(root!));
   });
 });

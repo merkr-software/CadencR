@@ -1,3 +1,4 @@
+import { executeBrowserScript } from "./browser-document-security";
 import type { WebContents } from "electron";
 import { elementContextScript } from "./browser-element-context-script";
 import { domSnapshotScript, flashHighlightScript } from "./browser-dom-script";
@@ -89,7 +90,7 @@ export async function captureDomSnapshot(
   selector?: string,
   maxLength: number = DEFAULT_DOM_MAX_LENGTH,
 ): Promise<BrowserDomSnapshot> {
-  const result = await wc.executeJavaScript(domSnapshotScript(selector, maxLength), true);
+  const result = await executeBrowserScript(wc, domSnapshotScript(selector, maxLength));
   return expectScriptResult<BrowserDomSnapshot>(
     result,
     (r) => typeof r.found === "boolean",
@@ -102,7 +103,7 @@ export async function captureDomOutline(
   selector?: string,
   maxLength: number = DEFAULT_OUTLINE_MAX_LENGTH,
 ): Promise<BrowserDomOutline> {
-  const result = await wc.executeJavaScript(domOutlineScript(selector, maxLength), true);
+  const result = await executeBrowserScript(wc, domOutlineScript(selector, maxLength));
   return expectScriptResult<BrowserDomOutline>(
     result,
     (r) => typeof r.found === "boolean",
@@ -128,7 +129,7 @@ export async function flashHighlight(wc: WebContents, bounds: BrowserBounds): Pr
   // failure (e.g. the tab navigated mid-capture) must not break the snapshot or
   // screenshot, so report it to the console instead of throwing.
   try {
-    await wc.executeJavaScript(flashHighlightScript(bounds), true);
+    await executeBrowserScript(wc, flashHighlightScript(bounds));
   } catch (error) {
     console.warn("Browser highlight overlay failed:", error);
   }
@@ -136,7 +137,7 @@ export async function flashHighlight(wc: WebContents, bounds: BrowserBounds): Pr
 
 export async function evaluateInPage(wc: WebContents, script: string): Promise<BrowserEvalResult> {
   try {
-    const result = await wc.executeJavaScript(script, true);
+    const result = await executeBrowserScript(wc, script);
     return { ok: true, result };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -149,13 +150,17 @@ export async function captureElementContext(
   diagnostics: BrowserElementContext["diagnostics"],
   anchorId: string | null,
   screenshotCoordinateScale: () => number = () => 1,
+  authorize: () => void = () => undefined,
 ): Promise<BrowserElementContext> {
-  const context = await wc.executeJavaScript(elementContextScript(anchorId), true);
+  authorize();
+  const context = await executeBrowserScript(wc, elementContextScript(anchorId));
+  authorize();
   if (!isElementPayload(context)) throw new Error("Browser element context capture failed.");
   const screenshotPngBase64 = await captureScreenshot(
     wc,
     context.boundingBox,
     screenshotCoordinateScale(),
   );
+  authorize();
   return { ...meta, screenshotPngBase64, element: context, diagnostics };
 }

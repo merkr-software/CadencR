@@ -23,6 +23,7 @@ pub(super) async fn runtime_slash_commands(
         .resolve_profile(profile, std::path::Path::new(cwd))
         .await?
         .expect("Codex always resolves a default profile");
+    let secrets = super::app_server_failure::secrets(Some(&resolved.env));
     let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
         Some(resolved.env),
         resolved.env_unset,
@@ -36,7 +37,8 @@ pub(super) async fn runtime_slash_commands(
     }
     .await;
     client.shutdown().await;
-    Ok(result?
+    Ok(result
+        .map_err(|error| super::app_server_failure::explain(&client, error, &secrets))?
         .into_iter()
         .map(|command| RuntimeSlashCommand {
             name: command.name,

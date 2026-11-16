@@ -1,6 +1,7 @@
 import type { ContextMenuItem, ContextMenuOpenContext } from "@pierre/trees";
 import {
   ClipboardCopyIcon,
+  EyeIcon,
   FilePlusIcon,
   FolderOpenIcon,
   FolderPlusIcon,
@@ -9,14 +10,30 @@ import {
 } from "lucide-react";
 import { ContextMenuActionButton, type ContextMenuIcon } from "@/components/ContextMenuActionItem";
 import { FileTreeContextMenuPortal } from "@/components/file-tree/FileTreeContextMenuPortal";
+import { isDocumentFile } from "@/lib/document-file";
+import type { ShortcutKey } from "@/lib/shortcuts/registry";
+
+// Mirrors the tree's plain-Enter rename handler (`useFileTreeController`).
+const RENAME_KEYS: ShortcutKey[] = ["enter"];
+// Mirrors the tree's Mod+Backspace handler (`useFileTreeController`).
+const MOVE_TO_TRASH_KEYS: ShortcutKey[] = ["mod", "backspace"];
 
 export type FileTreeContextMenuItem = ContextMenuItem;
 export type FileTreeContextMenuOpenContext = ContextMenuOpenContext;
+export type FileTreeMenuAction =
+  | "new-file"
+  | "new-folder"
+  | "open"
+  | "open-preview"
+  | "copy-path"
+  | "reveal"
+  | "rename"
+  | "delete";
 
 interface MenuItemSpec {
   label: string;
   icon: ContextMenuIcon;
-  shortcut?: string;
+  shortcut?: ShortcutKey[];
   destructive?: boolean;
   onSelect: () => void;
 }
@@ -31,15 +48,15 @@ interface FileTreeContextMenuProps {
    * opening a follow-up dialog or popover.
    */
   onAction: (
-    action: "new-file" | "new-folder" | "open" | "copy-path" | "reveal" | "rename" | "delete",
+    action: FileTreeMenuAction,
     item: FileTreeContextMenuItem,
     context: FileTreeContextMenuOpenContext,
   ) => void;
 }
 
 /**
- * Build the menu spec for an item — files get an `Open` entry, directories
- * skip it. Order matches the user's expected verb sequence.
+ * Build the menu spec for an item — files get an `Open` entry (and documents
+ * an `Open in Preview` one), directories skip them. Order matches the user's expected verb sequence.
  */
 function buildMenuItems(
   item: FileTreeContextMenuItem,
@@ -62,6 +79,13 @@ function buildMenuItems(
       onSelect: () => onAction("open", item, context),
     });
   }
+  if (!isDir && isDocumentFile(item.path)) {
+    items.push({
+      label: "Open in Preview",
+      icon: EyeIcon,
+      onSelect: () => onAction("open-preview", item, context),
+    });
+  }
   items.push(
     {
       label: "Copy Path",
@@ -76,13 +100,13 @@ function buildMenuItems(
     {
       label: "Rename",
       icon: PencilIcon,
-      shortcut: "↵",
+      shortcut: RENAME_KEYS,
       onSelect: () => onAction("rename", item, context),
     },
     {
       label: "Move to Trash",
       icon: Trash2Icon,
-      shortcut: "⌘⌫",
+      shortcut: MOVE_TO_TRASH_KEYS,
       destructive: true,
       onSelect: () => onAction("delete", item, context),
     },
@@ -134,14 +158,14 @@ function MenuRow({
 }: {
   label: string;
   icon: ContextMenuIcon;
-  shortcut?: string;
+  shortcut?: ShortcutKey[];
   destructive?: boolean;
   onSelect: () => void;
 }): React.JSX.Element {
   return (
     <ContextMenuActionButton
       icon={icon}
-      shortcutLabel={shortcut}
+      shortcutKeys={shortcut}
       destructive={destructive}
       className="py-1"
       onSelect={onSelect}

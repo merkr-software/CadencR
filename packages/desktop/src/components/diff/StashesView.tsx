@@ -5,6 +5,7 @@ import { useListStashes, type StashEntry } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { GitRevisionDiffView } from "./GitRevisionDiffView";
 import { useOpenDiffInEditor } from "./OpenDiffInEditorContext";
+import { useGitPathEditorOpener } from "./useGitPathEditorOpener";
 import { StashRow, STASH_ROW_HEIGHT } from "./StashRow";
 import type { StashConflictHandler, StashConflictOpenHandler } from "./stash-contracts";
 import { useStashMutationCoordinator } from "./useStashMutationCoordinator";
@@ -37,7 +38,7 @@ export const StashesView = memo(function StashesView({
   const [openedStash, setOpenedStash] = useState<StashEntry | null>(null);
   const handleCloseStash = useCallback((): void => setOpenedStash(null), []);
   const contextOpenConflict = useOpenDiffInEditor();
-  const openConflict = onOpenConflict ?? contextOpenConflict;
+  const openConflict = useGitPathEditorOpener(featureId, onOpenConflict ?? contextOpenConflict);
   const mutationCoordinator = useStashMutationCoordinator(featureId);
 
   const { data, isLoading, isError, error, refetch } = useListStashes({
