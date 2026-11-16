@@ -5,6 +5,7 @@ import { queryClient } from "@/lib/queryClient";
 import { createFork, createRewind, type WsEnvelope } from "@/lib/ws-envelope";
 
 import { blocksPatchWithDerived } from "./ws-block-mutations";
+import { showBranchFailure } from "./ws-session-branch-errors";
 import { isRecord } from "./ws-message-processing";
 import { updateSession, type WsSessionStore } from "./ws-session-types";
 import { blockMessageDbId } from "./ws-user-message-reconciliation";
@@ -32,8 +33,10 @@ export const BRANCH_REPLY_TIMEOUT_MS = 120_000;
 let prefillNonce = 0;
 let forkNonce = 0;
 
-function isBranchError(reply: Record<string, unknown>): boolean {
-  return typeof reply.code === "string" && typeof reply.message === "string";
+function branchError(reply: Record<string, unknown>): { code: string; message: string } | null {
+  return typeof reply.code === "string" && typeof reply.message === "string"
+    ? { code: reply.code, message: reply.message }
+    : null;
 }
 
 function isNeedsConfirm(reply: Record<string, unknown>): boolean {
@@ -60,8 +63,9 @@ export async function rewindToMessage(
     toast.error("Rewind failed or timed out.", { id: toastId });
     return;
   }
-  if (isBranchError(reply)) {
-    toast.error(String(reply.message), { id: toastId });
+  const failure = branchError(reply);
+  if (failure) {
+    showBranchFailure("rewind", toastId, failure);
     return;
   }
   if (isNeedsConfirm(reply)) {
@@ -121,8 +125,9 @@ export async function forkFromMessage(
     toast.error("Fork failed or timed out.", { id: toastId });
     return;
   }
-  if (isBranchError(reply)) {
-    toast.error(String(reply.message), { id: toastId });
+  const failure = branchError(reply);
+  if (failure) {
+    showBranchFailure("fork", toastId, failure);
     return;
   }
 

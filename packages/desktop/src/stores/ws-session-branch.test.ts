@@ -13,6 +13,7 @@ vi.mock("@/lib/queryClient", () => ({ queryClient: { invalidateQueries: vi.fn() 
 vi.mock("@/api/generated", () => ({
   getListFeaturesQueryKey: (params: { project_id: number }) => ["/api/features", params],
 }));
+import { toast } from "sonner";
 import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type WsSessionStore } from "./ws-session-types";
 import {
@@ -135,6 +136,28 @@ it("waits for the rewind and fork replies longer than an ordinary request", asyn
   ]);
   expect(BRANCH_REPLY_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
 });
+
+// Found in QA: a fork Codex refused led its toast with the whole internal
+// chain ("transcript surgery failed: Codex app-server branching failed: …").
+it.each([
+  ["fork", "The conversation couldn't be forked. Nothing was changed."],
+  ["rewind", "The conversation couldn't be rewound. Nothing was changed."],
+] as const)(
+  "a refused %s leads with plain words and keeps the error as detail",
+  async (kind, title) => {
+    const message =
+      "The conversation couldn't be branched: transcript surgery failed: Codex app-server branching failed: app-server returned error -32600: thread not loaded: 00000000-0000-7000-8000-000000000000";
+    const { deps } = makeHarness({ code: "BRANCH_SURGERY_FAILED", message });
+    vi.mocked(toast.error).mockClear();
+
+    await (kind === "fork" ? forkFromMessage : rewindToMessage)(deps, "ws-1", 3);
+
+    expect(toast.error).toHaveBeenCalledWith(title, {
+      id: "branch-ws-1",
+      description: message,
+    });
+  },
+);
 
 describe("rewindToMessage", () => {
   it("truncates blocks and prefills the composer on success", async () => {
