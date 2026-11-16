@@ -49,18 +49,75 @@ async fn truncate_with_client(
 ) -> Result<BranchResult, BranchError> {
     client.initialize().await.map_err(branch_surgery)?;
     let source = read_snapshot(client, &ctx.source_runtime_session_id).await?;
-    let rollback_turns = rollback_turns_for_cut(&source, ctx.cut_user_ordinal)?;
+    let cut = cut_before(&source, ctx.cut_user_ordinal)?;
     let forked = client
         .thread_fork(&ctx.source_runtime_session_id, &ctx.cwd)
         .await
         .map_err(branch_surgery)?;
-    client
-        .thread_rollback(&forked.id, rollback_turns)
-        .await
-        .map_err(branch_surgery)?;
+    let cut_checked = async {
+        cut_fork(client, &forked.id, &cut).await?;
+        check_cut(&read_snapshot(client, &forked.id).await?, &cut)
+    };
+    if let Err(error) = cut_checked.await {
+        return Err(discard_fork(client, &forked.id, error).await);
+    }
     Ok(BranchResult {
         new_runtime_session_id: forked.id,
     })
+}
+
+/// Where a fork is cut: before `before_turn_id`, the turn holding the cut
+/// prompt, which drops `dropped_turns` turns and keeps `kept_turns`.
+#[derive(Debug, PartialEq, Eq)]
+struct Cut {
+    before_turn_id: String,
+    dropped_turns: u32,
+    kept_turns: usize,
+}
+
+/// Cut the fork's history. App-servers since Codex 0.167 cut with
+/// `thread/revert` and no longer know `thread/rollback`; older ones only
+/// know `thread/rollback`. The method the app-server lacks says which it is.
+async fn cut_fork(
+    client: &CodexAppServerClient,
+    thread_id: &str,
+    cut: &Cut,
+) -> Result<(), BranchError> {
+    match client.thread_revert(thread_id, &cut.before_turn_id).await {
+        Err(error) if error.is_unknown_method("thread/revert") => client
+            .thread_rollback(thread_id, cut.dropped_turns)
+            .await
+            .map_err(branch_surgery),
+        result => result.map_err(branch_surgery),
+    }
+}
+
+/// A fork whose cut failed holds the whole history: archive it so it does
+/// not linger in the user's Codex threads, and say so when that fails too.
+async fn discard_fork(
+    client: &CodexAppServerClient,
+    fork_id: &str,
+    error: BranchError,
+) -> BranchError {
+    match client.thread_archive(fork_id).await {
+        Ok(()) => error,
+        Err(archive_error) => BranchError::Surgery(format!(
+            "{error}; the uncut Codex fork {fork_id} could not be archived either: {archive_error}"
+        )),
+    }
+}
+
+/// An app-server that took the cut without applying it would leave the
+/// fork with its whole history; never hand that on as a cut conversation.
+fn check_cut(fork: &ThreadSnapshot, cut: &Cut) -> Result<(), BranchError> {
+    if fork.turns.len() == cut.kept_turns {
+        return Ok(());
+    }
+    Err(BranchError::Surgery(format!(
+        "Codex kept {} turns in the fork instead of {}",
+        fork.turns.len(),
+        cut.kept_turns
+    )))
 }
 
 async fn read_snapshot(
@@ -73,10 +130,7 @@ async fn read_snapshot(
         .map_err(branch_surgery)
 }
 
-fn rollback_turns_for_cut(
-    snapshot: &ThreadSnapshot,
-    cut_user_ordinal: usize,
-) -> Result<u32, BranchError> {
+fn cut_before(snapshot: &ThreadSnapshot, cut_user_ordinal: usize) -> Result<Cut, BranchError> {
     let mut seen_user_messages = 0usize;
     for (turn_index, turn) in snapshot.turns.iter().enumerate() {
         let count = turn.user_message_count();
@@ -89,7 +143,11 @@ fn rollback_turns_for_cut(
                     "This Codex message is inside a multi-message turn, so it can't be branched safely yet.".to_string(),
                 ));
             }
-            return Ok((snapshot.turns.len() - turn_index) as u32);
+            return Ok(Cut {
+                before_turn_id: turn.id.clone(),
+                dropped_turns: (snapshot.turns.len() - turn_index) as u32,
+                kept_turns: turn_index,
+            });
         }
         seen_user_messages += count;
     }
@@ -104,7 +162,7 @@ fn branch_surgery(error: SdkError) -> BranchError {
 
 #[cfg(test)]
 mod tests {
-    use super::{explain_surgery_failure, rollback_turns_for_cut};
+    use super::{check_cut, cut_before, explain_surgery_failure, Cut};
     use crate::domain::agents::adapter::BranchError;
     use codex_app_server_sdk_rs::{ThreadSnapshot, ThreadTurn};
 
@@ -120,24 +178,43 @@ mod tests {
     }
 
     #[test]
-    fn rollback_plan_cuts_before_the_turn_containing_the_target_prompt() {
-        let rollback_turns = rollback_turns_for_cut(&snapshot(&[1, 1, 1]), 2).unwrap();
+    fn the_cut_falls_before_the_turn_containing_the_target_prompt() {
+        let cut = cut_before(&snapshot(&[1, 0, 1, 1]), 2).unwrap();
 
-        assert_eq!(rollback_turns, 2);
+        assert_eq!(
+            cut,
+            Cut {
+                before_turn_id: "turn-2".to_string(),
+                dropped_turns: 2,
+                kept_turns: 2,
+            }
+        );
     }
 
     #[test]
-    fn rollback_plan_rejects_cuts_inside_a_multi_prompt_turn() {
-        let error = rollback_turns_for_cut(&snapshot(&[1, 2]), 3).unwrap_err();
+    fn the_cut_rejects_a_prompt_inside_a_multi_prompt_turn() {
+        let error = cut_before(&snapshot(&[1, 2]), 3).unwrap_err();
 
         assert!(matches!(error, BranchError::Unsupported(_)), "{error}");
     }
 
     #[test]
-    fn rollback_plan_rejects_missing_cut_prompt() {
-        let error = rollback_turns_for_cut(&snapshot(&[1]), 3).unwrap_err();
+    fn the_cut_rejects_a_missing_prompt() {
+        let error = cut_before(&snapshot(&[1]), 3).unwrap_err();
 
         assert!(matches!(error, BranchError::Surgery(_)), "{error}");
+    }
+
+    #[test]
+    fn a_fork_that_kept_its_whole_history_is_refused() {
+        let cut = cut_before(&snapshot(&[1, 1, 1]), 2).unwrap();
+
+        assert!(check_cut(&snapshot(&[1]), &cut).is_ok());
+        let error = check_cut(&snapshot(&[1, 1, 1]), &cut).unwrap_err();
+        assert!(
+            matches!(&error, BranchError::Surgery(message) if message.contains("kept 3 turns")),
+            "{error}"
+        );
     }
 
     #[test]
