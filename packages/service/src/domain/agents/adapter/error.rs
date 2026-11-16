@@ -33,6 +33,11 @@ pub enum RuntimeError {
     /// A follow-up waited for the running turn and a Stop ended that turn
     /// first: the runtime dropped it rather than start a turn of its own.
     InputWithdrawn(String),
+    /// The runtime refused a request Cadencr sent it, without running it: a
+    /// protocol or request error (an unknown method, invalid parameters, a
+    /// state the request is not allowed in). Never a provider overload; the
+    /// host reports it with its own code.
+    RequestRejected(String),
 }
 
 impl Display for RuntimeError {
@@ -51,7 +56,8 @@ impl Display for RuntimeError {
             }
             Self::CompactFailed(message)
             | Self::StopEscalated(message)
-            | Self::InputWithdrawn(message) => f.write_str(message),
+            | Self::InputWithdrawn(message)
+            | Self::RequestRejected(message) => f.write_str(message),
         }
     }
 }
@@ -81,6 +87,20 @@ impl RuntimeError {
 
     pub fn is_input_withdrawn(&self) -> bool {
         matches!(self, Self::InputWithdrawn(_))
+    }
+
+    pub fn request_rejected(message: impl Into<String>) -> Self {
+        Self::RequestRejected(message.into())
+    }
+
+    /// The `session.error` code a turn that failed with this error carries;
+    /// the client frames the failure from it.
+    pub fn session_error_code(&self) -> &'static str {
+        match self {
+            Self::CompactFailed(_) => "COMPACT_ERROR",
+            Self::RequestRejected(_) => "PROVIDER_REQUEST_REJECTED",
+            _ => "SDK_ERROR",
+        }
     }
 
     /// Build a structured "CLI not found" error so the host can surface an

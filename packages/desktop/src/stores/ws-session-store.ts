@@ -234,7 +234,8 @@ function buildWsSessionStore(
   const branchDeps: BranchDeps = {
     get,
     set,
-    sendRequest: (sessionId, envelope) => get().sendRequest(sessionId, envelope),
+    sendRequest: (sessionId, envelope, timeoutMs) =>
+      get().sendRequest(sessionId, envelope, timeoutMs),
   };
   const socketDeps: SocketHandlerDeps = {
     ctx,

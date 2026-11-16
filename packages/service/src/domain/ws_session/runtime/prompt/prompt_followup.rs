@@ -1,7 +1,7 @@
 use crate::domain::ws_session::runtime::output::SessionOutput;
 use tracing::{error, info};
 
-use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeSessionHandle};
+use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 
 struct FollowupTurnGuard {
     runtime: tokio::sync::OwnedRwLockReadGuard<Box<dyn AgentRuntimeSession>>,
@@ -288,7 +288,6 @@ async fn stream_followup_prompt(
             )
             .await;
         }
-        let message = error.to_string();
         if let Err(release_error) = shell_context.release(&context.write_pool).await {
             error!(context.db_session_id, error = %release_error, "failed to release user shell context claim");
         }
@@ -296,7 +295,7 @@ async fn stream_followup_prompt(
             &context,
             dispatch_claim.as_ref(),
             receipt_message_uuid,
-            message,
+            &error,
             delivery.preserve_running_turn,
         )
         .await;
@@ -352,9 +351,10 @@ async fn fail_followup_stream(
     context: &FollowupPromptContext,
     dispatch_claim: Option<&(i64, String)>,
     receipt_message_uuid: Option<String>,
-    message: String,
+    error: &RuntimeError,
     preserve_running_turn: bool,
 ) -> Result<(), String> {
+    let message = error.to_string();
     mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
     error!(context.db_session_id, error = %message, "stream_input failed");
     if let Some(message_uuid) = receipt_message_uuid {
@@ -386,7 +386,7 @@ async fn fail_followup_stream(
         .ref_id(&context.envelope_id)
         .feature_id(context.feature_id)
         .session_id(context.db_session_id)
-        .code("SDK_ERROR")
+        .code(error.session_error_code())
         .message(&message)
         .call()
         .await;

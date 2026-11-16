@@ -16,6 +16,7 @@ vi.mock("@/api/generated", () => ({
 import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type WsSessionStore } from "./ws-session-types";
 import {
+  BRANCH_REPLY_TIMEOUT_MS,
   forkFromMessage,
   resolveBranchConfirm,
   rewindToMessage,
@@ -120,6 +121,19 @@ describe("truncateBlocksAtMessage", () => {
     truncateBlocksAtMessage(h.get, h.set, "ws-1", 999);
     expect(h.ids()).toEqual(["canonical-user-1"]);
   });
+});
+
+// Found in QA: a fork that took over the 10 s default timed out, and its late
+// failure reply was then shown as the turn's own error.
+it("waits for the rewind and fork replies longer than an ordinary request", async () => {
+  const { deps, sendRequest } = makeHarness({ code: "BRANCH_SURGERY_FAILED", message: "x" });
+  await rewindToMessage(deps, "ws-1", 3);
+  await forkFromMessage(deps, "ws-1", 3);
+  expect(sendRequest.mock.calls.map((call) => call[2])).toEqual([
+    BRANCH_REPLY_TIMEOUT_MS,
+    BRANCH_REPLY_TIMEOUT_MS,
+  ]);
+  expect(BRANCH_REPLY_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
 });
 
 describe("rewindToMessage", () => {

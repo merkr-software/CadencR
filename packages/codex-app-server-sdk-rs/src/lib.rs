@@ -14,7 +14,7 @@ pub mod types;
 
 pub use client::{AppServerSpawnOptions, CodexAppServerClient};
 pub use discovery::{codex_discovery_spec, set_binary_override};
-pub use error::SdkError;
+pub use error::{RpcErrorKind, SdkError};
 pub use event_queue::AppServerEventReceiver;
 pub use types::{
     AppServerClientInfo, AppServerEvent, AppServerExit, CodexCommand, CodexCommandKind,

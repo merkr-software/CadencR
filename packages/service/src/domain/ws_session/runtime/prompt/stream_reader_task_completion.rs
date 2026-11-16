@@ -214,10 +214,7 @@ impl StreamReaderTask {
         error: RuntimeError,
     ) {
         self.record_turn_outcome(state, TurnOutcome::Failed).await;
-        let code = match &error {
-            RuntimeError::CompactFailed(_) => "COMPACT_ERROR",
-            _ => "SDK_ERROR",
-        };
+        let code = error.session_error_code();
         let mut message = error.to_string();
         error!(self.db_session_id, error = %message, "SDK stream error");
         let dump = state

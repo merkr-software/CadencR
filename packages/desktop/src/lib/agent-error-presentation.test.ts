@@ -21,6 +21,26 @@ describe("presentAgentError", () => {
     expect(presentAgentError(code, content).title).toBe(title);
   });
 
+  // Found in QA: a failed Codex fork read as an overload because the
+  // app-server's "unknown variant" error lists `account/rateLimits/read`.
+  it.each([
+    [
+      "BRANCH_SURGERY_FAILED",
+      "The conversation couldn't be branched: transcript surgery failed: Codex app-server branching failed: app-server returned error -32600: Invalid request: unknown variant `thread/rollback`, expected one of `initialize`, `account/rateLimits/read`",
+      "The conversation couldn't be rewound or forked",
+    ],
+    ["AGENT_STOPPED", "stderr: 429 Too Many Requests", "The agent process stopped unexpectedly"],
+    [
+      "PROVIDER_REQUEST_REJECTED",
+      "Codex app-server returned error -32600: Invalid request: unknown variant `account/rateLimits/read`",
+      "The agent's CLI rejected a request from Cadencr",
+    ],
+  ])("never frames a classified %s error from its wording", (code, content, title) => {
+    const presentation = presentAgentError(code, content);
+    expect(presentation.title).toBe(title);
+    expect(presentation.actions).not.toContain("switchModel");
+  });
+
   it("offers a model switch only where it helps", () => {
     expect(presentAgentError(undefined, "rate limit reached").actions).toEqual([
       "continue",

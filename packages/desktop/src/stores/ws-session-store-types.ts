@@ -128,7 +128,8 @@ export interface WsSessionStore {
     value: RuntimeSessionConfigValue,
   ) => Promise<void>;
 
-  sendRequest: (sessionId: string, envelope: WsEnvelope) => Promise<unknown>;
+  /** Resolves with the correlated reply, or null after `timeoutMs` (default `WS_REPLY_TIMEOUT_MS`). */
+  sendRequest: (sessionId: string, envelope: WsEnvelope, timeoutMs?: number) => Promise<unknown>;
 
   retryWorktreeSetup: (sessionId: string) => void;
   requestSlashCommands: (

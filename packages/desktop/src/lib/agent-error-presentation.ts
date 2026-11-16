@@ -3,6 +3,10 @@
  * it reads the backend's stable error code plus generic wording that any CLI
  * may use (rate limits, sign-in, context size), never a provider id. The raw
  * message is always kept for the details disclosure.
+ *
+ * A code the backend already classified wins over the wording: a rejected
+ * request's message can quote anything (Codex lists every method it knows,
+ * `account/rateLimits/read` included), so it must never read as an overload.
  */
 export type AgentErrorAction = "continue" | "switchModel";
 
@@ -17,7 +21,44 @@ interface Rule {
   presentation: AgentErrorPresentation;
 }
 
+/** Failures the backend classified; their message is never matched. */
+const CLASSIFIED_RULES: Rule[] = [
+  {
+    test: (code) => code === "PROVIDER_REQUEST_REJECTED",
+    presentation: {
+      title: "The agent's CLI rejected a request from Cadencr",
+      hint: "The request didn't fit the CLI's version or the conversation's state. The exact error is in the details below.",
+      actions: ["continue"],
+    },
+  },
+  {
+    test: (code) => code === "BRANCH_SURGERY_FAILED" || code === "UNSUPPORTED_BRANCHING",
+    presentation: {
+      title: "The conversation couldn't be rewound or forked",
+      hint: "Nothing was changed. The exact error is in the details below.",
+      actions: [],
+    },
+  },
+  {
+    test: (code) => code === "AGENT_STOPPED",
+    presentation: {
+      title: "The agent process stopped unexpectedly",
+      hint: "Its work so far is kept. Continue to pick up where it left off.",
+      actions: ["continue"],
+    },
+  },
+  {
+    test: (code) => code === "UNKNOWN_MESSAGE",
+    presentation: {
+      title: "Cadencr received an event it doesn't recognize",
+      hint: "The turn may be incomplete. The raw event is in the details below.",
+      actions: ["continue"],
+    },
+  },
+];
+
 const RULES: Rule[] = [
+  ...CLASSIFIED_RULES,
   {
     test: (_code, text) =>
       /overload|\b529\b|rate.?limit|\b429\b|quota|too many requests/i.test(text),
@@ -47,22 +88,6 @@ const RULES: Rule[] = [
       title: "The conversation no longer fits the model's context",
       hint: "Compact the conversation, or continue with a larger-context model.",
       actions: ["switchModel"],
-    },
-  },
-  {
-    test: (code) => code === "AGENT_STOPPED",
-    presentation: {
-      title: "The agent process stopped unexpectedly",
-      hint: "Its work so far is kept. Continue to pick up where it left off.",
-      actions: ["continue"],
-    },
-  },
-  {
-    test: (code) => code === "UNKNOWN_MESSAGE",
-    presentation: {
-      title: "Cadencr received an event it doesn't recognize",
-      hint: "The turn may be incomplete. The raw event is in the details below.",
-      actions: ["continue"],
     },
   },
 ];
