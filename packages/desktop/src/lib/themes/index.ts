@@ -1,4 +1,9 @@
-export { applyThemeToDocument, readPersistedTheme, writePersistedThemeSettings } from "./apply";
+export {
+  applyHaloAppearance,
+  applyThemeToDocument,
+  readPersistedTheme,
+  writePersistedThemeSettings,
+} from "./apply";
 export {
   DEFAULT_THEME_ID,
   THEMES,
@@ -24,6 +29,7 @@ export {
   resolveTextureHalos,
   ROTATION_RANGE,
   SPEED_RANGE,
+  VEIL_RANGE,
   withOverride,
 } from "./halo-override";
 export type { HaloMotion, HaloOverride, HaloOverrideMap } from "./halo-override";

@@ -1,4 +1,5 @@
 import type { ThemeBlend, ThemeTexture } from "./chrome";
+import { FROST_GRAIN, FROST_HALO_BLUR, FROST_HALO_LAYOUT } from "./texture-material";
 
 /**
  * The Frost field, as data.
@@ -24,20 +25,6 @@ interface FrostTextureOptions {
 }
 
 /**
- * Halo positions are centres, in percent of the viewport, so the field keeps
- * its composition on any window shape. `size` is a diameter in `vw`; the drift
- * periods are deliberately co-prime-ish so the three never cycle together.
- */
-const HALO_LAYOUT = [
-  { size: 72, x: 28, y: 32, drift: 28 },
-  { size: 66, x: 79, y: 61, drift: 36 },
-  { size: 62, x: 49, y: 86, drift: 42 },
-] as const;
-
-/** Blur radius shared by every halo — the field is soft light, not shapes. */
-const HALO_BLUR = 80;
-
-/**
  * A wide, still bloom at the top of the window. The large calm areas (the agent
  * reading column) read as a lit field with depth rather than a flat slab.
  * Negligible on the bright Frost Light base, a subtle lift on Frost Dark.
@@ -57,23 +44,20 @@ const TOP_GLOW = {
   drift: 0,
 } as const;
 
-/** Grain tile size, in px. */
-const GRAIN_SCALE = 180;
-
 export function frostTexture(options: FrostTextureOptions): ThemeTexture {
   return {
     base: options.base,
     halos: [
       TOP_GLOW,
-      ...HALO_LAYOUT.map((layout, index) => ({
+      ...FROST_HALO_LAYOUT.map((layout, index) => ({
         ...layout,
         color: options.halos[index],
-        blur: HALO_BLUR,
+        blur: FROST_HALO_BLUR,
         opacity: options.haloOpacity,
       })),
     ],
     image: null,
-    grain: { ...options.grain, scale: GRAIN_SCALE },
+    grain: { ...options.grain, scale: FROST_GRAIN.scale },
     // The halos and grain would otherwise wash out every surface above them;
     // the veil is what the translucent `body` background used to do.
     veil: true,

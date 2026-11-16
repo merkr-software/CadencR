@@ -15,12 +15,13 @@ import {
  * The texture behind the app — the active theme's drifting halos, image and
  * grain, fixed at `z-index: -1` under everything.
  *
- * Every layer comes from `theme.chrome.texture` rather than from a stylesheet
+ * Layers come from `theme.chrome.texture`, supplemented by the user's halo
+ * composition, rather than from a stylesheet
  * keyed on a theme id, which is what lets a theme duplicated from Frost keep
  * its field, and any other theme describe one of its own. A theme with no
  * texture renders nothing at all: no element, no blend, no compositing.
  *
- * The user's own tuning of the halos (`useHaloOverride`) is applied here, on
+ * The user's tuning of halos and grain (`useHaloOverride`) is applied here, on
  * the way to the DOM, so the theme's data stays the theme's and the override
  * stays a transform over it.
  *
@@ -38,7 +39,7 @@ export function AmbientBackground(): React.JSX.Element | null {
   const { theme } = useTheme();
   const { override } = useHaloOverride(theme.id);
   const texture = useMemo(
-    () => resolveTextureHalos(chromeOf(theme).texture, override),
+    () => resolveTextureHalos(chromeOf(theme).texture, override, theme.appearance),
     [theme, override],
   );
   const painted = hasTexture(texture);
@@ -82,8 +83,8 @@ const TextureLayers = memo(function TextureLayers({
   const { base, halos, image, grain, veil } = texture;
   const imageUrl = image ? assets[image.asset] : undefined;
   const ambientRef = useRef<HTMLDivElement>(null);
-  const orbit = orbitSeconds(override);
-  useLavaMotion(ambientRef, halos, lavaSpeed(override));
+  const orbit = halos.length === 0 ? null : orbitSeconds(override);
+  useLavaMotion(ambientRef, halos, halos.length === 0 ? null : lavaSpeed(override));
 
   return (
     <>
@@ -139,13 +140,20 @@ const TextureLayers = memo(function TextureLayers({
        * than being dimmed by them. This is the tint a translucent `body` used
        * to cast, moved off `body` because a partial-alpha backdrop root stops
        * `backdrop-filter` painting entirely (see theme-frost.css). */}
-      {veil ? <div className="ambient-veil" aria-hidden="true" /> : null}
+      {veil ? (
+        <div
+          className="ambient-veil"
+          aria-hidden="true"
+          style={{ "--ambient-veil-strength": override.veil } as VeilStyle}
+        />
+      ) : null}
     </>
   );
 });
 
 /** `--halo-opacity` is a custom property, which `CSSProperties` does not model. */
 type HaloStyle = React.CSSProperties & { "--halo-opacity": number };
+type VeilStyle = React.CSSProperties & { "--ambient-veil-strength": number };
 
 /**
  * A halo is positioned by its centre, so `size` (a diameter in `vw`) is pulled

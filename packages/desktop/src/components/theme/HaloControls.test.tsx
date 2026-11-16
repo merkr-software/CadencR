@@ -12,7 +12,14 @@ const mockState = vi.hoisted(() => ({
   themeId: "frost-dark" as ThemeId,
   // Spelled out rather than spread from `DEFAULT_HALO_OVERRIDE`: `vi.hoisted`
   // runs before the imports are evaluated.
-  override: { rotation: 0, intensity: 1, colors: [], motion: "still", speed: 4 } as HaloOverride,
+  override: {
+    veil: 1,
+    rotation: 0,
+    intensity: 1,
+    colors: [],
+    motion: "still",
+    speed: 4,
+  } as HaloOverride,
   isSaving: false,
   error: null as string | null,
 }));
@@ -63,11 +70,13 @@ describe("HaloControls", () => {
   });
 
   describe("compatibility", () => {
-    it("renders nothing for a theme that declares no halos", () => {
+    it("offers halos, initially off, for a theme that declares none", async () => {
       mockState.themeId = "dracula";
-      const { container } = renderPanel();
+      renderPanel();
+      await openPanel();
 
-      expect(container).toBeEmptyDOMElement();
+      expect(screen.getByRole("switch", { name: /enable halos/i })).not.toBeChecked();
+      expect(screen.getByRole("button", { name: /add halo/i })).toBeDisabled();
     });
 
     it("renders for a theme that declares halos", () => {
@@ -111,6 +120,37 @@ describe("HaloControls", () => {
   });
 
   describe("the controls", () => {
+    it("removes the veil independently of halo intensity, grain and colors", async () => {
+      mockState.override = {
+        ...DEFAULT_HALO_OVERRIDE,
+        veil: 0.05,
+        intensity: 2,
+        grainOpacity: 0.3,
+        colors: ["#f472b6"],
+      };
+      renderPanel();
+      await openPanel();
+
+      screen.getByLabelText("Veil").focus();
+      await userEvent.keyboard("{ArrowLeft}");
+
+      expect(mockSetOverride).toHaveBeenCalledWith({ ...mockState.override, veil: 0 });
+    });
+
+    it("allows veil tuning for grain without halos and disables it on a flat theme", async () => {
+      mockState.themeId = "one-dark";
+      renderPanel();
+      await openPanel();
+      expect(screen.getByLabelText("Veil")).toHaveAttribute("aria-disabled", "true");
+
+      cleanup();
+      mockState.override = { ...DEFAULT_HALO_OVERRIDE, enabled: false, grainOpacity: 0.3 };
+      renderPanel();
+      await openPanel();
+      expect(screen.getByLabelText("Veil")).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByLabelText("Intensity")).toHaveAttribute("aria-disabled", "true");
+    });
+
     it("writes a rotation without disturbing the rest of the override", async () => {
       mockState.override = { ...DEFAULT_HALO_OVERRIDE, intensity: 1.4, colors: ["#94e2d5"] };
       renderPanel();
@@ -190,7 +230,7 @@ describe("HaloControls", () => {
       });
     });
 
-    it("greys out the angle as soon as the field moves, and the pace while it is still", async () => {
+    it("greys out the angle for circular and lava, and the pace while the field is still", async () => {
       renderPanel();
       await openPanel();
 
@@ -203,7 +243,11 @@ describe("HaloControls", () => {
         renderPanel();
         await openPanel();
 
-        expect(screen.getByLabelText("Orientation")).toHaveAttribute("aria-disabled", "true");
+        if (motion === "glow") {
+          expect(screen.getByLabelText("Orientation")).not.toHaveAttribute("aria-disabled");
+        } else {
+          expect(screen.getByLabelText("Orientation")).toHaveAttribute("aria-disabled", "true");
+        }
         expect(screen.getByLabelText("Speed")).not.toHaveAttribute("aria-disabled");
       }
     });
@@ -316,7 +360,7 @@ describe("HaloControls", () => {
 
     it("appears for a tuned theme and resets it", async () => {
       const user = userEvent.setup();
-      mockState.override = { ...DEFAULT_HALO_OVERRIDE, intensity: 1.5 };
+      mockState.override = { ...DEFAULT_HALO_OVERRIDE, veil: 0 };
       renderPanel();
 
       await user.click(screen.getByRole("button", { name: /reset/i }));

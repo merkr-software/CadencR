@@ -1,0 +1,34 @@
+/*
+ * User-enabled halos or grain on themes without an authored halo composition.
+ * Preserve their palette and chassis while letting the background show through.
+ * Authored fields keep their own material; no rule depends on a theme id.
+ */
+:root[data-halo-fallback] .bg-background {
+  background-color: color-mix(in oklab, var(--background) 80%, transparent);
+}
+
+:root[data-halo-fallback] .bg-card {
+  background-color: color-mix(in oklab, var(--card) 90%, transparent);
+}
+
+/* Keep one navigation tint whether the sidebar is expanded or collapsed. */
+:root[data-halo-fallback] :is([data-app-sidebar], [data-sidebar-rail]) {
+  background-color: color-mix(in oklab, var(--sidebar) 65%, transparent);
+}
+
+/* The shared veil supplies the page tint. Full-page slabs and the root pane
+ * stay clear so several parent layers do not bury the calibrated field. */
+:root[data-halo-fallback] [data-feature-chrome="standard"],
+:root[data-halo-fallback][data-chassis]
+  [data-feature-chrome="standard"]
+  [data-feature-layout-shell] {
+  background-color: transparent;
+}
+
+:root[data-halo-fallback] [data-feature-chrome="standard"] [data-pane-id] {
+  background-color: transparent;
+}
+
+:root[data-halo-fallback] [data-feature-chrome="standard"] [data-pane-id]:not([data-pane-root]) {
+  background-color: color-mix(in oklab, var(--background) 85%, transparent);
+}
