@@ -17,6 +17,7 @@ const VIEW_PROJECTS: readonly Project[] = SAMPLE_PROJECTS.map((project) => ({
   name: project.name,
   path: "",
   created_at: "",
+  path_missing: false,
 }));
 
 /**

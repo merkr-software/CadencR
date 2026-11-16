@@ -52,6 +52,7 @@ pub mod profiles;
 mod prompt_attachments;
 mod prompt_receipts;
 mod raw_tool_names;
+pub(crate) mod relocation;
 mod responses;
 mod revision_cache;
 pub mod routes;

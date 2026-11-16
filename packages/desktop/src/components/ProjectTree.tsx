@@ -23,6 +23,7 @@ import { ProjectFeatures } from "./ProjectFeatures";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
 import { ProjectRowButton, ProjectRowLabel } from "./ProjectRowButton";
 import { ProjectTreeDialogs } from "./ProjectTreeDialogs";
+import type { ProjectLocationTarget } from "./ProjectLocationDialog";
 import { FilteredProjectList } from "./FilteredProjectList";
 import type { ProjectFilterMatch } from "@/hooks/useSidebarFilterMatches";
 import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
@@ -113,6 +114,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
   const [archiveSessionsProject, setArchiveSessionsProject] = useState<ProjectDialogTarget | null>(
     null,
   );
+  const [locationTarget, setLocationTarget] = useState<ProjectLocationTarget | null>(null);
   const startSession = useCallback(
     (projectId: number) => {
       setProjectExpanded(projectId, true);
@@ -143,12 +145,14 @@ function useProjectTreeController(props: ProjectTreeProps) {
       expansion,
       importProject,
       isAddingProject,
+      locationTarget,
       mutations,
       onboarding,
       ordered,
       setArchiveSessionsProject,
       setDeleteProject,
       setImportProject,
+      setLocationTarget,
       setSettingsProject,
       settingsProject,
       startSession,
@@ -160,6 +164,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
       expansion,
       importProject,
       isAddingProject,
+      locationTarget,
       mutations,
       onboarding,
       ordered,
@@ -298,7 +303,12 @@ function ProjectTreeRow({
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <ProjectRowButton projectId={project.id} isActive={isActive} onClick={toggle}>
-              <ProjectRowLabel projectId={project.id} name={project.name} expanded={isExpanded} />
+              <ProjectRowLabel
+                projectId={project.id}
+                name={project.name}
+                expanded={isExpanded}
+                folderMissing={project.path_missing}
+              />
               {!isExpanded && <ProjectRowAttention projectId={project.id} />}
               <ProjectRowActions project={project} controller={controller} />
             </ProjectRowButton>

@@ -81,3 +81,17 @@ export function archiveOperationTimeout(config: TimeoutConfig): number | undefin
     ? 600000
     : undefined;
 }
+
+// Renaming or moving a project folder answers once the folder moved, which a
+// move to another volume does by copying it. The move goes on if the request
+// gives up; only the confirmation is lost.
+const PROJECT_UPDATE_PATH = /^\/api\/projects\/\d+$/;
+
+export function projectUpdateOperationTimeout(config: TimeoutConfig): number | undefined {
+  if (config.timeout !== undefined) return config.timeout;
+  return config.method?.toUpperCase() === "PATCH" &&
+    typeof config.url === "string" &&
+    PROJECT_UPDATE_PATH.test(config.url)
+    ? 600000
+    : undefined;
+}

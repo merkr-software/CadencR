@@ -1,6 +1,7 @@
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImportConversationsDialog } from "./import/ImportConversationsDialog";
 import { NewProjectOnboardingDialog } from "./NewProjectOnboardingDialog";
+import { ProjectLocationDialog } from "./ProjectLocationDialog";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import type { ProjectTreeController } from "./ProjectTree";
 
@@ -16,6 +17,13 @@ export function ProjectTreeDialogs({ controller }: { controller: ProjectTreeCont
           onOpenChange={(open) => {
             if (!open) controller.setSettingsProject(null);
           }}
+        />
+      )}
+      {controller.locationTarget && (
+        <ProjectLocationDialog
+          key={`${controller.locationTarget.id}-${controller.locationTarget.mode}`}
+          target={controller.locationTarget}
+          onClose={() => controller.setLocationTarget(null)}
         />
       )}
       {controller.onboarding.onboardingProject && (

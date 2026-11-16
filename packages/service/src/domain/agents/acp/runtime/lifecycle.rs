@@ -158,6 +158,7 @@ async fn handshake(
     let model_id = config.model.clone();
     let mcp_servers = build_stdio_mcp_payload(config.mcp_servers.as_ref());
     if let Some(resume_id) = resume_id {
+        hooks.before_session_resume(resume_id, &config.cwd).await?;
         let (current_mode, session_config, may_replay_history) = if capabilities.resume_session {
             let (current_mode, session_config) =
                 resume_session(client, resume_id, &config.cwd, &mcp_servers, hooks).await?;

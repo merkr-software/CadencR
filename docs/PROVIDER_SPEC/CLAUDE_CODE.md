@@ -362,3 +362,20 @@ meta, and compaction-summary records are excluded from prompt counting.
 [Rewind & Fork](../REWIND_AND_FORK.md) owns the shared orchestration and code
 checkpoint rules. A fork shares the current checkout; it does not restore code.
 Provider transcript failure aborts the operation before conversation/code mutation.
+
+## Moved project folders
+
+Claude Code files a folder's transcripts and auto-memory under
+`<config>/projects/<encoded path>/` (every non-alphanumeric UTF-16 unit becomes
+`-`; a name over 200 characters keeps 200 and gains `-` plus a base-36 hash of
+the path, see `encode_project_path`), and its per-folder settings under
+`projects["<path>"]` in `.claude.json`. `--resume <id>` finds a transcript filed
+under another folder only when exactly one folder holds it, and memory is read
+from the current folder's name only. When a project folder is renamed or moved,
+`ClaudeRelocator` (`claude_code/relocation.rs`, registered as the provider's
+relocator) moves that directory — never copies it — for the project folder and
+for every conversation worktree kept inside it, and re-keys the `.claude.json`
+entries of the folder and its subfolders, in the service's configuration
+directory and every profile's. Entries the new folder already has stay where
+they are and are reported; a change of letter case alone renames the directory.
+

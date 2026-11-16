@@ -5287,8 +5287,26 @@ export interface Project {
   id: number;
   name: string;
   path: string;
+  /**
+   * The folder is not where the project records it (moved or deleted
+   * outside Cadencr); the user can locate it.
+   */
+  path_missing: boolean;
   /** @nullable */
   plugin_id?: string | null;
+}
+
+export type ProjectFolderMode = (typeof ProjectFolderMode)[keyof typeof ProjectFolderMode];
+
+export const ProjectFolderMode = {
+  move: "move",
+  locate: "locate",
+} as const;
+
+export interface ProjectFolderChange {
+  mode: ProjectFolderMode;
+  /** The folder's new absolute path. */
+  path: string;
 }
 
 /**
@@ -7327,6 +7345,32 @@ export interface UpdateManagedProviderRequest {
 
 export interface UpdatePinnedRequest {
   pinned: boolean;
+}
+
+export type UpdateProjectRequestFolder = null | ProjectFolderChange;
+
+/**
+ * Rename a project, move its folder, or both.
+ */
+export interface UpdateProjectRequest {
+  folder?: UpdateProjectRequestFolder;
+  /**
+   * The new display name; omitted keeps the current one.
+   * @nullable
+   */
+  name?: string | null;
+}
+
+export interface UpdateProjectResponse {
+  /**
+   * A move to another volume copied the folder: the original is still
+   * here, for the user to delete once satisfied.
+   * @nullable
+   */
+  original_left_at?: string | null;
+  project: Project;
+  /** What could not follow the folder, for the user. */
+  warnings: string[];
 }
 
 export interface UpdateStatusRequest {
@@ -29976,6 +30020,89 @@ export const useDeleteProject = <TError = ErrorType<unknown>, TContext = unknown
   TContext
 > => {
   return useMutation(getDeleteProjectMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Rename the project and/or move its folder (see `relocation`). Runs in its
+own task: a client that goes away must not stop a move half done.
+ */
+export const updateProject = (
+  id: number,
+  updateProjectRequest: UpdateProjectRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<UpdateProjectResponse>({
+    url: `/api/projects/${id}`,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    data: updateProjectRequest,
+    signal,
+  });
+};
+
+export const getUpdateProjectMutationKey = () => ["updateProject"] as const;
+
+export const getUpdateProjectMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateProject>>,
+    TError,
+    UpdateProjectMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateProject>>,
+  TError,
+  UpdateProjectMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateProjectMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateProject>>,
+    UpdateProjectMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateProject(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateProjectMutationResult = NonNullable<Awaited<ReturnType<typeof updateProject>>>;
+export type UpdateProjectMutationBody = UpdateProjectRequest;
+export type UpdateProjectMutationError = ErrorType<void>;
+export type UpdateProjectMutationVariables = { id: number; data: UpdateProjectRequest };
+
+/**
+ * @summary Rename the project and/or move its folder (see `relocation`). Runs in its
+own task: a client that goes away must not stop a move half done.
+ */
+export const useUpdateProject = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateProject>>,
+      TError,
+      UpdateProjectMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateProject>>,
+  TError,
+  UpdateProjectMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateProjectMutationOptions(options), queryClient);
 };
 
 export const archiveProjectSessions = (id: number, signal?: AbortSignal) => {

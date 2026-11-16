@@ -18,6 +18,7 @@ mod profile_adapter;
 pub mod profiles;
 mod prompt_receipts;
 pub(crate) mod question_answers;
+pub(crate) mod relocation;
 pub mod routes;
 mod runtime_error;
 mod scheduled_wakeup;

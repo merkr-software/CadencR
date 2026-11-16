@@ -15,7 +15,10 @@
 //! This is intentionally not a general-purpose OpenCode HTTP client; the
 //! legacy long-lived-server transport that used to live here is retired.
 
+mod session_move;
 mod shell;
+
+pub use session_move::SessionMoveOutcome;
 
 use std::path::Path;
 

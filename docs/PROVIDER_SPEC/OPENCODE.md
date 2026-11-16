@@ -126,6 +126,18 @@ Stable resume does not replay history. Legacy load may replay updates, which the
 host must reconcile. Graceful `session/close` is called when advertised.
 OpenCode runtime IDs are opaque nonempty IDs, not Claude UUIDs.
 
+OpenCode records the directory a session was created in and boots the session
+from it, so a session whose folder was renamed or moved opens but fails every
+prompt (`OpenCode service failure`, ENOENT on the old folder). Before restoring,
+`before_session_resume` (`opencode/acp/session_location.rs`) reads the session
+over the subprocess's HTTP server and, when its directory differs from the
+conversation's, moves it there (`POST /experimental/control-plane/move-session`
+in 1.x, `POST /api/session/{id}/move` in 2.x), keeping its id and history.
+OpenCode refuses a directory that belongs to another project. A version without
+either route fails the restore with an explanation rather than run the agent in
+the recorded folder, which may be the original a copy to another disk left
+behind. Both calls time out after 10 seconds.
+
 ## Rewind and Fork
 
 `opencode/branching.rs` implements `SessionBranching`. An adapter-owned headless

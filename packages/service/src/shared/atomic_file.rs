@@ -20,6 +20,26 @@ pub fn write_atomic_private(path: &Path, content: &str) -> Result<(), AppError> 
     write_atomic_with_policy(path, content, true)
 }
 
+/// Replace a document another program owns (an agent CLI's config): through
+/// a symlink, the file it points at is replaced, and an owner-only file
+/// stays owner-only.
+pub fn write_atomic_in_place(path: &Path, content: &str) -> Result<(), AppError> {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let private = is_owner_only(&target);
+    write_atomic_with_policy(&target, content, private)
+}
+
+#[cfg(unix)]
+fn is_owner_only(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|metadata| metadata.permissions().mode() & 0o077 == 0)
+}
+
+#[cfg(not(unix))]
+fn is_owner_only(_path: &Path) -> bool {
+    false
+}
+
 fn write_atomic_with_policy(path: &Path, content: &str, private: bool) -> Result<(), AppError> {
     let parent = path
         .parent()
@@ -109,6 +129,25 @@ fn write_error(path: &Path, error: std::io::Error) -> AppError {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn in_place_writes_follow_a_symlink_and_keep_an_owner_only_file_private() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempdir().unwrap();
+        let real = dir.path().join("real.json");
+        std::fs::write(&real, "old").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_atomic_in_place(&link, "new").unwrap();
+
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 
     #[test]
     fn writes_through_a_temp_file_and_leaves_none_behind() {

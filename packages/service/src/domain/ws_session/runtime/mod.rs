@@ -5,6 +5,7 @@ pub(crate) mod compact_start;
 pub(crate) mod output;
 pub(crate) mod prompt;
 pub(crate) mod registry;
+pub(crate) mod relocation;
 pub(crate) mod state;
 pub(crate) mod turns;
 

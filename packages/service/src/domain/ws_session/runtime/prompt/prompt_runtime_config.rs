@@ -137,7 +137,10 @@ fn log_respawn(handle: &SdkHandle, db_session_id: i64) {
     );
 }
 
-fn reset_handle_to_pending(handle: &mut SdkHandle, resume_session_id: Option<String>) {
+pub(in crate::domain::ws_session) fn reset_handle_to_pending(
+    handle: &mut SdkHandle,
+    resume_session_id: Option<String>,
+) {
     let options = RuntimeSpawnConfig {
         cwd: handle.config.cwd.clone(),
         permission_mode: handle.desired_permission_mode.clone(),

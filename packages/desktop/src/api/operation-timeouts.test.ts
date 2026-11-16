@@ -4,6 +4,7 @@ import {
   agentExtensionOperationTimeout,
   archiveOperationTimeout,
   neovimOperationTimeout,
+  projectUpdateOperationTimeout,
 } from "./operation-timeouts";
 
 describe("Neovim initialization request timeout", () => {
@@ -77,5 +78,29 @@ describe("archive request timeout", () => {
     { method: "POST", url: "/api/features/7/archive-preview" },
   ])("keeps $method $url on its normal timeout", (config) => {
     expect(archiveOperationTimeout(config)).toBeUndefined();
+  });
+});
+
+describe("project update request timeout", () => {
+  it("waits for a folder move, which may copy the folder to another volume", async () => {
+    const timeout = await customInstance<number>({
+      method: "PATCH",
+      url: "/api/projects/7",
+      adapter: async (config) => ({
+        data: config.timeout,
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      }),
+    });
+    expect(timeout).toBe(600000);
+  });
+
+  it.each([
+    { method: "DELETE", url: "/api/projects/7" },
+    { method: "PATCH", url: "/api/projects/7/settings" },
+  ])("keeps $method $url on its normal timeout", (config) => {
+    expect(projectUpdateOperationTimeout(config)).toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ import {
   managedProviderOperationTimeout,
   neovimOperationTimeout,
   NO_TIMEOUT_PATHS,
+  projectUpdateOperationTimeout,
   publicationOperationTimeout,
 } from "./operation-timeouts";
 export { managedProviderOperationTimeout, publicationOperationTimeout } from "./operation-timeouts";
@@ -177,7 +178,8 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
     managedProviderOperationTimeout(config) ??
     neovimOperationTimeout(config) ??
     agentExtensionOperationTimeout(config) ??
-    archiveOperationTimeout(config);
+    archiveOperationTimeout(config) ??
+    projectUpdateOperationTimeout(config);
   let finalConfig: AxiosRequestConfig =
     typeof config.url === "string" && NO_TIMEOUT_PATHS.some((p) => config.url!.startsWith(p))
       ? { ...config, timeout: 0 }

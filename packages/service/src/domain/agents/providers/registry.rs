@@ -6,18 +6,16 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use cli_discovery::DiscoverySpec;
-
 use crate::domain::agents::adapter::AgentRuntimeAdapter;
-use crate::domain::agents::extensions::ExtensionCli;
 use crate::domain::agents::runtime::ProviderOrigin;
 use crate::domain::agents::updates::ProviderUpdater;
 
 mod builtin_metadata;
+mod metadata;
 use builtin_metadata::{claude_metadata, codex_metadata, opencode_metadata};
+pub use metadata::{ProviderDiscoveryMetadata, ProviderRegistrationMetadata};
 
 /// A cloneable, `'static` handle to a registered adapter.
 ///
@@ -85,67 +83,6 @@ impl std::fmt::Debug for ProviderAdapterHandle {
 /// `Owned` handle from a validated installation record.
 type ProviderAdapterFactory = fn() -> ProviderAdapterHandle;
 type ProviderMetadataFactory = fn() -> ProviderRegistrationMetadata;
-
-/// Optional host discovery metadata owned by one provider registration.
-#[derive(Clone, Debug)]
-pub struct ProviderDiscoveryMetadata {
-    discovery_id: Cow<'static, str>,
-    setting_key: Cow<'static, str>,
-    spec: DiscoverySpec,
-    apply_override: fn(Option<PathBuf>),
-}
-
-impl ProviderDiscoveryMetadata {
-    pub fn discovery_id(&self) -> &str {
-        &self.discovery_id
-    }
-
-    pub fn setting_key(&self) -> &str {
-        &self.setting_key
-    }
-
-    pub fn spec(&self) -> &DiscoverySpec {
-        &self.spec
-    }
-
-    pub fn apply_override(&self, path: Option<PathBuf>) {
-        (self.apply_override)(path);
-    }
-}
-
-/// Provider-owned metadata consumed generically by shared host services.
-#[derive(Clone, Debug, Default)]
-pub struct ProviderRegistrationMetadata {
-    aliases: Vec<Cow<'static, str>>,
-    model_guidance: Option<Cow<'static, str>>,
-    discovery: Option<ProviderDiscoveryMetadata>,
-    /// Version detection and self-update, when the provider manages it.
-    updater: Option<Arc<dyn ProviderUpdater>>,
-    /// Skills and MCP servers managed through the provider's own CLI.
-    extensions: Option<Arc<dyn ExtensionCli>>,
-}
-
-impl ProviderRegistrationMetadata {
-    pub fn aliases(&self) -> &[Cow<'static, str>] {
-        &self.aliases
-    }
-
-    pub fn model_guidance(&self) -> Option<&str> {
-        self.model_guidance.as_deref()
-    }
-
-    pub fn discovery(&self) -> Option<&ProviderDiscoveryMetadata> {
-        self.discovery.as_ref()
-    }
-
-    pub fn updater(&self) -> Option<&Arc<dyn ProviderUpdater>> {
-        self.updater.as_ref()
-    }
-
-    pub fn extensions(&self) -> Option<&Arc<dyn ExtensionCli>> {
-        self.extensions.as_ref()
-    }
-}
 
 /// One entry in the registry: the catalog id plus the adapter that owns it.
 #[derive(Clone, Debug)]

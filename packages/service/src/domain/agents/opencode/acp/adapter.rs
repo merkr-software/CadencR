@@ -148,6 +148,13 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
     fn supports_durable_resume(&self) -> bool {
         true
     }
+    async fn before_session_resume(
+        &self,
+        session_id: &str,
+        cwd: &Path,
+    ) -> Result<(), RuntimeError> {
+        super::session_location::follow_session_to(&self.http, session_id, cwd).await
+    }
     fn tool_call_start_override(
         &self,
         tool_call_id: &str,

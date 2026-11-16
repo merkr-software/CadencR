@@ -119,6 +119,32 @@ pub async fn project_rename(
     })
 }
 
+/// Undo [`project_rename`] to `renamed_to` once the database kept the old
+/// name: the document goes back when that rename moved it, and stays when it
+/// only joined or copied another one.
+pub async fn project_rename_undo(
+    pool: &SqlitePool,
+    project_id: i64,
+    renamed_to: &str,
+) -> Result<(), AppError> {
+    let original = project_path(pool, project_id).await?;
+    let renamed = paths::project_file_for_name(&dir::global_dir(), renamed_to);
+    if original == renamed {
+        return Ok(());
+    }
+    let _guard = lock::write_lock().lock().await;
+    if !renamed.exists() || original.exists() {
+        return Ok(());
+    }
+    std::fs::rename(&renamed, &original).map_err(|e| {
+        AppError::internal(format!(
+            "failed to move project settings back from {} to {}: {e}",
+            renamed.display(),
+            original.display()
+        ))
+    })
+}
+
 pub async fn project_read_for_edit(
     pool: &SqlitePool,
     project_id: i64,

@@ -22,6 +22,7 @@ tokio-util = { version = "0.7", features = ["compat", "io"] }
 sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros", "chrono", "uuid", "json"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+toml_edit = "0.22"
 serde_json = { version = "1", features = ["raw_value"] }
 semver = "1"
 utoipa = { version = "5", features = ["axum_extras"] }

@@ -67,7 +67,9 @@ interface UseOrderedProjectsResult {
  * order store is in-memory.
  */
 export function useOrderedProjects(): UseOrderedProjectsResult {
-  const query = useListProjects();
+  // A project folder moved in the file manager shows as missing as soon as
+  // the user comes back to the app (the service checks each folder).
+  const query = useListProjects({ query: { refetchOnWindowFocus: true } });
   const data = query.data;
   const order = useSidebarProjectOrderStore((s) => s.order);
   const reconcile = useSidebarProjectOrderStore((s) => s.reconcile);

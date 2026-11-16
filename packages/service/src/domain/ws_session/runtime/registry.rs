@@ -11,6 +11,10 @@ use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard};
 use super::detached_closes::{DetachedCloseLease, DetachedCloses};
 use super::state::{new_sdk_sessions, QueryState, SdkHandle, SdkSessions};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
+pub(crate) use launch_fence::LaunchFence;
+use launch_fence::LaunchFences;
+
+mod launch_fence;
 
 struct RuntimeEntry {
     cell: SdkSessions,
@@ -26,6 +30,7 @@ pub(crate) struct SessionRuntimeRegistry {
     sessions: Mutex<HashMap<i64, RuntimeEntry>>,
     retirement: Mutex<()>,
     detached_closes: DetachedCloses,
+    fences: LaunchFences,
 }
 
 impl SessionRuntimeRegistry {
@@ -55,18 +60,26 @@ impl SessionRuntimeRegistry {
         candidate: &SdkSessions,
     ) -> SdkSessions {
         let feature_id = feature_id.into();
-        self.sessions
-            .lock()
-            .await
-            .entry(session_id)
-            .or_insert_with(|| RuntimeEntry {
-                cell: candidate.clone(),
-                launch: Arc::default(),
-                control: Arc::default(),
-                feature_id,
-            })
-            .cell
-            .clone()
+        loop {
+            let mut sessions = self.sessions.lock().await;
+            // Checked under the directory lock that raising a fence takes, so
+            // a cell is either claimed by the fence or bound after it drops.
+            if let Some(gate) = feature_id.and_then(|id| self.fences.gate(id)) {
+                drop(sessions);
+                drop(gate.read().await);
+                continue;
+            }
+            return sessions
+                .entry(session_id)
+                .or_insert_with(|| RuntimeEntry {
+                    cell: candidate.clone(),
+                    launch: Arc::default(),
+                    control: Arc::default(),
+                    feature_id,
+                })
+                .cell
+                .clone();
+        }
     }
 
     /// Claim the session's control commands. Taken before the cell lock and
@@ -151,6 +164,31 @@ impl SessionRuntimeRegistry {
             .await
             .get(&session_id)
             .is_some_and(|entry| entry.launch.try_lock().is_err())
+    }
+
+    /// Keep the conversations of `feature_ids` from binding a new runtime cell
+    /// until the returned fence drops, and hold the launch claim of every
+    /// cell they already own, so none of them spawns until the claims drop.
+    /// Waits for launches already under way.
+    pub(crate) async fn claim_feature_launches(
+        &self,
+        feature_ids: &std::collections::HashSet<i64>,
+    ) -> (LaunchFence, Vec<(i64, SdkSessions, OwnedMutexGuard<()>)>) {
+        let (fence, entries) = {
+            let sessions = self.sessions.lock().await;
+            let fence = self.fences.raise(feature_ids);
+            let entries: Vec<_> = sessions
+                .iter()
+                .filter(|(_, entry)| entry.feature_id.is_some_and(|id| feature_ids.contains(&id)))
+                .map(|(&id, entry)| (id, entry.cell.clone(), entry.launch.clone()))
+                .collect();
+            (fence, entries)
+        };
+        let mut claims = Vec::with_capacity(entries.len());
+        for (id, cell, launch) in entries {
+            claims.push((id, cell, launch.lock_owned().await));
+        }
+        (fence, claims)
     }
 
     /// The database deletion has already succeeded. Wait only for this
@@ -246,6 +284,40 @@ impl SessionRuntimeRegistry {
 mod tests {
     use super::super::state::new_sdk_sessions;
     use super::*;
+
+    #[tokio::test]
+    async fn a_conversation_of_a_moving_project_binds_once_the_move_is_over() {
+        let registry = Arc::new(SessionRuntimeRegistry::new());
+        let bound = new_sdk_sessions();
+        registry.bind_feature(1, 10, &bound).await;
+        let (fence, claims) = registry
+            .claim_feature_launches(&std::collections::HashSet::from([10]))
+            .await;
+        assert_eq!(claims.len(), 1, "the existing cell is claimed");
+        let bind = {
+            let registry = registry.clone();
+            tokio::spawn(async move { registry.bind_feature(2, 10, &new_sdk_sessions()).await })
+        };
+        let other = registry.bind_feature(3, 11, &new_sdk_sessions()).await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(
+            !bind.is_finished(),
+            "the moving project's conversation waits"
+        );
+        assert!(registry
+            .get(3)
+            .await
+            .is_some_and(|cell| Arc::ptr_eq(&cell, &other)));
+
+        drop(claims);
+        drop(fence);
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), bind)
+            .await
+            .expect("it binds once the fence dropped")
+            .unwrap();
+        assert!(registry.get(2).await.is_some());
+    }
 
     #[tokio::test]
     async fn a_launch_waits_for_the_detached_close_of_the_previous_runtime() {

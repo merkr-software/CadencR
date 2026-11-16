@@ -157,6 +157,17 @@ pub trait AcpProviderHooks: Send + Sync {
         false
     }
 
+    /// Runs before `session/resume` or `session/load` restores `session_id`
+    /// in `cwd`. A provider whose sessions keep the folder they were created
+    /// in moves a session whose folder moved, so it resumes in `cwd`.
+    async fn before_session_resume(
+        &self,
+        _session_id: &str,
+        _cwd: &Path,
+    ) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
     /// How long Stop waits for `session/prompt` to settle after
     /// `session/cancel` before terminating the agent process.
     fn cancel_grace(&self) -> Duration {

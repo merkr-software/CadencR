@@ -17,6 +17,7 @@ pub(in crate::domain::agents) mod port;
 mod prompt_usage;
 mod question_sidecar;
 mod resolved_mcp;
+mod session_location;
 mod task_completion;
 mod tool_result_flatten;
 // Workarounds for ACP-wire limitations in upstream OpenCode. Anything

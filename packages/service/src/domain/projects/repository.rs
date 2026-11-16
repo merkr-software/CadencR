@@ -25,9 +25,15 @@ pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> 
     .fetch_all(pool)
     .await?;
 
-    rows.into_iter()
-        .map(project_from_row)
-        .collect::<Result<Vec<_>, _>>()
+    // Each row checks its folder on disk; a stalled volume must not stall
+    // the runtime with it.
+    tokio::task::spawn_blocking(move || {
+        rows.into_iter()
+            .map(project_from_row)
+            .collect::<Result<Vec<_>, _>>()
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("project listing task failed: {error}")))?
 }
 
 pub async fn create_project(
@@ -42,7 +48,7 @@ pub async fn create_project(
         .await?
         .last_insert_rowid();
 
-    project_by_id(pool, id).await
+    get_project(pool, id).await
 }
 
 #[bon::builder]
@@ -64,7 +70,7 @@ pub async fn create_author_project(
     .execute(pool)
     .await?
     .last_insert_rowid();
-    project_by_id(pool, id).await
+    get_project(pool, id).await
 }
 
 type ProjectRow = (
@@ -77,14 +83,15 @@ type ProjectRow = (
     Option<String>,
 );
 
-async fn project_by_id(pool: &SqlitePool, id: i64) -> Result<Project, AppError> {
+pub async fn get_project(pool: &SqlitePool, id: i64) -> Result<Project, AppError> {
     let row = sqlx::query_as::<_, ProjectRow>(
         "SELECT id, name, path, branch_prefix, created_at, authoring_target, plugin_id \
          FROM projects WHERE id = ?",
     )
     .bind(id)
-    .fetch_one(pool)
-    .await?;
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("project {id} not found")))?;
 
     project_from_row(row)
 }
@@ -96,9 +103,11 @@ fn project_from_row(row: ProjectRow) -> Result<Project, AppError> {
         .map(ProjectAuthoringTarget::try_from)
         .transpose()
         .map_err(|error| AppError::internal(error))?;
+    let path_missing = !std::path::Path::new(&row.2).is_dir();
     Ok(Project {
         id: row.0,
         name: row.1,
+        path_missing,
         path: row.2,
         branch_prefix: row.3,
         created_at: row.4,
