@@ -159,6 +159,94 @@ describe("ws-session outbound queue", () => {
     expect(sentActions(getWs())).toContain("session.model.set");
   });
 
+  /** Frames sent on a socket, as `[action, payload]`, for the settings ones. */
+  function settingFrames(ws: MockWebSocket): Array<[string, Record<string, unknown>]> {
+    return ws.sent
+      .map((raw) => JSON.parse(raw) as { action: string; payload: Record<string, unknown> })
+      .filter((envelope) => envelope.action.endsWith(".set"))
+      .map((envelope) => [envelope.action, envelope.payload]);
+  }
+
+  async function confirmedAcceptEditsThenDrop(): Promise<void> {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    store.initSession("s1", { cwd: "/tmp/proj", featureId: 42 });
+    const ws = getWs();
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "claude_code", model: "claude-haiku-5-5" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "mode.changed",
+      payload: { mode: "acceptEdits" },
+    });
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("acceptEdits");
+    ws.readyState = MockWebSocket.CLOSED;
+    ws.fireEvent("close", { code: 1006 });
+  }
+
+  it("never lets the reconnect's init replay overwrite a mode chosen during the outage", async () => {
+    await confirmedAcceptEditsThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setPermissionMode("s1", "plan");
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    // The backend answers the reconnect's session.init with the stored mode.
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "7",
+        provider: "claude_code",
+        model: "claude-haiku-5-5",
+        permission_mode: "acceptEdits",
+      },
+    });
+
+    expect(settingFrames(ws)).toEqual([["mode.set", { session_id: "7", mode: "plan" }]]);
+    ws.simulateMessage({ domain: "session", action: "mode.changed", payload: { mode: "plan" } });
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("plan");
+  });
+
+  it("sends only the settings chosen during the outage after the reconnect", async () => {
+    await confirmedAcceptEditsThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setModel("s1", "claude-sonnet-4-6", "claude_code");
+    store.setThinkingEffort("s1", "high");
+    store.setPermissionMode("s1", "plan");
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "7",
+        provider: "claude_code",
+        model: "claude-haiku-5-5",
+        permission_mode: "acceptEdits",
+        thinking_effort: "low",
+      },
+    });
+
+    expect(
+      settingFrames(ws).map(([action, payload]) => [
+        action,
+        payload.model ?? payload.thinking_effort ?? payload.mode,
+      ]),
+    ).toEqual([
+      ["model.set", "claude-sonnet-4-6"],
+      ["effort.set", "high"],
+      ["mode.set", "plan"],
+    ]);
+  });
+
   it("never replays a Stop pressed while disconnected", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();

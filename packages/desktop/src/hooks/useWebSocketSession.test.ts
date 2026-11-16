@@ -295,8 +295,8 @@ describe("useWebSocketSession", () => {
       result.current.sendPrompt("hello");
     });
     const ws = getWs();
-    // `buildQueuedInitEnvelopes` emits an init-time `mode.set` for every
-    // mode (closes the first-prompt permission-mode race); scan by action
+    // `buildQueuedInitEnvelopes` may precede the prompt with a `mode.set`
+    // replaying a mode picked while init was in flight; scan by action
     // rather than assuming sent[0].
     const sent = ws.sent.map((raw) => JSON.parse(raw)).find((m) => m.action === "prompt.send");
     expect(sent).toBeDefined();
@@ -1031,8 +1031,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.pendingPlanApproval).toEqual({});
 
     // Approve — snapshot the wire boundary first so the post-approval
-    // `mode.set` check ignores the init-time mode replay that
-    // `buildQueuedInitEnvelopes` emits for every mode.
+    // `mode.set` check ignores anything sent during initialization.
     const sentBeforeApproval = ws.sent.length;
     act(() => {
       result.current.approvePlan();
@@ -1160,8 +1159,7 @@ describe("useWebSocketSession", () => {
 
     const initialMode = result.current.permissionMode;
     // Snapshot the wire boundary so the assertion targets the user-driven
-    // `mode.set` rather than the init-time mode replay that
-    // `buildQueuedInitEnvelopes` emits for every mode.
+    // `mode.set` rather than anything sent during initialization.
     const sentBeforeToggle = ws.sent.length;
 
     act(() => {
