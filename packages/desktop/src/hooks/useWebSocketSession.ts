@@ -113,6 +113,7 @@ export interface UseWebSocketSessionReturn {
   setRuntimeOverrides: (
     patch: import("@/lib/ws-envelope").RuntimeConfigOverridePatch,
   ) => Promise<void>;
+  queueRuntimeOverride: (setting: import("@/lib/ws-envelope").RuntimeSettingOverride) => void;
   setProvider: (providerId: string, modelId?: string) => void;
   sendPrompt: (text: string, options?: PromptDispatchOptions) => void;
   /** `sendPrompt` that settles once the prompt is on the wire (see the store action). */
@@ -151,6 +152,7 @@ type SessionActions = Pick<
   | "setFastMode"
   | "setProfile"
   | "setRuntimeOverrides"
+  | "queueRuntimeOverride"
   | "setPermissionMode"
   | "setAccessMode"
   | "approvePlan"
@@ -305,6 +307,7 @@ function useSessionActions(sessionId: string): SessionActions {
       setFastMode: (enabled: boolean): Promise<void> => s.setFastMode(sessionId, enabled),
       setProfile: (profile: string): void => s.setProfile(sessionId, profile),
       setRuntimeOverrides: (patch): Promise<void> => s.setRuntimeOverrides(sessionId, patch),
+      queueRuntimeOverride: (setting): void => s.queueRuntimeOverride(sessionId, setting),
       setPermissionMode: (mode: PermissionMode): void => s.setPermissionMode(sessionId, mode),
       setAccessMode: (mode: AccessMode): void => s.setAccessMode(sessionId, mode),
       approvePlan: (): void => s.approvePlan(sessionId),

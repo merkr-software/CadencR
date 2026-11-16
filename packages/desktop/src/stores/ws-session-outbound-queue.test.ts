@@ -247,6 +247,60 @@ describe("ws-session outbound queue", () => {
     ]);
   });
 
+  it("replays the latest Codex model and effort overrides changed during an outage", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const first = getWs();
+    first.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "codex_cli", model: "gpt-a" },
+    });
+    first.readyState = MockWebSocket.CLOSED;
+    first.fireEvent("close", { code: 1006 });
+
+    store.queueRuntimeOverride("s1", { model: "gpt-b" });
+    store.queueRuntimeOverride("s1", { thinking_effort: "high" });
+    store.queueRuntimeOverride("s1", { model: "gpt-c" });
+    // One per field: a newer model replaces the waiting one, the effort stays.
+    expect(useWsSessionStore.getState().sessions.s1.queuedCommandActions).toEqual([
+      "runtime_overrides.set:thinking_effort",
+      "runtime_overrides.set:model",
+    ]);
+    // Nothing optimistic: the selection is still the confirmed one.
+    expect(useWsSessionStore.getState().sessions.s1.currentSelection?.modelId).toBe("gpt-a");
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    const overrides = ws.sent
+      .map(
+        (raw) =>
+          JSON.parse(raw) as { id: string; action: string; payload: Record<string, unknown> },
+      )
+      .filter((envelope) => envelope.action === "runtime_overrides.set");
+    expect(overrides.map((envelope) => envelope.payload.runtime_overrides)).toEqual([
+      { thinking_effort: "high" },
+      { model: "gpt-c" },
+    ]);
+
+    // The backend confirms through the correlated `runtime_overrides.changed`.
+    ws.simulateMessage({
+      domain: "session",
+      action: "runtime_overrides.changed",
+      ref: overrides[1].id,
+      payload: {
+        runtime_overrides: { model: "gpt-c", thinking_effort: "high", fast_mode: null },
+        effective: { model: "gpt-c", thinking_effort: "high", fast_mode: false },
+      },
+    });
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(session.currentSelection?.modelId).toBe("gpt-c");
+    expect(session.pendingCommandActions).toEqual(["runtime_overrides.set"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("never replays a Stop pressed while disconnected", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();

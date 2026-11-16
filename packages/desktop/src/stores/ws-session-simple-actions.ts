@@ -18,6 +18,7 @@ import {
   type GateCloseReason,
   type RuntimeConfigOverridePatch,
   type WsEnvelope,
+  type RuntimeSettingOverride,
 } from "@/lib/ws-envelope";
 import { DEFAULT_PROMPT_COMMAND_POLICY } from "@/lib/prompt-command-policy";
 import type { AccessMode } from "@/types/access-mode";
@@ -50,6 +51,7 @@ type SimpleSessionActions = Pick<
   | "setFastMode"
   | "setProfile"
   | "setRuntimeOverrides"
+  | "queueRuntimeOverride"
   | "setPermissionMode"
   | "setAccessMode"
   | "approvePlan"
@@ -75,6 +77,7 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
   return {
     ...createLifecycleActions(deps),
     ...createConfigurationActions(deps),
+    ...createRuntimeOverrideActions(deps),
     ...createWorkflowActions(deps),
   };
 }
@@ -178,24 +181,6 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
         SESSION_COMMANDS.profile,
       );
     },
-    async setRuntimeOverrides(sessionId: string, patch: RuntimeConfigOverridePatch) {
-      const session = getSession(sessionId);
-      if (!session.serverSessionId || session.runtimeOverridesPending) return;
-      set(updateSession(get(), sessionId, { runtimeOverridesPending: true }));
-      try {
-        const payload = await get().sendRequest(
-          sessionId,
-          createRuntimeOverridesSet(session.serverSessionId, patch),
-        );
-        const error = parseErrorPayload(payload);
-        if (error?.message || payload === null) {
-          throw new Error(error?.message ?? "Runtime override update timed out");
-        }
-      } finally {
-        set(updateSession(get(), sessionId, { runtimeOverridesPending: false }));
-      }
-    },
-
     setPermissionMode(sessionId: string, mode: PermissionMode) {
       const session = getSession(sessionId);
       if (session.serverSessionId) {
@@ -226,6 +211,41 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
         return;
       }
       set(updateSession(get(), sessionId, { accessMode: mode, pendingInitAccessMode: mode }));
+    },
+  };
+}
+
+/** Model, effort and fast mode for providers that take them as runtime overrides (Codex). */
+function createRuntimeOverrideActions(deps: SimpleSessionActionDeps) {
+  const { ctx, sendCommand } = deps;
+  const { get, set, getSession } = ctx;
+  return {
+    async setRuntimeOverrides(sessionId: string, patch: RuntimeConfigOverridePatch) {
+      const session = getSession(sessionId);
+      if (!session.serverSessionId || session.runtimeOverridesPending) return;
+      set(updateSession(get(), sessionId, { runtimeOverridesPending: true }));
+      try {
+        const payload = await get().sendRequest(
+          sessionId,
+          createRuntimeOverridesSet(session.serverSessionId, patch),
+        );
+        const error = parseErrorPayload(payload);
+        if (error?.message || payload === null) {
+          throw new Error(error?.message ?? "Runtime override update timed out");
+        }
+      } finally {
+        set(updateSession(get(), sessionId, { runtimeOverridesPending: false }));
+      }
+    },
+
+    queueRuntimeOverride(sessionId: string, setting: RuntimeSettingOverride) {
+      const session = getSession(sessionId);
+      if (!session.serverSessionId) return;
+      sendCommand(
+        sessionId,
+        createRuntimeOverridesSet(session.serverSessionId, setting),
+        "model" in setting ? SESSION_COMMANDS.runtimeModel : SESSION_COMMANDS.runtimeEffort,
+      );
     },
   };
 }

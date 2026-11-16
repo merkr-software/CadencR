@@ -241,6 +241,8 @@ export function createProfileSet(sessionId: string, profile: string): WsEnvelope
   });
 }
 export type RuntimeConfigOverridePatch = RuntimeConfigOverrides;
+/** One runtime setting, replayed after a reconnect like `model.set` / `effort.set`. */
+export type RuntimeSettingOverride = { model: string } | { thinking_effort: string | null };
 export function createRuntimeOverridesSet(
   sessionId: string,
   runtimeOverrides: RuntimeConfigOverridePatch,

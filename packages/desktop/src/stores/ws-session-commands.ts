@@ -73,6 +73,9 @@ export const SESSION_COMMANDS = {
   profile: { failure: "Couldn't switch profile", replay: true },
   mode: { failure: "Couldn't change permission mode", replay: true },
   accessMode: { failure: "Couldn't change access mode", replay: true },
+  // Providers whose model and effort are runtime overrides (Codex).
+  runtimeModel: { failure: "Couldn't switch model", replay: true },
+  runtimeEffort: { failure: "Couldn't change thinking effort", replay: true },
 } as const satisfies Record<string, SessionCommandSpec>;
 
 const NOT_CONNECTED = "Not connected to the backend. Try again once it reconnects.";
@@ -93,7 +96,7 @@ function setPendingActions(ctx: StoreAccessors, sessionId: string): void {
       pendingCommandActions: commands.map((c) => c.envelope.action),
       queuedCommandActions: sameOr(
         session.queuedCommandActions,
-        commands.filter((c) => c.queued).map((c) => c.envelope.action),
+        commands.filter((c) => c.queued).map((c) => commandKind(c.envelope)),
       ),
     }),
   );
@@ -122,11 +125,26 @@ function armAckTimer(ctx: StoreAccessors, sessionId: string, command: PendingSes
   );
 }
 
+/**
+ * What a waiting setting is: its action, or for a runtime override patch the
+ * fields it sets (a model change must not replace a waiting effort change).
+ */
+export function commandKind(envelope: WsEnvelope): string {
+  if (envelope.action !== "runtime_overrides.set") return envelope.action;
+  const payload = envelope.payload;
+  const patch =
+    payload && typeof payload === "object" && "runtime_overrides" in payload
+      ? payload.runtime_overrides
+      : null;
+  const fields = patch && typeof patch === "object" ? Object.keys(patch).sort() : [];
+  return `${envelope.action}:${fields.join(",")}`;
+}
+
 /** A newer setting of the same kind replaces the one still waiting: only the latest is sent. */
-function supersedeQueued(ctx: StoreAccessors, sessionId: string, action: string): void {
+function supersedeQueued(ctx: StoreAccessors, sessionId: string, kind: string): void {
   const commands = ctx.transport.get(sessionId)?.pendingCommands;
   for (const command of [...(commands?.values() ?? [])]) {
-    if (!command.queued || command.envelope.action !== action) continue;
+    if (!command.queued || commandKind(command.envelope) !== kind) continue;
     ctx.transport.unqueue(sessionId, command.envelope.id);
     settle(ctx, sessionId, command.envelope.id);
   }
@@ -153,7 +171,7 @@ export function sendSessionCommand(
     return false;
   }
   if (!sent) {
-    supersedeQueued(ctx, sessionId, envelope.action);
+    supersedeQueued(ctx, sessionId, commandKind(envelope));
     transport.outboundQueue.push(envelope);
   }
   const command: PendingSessionCommand = { envelope, spec, queued: !sent, timer: undefined };

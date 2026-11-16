@@ -13,6 +13,8 @@ const SETTING_NAMES: Readonly<Record<string, string>> = {
   "profile.set": "profile",
   "mode.set": "permission mode",
   "access_mode.set": "access mode",
+  "runtime_overrides.set:model": "model",
+  "runtime_overrides.set:thinking_effort": "thinking effort",
 };
 
 /** "Model change waits…" / "Model and permission mode changes wait…"; null when nothing waits. */

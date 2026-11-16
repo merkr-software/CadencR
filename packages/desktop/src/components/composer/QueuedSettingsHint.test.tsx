@@ -15,6 +15,12 @@ describe("queuedSettingsMessage", () => {
     expect(queuedSettingsMessage(["model.set"])).toBe(
       "Model change waits for the backend to reconnect.",
     );
+    expect(
+      queuedSettingsMessage([
+        "runtime_overrides.set:thinking_effort",
+        "runtime_overrides.set:model",
+      ]),
+    ).toBe("Thinking effort and model changes wait for the backend to reconnect.");
     expect(queuedSettingsMessage(["model.set", "effort.set", "mode.set"])).toBe(
       "Model, thinking effort and permission mode changes wait for the backend to reconnect.",
     );

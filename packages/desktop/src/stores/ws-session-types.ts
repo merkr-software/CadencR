@@ -173,8 +173,9 @@ export interface SessionEntry extends SessionConfigState {
    */
   pendingCommandActions: readonly string[];
   /**
-   * The subset of `pendingCommandActions` still waiting in the outbound queue
-   * for the socket to reopen (a setting changed while disconnected).
+   * Settings still waiting in the outbound queue for the socket to reopen
+   * (changed while disconnected), by `commandKind`: the action, or for a
+   * runtime override `runtime_overrides.set:<fields>`.
    */
   queuedCommandActions: readonly string[];
   /** Stable idempotency keys retained while permission responses may be retried. */

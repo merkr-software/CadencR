@@ -184,9 +184,7 @@ function AgentTabContent({
 
 function setEffort(controls: SessionControls, effort: string | undefined): void {
   if (controls.supportsConfigInheritance)
-    void controls.ws
-      .setRuntimeOverrides({ thinking_effort: effort ?? null })
-      .catch((error) => toastError(error, "Could not update thinking effort"));
+    controls.ws.queueRuntimeOverride({ thinking_effort: effort ?? null });
   else controls.ws.setThinkingEffort(effort);
 }
 
@@ -319,9 +317,7 @@ export function handleModelChange(
   const currentProviderId = controls.ws.currentSelection?.providerId;
   if (currentProviderId !== undefined && currentProviderId === nextProviderId) {
     if (controls.supportsConfigInheritance) {
-      void controls.ws
-        .setRuntimeOverrides({ model: modelId })
-        .catch((error) => toastError(error, "Could not update model"));
+      controls.ws.queueRuntimeOverride({ model: modelId });
     } else controls.ws.setModel(modelId, nextProviderId);
   } else {
     controls.ws.setProvider(nextProviderId, modelId);
