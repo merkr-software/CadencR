@@ -10,10 +10,12 @@ vi.mock("./CompactToolLine", async () => {
       block,
       result,
       streaming,
+      reasonLine = true,
     }: {
       block: AgentBlockData;
       result?: AgentBlockData;
       streaming?: boolean;
+      reasonLine?: boolean;
     }) {
       lineRenders.set(block.id, (lineRenders.get(block.id) ?? 0) + 1);
       return (
@@ -21,6 +23,7 @@ vi.mock("./CompactToolLine", async () => {
           {block.id}
           {result?.isError ? " failed" : ""}
           {streaming ? " streaming" : ""}
+          {reasonLine ? "" : " one-line"}
         </span>
       );
     }),
@@ -145,6 +148,17 @@ describe("CompactFlowRow", () => {
       expect(container.querySelector("[data-leaving-step]")).toHaveTextContent("tool-1");
     });
 
+    it("keeps both steps of a live hand-over to one line", () => {
+      const blocks = tools(3);
+      const { container, rerender } = render(<CompactFlowRow blocks={blocks.slice(0, 2)} live />);
+
+      rerender(<CompactFlowRow blocks={blocks} live />);
+
+      // A reason line on either would change the head's height mid-scroll.
+      expect(head(container)).toHaveTextContent("tool-2 one-line");
+      expect(container.querySelector("[data-leaving-step]")).toHaveTextContent("tool-1 one-line");
+    });
+
     it("ends the hand-over with its animation, so a re-shown pane does not replay it", () => {
       const blocks = tools(3);
       const { container, rerender } = render(<CompactFlowRow blocks={blocks.slice(0, 2)} />);
@@ -224,5 +238,19 @@ describe("CompactFlowRow", () => {
 
     rerender(<CompactFlowRow blocks={blocks} toolResultMap={new Map([["use-tool-1", failed]])} />);
     expect(screen.getByText("tool-1 failed")).toBeInTheDocument();
+  });
+
+  it("keeps a live run's head to one line, and lets a settled one show its reason", () => {
+    const blocks = tools(2);
+    const { rerender } = render(<CompactFlowRow blocks={blocks} live />);
+    // A reason line would grow the head now and shrink it with the next step.
+    expect(screen.getByText("tool-1 one-line")).toBeInTheDocument();
+
+    rerender(<CompactFlowRow blocks={blocks} />);
+    expect(screen.getByText("tool-1")).toBeInTheDocument();
+
+    // The unfolded steps never change: they show their reasons even while live.
+    rerender(<CompactFlowRow blocks={blocks} live revealBlockId="tool-0" />);
+    expect(screen.getByText("tool-0")).toBeInTheDocument();
   });
 });

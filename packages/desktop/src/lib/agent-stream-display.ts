@@ -46,6 +46,14 @@ export function flowStreamingBlockId(
     : undefined;
 }
 
+/**
+ * Key of the row a running turn may still add steps to: the last one. A
+ * compact run there keeps its head to one line (see `CompactFlowHead`).
+ */
+export function liveDisplayItemKey(items: DisplayItem[], turnRunning: boolean): string | null {
+  return turnRunning ? (items.at(-1)?.key ?? null) : null;
+}
+
 export function buildDisplayItems(
   blocks: AgentBlockData[],
   options: { compact: boolean },

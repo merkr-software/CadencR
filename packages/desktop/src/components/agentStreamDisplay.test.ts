@@ -6,6 +6,7 @@ import {
   deriveAgentStreamDisplayBlocks,
   filterRenderableBlocks,
   flowStreamingBlockId,
+  liveDisplayItemKey,
 } from "@/lib/agent-stream-display";
 
 function block(id: string, content: string, extra: Partial<AgentBlockData> = {}): AgentBlockData {
@@ -364,5 +365,29 @@ describe("flowStreamingBlockId", () => {
     expect(flowStreamingBlockId(run, "read")).toBeUndefined();
     expect(flowStreamingBlockId(run, "elsewhere")).toBeUndefined();
     expect(flowStreamingBlockId(run, null)).toBeUndefined();
+  });
+});
+
+describe("liveDisplayItemKey", () => {
+  const items = buildDisplayItems(
+    [
+      block("read", "", { type: "tool_call", toolName: "Read" }),
+      block("answer", "Done."),
+      block("bash", "", { type: "tool_call", toolName: "Bash" }),
+    ],
+    { compact: true },
+  );
+
+  it("keys only the last row while the turn runs", () => {
+    const last = items.at(-1);
+    expect(last?.kind).toBe("flow");
+    expect(liveDisplayItemKey(items, true)).toBe(last?.key);
+    // An earlier run is settled even mid-turn: it shows its reasons.
+    expect(liveDisplayItemKey(items, true)).not.toBe(items[0].key);
+  });
+
+  it("keys nothing once the turn ends, or in an empty stream", () => {
+    expect(liveDisplayItemKey(items, false)).toBeNull();
+    expect(liveDisplayItemKey([], true)).toBeNull();
   });
 });

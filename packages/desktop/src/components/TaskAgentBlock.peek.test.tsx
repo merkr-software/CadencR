@@ -35,16 +35,28 @@ function taskWithLastCall(result: Partial<AgentBlockData>): AgentBlockData {
 }
 
 describe("TaskAgentBlock latest action", () => {
-  it("marks a latest action whose result failed, with the failure's first line", () => {
+  it("marks a finished agent's failed latest action with the failure's first line", () => {
     render(
       <TaskAgentBlock
-        block={taskWithLastCall({ isError: true, content: "Exit code 1\n3 tests failed" })}
+        block={{
+          ...taskWithLastCall({ isError: true, content: "Exit code 1\n3 tests failed" }),
+          taskComplete: true,
+        }}
       />,
     );
 
     expect(screen.getByText("pnpm test")).toBeInTheDocument();
     expect(screen.getByText("Exit code 1")).toBeInTheDocument();
     expect(screen.queryByText(/3 tests failed/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a running agent's failed latest action to one line", () => {
+    render(<TaskAgentBlock block={taskWithLastCall({ isError: true, content: "Exit code 1" })} />);
+
+    // The next action replaces it soon: a reason line would grow, then shrink the card.
+    expect(screen.getByText("pnpm test")).toBeInTheDocument();
+    expect(screen.getByText("Exit code 1")).toHaveClass("sr-only");
+    expect(screen.getByTitle("Exit code 1")).toBeInTheDocument();
   });
 
   it("leaves a latest action whose result succeeded unmarked", () => {
