@@ -1,8 +1,9 @@
 //! Raw OS process/socket enumeration.
 //!
-//! Everything here is a thin wrapper around `lsof` and `ps` plus the pure
-//! parsers for their output. Parsing is separated from spawning so the
-//! attribution logic can be tested without a live process tree.
+//! Sockets and working directories come from `lsof`, through thin wrappers
+//! plus the pure parsers for its output, so the attribution logic can be
+//! tested without a live process tree. The process tree itself is read from
+//! the kernel (`shared::process_table`).
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -52,35 +53,9 @@ pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
 
 /// Map of pid -> parent pid for every process on the machine.
 pub async fn parent_map() -> anyhow::Result<HashMap<i32, i32>> {
-    Ok(process_links()
-        .await?
-        .into_iter()
-        .map(|(pid, links)| (pid, links.ppid))
-        .collect())
-}
-
-/// Where a process sits in the process tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProcessLinks {
-    pub ppid: i32,
-    pub pgid: i32,
-}
-
-/// Map of pid -> parent pid and process group for every process on the
-/// machine.
-pub async fn process_links() -> anyhow::Result<HashMap<i32, ProcessLinks>> {
-    let out = capture("ps", process_links_args(cfg!(target_os = "macos"))).await?;
-    Ok(parse_process_links(&out))
-}
-
-/// BSD `ps -ax` on macOS (unchanged); POSIX `-A` elsewhere, which procps-ng on
-/// Linux documents for "every process" without relying on BSD flag parsing.
-fn process_links_args(is_macos: bool) -> &'static [&'static str] {
-    if is_macos {
-        &["-axo", "pid=,ppid=,pgid="]
-    } else {
-        &["-Ao", "pid=,ppid=,pgid="]
-    }
+    crate::shared::process_table::parents()
+        .await
+        .map_err(|error| anyhow::anyhow!("could not read the process table: {error}"))
 }
 
 /// Working directory of each requested pid. Pids that have exited between the
@@ -105,7 +80,7 @@ pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
 ///
 /// `kill_on_drop` matters as much as the timeout: without it, a child outlives
 /// the dropped future both on timeout and when a client disconnects mid-request.
-pub(crate) async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
+async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
     let run = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -188,22 +163,6 @@ fn parse_cwd_map(output: &str) -> HashMap<i32, String> {
         }
     }
     cwds
-}
-
-/// Parse `ps -axo pid=,ppid=,pgid=` output into pid -> parent and group.
-fn parse_process_links(output: &str) -> HashMap<i32, ProcessLinks> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace().map(str::parse::<i32>);
-            match (fields.next(), fields.next(), fields.next()) {
-                (Some(Ok(pid)), Some(Ok(ppid)), Some(Ok(pgid))) => {
-                    Some((pid, ProcessLinks { ppid, pgid }))
-                }
-                _ => None,
-            }
-        })
-        .collect()
 }
 
 fn split_field(line: &str) -> Option<(char, &str)> {
@@ -293,27 +252,5 @@ mod tests {
             std::io::Error::from(std::io::ErrorKind::PermissionDenied),
         );
         assert!(other.downcast_ref::<MissingTool>().is_none());
-    }
-
-    #[test]
-    fn process_links_arguments_per_platform() {
-        assert_eq!(process_links_args(true), ["-axo", "pid=,ppid=,pgid="]);
-        assert_eq!(process_links_args(false), ["-Ao", "pid=,ppid=,pgid="]);
-    }
-
-    #[test]
-    fn parses_ps_parent_and_group_columns() {
-        let links =
-            parse_process_links("  501     1   501\n  733   501   733\n  734 733\nbroken\n");
-
-        assert_eq!(links.get(&501), Some(&ProcessLinks { ppid: 1, pgid: 501 }));
-        assert_eq!(
-            links.get(&733),
-            Some(&ProcessLinks {
-                ppid: 501,
-                pgid: 733
-            })
-        );
-        assert_eq!(links.len(), 2, "short and broken lines are skipped");
     }
 }
