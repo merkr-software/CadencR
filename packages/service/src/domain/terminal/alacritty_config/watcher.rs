@@ -189,6 +189,39 @@ fn apply_subscriptions(
     }
 }
 
+/// How many rounds one alignment may take (see [`align_until_stable`]).
+/// Past the first, a round only changes subscriptions when the tree changed
+/// during the previous one, so this only bounds a tree that never settles.
+const MAX_ALIGNMENT_ROUNDS: usize = 16;
+
+/// Align the subscriptions with `state`, the chain as just resolved, then
+/// resolve it again and realign for as long as the subscriptions change.
+/// macOS's backend recreates its whole event stream on every
+/// (un)subscription and drops what happens meanwhile, so a directory created
+/// in that window (the next level of a missing import tree, a link switched
+/// to a new target) would never be reported, and the chain past it never
+/// watched. File edits in the window need no second look: a changed
+/// alignment pings clients, and they refetch the files after it. Returns the
+/// watch set the last round aligned with.
+fn align_until_stable(
+    debouncer: &mut Debouncer<RecommendedWatcher>,
+    config_path: &Path,
+    subscribed: &HashSet<PathBuf>,
+    mut state: WatchState,
+) -> (WatchState, Alignment) {
+    let mut alignment = apply_subscriptions(debouncer, subscribed, &state.dirs);
+    let mut before = subscribed.clone();
+    for _ in 1..MAX_ALIGNMENT_ROUNDS {
+        if alignment.subscribed == before {
+            break;
+        }
+        state = recompute_state(config_path);
+        before = std::mem::take(&mut alignment.subscribed);
+        alignment = apply_subscriptions(debouncer, &before, &state.dirs);
+    }
+    (state, alignment)
+}
+
 /// Watch the root config and every file its import chain touches, and
 /// broadcast a ping on `tx` whenever any of them changes. Best-effort: a
 /// failure is never fatal — the config still loads via the HTTP route, just
@@ -225,8 +258,10 @@ fn spawn_watcher(config_path: PathBuf, tx: broadcast::Sender<AlacrittyConfigChan
     // Apply the initial subscriptions synchronously, before spawning the
     // recompute thread, so `start_watcher` returns with the chain already
     // under watch — an edit racing service startup is still caught.
-    let watched = shared.lock().expect("watch state poisoned").clone();
-    let alignment = apply_subscriptions(&mut debouncer, &HashSet::new(), &watched.dirs);
+    let initial = shared.lock().expect("watch state poisoned").clone();
+    let (watched, alignment) =
+        align_until_stable(&mut debouncer, &config_path, &HashSet::new(), initial);
+    *shared.lock().expect("watch state poisoned") = watched.clone();
     set_watch_error(
         alignment
             .error()
@@ -335,8 +370,12 @@ impl Resubscriber {
             invalidated |= self.subscribed.remove(dir);
             invalidated |= self.subscribed.remove(&normalize(dir));
         }
-        let next = recompute_state(&self.config_path);
-        let alignment = apply_subscriptions(&mut self.debouncer, &self.subscribed, &next.dirs);
+        let (next, alignment) = align_until_stable(
+            &mut self.debouncer,
+            &self.config_path,
+            &self.subscribed,
+            recompute_state(&self.config_path),
+        );
         let status_changed =
             set_watch_error(alignment.error().or_else(|| next.degraded_reload_error()));
         let changed = invalidated
