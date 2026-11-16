@@ -81,8 +81,23 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
     });
     return checking;
   });
+  ipcMain.handle(
+    "app:set-install-when-agents-finish",
+    (event: IpcMainInvokeEvent, pending: unknown): UpdateSnapshot => {
+      assertTrustedSender(event, getMainWindow);
+      const wish = z.boolean().safeParse(pending);
+      if (!wish.success) throw new Error("The install wish must be a boolean.");
+      const next = updates.apply({ kind: "install-when-agents-finish", pending: wish.data });
+      if (next.installWhenAgentsFinish !== wish.data) {
+        throw new Error("No downloaded update to install.");
+      }
+      return next;
+    },
+  );
   ipcMain.handle("app:install-update", async (event: IpcMainInvokeEvent) => {
     assertTrustedSender(event, getMainWindow);
+    // The install starts: a wish to install later is settled.
+    updates.apply({ kind: "install-when-agents-finish", pending: false });
     if (!app.isPackaged) return;
     if (unsupportedInstall()) {
       // Renderer should never reach this path because the install button is

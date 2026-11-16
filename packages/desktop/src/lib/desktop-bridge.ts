@@ -233,6 +233,7 @@ const browserBridge: CadencrBrowserBridge = {
   getUpdateState: () => Promise.resolve(INITIAL_UPDATE_SNAPSHOT),
   checkForUpdates: () => unavailable("checkForUpdates"),
   installUpdate: () => unavailable("installUpdate"),
+  setInstallWhenAgentsFinish: () => unavailable("setInstallWhenAgentsFinish"),
   fetchChangelog: () => Promise.resolve(null),
   fetchChangelogImage: () => unavailable("fetchChangelogImage"),
   onUpdateState: () => () => undefined,

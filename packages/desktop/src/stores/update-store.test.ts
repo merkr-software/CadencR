@@ -1,18 +1,24 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { INITIAL_UPDATE_SNAPSHOT } from "@/shared/update-state";
 import { useSessionStatusStore } from "./session-status-store";
-import { useUpdateStore } from "./update-store";
+import { followInstallWhenAgentsFinish, useUpdateStore } from "./update-store";
+
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("@/lib/api-errors", () => ({ toastError }));
 
 vi.mock("@/lib/desktop-bridge", () => ({
   desktopBridge: {
     installUpdate: vi.fn(() => Promise.resolve()),
+    setInstallWhenAgentsFinish: vi.fn((pending: boolean) =>
+      Promise.resolve({ ...INITIAL_UPDATE_SNAPSHOT, installWhenAgentsFinish: pending }),
+    ),
     checkForUpdates: vi.fn(() => Promise.resolve(INITIAL_UPDATE_SNAPSHOT)),
   },
 }));
 
 function resetStore(): void {
-  useUpdateStore.setState({ ...INITIAL_UPDATE_SNAPSHOT, installWhenAgentsFinish: false });
+  useUpdateStore.setState({ ...INITIAL_UPDATE_SNAPSHOT, installWishPending: false });
 }
 
 describe("update-store receive", () => {
@@ -39,13 +45,18 @@ describe("update-store receive", () => {
 });
 
 describe("update-store install when agents finish", () => {
+  let stopFollowing: () => void = () => undefined;
+
   beforeEach(() => {
     resetStore();
-    useUpdateStore.setState({ status: "downloaded", version: "0.2.0" });
-    useUpdateStore.getState().cancelInstallWhenAgentsFinish();
-    useSessionStatusStore.setState({ bySession: {} });
+    useUpdateStore.setState({ status: "downloaded", version: "0.2.0", revision: 5 });
+    useSessionStatusStore.setState({ bySession: {}, hasSnapshot: true, isConnected: true });
     vi.mocked(desktopBridge.installUpdate).mockClear();
+    vi.mocked(desktopBridge.setInstallWhenAgentsFinish).mockClear();
+    stopFollowing = followInstallWhenAgentsFinish();
   });
+
+  afterEach(() => stopFollowing());
 
   function working(sessionId: number, status: "agent" | "question" | "idle"): void {
     useSessionStatusStore.setState((state) => ({
@@ -56,33 +67,87 @@ describe("update-store install when agents finish", () => {
     }));
   }
 
-  it("installs right away when no agent is working", () => {
+  /** The main process recorded the wish and published it. */
+  function mainRecords(pending: boolean): void {
+    const state = useUpdateStore.getState();
+    state.receive({ ...state, revision: state.revision + 1, installWhenAgentsFinish: pending });
+  }
+
+  it("asks the main process to keep the wish and shows it only once confirmed", async () => {
+    working(1, "agent");
+    vi.mocked(desktopBridge.setInstallWhenAgentsFinish).mockImplementationOnce((pending) => {
+      const state = useUpdateStore.getState();
+      return Promise.resolve({ ...state, revision: 6, installWhenAgentsFinish: pending });
+    });
+    const request = useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
+    expect(desktopBridge.setInstallWhenAgentsFinish).toHaveBeenCalledWith(true);
+    expect(useUpdateStore.getState()).toMatchObject({
+      installWhenAgentsFinish: false,
+      installWishPending: true,
+    });
+    await request;
+    expect(useUpdateStore.getState()).toMatchObject({
+      installWhenAgentsFinish: true,
+      installWishPending: false,
+    });
+    expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
+  });
+
+  it("installs as soon as the wish is recorded when no agent is working", () => {
     working(1, "question");
-    useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
+    mainRecords(true);
     expect(desktopBridge.installUpdate).toHaveBeenCalledTimes(1);
-    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(false);
   });
 
   it("waits for the last working agent, then installs once", () => {
     working(1, "agent");
     working(2, "agent");
-    useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
-    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(true);
+    mainRecords(true);
 
     working(1, "idle");
     expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
     working(2, "idle");
     working(2, "idle");
     expect(desktopBridge.installUpdate).toHaveBeenCalledTimes(1);
-    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(false);
   });
 
-  it("does nothing after the user cancels", () => {
+  it("waits for the agents' status after a reload before installing", () => {
+    useSessionStatusStore.setState({ bySession: {}, hasSnapshot: false });
+    mainRecords(true);
+    expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
+
+    useSessionStatusStore.setState({ hasSnapshot: true });
+    expect(desktopBridge.installUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits while the status socket is down: the last snapshot may be stale", () => {
+    useSessionStatusStore.setState({ isConnected: false });
+    mainRecords(true);
+    expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
+
+    useSessionStatusStore.setState({ isConnected: true });
+    expect(desktopBridge.installUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing once the main process records the cancel", async () => {
     working(1, "agent");
-    useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
-    useUpdateStore.getState().cancelInstallWhenAgentsFinish();
+    mainRecords(true);
+    await useUpdateStore.getState().cancelInstallWhenAgentsFinish();
+    expect(desktopBridge.setInstallWhenAgentsFinish).toHaveBeenCalledWith(false);
+    mainRecords(false);
     working(1, "idle");
     expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
-    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(false);
+  });
+
+  it("reports a wish the main process refused", async () => {
+    vi.mocked(desktopBridge.setInstallWhenAgentsFinish).mockRejectedValueOnce(
+      new Error("No downloaded update to install."),
+    );
+    await useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
+    expect(toastError).toHaveBeenCalledWith(expect.any(Error), "Could not schedule the update.");
+    expect(useUpdateStore.getState()).toMatchObject({
+      installWhenAgentsFinish: false,
+      installWishPending: false,
+    });
   });
 });

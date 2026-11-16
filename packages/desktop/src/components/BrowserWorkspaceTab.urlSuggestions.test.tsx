@@ -163,6 +163,7 @@ function bridge(): CadencrBrowserBridge {
     onBrowserPopupRequestsChanged: vi.fn(() => () => undefined),
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(),
+    setInstallWhenAgentsFinish: vi.fn(),
     fetchChangelog: vi.fn(),
     fetchChangelogImage: vi.fn(),
     getUpdateState: vi.fn(),
