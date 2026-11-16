@@ -86,7 +86,9 @@ fn put_in(root: &Path, bytes: &[u8]) -> Result<BlobHash, AppError> {
     if verify_blob(&path, &hash).map_err(|error| blob_io("verify existing blob", error))? {
         return Ok(hash);
     }
-    quarantine_corrupt(&path, shard, &hash)?;
+    if quarantine_corrupt(&path, shard, &hash)? {
+        return Ok(hash);
+    }
 
     // UUID + create_new makes staging unique across threads and processes.
     let staging = shard.join(format!(
@@ -148,28 +150,58 @@ fn verify_blob(path: &Path, expected_hash: &str) -> std::io::Result<bool> {
     Ok(actual == expected_hash)
 }
 
-fn quarantine_corrupt(path: &Path, shard: &Path, hash: &str) -> Result<(), AppError> {
-    if std::fs::symlink_metadata(path).is_err() {
-        return Ok(());
-    }
+/// Set aside what sits at `path` before the commit replaces it, and tell
+/// whether it is the valid blob after all: a concurrent writer may have
+/// committed it since `put_in` checked. A regular file is linked aside, not
+/// moved, so a valid one never leaves `path` (its readers and its writer never
+/// find the path empty) and the commit's rename replaces a corrupt one
+/// atomically. Anything else, or a file where hard links are refused, is
+/// moved aside, and put back if it turns out valid.
+fn quarantine_corrupt(path: &Path, shard: &Path, hash: &str) -> Result<bool, AppError> {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(false);
+    };
     let quarantine = shard.join(format!(
         ".{hash}.{}.{}.corrupt",
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
-    std::fs::rename(path, &quarantine).map_err(|error| {
-        AppError::internal(format!(
-            "failed to quarantine corrupt blob {} as {}: {error}",
-            path.display(),
-            quarantine.display()
-        ))
-    })?;
+    let linked = metadata.file_type().is_file()
+        && match std::fs::hard_link(path, &quarantine) {
+            Ok(()) => true,
+            // Another writer set it aside first.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            // A filesystem without hard links: move it aside instead.
+            Err(_) => false,
+        };
+    if !linked {
+        match std::fs::rename(path, &quarantine) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(AppError::internal(format!(
+                    "failed to quarantine corrupt blob {} as {}: {error}",
+                    path.display(),
+                    quarantine.display()
+                )))
+            }
+        }
+    }
+    if verify_blob(&quarantine, hash).map_err(|error| blob_io("verify quarantined blob", error))? {
+        let restored = if linked {
+            std::fs::remove_file(&quarantine)
+        } else {
+            std::fs::rename(&quarantine, path)
+        };
+        restored.map_err(|error| blob_io("restore a valid blob set aside", error))?;
+        return Ok(true);
+    }
     tracing::warn!(
         blob = %path.display(),
         quarantine = %quarantine.display(),
         "quarantined corrupt blob entry"
     );
-    Ok(())
+    Ok(false)
 }
 
 fn cleanup_staging(path: &Path) {
@@ -308,6 +340,21 @@ mod tests {
             .unwrap()
             .flatten()
             .any(|entry| entry.file_name().to_string_lossy().ends_with(".corrupt")));
+    }
+
+    #[test]
+    fn a_blob_committed_since_the_check_is_never_set_aside() {
+        let root = tempfile::tempdir().unwrap();
+        let hash = hash_bytes(b"committed meanwhile");
+        let path = path_for_in(root.path(), &hash);
+        let shard = path.parent().unwrap();
+        std::fs::create_dir_all(shard).unwrap();
+        std::fs::write(&path, b"committed meanwhile").unwrap();
+
+        assert!(quarantine_corrupt(&path, shard, &hash).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"committed meanwhile");
+        let entries: Vec<_> = std::fs::read_dir(shard).unwrap().flatten().collect();
+        assert_eq!(entries.len(), 1, "nothing left aside: {entries:?}");
     }
 
     #[test]
