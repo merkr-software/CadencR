@@ -1,6 +1,10 @@
 import type { FlatIndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
+import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
+import { animationsDisabled } from "@/lib/animations/animations-disabled";
 import { isIos } from "@/lib/is-ios";
+import { isResizing } from "@/lib/resize-coordinator";
 import { pinToBottom } from "@/lib/scroll-pin";
+import { StreamFollowGlide } from "./stream-follow-glide";
 
 /**
  * Why the agent stream's scroll position is being moved.
@@ -66,6 +70,8 @@ function scrollByTop(args: unknown[]): number {
  */
 export class StreamScrollWriter {
   private arbiter: ScrollCompensationArbiter | null = null;
+  /** Non-iOS only, like every raw follow write. */
+  private glide: StreamFollowGlide | null = null;
 
   constructor(
     private readonly owner: StreamScrollOwner = DETACHED_OWNER,
@@ -81,6 +87,7 @@ export class StreamScrollWriter {
     // own property shadows the prototype method. iOS keeps Virtuoso's
     // deviation-based correction untouched: no anchor guard runs there.
     if (isIos()) return;
+    this.glide = new StreamFollowGlide(scroller);
     Object.defineProperty(scroller, "scrollBy", {
       configurable: true,
       writable: true,
@@ -91,6 +98,8 @@ export class StreamScrollWriter {
   detach(): void {
     const scroller = this.scroller;
     if (!scroller) return;
+    this.glide?.stop();
+    this.glide = null;
     // Only the writer attached to the scroller owns its `scrollBy` shadow; a
     // detached writer (`streamScrollWriterFor`) never installed one.
     if (writers.get(scroller) === this) {
@@ -118,6 +127,37 @@ export class StreamScrollWriter {
     const scroller = this.scroller;
     if (!scroller || !this.canWrite("follow-bottom")) return false;
     return pinToBottom(scroller);
+  }
+
+  /**
+   * Follows new output to the bottom while bottom-stick holds. The pin is
+   * immediate, so layout always sees the settled position; with animations on,
+   * the rows then glide up to it instead of jumping (`StreamFollowGlide`).
+   * Returns whether it wrote.
+   */
+  followBottom(): boolean {
+    const scroller = this.scroller;
+    if (!scroller || !this.canWrite("follow-bottom")) return false;
+    const before = scroller.scrollTop;
+    if (!pinToBottom(scroller)) return false;
+    if (animationsDisabled()) this.glide?.stop();
+    else this.glide?.absorb(scroller.scrollTop - before);
+    return true;
+  }
+
+  /** Drops a glide in flight: the next view (another conversation) starts settled. */
+  stopFollowGlide(): void {
+    this.glide?.stop();
+  }
+
+  /**
+   * Bottom-stick let go: a glide still in flight becomes scroll offset, so the
+   * rows stay exactly where the reader sees them and nothing else owns the
+   * item list's transform when the anchor guard takes over.
+   */
+  releaseFollow(): void {
+    const rest = this.glide?.release() ?? 0;
+    if (rest > 0) this.scrollBy("keep-anchor", -rest);
   }
 
   /** Moves the offset by `delta` px. Returns whether it wrote. */
@@ -160,6 +200,17 @@ export class StreamScrollWriter {
 
   private virtuosoScrollBy(scroller: HTMLElement, args: unknown[]): void {
     if (this.arbiter?.(scrollByTop(args))) return;
+    // Bottom-stick owns the viewport. Virtuoso compensates a resize as if the
+    // reader were anchored to the top, and a streaming row taller than the
+    // viewport counts as "above" it: its growth comes back as a `scrollBy`
+    // that overshoots or, clamped, dips the view off the bottom for a frame.
+    // The bottom is the only correct place while following — except where
+    // every bottom pin stands down: a recap toggle animating its height, and
+    // a split-pane drag (the resize coordinator owns scroll then).
+    if (this.owner.isFollowing() && !isAutoScrollPinSuppressed() && !isResizing()) {
+      this.followBottom();
+      return;
+    }
     Reflect.apply(Element.prototype.scrollBy, scroller, args);
   }
 }

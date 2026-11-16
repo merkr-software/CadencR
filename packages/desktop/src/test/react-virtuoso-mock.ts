@@ -206,7 +206,13 @@ export const Virtuoso = React.forwardRef<VirtuosoHandleMock, VirtuosoProps>(func
       onWheel,
     },
     header,
-    ...renderRows(count, itemContent, data, context),
+    // Real Virtuoso renders its rows inside this list; the agent stream's
+    // growth observer pins the bottom from its mutations.
+    React.createElement(
+      "div",
+      { "data-testid": "virtuoso-item-list" },
+      ...renderRows(count, itemContent, data, context),
+    ),
     footer,
   );
 });

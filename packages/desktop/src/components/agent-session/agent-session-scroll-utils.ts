@@ -1,4 +1,4 @@
-import type { FollowOutputCallback, SizeFunction, VirtuosoHandle } from "react-virtuoso";
+import type { FollowOutput, SizeFunction, VirtuosoHandle } from "react-virtuoso";
 import { STREAM_BOTTOM_GAP_PX } from "./stream-fade";
 
 export type ScrollRef = (el: HTMLElement | null) => void;
@@ -57,7 +57,7 @@ export interface UseAgentSessionScrollResult {
   /** Virtuoso `itemSize`: lets the scroll anchor guard settle with each measurement pass. */
   itemSize: SizeFunction;
   onStartReached: () => void;
-  followOutput: FollowOutputCallback;
+  followOutput: FollowOutput;
   onAtBottomStateChange: (atBottom: boolean) => void;
   onTotalListHeightChanged: (height: number) => void;
   autoScrollEnabled: boolean;

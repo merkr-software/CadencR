@@ -1,7 +1,7 @@
 import { recordDiagnosticEvent } from "@/lib/renderer-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { FollowOutputCallback, VirtuosoHandle } from "react-virtuoso";
+import type { FollowOutput, VirtuosoHandle } from "react-virtuoso";
 import type { AgentBlockData } from "@/types/agent-block";
 import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
 import { isIos } from "@/lib/is-ios";
@@ -75,21 +75,41 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
       if (state.stickRef.current === enabled) return;
       recordDiagnosticEvent("scroll", { following: enabled });
       state.stickRef.current = enabled;
+      // Synchronously, before the scroll this input causes reaches the anchor
+      // guard: a glide in flight must be scroll offset by then, not transform.
+      if (!enabled) writer.releaseFollow();
       state.setAutoScrollEnabledState(enabled);
     },
-    [state.setAutoScrollEnabledState, state.stickRef],
+    [state.setAutoScrollEnabledState, state.stickRef, writer],
   );
   // The writer skips the raw pin on iOS, where Virtuoso owns bottom pinning
   // through its deviation-aware `followOutput` path, and once stick lets go.
   const pinScrollerToEnd = useCallback((): void => {
     writer.pinToBottom();
   }, [writer]);
+  const followBottom = useCallback((): void => {
+    writer.followBottom();
+  }, [writer]);
+  // The scroller outlives a conversation switch (the session view is not
+  // keyed by conversation): its rows must not inherit the old glide.
+  const stopFollowGlide = useCallback((): void => {
+    writer.stopFollowGlide();
+  }, [writer]);
   const pinToEnd = useCallback((): void => {
-    writer.scrollToIndex(state.virtuosoRef.current, "follow-bottom", {
-      index: "LAST",
-      align: "end",
-      behavior: "auto",
-    });
+    // The raw pin lands on the real bottom. An index scroll is aimed from
+    // Virtuoso's size table and lands short wherever that table drifts from
+    // the DOM, so it only stands in where no raw write may happen: iOS, or a
+    // scroller not attached yet. The follow-up frame catches rows Virtuoso is
+    // still sizing.
+    if (writer.canWrite("follow-bottom")) {
+      writer.pinToBottom();
+    } else {
+      writer.scrollToIndex(state.virtuosoRef.current, "follow-bottom", {
+        index: "LAST",
+        align: "end",
+        behavior: "auto",
+      });
+    }
     requestAnimationFrame(pinScrollerToEnd);
   }, [pinScrollerToEnd, state.virtuosoRef, writer]);
   const suppressProgrammaticScrollIntent = useCallback((): void => {
@@ -101,8 +121,20 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
     });
   }, [state.lastScrollTopRef, state.scrollerElRef, state.suppressScrollIntentRef]);
   return useMemo(
-    () => ({ pinToEnd, setAutoScrollEnabled, suppressProgrammaticScrollIntent }),
-    [pinToEnd, setAutoScrollEnabled, suppressProgrammaticScrollIntent],
+    () => ({
+      followBottom,
+      pinToEnd,
+      setAutoScrollEnabled,
+      stopFollowGlide,
+      suppressProgrammaticScrollIntent,
+    }),
+    [
+      followBottom,
+      pinToEnd,
+      setAutoScrollEnabled,
+      stopFollowGlide,
+      suppressProgrammaticScrollIntent,
+    ],
   );
 }
 
@@ -174,8 +206,19 @@ function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history:
     pinning.setAutoScrollEnabled(true);
     pinning.pinToEnd();
   }, [history, pinning]);
-  const followOutput = useCallback<FollowOutputCallback>(
-    () => (state.stickRef.current && !isAutoScrollPinSuppressed() ? "auto" : false),
+  const followOutput = useMemo<FollowOutput>(
+    () =>
+      // Off iOS, Virtuoso does not follow at all: the growth observer, the
+      // viewport observer and `onTotalListHeightChanged` pin the real bottom.
+      // Virtuoso's follow is an index scroll aimed from its size table: when
+      // that drifts from the DOM (a row margin it never measured did 7–15 px)
+      // it lands short as a row is added, retries for 150 ms, and stays short
+      // until the next growth. It must be `false`, not a callback returning false:
+      // given any callback, Virtuoso also follows on size increase and on
+      // viewport shrink without consulting it.
+      isIos()
+        ? () => (state.stickRef.current && !isAutoScrollPinSuppressed() ? "auto" : false)
+        : false,
     [state.stickRef],
   );
   const onAtBottomStateChange = useCallback(
@@ -194,10 +237,17 @@ function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history:
       // height delta is user-driven, not new content, so re-pinning would jump
       // the clicked recap out of view.
       if (!state.stickRef.current || isAutoScrollPinSuppressed()) return;
-      // Reissuing scrollToIndex from Virtuoso's own height callback closes a
-      // feedback loop on iOS WebKit. `followOutput` already owns that platform's
-      // streaming bottom pin; viewport backfill remains independent below.
-      if (!isIos()) pinning.pinToEnd();
+      // A raw pin to the real bottom, not `scrollToIndex`: Virtuoso aims the
+      // index scroll from its size table, and any drift from the DOM lands it
+      // a few px short of the bottom the growth observer already pinned. Each
+      // streamed line then painted one frame dipped down (timer included)
+      // before the follow-up pin snapped it back: the double jump. The raw pin
+      // is idempotent, so once the growth observer has pinned, this is a
+      // no-op. On iOS, reissuing scrollToIndex from Virtuoso's own height
+      // callback closes a feedback loop, and `followOutput` already owns that
+      // platform's streaming bottom pin; viewport backfill remains independent
+      // below.
+      if (!isIos()) pinning.followBottom();
       history.maybeFillViewport();
     },
     [history, pinning, state.stickRef],
@@ -237,6 +287,7 @@ function useScrollLifecycle(
     state.didFirstPaintScrollRef.current = false;
     state.viewportFillPagesRef.current = 0;
     pinning.suppressProgrammaticScrollIntent();
+    pinning.stopFollowGlide();
     pinning.pinToEnd();
   }, [conversationKey, history, pinning, state]);
   useEffect(() => {

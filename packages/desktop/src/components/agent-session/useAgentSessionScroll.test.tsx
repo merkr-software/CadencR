@@ -1,6 +1,6 @@
 import { render, renderHook, screen, waitFor, act } from "@/test-utils";
 import type { VirtuosoHandle } from "react-virtuoso";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { useAgentSessionScroll } from "./useAgentSessionScroll";
 import type { AgentBlockData } from "@/types/agent-block";
 
@@ -254,6 +254,114 @@ describe("useAgentSessionScroll history loading", () => {
 });
 
 describe("useAgentSessionScroll bottom pinning", () => {
+  it("keeps Virtuoso's own follow off outside iOS, and pins height changes to the real bottom", () => {
+    isIosMock.mockReturnValue(false);
+    const { result } = renderHook(() =>
+      useAgentSessionScroll({
+        blocks: [makeBlock("1"), makeBlock("2")],
+        conversationKey: "conversation-a",
+        hasMore: false,
+      }),
+    );
+    // `false`, not a callback: given any callback, Virtuoso also follows on
+    // size increase and viewport shrink with its index scroll, which lands short.
+    expect(result.current.followOutput).toBe(false);
+    const scrollToIndex = vi.fn();
+    result.current.virtuosoRef.current = { scrollToIndex } as unknown as VirtuosoHandle;
+    const scroller = document.createElement("div");
+    stubGeometry(scroller, 2_000, 500);
+    act(() => result.current.scrollContainerRef(scroller));
+
+    act(() => result.current.onTotalListHeightChanged(2_000));
+
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    expect(scroller.scrollTop).toBe(1_500);
+    act(() => result.current.scrollContainerRef(null));
+  });
+
+  it("hands a glide in flight to the scroll offset when the reader wheels up", () => {
+    isIosMock.mockReturnValue(false);
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    onTestFinished(() => raf.mockRestore());
+    const { result } = renderHook(() =>
+      useAgentSessionScroll({
+        blocks: [makeBlock("1"), makeBlock("2")],
+        conversationKey: "conversation-a",
+        hasMore: false,
+      }),
+    );
+    const scroller = document.createElement("div");
+    const list = document.createElement("div");
+    list.setAttribute("data-testid", "virtuoso-item-list");
+    const row = list.appendChild(document.createElement("div"));
+    scroller.appendChild(list);
+    stubGeometry(scroller, 2_000, 500);
+    let top = 1_468;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (next: number) => {
+        top = Math.min(Math.max(0, next), 1_500);
+      },
+    });
+    act(() => result.current.scrollContainerRef(scroller));
+
+    // A streamed line: pinned at once, the rows held 32 px down to glide up.
+    act(() => result.current.onTotalListHeightChanged(2_000));
+    expect(top).toBe(1_500);
+    expect(row.style.transform).toContain("32px");
+
+    // The reader wheels up mid-glide: the rows stay exactly where they are
+    // seen, as scroll offset rather than transform, before the anchor guard
+    // gets to measure them.
+    act(() => {
+      scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 }));
+    });
+    expect(result.current.autoScrollEnabled).toBe(false);
+    expect(row.style.transform).toBe("");
+    expect(top).toBe(1_468);
+    act(() => result.current.scrollContainerRef(null));
+  });
+
+  it("does not carry a glide in flight into the next conversation", () => {
+    isIosMock.mockReturnValue(false);
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    onTestFinished(() => raf.mockRestore());
+    const { result, rerender } = renderHook(
+      ({ conversationKey }: { conversationKey: string }) =>
+        useAgentSessionScroll({ blocks: [makeBlock("1")], conversationKey, hasMore: false }),
+      { initialProps: { conversationKey: "conversation-a" } },
+    );
+    const scroller = document.createElement("div");
+    const list = document.createElement("div");
+    list.setAttribute("data-testid", "virtuoso-item-list");
+    const row = list.appendChild(document.createElement("div"));
+    scroller.appendChild(list);
+    stubGeometry(scroller, 2_000, 500);
+    scroller.scrollTop = 1_468;
+    act(() => result.current.scrollContainerRef(scroller));
+    act(() => result.current.onTotalListHeightChanged(2_000));
+    expect(row.style.transform).toContain("32px");
+
+    rerender({ conversationKey: "conversation-b" });
+
+    expect(row.style.transform).toBe("");
+    act(() => result.current.scrollContainerRef(null));
+  });
+
+  it("lets Virtuoso follow output on iOS while bottom-stick holds", () => {
+    isIosMock.mockReturnValue(true);
+    const { result } = renderHook(() =>
+      useAgentSessionScroll({
+        blocks: [makeBlock("1"), makeBlock("2")],
+        conversationKey: "conversation-a",
+        hasMore: false,
+      }),
+    );
+    const follow = result.current.followOutput;
+    expect(typeof follow === "function" ? follow(true) : follow).toBe("auto");
+  });
+
   it("does not feed iOS height changes back into Virtuoso scrolling", () => {
     isIosMock.mockReturnValue(true);
     const { result } = renderHook(() =>

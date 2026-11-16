@@ -92,9 +92,9 @@ interface AgentStreamProps {
   /** Virtuoso row measurement (the scroll hook's anchor guard hooks in here). */
   itemSize?: SizeFunction;
   /**
-   * Virtuoso `followOutput` callback. Returns `'auto'` while auto-scroll is
-   * engaged so the view stays pinned to the bottom across async item
-   * measurement (markdown highlighting, BashBlock query loads, etc.).
+   * Virtuoso `followOutput`. On iOS a callback returning `'auto'` while
+   * auto-scroll is engaged; elsewhere `false`, as the scroll hook pins the
+   * real bottom itself (see `useAgentSessionScroll`).
    */
   followOutput?: FollowOutput;
   /** Virtuoso's measurement-aware bottom-state callback. */
