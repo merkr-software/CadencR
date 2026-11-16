@@ -13,14 +13,13 @@ export const WS_REPLY_TIMEOUT_MS = 10_000;
 export interface PendingSessionCommand {
   envelope: WsEnvelope;
   spec: SessionCommandSpec;
-  /** Still in the outbound queue, droppable after this instant; null once sent. */
-  queuedUntil: number | null;
+  /** Still in the outbound queue, waiting for the socket to reopen. */
+  queued: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 interface FlushHooks {
   onSent: (envelopeId: string) => void;
-  onExpired: (command: PendingSessionCommand) => void;
 }
 
 interface SessionTransport {
@@ -28,6 +27,8 @@ interface SessionTransport {
   pendingWsRequests: Map<string, (payload: unknown) => void>;
   pendingCommands: Map<string, PendingSessionCommand>;
   outboundQueue: WsEnvelope[];
+  /** Reconnect registry key of this session's socket (`lib/ws-reconnect`). */
+  reconnectKey: string | null;
   delivery: ReturnType<typeof createPromptDeliveryTracker>;
 }
 
@@ -47,6 +48,7 @@ export class SessionTransportRegistry {
         pendingWsRequests: new Map(),
         pendingCommands: new Map(),
         outboundQueue: [],
+        reconnectKey: null,
         delivery: createPromptDeliveryTracker(),
       };
       this.sessions.set(sessionId, transport);
@@ -84,20 +86,10 @@ export class SessionTransportRegistry {
     return true;
   }
 
-  /**
-   * Replay the outbound queue. A command whose queue lifetime ran out is never
-   * replayed: `onExpired` reports it instead of letting it act late.
-   */
+  /** Replay the outbound queue, in order, as far as the socket takes it. */
   flush(sessionId: string, hooks?: FlushHooks): void {
     const transport = this.get(sessionId);
     if (!transport?.conn) return;
-    const now = Date.now();
-    transport.outboundQueue = transport.outboundQueue.filter((envelope) => {
-      const command = transport.pendingCommands.get(envelope.id);
-      if (command?.queuedUntil == null || command.queuedUntil > now) return true;
-      hooks?.onExpired(command);
-      return false;
-    });
     const queue = transport.outboundQueue;
     let sent = 0;
     while (sent < queue.length && transport.conn.sendJson(queue[sent])) sent += 1;

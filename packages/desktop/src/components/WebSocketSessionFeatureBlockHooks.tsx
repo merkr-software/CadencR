@@ -17,6 +17,7 @@ import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import type { FeatureEditorTabHandle } from "@/components/editor/FeatureEditorTab";
 import type { WorktreeStatus } from "@/types/workflow";
 import type { SessionControls } from "@/components/WebSocketSessionControls";
+import { applyThinkingEffort } from "@/components/sessionThinkingEffort";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { useFeatureWorktreePath } from "@/hooks/useFeatureWorktreePath";
 export { useSessionControls } from "@/components/WebSocketSessionControls";
@@ -287,7 +288,8 @@ export function useWsSessionShortcuts(args: {
         controls.supportedThinkingEfforts,
         controls.ws.currentThinkingEffort,
       );
-      if (next) controls.ws.setThinkingEffort(next);
+      // Same path as the composer's effort control (Codex: runtime override).
+      if (next) applyThinkingEffort(controls, next);
     },
     "agent",
     { enabled: hotkeysEnabled },

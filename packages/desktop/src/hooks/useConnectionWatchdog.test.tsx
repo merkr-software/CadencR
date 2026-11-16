@@ -63,6 +63,7 @@ function bridge(isElectron: boolean): CadencrDesktopBridge {
     onPowerResume: vi.fn(() => () => undefined),
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
+    setInstallWhenAgentsFinish: vi.fn(),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
     fetchChangelogImage: vi.fn(),
     getUpdateState: vi.fn(),

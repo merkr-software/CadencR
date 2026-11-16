@@ -800,12 +800,8 @@ describe("ws-session-store", () => {
       });
 
       const sent = ws.sent.map((raw) => JSON.parse(raw));
-      expect(sent.map((envelope) => envelope.action)).toEqual([
-        "mode.set",
-        "access_mode.set",
-        "prompt.send",
-      ]);
-      expect(sent[1].payload).toEqual({ session_id: "srv-1", mode });
+      expect(sent.map((envelope) => envelope.action)).toEqual(["access_mode.set", "prompt.send"]);
+      expect(sent[0].payload).toEqual({ session_id: "srv-1", mode });
       expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe(confirmedMode);
       expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
 
@@ -834,7 +830,7 @@ describe("ws-session-store", () => {
         payload: { session_id: "srv-1", provider: "codex_cli", access_mode: mode },
       });
 
-      expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["mode.set", "prompt.send"]);
+      expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["prompt.send"]);
       expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe(mode);
       expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
     },
@@ -857,12 +853,8 @@ describe("ws-session-store", () => {
       });
 
       const sent = ws.sent.map((raw) => JSON.parse(raw));
-      expect(sent.map((envelope) => envelope.action)).toEqual([
-        "mode.set",
-        "access_mode.set",
-        "prompt.send",
-      ]);
-      expect(sent[1].payload.mode).toBe("default");
+      expect(sent.map((envelope) => envelope.action)).toEqual(["access_mode.set", "prompt.send"]);
+      expect(sent[0].payload.mode).toBe("default");
       expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
     },
   );
@@ -903,7 +895,8 @@ describe("ws-session-store", () => {
     });
 
     expect(useWsSessionStore.getState().sessions["s1"].accessMode).toBe("autoReview");
-    expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["mode.set"]);
+    // Nothing was picked before init: nothing is replayed.
+    expect(ws.sent).toHaveLength(0);
   });
 
   it("drops a pre-init access choice if the resolved provider has no access modes", async () => {
@@ -918,7 +911,7 @@ describe("ws-session-store", () => {
       payload: { session_id: "srv-1", provider: "claude_code" },
     });
 
-    expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["mode.set"]);
+    expect(ws.sent).toHaveLength(0);
     expect(useWsSessionStore.getState().sessions["s1"].pendingInitAccessMode).toBeNull();
   });
 
@@ -996,8 +989,9 @@ describe("ws-session-store", () => {
 
   // A new entry is seeded with Claude's `auto`; replaying it to a session that
   // initialized on Codex made the backend answer MODE_NOT_SUPPORTED (a toast
-  // on every new non-Claude conversation).
-  it("replays the backend's mode when the seeded one doesn't fit the provider", async () => {
+  // on every new non-Claude conversation). The backend already runs the mode
+  // it reports, so it is adopted and nothing is replayed.
+  it("adopts the backend's mode when the seeded one doesn't fit the provider", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");
     await tick();
@@ -1011,13 +1005,7 @@ describe("ws-session-store", () => {
     });
 
     expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("default");
-    const sent = ws.sent.map((raw) => JSON.parse(raw));
-    expect(sent).toEqual([
-      expect.objectContaining({
-        action: "mode.set",
-        payload: expect.objectContaining({ mode: "default" }),
-      }),
-    ]);
+    expect(ws.sent).toHaveLength(0);
   });
 
   it("keeps a valid mode picked while session.init was in flight", async () => {

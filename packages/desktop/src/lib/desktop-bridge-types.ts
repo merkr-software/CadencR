@@ -147,6 +147,8 @@ export interface CadencrDesktopBridge {
   /** Starts a check; resolves with the state the main process moved to. */
   checkForUpdates: () => Promise<UpdateSnapshot>;
   installUpdate: () => Promise<void>;
+  /** Sets or clears the wish to install once agents finish; resolves with the new state. */
+  setInstallWhenAgentsFinish: (pending: boolean) => Promise<UpdateSnapshot>;
   fetchChangelog: (version: string) => Promise<string | null>;
   /** Bytes of an image committed to Cadencr's repo and referenced by release notes. */
   fetchChangelogImage: (src: string) => Promise<ChangelogImageBytes>;

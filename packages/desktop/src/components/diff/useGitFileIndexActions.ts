@@ -10,6 +10,7 @@ import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { gitPathToFeaturePath } from "@/lib/git-paths";
 import { useEditorStore } from "@/stores/editor-store";
+import { displayGitPath } from "@/lib/git-display-path";
 
 export type GitFileIndexAction = "stage" | "reset";
 
@@ -82,7 +83,7 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
         setError(null);
         const path = variables.data.file_path;
         if (conflictWarnPathRef.current === path) {
-          toast.warning(`Staged ${path} with conflicts`, {
+          toast.warning(`Staged ${displayGitPath(path)} with conflicts`, {
             description: "Confirm conflict markers are resolved before continuing the merge.",
           });
         }
@@ -92,7 +93,9 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
         conflictWarnPathRef.current = null;
         const message = apiErrorMessage(mutationError, "Git could not stage this path");
         setError({ action: "stage", filePath: variables.data.file_path, message });
-        toast.error(`Could not stage ${variables.data.file_path}`, { description: message });
+        toast.error(`Could not stage ${displayGitPath(variables.data.file_path)}`, {
+          description: message,
+        });
       },
       onSettled: releaseFlight,
     },
@@ -105,7 +108,9 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
       onError: (mutationError, variables) => {
         const message = apiErrorMessage(mutationError, "Git could not unstage this path");
         setError({ action: "reset", filePath: variables.data.file_path, message });
-        toast.error(`Could not unstage ${variables.data.file_path}`, { description: message });
+        toast.error(`Could not unstage ${displayGitPath(variables.data.file_path)}`, {
+          description: message,
+        });
       },
       onSettled: releaseFlight,
     },
@@ -132,7 +137,7 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
             : null;
       if (message != null) {
         setError({ action: "stage", filePath, message });
-        toast.error(`Could not stage ${filePath}`, { description: message });
+        toast.error(`Could not stage ${displayGitPath(filePath)}`, { description: message });
         return;
       }
       if (!acquireFlight("stage", filePath)) return;

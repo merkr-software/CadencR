@@ -1,6 +1,7 @@
 import { useId, type ReactElement, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ChangedFile } from "@/api/generated";
+import { displayGitPath } from "@/lib/git-display-path";
 import type { ThemeAppearance } from "@/lib/themes";
 import { CopyButton } from "./CopyButton";
 import { NumStat } from "@/components/NumStat";
@@ -50,6 +51,8 @@ function DiffFileHeaderPrefix({
   statusIcon,
   onToggle,
 }: DiffFileHeaderPrefixProps): ReactElement {
+  // The copy button copies the real path; the label shows control characters escaped.
+  const shownName = displayGitPath(displayName);
   return (
     <>
       <CopyButton
@@ -64,7 +67,7 @@ function DiffFileHeaderPrefix({
             ? "flex min-w-0 flex-1 items-center gap-2 text-left"
             : "inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
         }
-        aria-label={isCollapsed ? `Expand ${displayName}` : `Collapse ${displayName}`}
+        aria-label={isCollapsed ? `Expand ${shownName}` : `Collapse ${shownName}`}
         onClick={onToggle}
       >
         {isCollapsed ? (
@@ -75,7 +78,7 @@ function DiffFileHeaderPrefix({
         {statusIcon}
         {/* Sans, 12px — matches Pierre's expanded [data-title] so the filename
             doesn't switch fonts between collapsed and expanded states. */}
-        {showName && <span className="min-w-0 flex-1 truncate text-xs">{displayName}</span>}
+        {showName && <span className="min-w-0 flex-1 truncate text-xs">{shownName}</span>}
       </button>
     </>
   );

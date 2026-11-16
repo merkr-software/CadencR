@@ -146,6 +146,38 @@ describe("auto-updater IPC", () => {
     expect(imageState.fetchChangelogImage).toHaveBeenCalledWith(source);
   });
 
+  it("keeps the wish to install once agents finish for a reloaded renderer", async () => {
+    const { initAutoUpdater, registerAutoUpdaterIpc, shutdownAutoUpdater } =
+      await import("./updater");
+    const window = mainWindow();
+    registerAutoUpdaterIpc({ getMainWindow: () => window });
+    initAutoUpdater({ getMainWindow: () => window });
+    const setWish = electronState.handlers.get("app:set-install-when-agents-finish");
+    const read = electronState.handlers.get("app:update-state");
+    expect(setWish).toBeDefined();
+
+    // Nothing downloaded yet: refused, not recorded.
+    expect(() => setWish?.(trustedEvent(), true)).toThrow("No downloaded update");
+    expect(() => setWish?.(trustedEvent(), "yes")).toThrow("must be a boolean");
+
+    const downloaded = updaterState.on.mock.calls.find(
+      ([event]) => event === "update-downloaded",
+    )?.[1] as (info: { version: string }) => void;
+    downloaded({ version: "0.2.0" });
+    expect(await setWish?.(trustedEvent(), true)).toMatchObject({ installWhenAgentsFinish: true });
+    expect(window.webContents.send).toHaveBeenLastCalledWith(
+      "update:state",
+      expect.objectContaining({ installWhenAgentsFinish: true }),
+    );
+    expect(await read?.(trustedEvent())).toMatchObject({ installWhenAgentsFinish: true });
+
+    // Installing settles the wish.
+    await electronState.handlers.get("app:install-update")?.(trustedEvent());
+    expect(updaterState.quitAndInstall).toHaveBeenCalledOnce();
+    expect(await read?.(trustedEvent())).toMatchObject({ installWhenAgentsFinish: false });
+    shutdownAutoUpdater();
+  });
+
   it("keeps the update state in the main process for a renderer that mounts later", async () => {
     const { initAutoUpdater, registerAutoUpdaterIpc, shutdownAutoUpdater } =
       await import("./updater");

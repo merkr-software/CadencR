@@ -166,6 +166,33 @@ describe("DiffFileBlock", () => {
     expect(onOpenFileInEditor).toHaveBeenCalledWith("src/foo.ts", undefined);
   });
 
+  it("shows a file name holding a newline escaped, and still acts on the real path", async () => {
+    const onOpenFileInEditor = vi.fn();
+    const indexActions = {
+      stage: vi.fn(),
+      reset: vi.fn(),
+      isPending: false,
+      pendingAction: null,
+      pendingPath: null,
+      error: null,
+    };
+    const { user } = render(
+      <DiffFileBlock
+        {...baseProps}
+        file={{ ...baseProps.file, file: "a\nb.txt" }}
+        isCollapsed
+        onOpenFileInEditor={onOpenFileInEditor}
+        indexActions={indexActions}
+      />,
+    );
+
+    expect(screen.getByText('"a\\nb.txt"')).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: 'Open "a\\nb.txt" in editor' }));
+    expect(onOpenFileInEditor).toHaveBeenCalledWith("a\nb.txt", undefined);
+    await user.click(screen.getByRole("button", { name: 'Stage "a\\nb.txt"' }));
+    expect(indexActions.stage).toHaveBeenCalledWith("a\nb.txt");
+  });
+
   it("surfaces the conflict banner for an unmerged file", () => {
     render(
       <DiffFileBlock

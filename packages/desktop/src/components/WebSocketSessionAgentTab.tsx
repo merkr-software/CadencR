@@ -19,6 +19,7 @@ import { isCompactActionPrompt } from "@/lib/provider-host-capabilities";
 import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
 import type { AgentSessionProps, SessionConfigControls } from "./agent-session/types";
+import { applyThinkingEffort } from "@/components/sessionThinkingEffort";
 
 type SessionControls = ReturnType<typeof useSessionControls>;
 const NO_SLASH_COMMANDS: NonNullable<AgentSessionProps["slashCommandsOverride"]> = [];
@@ -53,7 +54,7 @@ function useStableSessionCallbacks(controls: SessionControls) {
       onModelChange: (nextProviderId: string, modelId: string): void =>
         handleModelChange(nextProviderId, modelId, latest.current),
       onThinkingEffortChange: (effort: string | undefined): void =>
-        setEffort(latest.current, effort),
+        applyThinkingEffort(latest.current, effort),
       onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
     }),
     [latest],
@@ -180,14 +181,6 @@ function AgentTabContent({
       />
     </SessionInfoMcpServersProvider>
   );
-}
-
-function setEffort(controls: SessionControls, effort: string | undefined): void {
-  if (controls.supportsConfigInheritance)
-    void controls.ws
-      .setRuntimeOverrides({ thinking_effort: effort ?? null })
-      .catch((error) => toastError(error, "Could not update thinking effort"));
-  else controls.ws.setThinkingEffort(effort);
 }
 
 function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
@@ -319,9 +312,7 @@ export function handleModelChange(
   const currentProviderId = controls.ws.currentSelection?.providerId;
   if (currentProviderId !== undefined && currentProviderId === nextProviderId) {
     if (controls.supportsConfigInheritance) {
-      void controls.ws
-        .setRuntimeOverrides({ model: modelId })
-        .catch((error) => toastError(error, "Could not update model"));
+      controls.ws.queueRuntimeOverride({ model: modelId });
     } else controls.ws.setModel(modelId, nextProviderId);
   } else {
     controls.ws.setProvider(nextProviderId, modelId);

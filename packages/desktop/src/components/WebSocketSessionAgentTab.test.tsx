@@ -8,12 +8,14 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
   const setModel = vi.fn();
   const setThinkingEffort = vi.fn();
   const setRuntimeOverrides = vi.fn().mockResolvedValue(undefined);
+  const queueRuntimeOverride = vi.fn();
   const controls = {
     ws: {
       setProvider,
       setModel,
       setThinkingEffort,
       setRuntimeOverrides,
+      queueRuntimeOverride,
       currentThinkingEffort: undefined,
       currentSelection: currentProviderId
         ? { providerId: currentProviderId, modelId: "old-model" }
@@ -22,7 +24,14 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
     agentCatalog: { data: { providers: [] } },
     supportsConfigInheritance,
   } as unknown as Controls;
-  return { controls, setProvider, setModel, setThinkingEffort, setRuntimeOverrides };
+  return {
+    controls,
+    setProvider,
+    setModel,
+    setThinkingEffort,
+    setRuntimeOverrides,
+    queueRuntimeOverride,
+  };
 }
 
 describe("handleModelChange", () => {
@@ -62,10 +71,15 @@ describe("handleModelChange", () => {
     expect(setThinkingEffort).not.toHaveBeenCalled();
   });
 
-  it("uses an explicit model override only when config inheritance is supported", () => {
-    const { controls, setModel, setRuntimeOverrides } = makeControls("codex_cli", true);
+  it("queues an explicit model override only when config inheritance is supported", () => {
+    const { controls, setModel, setRuntimeOverrides, queueRuntimeOverride } = makeControls(
+      "codex_cli",
+      true,
+    );
     handleModelChange("codex_cli", "gpt-5.6-sol", controls);
-    expect(setRuntimeOverrides).toHaveBeenCalledWith({ model: "gpt-5.6-sol" });
+    // Through the session command queue, so it waits for a reconnect like model.set.
+    expect(queueRuntimeOverride).toHaveBeenCalledWith({ model: "gpt-5.6-sol" });
+    expect(setRuntimeOverrides).not.toHaveBeenCalled();
     expect(setModel).not.toHaveBeenCalled();
   });
 });

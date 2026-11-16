@@ -359,6 +359,8 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc(UPDATE_STATE_CHANNEL, cb),
   checkForUpdates: (): Promise<UpdateSnapshot> => ipcRenderer.invoke("app:check-for-updates"),
   installUpdate: (): Promise<void> => ipcRenderer.invoke("app:install-update"),
+  setInstallWhenAgentsFinish: (pending: boolean): Promise<UpdateSnapshot> =>
+    ipcRenderer.invoke("app:set-install-when-agents-finish", pending),
   fetchChangelog: (version: string): Promise<string | null> =>
     ipcRenderer.invoke("app:fetch-changelog", version),
   fetchChangelogImage: (src: string): Promise<ChangelogImageBytes> =>

@@ -370,6 +370,46 @@ describe("useGitDiffFileTreeModel display mode", () => {
     unmount();
   });
 
+  it("shows a name holding a newline escaped in the tree, and reports the real path", () => {
+    const onSelectionChange = vi.fn();
+    const files = [changedFile("a\nb.txt"), changedFile("dir\tx/c.ts"), changedFile("ok.ts")];
+    const { result, unmount } = renderHook(() =>
+      useGitDiffFileTreeModel({ files, onSelectionChange }),
+    );
+    const tree = render(<CadencrFileTree model={result.current.model} />);
+    const shadowRoot = result.current.model.getFileTreeContainer()?.shadowRoot;
+    const names = [...(shadowRoot?.querySelectorAll("[data-item-path]") ?? [])].map((row) =>
+      row.getAttribute("data-item-path"),
+    );
+    expect(names).toEqual(expect.arrayContaining(['"a\\nb.txt"', '"dir\\tx"/c.ts', "ok.ts"]));
+    expect(result.current.resolveFilePath('"a\\nb.txt"')).toBe("a\nb.txt");
+    expect(result.current.resolveFilePath("ok.ts")).toBe("ok.ts");
+
+    act(() => {
+      result.current.navigation.selectPath("a\nb.txt");
+    });
+    expect(onSelectionChange).toHaveBeenLastCalledWith("a\nb.txt");
+    expect(result.current.navigation.getActivePath()).toBe("a\nb.txt");
+    tree.unmount();
+    unmount();
+  });
+
+  it("walks escaped names in the diff pane's order", () => {
+    const files = [changedFile("a\nb.txt"), changedFile("0.ts")];
+    const { result, unmount } = renderHook(() =>
+      useGitDiffFileTreeModel({ files, onSelectionChange: vi.fn() }),
+    );
+    // The diff pane sorts real paths: "0.ts" comes first.
+    expect(sortChangedFilesForDiff(files).map((file) => file.file)).toEqual(["0.ts", "a\nb.txt"]);
+    let next: string | null = null;
+    act(() => {
+      result.current.navigation.selectPath("0.ts");
+      next = result.current.navigation.moveSelection(1);
+    });
+    expect(next).toBe("a\nb.txt");
+    unmount();
+  });
+
   it("sorts conflicted files ahead of other changes", () => {
     const ordered = sortChangedFilesForDiff([
       { ...changedFile("z.ts"), stage_state: FileStageState.unstaged },

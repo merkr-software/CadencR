@@ -7,6 +7,7 @@ import {
   type GitFileIndexAction,
   type GitFileIndexActions,
 } from "./useGitFileIndexActions";
+import { realGitDiffTreePath } from "./gitDiffTreePath";
 import { resolvedStageState } from "./useGitDiffFileTreeModel";
 import { useGitStageControlState, type GitStageControlState } from "./useGitStageControlState";
 import {
@@ -107,15 +108,16 @@ function syncRowAdornments(
     return;
   }
 
+  // `path` is the row's (escaped) tree path, for labels; actions take the real one.
   const pendingAction = controlState.pendingAction;
-  if (controlState.pendingPath === path && pendingAction) {
+  if (controlState.pendingPath === file.file && pendingAction) {
     ensureStageLoader(row, path, pendingAction);
     return;
   }
 
   row.querySelector(`[${LOADER_ATTR}]`)?.remove();
   const input = ensureCheckboxInput(row);
-  if (input.getAttribute(PATH_ATTR) !== path) input.setAttribute(PATH_ATTR, path);
+  if (input.getAttribute(PATH_ATTR) !== file.file) input.setAttribute(PATH_ATTR, file.file);
   const label = `Stage ${path}`;
   if (input.getAttribute("aria-label") !== label) input.setAttribute("aria-label", label);
   const availability = getGitFileActionAvailability(stageState);
@@ -142,8 +144,12 @@ function syncStageRow(
   byPath: ReadonlyMap<string, ChangedFile>,
   controlState: GitStageControlState,
 ): void {
+  // Rows carry the tree's escaped path (`gitDiffTreePath`); files are keyed by the real one.
   const path = row.getAttribute("data-item-path");
-  const file = row.getAttribute("data-item-type") === "file" && path ? byPath.get(path) : undefined;
+  const file =
+    row.getAttribute("data-item-type") === "file" && path
+      ? byPath.get(realGitDiffTreePath(path))
+      : undefined;
   syncRowAdornments(row, file, controlState);
 }
 

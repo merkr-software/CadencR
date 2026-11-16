@@ -122,6 +122,39 @@ describe("GitDiffFileTree with the real CadencrFileTree wrapper", () => {
     model.cleanUp();
   });
 
+  it("stages a file whose name holds a newline by its real path", async () => {
+    const odd: ChangedFile = { ...file, file: "a\nb.txt" };
+    const treePath = '"a\\nb.txt"';
+    const stage = vi.fn();
+    const model = new FileTree({ paths: [treePath], initialExpansion: "open" });
+    const { unmount } = render(
+      <GitDiffFileTree
+        model={model}
+        files={[odd]}
+        expandedFiles={new Set()}
+        indexActions={{ ...indexActions, stage }}
+        displayMode="tree"
+        isDisplayModePending={false}
+        onDisplayModeChange={vi.fn()}
+        resolveFilePath={(path) => (path === treePath ? odd.file : null)}
+        onToggleExpand={vi.fn()}
+      />,
+    );
+    const shadowRoot = model.getFileTreeContainer()?.shadowRoot;
+    // A CSS selector would read the backslash as an escape: match the label exactly instead.
+    const checkbox = (): HTMLInputElement | undefined =>
+      [
+        ...(shadowRoot?.querySelectorAll<HTMLInputElement>("input[data-cadencr-stage-checkbox]") ??
+          []),
+      ].find((input) => input.getAttribute("aria-label") === `Stage ${treePath}`);
+    await waitFor(() => expect(checkbox()).toBeDefined());
+
+    act(() => checkbox()?.click());
+    expect(stage).toHaveBeenCalledWith("a\nb.txt", { conflicted: false });
+    unmount();
+    model.cleanUp();
+  });
+
   it("keeps the loader until stage and reset state changes are confirmed", async () => {
     const model = new FileTree({
       paths: ["src/", file.file],

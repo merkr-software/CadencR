@@ -112,10 +112,16 @@ export interface WsSessionStore {
   setThinkingEffort: (sessionId: string, thinkingEffort?: string) => void;
   setFastMode: (sessionId: string, enabled: boolean) => Promise<void>;
   setProfile: (sessionId: string, profile: string) => void;
+  /** A request: resolves once the backend answers (fast mode waits on it). */
   setRuntimeOverrides: (
     sessionId: string,
     patch: import("@/lib/ws-envelope").RuntimeConfigOverridePatch,
   ) => Promise<void>;
+  /** A model or effort override, sent like `model.set`: it waits for a reconnect. */
+  queueRuntimeOverride: (
+    sessionId: string,
+    setting: import("@/lib/ws-envelope").RuntimeSettingOverride,
+  ) => void;
   setPermissionMode: (sessionId: string, mode: PermissionMode) => void;
   setAccessMode: (sessionId: string, mode: AccessMode) => void;
   approvePlan: (sessionId: string) => void;

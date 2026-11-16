@@ -11,11 +11,16 @@
  *
  * Replay is bounded. A non-idempotent command (stop, clear, close a gate)
  * never waits for a reconnect — replaying a Stop 30 s later would kill
- * another turn — so it fails at once when the socket is down. A setting may
- * wait in the outbound queue for a short TTL, then expires visibly rather
- * than overwriting a choice made since on another device.
+ * another turn — so it fails at once when the socket is down. A setting
+ * (model, effort, mode, …) is the user's latest intent: while the socket is
+ * down only the newest of each kind waits in the outbound queue, shown as
+ * waiting (`queuedCommandActions`), and leaves with the reconnect. The
+ * confirmed value still changes only on the backend's answer. If automatic
+ * reconnects give up, the waiting settings expire visibly
+ * (`expireQueuedCommands`).
  */
 import { toast } from "sonner";
+import { isReconnectPaused } from "@/lib/ws-reconnect";
 import type { WsEnvelope } from "@/lib/ws-envelope";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { handleCommandError } from "./ws-envelope-error-handler";
@@ -35,8 +40,6 @@ export interface SessionCommandSpec {
   satisfiedBy?: ReadonlySet<string>;
 }
 
-/** How long a replayable command may wait in the queue for a reconnect. */
-export const COMMAND_QUEUE_TTL_MS = 5_000;
 /**
  * A stop the agent ignores is escalated by the backend (the process is ended
  * and `AGENT_STOP_ESCALATED` shown) within about 25 s: Claude Code gets 15 s to
@@ -70,15 +73,33 @@ export const SESSION_COMMANDS = {
   profile: { failure: "Couldn't switch profile", replay: true },
   mode: { failure: "Couldn't change permission mode", replay: true },
   accessMode: { failure: "Couldn't change access mode", replay: true },
+  // Providers whose model and effort are runtime overrides (Codex).
+  runtimeModel: { failure: "Couldn't switch model", replay: true },
+  runtimeEffort: { failure: "Couldn't change thinking effort", replay: true },
 } as const satisfies Record<string, SessionCommandSpec>;
 
 const NOT_CONNECTED = "Not connected to the backend. Try again once it reconnects.";
 
+/** Keeps the previous array when nothing changed, so selectors of it do not re-render. */
+function sameOr(previous: readonly string[], next: string[]): readonly string[] {
+  return previous.length === next.length && previous.every((action, i) => action === next[i])
+    ? previous
+    : next;
+}
+
 function setPendingActions(ctx: StoreAccessors, sessionId: string): void {
-  if (!ctx.get().sessions[sessionId]) return;
-  const commands = ctx.transport.get(sessionId)?.pendingCommands;
-  const actions = commands ? [...commands.values()].map((c) => c.envelope.action) : [];
-  ctx.set(updateSession(ctx.get(), sessionId, { pendingCommandActions: actions }));
+  const session = ctx.get().sessions[sessionId];
+  if (!session) return;
+  const commands = [...(ctx.transport.get(sessionId)?.pendingCommands.values() ?? [])];
+  ctx.set(
+    updateSession(ctx.get(), sessionId, {
+      pendingCommandActions: commands.map((c) => c.envelope.action),
+      queuedCommandActions: sameOr(
+        session.queuedCommandActions,
+        commands.filter((c) => c.queued).map((c) => commandKind(c.envelope)),
+      ),
+    }),
+  );
 }
 
 function settle(ctx: StoreAccessors, sessionId: string, envelopeId: string) {
@@ -95,20 +116,38 @@ function reportUnsent(failure: string, envelopeId: string): void {
   toast.error(failure, { id: `ws-command:${envelopeId}`, description: NOT_CONNECTED });
 }
 
-/** Its window closed: silence means success, unless it never left the queue. */
-function expireCommand(ctx: StoreAccessors, sessionId: string, envelopeId: string): void {
-  const stillQueued = ctx.transport.unqueue(sessionId, envelopeId);
-  const command = settle(ctx, sessionId, envelopeId);
-  if (command && stillQueued) reportUnsent(command.spec.failure, envelopeId);
+/** On the wire: once its window closes, silence means success. */
+function armAckTimer(ctx: StoreAccessors, sessionId: string, command: PendingSessionCommand): void {
+  clearTimeout(command.timer);
+  command.timer = setTimeout(
+    () => settle(ctx, sessionId, command.envelope.id),
+    command.spec.ackWindowMs ?? WS_REPLY_TIMEOUT_MS,
+  );
 }
 
-function armTimer(ctx: StoreAccessors, sessionId: string, command: PendingSessionCommand): void {
-  clearTimeout(command.timer);
-  const ms =
-    command.queuedUntil == null
-      ? (command.spec.ackWindowMs ?? WS_REPLY_TIMEOUT_MS)
-      : COMMAND_QUEUE_TTL_MS;
-  command.timer = setTimeout(() => expireCommand(ctx, sessionId, command.envelope.id), ms);
+/**
+ * What a waiting setting is: its action, or for a runtime override patch the
+ * fields it sets (a model change must not replace a waiting effort change).
+ */
+export function commandKind(envelope: WsEnvelope): string {
+  if (envelope.action !== "runtime_overrides.set") return envelope.action;
+  const payload = envelope.payload;
+  const patch =
+    payload && typeof payload === "object" && "runtime_overrides" in payload
+      ? payload.runtime_overrides
+      : null;
+  const fields = patch && typeof patch === "object" ? Object.keys(patch).sort() : [];
+  return `${envelope.action}:${fields.join(",")}`;
+}
+
+/** A newer setting of the same kind replaces the one still waiting: only the latest is sent. */
+function supersedeQueued(ctx: StoreAccessors, sessionId: string, kind: string): void {
+  const commands = ctx.transport.get(sessionId)?.pendingCommands;
+  for (const command of [...(commands?.values() ?? [])]) {
+    if (!command.queued || commandKind(command.envelope) !== kind) continue;
+    ctx.transport.unqueue(sessionId, command.envelope.id);
+    settle(ctx, sessionId, command.envelope.id);
+  }
 }
 
 /**
@@ -124,19 +163,20 @@ export function sendSessionCommand(
   if (!ctx.get().sessions[sessionId]) return false;
   const transport = ctx.transport.ensure(sessionId);
   const sent = transport.conn?.sendJson(envelope) ?? false;
-  if (!sent && !spec.replay) {
+  // A setting may wait for a reconnect that is coming; while reconnects are
+  // paused for a manual retry, none is, so it fails at once like a Stop.
+  const paused = transport.reconnectKey !== null && isReconnectPaused(transport.reconnectKey);
+  if (!sent && (!spec.replay || paused)) {
     reportUnsent(spec.failure, envelope.id);
     return false;
   }
-  if (!sent) transport.outboundQueue.push(envelope);
-  const command: PendingSessionCommand = {
-    envelope,
-    spec,
-    queuedUntil: sent ? null : Date.now() + COMMAND_QUEUE_TTL_MS,
-    timer: undefined,
-  };
+  if (!sent) {
+    supersedeQueued(ctx, sessionId, commandKind(envelope));
+    transport.outboundQueue.push(envelope);
+  }
+  const command: PendingSessionCommand = { envelope, spec, queued: !sent, timer: undefined };
   transport.pendingCommands.set(envelope.id, command);
-  armTimer(ctx, sessionId, command);
+  if (sent) armAckTimer(ctx, sessionId, command);
   setPendingActions(ctx, sessionId);
   return true;
 }
@@ -146,30 +186,41 @@ export function queuedCommandHooks(ctx: StoreAccessors, sessionId: string) {
   return {
     onSent(envelopeId: string): void {
       const command = ctx.transport.get(sessionId)?.pendingCommands.get(envelopeId);
-      if (!command || command.queuedUntil == null) return;
-      command.queuedUntil = null;
-      armTimer(ctx, sessionId, command);
-    },
-    /** It outlived its TTL: dropped, never replayed late. */
-    onExpired(command: PendingSessionCommand): void {
-      if (settle(ctx, sessionId, command.envelope.id)) {
-        reportUnsent(command.spec.failure, command.envelope.id);
-      }
+      if (!command?.queued) return;
+      command.queued = false;
+      armAckTimer(ctx, sessionId, command);
+      setPendingActions(ctx, sessionId);
     },
   };
 }
 
 /**
+ * Automatic reconnects gave up: the settings still waiting are dropped and
+ * reported, never sent by a manual retry minutes later. New ones are refused
+ * while the reconnect registry keeps the socket paused (until "Retry now").
+ */
+export function expireQueuedCommands(ctx: StoreAccessors, sessionId: string): void {
+  const transport = ctx.transport.get(sessionId);
+  if (!transport) return;
+  for (const command of [...transport.pendingCommands.values()]) {
+    if (!command.queued) continue;
+    ctx.transport.unqueue(sessionId, command.envelope.id);
+    settle(ctx, sessionId, command.envelope.id);
+    reportUnsent(command.spec.failure, command.envelope.id);
+  }
+}
+
+/**
  * The socket dropped. Requests fail now; commands already on the wire have an
- * unknown outcome and must not be replayed, so say so. Queued replayable
- * commands keep their TTL.
+ * unknown outcome and must not be replayed, so say so. Queued settings keep
+ * waiting for the reconnect.
  */
 export function abandonInFlight(ctx: StoreAccessors, sessionId: string): void {
   ctx.transport.rejectPendingRequests(sessionId);
   const transport = ctx.transport.get(sessionId);
   if (!transport?.pendingCommands.size) return;
   for (const command of [...transport.pendingCommands.values()]) {
-    if (command.queuedUntil != null) continue;
+    if (command.queued) continue;
     settle(ctx, sessionId, command.envelope.id);
     toast.warning(command.spec.failure, {
       id: `ws-command:${command.envelope.id}`,

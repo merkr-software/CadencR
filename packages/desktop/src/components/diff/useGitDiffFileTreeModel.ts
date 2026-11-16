@@ -16,6 +16,12 @@ import {
 import { useCadencrFileTree } from "@/components/file-tree/CadencrFileTree";
 import { expandFileTreeAncestors } from "@/components/file-tree/revealInFileTree";
 import {
+  gitDiffTreeFiles,
+  gitDiffTreePath,
+  realGitDiffTreePath,
+  realPathNavigation,
+} from "./gitDiffTreePath";
+import {
   useGitDiffTreeDisplaySetting,
   type GitDiffTreeDisplayMode,
 } from "./useGitDiffTreeDisplaySetting";
@@ -298,7 +304,7 @@ function useConflictSort(files: readonly ChangedFile[]) {
 }
 
 export function useGitDiffFileTreeModel({
-  files,
+  files: changedFiles,
   onSelectionChange,
   reviewCountsByFile,
 }: UseGitDiffFileTreeModelOptions): GitDiffFileTreeModelResult {
@@ -307,6 +313,8 @@ export function useGitDiffFileTreeModel({
     setDisplayMode,
     isPending: isDisplayModePending,
   } = useGitDiffTreeDisplaySetting();
+  // The tree names a file by its escaped path; everything handed out is real.
+  const files = useMemo(() => gitDiffTreeFiles(changedFiles), [changedFiles]);
   const paths = useMemo(() => buildGitDiffTreePaths(files), [files]);
   const gitStatus = useMemo(() => buildGitDiffTreeStatus(files), [files]);
   const fileByPath = useMemo(() => new Map(files.map((file) => [file.file, file])), [files]);
@@ -314,14 +322,14 @@ export function useGitDiffFileTreeModel({
   // Mirrors `DiffContent`'s render order so keyboard navigation moves down the
   // diff pane rather than down the tree.
   const orderedPaths = useMemo(
-    () => sortChangedFilesForDiff(files).map((file) => file.file),
-    [files],
+    () => sortChangedFilesForDiff(changedFiles).map((file) => gitDiffTreePath(file.file)),
+    [changedFiles],
   );
   const conflictSort = useConflictSort(files);
   const handleSelectionChange = useCallback(
     (selectedPaths: readonly string[]): void => {
       const selectedPath = selectedPaths.findLast((path) => filePaths.has(path));
-      if (selectedPath) onSelectionChange(selectedPath);
+      if (selectedPath) onSelectionChange(realGitDiffTreePath(selectedPath));
     },
     [filePaths, onSelectionChange],
   );
@@ -331,7 +339,9 @@ export function useGitDiffFileTreeModel({
       const file = fileByPath.get(item.path);
       const conflict = file ? gitDiffTreeConflictDecoration(file) : null;
       const reviewCount =
-        displayMode === "filenames" ? (reviewCountsByFile?.get(item.path) ?? 0) : 0;
+        displayMode === "filenames"
+          ? (reviewCountsByFile?.get(realGitDiffTreePath(item.path)) ?? 0)
+          : 0;
       return reviewDecoration(reviewCount, conflict);
     },
     [displayMode, fileByPath, reviewCountsByFile],
@@ -356,10 +366,12 @@ export function useGitDiffFileTreeModel({
     renderRowDecoration,
     rowDecorationVersion: renderRowDecoration,
   });
-  const activePath = useActivePath(model, filePaths);
-  const navigation = useNavigationAdapter(model, filePaths, orderedPaths);
+  const activeTreePath = useActivePath(model, filePaths);
+  const activePath = activeTreePath == null ? null : realGitDiffTreePath(activeTreePath);
+  const treeNavigation = useNavigationAdapter(model, filePaths, orderedPaths);
+  const navigation = useMemo(() => realPathNavigation(treeNavigation), [treeNavigation]);
   const resolveFilePath = useCallback(
-    (treePath: string) => (filePaths.has(treePath) ? treePath : null),
+    (path: string) => (filePaths.has(path) ? realGitDiffTreePath(path) : null),
     [filePaths],
   );
 

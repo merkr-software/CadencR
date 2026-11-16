@@ -90,4 +90,42 @@ describe("reduceUpdateSnapshot", () => {
       reduceUpdateSnapshot(progress, { kind: "download-progress", percent: 10, bytesPerSecond: 9 }),
     ).toBe(progress);
   });
+
+  it("keeps the wish to install once agents finish, for a downloaded update only", () => {
+    const wish = { kind: "install-when-agents-finish", pending: true } as const;
+    expect(fold([wish]).installWhenAgentsFinish).toBe(false);
+
+    const downloaded = fold([{ kind: "downloaded", version: "0.2.0" }]);
+    const waiting = reduceUpdateSnapshot(downloaded, wish);
+    expect(waiting).toMatchObject({ installWhenAgentsFinish: true, status: "downloaded" });
+    expect(waiting.revision).toBe(downloaded.revision + 1);
+    expect(reduceUpdateSnapshot(waiting, wish)).toBe(waiting);
+
+    const cancelled = reduceUpdateSnapshot(waiting, {
+      kind: "install-when-agents-finish",
+      pending: false,
+    });
+    expect(cancelled.installWhenAgentsFinish).toBe(false);
+  });
+
+  it("drops the wish once no update is on its way or ready", () => {
+    const downloaded = fold([{ kind: "downloaded", version: "0.2.0" }]);
+    const waiting = reduceUpdateSnapshot(downloaded, {
+      kind: "install-when-agents-finish",
+      pending: true,
+    });
+    // A new check or download keeps it: the update it waits for is still coming.
+    expect(fold([{ kind: "checking" }], waiting).installWhenAgentsFinish).toBe(true);
+    expect(
+      fold([{ kind: "download-progress", percent: 3, bytesPerSecond: 1 }], waiting)
+        .installWhenAgentsFinish,
+    ).toBe(true);
+    // A failure or "up to date" leaves nothing to install: the wish is settled.
+    expect(fold([{ kind: "error", message: "offline" }], waiting).installWhenAgentsFinish).toBe(
+      false,
+    );
+    expect(
+      fold([{ kind: "not-available", version: "0.1.0" }], waiting).installWhenAgentsFinish,
+    ).toBe(false);
+  });
 });
