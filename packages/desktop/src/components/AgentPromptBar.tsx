@@ -14,6 +14,7 @@ import { ShellCommandModeMarker } from "./ShellCommandModeMarker";
 import { SplitSendActions } from "./SplitSendActions";
 import { ToolPermissionPrompt } from "./ToolPermissionPrompt";
 import { AssistMenu } from "./composer/AssistMenu";
+import { QueuedSettingsHint } from "./composer/QueuedSettingsHint";
 import { CompactionHint } from "./composer/CompactionHint";
 import { ComposerContextProvider, ComposerDraftProvider } from "./composer/ComposerContext";
 import { ContextMeter } from "./composer/ContextMeter";
@@ -251,6 +252,7 @@ function ComposerInstruments({
       <InstrumentPlacementContext.Provider value={place}>
         {props.instrumentLeading}
       </InstrumentPlacementContext.Provider>
+      {place("queued-settings", <QueuedSettingsHint wsSessionId={props.wsSessionId} />)}
       {place("compaction", <CompactionHint />)}
       {place("meter", <ContextMeter />)}
       {place("todos", props.instrumentTrailing)}

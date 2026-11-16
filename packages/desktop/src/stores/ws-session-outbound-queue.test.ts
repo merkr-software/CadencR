@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore } from "./ws-session-store";
 import { createSessionEnvelope } from "@/lib/ws-envelope";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
-import { COMMAND_QUEUE_TTL_MS } from "./ws-session-commands";
+import { AUTO_RECONNECT_TIMEOUT_MS, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
 import { SESSION_ACTION } from "./ws-session-action-names";
 
 const { toastError, toastWarning } = vi.hoisted(() => ({
@@ -34,6 +34,8 @@ class MockWebSocket {
   static CONNECTING = 0;
   static CLOSED = 3;
   static instances: MockWebSocket[] = [];
+  /** The service is down: every new socket fails its upgrade. */
+  static failOpen = false;
 
   readyState = MockWebSocket.OPEN;
   sent: string[] = [];
@@ -41,7 +43,15 @@ class MockWebSocket {
 
   constructor(_url: string) {
     MockWebSocket.instances.push(this);
-    Promise.resolve().then(() => this.fireEvent("open"));
+    Promise.resolve().then(() => {
+      if (!MockWebSocket.failOpen) {
+        this.fireEvent("open");
+        return;
+      }
+      this.readyState = MockWebSocket.CLOSED;
+      this.fireEvent("error");
+      this.fireEvent("close", { code: 1006 });
+    });
   }
 
   addEventListener(event: string, cb: (...args: unknown[]) => void) {
@@ -163,20 +173,68 @@ describe("ws-session outbound queue", () => {
     expect(sentActions(getWs())).not.toContain("session.interrupt");
   });
 
-  it("drops a queued setting that outlived its TTL instead of replaying it late", async () => {
+  it("replays a setting changed during an abnormal drop once the reconnect floor has passed", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+    vi.useFakeTimers();
+    try {
+      // The service went away: the browser reports a 1006, so the next retry
+      // waits at least the rate-limit floor.
+      ws.readyState = MockWebSocket.CLOSED;
+      ws.fireEvent("close", { code: 1006 });
+      store.setModel("s1", "opus", "claude-code");
+
+      await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS + 100);
+
+      expect(getWs()).not.toBe(ws);
+      expect(sentActions(getWs())).toContain("session.model.set");
+      expect(toastError).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps only the latest setting of each kind while disconnected", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
-    const now = vi.spyOn(Date, "now");
-    now.mockReturnValue(1_000);
     store.setModel("s1", "opus", "claude-code");
+    store.setThinkingEffort("s1", "high");
+    store.setModel("s1", "sonnet", "claude-code");
+    expect(useWsSessionStore.getState().sessions.s1.queuedCommandActions).toEqual([
+      "effort.set",
+      "model.set",
+    ]);
 
-    now.mockReturnValue(1_000 + COMMAND_QUEUE_TTL_MS + 1);
     store.connect("s1");
     await tick();
 
-    expect(sentActions(getWs())).not.toContain("session.model.set");
-    expect(toastError).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
-    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+    const models = getWs()
+      .sent.map((raw) => JSON.parse(raw) as { action: string; payload: { model?: string } })
+      .filter((envelope) => envelope.action === "model.set")
+      .map((envelope) => envelope.payload.model);
+    expect(models).toEqual(["sonnet"]);
+    expect(sentActions(getWs())).toContain("session.effort.set");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("shows a queued setting as waiting until it leaves with the reconnect", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setPermissionMode("s1", "plan");
+    const waiting = useWsSessionStore.getState().sessions.s1;
+    expect(waiting.queuedCommandActions).toEqual(["mode.set"]);
+    // No optimistic write: the chip keeps the backend-confirmed mode.
+    expect(waiting.permissionMode).not.toBe("plan");
+
+    store.connect("s1");
+    await tick();
+
+    const sent = useWsSessionStore.getState().sessions.s1;
+    expect(sent.queuedCommandActions).toEqual([]);
+    expect(sent.pendingCommandActions).toEqual(["mode.set"]);
   });
 
   it("presents a failed command by the command, not as a turn error", async () => {
@@ -325,15 +383,44 @@ describe("ws-session outbound queue", () => {
     );
   });
 
-  it("reports a queued setting as unsent once its TTL passes without a reconnect", async () => {
-    await connectInitializedThenDrop();
+  it("reports a queued setting as unsent once automatic reconnects give up", async () => {
     vi.useFakeTimers();
     try {
-      useWsSessionStore.getState().setModel("s1", "opus", "claude-code");
-      vi.advanceTimersByTime(COMMAND_QUEUE_TTL_MS);
+      // Its own session: the reconnect registry stays paused for this key.
+      const store = useWsSessionStore.getState();
+      store.connect("s-gives-up");
+      await vi.advanceTimersByTimeAsync(0);
+      const ws = getWs();
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "8" },
+      });
+      MockWebSocket.failOpen = true;
+      ws.readyState = MockWebSocket.CLOSED;
+      ws.fireEvent("close", { code: 1006 });
+      useWsSessionStore.getState().setModel("s-gives-up", "opus", "claude-code");
+      // Every retry fails, as long as the service stays down.
+      await vi.advanceTimersByTimeAsync(AUTO_RECONNECT_TIMEOUT_MS / 2);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([
+        "model.set",
+      ]);
+
+      await vi.advanceTimersByTimeAsync(AUTO_RECONNECT_TIMEOUT_MS);
       expect(toastError).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
-      expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+      const session = useWsSessionStore.getState().sessions["s-gives-up"];
+      expect(session.queuedCommandActions).toEqual([]);
+      expect(session.pendingCommandActions).toEqual([]);
+
+      // Reconnects are paused for a manual retry: a new setting is refused at
+      // once, not parked until someone presses "Retry now".
+      toastError.mockClear();
+      useWsSessionStore.getState().setThinkingEffort("s-gives-up", "high");
+      expect(toastError).toHaveBeenCalledWith("Couldn't change thinking effort", expect.anything());
+      expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([]);
     } finally {
+      MockWebSocket.failOpen = false;
       vi.useRealTimers();
     }
   });

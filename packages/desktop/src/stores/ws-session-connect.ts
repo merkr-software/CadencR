@@ -16,7 +16,7 @@ import {
   WS_RECONNECTING_CODE,
 } from "./ws-session-types";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
-import { abandonInFlight } from "./ws-session-commands";
+import { abandonInFlight, expireQueuedCommands } from "./ws-session-commands";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import { handleSocketMessage, type SocketHandlerDeps } from "./ws-session-socket-handler";
 
@@ -37,7 +37,8 @@ interface SessionConnectionContext {
 
 /** Open and current: replayed init and queued commands follow (see `createSessionConnection`). */
 function markConnected(context: SessionConnectionContext): void {
-  const { get, set } = context.deps.ctx;
+  const { get, set, transport } = context.deps.ctx;
+  transport.ensure(context.sessionId).reconnectPaused = false;
   set(updateSession(get(), context.sessionId, { isConnected: true, isConnecting: false }));
 }
 
@@ -122,6 +123,7 @@ function createSessionConnection(context: SessionConnectionContext): WsConnectio
     onMessage: (data) => handleSocketMessage(socketDeps, sessionId, data),
     onDrop: (drop) => handleConnectionDrop(context, drop),
     reconnect: () => ctx.get().connect(sessionId),
+    onRetriesExhausted: () => expireQueuedCommands(ctx, sessionId),
   });
 }
 
@@ -136,7 +138,11 @@ export function connectSession(deps: ConnectSessionDeps, sessionId: string): voi
 
   const entry = existing ?? createSessionEntry();
   const reconnectKey = sourceKey(sessionId);
-  registerSocketRetry(reconnectKey, () => forceReconnectSession(sessionId));
+  registerSocketRetry(
+    reconnectKey,
+    () => forceReconnectSession(sessionId),
+    () => expireQueuedCommands(ctx, sessionId),
+  );
   const context: SessionConnectionContext = { deps, sessionId, reconnectKey };
   transport.conn = createSessionConnection(context);
 

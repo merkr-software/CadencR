@@ -7,6 +7,7 @@ const WIDTHS: InstrumentWidths = {
   mode: 90,
   model: 220,
   access: 80,
+  "queued-settings": 0,
   compaction: 0,
   meter: 70,
   todos: 0,
@@ -31,7 +32,16 @@ describe("zoneSlots", () => {
       topLeft: ["mode", "model"],
       topRight: ["access"],
       bottomLeft: ["autoscroll"],
-      bottomRight: ["compaction", "meter", "todos", "history", "assist", "stop-arm", "actions"],
+      bottomRight: [
+        "queued-settings",
+        "compaction",
+        "meter",
+        "todos",
+        "history",
+        "assist",
+        "stop-arm",
+        "actions",
+      ],
     });
   });
 

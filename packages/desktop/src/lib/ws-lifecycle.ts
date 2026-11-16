@@ -18,7 +18,8 @@
  *   reach its `onDrop`.
  * - **Manual retry:** a socket that reports to the connection status registers
  *   its forced reconnect, so "Retry now" and the wake watchdog reach it, and
- *   reports when automatic retries give up.
+ *   reports when automatic retries give up (`onRetriesExhausted` lets the
+ *   owner drop what was waiting for them).
  */
 
 import {
@@ -80,6 +81,8 @@ export interface LifecycleSocketOptions {
   reconnect: () => void;
   /** Whether a drop is worth retrying (default: always). */
   shouldRetry?: () => boolean;
+  /** Automatic retries gave up (reported sockets only): what waited for them is lost. */
+  onRetriesExhausted?: () => void;
 }
 
 /** Minimum wait before retrying this socket (the shared 1013 hold is recorded apart). */
@@ -97,6 +100,14 @@ function dropReason(label: string, drop: SocketDrop): string {
   return `${label} closed (${drop.code})`;
 }
 
+/** Reports the pause, then lets the owner drop what was waiting for a reconnect. */
+function manualRequiredHandler(onRetriesExhausted?: () => void): (key: string) => void {
+  return (key) => {
+    reportManualReconnectRequired(key);
+    onRetriesExhausted?.();
+  };
+}
+
 function scheduleRetry(options: LifecycleSocketOptions, drop: SocketDrop): void {
   const label = options.statusLabel;
   if (label !== undefined) {
@@ -107,7 +118,8 @@ function scheduleRetry(options: LifecycleSocketOptions, drop: SocketDrop): void 
   if (options.shouldRetry && !options.shouldRetry()) return;
   scheduleReconnect(options.key, options.reconnect, {
     minimumDelayMs: retryFloorMs(drop),
-    onManualRequired: label === undefined ? undefined : reportManualReconnectRequired,
+    onManualRequired:
+      label === undefined ? undefined : manualRequiredHandler(options.onRetriesExhausted),
   });
 }
 
@@ -166,8 +178,14 @@ export function openLifecycleSocket(options: LifecycleSocketOptions): WsConnecti
  * Lets "Retry now" and the wake watchdog force a reconnect of this socket, and
  * reports when its automatic retries give up.
  */
-export function registerSocketRetry(key: string, forceReconnect: () => void): void {
-  registerReconnector(key, forceReconnect, { onManualRequired: reportManualReconnectRequired });
+export function registerSocketRetry(
+  key: string,
+  forceReconnect: () => void,
+  onRetriesExhausted?: () => void,
+): void {
+  registerReconnector(key, forceReconnect, {
+    onManualRequired: manualRequiredHandler(onRetriesExhausted),
+  });
 }
 
 /** The socket is gone for good: no retry, no status source left behind. */

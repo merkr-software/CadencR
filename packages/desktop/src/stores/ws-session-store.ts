@@ -68,6 +68,8 @@ function forceReconnectSession(ctx: StoreAccessors, sessionId: string): void {
   const { set, get, transport } = ctx;
   const session = get().sessions[sessionId];
   const resources = transport.get(sessionId);
+  // "Retry now" (or a wake) resumes reconnecting: a setting may wait again.
+  if (resources) resources.reconnectPaused = false;
   if (resources?.conn) {
     abandonInFlight(ctx, sessionId);
     const conn = resources.conn;

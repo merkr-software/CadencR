@@ -172,6 +172,11 @@ export interface SessionEntry extends SessionConfigState {
    * Drives "stopping…"-style sending states; see `ws-session-commands`.
    */
   pendingCommandActions: readonly string[];
+  /**
+   * The subset of `pendingCommandActions` still waiting in the outbound queue
+   * for the socket to reopen (a setting changed while disconnected).
+   */
+  queuedCommandActions: readonly string[];
   /** Stable idempotency keys retained while permission responses may be retried. */
   permissionResponseMessageUuids: Map<string, string>;
   pendingQuestions: AgentQuestion[];
@@ -263,6 +268,7 @@ export function createSessionEntry(): SessionEntry {
     pendingRequestId: "",
     submittingPermissionRequestId: null,
     pendingCommandActions: [],
+    queuedCommandActions: [],
     permissionResponseMessageUuids: new Map(),
     pendingQuestions: [],
     pendingQuestionToolInput: {},
