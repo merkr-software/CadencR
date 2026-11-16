@@ -182,7 +182,14 @@ pub fn select_best(candidates: &[Candidate]) -> Option<&Candidate> {
 /// launched from Finder/Dock) is found the same way `NeovimManager::start`
 /// will later resolve it when spawning the headless process.
 pub async fn detect_nvim() -> bool {
-    let spec = DiscoverySpec {
+    let candidates = discover_all(&nvim_spec(), None).await;
+    select_best(&candidates).is_some()
+}
+
+/// `nvim` and nothing that merely shares its name: a run must succeed and
+/// print `NVIM` with a version.
+fn nvim_spec() -> DiscoverySpec {
+    DiscoverySpec {
         bin_name: "nvim".to_string(),
         well_known_relative_to_home: vec![],
         well_known_absolute: vec![
@@ -193,25 +200,33 @@ pub async fn detect_nvim() -> bool {
         ],
         version_args: vec!["--version".to_string()],
         version_must_contain: Some("NVIM".to_string()),
-    };
-    let candidates = discover_all(&spec, None).await;
-    select_best(&candidates).is_some()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tests_support::{dummy_spec, make_executable_with_body};
+    use crate::version::VersionProbe;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn detect_nvim_returns_true_when_binary_available() {
-        let expected = std::process::Command::new("nvim")
-            .arg("--version")
-            .output()
-            .is_ok();
-        let detected = detect_nvim().await;
-        assert_eq!(detected, expected);
+    /// Judged on recorded output, not on a run of the installed `nvim`,
+    /// whose start-up can outlast the probe's deadline on a loaded machine.
+    #[test]
+    fn the_nvim_probe_accepts_neovim_and_nothing_else() {
+        let spec = nvim_spec();
+        assert_eq!(spec.bin_name, "nvim");
+        let needle = spec.version_must_contain.as_deref().unwrap();
+        let probe = |output: &str, success| VersionProbe::from_output(output.into(), success);
+        let neovim = "NVIM v0.11.4\nBuild type: Release\nLuaJIT 2.1.1741730670\n";
+        assert!(probe(neovim, true).passes_filter(needle));
+        assert!(
+            !probe(neovim, false).passes_filter(needle),
+            "a failed run is not an install"
+        );
+        let vim = "VIM - Vi IMproved 9.1.1000 (2024 Jan 02)\n";
+        assert!(!probe(vim, true).passes_filter(needle));
+        assert!(!probe("nvim: command not found\n", true).passes_filter(needle));
     }
 
     #[test]

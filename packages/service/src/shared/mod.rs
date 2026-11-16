@@ -28,6 +28,7 @@ pub mod no_replace_rename;
 pub mod path_rebase;
 pub mod private_temp;
 pub mod process_group;
+pub mod process_table;
 pub mod quarantine;
 pub mod security;
 pub mod setup_log;

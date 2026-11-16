@@ -43,7 +43,7 @@ async fn scan_now(state: &AppState) -> Result<Vec<FeaturePorts>, AppError> {
     Ok(attribute(resolved, &cwds, &feature_dirs))
 }
 
-/// A missing `lsof`/`ps` is an install problem the user can fix, so it gets a
+/// A missing `lsof` is an install problem the user can fix, so it gets a
 /// stable code and an actionable message; anything else stays internal.
 #[track_caller]
 fn scan_error(context: &str, error: anyhow::Error) -> AppError {

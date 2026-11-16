@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use super::models::{AllocatedPort, FeaturePorts, PortSource};
 use super::scan::ListenSocket;
 
-/// Guard against a corrupt or racing `ps` snapshot producing a parent cycle.
+/// Guard against a process table snapshot, read while processes come and go,
+/// producing a parent cycle.
 const MAX_ANCESTRY_DEPTH: usize = 64;
 
 /// A feature's worktree directory. Only worktree paths are used for
@@ -39,7 +40,8 @@ pub struct ResolvedSocket<'a> {
 }
 
 /// Claim every socket a live terminal or agent can account for. The chain is
-/// kept so the directory pass can reuse it without walking `ps` a second time.
+/// kept so the directory pass can reuse it without walking the process table
+/// a second time.
 pub fn resolve<'a>(
     sockets: &'a [ListenSocket],
     parents: &HashMap<i32, i32>,

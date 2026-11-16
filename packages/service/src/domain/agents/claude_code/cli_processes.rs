@@ -28,8 +28,7 @@ use std::time::Duration;
 
 use tokio::sync::Mutex;
 
-use crate::domain::ports::scan::{process_links, ProcessLinks};
-use crate::domain::restart_continuations::process_identity;
+use crate::shared::process_table::{self, ProcessLinks};
 
 /// How long what the CLI left gets to exit on SIGTERM before SIGKILL.
 const STOP_GRACE: Duration = Duration::from_secs(2);
@@ -125,13 +124,13 @@ impl CliProcesses {
 }
 
 async fn note_child_groups(cli: u32, groups: &mut NotedGroups) -> anyhow::Result<()> {
-    let links = process_links().await?;
+    let links = process_table::links().await?;
     // A group that is gone may see its id reused from now on.
     let live: HashSet<i32> = links.values().map(|links| links.pgid).collect();
     groups.retain(|pgid, _| i32::try_from(*pgid).is_ok_and(|pgid| live.contains(&pgid)));
     for leader in child_group_leaders(cli, &links) {
         // Read again each time: a reused id is a new command.
-        match process_identity(leader).await {
+        match process_table::start_time(leader).await {
             Some(identity) => groups.insert(leader, identity),
             None => groups.remove(&leader),
         };
@@ -155,7 +154,7 @@ fn child_group_leaders(cli: u32, links: &HashMap<i32, ProcessLinks>) -> Vec<u32>
 /// `identity`. Once the leader has exited, the group's id may have been
 /// reused since it was noted, so a group without its leader is left alone.
 async fn still_the_noted_group(pgid: u32, identity: &str) -> bool {
-    group_alive(pgid) && process_identity(pgid).await.as_deref() == Some(identity)
+    group_alive(pgid) && process_table::start_time(pgid).await.as_deref() == Some(identity)
 }
 
 #[cfg(unix)]
@@ -265,26 +264,35 @@ mod tests {
             .await
             .unwrap();
         assert!(groups.contains_key(&pid), "{groups:?}");
-        assert_eq!(groups.get(&pid), process_identity(pid).await.as_ref());
+        assert_eq!(
+            groups.get(&pid),
+            process_table::start_time(pid).await.as_ref()
+        );
     }
 
     #[tokio::test]
     async fn a_group_whose_leader_exited_is_left_alone() {
         let directory = tempfile::tempdir().unwrap();
         let pid_file = directory.path().join("member.pid");
+        // The leader exits once its stdin closes: an exited leader (a zombie
+        // included) has no start time to note.
         let mut leader = tokio::process::Command::new("/bin/sh");
         leader
-            .args(["-c", r#"sleep 30 & echo $! > "$0.tmp" && mv "$0.tmp" "$0""#])
+            .args([
+                "-c",
+                r#"sleep 30 & echo $! > "$0.tmp" && mv "$0.tmp" "$0"; read _"#,
+            ])
             .arg(&pid_file)
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .kill_on_drop(true);
         crate::shared::process_group::lead_new_process_group(&mut leader);
         let mut leader = leader.spawn().unwrap();
         let pgid = leader.id().unwrap();
         let _cleanup = KillOnDrop::default().group(pgid);
-        let identity = process_identity(pgid).await.unwrap();
+        let identity = process_table::start_time(pgid).await.unwrap();
         assert!(still_the_noted_group(pgid, &identity).await);
 
+        drop(leader.stdin.take());
         leader.wait().await.unwrap();
         assert!(group_alive(pgid), "its member still runs");
         assert!(!still_the_noted_group(pgid, &identity).await);
@@ -341,7 +349,10 @@ mod tests {
             let _ = exited_rx.await;
         });
         processes.notes.groups.lock().await.extend([
-            (command_pid, process_identity(command_pid).await.unwrap()),
+            (
+                command_pid,
+                process_table::start_time(command_pid).await.unwrap(),
+            ),
             // Noted once, then gone; its id now belongs to someone else.
             (bystander_pid, "Thu Jan  1 00:00:00 1970".to_string()),
         ]);
