@@ -19,6 +19,7 @@ import { isCompactActionPrompt } from "@/lib/provider-host-capabilities";
 import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
 import type { AgentSessionProps, SessionConfigControls } from "./agent-session/types";
+import { applyThinkingEffort } from "@/components/sessionThinkingEffort";
 
 type SessionControls = ReturnType<typeof useSessionControls>;
 const NO_SLASH_COMMANDS: NonNullable<AgentSessionProps["slashCommandsOverride"]> = [];
@@ -53,7 +54,7 @@ function useStableSessionCallbacks(controls: SessionControls) {
       onModelChange: (nextProviderId: string, modelId: string): void =>
         handleModelChange(nextProviderId, modelId, latest.current),
       onThinkingEffortChange: (effort: string | undefined): void =>
-        setEffort(latest.current, effort),
+        applyThinkingEffort(latest.current, effort),
       onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
     }),
     [latest],
@@ -180,12 +181,6 @@ function AgentTabContent({
       />
     </SessionInfoMcpServersProvider>
   );
-}
-
-function setEffort(controls: SessionControls, effort: string | undefined): void {
-  if (controls.supportsConfigInheritance)
-    controls.ws.queueRuntimeOverride({ thinking_effort: effort ?? null });
-  else controls.ws.setThinkingEffort(effort);
 }
 
 function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {

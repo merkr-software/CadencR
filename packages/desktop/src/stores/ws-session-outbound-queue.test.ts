@@ -301,6 +301,33 @@ describe("ws-session outbound queue", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("replays a Codex model change before the effort chosen after it", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const first = getWs();
+    first.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "codex_cli", model: "gpt-a" },
+    });
+    first.readyState = MockWebSocket.CLOSED;
+    first.fireEvent("close", { code: 1006 });
+
+    // As online: the model switch loads that model's remembered effort, then
+    // the explicit effort replaces it, so the session ends on gpt-5.6 / xhigh.
+    store.queueRuntimeOverride("s1", { model: "gpt-5.6-sol" });
+    store.queueRuntimeOverride("s1", { thinking_effort: "xhigh" });
+
+    store.connect("s1");
+    await tick();
+    const overrides = getWs()
+      .sent.map((raw) => JSON.parse(raw) as { action: string; payload: Record<string, unknown> })
+      .filter((envelope) => envelope.action === "runtime_overrides.set")
+      .map((envelope) => envelope.payload.runtime_overrides);
+    expect(overrides).toEqual([{ model: "gpt-5.6-sol" }, { thinking_effort: "xhigh" }]);
+  });
+
   it("never replays a Stop pressed while disconnected", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
