@@ -142,6 +142,27 @@ describe("AmbientBackground", () => {
   });
 
   describe("the user's halo tuning", () => {
+    it("tunes the veil locally without changing halo intensity or the root palette", () => {
+      texture = { ...NO_TEXTURE, halos: [HALO], veil: true };
+      haloOverride = { ...DEFAULT_HALO_OVERRIDE, veil: 0 };
+      const { container, rerender } = render(<AmbientBackground />);
+      const veil = container.querySelector<HTMLElement>(".ambient-veil");
+      const halo = container.querySelector<HTMLElement>(".halo");
+
+      expect(veil?.style.getPropertyValue("--ambient-veil-strength")).toBe("0");
+      expect(halo?.style.getPropertyValue("--halo-opacity")).toBe("0.5");
+      expect(document.documentElement.style.getPropertyValue("--ambient-veil-strength")).toBe("");
+
+      haloOverride = { ...DEFAULT_HALO_OVERRIDE, veil: 2 };
+      rerender(<AmbientBackground />);
+      expect(veil?.style.getPropertyValue("--ambient-veil-strength")).toBe("2");
+      expect(halo?.style.getPropertyValue("--halo-opacity")).toBe("0.5");
+
+      haloOverride = DEFAULT_HALO_OVERRIDE;
+      rerender(<AmbientBackground />);
+      expect(veil?.style.getPropertyValue("--ambient-veil-strength")).toBe("1");
+    });
+
     it("paints the theme's own field when nothing is tuned", () => {
       const { container } = render(<AmbientBackground />);
 

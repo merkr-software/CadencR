@@ -11,16 +11,25 @@
  * with live reload and a git diff on it. A slider writing there would fight all
  * three.
  *
- * So the override is a *transform*, not a copy of the halo array: rotation,
- * intensity, and a color per index. A theme that later moves its halos or
- * changes their size keeps the tuning valid, which a stored copy would not.
+ * The override stores activation, a count, and transforms rather than a copy
+ * of the halo array. Authored halos continue to follow theme updates; themes
+ * without a field use the shared palette-based composition.
  */
 
 import { z } from "zod";
 import { parseJsonSetting, type ParsedJsonSetting } from "@/lib/json-setting";
 import { clamp } from "@/lib/math";
 import type { ThemeHalo, ThemeTexture } from "./chrome";
-import type { ThemeId } from "./types";
+import {
+  overrideTextureBase,
+  usesFallbackTexture,
+  halosEnabled,
+  halosFor,
+  MAX_HALOS,
+} from "./halo-composition";
+import { GRAIN_OPACITY_RANGE, resolveTextureGrain } from "./grain-override";
+import { applyHaloColor } from "./halo-color";
+import type { ThemeAppearance, ThemeId } from "./types";
 
 /**
  * The bounds the theme validator enforces on a halo's center, in percent.
@@ -33,6 +42,8 @@ const HALO_OFFSET_MAX = 200;
 /** Rotation is a full turn either way; intensity is a multiplier on opacity. */
 export const ROTATION_RANGE = { min: -180, max: 180, step: 5 } as const;
 export const INTENSITY_RANGE = { min: 0, max: 2, step: 0.05 } as const;
+/** Multiplier on the theme's page veil; zero exposes the raw texture. */
+export const VEIL_RANGE = { min: 0, max: 2, step: 0.05 } as const;
 
 /**
  * How the field moves.
@@ -74,16 +85,20 @@ export const DEFAULT_HALO_SPEED = 4;
  * theme may later change.
  */
 export interface HaloOverride {
-  /** Degrees, clockwise, around the viewport center. Ignored unless `still`. */
+  /** Missing means the theme's default: on for authored halos, off otherwise. */
+  enabled?: boolean;
+  /** Missing follows the authored count, or three for a newly enabled field. */
+  count?: number;
+  /** Missing preserves the authored grain; zero removes it. Independent of halos. */
+  grainOpacity?: number;
+  /** Multiplier on the page tint, independent of halo intensity and grain. */
+  veil: number;
+  /** Degrees, clockwise, around the viewport center. Used by `still` and `glow`. */
   rotation: number;
   /** Multiplier on every halo's opacity. `1` is the theme's own strength. */
   intensity: number;
   colors: (string | null)[];
-  /**
-   * How the field moves. A fixed angle and a moving field answer the same
-   * question, so `rotation` is ignored unless this is `still` — the panel greys
-   * it out rather than letting two controls fight over one value.
-   */
+  /** How the field moves. Glowing motion retains the chosen orientation. */
   motion: HaloMotion;
   /** Pace, `1`–`18`. See `SPEED_RANGE`. */
   speed: number;
@@ -93,6 +108,7 @@ export interface HaloOverride {
 export type HaloOverrideMap = Partial<Record<ThemeId, HaloOverride>>;
 
 export const DEFAULT_HALO_OVERRIDE: HaloOverride = {
+  veil: 1,
   rotation: 0,
   intensity: 1,
   colors: [],
@@ -107,6 +123,10 @@ export const DEFAULT_HALO_OVERRIDE: HaloOverride = {
  * wrong costs that field and not the theme's whole tuning.
  */
 const haloOverrideSchema = z.object({
+  enabled: z.boolean().optional().catch(undefined),
+  count: z.number().optional().catch(undefined),
+  grainOpacity: z.number().optional().catch(undefined),
+  veil: z.number().catch(DEFAULT_HALO_OVERRIDE.veil),
   rotation: z.number().catch(DEFAULT_HALO_OVERRIDE.rotation),
   intensity: z.number().catch(DEFAULT_HALO_OVERRIDE.intensity),
   // Per slot, not per array: one bad entry costs that halo its color, not the
@@ -121,9 +141,21 @@ const haloOverrideMapSchema = z.record(z.string(), haloOverrideSchema);
 /** Pull the parsed entry into the ranges the panel can produce. */
 function normalize(parsed: z.infer<typeof haloOverrideSchema>): HaloOverride {
   return {
+    ...(parsed.enabled === undefined ? {} : { enabled: parsed.enabled }),
+    ...(parsed.count === undefined ? {} : { count: clamp(Math.round(parsed.count), 1, MAX_HALOS) }),
+    ...(parsed.grainOpacity === undefined
+      ? {}
+      : {
+          grainOpacity: clamp(
+            parsed.grainOpacity,
+            GRAIN_OPACITY_RANGE.min,
+            GRAIN_OPACITY_RANGE.max,
+          ),
+        }),
+    veil: clamp(parsed.veil, VEIL_RANGE.min, VEIL_RANGE.max),
     rotation: clamp(parsed.rotation, ROTATION_RANGE.min, ROTATION_RANGE.max),
     intensity: clamp(parsed.intensity, INTENSITY_RANGE.min, INTENSITY_RANGE.max),
-    colors: parsed.colors.map((color) => (color === "" ? null : color)),
+    colors: parsed.colors.slice(0, MAX_HALOS).map((color) => (color === "" ? null : color)),
     motion: parsed.motion,
     speed: clamp(parsed.speed, SPEED_RANGE.min, SPEED_RANGE.max),
   };
@@ -151,89 +183,16 @@ export function parseHaloOverrides(
 /** Whether an override asks for anything at all. */
 export function isDefaultOverride(override: HaloOverride): boolean {
   return (
+    override.enabled === undefined &&
+    override.count === undefined &&
+    override.grainOpacity === undefined &&
+    override.veil === DEFAULT_HALO_OVERRIDE.veil &&
     override.rotation === DEFAULT_HALO_OVERRIDE.rotation &&
     override.intensity === DEFAULT_HALO_OVERRIDE.intensity &&
     override.motion === DEFAULT_HALO_OVERRIDE.motion &&
     override.speed === DEFAULT_HALO_OVERRIDE.speed &&
     override.colors.every((color) => color === null)
   );
-}
-
-/**
- * The alpha a CSS color string carries, `0..1`.
- *
- * Needed because a theme's halo colors are routinely translucent — Catppuccin
- * Frost's are `#cba6f7b8`, 73% — and swapping in an opaque palette swatch would
- * otherwise raise the halo's strength by a third. Only the alpha is read, never
- * the color: re-emitting the picked color at the theme's alpha is `color-mix`'s
- * job, and that needs no parsing of the picked value.
- *
- * Covers the syntaxes the theme validator accepts. Anything unrecognized reads
- * as opaque, which is the safe direction: the halo keeps the strength the user
- * picked rather than silently fading.
- */
-export function colorAlpha(color: string): number {
-  const value = color.trim().toLowerCase();
-  if (value === "transparent") return 0;
-
-  if (value.startsWith("#")) {
-    const hex = value.slice(1);
-    if (hex.length === 4) return hexAlpha(hex[3] + hex[3]);
-    if (hex.length === 8) return hexAlpha(hex.slice(6, 8));
-    return 1;
-  }
-
-  const open = value.indexOf("(");
-  if (open === -1 || !value.endsWith(")")) return 1;
-  const body = value.slice(open + 1, -1);
-
-  // Modern syntax puts alpha after a slash: `oklch(0.6 0.12 230 / 0.55)`.
-  const slash = body.lastIndexOf("/");
-  if (slash !== -1) return parseAlphaComponent(body.slice(slash + 1));
-
-  // Legacy `rgba()` / `hsla()` carry it as a fourth comma-separated argument.
-  const parts = body.split(",");
-  if (parts.length === 4) return parseAlphaComponent(parts[3]);
-
-  return 1;
-}
-
-/** A two-digit hex pair as an alpha. `#gggg` is not a color, so it reads opaque. */
-function hexAlpha(pair: string): number {
-  const parsed = Number.parseInt(pair, 16);
-  return Number.isFinite(parsed) ? parsed / 255 : 1;
-}
-
-function parseAlphaComponent(raw: string): number {
-  const value = raw.trim();
-  const parsed = value.endsWith("%")
-    ? Number.parseFloat(value.slice(0, -1)) / 100
-    : Number.parseFloat(value);
-  return Number.isFinite(parsed) ? clamp(parsed, 0, 1) : 1;
-}
-
-/**
- * `color` at `alpha`, without parsing `color`.
- *
- * `color-mix` against `transparent` is the one CSS expression that applies an
- * alpha to an arbitrary color value, which is what lets the palette offer plain
- * theme tokens (`oklch(…)`, `#rrggbb`) against a halo that was authored
- * translucent.
- */
-function withAlpha(color: string, alpha: number): string {
-  if (alpha >= 1) return color;
-  return `color-mix(in srgb, ${color} ${(alpha * 100).toFixed(2)}%, transparent)`;
-}
-
-/**
- * The picked color, at the strength the theme authored.
- *
- * A picked color that is itself translucent is honoured as-is: the user asked
- * for that alpha, and compounding it with the theme's would be a surprise.
- */
-function applyColor(original: string, picked: string): string {
-  if (colorAlpha(picked) < 1) return picked;
-  return withAlpha(picked, colorAlpha(original));
 }
 
 /**
@@ -268,16 +227,15 @@ function rotateHalo(halo: ThemeHalo, degrees: number): ThemeHalo {
  * move.
  */
 export function resolveHalo(halo: ThemeHalo, override: HaloOverride, index: number): ThemeHalo {
-  // A moving field has no fixed angle: the motion is the angle, so the static
-  // one is dropped rather than added to it.
-  const degrees = override.motion === "still" ? override.rotation : 0;
+  // Still and glowing use the chosen angle; orbit and lava own their positions.
+  const degrees = override.motion === "still" || override.motion === "glow" ? override.rotation : 0;
   const picked = override.colors[index] ?? null;
   if (degrees === 0 && picked === null && override.intensity === 1) return halo;
 
   const rotated = rotateHalo(halo, degrees);
   return {
     ...rotated,
-    color: picked === null ? rotated.color : applyColor(rotated.color, picked),
+    color: picked === null ? rotated.color : applyHaloColor(rotated.color, picked),
     opacity: clamp(rotated.opacity * override.intensity, 0, 1),
   };
 }
@@ -321,18 +279,32 @@ export function lavaSpeed(override: HaloOverride): number | null {
 }
 
 /**
- * The texture as it should paint, or the texture itself when nothing changed.
- *
- * Returning the same object is what keeps `<AmbientBackground/>`'s memo intact:
- * a fresh texture on every render would re-render every halo layer on every
- * settings change that passes through — including a speed or motion change,
- * which cannot alter a single halo.
+ * Resolve the texture, preserving its identity when nothing changed so
+ * `<AmbientBackground/>` keeps its memo, including across speed changes.
+ * Switching between fixed and moving positions changes a rotated composition.
  */
-export function resolveTextureHalos(texture: ThemeTexture, override: HaloOverride): ThemeTexture {
-  if (texture.halos.length === 0) return texture;
-  const halos = texture.halos.map((halo, index) => resolveHalo(halo, override, index));
-  if (halos.every((halo, index) => halo === texture.halos[index])) return texture;
-  return { ...texture, halos };
+export function resolveTextureHalos(
+  texture: ThemeTexture,
+  override: HaloOverride,
+  appearance: ThemeAppearance = "dark",
+): ThemeTexture {
+  const material = usesFallbackTexture(texture, override)
+    ? { ...texture, base: overrideTextureBase(texture, override), veil: true }
+    : texture;
+  const source = halosEnabled(texture, override.enabled)
+    ? halosFor(texture, override.count, appearance)
+    : [];
+  const halos = source.map((halo, index) => resolveHalo(halo, override, index));
+  const grain = resolveTextureGrain(material, override.grainOpacity, appearance);
+  if (
+    material === texture &&
+    grain === texture.grain &&
+    halos.length === texture.halos.length &&
+    halos.every((halo, index) => halo === texture.halos[index])
+  ) {
+    return texture;
+  }
+  return { ...material, halos, grain };
 }
 
 /** The override for one theme, or the default when it has none. */

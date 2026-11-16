@@ -315,7 +315,12 @@
   animation-iteration-count: infinite;
 }
 .ambient-veil {
-  background-color: var(--background);
+  /* Retain the authored alpha unless the field supplies its fallback material.
+   * The strength control changes this tint without dimming the halo layers. */
+  background-color: oklch(
+    from var(--background) l c h /
+      calc(var(--ambient-veil-opacity, alpha) * var(--ambient-veil-strength, 1))
+  );
 }
 .halo {
   position: absolute;

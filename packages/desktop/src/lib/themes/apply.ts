@@ -1,7 +1,10 @@
 import { DEFAULT_THEME_ID, getTheme, parseThemeId } from "./registry";
 import { injectThemeCssVars } from "./inject";
 import { chromeOf, type ThemeChrome } from "./chrome";
+import { overrideTextureBase, usesFallbackTexture } from "./halo-composition";
+import type { HaloOverride } from "./halo-override";
 import type { ThemeDefinition, ThemeId } from "./types";
+import { FROST_TEXTURE_MATERIAL } from "./texture-material";
 import {
   isFollowSystemThemeEnabled,
   readBrowserSystemAppearance,
@@ -72,12 +75,43 @@ function applyThemeChrome(theme: ThemeDefinition): void {
   // alone would strip the page background from both `<html>` and `<body>` and
   // leave the canvas showing through as the browser default white.
   const { base } = chrome.texture;
-  if (base === null) {
-    root.style.removeProperty("--ambient-base");
-    delete root.dataset.textureBase;
+  applyTextureBase(base);
+}
+
+/**
+ * Called after the theme is applied, from the same document-sync hook.
+ * Texture activation changes this material; previews do not re-inject tokens.
+ */
+export function applyHaloAppearance(
+  theme: ThemeDefinition,
+  selection: Pick<HaloOverride, "enabled" | "grainOpacity">,
+): void {
+  if (typeof document === "undefined") return;
+  const texture = chromeOf(theme).texture;
+  const root = document.documentElement;
+  const fallback = usesFallbackTexture(texture, selection);
+  applyTextureBase(overrideTextureBase(texture, selection));
+  root.toggleAttribute("data-halo-fallback", fallback);
+  if (fallback) {
+    const opacity = String(FROST_TEXTURE_MATERIAL[theme.appearance].veilOpacity);
+    if (root.style.getPropertyValue("--ambient-veil-opacity") !== opacity) {
+      root.style.setProperty("--ambient-veil-opacity", opacity);
+    }
   } else {
-    root.style.setProperty("--ambient-base", base);
-    root.dataset.textureBase = "on";
+    root.style.removeProperty("--ambient-veil-opacity");
+  }
+}
+
+function applyTextureBase(base: string | null): void {
+  const root = document.documentElement;
+  if (base === null) {
+    if (root.style.getPropertyValue("--ambient-base")) root.style.removeProperty("--ambient-base");
+    if (root.dataset.textureBase !== undefined) delete root.dataset.textureBase;
+  } else {
+    if (root.style.getPropertyValue("--ambient-base") !== base) {
+      root.style.setProperty("--ambient-base", base);
+    }
+    if (root.dataset.textureBase !== "on") root.dataset.textureBase = "on";
   }
 }
 

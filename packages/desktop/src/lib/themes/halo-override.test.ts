@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { ThemeHalo, ThemeTexture } from "./chrome";
 import { NO_TEXTURE } from "./chrome";
 import {
-  colorAlpha,
   DEFAULT_HALO_OVERRIDE,
   INTENSITY_RANGE,
   isDefaultOverride,
@@ -15,10 +14,12 @@ import {
   resolveTextureHalos,
   ROTATION_RANGE,
   SPEED_RANGE,
+  VEIL_RANGE,
   withOverride,
   type HaloOverride,
   type HaloOverrideMap,
 } from "./halo-override";
+import { colorAlpha } from "./halo-color";
 
 const HALO: ThemeHalo = {
   color: "#5fb3e0",
@@ -120,13 +121,11 @@ describe("resolveHalo", () => {
     expect(resolved.drift).toBe(HALO.drift);
   });
 
-  it("drops the fixed angle as soon as the field moves", () => {
-    // A moving field has no fixed angle: adding a static one on top would make
-    // the motion start from a position the panel no longer lets anyone see.
+  it("keeps the chosen orientation for glowing motion, and ignores it for circular and lava", () => {
     for (const motion of ["orbit", "lava", "glow"] as const) {
       const moving = resolveHalo(HALO, override({ rotation: 90, motion }), 0);
-      expect(moving.x).toBe(HALO.x);
-      expect(moving.y).toBe(HALO.y);
+      expect(moving.x).toBeCloseTo(motion === "glow" ? 68 : HALO.x, 5);
+      expect(moving.y).toBeCloseTo(motion === "glow" ? 28 : HALO.y, 5);
     }
   });
 });
@@ -214,7 +213,7 @@ describe("parseHaloOverrides", () => {
   });
 
   it("round-trips what it wrote", () => {
-    const map = { "frost-dark": override({ rotation: -12, intensity: 1.3 }) };
+    const map = { "frost-dark": override({ rotation: -12, intensity: 1.3, veil: 0 }) };
     expect(parseMap(JSON.stringify(map))).toEqual(map);
   });
 
@@ -261,6 +260,28 @@ describe("parseHaloOverrides", () => {
     const parsed = parseMap(JSON.stringify({ "frost-dark": { speed: 900 } }));
     expect(entry(parsed, "frost-dark").speed).toBe(SPEED_RANGE.max);
   });
+
+  it("preserves the original veil for older settings and invalid values", () => {
+    for (const value of [{ intensity: 1.5 }, { veil: "clear", intensity: 1.5 }]) {
+      const parsed = entry(parseMap(JSON.stringify({ "frost-dark": value })), "frost-dark");
+      expect(parsed.veil).toBe(1);
+      expect(parsed.intensity).toBe(1.5);
+    }
+  });
+
+  it("bounds the veil without dropping a deliberate zero", () => {
+    for (const [value, expected] of [
+      [-1, VEIL_RANGE.min],
+      [0, 0],
+      [100, VEIL_RANGE.max],
+    ]) {
+      const parsed = entry(
+        parseMap(JSON.stringify({ "frost-dark": { veil: value } })),
+        "frost-dark",
+      );
+      expect(parsed.veil).toBe(expected);
+    }
+  });
 });
 
 describe("withOverride", () => {
@@ -298,6 +319,13 @@ describe("isDefaultOverride", () => {
   it("counts a motion or a pace as tuning", () => {
     expect(isDefaultOverride(override({ motion: "orbit" }))).toBe(false);
     expect(isDefaultOverride(override({ speed: 9 }))).toBe(false);
+  });
+
+  it("keeps a veil-only choice until reset", () => {
+    const clear = override({ veil: 0 });
+    expect(isDefaultOverride(clear)).toBe(false);
+    expect(withOverride({}, "frost-dark", clear)).toEqual({ "frost-dark": clear });
+    expect(withOverride({ "frost-dark": clear }, "frost-dark", DEFAULT_HALO_OVERRIDE)).toEqual({});
   });
 });
 
