@@ -222,7 +222,7 @@ describe("AgentSession auto-scroll", () => {
     scroller.scrollTop = 0;
 
     await user.click(getAutoScrollButton());
-    expect(scroller.scrollTop).toBe(1000);
+    expect(scroller.scrollTop).toBe(600);
   });
 
   // Rule 2: a real wheel-up disables auto-scroll synchronously, before the
@@ -341,10 +341,10 @@ describe("AgentSession auto-scroll", () => {
 
     fireAtBottomChange(true);
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
-    // The hook also clamps to the true last item when returning to bottom,
-    // so any phantom tail space (from `defaultItemHeight` overestimation of
-    // unmeasured blocks) is collapsed — the scroller lands at scrollHeight.
-    expect(scroller.scrollTop).toBe(1000);
+    // The hook also pins to the real bottom when returning there, so any
+    // phantom tail space (from `defaultItemHeight` overestimation of
+    // unmeasured blocks) is collapsed: scrollHeight − clientHeight.
+    expect(scroller.scrollTop).toBe(600);
   });
 
   // Regression: while stick is already engaged, transient
@@ -411,13 +411,15 @@ describe("AgentSession auto-scroll", () => {
 
     await user.click(getAutoScrollButton());
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
-    expect(scroller.scrollTop).toBe(1000);
+    expect(scroller.scrollTop).toBe(600);
   });
 
   // Headline bug: the last block grows token-by-token. Virtuoso's
   // `followOutput` returns `'auto'` while stick is engaged and re-pins after
   // each data update + measurement settle.
-  it("re-anchors at the bottom when the last block's content grows in place", () => {
+  // The growth observer pins on the list's mutation record (a microtask), to
+  // the real bottom: scrollHeight − clientHeight.
+  it("re-anchors at the bottom when the last block's content grows in place", async () => {
     const baseProps = {
       agentType: "session" as const,
       status: "agent" as const,
@@ -431,7 +433,7 @@ describe("AgentSession auto-scroll", () => {
     scroller.scrollTop = 0;
 
     rerender(<AgentSession {...baseProps} blocks={[makeBlock("1", "Hello world")]} />);
-    expect(scroller.scrollTop).toBe(1000);
+    await waitFor(() => expect(scroller.scrollTop).toBe(600));
   });
 
   // Sending a message is an explicit user action — even if the user has
@@ -460,7 +462,7 @@ describe("AgentSession auto-scroll", () => {
 
     expect(onSend).toHaveBeenCalled();
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
-    expect(scroller.scrollTop).toBe(1000);
+    expect(scroller.scrollTop).toBe(600);
   });
 
   it("passes the selected Claude profile when sending the next prompt", async () => {
@@ -545,15 +547,16 @@ describe("AgentSession auto-scroll", () => {
     scroller.scrollTop = 100;
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
 
-    // Markdown / code blocks remeasure and the list grows to 1200.
+    // Markdown / code blocks remeasure and the list grows to 1200: a raw pin
+    // to the real bottom, not an index scroll from Virtuoso's size table.
     stubGeometry(scroller, 1200, 400);
     fireTotalHeightChange(1200);
-    expect(scroller.scrollTop).toBe(1200);
+    expect(scroller.scrollTop).toBe(800);
 
     // A second remeasure pass pushes height further out.
     stubGeometry(scroller, 1800, 400);
     fireTotalHeightChange(1800);
-    expect(scroller.scrollTop).toBe(1800);
+    expect(scroller.scrollTop).toBe(1400);
   });
 
   // If the user has scrolled away (stick disengaged), an async height
@@ -584,7 +587,7 @@ describe("AgentSession auto-scroll", () => {
   // (the common case for opening an existing conversation), Virtuoso's
   // `initialTopMostItemIndex` is already past. The hook fires a one-shot
   // `scrollToIndex({ index: 'LAST' })` on the first non-empty paint.
-  it("scrolls to the bottom when blocks first arrive after mount", () => {
+  it("scrolls to the bottom when blocks first arrive after mount", async () => {
     const baseProps = {
       agentType: "session" as const,
       status: "agent" as const,
@@ -600,12 +603,12 @@ describe("AgentSession auto-scroll", () => {
 
     const scroller = getScroller();
     stubGeometry(scroller, 1200, 400);
-    // Trigger the first-paint scroll path (mock pins to bottom).
+    // The rows grow: the growth observer pins to the real bottom.
     rerender(
       <AgentSession {...baseProps} blocks={[makeBlock("1", "Hello"), makeBlock("2", "World!")]} />,
     );
 
-    expect(scroller.scrollTop).toBe(1200);
+    await waitFor(() => expect(scroller.scrollTop).toBe(800));
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -852,7 +855,7 @@ describe("AgentSession auto-scroll", () => {
     rerender(<AgentSession {...baseProps} wsSessionId="B" blocks={[makeBlock("b1", "Second")]} />);
 
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
-    expect(scroller.scrollTop).toBe(800);
+    expect(scroller.scrollTop).toBe(400);
   });
 
   // Regression: switching to a shorter conversation triggered raw `scroll`

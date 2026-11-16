@@ -328,6 +328,16 @@ html[data-animations="off"] [data-settings-flash] {
   transition-duration: 0ms;
 }
 
+/* Every row keeps its margins inside its box. Virtuoso sizes a row by that box,
+ * so a margin collapsing out of it (the compact flow row's `my-1`) is space its
+ * size table never sees: index scrolls land short of the bottom, and a row
+ * mounting or unmounting at the edge of the rendered range changes the
+ * transcript's height, which moves the range back — a scroll/mount loop that
+ * ran every frame. */
+[data-testid="agent-stream-scroller"] [data-testid="virtuoso-item-list"] > [data-index] {
+  display: flow-root;
+}
+
 /* Sidebar pull/merge-request chip whose checks are still running: a breathing
  * halo. Only this one transient state glows — a settled verdict is already
  * carried by the chip's border and fill, and a permanent glow on every row

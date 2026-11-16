@@ -281,7 +281,7 @@ describe("ScrollAnchorGuard", () => {
     expect(stream.visualTop(1001)).toBe(0);
   });
 
-  it("stands down while bottom-stick is engaged", async () => {
+  it("stands down while bottom-stick is engaged, leaving Virtuoso's scrollBy to the bottom pin", async () => {
     const stream = readingMidList();
     const native = vi.spyOn(Element.prototype, "scrollBy").mockImplementation(() => {});
     stream.engaged.current = true;
@@ -290,8 +290,11 @@ describe("ScrollAnchorGuard", () => {
     await flush();
     expect(stream.list.style.transform).toBe("");
 
+    // 960 padding + 500 + 100 + 3 × 300 of rows.
+    Object.defineProperty(stream.scroller, "scrollHeight", { configurable: true, get: () => 2460 });
     stream.scroller.scrollBy({ top: 460, behavior: "auto" });
-    expect(native).toHaveBeenCalledWith({ top: 460, behavior: "auto" });
+    expect(native).not.toHaveBeenCalled();
+    expect(stream.state.scrollTop).toBe(2460 - VIEWPORT);
   });
 
   it("stands down while the stream is hidden", async () => {

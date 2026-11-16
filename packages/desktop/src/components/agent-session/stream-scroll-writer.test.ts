@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import type { VirtuosoHandle } from "react-virtuoso";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { suppressAutoScrollPin } from "@/lib/agent-scroll-suppression";
+import { popResize, pushResize } from "@/lib/resize-coordinator";
 import { StreamScrollWriter, streamScrollWriterFor } from "./stream-scroll-writer";
 
 const isIosMock = vi.fn(() => false);
@@ -125,6 +127,86 @@ describe("StreamScrollWriter", () => {
 
     writer.detach();
     expect(Object.hasOwn(scroller, "scrollBy")).toBe(false);
+  });
+
+  it("follows growth with a glide: pinned at once, the rows held back and released", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const { scroller, writes } = scrollerWith({ scrollTop: 1568 });
+    const list = document.createElement("div");
+    list.setAttribute("data-testid", "virtuoso-item-list");
+    const row = list.appendChild(document.createElement("div"));
+    scroller.appendChild(list);
+    const { writer } = ownedWriter(true);
+    writer.attach(scroller);
+
+    expect(writer.followBottom()).toBe(true);
+    expect(writes).toEqual([1600]);
+    expect(row.style.transform).toContain("32px");
+
+    // Bottom-stick lets go mid-glide: the rows stay where the reader sees them.
+    writer.releaseFollow();
+    expect(row.style.transform).toBe("");
+    expect(scroller.scrollTop).toBe(1568);
+  });
+
+  it("follows growth without a glide when animations are off", () => {
+    document.documentElement.dataset.animations = "off";
+    try {
+      const { scroller, writes } = scrollerWith({ scrollTop: 1568 });
+      const list = document.createElement("div");
+      list.setAttribute("data-testid", "virtuoso-item-list");
+      const row = list.appendChild(document.createElement("div"));
+      scroller.appendChild(list);
+      const { writer } = ownedWriter(true);
+      writer.attach(scroller);
+
+      expect(writer.followBottom()).toBe(true);
+      expect(writes).toEqual([1600]);
+      expect(row.style.transform).toBe("");
+    } finally {
+      delete document.documentElement.dataset.animations;
+    }
+  });
+
+  it("answers Virtuoso's scrollBy with the bottom pin while following", () => {
+    const native = vi.spyOn(Element.prototype, "scrollBy").mockImplementation(() => {});
+    const { scroller, writes } = scrollerWith({ scrollTop: 1600 });
+    const { writer, owner } = ownedWriter(true);
+    writer.attach(scroller);
+
+    // A streaming row taller than the viewport grew: Virtuoso would move the
+    // view as if anchored to the top. The bottom already holds.
+    scroller.scrollBy({ top: 88 });
+    expect(native).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+
+    owner.following = false;
+    scroller.scrollBy({ top: 88 });
+    expect(native).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Virtuoso's scrollBy native while bottom pins stand down", () => {
+    const native = vi.spyOn(Element.prototype, "scrollBy").mockImplementation(() => {});
+    const { scroller, writes } = scrollerWith({ scrollTop: 1500 });
+    const { writer } = ownedWriter(true);
+    writer.attach(scroller);
+
+    // A recap toggle animating its height: the reader's view must not move.
+    vi.spyOn(Date, "now").mockReturnValue(0);
+    suppressAutoScrollPin(1_000);
+    scroller.scrollBy({ top: -40 });
+    vi.mocked(Date.now).mockRestore();
+    // A split-pane drag: the resize coordinator owns scroll.
+    pushResize();
+    try {
+      scroller.scrollBy({ top: -40 });
+    } finally {
+      popResize();
+    }
+
+    expect(native).toHaveBeenCalledTimes(2);
+    expect(writes).toEqual([]);
   });
 
   it("is found from the scroller element, and a detached one shadows nothing", () => {
