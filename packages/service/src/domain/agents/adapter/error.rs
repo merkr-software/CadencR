@@ -38,6 +38,9 @@ pub enum RuntimeError {
     /// state the request is not allowed in). Never a provider overload; the
     /// host reports it with its own code.
     RequestRejected(String),
+    /// A stop found no turn running in the runtime: nothing was interrupted,
+    /// so no stopped turn will be reported.
+    NothingToInterrupt,
 }
 
 impl Display for RuntimeError {
@@ -58,6 +61,7 @@ impl Display for RuntimeError {
             | Self::StopEscalated(message)
             | Self::InputWithdrawn(message)
             | Self::RequestRejected(message) => f.write_str(message),
+            Self::NothingToInterrupt => f.write_str("No turn was running to stop"),
         }
     }
 }
@@ -101,6 +105,10 @@ impl RuntimeError {
             Self::RequestRejected(_) => "PROVIDER_REQUEST_REJECTED",
             _ => "SDK_ERROR",
         }
+    }
+
+    pub fn is_nothing_to_interrupt(&self) -> bool {
+        matches!(self, Self::NothingToInterrupt)
     }
 
     /// Build a structured "CLI not found" error so the host can surface an

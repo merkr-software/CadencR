@@ -88,6 +88,10 @@ pub trait AgentRuntimeSession: Send + Sync {
     async fn turn_control_guard(&self) -> Option<tokio::sync::OwnedMutexGuard<()>> {
         None
     }
+    /// Stop the running turn. A runtime that can tell no turn was running
+    /// returns [`RuntimeError::NothingToInterrupt`]: no stopped turn will be
+    /// reported, so the host drops its stop mark instead of ending the next
+    /// turn with it.
     async fn interrupt(&self) -> Result<(), RuntimeError>;
     /// Before a user Stop: withdraw the follow-ups (`client_message_ids`, as
     /// given to `stream_input_with_client_message_id`) the runtime holds but

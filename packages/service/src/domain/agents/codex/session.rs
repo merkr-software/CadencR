@@ -47,6 +47,8 @@ pub(super) struct CodexSession {
     /// Interrupt fallback when `active_turn_id` is None — see `event_turn_state`.
     last_root_turn_id: Arc<RwLock<Option<String>>>,
     child_turn_ids: Arc<RwLock<HashMap<String, Option<String>>>>,
+    /// Held while `turn/start` has not given the new turn's id; Stop waits.
+    turn_start: Mutex<()>,
     model: Arc<RwLock<Option<String>>>,
     effort: Arc<RwLock<Option<String>>>,
     effective_model: Arc<RwLock<Option<String>>>,
@@ -90,6 +92,7 @@ impl CodexSession {
             active_turn_id: Arc::new(RwLock::new(None)),
             last_root_turn_id: Arc::new(RwLock::new(None)),
             child_turn_ids: Arc::new(RwLock::new(HashMap::new())),
+            turn_start: Mutex::new(()),
             model: Arc::new(RwLock::new(options.model)),
             effort: Arc::new(RwLock::new(options.effort)),
             turn_model: Arc::new(RwLock::new(options.effective_model.clone())),
@@ -168,6 +171,7 @@ impl CodexSession {
         if let Some(client_message_id) = client_message_id {
             params["clientUserMessageId"] = Value::String(client_message_id.to_string());
         }
+        let _starting = self.turn_start.lock().await;
         let turn = self.client.turn_start(params).await?;
         *self.active_turn_id.write().await = Some(turn.id.clone());
         *self.last_root_turn_id.write().await = Some(turn.id);
@@ -292,32 +296,7 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
-        self.interrupts.fetch_add(1, Ordering::SeqCst);
-        // Snapshot before awaiting RPCs; completion events keep updating the tracker.
-        let children = self.child_turn_ids.read().await.clone();
-        let root_turn = self.active_turn_id.read().await.clone();
-        let root_fallback = self.last_root_turn_id.read().await.clone();
-        let mut targets = Vec::with_capacity(children.len() + 1);
-        let fallback = root_turn.is_none();
-        if let Some(turn) = root_turn.or(root_fallback) {
-            targets.push(interrupt::InterruptTarget {
-                thread: self.thread_id.clone(),
-                turn: Some(turn),
-                fallback,
-            });
-        }
-        targets.extend(
-            children
-                .into_iter()
-                .map(|(thread, turn)| interrupt::InterruptTarget {
-                    thread,
-                    turn,
-                    fallback: false,
-                }),
-        );
-        interrupt::interrupt_turns(&self.client, targets).await?;
-        self.async_questions.lock().await.clear();
-        Ok(())
+        self.interrupt_session().await
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {

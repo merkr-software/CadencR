@@ -107,6 +107,15 @@ impl SdkError {
         )
     }
 
+    /// Codex's answer to `turn/interrupt` for a turn that is not running: it
+    /// ended, or it is not the thread's running turn.
+    pub fn is_no_active_turn_to_interrupt(&self) -> bool {
+        matches!(
+            self,
+            Self::Rpc { message, .. } if message == "no active turn to interrupt"
+        )
+    }
+
     pub fn active_turn_mismatch_found_id(&self) -> Option<&str> {
         let Self::Rpc { message, .. } = self else {
             return None;
@@ -148,6 +157,13 @@ mod tests {
         assert!(!error.is_unknown_method("thread/revert"));
         assert!(rpc(-32601, "Method not found").is_unknown_method("thread/revert"));
         assert!(!rpc(-32600, "thread not found: x").is_unknown_method("thread/revert"));
+    }
+
+    #[test]
+    fn detects_no_active_turn_to_interrupt() {
+        assert!(rpc(-32600, "no active turn to interrupt").is_no_active_turn_to_interrupt());
+        assert!(!rpc(-32600, "no active turn to steer").is_no_active_turn_to_interrupt());
+        assert!(!SdkError::Timeout("turn/interrupt").is_no_active_turn_to_interrupt());
     }
 
     #[test]

@@ -87,7 +87,7 @@ pub(crate) async fn stop_session(
     let _barrier = q.turn_control_guard().await;
     // Under the barrier: no follow-up is handed over between these steps.
     let withdrawn = withdraw_followups(app_state, &**q, db_session_id, feature_id).await;
-    interrupt_as_intended(
+    let interrupted = interrupt_as_intended(
         app_state,
         &query,
         &**q,
@@ -95,12 +95,20 @@ pub(crate) async fn stop_session(
         true,
         StopReason::User,
     )
-    .await
-    .map_err(|error| {
-        tracing::error!(db_session_id, %error, "interrupt failed");
-        CommandError::new("SDK_ERROR", error)
-    })?;
-    withdrawn
+    .await;
+    match interrupted {
+        Ok(()) => withdrawn,
+        // The status said busy, but the runtime had no turn to stop (it
+        // ended a moment ago): its mark is cleared, nothing will end.
+        Err(error) if error.is_nothing_to_interrupt() => {
+            withdrawn?;
+            Err(nothing_to_stop())
+        }
+        Err(error) => {
+            tracing::error!(db_session_id, %error, "interrupt failed");
+            Err(CommandError::new("SDK_ERROR", error))
+        }
+    }
 }
 
 /// A user Stop cancels the follow-ups the agent has not taken in yet (see
@@ -375,5 +383,73 @@ mod tests {
         let error = stop_session(&app_state, None, 46).await.unwrap_err();
 
         assert_eq!(error.code, NOTHING_TO_STOP);
+    }
+
+    /// A runtime whose turn ended just before the Stop reached it.
+    struct NoTurnRunning;
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for NoTurnRunning {
+        fn take_message_rx(&mut self) -> crate::domain::agents::adapter::RuntimeMessageRx {
+            tokio::sync::mpsc::channel(1).1
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn stream_input(&self, _content: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Err(RuntimeError::NothingToInterrupt)
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(
+            &self,
+            _mode: crate::domain::agents::adapter::RuntimePermissionMode,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_thinking_effort(&self, _effort: Option<String>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// The status said the agent worked, but its turn had just ended: the
+    /// Stop reports nothing to stop and leaves no mark, so the next turn's
+    /// result is not taken for a stopped turn's and dropped.
+    #[tokio::test]
+    async fn a_stop_that_finds_no_turn_leaves_no_mark_for_the_next_turn() {
+        let app_state = make_test_app_state().await;
+        let sessions = new_sdk_sessions();
+        let mut handle = make_active_handle(1, Some("cli".into()));
+        let runtime: RuntimeSessionHandle =
+            std::sync::Arc::new(tokio::sync::RwLock::new(Box::new(NoTurnRunning)));
+        if let QueryState::Active { query, .. } = &mut handle.state {
+            *query = runtime.clone();
+        }
+        sessions.lock().await.insert(47, handle);
+        app_state.session_runtimes.bind(47, &sessions).await;
+        app_state.active_turns.begin_turn(47, &sessions).await;
+        working(&app_state, 47);
+
+        let error = stop_session(&app_state, None, 47).await.unwrap_err();
+
+        assert_eq!(error.code, NOTHING_TO_STOP);
+        app_state.active_turns.begin_turn(47, &sessions).await;
+        assert_eq!(
+            app_state
+                .active_turns
+                .take_interruption(47, &std::sync::Arc::downgrade(&runtime))
+                .await,
+            None
+        );
     }
 }

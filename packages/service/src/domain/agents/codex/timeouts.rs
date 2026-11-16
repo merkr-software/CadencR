@@ -26,6 +26,17 @@ pub(super) async fn with_control_timeout<T>(
     with_timeout(CONTROL_TIMEOUT, operation, future).await
 }
 
+/// [`with_control_timeout`] that keeps the app-server's own error, for a
+/// caller that tells its refusals apart.
+pub(super) async fn sdk_control_timeout<T>(
+    operation: &'static str,
+    future: impl Future<Output = Result<T, codex_app_server_sdk_rs::SdkError>>,
+) -> Result<T, codex_app_server_sdk_rs::SdkError> {
+    tokio::time::timeout(CONTROL_TIMEOUT, future)
+        .await
+        .unwrap_or(Err(codex_app_server_sdk_rs::SdkError::Timeout(operation)))
+}
+
 pub(super) async fn with_timeout<T>(
     timeout: Duration,
     operation: &'static str,

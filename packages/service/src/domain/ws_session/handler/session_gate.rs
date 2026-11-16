@@ -277,14 +277,19 @@ async fn deny_runtime_gate(
     deny_open_request(&target, &**q, db_session_id, runtime_response).await;
 
     let result = q.interrupt().await;
-    super::session_control::finish_interruption(
+    match super::session_control::finish_interruption(
         result,
         &target.query,
         app_state,
         db_session_id,
         generation,
     )
-    .await?;
+    .await
+    {
+        // The denial ended the turn first: nothing was left to stop.
+        Err(error) if error.is_nothing_to_interrupt() => {}
+        result => result?,
+    }
     // Keep prompt writers behind the cancellation until gate.closed is sent.
     Ok(RuntimeGateClose::Stopped {
         _guard: GateRuntimeGuard { _barrier: barrier },

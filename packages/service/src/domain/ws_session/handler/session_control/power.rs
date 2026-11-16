@@ -253,7 +253,7 @@ async fn pause_running_turn(
         // the caller must hear it, and the session is not marked paused.
         // Between turns there was nothing to pause (a runtime whose process
         // already ended refuses any control), so the pause goes on.
-        if turn_running {
+        if turn_running && !error.is_nothing_to_interrupt() {
             return Err(CommandError::new(
                 "SDK_ERROR",
                 format!("The agent did not pause for sleep: {error}"),
