@@ -49,6 +49,18 @@ pub(crate) struct VersionProbe {
 }
 
 impl VersionProbe {
+    /// Read what a run printed, both streams together, and whether it
+    /// succeeded.
+    pub(crate) fn from_output(output: String, success: bool) -> Self {
+        let (version, version_text) = parse_version(&output).unzip();
+        Self {
+            version,
+            version_text,
+            output,
+            success,
+        }
+    }
+
     /// The `version_must_contain` shim guard (see `DiscoverySpec`).
     pub(crate) fn passes_filter(&self, needle: &str) -> bool {
         self.success && self.version.is_some() && contains_ci(&self.output, needle)
@@ -68,7 +80,6 @@ pub(crate) async fn probe_version(command: &Path, args: &[String]) -> Option<Ver
     .await
     .ok()?
     .ok()?;
-
     // Combine streams so a single regex pass + single substring check
     // covers tools that print to either (rustup prints to stderr).
     let combined = format!(
@@ -76,13 +87,7 @@ pub(crate) async fn probe_version(command: &Path, args: &[String]) -> Option<Ver
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let (version, version_text) = parse_version(&combined).unzip();
-    Some(VersionProbe {
-        version,
-        version_text,
-        output: combined,
-        success: output.status.success(),
-    })
+    Some(VersionProbe::from_output(combined, output.status.success()))
 }
 
 fn contains_ci(haystack: &str, needle: &str) -> bool {
