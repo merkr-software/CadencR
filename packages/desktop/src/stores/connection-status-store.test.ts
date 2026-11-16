@@ -297,3 +297,61 @@ describe("connection-status-store / reconnected toast", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 });
+
+describe("connection-status-store / recovery re-probe", () => {
+  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  it("re-probes health as soon as a socket reconnects, instead of waiting for the poll", async () => {
+    vi.mocked(pingHealth).mockResolvedValue({ ok: true });
+    const { reportSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "drop A");
+    reportSource("health", "disconnected", "Backend unreachable");
+
+    reportSource("ws-a", "connected");
+    await flush();
+
+    expect(pingHealth).toHaveBeenCalledTimes(1);
+    expect(useConnectionStatusStore.getState().status).toBe("connected");
+  });
+
+  it("sends one probe when several sockets reconnect together", async () => {
+    vi.mocked(pingHealth).mockResolvedValue({ ok: true });
+    const { reportSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "drop A");
+    reportSource("ws-b", "reconnecting", "drop B");
+    reportSource("health", "disconnected", "Backend unreachable");
+
+    reportSource("ws-a", "connected");
+    reportSource("ws-b", "connected");
+    await flush();
+
+    expect(pingHealth).toHaveBeenCalledTimes(1);
+    expect(useConnectionStatusStore.getState().status).toBe("connected");
+  });
+
+  it("lets a probe started during the outage not overwrite the recovery probe", async () => {
+    let failStale: (value: { ok: false; reason: string }) => void = () => undefined;
+    vi.mocked(pingHealth)
+      .mockReturnValueOnce(new Promise((resolve) => (failStale = resolve)))
+      .mockResolvedValueOnce({ ok: true });
+    const { reportSource, probeHealth } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "drop A");
+    reportSource("health", "disconnected", "Backend unreachable");
+    const stale = probeHealth();
+
+    reportSource("ws-a", "connected");
+    await flush();
+    failStale({ ok: false, reason: "Backend not responding (timed out)" });
+    await stale;
+
+    expect(useConnectionStatusStore.getState().status).toBe("connected");
+  });
+
+  it("does not probe on a reconnect while health is not reported down", async () => {
+    const { reportSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "drop A");
+    reportSource("ws-a", "connected");
+    await flush();
+    expect(pingHealth).not.toHaveBeenCalled();
+  });
+});

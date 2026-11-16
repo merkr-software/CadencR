@@ -5,7 +5,8 @@
  *  - Each long-lived WebSocket (`ws-session`, terminal, workflow, session-
  *    status) reports its own state as a "source" via `reportSource`.
  *  - A periodic `/api/health` probe (every 15 s, plus on-demand via the
- *    watchdog) reports under the `health` source. The probe catches the
+ *    watchdog, and at once when a socket reconnects while health is down)
+ *    reports under the `health` source. The probe catches the
  *    "service hung but socket still open" case that WS events alone can't.
  *
  * Aggregation:
@@ -65,6 +66,11 @@ interface ConnectionStatusState {
 
 /** Health-probe source key. The aggregator treats this one specially. */
 const HEALTH_KEY = "health";
+
+/** Only the newest probe reports: one started before an outage ended must not land last. */
+let latestProbe = 0;
+/** The probe a reconnect started; a burst of sockets reopening together shares it. */
+let recoveryProbe: Promise<void> | null = null;
 function aggregate(sources: Record<string, SourceState>): {
   status: ConnectionStatus;
   reason: string | null;
@@ -125,6 +131,15 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
         agg.status === "connected" && !wasConnected ? Date.now() : get().lastConnectedAt,
       recoveredSinceOutage: wasConnected ? false : get().recoveredSinceOutage || isRecovery,
     });
+    // A socket reopened while the last probe said the backend was down: probe
+    // now rather than showing "Disconnected" until the next poll.
+    if (key !== HEALTH_KEY && isRecovery && sources[HEALTH_KEY]?.status === "disconnected") {
+      recoveryProbe ??= get()
+        .probeHealth()
+        .finally(() => {
+          recoveryProbe = null;
+        });
+    }
   },
 
   clearSource(key) {
@@ -143,13 +158,16 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
   },
 
   async probeHealth(): Promise<void> {
+    const probe = ++latestProbe;
     const result = await pingHealth();
+    // A 429 tells every socket to hold off until the rate-limit window clears,
+    // however late it answers.
+    if (!result.ok && result.retryAfterMs != null) notifyRateLimited(result.retryAfterMs);
+    if (probe !== latestProbe) return;
     if (result.ok) {
       clearRateLimit();
       get().reportSource(HEALTH_KEY, "connected");
     } else {
-      // A 429 tells every socket to hold off until the rate-limit window clears.
-      if (result.retryAfterMs != null) notifyRateLimited(result.retryAfterMs);
       get().reportSource(HEALTH_KEY, "disconnected", result.reason);
     }
   },
