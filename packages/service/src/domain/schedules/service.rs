@@ -55,13 +55,16 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
             }
         }
         // Not a run: nothing reached the agent. (A manual run never skips for
-        // a busy agent, so `Busy` doesn't occur here.)
-        outcome @ (FireOutcome::Passed | FireOutcome::Busy) => ScheduleRunResult {
-            ran: false,
-            condition_passed: matches!(outcome, FireOutcome::Passed),
-            feature_id: None,
-            error: None,
-        },
+        // a busy agent or re-checks the pause, so `Busy` and `Paused` don't
+        // occur here.)
+        outcome @ (FireOutcome::Passed | FireOutcome::Busy | FireOutcome::Paused) => {
+            ScheduleRunResult {
+                ran: false,
+                condition_passed: matches!(outcome, FireOutcome::Passed),
+                feature_id: None,
+                error: None,
+            }
+        }
     };
 
     // A manual run leaves `next_run_at` alone but still writes a history row,
@@ -71,4 +74,16 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
         .schedule_events_tx
         .send(ScheduleRanEvent { schedule_id: id });
     Ok(result)
+}
+
+/// Cue every open Schedules page and composer banner to refetch: without it, a
+/// change made elsewhere (an agent, an archive, another device) stays invisible
+/// until the user reloads. Send it once the change is committed, so a refetch
+/// can't read back the old rows.
+pub fn announce_changed(state: &AppState, schedule_ids: &[i64]) {
+    for schedule_id in schedule_ids {
+        let _ = state.schedule_events_tx.send(ScheduleRanEvent {
+            schedule_id: *schedule_id,
+        });
+    }
 }

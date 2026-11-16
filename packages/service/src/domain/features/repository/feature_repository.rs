@@ -205,11 +205,14 @@ pub async fn update_generated_title(
 /// so un-archiving a feature restarts its retention clock instead of leaving it
 /// eligible for compaction the moment it is archived again. `compacted_at` is
 /// cleared alongside: a revived feature has no stale sweep record.
+///
+/// Archiving pauses the feature's schedules in the same transaction; their ids
+/// are returned for the caller to announce. Unarchiving leaves them paused.
 pub async fn update_status(
     pool: &SqlitePool,
     id: i64,
     status: FeatureStatus,
-) -> Result<(), AppError> {
+) -> Result<Vec<i64>, AppError> {
     let archive_clause = if status == FeatureStatus::Archived {
         // COALESCE so re-archiving an already-archived feature is idempotent
         // and doesn't silently extend its retention window.
@@ -217,17 +220,24 @@ pub async fn update_status(
     } else {
         "archived_at = NULL, compacted_at = NULL"
     };
+    let mut tx = pool.begin().await?;
     let result = sqlx::query(AssertSqlSafe(format!(
         "UPDATE features SET status = ?, {archive_clause} WHERE id = ?"
     )))
     .bind(status.as_str())
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("feature {id} not found")));
     }
-    Ok(())
+    let paused = if status == FeatureStatus::Archived {
+        crate::domain::schedules::repository::pause_for_features(&mut tx, &[id]).await?
+    } else {
+        Vec::new()
+    };
+    tx.commit().await?;
+    Ok(paused)
 }
 
 pub async fn set_pinned(pool: &SqlitePool, id: i64, is_pinned: bool) -> Result<(), AppError> {
@@ -383,6 +393,29 @@ mod tests {
         .await
         .unwrap();
         pool
+    }
+
+    // The `PUT /status` path: archiving pauses the conversation's schedules and
+    // reports them; unarchiving leaves them paused for the user to resume.
+    #[tokio::test]
+    async fn archiving_by_status_pauses_schedules_and_unarchiving_keeps_them_paused() {
+        use crate::domain::schedules::repository::test_support::{fixture, once_into_conversation};
+        use crate::domain::schedules::repository::{get, insert};
+        let (pool, _, feature_id) = fixture().await;
+        let body = once_into_conversation(feature_id, "2099-01-01T09:00:00Z");
+        let schedule = insert(&pool, body).await.unwrap().id;
+
+        let paused = update_status(&pool, feature_id, FeatureStatus::Archived)
+            .await
+            .unwrap();
+        assert_eq!(paused, vec![schedule]);
+        assert!(!get(&pool, schedule).await.unwrap().unwrap().enabled);
+
+        let resumed = update_status(&pool, feature_id, FeatureStatus::Active)
+            .await
+            .unwrap();
+        assert!(resumed.is_empty());
+        assert!(!get(&pool, schedule).await.unwrap().unwrap().enabled);
     }
 
     #[tokio::test]

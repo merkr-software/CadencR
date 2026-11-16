@@ -51,7 +51,9 @@ pub async fn archive_project_sessions_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<ArchiveProjectSessionsResponse>, AppError> {
-    let response = service::archive_project_sessions(&state.write_pool, id).await?;
+    let (response, paused_schedule_ids) =
+        service::archive_project_sessions(&state.write_pool, id).await?;
+    crate::domain::schedules::service::announce_changed(&state, &paused_schedule_ids);
     state
         .plugin_tab_presence
         .release_features(&response.archived_ids);

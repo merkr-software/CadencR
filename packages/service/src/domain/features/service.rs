@@ -145,7 +145,7 @@ pub async fn update_status(
     pool: &SqlitePool,
     id: i64,
     status: FeatureStatus,
-) -> Result<(), AppError> {
+) -> Result<Vec<i64>, AppError> {
     repository::update_status(pool, id, status).await
 }
 
@@ -156,7 +156,7 @@ pub async fn archive_preview(pool: &SqlitePool, id: i64) -> Result<ArchivePrevie
 pub async fn archive_project_sessions(
     pool: &SqlitePool,
     project_id: i64,
-) -> Result<ArchiveProjectSessionsResponse, AppError> {
+) -> Result<(ArchiveProjectSessionsResponse, Vec<i64>), AppError> {
     super::archive::archive_project_sessions(pool, project_id).await
 }
 

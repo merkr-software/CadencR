@@ -26,6 +26,14 @@ pub async fn preview(pool: &SqlitePool, selected_id: i64) -> Result<ArchivePrevi
         .preview(selected_id))
 }
 
+/// What an archive changed: the conversations archived and the schedules it
+/// paused with them, for the caller to announce once committed.
+#[derive(Debug, Default)]
+pub struct Archived {
+    pub feature_ids: Vec<i64>,
+    pub paused_schedule_ids: Vec<i64>,
+}
+
 /// Who archives: the user may archive any conversation; an agent
 /// (`project_archive_session`) only idle ones, and never its own.
 #[derive(Debug, Clone, Copy)]
@@ -35,7 +43,8 @@ pub enum Archiver {
 }
 
 /// Archive `selected_id` (with the relatives `request` asks for) inside the
-/// caller's transaction, so the cleanup plan commits with it.
+/// caller's transaction, so the cleanup plan commits with it. The schedules
+/// aimed at the archived conversations are paused in the same transaction.
 ///
 /// For [`Archiver::Agent`] it is refused when the selection includes the
 /// caller, or a conversation whose agent is running or waiting at a gate — it
@@ -46,7 +55,7 @@ pub async fn archive_in(
     selected_id: i64,
     request: &ArchiveRequest,
     archiver: Archiver,
-) -> Result<Vec<i64>, AppError> {
+) -> Result<Archived, AppError> {
     let ids = selection(tx, selected_id, request).await?;
     if let Archiver::Agent { caller_id } = archiver {
         if ids.contains(&caller_id) {
@@ -63,8 +72,11 @@ pub async fn archive_in(
             )));
         }
     }
-    archive_ids(tx, &ids).await?;
-    Ok(ids)
+    let paused_schedule_ids = archive_ids(tx, &ids).await?;
+    Ok(Archived {
+        feature_ids: ids,
+        paused_schedule_ids,
+    })
 }
 
 #[cfg(test)]
@@ -74,9 +86,9 @@ async fn archive(
     request: ArchiveRequest,
 ) -> Result<Vec<i64>, AppError> {
     let mut tx = pool.begin().await?;
-    let ids = archive_in(&mut tx, selected_id, &request, Archiver::User).await?;
+    let archived = archive_in(&mut tx, selected_id, &request, Archiver::User).await?;
     tx.commit().await?;
-    Ok(ids)
+    Ok(archived.feature_ids)
 }
 
 async fn selection(
@@ -114,11 +126,11 @@ async fn busy_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<Vec<i
 }
 
 /// Archive every session of a project that is neither pinned nor running an
-/// agent turn (`busy_session!`).
+/// agent turn (`busy_session!`), with the ids of the schedules it paused.
 pub async fn archive_project_sessions(
     pool: &SqlitePool,
     project_id: i64,
-) -> Result<ArchiveProjectSessionsResponse, AppError> {
+) -> Result<(ArchiveProjectSessionsResponse, Vec<i64>), AppError> {
     let mut tx = pool.begin().await?;
     crate::domain::projects::service::ensure_project_exists(&mut *tx, project_id).await?;
     let archived_ids: Vec<i64> = sqlx::query_scalar(concat!(
@@ -152,16 +164,18 @@ pub async fn archive_project_sessions(
     .bind(project_id)
     .fetch_one(&mut *tx)
     .await?;
-    archive_ids(&mut tx, &archived_ids).await?;
+    let paused_schedule_ids = archive_ids(&mut tx, &archived_ids).await?;
     tx.commit().await?;
-    Ok(ArchiveProjectSessionsResponse {
+    let response = ArchiveProjectSessionsResponse {
         archived_ids,
         skipped_pinned,
         skipped_running,
-    })
+    };
+    Ok((response, paused_schedule_ids))
 }
 
-async fn archive_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<(), AppError> {
+/// Archive `ids` and pause their schedules, returning the schedules paused.
+async fn archive_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<Vec<i64>, AppError> {
     // Keep each statement below SQLite's conservative bind-parameter limit.
     for chunk in ids.chunks(500) {
         let mut query = QueryBuilder::<Sqlite>::new(
@@ -180,12 +194,15 @@ async fn archive_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<()
             ));
         }
     }
-    Ok(())
+    crate::domain::schedules::repository::pause_for_features(tx, ids).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::schedules::repository::{
+        self as schedules, test_support::once_into_conversation,
+    };
 
     async fn setup() -> (SqlitePool, i64, i64) {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -266,8 +283,11 @@ mod tests {
     #[tokio::test]
     async fn single_archive_does_not_read_the_relationship_graph() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::query(
-            "CREATE TABLE features (id INTEGER PRIMARY KEY, status TEXT, archived_at TEXT)",
+        // Archiving pauses schedules, so their table is the one other it needs.
+        sqlx::raw_sql(
+            "CREATE TABLE features (id INTEGER PRIMARY KEY, status TEXT, archived_at TEXT);
+             CREATE TABLE schedules (id INTEGER PRIMARY KEY, feature_id INTEGER,
+                 enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT);",
         )
         .execute(&pool)
         .await
@@ -544,7 +564,7 @@ mod tests {
         )
         .await;
 
-        let response = archive_project_sessions(&pool, project).await.unwrap();
+        let (response, _) = archive_project_sessions(&pool, project).await.unwrap();
 
         assert_eq!(response.archived_ids, vec![idle]);
         assert_eq!(response.skipped_pinned, 1);
@@ -571,7 +591,7 @@ mod tests {
         let (pool, project, _) = setup().await;
         add_pinned_feature(&pool, project).await;
 
-        let response = archive_project_sessions(&pool, project).await.unwrap();
+        let (response, _) = archive_project_sessions(&pool, project).await.unwrap();
 
         assert_eq!(response.archived_ids, Vec::<i64>::new());
         assert_eq!(response.skipped_pinned, 1);
@@ -585,5 +605,83 @@ mod tests {
             archive_project_sessions(&pool, 999).await,
             Err(AppError::NotFound(_))
         ));
+    }
+
+    async fn add_schedule(pool: &SqlitePool, feature: i64) -> i64 {
+        let body = once_into_conversation(feature, "2099-01-01T09:00:00Z");
+        schedules::insert(pool, body).await.unwrap().id
+    }
+
+    async fn armed(pool: &SqlitePool, ids: &[i64]) -> Vec<bool> {
+        let mut values = Vec::new();
+        for id in ids {
+            values.push(schedules::get(pool, *id).await.unwrap().unwrap().enabled);
+        }
+        values
+    }
+
+    #[tokio::test]
+    async fn archiving_pauses_the_schedules_of_every_archived_conversation() {
+        let (pool, project, _) = setup().await;
+        let selected = add_feature(&pool, project, "active").await;
+        let child = add_feature(&pool, project, "active").await;
+        let unrelated = add_feature(&pool, project, "active").await;
+        link(&pool, selected, child, "spawned", "2026-01-01").await;
+        let schedules = [
+            add_schedule(&pool, selected).await,
+            add_schedule(&pool, child).await,
+            add_schedule(&pool, unrelated).await,
+        ];
+
+        let mut tx = pool.begin().await.unwrap();
+        let request = ArchiveRequest {
+            include_descendants: true,
+            ..Default::default()
+        };
+        let archived = archive_in(&mut tx, selected, &request, Archiver::User)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(archived.feature_ids, vec![selected, child]);
+        assert_eq!(archived.paused_schedule_ids, schedules[..2].to_vec());
+        assert_eq!(armed(&pool, &schedules).await, vec![false, false, true]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_archive_leaves_its_schedules_armed() {
+        let (pool, project, _) = setup().await;
+        let selected = add_feature(&pool, project, "active").await;
+        let schedule = add_schedule(&pool, selected).await;
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE TRIGGER reject_pause BEFORE UPDATE ON schedules \
+             WHEN NEW.id = {schedule} BEGIN SELECT RAISE(ABORT, 'no'); END"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(archive(&pool, selected, ArchiveRequest::default())
+            .await
+            .is_err());
+        assert_eq!(statuses(&pool, &[selected]).await, vec!["active"]);
+        assert_eq!(armed(&pool, &[schedule]).await, vec![true]);
+    }
+
+    #[tokio::test]
+    async fn archiving_project_sessions_pauses_only_the_archived_ones_schedules() {
+        let (pool, project, _) = setup().await;
+        let idle = add_feature(&pool, project, "active").await;
+        let pinned = add_pinned_feature(&pool, project).await;
+        let schedules = [
+            add_schedule(&pool, idle).await,
+            add_schedule(&pool, pinned).await,
+        ];
+
+        let (response, paused) = archive_project_sessions(&pool, project).await.unwrap();
+
+        assert_eq!(response.archived_ids, vec![idle]);
+        assert_eq!(paused, vec![schedules[0]]);
+        assert_eq!(armed(&pool, &schedules).await, vec![false, true]);
     }
 }
