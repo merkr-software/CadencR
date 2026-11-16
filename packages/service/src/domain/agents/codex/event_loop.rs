@@ -148,15 +148,7 @@ impl EventLoop {
                 .index_state
                 .observe_turn_started(thread, |child| live.contains_key(child));
         }
-        update_turn_state(
-            &method,
-            &params,
-            &self.turns.active_turn_id,
-            &self.turns.last_root_turn_id,
-            &self.turns.root_thread_id,
-        )
-        .await;
-        clear_resolved_request(&method, &params, &self.pending_requests).await;
+        self.track(&method, &params).await;
         if matches!(
             method.as_str(),
             "item/commandExecution/outputDelta" | "command/exec/outputDelta" | "item/completed"
@@ -245,6 +237,27 @@ impl EventLoop {
             }
         }
         true
+    }
+}
+
+impl EventLoop {
+    /// The state every notification updates before its events are built:
+    /// turn ids, the commands each turn started, resolved requests.
+    async fn track(&self, method: &str, params: &serde_json::Value) {
+        update_turn_state(
+            method,
+            params,
+            &self.turns.active_turn_id,
+            &self.turns.last_root_turn_id,
+            &self.turns.root_thread_id,
+        )
+        .await;
+        self.turns
+            .commands
+            .lock()
+            .expect("turn commands lock")
+            .observe(method, params);
+        clear_resolved_request(method, params, &self.pending_requests).await;
     }
 }
 

@@ -30,6 +30,7 @@ use super::session_permissions::{
     is_plan_approval_request_id, permission_kind_for_request_id, take_pending,
 };
 use super::timeouts::with_probe_timeout;
+use super::turn_commands::SharedTurnCommands;
 use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
@@ -47,6 +48,8 @@ pub(super) struct CodexSession {
     /// Interrupt fallback when `active_turn_id` is None — see `event_turn_state`.
     last_root_turn_id: Arc<RwLock<Option<String>>>,
     child_turn_ids: Arc<RwLock<HashMap<String, Option<String>>>>,
+    /// Commands each running turn started, for Stop to end.
+    turn_commands: SharedTurnCommands,
     /// Held while `turn/start` has not given the new turn's id; Stop waits.
     turn_start: Mutex<()>,
     model: Arc<RwLock<Option<String>>>,
@@ -92,6 +95,7 @@ impl CodexSession {
             active_turn_id: Arc::new(RwLock::new(None)),
             last_root_turn_id: Arc::new(RwLock::new(None)),
             child_turn_ids: Arc::new(RwLock::new(HashMap::new())),
+            turn_commands: SharedTurnCommands::default(),
             turn_start: Mutex::new(()),
             model: Arc::new(RwLock::new(options.model)),
             effort: Arc::new(RwLock::new(options.effort)),
@@ -208,6 +212,7 @@ impl AgentRuntimeSession for CodexSession {
                 last_root_turn_id: Arc::clone(&self.last_root_turn_id),
                 root_thread_id: self.thread_id.clone(),
                 child_turn_ids: Arc::clone(&self.child_turn_ids),
+                commands: Arc::clone(&self.turn_commands),
             })
             .model(Arc::clone(&self.turn_model))
             .closing(Arc::clone(&self.closing))

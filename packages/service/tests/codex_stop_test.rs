@@ -31,6 +31,20 @@ async fn codex(cwd: &Path, prompt: &str) -> (Box<dyn AgentRuntimeSession>, Runti
     (session, stream)
 }
 
+/// Read the stream until an event whose raw JSON contains `needle`.
+async fn wait_for(stream: &mut RuntimeMessageRx, needle: &str) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = stream.recv().await.expect("stream open").expect("no error");
+            if event.raw_json().to_string().contains(needle) {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no event with {needle}"));
+}
+
 async fn wait_for_result(stream: &mut RuntimeMessageRx) {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !stream.recv().await.unwrap().unwrap().is_result() {}
@@ -73,6 +87,32 @@ fn use_fixture() {
                 .unwrap(),
         ));
     });
+}
+
+/// Found in QA: Stop showed "Stopped by you" while the turn's foreground
+/// script went on running. Codex 0.167 keeps a command past
+/// `turn/interrupt` (a background terminal); Stop must end it.
+#[tokio::test]
+async fn stopping_a_codex_turn_ends_the_commands_it_started() {
+    use_fixture();
+    let cwd = tempfile::tempdir().unwrap();
+    let cwd = cwd.path().canonicalize().unwrap();
+    let (session, mut stream) = codex(&cwd, "command").await;
+    wait_for(&mut stream, "COMMAND_RUNNING").await;
+
+    session.interrupt().await.expect("stop");
+
+    let sent = requests(&cwd);
+    let interrupt = sent
+        .iter()
+        .position(|method| method == "turn/interrupt turn-1");
+    let terminate = sent
+        .iter()
+        .position(|method| method == "thread/backgroundTerminals/terminate process-1");
+    assert!(
+        matches!((interrupt, terminate), (Some(i), Some(t)) if i < t),
+        "{sent:?}"
+    );
 }
 
 /// A Stop that reaches an idle Codex (its turn ended a moment before) used

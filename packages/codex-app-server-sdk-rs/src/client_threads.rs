@@ -61,6 +61,30 @@ impl CodexAppServerClient {
         .map(|_| ())
     }
 
+    /// Stop a command the thread still runs (Codex keeps a command running
+    /// past its turn, as a background terminal), with every process it
+    /// started. `process_id` is the command item's `processId`. Returns
+    /// whether a running command was stopped.
+    pub async fn thread_background_terminal_terminate(
+        &self,
+        thread_id: &str,
+        process_id: &str,
+    ) -> Result<bool, SdkError> {
+        let result = self
+            .request(
+                "thread/backgroundTerminals/terminate",
+                json!({
+                    "threadId": thread_id,
+                    "processId": process_id,
+                }),
+            )
+            .await?;
+        Ok(result
+            .get("terminated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
+    }
+
     pub async fn thread_read(
         &self,
         thread_id: &str,
