@@ -22,7 +22,7 @@ import type { AgentBlockData } from "@/types/agent-block";
 import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { STREAM_AT_BOTTOM_THRESHOLD_PX, STREAM_BOTTOM_GAP_PX } from "./agent-session/stream-fade";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
-import { flowStreamingBlockId } from "@/lib/agent-stream-display";
+import { flowStreamingBlockId, liveDisplayItemKey } from "@/lib/agent-stream-display";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
 import type { DisplayItem } from "@/types/agent-stream";
@@ -52,6 +52,8 @@ interface AgentStreamVirtuosoContext {
   workingClock: TurnClock | null;
   /** Block holding the active search match: a compact run holding it unfolds. */
   searchBlockId: string | null;
+  /** Key of the last row while the turn runs: a compact run there may still take steps. */
+  liveItemKey: string | null;
 }
 
 interface AgentStreamProps {
@@ -237,6 +239,7 @@ function useVirtuosoContext({
   workingLabel,
   workingClock,
   searchBlockId,
+  liveItemKey,
 }: AgentStreamVirtuosoContext): AgentStreamVirtuosoContext {
   return useMemo(
     () => ({
@@ -246,6 +249,7 @@ function useVirtuosoContext({
       workingLabel,
       workingClock,
       searchBlockId,
+      liveItemKey,
     }),
     [
       showStreamingIndicator,
@@ -254,6 +258,7 @@ function useVirtuosoContext({
       workingLabel,
       workingClock,
       searchBlockId,
+      liveItemKey,
     ],
   );
 }
@@ -275,6 +280,7 @@ function useAgentStreamItemRenderer(
             revealBlockId={reveal ? target : undefined}
             toolResultMap={toolResultMap}
             streamingBlockId={flowStreamingBlockId(item.blocks, context.streamingBlockId)}
+            live={context.liveItemKey === item.key}
           />
         );
       }
@@ -398,6 +404,7 @@ export const AgentStream = memo(function AgentStream({
     workingLabel,
     workingClock,
     searchBlockId,
+    liveItemKey: liveDisplayItemKey(displayItems, turnActive ?? !!isStreaming),
   });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
   const { onRangeChanged, computeItemKey } = useVirtuosoIndexing(

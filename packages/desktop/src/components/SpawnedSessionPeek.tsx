@@ -29,6 +29,8 @@ export const SpawnedSessionPeek = memo(function SpawnedSessionPeek({
         report={report}
         basePath={basePath}
         toolResultMap={activity.results}
+        // A question or permission pause still holds the turn: steps may follow.
+        live={status !== "idle"}
       />
     );
   }

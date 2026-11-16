@@ -191,6 +191,69 @@ describe("CompactToolLine", () => {
       expect(screen.getByText("ripgrep: no such directory")).toBeInTheDocument();
     });
 
+    it("drops the tool_use_error tag Claude Code wraps a refused call in", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({ toolName: "Edit", toolUseId: "u4", toolArgs: '{"file_path":"a"}' })}
+          result={{
+            id: "r4",
+            type: "tool_result",
+            toolUseId: "u4",
+            isError: true,
+            content:
+              "<tool_use_error>String to replace not found in file.\nString: x</tool_use_error>",
+          }}
+        />,
+      );
+      expect(screen.getByText("String to replace not found in file.")).toBeInTheDocument();
+      expect(screen.queryByText(/tool_use_error/)).not.toBeInTheDocument();
+    });
+
+    it("skips a tool_use_error tag on a line of its own", () => {
+      render(
+        <CompactToolLine
+          block={toolCall({ toolName: "Edit", toolUseId: "u6", toolArgs: '{"file_path":"a"}' })}
+          result={{
+            id: "r6",
+            type: "tool_result",
+            toolUseId: "u6",
+            isError: true,
+            content: "<tool_use_error>\nFile has not been read yet.\n</tool_use_error>",
+          }}
+        />,
+      );
+      expect(screen.getByText("File has not been read yet.")).toBeInTheDocument();
+    });
+
+    it("titles a failure that gave no reason", () => {
+      render(
+        <CompactToolLine
+          reasonLine={false}
+          block={toolCall({ toolName: "Read", toolArgs: '{"file_path":"a","status":"failed"}' })}
+        />,
+      );
+      expect(screen.getByTitle("Failed")).toBeInTheDocument();
+    });
+
+    it("keeps the reason to the tooltip without a reason line", () => {
+      render(
+        <CompactToolLine
+          block={sleep}
+          reasonLine={false}
+          result={{
+            id: "r5",
+            type: "tool_result",
+            toolUseId: "u1",
+            isError: true,
+            content: "Shell command interrupted by user.",
+          }}
+        />,
+      );
+      // Read out, never shown: the line keeps its height.
+      expect(screen.getByText("Shell command interrupted by user.")).toHaveClass("sr-only");
+      expect(screen.getByTitle("Shell command interrupted by user.")).toBeInTheDocument();
+    });
+
     it("reads a provider's failed status before any result arrives", () => {
       render(
         <CompactToolLine

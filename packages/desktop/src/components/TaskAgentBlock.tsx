@@ -117,6 +117,7 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
           report={compact ? null : report}
           basePath={basePath}
           toolResultMap={childResults}
+          live={view.status === "running"}
         />
       )}
     </section>
