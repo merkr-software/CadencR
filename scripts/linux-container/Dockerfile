@@ -3,7 +3,7 @@
 # packages target among supported distros. See scripts/linux-container.sh.
 FROM debian:12
 
-ARG NODE_VERSION=22.19.0
+ARG NODE_VERSION=22.23.4
 ARG RUST_TOOLCHAIN=1.96.0
 
 ENV DEBIAN_FRONTEND=noninteractive \

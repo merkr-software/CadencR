@@ -28,7 +28,7 @@ Never commit session artifacts: QA reports, qualification evidence, investigatio
 
 ## Commands
 
-Use pnpm and the Node version pinned by `.nvmrc` (`>=22.19.0 <23.0.0`).
+Use pnpm and the Node version pinned by `.nvmrc` (`>=22.23.4 <23.0.0`).
 
 | Command | Purpose |
 | --- | --- |
