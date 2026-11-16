@@ -5,21 +5,20 @@ use clap::{Args, Parser, Subcommand};
 use crate::tab_backend::TabBackendCommand;
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "cadencr",
-    version = env!("CADENCR_CLI_VERSION"),
-    about = "Headless Cadencr package and registry tooling"
-)]
+#[command(name = "cadencr", version = env!("CADENCR_CLI_VERSION"), about = crate::app::ABOUT)]
 pub(crate) struct Cli {
     /// Emit one JSON diagnostic object instead of human-readable output.
     #[arg(long, global = true)]
     pub(crate) json: bool,
+    /// Without a command, opens CadencR (or brings it to the front).
     #[command(subcommand)]
-    pub(crate) command: Command,
+    pub(crate) command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    #[command(flatten)]
+    App(crate::app::AppCommand),
     /// Validate local provider structure without installing or executing it.
     Plugin(PluginArgs),
     /// Validate, package, sign, or publish a local package registry.
@@ -252,12 +251,12 @@ impl Cli {
     pub(crate) fn writes_index_to_stdout(&self) -> bool {
         matches!(
             &self.command,
-            Command::Plugin(PluginArgs {
+            Some(Command::Plugin(PluginArgs {
                 command: PluginCommand::InspectRelease { .. }
                     | PluginCommand::PublishRelease { .. }
-            }) | Command::Registry(RegistryArgs {
+            })) | Some(Command::Registry(RegistryArgs {
                 command: RegistryCommand::BuildIndex { output: None, .. }
-            }) | Command::Registry(RegistryArgs {
+            })) | Some(Command::Registry(RegistryArgs {
                 command: RegistryCommand::Diagnostics(
                     crate::metadata::MetadataCommand::CheckMetadataExpiry { .. }
                 ) | RegistryCommand::PackProvider { .. }
@@ -265,7 +264,7 @@ impl Cli {
                     | RegistryCommand::PackTab { .. }
                     | RegistryCommand::Lsp(crate::lsp::LspCommand::PackLsp { .. })
                     | RegistryCommand::TabBackend(TabBackendCommand::PackTabBackend { .. })
-            })
+            }))
         )
     }
 }

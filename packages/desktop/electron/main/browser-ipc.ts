@@ -11,7 +11,6 @@ import { BrowserManager } from "./browser-manager";
 import { reclaimRendererFocus } from "./browser-manager-utils";
 import { registerBrowserDownloadIpc } from "./browser-download-ipc";
 import { parseBrowserGuestShortcutBindings } from "./browser-guest-shortcuts";
-import { BrowserProfileController } from "./browser-profile-controller";
 import { parseBrowserResponsiveRequest } from "./browser-responsive-schema";
 import {
   BROWSER_SITE_PERMISSIONS,
@@ -159,35 +158,6 @@ function registerPopupIpc(
   });
 }
 
-function registerProfileIpc(
-  profiles: BrowserProfileController,
-  getMainWindow: BrowserIpcOptions["getMainWindow"],
-): void {
-  ipcMain.handle("browser:list-profiles", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.list();
-  });
-  ipcMain.handle("browser:clear-storage", (event, profileId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.clearStorage(requiredString(profileId, "profile id"));
-  });
-  ipcMain.handle("browser:create-profile", (event, profileId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.create(requiredString(profileId, "profile id"));
-  });
-  ipcMain.handle("browser:duplicate-profile", (event, sourceId: unknown, newId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return profiles.duplicate(
-      requiredString(sourceId, "source profile id"),
-      requiredString(newId, "new profile id"),
-    );
-  });
-  ipcMain.handle("browser:delete-profile", (event, profileId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    profiles.delete(requiredString(profileId, "profile id"));
-  });
-}
-
 function registerNavigationIpc(
   manager: BrowserManager,
   getMainWindow: BrowserIpcOptions["getMainWindow"],
@@ -296,43 +266,9 @@ function registerInspectionIpc(
   manager: BrowserManager,
   getMainWindow: BrowserIpcOptions["getMainWindow"],
 ): void {
-  ipcMain.handle("browser:get-console", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.automationState().consoleEntries;
-  });
-  ipcMain.handle("browser:get-network", (event) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.automationState().networkEntries;
-  });
-  ipcMain.handle("browser:get-snapshot", (event, tabId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.snapshot(requiredString(tabId, "tab id"));
-  });
   ipcMain.handle("browser:screenshot", (event, tabId: unknown) => {
     assertTrustedSender(event, getMainWindow);
     return manager.inspection.screenshot(requiredString(tabId, "tab id"));
-  });
-  ipcMain.handle("browser:click", (event, tabId: unknown, x: unknown, y: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.click(
-      requiredString(tabId, "tab id"),
-      requiredNumber(x, "x"),
-      requiredNumber(y, "y"),
-    );
-  });
-  ipcMain.handle("browser:type", (event, tabId: unknown, text: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.typeText(
-      requiredString(tabId, "tab id"),
-      requiredString(text, "text"),
-    );
-  });
-  ipcMain.handle("browser:keypress", (event, tabId: unknown, keyCode: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    return manager.inspection.keypress(
-      requiredString(tabId, "tab id"),
-      requiredString(keyCode, "key"),
-    );
   });
   ipcMain.handle(
     "browser:select-element-context",
@@ -392,10 +328,8 @@ function registerLibraryIpc(
 
 export function registerBrowserIpc(options: BrowserIpcOptions): BrowserManager {
   const manager = new BrowserManager(options.getMainWindow);
-  const profiles = new BrowserProfileController();
   registerTabIpc(manager, options);
   registerPopupIpc(manager, options.getMainWindow);
-  registerProfileIpc(profiles, options.getMainWindow);
   registerNavigationIpc(manager, options.getMainWindow);
   registerSiteIpc(manager, options.getMainWindow);
   registerInspectionIpc(manager, options.getMainWindow);

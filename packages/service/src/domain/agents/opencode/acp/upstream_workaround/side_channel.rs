@@ -33,6 +33,7 @@ const ACTIVE_USAGE_POLLS: u8 = 4;
 const SNAPSHOT_MAX_ATTEMPTS: u8 = 10;
 const SNAPSHOT_RETRY_DELAY: Duration = Duration::from_millis(100);
 
+#[bon::builder]
 pub(in crate::domain::agents::opencode::acp) fn spawn_side_channel_listeners(
     client: OpenCodeClient,
     cwd: PathBuf,

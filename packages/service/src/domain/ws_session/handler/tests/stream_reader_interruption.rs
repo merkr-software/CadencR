@@ -304,16 +304,16 @@ async fn ended_reader_cannot_replace_a_newly_resumed_runtime() {
         .insert(session_id, make_active_handle(1, Some("old".into())));
 
     let (msg_tx, msg_rx) = mpsc::channel(1);
-    spawn_test_stream_reader_with_cleanup(
-        &app_state,
-        session_id,
-        1,
-        msg_rx,
-        ws_tx,
-        sdk_sessions.clone(),
-        DEFAULT_PROVIDER,
-        true,
-    );
+    spawn_test_stream_reader_with_cleanup()
+        .app_state(&app_state)
+        .db_session_id(session_id)
+        .feature_id(1)
+        .msg_rx(msg_rx)
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions.clone())
+        .runtime_provider(DEFAULT_PROVIDER)
+        .cleanup_session_on_end(true)
+        .call();
     let replacement = make_active_handle(1, Some("new".into()));
     let QueryState::Active {
         query: replacement_query,
@@ -378,17 +378,17 @@ async fn replacement_reader_cannot_consume_an_old_interruption_or_receive_its_en
     let (msg_tx, msg_rx) = mpsc::channel(1);
     msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
     drop(msg_tx);
-    spawn_test_stream_reader_for_runtime(
-        &app_state,
-        session_id,
-        1,
-        msg_rx,
-        Some(Arc::downgrade(&old_query)),
-        ws_tx,
-        sdk_sessions,
-        DEFAULT_PROVIDER,
-        false,
-    );
+    spawn_test_stream_reader_for_runtime()
+        .app_state(&app_state)
+        .db_session_id(session_id)
+        .feature_id(1)
+        .msg_rx(msg_rx)
+        .runtime_session_handle(Arc::downgrade(&old_query))
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions)
+        .runtime_provider(DEFAULT_PROVIDER)
+        .cleanup_session_on_end(false)
+        .call();
 
     assert!(drain_actions(&mut ws_rx).await.is_empty());
     let state: (String, String) = sqlx::query_as(

@@ -25,16 +25,16 @@ pub(in crate::domain::ws_session::runtime::prompt) fn attach_current_cadencr_orc
     control_token: &str,
 ) -> Result<(), String> {
     let command = current_service_command()?;
-    attach_cadencr_orchestration_mcps(
-        config,
-        db_path,
-        feature_id,
-        source_session_id,
-        &command,
-        browser_bridge,
-        service_url,
-        control_token,
-    )
+    attach_cadencr_orchestration_mcps()
+        .config(config)
+        .db_path(db_path)
+        .feature_id(feature_id)
+        .source_session_id(source_session_id)
+        .command(&command)
+        .maybe_browser_bridge(browser_bridge)
+        .service_url(service_url)
+        .control_token(control_token)
+        .call()
 }
 
 pub(in crate::domain::ws_session::runtime::prompt) fn attach_current_cadencr_project_mcp(

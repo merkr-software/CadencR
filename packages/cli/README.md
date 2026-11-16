@@ -1,10 +1,68 @@
 # Cadencr CLI
 
-`cadencr` provides headless plugin validation, theme/provider/tab packaging, registry index
-signing and verified publication staging. Commands never contact the service or
-database, install a plugin, or execute a provider binary; the one program they
-run is a custom tab's own backend, for `plugin validate --kind tab` and
-`--kind plugin` (below, `--no-run` to skip it).
+`cadencr` has two audiences:
+
+- **CadencR users** (`open`, `add`, `update`, `serve`, `pair`): open projects and
+  files in the desktop app, add projects, start updates, and run the service
+  headless for paired devices. User documentation:
+  `packages/landing/src/pages/docs/cli.mdx`.
+- **Marketplace authors and maintainers** (`plugin`, `registry`): headless plugin
+  validation, theme/provider/tab packaging, registry index signing and verified
+  publication staging.
+
+## User commands
+
+```text
+cadencr                                  # open CadencR, or bring it to the front
+cadencr open [<path>] [--line <n>]       # a project folder or a file of a project
+cadencr add [<folder>]                   # add a project (default: current folder), then open it
+cadencr update [--check] [--archive <cadencr-server-*.tar.gz>]
+cadencr serve [--remote-port 5006] [--no-remote]
+cadencr pair                             # new pairing link for the running `serve`
+```
+
+The binary ships inside the desktop app (`Cadencr.app/Contents/Resources/bin/cadencr`,
+`<app>/resources/bin/cadencr` on Linux; the desktop packaging builds it with
+`CADENCR_APP_VERSION` set) and in the server archive
+(`cadencr-server/bin/cadencr` beside `lib/cadencr-service`, `lib/renderer/` and
+`lib/server.json`; `scripts/package-server-archive.sh`). It finds the app and the
+service from its own resolved path; an AppImage install instead records the
+AppImage in `<config>/cli.json` (`src/app/install.rs`).
+
+- **Desktop requests.** The desktop app keeps its service token in memory, so
+  `open`, `add` and `update` never call its service: the CLI starts the app's
+  executable, detached, with `--cadencr-request=<JSON>` (version 1; action
+  `focus`, `open` with an absolute `path` and optional `line`, `add` with an
+  absolute `path`, or `update`). A running app receives it through Electron's
+  single-instance lock (`packages/desktop/electron/main/cli-request.ts`) and
+  reports the outcome in its window; the CLI does not wait for it.
+- **Headless service.** `serve` starts the bundled `cadencr-service` on the
+  user's production database and settings (`cadencr-app-paths`), always on the
+  desktop app's port 5004 so the two never run together on one database (the
+  port is not configurable for that reason), with a fresh token and
+  `--exit-with-parent`. It enables remote access (`POST /api/remote/enable`) and
+  prints a pairing link; `--no-remote` calls `POST /api/remote/disable`
+  instead, since the service restores the persisted setting at startup. While
+  it runs, `<data>/run/serve.json` (0600) holds its pid, port and token for
+  `pair` and `add`; a file whose process is gone or whose port does not answer
+  is stale and removed. `add` then dedupes against `GET /api/projects`
+  (comparing resolved paths) before creating the project. Ctrl+C, SIGTERM or
+  SIGHUP stops the service gracefully.
+- **Updates.** `update --check` compares the installed version (the server
+  manifest, or the app version the CLI was built with) with the latest GitHub
+  release and only reports. For an app install, `update` asks the app to check
+  (its electron-updater does the rest). A server install downloads
+  `cadencr-server-<version>-<platform>.tar.gz` and its `.sha256` from the latest
+  GitHub release, verifies it, unpacks it beside the installation, checks its
+  layout, version and `platform`, and swaps it in, keeping `.<name>.previous`;
+  it refuses while `serve` runs.
+
+## Author and maintainer commands
+
+These commands never contact the service or database, install a plugin, or
+execute a provider binary; the one program they run is a custom tab's own
+backend, for `plugin validate --kind tab` and `--kind plugin` (below,
+`--no-run` to skip it).
 `stage-publication` downloads inert GitHub Release assets. `mirror-publication`
 can upload already verified local artifacts to an explicitly confirmed GitHub
 draft; it never promotes that draft to a published release.
@@ -19,7 +77,7 @@ release; it never writes to GitHub and requires fully staged local archives.
 `restore-publication` also fetches missing archives from that published managed
 release into an existing empty or partial directory, never from author sources.
 
-## Commands
+### Commands
 
 ```text
 cadencr plugin validate <folder> --descriptor <descriptor.json>

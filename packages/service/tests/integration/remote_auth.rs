@@ -288,8 +288,10 @@ async fn remote_pair_is_rate_limited() {
     controller.stop().await;
 }
 
-/// Invalid HTTP and WS credentials share a tight admission allowance. An
-/// exhausted source IP must wait, even with a subsequently valid credential.
+/// Invalid HTTP and WS credentials share a tight admission allowance. Once
+/// the source IP exhausts it, rejected credentials are shed, while a valid
+/// credential never seen before still gets verified (first contact behind a
+/// shared tunnel address).
 #[tokio::test]
 async fn failed_http_and_ws_auth_exhaust_a_shared_admission_budget() {
     let pool = pool_with_remote_tables().await;
@@ -354,7 +356,7 @@ async fn failed_http_and_ws_auth_exhaust_a_shared_admission_budget() {
             .await
             .unwrap()
             .status(),
-        StatusCode::TOO_MANY_REQUESTS
+        StatusCode::OK
     );
     controller.stop().await;
 }

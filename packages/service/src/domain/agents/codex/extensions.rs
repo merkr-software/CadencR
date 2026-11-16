@@ -117,7 +117,7 @@ fn listed_servers(raw: Vec<definition::RawDefinition>, home: Option<&Path>) -> V
 }
 
 fn add_args(spec: &McpServerSpec) -> Result<Vec<String>, ExtensionError> {
-    let mut command = args!["mcp", "add", spec.name.as_str()];
+    let mut command = Vec::from(args!["mcp", "add", spec.name.as_str()]);
     match spec.transport {
         McpTransport::Stdio => {
             for (key, value) in &spec.env {

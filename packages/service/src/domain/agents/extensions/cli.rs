@@ -249,9 +249,10 @@ fn command_label(binary: &Path, args: &[String]) -> String {
     format!("{name} {}", verbs.join(" ")).trim_end().to_string()
 }
 
-/// `args!["mcp", "list"]` → `Vec<String>`.
+/// `args!["mcp", "list"]` → `[String; 2]`, borrowed as `&[String]` by the
+/// runner.
 macro_rules! args {
-    ($($arg:expr),* $(,)?) => { vec![$(String::from($arg)),*] };
+    ($($arg:expr),* $(,)?) => { [$(String::from($arg)),*] };
 }
 pub(crate) use args;
 

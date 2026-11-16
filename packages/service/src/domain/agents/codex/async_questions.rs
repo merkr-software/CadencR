@@ -88,6 +88,27 @@ pub(super) fn request_id(event: &RuntimeEvent) -> Option<&str> {
         .filter(|id| is_async_question(id))
 }
 
+/// The form of a question this runtime never saw, as the answer echoes it:
+/// the client sends the questions back alongside the answers.
+pub(super) fn restored_question_input(
+    response: &RuntimePermissionResponse,
+) -> Result<Value, RuntimeError> {
+    if response.decision == RuntimePermissionDecision::Deny {
+        return Ok(Value::Null);
+    }
+    response
+        .updated_input
+        .as_ref()
+        .filter(|input| input.get("questions").is_some_and(Value::is_array))
+        .cloned()
+        .ok_or_else(|| {
+            RuntimeError::new(format!(
+                "Unknown Codex question without its form: {}",
+                response.request_id
+            ))
+        })
+}
+
 pub(super) fn answer_prompt(
     input: &Value,
     response: &RuntimePermissionResponse,
@@ -213,6 +234,32 @@ mod tests {
             };
             assert!(answer_prompt(&input, &response).is_err(), "{answers}");
         }
+    }
+
+    #[test]
+    fn a_restored_question_is_answered_from_the_echoed_form() {
+        let mut response = RuntimePermissionResponse {
+            request_id: "codex_async_question_gone".into(),
+            decision: RuntimePermissionDecision::AllowOnce,
+            option_id: None,
+            feedback: None,
+            updated_input: Some(json!({
+                "questions":[{"question":"Open the QA instance?"}],
+                "answers":{"Open the QA instance?":"Allow"}
+            })),
+        };
+        let input = restored_question_input(&response).unwrap();
+        assert_eq!(
+            answer_prompt(&input, &response).unwrap(),
+            "Open the QA instance?\nAnswer: Allow"
+        );
+        response.updated_input = Some(json!({"answers":{"Open the QA instance?":"Allow"}}));
+        assert!(restored_question_input(&response).is_err());
+        response.decision = RuntimePermissionDecision::Deny;
+        let input = restored_question_input(&response).unwrap();
+        assert!(answer_prompt(&input, &response)
+            .unwrap()
+            .contains("without answering"));
     }
 
     #[test]

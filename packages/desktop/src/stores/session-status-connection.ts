@@ -2,17 +2,8 @@ import type { StoreApi } from "zustand";
 import { toast } from "sonner";
 import { createEnvelope, parseEnvelope } from "@/lib/ws-envelope";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
-import {
-  reportManualReconnectRequired,
-  useConnectionStatusStore,
-} from "@/stores/connection-status-store";
-import {
-  registerReconnector,
-  resetReconnectState,
-  scheduleReconnect,
-  unregisterReconnector,
-  WS_RATE_LIMIT_RETRY_MS,
-} from "@/lib/ws-reconnect";
+import type { WsConnection } from "@/lib/ws-connection";
+import { openLifecycleSocket, registerSocketRetry, retireSocket } from "@/lib/ws-lifecycle";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { hydratePrStatuses } from "@/stores/pr-status-hydration";
 import { subscribeForgeStatus } from "@/stores/forge-visibility";
@@ -26,62 +17,68 @@ const APP_WS_SOURCE = "app-ws";
 type SessionStatusSet = StoreApi<SessionStatusState>["setState"];
 type SessionStatusGet = StoreApi<SessionStatusState>["getState"];
 interface AppWsConnection {
-  ws: WebSocket;
+  ws: WsConnection;
   set: SessionStatusSet;
   dispatchEnvelope: EnvelopeDispatcher;
   isCurrent: () => boolean;
   unsubscribeForgeVisibility: () => void;
 }
 
-function handleAppWsOpen(connection: AppWsConnection): void {
-  const { ws, set } = connection;
-  resetReconnectState(APP_WS_SOURCE);
+function sendAppEnvelope(ws: WsConnection, action: string, payload: object = {}): void {
+  ws.sendJson(createEnvelope("app", action, payload));
+}
+
+function markAppWsConnected({ set }: AppWsConnection): void {
   resetServerClock();
   set((state) => ({ isConnected: true, connectionEpoch: state.connectionEpoch + 1 }));
-  useConnectionStatusStore.getState().reportSource(APP_WS_SOURCE, "connected");
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.session_status", {})));
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.feature_events", {})));
+}
+
+/** The service forgets a socket's subscriptions with it: every open re-sends them. */
+function replayAppSubscriptions(connection: AppWsConnection): void {
+  const { ws } = connection;
+  sendAppEnvelope(ws, "subscribe.session_status");
+  sendAppEnvelope(ws, "subscribe.feature_events");
   // An agent's project_archive_session: the Archive dialog's toast and teardown.
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.agent_archived_events", {})));
+  sendAppEnvelope(ws, "subscribe.agent_archived_events");
   // Every archive and each of its cleanup steps, whoever made it: the local
-  // teardown and the cleanup this client shows. Refetch what a disconnect missed.
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.archive_cleanup_events", {})));
-  void invalidateByUrlPrefix(queryClient, "/api/archive-cleanups");
+  // teardown and the cleanup this client shows.
+  sendAppEnvelope(ws, "subscribe.archive_cleanup_events");
   // A schedule fires on the server's clock, into a conversation this client
   // need not have open, so nothing else tells the sidebar its rules moved.
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.schedule_events", {})));
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.settings_events", {})));
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.theme_events", {})));
+  sendAppEnvelope(ws, "subscribe.schedule_events");
+  sendAppEnvelope(ws, "subscribe.settings_events");
+  sendAppEnvelope(ws, "subscribe.theme_events");
   // Custom tab folders changed on disk: refetch the list, reload live tabs.
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.plugin_tab_events", {})));
+  sendAppEnvelope(ws, "subscribe.plugin_tab_events");
   // Prompts queued for after a turn: delivery happens server-side at turn end.
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.prompt_queue_events", {})));
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.custom_action_events", {})));
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.alacritty_config_events", {})));
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.storage_maintenance_events", {})));
+  sendAppEnvelope(ws, "subscribe.prompt_queue_events");
+  sendAppEnvelope(ws, "subscribe.custom_action_events");
+  sendAppEnvelope(ws, "subscribe.alacritty_config_events");
+  sendAppEnvelope(ws, "subscribe.storage_maintenance_events");
   // Which agents the last restart interrupted, and which were resumed.
-  ws.send(JSON.stringify(createEnvelope("app", "subscribe.restart_continuation_events", {})));
+  sendAppEnvelope(ws, "subscribe.restart_continuation_events");
   connection.unsubscribeForgeVisibility = subscribeForgeStatus(ws);
-  void hydratePrStatuses();
   if (!isBrowserRemote()) {
-    ws.send(JSON.stringify(createEnvelope("app", "subscribe.remote_events", {})));
+    sendAppEnvelope(ws, "subscribe.remote_events");
     // Version checks and update outcomes toast on the host only: updates run
     // on this machine. The subscription starts with the current status list.
-    ws.send(JSON.stringify(createEnvelope("app", "subscribe.provider_update_events", {})));
+    sendAppEnvelope(ws, "subscribe.provider_update_events");
   }
 }
 
-function handleAppWsError(connection: AppWsConnection): void {
-  connection.set({ isConnected: false });
-  useConnectionStatusStore
-    .getState()
-    .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket error");
+/**
+ * What a disconnect missed. The session-status snapshot answers the replayed
+ * subscription; `connectionEpoch` (bumped on connect) tells the rest to refetch.
+ */
+function resyncAppState(): void {
+  void invalidateByUrlPrefix(queryClient, "/api/archive-cleanups");
+  void hydratePrStatuses();
 }
 
-function handleAppWsMessage(connection: AppWsConnection, event: MessageEvent): void {
+function handleAppWsMessage(connection: AppWsConnection, data: string): void {
   let envelope: ReturnType<typeof parseEnvelope>;
   try {
-    envelope = parseEnvelope(event.data as string);
+    envelope = parseEnvelope(data);
   } catch {
     return;
   }
@@ -110,101 +107,88 @@ export function createAppWsConnection(
   "connect" | "disconnect" | "subscribeFileWatcher" | "subscribeGitStatus"
 > {
   let current: AppWsConnection | null = null;
+  /** Releases what the connection holds; the caller decides whether it closes. */
+  const release = (connection: AppWsConnection): void => {
+    connection.unsubscribeForgeVisibility();
+    clearStorageMaintenanceStatus();
+  };
   const retireCurrent = (): void => {
     const previous = current;
     current = null;
     if (!previous) return;
-    previous.unsubscribeForgeVisibility();
-    clearStorageMaintenanceStatus();
+    release(previous);
     previous.ws.close();
   };
-  const connect = (): void => {
-    registerReconnector(
-      APP_WS_SOURCE,
-      () => {
-        retireCurrent();
-        set({ isConnected: false });
-        get().connect();
+  /** Runs `step` on the current connection: the lifecycle only calls back for it. */
+  const withCurrent = (step: (connection: AppWsConnection) => void) => (): void => {
+    if (current) step(current);
+  };
+  const open = (): WsConnection =>
+    openLifecycleSocket({
+      key: APP_WS_SOURCE,
+      url: getWsUrl(),
+      protocols: getWsProtocols(),
+      statusLabel: "App WebSocket",
+      isCurrent: (ws) => current?.ws === ws,
+      onConnected: withCurrent(markAppWsConnected),
+      replay: withCurrent(replayAppSubscriptions),
+      resync: resyncAppState,
+      onMessage: (data) => {
+        if (current) handleAppWsMessage(current, data);
       },
-      { onManualRequired: reportManualReconnectRequired },
-    );
-    if (
-      current &&
-      (current.ws.readyState === WebSocket.OPEN || current.ws.readyState === WebSocket.CONNECTING)
-    )
-      return;
+      onDrop: () => {
+        const dropped = current;
+        current = null;
+        if (dropped) release(dropped);
+        set({ isConnected: false });
+      },
+      reconnect: () => get().connect(),
+    });
+  const connect = (): void => {
+    registerSocketRetry(APP_WS_SOURCE, () => {
+      retireCurrent();
+      set({ isConnected: false });
+      get().connect();
+    });
+    if (current && (current.ws.isOpen() || current.ws.isConnecting())) return;
     retireCurrent();
-    const protocols = getWsProtocols();
-    const ws = new WebSocket(getWsUrl(), protocols.length ? protocols : undefined);
     const connection: AppWsConnection = {
-      ws,
+      ws: open(),
       set,
       dispatchEnvelope,
       isCurrent: () => current === connection,
       unsubscribeForgeVisibility: () => {},
     };
     current = connection;
-    ws.addEventListener("open", () => {
-      if (connection.isCurrent()) handleAppWsOpen(connection);
-    });
-    ws.addEventListener("message", (event) => {
-      if (connection.isCurrent()) handleAppWsMessage(connection, event);
-    });
-    ws.addEventListener("error", () => {
-      if (connection.isCurrent()) handleAppWsError(connection);
-    });
-    ws.addEventListener("close", (event) => {
-      if (!connection.isCurrent()) return;
-      current = null;
-      connection.unsubscribeForgeVisibility();
-      clearStorageMaintenanceStatus();
-      set({ isConnected: false });
-      useConnectionStatusStore
-        .getState()
-        .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket dropped");
-      scheduleReconnect(APP_WS_SOURCE, () => get().connect(), {
-        minimumDelayMs:
-          event.code === 1006 || event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : undefined,
-      });
-    });
   };
   return {
     connect,
     disconnect() {
-      unregisterReconnector(APP_WS_SOURCE);
+      retireSocket(APP_WS_SOURCE);
       retireCurrent();
-      useConnectionStatusStore.getState().clearSource(APP_WS_SOURCE);
       set({ isConnected: false });
     },
     subscribeFileWatcher(projectId, featureId) {
       const connection = current;
-      if (!connection || connection.ws.readyState !== WebSocket.OPEN) return;
-      connection.ws.send(
-        JSON.stringify(
-          createEnvelope("app", "subscribe.file_watcher", {
-            project_id: projectId,
-            feature_id: featureId,
-          }),
-        ),
-      );
+      if (!connection?.ws.isOpen()) return;
+      sendAppEnvelope(connection.ws, "subscribe.file_watcher", {
+        project_id: projectId,
+        feature_id: featureId,
+      });
     },
     subscribeGitStatus: (featureId) => subscribeGitStatus(current, featureId),
   };
 }
 
 function subscribeGitStatus(connection: AppWsConnection | null, featureId: number): () => void {
-  if (!connection || connection.ws.readyState !== WebSocket.OPEN) return () => {};
-  connection.ws.send(
-    JSON.stringify(createEnvelope("app", "subscribe.git_status", { feature_id: featureId })),
-  );
+  if (!connection?.ws.isOpen()) return () => {};
+  sendAppEnvelope(connection.ws, "subscribe.git_status", { feature_id: featureId });
   let unsubscribed = false;
   return () => {
     if (unsubscribed) return;
     unsubscribed = true;
-    if (connection.isCurrent() && connection.ws.readyState === WebSocket.OPEN) {
-      connection.ws.send(
-        JSON.stringify(createEnvelope("app", "unsubscribe.git_status", { feature_id: featureId })),
-      );
+    if (connection.isCurrent() && connection.ws.isOpen()) {
+      sendAppEnvelope(connection.ws, "unsubscribe.git_status", { feature_id: featureId });
     }
   };
 }

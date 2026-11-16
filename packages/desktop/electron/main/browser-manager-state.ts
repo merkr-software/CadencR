@@ -19,7 +19,6 @@ export class BrowserManagerState {
     private readonly tabs: Map<string, ManagedTab>,
     private readonly scopes: BrowserScopeState,
     private readonly workspace: BrowserTabWorkspaceController,
-    private readonly getError: () => string | null,
     private readonly getWindow: () => BrowserWindow | null,
   ) {}
 
@@ -27,7 +26,6 @@ export class BrowserManagerState {
     return this.scopes.snapshot(
       scopeId,
       this.tabs,
-      this.getError(),
       this.workspace.metadata(scopeId, this.tabs, this.scopes.activeTabId(scopeId)),
     );
   }

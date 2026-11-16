@@ -16,6 +16,7 @@ pub mod project_worktree;
 pub mod session_graph;
 pub mod workspace;
 pub mod workspace_activity;
+mod workspace_args;
 pub mod workspace_projects;
 
 // Reserved for the future `cadencr-workspace` MCP server. These conversation

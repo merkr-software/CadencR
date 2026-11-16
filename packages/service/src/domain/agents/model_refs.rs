@@ -26,9 +26,7 @@ const OPENCODE_MODEL_PROVIDER_PREFIXES: &[&str] = &[
 /// Parse provider-scoped model refs understood by OpenCode.
 pub fn parse_opencode_model_ref(model: &str) -> Option<(&str, &str)> {
     let trimmed = model.trim();
-    let Some((provider_id, model_id)) = trimmed.split_once('/') else {
-        return None;
-    };
+    let (provider_id, model_id) = trimmed.split_once('/')?;
 
     (!model_id.is_empty() && OPENCODE_MODEL_PROVIDER_PREFIXES.contains(&provider_id))
         .then_some((provider_id, model_id))

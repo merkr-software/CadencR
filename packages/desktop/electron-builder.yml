@@ -25,6 +25,10 @@ extraResources:
   # in `build/after-pack.cjs`.
   - from: resources/bin/${arch}/cadencr-service
     to: cadencr-service
+  # The `cadencr` command line (`@cadencr/service build:sidecars`); Settings links
+  # it onto PATH, and DEB/RPM link /usr/bin/cadencr to it (build/linux/*.tpl).
+  - from: resources/bin/${arch}/cadencr
+    to: bin/cadencr
   # The built SPA on the real filesystem — loaded directly by the packaged
   # window (the asar can't hold it, see above) and served over the remote
   # listener via `--renderer-dir` (the Rust sidecar can't read an asar).
@@ -50,6 +54,7 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   signIgnore:
     - Contents/Resources/cadencr-service$
+    - Contents/Resources/bin/cadencr$
   target:
     - target: dmg
       arch:
@@ -80,6 +85,9 @@ appImage:
 # electron-builder defaults) so a future Electron bump cannot silently drop
 # required libraries.
 deb:
+  # Link /usr/bin/cadencr to the CLI rather than the Electron binary.
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
   packageName: cadencr
   artifactName: Cadencr-${version}-${arch}.${ext}
   depends:
@@ -100,6 +108,8 @@ deb:
     - lsof
   priority: optional
 rpm:
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
   packageName: cadencr
   artifactName: Cadencr-${version}-${arch}.${ext}
   # Library sonames, not package names: RPM generates these provides on every

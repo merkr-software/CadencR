@@ -14,9 +14,14 @@ describe("frost theme CSS", () => {
   const frostCss = readFileSync(join(process.cwd(), "src/theme-frost.css"), "utf8");
   // Strip block comments so the rule below doesn't trip on the explanatory note.
   const frostRules = frostCss.replace(/\/\*[\s\S]*?\*\//g, "");
+  const chromeRules = readFileSync(join(process.cwd(), "src/theme-chrome.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
 
   it("never hand-writes -webkit-backdrop-filter (Lightning CSS collapses the pair to the webkit-only form Chromium ignores)", () => {
     expect(frostRules).not.toMatch(/-webkit-backdrop-filter/);
+    expect(chromeRules).not.toMatch(/-webkit-backdrop-filter/);
     // The standard property must still be present so there is glass to ship.
     expect(frostRules).toMatch(/backdrop-filter:\s*var\(--glass-backdrop\)/);
   });
@@ -25,10 +30,6 @@ describe("frost theme CSS", () => {
     // The rule is generic now — any theme whose texture declares a base gets an
     // opaque :root and a fully transparent body (not the partial-alpha
     // --background, which disables every backdrop-filter on the page).
-    const chromeRules = readFileSync(join(process.cwd(), "src/theme-chrome.css"), "utf8").replace(
-      /\/\*[\s\S]*?\*\//g,
-      "",
-    );
     expect(chromeRules).toMatch(
       /:root\[data-texture-base\]\s*{\s*background-color:\s*var\(--ambient-base\);/s,
     );
@@ -63,5 +64,27 @@ describe("frost theme CSS", () => {
 
   it("applies the frost blur to tooltip overlays", () => {
     expect(frostRules.match(/\[data-slot="tooltip-content"\]/g)).toHaveLength(2);
+  });
+
+  it("frosts portable-theme overlays without overriding built-in material selectors", () => {
+    const overlays = chromeRules.match(
+      /:root\[data-texture-base\]\s*:where\(([\s\S]*?)\)\s*{([^}]*)}/,
+    );
+    expect(overlays).not.toBeNull();
+    for (const slot of ["dialog-content", "popover-content", "tooltip-content"]) {
+      expect(overlays?.[1]).toContain(`[data-slot="${slot}"]`);
+    }
+    expect(overlays?.[1]).toContain(".glass-surface.absolute");
+    expect(overlays?.[2]).toMatch(/backdrop-filter:\s*blur\(/);
+    expect(chromeRules).not.toContain("data-theme");
+  });
+
+  it("blurs the modal background and keeps its surface readable without GPU blur", () => {
+    expect(chromeRules).toMatch(
+      /:root\[data-texture-base\]\s+\[data-slot="dialog-overlay"\]\s*{[^}]*backdrop-filter:\s*blur\(/,
+    );
+    expect(chromeRules).toMatch(
+      /:root\[data-texture-base\]\s+\[data-slot="dialog-content"\]\s*{[^}]*background-color:\s*oklch\(from var\(--popover\) l c h \/ 0\.97\);[^}]*color:\s*var\(--popover-foreground\);/,
+    );
   });
 });

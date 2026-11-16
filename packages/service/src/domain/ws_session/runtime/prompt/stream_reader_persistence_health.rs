@@ -14,18 +14,18 @@ impl StreamReaderTask {
         };
         self.app_state
             .persistence_health
-            .publish(
-                self.db_session_id,
-                self.feature_id,
-                self.persistence_reader_id,
-                SessionPersistenceStatusPayload {
-                    status,
-                    message: status.message().into(),
-                },
-                &self.app_state.read_pool,
-                &self.feature_senders,
-                &self.sender,
-            )
+            .publish()
+            .session_id(self.db_session_id)
+            .feature_id(self.feature_id)
+            .reader_id(self.persistence_reader_id)
+            .payload(SessionPersistenceStatusPayload {
+                status,
+                message: status.message().into(),
+            })
+            .read_pool(&self.app_state.read_pool)
+            .senders(&self.feature_senders)
+            .sender(&self.sender)
+            .call()
             .await;
     }
 }

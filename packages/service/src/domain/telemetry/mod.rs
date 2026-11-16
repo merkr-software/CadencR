@@ -126,9 +126,7 @@ pub async fn turn_completed(summary: TurnSummary) {
         return;
     };
     let snapshot = runtime.snapshot();
-    if !snapshot
-        .decision_version
-        .is_some_and(|version| version >= 1)
+    if snapshot.decision_version.is_none_or(|version| version < 1)
         || !snapshot.usage_enabled
         || !snapshot.usage_configured
     {

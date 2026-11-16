@@ -45,22 +45,20 @@ impl ServerHandler for ProjectServer {
         std::future::ready(Ok(super::tool_list_result(tools())))
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResponse, ErrorData>> + Send + '_ {
-        async move {
-            let args = request
-                .arguments
-                .as_ref()
-                .map(|m| serde_json::Value::Object(m.clone()))
-                .unwrap_or(serde_json::Value::Null);
-            Ok(
-                run_project_tool(request.name.as_ref(), args, self.ctx.clone())
-                    .await
-                    .into(),
-            )
-        }
+    ) -> Result<CallToolResponse, ErrorData> {
+        let args = request
+            .arguments
+            .as_ref()
+            .map(|m| serde_json::Value::Object(m.clone()))
+            .unwrap_or(serde_json::Value::Null);
+        Ok(
+            run_project_tool(request.name.as_ref(), args, self.ctx.clone())
+                .await
+                .into(),
+        )
     }
 }

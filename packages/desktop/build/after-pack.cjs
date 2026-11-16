@@ -15,6 +15,11 @@ exports.default = async function afterPack(context) {
       join(context.appOutDir, "resources", "cadencr-service"),
       Arch[context.arch],
     );
+    prepareLinuxSidecar(
+      join(context.appOutDir, "resources", "bin", "cadencr"),
+      Arch[context.arch],
+      "the cadencr CLI",
+    );
     return;
   }
 
@@ -30,9 +35,15 @@ exports.default = async function afterPack(context) {
     universal: true,
   });
 
+  const cli = join(resources, "bin", "cadencr");
+  assertBinaryArch(cli, Arch[context.arch], { universal: false });
+
   const identity = process.env.CADENCR_MAC_CODESIGN_IDENTITY || process.env.CSC_NAME || "-";
   const projectDir = context.packager.projectDir;
   sign(sidecar, identity, join(projectDir, "build", "entitlements.sidecar.mac.plist"));
+  // The CLI only reads files, spawns the app or the sidecar and makes HTTP
+  // requests: hardened runtime with no entitlements.
+  sign(cli, identity, null);
 };
 
 // v0.13.0 shipped an arm64 sidecar in the Intel app: the UI launched but the
@@ -56,8 +67,7 @@ function sign(target, identity, entitlements) {
       "--force",
       "--options",
       "runtime",
-      "--entitlements",
-      entitlements,
+      ...(entitlements ? ["--entitlements", entitlements] : []),
       ...timestampArgs,
       "--sign",
       identity,

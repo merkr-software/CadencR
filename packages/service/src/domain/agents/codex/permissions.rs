@@ -137,7 +137,7 @@ fn supports_allow_future_for_tool(tool_name: &str) -> bool {
 }
 
 pub(super) fn supports_accept_for_session(params: &Value) -> bool {
-    if !params.get("availableDecisions").is_some() {
+    if params.get("availableDecisions").is_none() {
         return true;
     }
     has_available_decision(params, DECISION_ACCEPT_FOR_SESSION)

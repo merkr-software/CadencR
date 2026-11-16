@@ -115,6 +115,12 @@ pub fn offered_subprotocols(headers: &HeaderMap) -> impl Iterator<Item = &str> {
         .map(str::trim)
 }
 
+/// The token a WebSocket upgrade presents in its `cadencr-token.<token>`
+/// subprotocol, unverified.
+pub(super) fn presented_ws_token(headers: &HeaderMap) -> Option<&str> {
+    offered_subprotocols(headers).find_map(|protocol| protocol.strip_prefix(WS_TOKEN_PREFIX))
+}
+
 /// Remote-listener origin check: the served SPA's `Origin` must exactly match
 /// one of the listener's `https://<host>` origins. Missing `Origin` (non-browser
 /// clients) is allowed — the device token via subprotocol is the real gate.

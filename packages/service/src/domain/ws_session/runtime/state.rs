@@ -15,6 +15,11 @@ use crate::domain::agents::adapter::{
 use super::prompt as session_prompt;
 
 /// State of the SDK query for a session.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one per live session: boxing the config would add an allocation each \
+              time a session (re)enters Pending to save a few hundred bytes per session"
+)]
 pub(in crate::domain::ws_session) enum QueryState {
     /// Session initialized but no prompt sent yet. Stores the runtime config to use when spawning.
     Pending(RuntimeSpawnConfig),

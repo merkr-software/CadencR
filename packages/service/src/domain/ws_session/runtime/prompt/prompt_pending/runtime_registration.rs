@@ -56,7 +56,6 @@ pub(in crate::domain::ws_session) async fn register_runtime(
         .take()
         .expect("permission bridge must be attached before runtime spawn");
     let stream_provider = context.provider_id.clone();
-    let stream_model = context.spawned_model.clone();
     let cleanup_session_on_end = false;
 
     let installed = active_session::insert_active_session(
@@ -93,21 +92,20 @@ pub(in crate::domain::ws_session) async fn register_runtime(
         context.config.cwd.to_string_lossy().to_string(),
     );
     drop(context.spawn_claim.take());
-    spawn_stream_reader(
-        context.db_session_id,
-        context.feature_id,
-        message_rx,
-        Some(Arc::downgrade(&query_arc)),
-        context.sender,
-        context.app_state.ws_feature_senders.clone(),
-        context.app_state.write_pool.clone(),
-        context.app_state.session_status_tx.clone(),
-        context.sdk_sessions.clone(),
-        stream_provider,
-        stream_model.as_deref(),
-        provider_context_window,
-        context.app_state.clone(),
-        cleanup_session_on_end,
-    );
+    spawn_stream_reader()
+        .db_session_id(context.db_session_id)
+        .feature_id(context.feature_id)
+        .message_rx(message_rx)
+        .runtime_session_handle(Arc::downgrade(&query_arc))
+        .sender(context.sender)
+        .feature_senders(context.app_state.ws_feature_senders.clone())
+        .write_pool(context.app_state.write_pool.clone())
+        .session_status_tx(context.app_state.session_status_tx.clone())
+        .sdk_sessions(context.sdk_sessions.clone())
+        .runtime_provider(stream_provider)
+        .maybe_provider_context_window(provider_context_window)
+        .app_state(context.app_state.clone())
+        .cleanup_session_on_end(cleanup_session_on_end)
+        .call();
     Ok(())
 }

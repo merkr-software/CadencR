@@ -14,7 +14,7 @@ pub(super) fn convert_block(idx: usize, all: &[MutableBlock]) -> AgentBlock {
     // A block already cut before it got here (Bash tail truncation) no longer
     // knows its full size, so it reports none rather than an understated one.
     let full_content_bytes =
-        (preview_truncated && b.truncated_content != Some(true)).then(|| b.content.len() as u64);
+        (preview_truncated && b.truncated_content != Some(true)).then_some(b.content.len() as u64);
     let child_blocks = if b.has_child_slots || !b.child_indices.is_empty() {
         Some(
             b.child_indices

@@ -361,6 +361,10 @@ fn disable_cli_auth(config: Option<&mut ForgeHostConfig>) -> bool {
     true
 }
 
+fn cli_auth_available(kind: GitHost) -> bool {
+    matches!(kind, GitHost::GitHub | GitHost::GitLab)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{conversation_pr, disable_cli_auth, has_stored_credentials, requested_pr_number};
@@ -444,8 +448,4 @@ mod tests {
         assert!(!disable_cli_auth(Some(&mut config)));
         assert!(!disable_cli_auth(None));
     }
-}
-
-fn cli_auth_available(kind: GitHost) -> bool {
-    matches!(kind, GitHost::GitHub | GitHost::GitLab)
 }

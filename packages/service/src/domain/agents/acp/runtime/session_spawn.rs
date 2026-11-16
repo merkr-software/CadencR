@@ -102,16 +102,16 @@ pub async fn spawn_acp_runtime_session(
 
     let (tx, rx) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
     let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        config.cwd.clone(),
-        pid,
-        rx,
-        tx.clone(),
-        hooks.clone(),
-        Arc::clone(&indexer),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(config.cwd.clone())
+        .maybe_pid(pid)
+        .rx(rx)
+        .local_tx(tx.clone())
+        .hooks(hooks.clone())
+        .indexer(Arc::clone(&indexer))
+        .call();
     if negotiated.may_replay_history {
         session
             .replay_suppression
@@ -213,29 +213,31 @@ fn spawn_initial_prompt(
     let replay_suppression = Arc::clone(&session.replay_suppression);
     tokio::spawn(async move {
         replay_suppression.store(false, std::sync::atomic::Ordering::SeqCst);
-        if let Err(error) = drive_initial_prompt(
-            &session_for_prompt,
-            &session_id_arc,
-            &current_model_arc,
-            &current_effort_arc,
-            initial_content,
-            &local_tx,
-            &indexer_arc,
-            context_window,
-            hooks.as_ref(),
-            &prompt_turn_lock,
-            &prompt_cancel,
-        )
-        .await
+        if let Err(error) = drive_initial_prompt()
+            .client(&session_for_prompt)
+            .session_id_lock(&session_id_arc)
+            .current_model_lock(&current_model_arc)
+            .current_effort_lock(&current_effort_arc)
+            .content(initial_content)
+            .tx(&local_tx)
+            .indexer(&indexer_arc)
+            .maybe_context_window(context_window)
+            .hooks(hooks.as_ref())
+            .prompt_turn_lock(&prompt_turn_lock)
+            .prompt_cancel(&prompt_cancel)
+            .call()
+            .await
         {
             let _ = local_tx.send(Err(error)).await;
         }
     });
 }
 
+#[bon::bon]
 impl AcpRuntimeSession {
     /// Assemble a session struct from negotiated handshake state.
     /// Pulled out of [`spawn_acp_runtime_session`] for readability.
+    #[builder]
     pub(super) fn assemble(
         client: &AcpClient,
         negotiated: &NegotiatedSession,

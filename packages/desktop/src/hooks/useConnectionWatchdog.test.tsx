@@ -61,11 +61,12 @@ function bridge(isElectron: boolean): CadencrDesktopBridge {
     setRemoteHostAwake: vi.fn(() => Promise.resolve()),
     onPowerSuspend: vi.fn(() => () => undefined),
     onPowerResume: vi.fn(() => () => undefined),
-    checkForUpdates: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
     fetchChangelogImage: vi.fn(),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
   };
 }
 

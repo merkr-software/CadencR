@@ -12,21 +12,25 @@ path = "src/main.rs"
 
 [dependencies]
 bon.workspace = true
+cadencr-app-paths = { path = "../app-paths-rs" }
 cadencr-plugin-core = { path = "../plugin-core" }
 cadencr-registry-core = { path = "../registry-core" }
 cadencr-registry-publisher = { path = "../registry-publisher" }
 cadencr-tab-backend = { path = "../tab-backend-sdk-rs", features = ["conformance"] }
 clap = { version = "4", features = ["derive"] }
-serde = "1"
+flate2 = "1"
+libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
+tar = "0.4.46"
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "net", "time"] }
+tokio = { version = "1", features = ["rt", "net", "time", "process", "signal", "macros", "io-util"] }
 
 [dev-dependencies]
 cadencr-plugin-core = { path = "../plugin-core", features = ["test-support"] }
-flate2 = "1"
-libc = "0.2"
-sha2 = "0.11"
 chrono = "0.4"
 
 [lints]

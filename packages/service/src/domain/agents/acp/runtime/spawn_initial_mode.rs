@@ -111,16 +111,15 @@ mod tests {
 
     fn assemble_session(client: &AcpClient, neg: &NegotiatedSession) -> AcpRuntimeSession {
         let (tx, rx) = mpsc::channel(8);
-        AcpRuntimeSession::assemble(
-            client,
-            neg,
-            std::env::temp_dir(),
-            None,
-            rx,
-            tx,
-            Arc::new(PlainHooks),
-            Arc::new(StdMutex::new(EventIndexer::default())),
-        )
+        AcpRuntimeSession::assemble()
+            .client(client)
+            .negotiated(neg)
+            .cwd(std::env::temp_dir())
+            .rx(rx)
+            .local_tx(tx)
+            .hooks(Arc::new(PlainHooks))
+            .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+            .call()
     }
 
     fn neg(sid: &str, mode: Option<&str>) -> NegotiatedSession {

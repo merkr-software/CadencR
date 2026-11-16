@@ -15,6 +15,9 @@ use crate::error::AppError;
 const DEFAULT_WORKTREE_MODE: &str = "default_worktree_mode";
 const WORKTREE_SKIP: &str = "skip";
 
+/// `(id, path, kind, authoring_target, plugin_id)` of a project.
+type AuthoringProjectRow = (i64, String, String, Option<String>, Option<String>);
+
 /// One plugin folder and how its domain reports an ownership conflict.
 #[derive(Clone, Copy)]
 pub struct AuthoredFolder<'a> {
@@ -41,7 +44,7 @@ impl AuthoredFolder<'_> {
             })?
             .to_string_lossy()
             .to_string();
-        let rows: Vec<(i64, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        let rows: Vec<AuthoringProjectRow> = sqlx::query_as(
             "SELECT id, path, kind, authoring_target, plugin_id FROM projects \
              WHERE (authoring_target = ? AND plugin_id = ?) OR path IN (?, ?) ORDER BY id",
         )

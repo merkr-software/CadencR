@@ -97,7 +97,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         label: "General",
         icon: icon(SlidersHorizontal),
         description:
-          "Interface scale, keyboard shortcuts, restarts and the file every setting is saved in.",
+          "Interface scale, keyboard shortcuts, restarts, the cadencr command and the file every setting is saved in.",
         aliases: ["interface"],
         entries: [
           { label: "UI zoom", anchor: A.interface, keywords: ["scale", "zoom", "font size"] },
@@ -106,6 +106,12 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
             label: "Resume agents after a restart",
             anchor: A.restarts,
             keywords: ["update", "crash", "continue"],
+          },
+          {
+            label: "Command line",
+            anchor: A.commandLine,
+            keywords: ["cadencr", "cli", "terminal", "shell command", "path", "install"],
+            requires: "desktop-shell",
           },
           {
             label: "Configuration file",

@@ -371,6 +371,13 @@ one-dark      → One Dark
 
 `applyThemeToDocument` publishes the first two as `<html data-chassis data-tabs>`; the texture is rendered by `<AmbientBackground/>` and laid out by `theme-chrome.css`, which must never contain a `data-theme` selector. A texture that declares a `base` also makes `:root` opaque and `body` transparent — required for `backdrop-filter` to paint at all.
 
+Floating overlays above an opaque texture base share backdrop blur, including
+user and managed themes. Dialogs also blur the interface behind their scrim and
+use the theme's `--popover` color at 97% opacity with `--popover-foreground`,
+rather than the translucent page tint, so text remains readable without GPU
+blur. These material fallbacks have lower or equal specificity than built-in
+theme rules; Frost retains its own blur, modal tint and shadows.
+
 The CadencR pair's _material_ (pane elevation, lamplight, machined wells, prompt chrome) stays theme-scoped in `theme-cadencr-material.css`: it depends on tokens only those themes declare, and it is a look rather than a structural choice.
 
 **Chrome has colors, and they belong to the theme.** The token vocabulary has two tiers. The required set is the palette every theme defines in full; a short optional set — `--tab-track-bg`, `--tab-track-border`, `--tab-active-bg`, `--pane-border` — colors the shapes a theme opted into, and `theme-chrome.css` derives a fallback from `--foreground`/`--background` for any a theme leaves out. They are optional because most themes draw neither shape; they exist because without them the only way to recolor a segmented tab strip was to edit the app's shared stylesheet — a change no installed Cadencr can receive, applied to every theme at once. An unknown key is still an error: this widens the vocabulary, it does not open it. `--tab-active-shadow` and `--page-shadow` stay out, being `box-shadow` values rather than colors. Duplication carries whichever of them the source theme declares, which is how a copy of CadencR Dark keeps its tab colors and not just its tab _shape_. `--chart-6`, the categorical palette's sixth slot, is optional for a different reason: it arrived after themes were published, so every first-party theme defines it and every reader falls back to `color-mix(in oklch, var(--chart-2), var(--chart-4))` for a theme that doesn't.

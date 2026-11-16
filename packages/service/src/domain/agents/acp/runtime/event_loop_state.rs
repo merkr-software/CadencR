@@ -201,11 +201,14 @@ mod tests {
         }
     }
 
+    /// Every `(cwd, commands)` the hooks were handed.
+    type RecordedCommands = Arc<TokioMutex<Vec<(PathBuf, Vec<RuntimeSlashCommand>)>>>;
+
     /// Hooks impl that records every `record_available_commands` call so
     /// the `event_loop_state` plumbing can be exercised without coupling
     /// to a specific provider's snapshot store.
     struct RecordingHooks {
-        recorded: Arc<TokioMutex<Vec<(PathBuf, Vec<RuntimeSlashCommand>)>>>,
+        recorded: RecordedCommands,
     }
 
     #[async_trait::async_trait]

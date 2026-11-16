@@ -105,6 +105,7 @@ pub async fn dispatch_permission_request(
     Ok(())
 }
 
+#[bon::builder]
 pub async fn dispatch_permission_request_with_cache(
     client: &AcpClient,
     pending: &PendingPermissions,
@@ -375,20 +376,20 @@ mod tests {
         let pending = PendingPermissions::default();
         let (tx, mut rx) = mpsc::channel(1);
 
-        dispatch_permission_request_with_cache(
-            &client,
-            &pending,
-            &session_permissions,
-            Default::default(),
-            Some("s-cache".to_string()),
-            "perm-cache",
-            json!("perm-cache"),
-            request,
-            &json!({}),
-            &tx,
-        )
-        .await
-        .unwrap();
+        dispatch_permission_request_with_cache()
+            .client(&client)
+            .pending(&pending)
+            .session_permissions(&session_permissions)
+            .browser_trust(Default::default())
+            .session_id("s-cache".to_string())
+            .request_id("perm-cache")
+            .raw_id(json!("perm-cache"))
+            .request(request)
+            .params(&json!({}))
+            .tx(&tx)
+            .call()
+            .await
+            .unwrap();
 
         let response = tokio::time::timeout(Duration::from_secs(1), read_frame(&mut agent_stdin))
             .await
@@ -421,20 +422,20 @@ mod tests {
         let pending = PendingPermissions::default();
         let (tx, mut rx) = mpsc::channel(1);
 
-        dispatch_permission_request_with_cache(
-            &client,
-            &pending,
-            &session_permissions,
-            Default::default(),
-            Some("s-cache".to_string()),
-            "perm-cache-missing-option",
-            json!("perm-cache-missing-option"),
-            request,
-            &json!({}),
-            &tx,
-        )
-        .await
-        .unwrap();
+        dispatch_permission_request_with_cache()
+            .client(&client)
+            .pending(&pending)
+            .session_permissions(&session_permissions)
+            .browser_trust(Default::default())
+            .session_id("s-cache".to_string())
+            .request_id("perm-cache-missing-option")
+            .raw_id(json!("perm-cache-missing-option"))
+            .request(request)
+            .params(&json!({}))
+            .tx(&tx)
+            .call()
+            .await
+            .unwrap();
 
         let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
             .await
@@ -453,20 +454,20 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         drop(rx);
 
-        let error = dispatch_permission_request_with_cache(
-            &client,
-            &pending,
-            &session_permissions,
-            Default::default(),
-            Some("s-closed".to_string()),
-            "perm-closed",
-            json!("perm-closed"),
-            permission_request(),
-            &json!({}),
-            &tx,
-        )
-        .await
-        .expect_err("closed runtime channel should surface an error");
+        let error = dispatch_permission_request_with_cache()
+            .client(&client)
+            .pending(&pending)
+            .session_permissions(&session_permissions)
+            .browser_trust(Default::default())
+            .session_id("s-closed".to_string())
+            .request_id("perm-closed")
+            .raw_id(json!("perm-closed"))
+            .request(permission_request())
+            .params(&json!({}))
+            .tx(&tx)
+            .call()
+            .await
+            .expect_err("closed runtime channel should surface an error");
 
         assert!(error.to_string().contains("runtime channel is closed"));
         assert!(super::read_pending(&pending).is_empty());

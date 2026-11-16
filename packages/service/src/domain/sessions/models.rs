@@ -231,17 +231,12 @@ pub struct FeatureAgentStateResponse {
     pub sessions: Vec<SessionState>,
 }
 
-#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum UnifiedAgentsMode {
+    #[default]
     Recent,
     All,
-}
-
-impl Default for UnifiedAgentsMode {
-    fn default() -> Self {
-        Self::Recent
-    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]

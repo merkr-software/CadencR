@@ -1,10 +1,24 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentBlockData } from "@/types/agent-block";
+import { AGENT_AUTO_COLLAPSE_DELAY_MS } from "@/lib/agent-verbosity";
 import { AgentStreamItem } from "./AgentStreamItem";
 
+const blockRenders = vi.hoisted(() => [] as Array<{ id: string; collapsed: boolean }>);
+
 vi.mock("../AgentBlock", () => ({
-  AgentBlock: () => <div>Rendered reply</div>,
+  AgentBlock: ({
+    block,
+    isCollapsedByPolicy,
+  }: {
+    block: { id: string };
+    isCollapsedByPolicy?: boolean;
+  }) => {
+    blockRenders.push({ id: block.id, collapsed: isCollapsedByPolicy === true });
+    return <div>Rendered reply</div>;
+  },
 }));
 
 vi.mock("./AgentStreamContextMenu", () => ({
@@ -126,4 +140,65 @@ describe("AgentStreamItem", () => {
       }
     },
   );
+});
+
+describe("AgentStreamItem fold policy", () => {
+  const bash: AgentBlockData = {
+    id: "bash-1",
+    type: "tool_call",
+    content: "",
+    toolName: "Bash",
+    toolUseId: "toolu-1",
+  };
+  const result: AgentBlockData = {
+    id: "bash-1-result",
+    type: "tool_result",
+    content: "ok",
+    toolUseId: "toolu-1",
+  };
+  const finished = new Map([["toolu-1", result]]);
+
+  beforeEach(() => {
+    blockRenders.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("renders a row folded from its first render in Collapsed mode", () => {
+    render(<AgentStreamItem block={bash} toolResultMap={new Map()} verbosityMode="collapsed" />);
+    expect(blockRenders[0]).toEqual({ id: "bash-1", collapsed: true });
+    expect(blockRenders.every((entry) => entry.collapsed)).toBe(true);
+  });
+
+  it("renders a finished historical row folded from its first render in Auto-collapse", () => {
+    render(<AgentStreamItem block={bash} toolResultMap={finished} verbosityMode="auto_collapse" />);
+    expect(blockRenders[0]).toEqual({ id: "bash-1", collapsed: true });
+    expect(blockRenders.every((entry) => entry.collapsed)).toBe(true);
+  });
+
+  it("keeps a row that just ran open, then folds it after the delay", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <AgentStreamItem
+        block={bash}
+        isStreaming
+        toolResultMap={new Map()}
+        verbosityMode="auto_collapse"
+      />,
+    );
+    rerender(
+      <AgentStreamItem block={bash} toolResultMap={finished} verbosityMode="auto_collapse" />,
+    );
+    expect(blockRenders.at(-1)?.collapsed).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(AGENT_AUTO_COLLAPSE_DELAY_MS);
+    });
+    expect(blockRenders.at(-1)?.collapsed).toBe(true);
+  });
+
+  it("never folds a row in Maximal mode", () => {
+    render(<AgentStreamItem block={bash} toolResultMap={finished} verbosityMode="maximal" />);
+    expect(blockRenders.every((entry) => !entry.collapsed)).toBe(true);
+  });
 });

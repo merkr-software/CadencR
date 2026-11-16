@@ -201,6 +201,14 @@ const DOC_PAGES: DocPage[] = [
     section: "Reference",
   },
   {
+    slug: "cli",
+    title: "Command line",
+    navLabel: "Command Line",
+    description:
+      "Open projects and files, add projects, update CadencR, and run it headless with the cadencr command.",
+    section: "Reference",
+  },
+  {
     slug: "settings",
     title: "Settings",
     navLabel: "Settings",

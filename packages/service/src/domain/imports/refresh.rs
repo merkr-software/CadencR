@@ -96,23 +96,25 @@ async fn max_message_id(pool: &SqlitePool, session_id: i64) -> Result<i64, AppEr
 /// Resolve the feature's latest CLI-backed agent session — the one whose
 /// conversation the user sees and continues in the CLI. Rejects features with
 /// no syncable session, a running session, or an unknown provider.
+/// `(id, runtime_provider, runtime_session_id, status, profile)` of a session.
+type FeatureSessionRow = (i64, Option<String>, Option<String>, String, Option<String>);
+
 async fn resolve_feature_session(
     pool: &SqlitePool,
     feature_id: i64,
 ) -> Result<SessionRef, AppError> {
-    let row: Option<(i64, Option<String>, Option<String>, String, Option<String>)> =
-        sqlx::query_as(
-            "SELECT s.id, s.runtime_provider, s.runtime_session_id, s.status, s.profile
+    let row: Option<FeatureSessionRow> = sqlx::query_as(
+        "SELECT s.id, s.runtime_provider, s.runtime_session_id, s.status, s.profile
          FROM agent_sessions s
          WHERE s.feature_id = ?
            AND s.runtime_session_id IS NOT NULL
            AND s.runtime_session_id != ''
          ORDER BY s.id DESC
          LIMIT 1",
-        )
-        .bind(feature_id)
-        .fetch_optional(pool)
-        .await?;
+    )
+    .bind(feature_id)
+    .fetch_optional(pool)
+    .await?;
 
     let (id, provider, runtime_session_id, status, profile) = row.ok_or_else(|| {
         AppError::BadRequest("This conversation has no CLI-backed session to sync from yet.".into())

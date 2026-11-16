@@ -18,41 +18,41 @@ impl TranscriptWriter {
     ) -> Result<Option<PersistedMessageRef>, TranscriptPersistenceError> {
         match block {
             RuntimeContentBlock::Text { text } => {
-                self.insert_mergeable_block(
-                    session_id,
-                    stream_scope,
-                    index,
-                    MergeableMessageType::Text,
-                    text,
-                    ptuid,
-                    model,
-                )
-                .await
+                self.insert_mergeable_block()
+                    .session_id(session_id)
+                    .stream_scope(stream_scope)
+                    .index(index)
+                    .message_type(MergeableMessageType::Text)
+                    .content(text)
+                    .maybe_ptuid(ptuid)
+                    .maybe_model(model)
+                    .call()
+                    .await
             }
             RuntimeContentBlock::Thinking { thinking } => {
-                self.insert_mergeable_block(
-                    session_id,
-                    stream_scope,
-                    index,
-                    MergeableMessageType::Thinking,
-                    thinking,
-                    ptuid,
-                    model,
-                )
-                .await
+                self.insert_mergeable_block()
+                    .session_id(session_id)
+                    .stream_scope(stream_scope)
+                    .index(index)
+                    .message_type(MergeableMessageType::Thinking)
+                    .content(thinking)
+                    .maybe_ptuid(ptuid)
+                    .maybe_model(model)
+                    .call()
+                    .await
             }
             RuntimeContentBlock::ToolUse { id, name, input } => {
-                self.insert_tool_call_block(
-                    session_id,
-                    stream_scope,
-                    index,
-                    id,
-                    name,
-                    input,
-                    ptuid,
-                    model,
-                )
-                .await
+                self.insert_tool_call_block()
+                    .session_id(session_id)
+                    .stream_scope(stream_scope)
+                    .index(index)
+                    .id(id)
+                    .name(name)
+                    .input(input)
+                    .maybe_ptuid(ptuid)
+                    .maybe_model(model)
+                    .call()
+                    .await
             }
             RuntimeContentBlock::Other => Ok(None),
         }

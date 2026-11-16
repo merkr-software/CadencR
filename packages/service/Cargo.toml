@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 bon.workspace = true
+cadencr-app-paths = { path = "../app-paths-rs" }
 cadencr-plugin-core = { path = "../plugin-core" }
 cadencr-registry-core = { path = "../registry-core" }
 cadencr-registry-publisher = { path = "../registry-publisher" }

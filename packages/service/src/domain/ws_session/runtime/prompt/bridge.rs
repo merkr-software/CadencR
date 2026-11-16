@@ -352,18 +352,18 @@ impl WsBridgeCanUseTool {
         self.send_permission_payload(payload).await;
 
         // `wait_and_apply_decision` owns the clear + terminal-turn broadcast.
-        permission_bridge::wait_and_apply_decision(
-            waiter,
-            &request.tool_use_id,
-            request.input.clone(),
-            &permission_updates,
-            &self.session_status_tx,
-            self.feature_id,
-            &self.write_pool,
-            self.db_session_id,
-            pending_kind,
-        )
-        .await
+        permission_bridge::wait_and_apply_decision()
+            .waiter(waiter)
+            .tool_use_id(&request.tool_use_id)
+            .original_input(request.input.clone())
+            .permission_updates(&permission_updates)
+            .session_status_tx(&self.session_status_tx)
+            .feature_id(self.feature_id)
+            .write_pool(&self.write_pool)
+            .db_session_id(self.db_session_id)
+            .clear_kind(pending_kind)
+            .call()
+            .await
     }
 }
 

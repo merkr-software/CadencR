@@ -26,12 +26,9 @@ pub async fn refreshed_permission_event_for_tool_input(
 ) -> Option<RuntimeEvent> {
     let (request, params) = {
         let mut pending = write_pending(pending);
-        let Some(entry) = pending
+        let entry = pending
             .values_mut()
-            .find(|entry| entry.request.tool_use_id.as_deref() == Some(tool_call_id))
-        else {
-            return None;
-        };
+            .find(|entry| entry.request.tool_use_id.as_deref() == Some(tool_call_id))?;
         if entry.request.tool_input == tool_input {
             return None;
         }

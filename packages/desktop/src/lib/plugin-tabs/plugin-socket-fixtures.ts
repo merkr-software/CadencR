@@ -1,4 +1,4 @@
-import type { SocketLike } from "./broker-streams";
+import type { WebSocketLike } from "@/lib/ws-connection";
 
 interface SentEnvelope {
   id: string;
@@ -7,17 +7,23 @@ interface SentEnvelope {
 }
 
 /** A plugin socket driven by the test: open it, feed it frames, drop it. */
-export class FakePluginSocket implements SocketLike {
+export class FakePluginSocket implements WebSocketLike {
   readyState = 0;
   readonly sent: SentEnvelope[] = [];
-  onopen: ((event: Event) => void) | null = null;
-  onclose: ((event: CloseEvent) => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
+  private readonly listeners = new Map<string, Array<(event: Event) => void>>();
 
   constructor(
     readonly url: string,
     readonly protocol: string,
   ) {}
+
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  private emit(type: string, event: Event): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
 
   send(data: string): void {
     this.sent.push(JSON.parse(data) as SentEnvelope);
@@ -29,16 +35,16 @@ export class FakePluginSocket implements SocketLike {
 
   open(): void {
     this.readyState = 1;
-    this.onopen?.(new Event("open"));
+    this.emit("open", new Event("open"));
   }
 
   receive(message: unknown): void {
-    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
+    this.emit("message", new MessageEvent("message", { data: JSON.stringify(message) }));
   }
 
   drop(code = 1006): void {
     this.readyState = 3;
-    this.onclose?.({ code } as CloseEvent);
+    this.emit("close", { code } as CloseEvent);
   }
 
   lastRequest(): SentEnvelope {

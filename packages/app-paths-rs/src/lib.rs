@@ -24,7 +24,9 @@
 //!
 //! Mirrored by `packages/desktop/electron/main/app-paths.ts`; the two MUST
 //! agree because the Electron main process resolves the database path and
-//! passes it to the spawned Rust sidecar.
+//! passes it to the spawned Rust sidecar. The service re-exports this crate as
+//! `shared::app_paths`; the `cadencr` CLI uses it to start the same service
+//! headless against the same database and settings.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -101,10 +103,9 @@ pub fn cache_dir() -> Result<PathBuf, String> {
     resolve(Kind::Cache)
 }
 
-/// Full path to the production SQLite database file. Resolved by the Electron
-/// main process and passed to the sidecar via `--db-path`; this Rust helper
-/// exists so test/CLI callers don't reach for `dirs::home_dir()` directly.
-#[allow(dead_code)]
+/// Full path to the production SQLite database file. The Electron main process
+/// and `cadencr serve` both resolve it and pass it to the service via
+/// `--db-path`.
 pub fn database_path() -> Result<PathBuf, String> {
     Ok(data_dir()?.join("database").join("cadencr.db"))
 }
@@ -114,8 +115,26 @@ pub fn worktrees_dir() -> Result<PathBuf, String> {
     Ok(data_dir()?.join("worktrees"))
 }
 
+/// Directory holding the JSON settings files, as the desktop app passes it to
+/// the service via `--settings-dir`.
+///
+/// Linux: `$XDG_CONFIG_HOME/cadencr/settings`.
+/// macOS: `~/.cadencr/settings`, beside the legacy database directory.
+pub fn settings_dir() -> Result<PathBuf, String> {
+    if cfg!(target_os = "macos") {
+        return Ok(data_dir()?.join("settings"));
+    }
+    Ok(config_dir()?.join("settings"))
+}
+
+/// Directory for files that describe running Cadencr processes (such as the
+/// headless service's connection file). Lives under data so it follows the
+/// database it describes.
+pub fn run_dir() -> Result<PathBuf, String> {
+    Ok(data_dir()?.join("run"))
+}
+
 /// Root directory for service / app log files.
-#[allow(dead_code)] // Reserved for the first file-log writer.
 pub fn logs_dir() -> Result<PathBuf, String> {
     Ok(cache_dir()?.join("logs"))
 }
@@ -182,6 +201,8 @@ mod tests {
         assert_eq!(config_dir().unwrap(), legacy.join("config"));
         assert_eq!(cache_dir().unwrap(), legacy.join("cache"));
         assert_eq!(logs_dir().unwrap(), legacy.join("cache").join("logs"));
+        assert_eq!(settings_dir().unwrap(), legacy.join("settings"));
+        assert_eq!(run_dir().unwrap(), legacy.join("run"));
     }
 
     #[cfg(target_os = "linux")]
@@ -195,6 +216,23 @@ mod tests {
         match prev {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),
             None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_settings_dir_follows_xdg_config_home_like_the_desktop() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let xdg = tempfile::tempdir().unwrap();
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("XDG_CONFIG_HOME", xdg.path());
+        assert_eq!(
+            settings_dir().unwrap(),
+            xdg.path().join("cadencr").join("settings")
+        );
+        match prev {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
         }
     }
 

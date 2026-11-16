@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "packages/app-paths-rs",
     "packages/cli",
     "packages/plugin-core",
     "packages/registry-core",

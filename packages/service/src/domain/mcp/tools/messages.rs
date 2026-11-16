@@ -71,19 +71,6 @@ pub fn messages_json(
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::fts_literal_query;
-
-    #[test]
-    fn fts_literal_query_quotes_special_syntax() {
-        assert_eq!(
-            fts_literal_query(r#"foo "bar" OR baz*"#).as_deref(),
-            Some(r#""foo ""bar"" OR baz*""#)
-        );
-    }
-}
-
 fn message_json(
     message: &MessageRow,
     include_metadata: bool,
@@ -121,5 +108,18 @@ fn origin_json(message: &MessageRow) -> serde_json::Value {
             "created_at": message.origin_created_at
         }),
         None => serde_json::Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fts_literal_query;
+
+    #[test]
+    fn fts_literal_query_quotes_special_syntax() {
+        assert_eq!(
+            fts_literal_query(r#"foo "bar" OR baz*"#).as_deref(),
+            Some(r#""foo ""bar"" OR baz*""#)
+        );
     }
 }

@@ -38,7 +38,7 @@ pub fn init(dir: PathBuf) {
 pub fn global_dir() -> PathBuf {
     #[cfg(test)]
     {
-        return test_dir();
+        test_dir()
     }
     #[cfg(not(test))]
     {
@@ -61,7 +61,7 @@ pub fn sibling_dir(name: &str) -> PathBuf {
     let settings = global_dir();
     #[cfg(test)]
     {
-        return settings.join(name);
+        settings.join(name)
     }
     #[cfg(not(test))]
     settings
@@ -94,7 +94,7 @@ fn placed_sibling(name: &str, root: SiblingRoot) -> PathBuf {
     #[cfg(test)]
     {
         let _ = root;
-        return global_dir().join(name);
+        global_dir().join(name)
     }
     #[cfg(not(test))]
     {

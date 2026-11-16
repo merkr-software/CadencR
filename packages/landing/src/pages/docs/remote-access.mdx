@@ -32,6 +32,10 @@ The service uses a separate HTTPS listener for remote clients. A reachable LAN o
 
 Use the dialog's device controls to inspect activity and revoke a device you no longer use. Remote-browser notifications are configured on that device.
 
+## Without the desktop app
+
+A host does not need the desktop app open, or a screen at all: `cadencr serve` runs CadencR headless with remote access on and prints a pairing link, and `cadencr pair` prints a new one. On a server without a desktop session, install the server archive. See [Command line](../cli/#run-cadencr-on-a-server).
+
 ## What runs where
 
 | Component                      | Runs on                         |
@@ -65,6 +69,7 @@ Check that remote access is enabled, the host is running, the chosen network add
 
 ## Related guides
 
+- [Command line](../cli/) — run CadencR headless with `cadencr serve`.
 - [Settings](../settings/) — Web Push and notifications.
 - [Terminal](../terminal/) — host-side shells.
 - [Browser](../browser/) — desktop browser capabilities.

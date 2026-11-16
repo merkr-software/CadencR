@@ -138,29 +138,29 @@ export function paintConversationHighlights(
 }
 
 /**
- * Center the active occurrence when it's scrolled out of the viewport.
+ * How far to scroll so the active occurrence sits centered, or 0 when it is
+ * already in view (or not rendered).
  *
  * `scrollToIndex` only brings the *row* into view, but a single block can be
  * taller than the viewport (long messages, tool output, thinking), so the
- * specific occurrence can still sit off-screen. We resolve its range and nudge
- * `scrollTop` so the match is actually visible — without this, stepping through
- * matches inside one tall block looks like the highlight vanished.
+ * specific occurrence can still sit off-screen. Without this nudge, stepping
+ * through matches inside one tall block looks like the highlight vanished.
  */
-export function scrollActiveMatchIntoView(
+export function activeMatchScrollDelta(
   scroller: HTMLElement,
   query: string,
   active: ActiveMatchTarget | null,
-): void {
-  if (!supportsHighlightApi() || !active) return;
+): number {
+  if (!supportsHighlightApi() || !active) return 0;
   const needle = query.trim().toLowerCase();
-  if (!needle) return;
+  if (!needle) return 0;
   const range = resolveActiveRange(scroller, needle, active);
-  if (!range) return;
+  if (!range) return 0;
   const rect = range.getBoundingClientRect();
-  if (rect.height === 0) return;
+  if (rect.height === 0) return 0;
   const view = scroller.getBoundingClientRect();
-  if (rect.top >= view.top && rect.bottom <= view.bottom) return; // already visible
-  scroller.scrollTop += rect.top - view.top - (view.height - rect.height) / 2;
+  if (rect.top >= view.top && rect.bottom <= view.bottom) return 0; // already visible
+  return rect.top - view.top - (view.height - rect.height) / 2;
 }
 
 function resolveActiveRange(

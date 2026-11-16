@@ -1,5 +1,6 @@
 import { browserPartitionForProfile, type BrowserProfile } from "./browser-profiles";
 import { BrowserSitePermissionStore } from "./browser-site-permission-store";
+import type { ManagedTab } from "./browser-tab-events";
 import { decisionKey, errorMessage } from "./browser-site-permission-policy";
 import {
   BROWSER_SITE_PERMISSIONS,
@@ -7,37 +8,41 @@ import {
   type BrowserSitePermissionDecision,
 } from "./browser-types";
 
+/** The tab asking: its profile picks the store, its identity owns any read error. */
+type DecisionTab = Pick<ManagedTab, "profile" | "metadata">;
+
 export class BrowserSiteDecisions {
   private readonly privateDecisions = new Map<string, BrowserSitePermissionDecision>();
 
   constructor(
     private readonly store: BrowserSitePermissionStore,
-    private readonly reportError: (message: string) => void,
+    private readonly reportError: (message: string, tab: DecisionTab) => void,
   ) {}
 
   forOrigin(
-    profile: BrowserProfile,
+    tab: DecisionTab,
     origin: string | null,
   ): Record<BrowserSitePermission, BrowserSitePermissionDecision> {
     return Object.fromEntries(
       BROWSER_SITE_PERMISSIONS.map((permission) => [
         permission,
-        origin ? this.safeGet(profile, origin, permission) : "ask",
+        origin ? this.safeGet(tab, origin, permission) : "ask",
       ]),
     ) as Record<BrowserSitePermission, BrowserSitePermissionDecision>;
   }
 
   safeGet(
-    profile: BrowserProfile,
+    tab: DecisionTab,
     origin: string,
     permission: BrowserSitePermission,
   ): BrowserSitePermissionDecision {
+    const { profile } = tab;
     try {
       const partition = browserPartitionForProfile(profile);
       if (profile.mode === "persistent") return this.store.get(partition, origin, permission);
       return this.privateDecisions.get(decisionKey(partition, origin, permission)) ?? "ask";
     } catch (error) {
-      this.reportError(errorMessage(error));
+      this.reportError(errorMessage(error), tab);
       return "deny";
     }
   }

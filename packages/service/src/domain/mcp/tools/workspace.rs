@@ -14,12 +14,12 @@ use crate::domain::mcp::tools::messages::{
     DEFAULT_MAX_RETURNED_MESSAGE_CHARS, TOOL_RESULTS_NOT_INDEXED,
 };
 use crate::domain::mcp::tools::project_control;
+use crate::domain::mcp::tools::workspace_args::{
+    cursor_before_message_id, i64_array, limit_from_args, push_i64_filter, push_string_filter,
+    snippet_chars_from_args, string_array, trimmed_string,
+};
 use crate::domain::mcp::tools::{session_graph, workspace_activity, workspace_projects};
 
-const DEFAULT_LIMIT: i64 = 25;
-const MAX_LIMIT: i64 = 50;
-const DEFAULT_SNIPPET_CHARS: i64 = 400;
-const MAX_SNIPPET_CHARS: i64 = 2_000;
 const DEFAULT_UNQUERIED_WINDOW_DAYS: i64 = 30;
 const WORKSPACE_MCP_ENABLED_SETTING_KEY: &str = "workspace_mcp_enabled";
 const WORKSPACE_MCP_MAX_RESULT_CHARS_SETTING_KEY: &str = "workspace_mcp_max_result_chars";
@@ -115,103 +115,6 @@ fn workspace_result_char_cap() -> usize {
         .filter(|value| *value > 0)
         .map(|value| value.min(DEFAULT_MAX_RETURNED_MESSAGE_CHARS))
         .unwrap_or(DEFAULT_MAX_RETURNED_MESSAGE_CHARS)
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::domain::settings_store;
-    use std::fs;
-
-    #[test]
-    fn workspace_mcp_enabled_defaults_on_and_off_only_for_explicit_false() {
-        assert!(super::workspace_mcp_enabled());
-        let settings_path = settings_store::global_dir().join("settings.json");
-        fs::write(&settings_path, r#"{"workspace_mcp_enabled":"false"}"#).expect("write false");
-        assert!(!super::workspace_mcp_enabled());
-        fs::write(&settings_path, r#"{"workspace_mcp_enabled":"true"}"#).expect("write true");
-        assert!(super::workspace_mcp_enabled());
-    }
-}
-
-fn limit_from_args(args: &serde_json::Value) -> i64 {
-    args.get("limit")
-        .and_then(serde_json::Value::as_i64)
-        .unwrap_or(DEFAULT_LIMIT)
-        .clamp(1, MAX_LIMIT)
-}
-
-fn snippet_chars_from_args(args: &serde_json::Value) -> i64 {
-    args.get("snippet_chars")
-        .and_then(serde_json::Value::as_i64)
-        .unwrap_or(DEFAULT_SNIPPET_CHARS)
-        .clamp(1, MAX_SNIPPET_CHARS)
-}
-
-fn i64_array(args: &serde_json::Value, key: &str) -> Vec<i64> {
-    args.get(key)
-        .and_then(serde_json::Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(serde_json::Value::as_i64)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn string_array(args: &serde_json::Value, key: &str) -> Vec<String> {
-    args.get(key)
-        .and_then(serde_json::Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn trimmed_string(args: &serde_json::Value, key: &str) -> Option<String> {
-    args.get(key)
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-}
-
-fn cursor_before_message_id(args: &serde_json::Value) -> Option<i64> {
-    args.get("cursor")
-        .and_then(|cursor| cursor.get("before_message_id"))
-        .and_then(serde_json::Value::as_i64)
-}
-
-fn push_i64_filter(builder: &mut QueryBuilder<Sqlite>, column: &str, values: &[i64]) {
-    if values.is_empty() {
-        return;
-    }
-    builder.push(" AND ").push(column).push(" IN (");
-    for (index, value) in values.iter().enumerate() {
-        if index > 0 {
-            builder.push(", ");
-        }
-        builder.push_bind(*value);
-    }
-    builder.push(")");
-}
-
-fn push_string_filter(builder: &mut QueryBuilder<Sqlite>, column: &str, values: &[String]) {
-    if values.is_empty() {
-        return;
-    }
-    builder.push(" AND ").push(column).push(" IN (");
-    for (index, value) in values.iter().enumerate() {
-        if index > 0 {
-            builder.push(", ");
-        }
-        builder.push_bind(value.clone());
-    }
-    builder.push(")");
 }
 
 async fn read_sessions(
@@ -348,17 +251,17 @@ async fn read_session(
     .await
     .map_err(|e| format!("Failed to read workspace session: {e}"))?
     .ok_or_else(|| format!("Session {session_id} was not found"))?;
-    let messages = query_session_messages(
-        ctx,
-        session_id,
-        after_message_id,
-        before_message_id,
-        limit,
-        query.as_deref(),
-        &roles,
-        &message_types,
-    )
-    .await?;
+    let messages = query_session_messages()
+        .ctx(ctx)
+        .session_id(session_id)
+        .after_message_id(after_message_id)
+        .maybe_before_message_id(before_message_id)
+        .limit(limit)
+        .maybe_query(query.as_deref())
+        .roles(&roles)
+        .message_types(&message_types)
+        .call()
+        .await?;
     let (messages, message_chars_returned, content_truncated) =
         cap_message_content(messages, workspace_result_char_cap());
     Ok(json!({
@@ -380,6 +283,7 @@ async fn read_session(
     }))
 }
 
+#[bon::builder]
 async fn query_session_messages(
     ctx: &McpContext,
     session_id: i64,
@@ -423,4 +327,20 @@ async fn query_session_messages(
         .fetch_all(&ctx.read_pool)
         .await
         .map_err(|e| format!("Failed to read workspace session messages: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::settings_store;
+    use std::fs;
+
+    #[test]
+    fn workspace_mcp_enabled_defaults_on_and_off_only_for_explicit_false() {
+        assert!(super::workspace_mcp_enabled());
+        let settings_path = settings_store::global_dir().join("settings.json");
+        fs::write(&settings_path, r#"{"workspace_mcp_enabled":"false"}"#).expect("write false");
+        assert!(!super::workspace_mcp_enabled());
+        fs::write(&settings_path, r#"{"workspace_mcp_enabled":"true"}"#).expect("write true");
+        assert!(super::workspace_mcp_enabled());
+    }
 }

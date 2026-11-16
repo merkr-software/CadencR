@@ -109,6 +109,11 @@ pub(super) struct StreamReaderState {
     pub(super) reported_model: Option<Option<String>>,
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Event is the common variant on the stream hot path and is consumed at \
+              once; boxing it would allocate once per streamed event"
+)]
 enum ReaderAction {
     Continue,
     Break,

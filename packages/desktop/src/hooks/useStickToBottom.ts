@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import {
   canScroll,
   isVerticalScrollbarPointer,
-  pinToBottom,
 } from "@/components/agent-session/agent-session-scroll-utils";
 import { isResizing } from "@/lib/resize-coordinator";
+import { pinToBottom } from "@/lib/scroll-pin";
 
 /** Distance from the bottom (px) still counted as "at the bottom". */
 const BOTTOM_THRESHOLD_PX = 16;

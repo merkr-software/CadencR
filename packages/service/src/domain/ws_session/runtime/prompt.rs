@@ -37,6 +37,7 @@ mod stream_reader_task;
 mod stream_reader_task_completion;
 mod stream_reader_task_error;
 mod stream_reader_task_event;
+mod stream_reader_task_gate;
 mod stream_reader_task_lifecycle;
 mod stream_reader_turn_state;
 mod stream_reader_usage;

@@ -49,19 +49,19 @@ pub(super) async fn handle_permission_request(
     if permission.tool_name.starts_with("mcp__") {
         emit_permission_tool_update(&permission, session_id.as_deref(), &config.indexer, tx).await;
     }
-    if let Err(error) = dispatch_permission_request_with_cache(
-        client,
-        &config.pending_permissions,
-        &config.session_permissions,
-        config.browser_trust,
-        session_id,
-        &request_id,
-        id.clone(),
-        permission,
-        request.params(),
-        tx,
-    )
-    .await
+    if let Err(error) = dispatch_permission_request_with_cache()
+        .client(client)
+        .pending(&config.pending_permissions)
+        .session_permissions(&config.session_permissions)
+        .browser_trust(config.browser_trust)
+        .maybe_session_id(session_id)
+        .request_id(&request_id)
+        .raw_id(id.clone())
+        .request(permission)
+        .params(request.params())
+        .tx(tx)
+        .call()
+        .await
     {
         tracing::error!(%error, "failed to surface ACP permission request");
         if let Err(reject_error) = client

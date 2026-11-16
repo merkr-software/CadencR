@@ -100,28 +100,6 @@ pub(crate) async fn remote_branch_exists(repo: &Path, branch: &str) -> bool {
         .is_ok()
 }
 
-#[cfg(test)]
-mod path_tests {
-    use super::validate_file_mutation_path;
-
-    #[test]
-    fn file_paths_preserve_literals_but_reject_revision_and_traversal_syntax() {
-        assert!(validate_file_mutation_path("src/literal[conflict] -> file.rs").is_ok());
-        for unsafe_path in [
-            "",
-            "../outside",
-            "/absolute",
-            "src//file.rs",
-            "src/./file.rs",
-        ] {
-            assert!(
-                validate_file_mutation_path(unsafe_path).is_err(),
-                "{unsafe_path:?}"
-            );
-        }
-    }
-}
-
 /// Best-effort recompute + WS broadcast after a successful write. Errors are
 /// logged and swallowed — the HTTP response already reported success and the
 /// next fs event (or the next subscriber) will refresh the snapshot anyway.
@@ -144,4 +122,26 @@ pub(crate) async fn broadcast_after_write_at(state: &AppState, worktree_path: &P
         .git_watcher
         .confirm_after_write(worktree_path, state)
         .await;
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::validate_file_mutation_path;
+
+    #[test]
+    fn file_paths_preserve_literals_but_reject_revision_and_traversal_syntax() {
+        assert!(validate_file_mutation_path("src/literal[conflict] -> file.rs").is_ok());
+        for unsafe_path in [
+            "",
+            "../outside",
+            "/absolute",
+            "src//file.rs",
+            "src/./file.rs",
+        ] {
+            assert!(
+                validate_file_mutation_path(unsafe_path).is_err(),
+                "{unsafe_path:?}"
+            );
+        }
+    }
 }

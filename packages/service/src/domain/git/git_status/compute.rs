@@ -205,6 +205,7 @@ async fn resolve_remote_info(repo: &Path) -> Option<RemoteInfo> {
 /// Bundle the provider-derived fields. `compare_url` is `None` when:
 ///   * there's no remote at all, OR
 ///   * the remote's host is `Other` (`host::compare_url` refuses to guess).
+///
 /// `action_label` is set whenever we have *any* remote so the frontend has a
 /// label to render even when the action itself is disabled.
 fn derive_provider_fields(

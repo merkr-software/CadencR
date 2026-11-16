@@ -51,7 +51,7 @@ export interface BrowserSiteControllerOptions {
     channel: "browser:permission-request" | "browser:permission-request-cancelled",
     payload: BrowserSitePermissionRequest | { requestId: string },
   ) => void;
-  reportError: (message: string) => void;
+  reportError: (message: string, tab: Pick<ManagedTab, "metadata">) => void;
   store?: BrowserSitePermissionStore;
   requestTimeoutMs?: number;
 }
@@ -119,7 +119,7 @@ export class BrowserSiteController {
           : tab.profile.mode === "fresh"
             ? "private"
             : "feature",
-      permissions: this.decisions.forOrigin(tab.profile, origin),
+      permissions: this.decisions.forOrigin(tab, origin),
       agentAccess: tab.automationAccess,
     };
   }
@@ -172,7 +172,7 @@ export class BrowserSiteController {
       throw new Error("The page changed before the browser permission request was answered.");
     }
     const currentDecisions = pending.request.permissions.map((permission) =>
-      this.decisions.safeGet(registration.tab.profile, pending.request.origin, permission),
+      this.decisions.safeGet(registration.tab, pending.request.origin, permission),
     );
     if (currentDecisions.includes("deny")) {
       this.finishRequest(requestId, false, true);
@@ -233,7 +233,7 @@ export class BrowserSiteController {
       return;
     }
     const decisions = requested.map((item) =>
-      this.decisions.safeGet(registration.tab.profile, origin, item),
+      this.decisions.safeGet(registration.tab, origin, item),
     );
     if (decisions.includes("deny")) {
       callback(false);
@@ -292,7 +292,7 @@ export class BrowserSiteController {
       return false;
     }
     return requested.every(
-      (item) => this.decisions.safeGet(registration.tab.profile, origin, item) === "allow",
+      (item) => this.decisions.safeGet(registration.tab, origin, item) === "allow",
     );
   }
 

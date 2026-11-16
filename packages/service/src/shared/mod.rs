@@ -1,6 +1,6 @@
 #![allow(clippy::single_match)]
 
-pub mod app_paths;
+pub use cadencr_app_paths as app_paths;
 pub mod atomic_file;
 pub mod bounded_command;
 pub mod capped_read;

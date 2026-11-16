@@ -63,6 +63,7 @@ pub(in crate::domain::ws_session) async fn prepare_prompt(
     })
 }
 
+#[bon::builder]
 pub(in crate::domain::ws_session) async fn dispatch_local_phase(
     envelope: &WsEnvelope,
     sender: &WsSender,
@@ -91,17 +92,17 @@ pub(in crate::domain::ws_session) async fn dispatch_local_phase(
 
     if let QueryState::Active { query, .. } = &handle.state {
         let selection = PromptedSelection::of(handle);
-        let context = build_followup_context(
-            query.clone(),
-            handle.identity.begin_delivery(),
-            handle.feature_id,
-            db_session_id,
-            handle.runtime_provider.clone(),
-            sender,
-            sdk_sessions,
-            app_state,
-            envelope.id.clone(),
-        );
+        let context = build_followup_context()
+            .query(query.clone())
+            .delivery_lease(handle.identity.begin_delivery())
+            .feature_id(handle.feature_id)
+            .db_session_id(db_session_id)
+            .provider_id(handle.runtime_provider.clone())
+            .sender(sender)
+            .sdk_sessions(sdk_sessions)
+            .app_state(app_state)
+            .envelope_id(envelope.id.clone())
+            .call();
         drop(sessions);
         let result = handle_followup_prompt(context, payload).await;
         report_prompt_result(sender, &envelope.id, selection, result);
@@ -163,7 +164,7 @@ pub(in crate::domain::ws_session) async fn dispatch_owner_phase(
 /// the live turn — this connection's own map (Phase 1) or the owning
 /// connection's map (Phase 2) — so the turn's timer/owner re-stamp keeps a
 /// single source of truth.
-#[allow(clippy::too_many_arguments)]
+#[bon::builder]
 pub(super) fn build_followup_context(
     query: RuntimeSessionHandle,
     delivery_lease: crate::domain::ws_session::runtime::state::RuntimeDeliveryLease,
@@ -197,6 +198,11 @@ pub(super) fn build_followup_context(
 /// Build a follow-up context against a live turn owned by *another* connection,
 /// resolved via the active-turn registry. Returns `None` when that connection's
 /// turn is no longer live.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "returned once per prompt and matched immediately; Followup is the \
+              common case, so boxing it would only add an allocation"
+)]
 enum OwnerPromptTarget {
     Followup(FollowupPromptContext, PromptedSelection),
     Pending(SdkSessions),
@@ -248,17 +254,17 @@ async fn owner_prompt_target(
         "steering live turn owned by another connection (no new agent)"
     );
     Some(OwnerPromptTarget::Followup(
-        build_followup_context(
-            query,
-            delivery_lease,
-            feature_id,
-            db_session_id,
-            provider_id,
-            sender,
-            owner,
-            app_state,
-            envelope_id.to_string(),
-        ),
+        build_followup_context()
+            .query(query)
+            .delivery_lease(delivery_lease)
+            .feature_id(feature_id)
+            .db_session_id(db_session_id)
+            .provider_id(provider_id)
+            .sender(sender)
+            .sdk_sessions(owner)
+            .app_state(app_state)
+            .envelope_id(envelope_id.to_string())
+            .call(),
         selection,
     ))
 }

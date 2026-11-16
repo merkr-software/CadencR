@@ -146,6 +146,7 @@ mod tests {
     use super::*;
     use crate::domain::agents::adapter::RuntimeSubagentStatus;
 
+    #[bon::builder]
     async fn insert_message(
         pool: &SqlitePool,
         session_id: i64,
@@ -178,50 +179,43 @@ mod tests {
         let pool = test_support::migrated_pool().await;
         let (feature_id, session_id) = test_support::seeded_session(&pool).await;
         let legacy_input = r#"{"description":"Old audit","subagent_type":"Explore"}"#;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            Some("Task"),
-            Some("old"),
-            None,
-            legacy_input,
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            Some("Read"),
-            Some("r1"),
-            Some("old"),
-            "{}",
-            Some("claude-haiku-5-5"),
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_result",
-            None,
-            Some("old"),
-            None,
-            "All good",
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            Some("Agent"),
-            Some("new"),
-            None,
-            "{}",
-            None,
-        )
-        .await;
+        insert_message()
+            .pool(&pool)
+            .session_id(session_id)
+            .message_type("tool_call")
+            .tool_name("Task")
+            .tool_use_id("old")
+            .content(legacy_input)
+            .call()
+            .await;
+        insert_message()
+            .pool(&pool)
+            .session_id(session_id)
+            .message_type("tool_call")
+            .tool_name("Read")
+            .tool_use_id("r1")
+            .parent("old")
+            .content("{}")
+            .model("claude-haiku-5-5")
+            .call()
+            .await;
+        insert_message()
+            .pool(&pool)
+            .session_id(session_id)
+            .message_type("tool_result")
+            .tool_use_id("old")
+            .content("All good")
+            .call()
+            .await;
+        insert_message()
+            .pool(&pool)
+            .session_id(session_id)
+            .message_type("tool_call")
+            .tool_name("Agent")
+            .tool_use_id("new")
+            .content("{}")
+            .call()
+            .await;
         apply_change(
             &pool,
             session_id,
@@ -261,28 +255,23 @@ mod tests {
     async fn legacy_carrier_without_result_completes_at_its_last_activity() {
         let pool = test_support::migrated_pool().await;
         let (feature_id, session_id) = test_support::seeded_session(&pool).await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            Some("Agent"),
-            Some("spawn"),
-            None,
-            r#"{"message":"Audit"}"#,
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "text",
-            None,
-            None,
-            Some("spawn"),
-            "Done",
-            None,
-        )
-        .await;
+        insert_message()
+            .pool(&pool)
+            .session_id(session_id)
+            .message_type("tool_call")
+            .tool_name("Agent")
+            .tool_use_id("spawn")
+            .content(r#"{"message":"Audit"}"#)
+            .call()
+            .await;
+        insert_message()
+            .pool(&pool)
+            .session_id(session_id)
+            .message_type("text")
+            .parent("spawn")
+            .content("Done")
+            .call()
+            .await;
         sqlx::query(
             "UPDATE agent_messages SET created_at = CASE WHEN tool_use_id = 'spawn'
                THEN '2026-10-30 10:00:00' ELSE '2026-10-30 10:05:00' END",

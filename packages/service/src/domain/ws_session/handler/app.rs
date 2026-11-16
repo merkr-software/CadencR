@@ -67,7 +67,7 @@ pub(super) async fn handle_app_action(
             super::app_notifications::subscribe_storage_maintenance(sender, app_state)
         }
         "subscribe.file_watcher" => {
-            handle_subscribe_file_watcher(envelope, sender, app_state).await
+            super::app_file_watcher::subscribe_file_watcher(envelope, sender, app_state).await
         }
         "subscribe.git_status" => handle_subscribe_git_status(envelope, sender, app_state).await,
         "unsubscribe.git_status" => {
@@ -345,110 +345,6 @@ async fn handle_subscribe_alacritty_config_events(sender: &WsSender, app_state: 
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-}
-
-/// Subscribe the client to file-system change events for an editor root.
-/// The client supplies database ids, never a filesystem path; the backend
-/// resolves and validates the authoritative project/worktree root.
-async fn handle_subscribe_file_watcher(
-    envelope: WsEnvelope,
-    sender: &WsSender,
-    app_state: &AppState,
-) {
-    let project_id = match envelope
-        .payload
-        .get("project_id")
-        .and_then(|value| value.as_i64())
-    {
-        Some(id) => id,
-        None => {
-            super::send_error(sender, &envelope.id, "BAD_REQUEST", "missing project_id");
-            return;
-        }
-    };
-    let feature_id = envelope
-        .payload
-        .get("feature_id")
-        .and_then(|value| value.as_i64());
-    let project_path = match crate::domain::projects::service::resolve_feature_editor_root(
-        &app_state.read_pool,
-        project_id,
-        feature_id,
-    )
-    .await
-    {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(error) => {
-            warn!(project_id, feature_id, error = %error, "invalid file watcher root");
-            super::send_error(
-                sender,
-                &envelope.id,
-                "BAD_REQUEST",
-                "invalid project or feature",
-            );
-            return;
-        }
-    };
-
-    // Start or replace the file watcher
-    {
-        let mut watcher = match app_state.file_watcher.lock() {
-            Ok(watcher) => watcher,
-            Err(poisoned) => {
-                warn!("file watcher lock was poisoned; recovering state");
-                app_state.file_watcher.clear_poison();
-                poisoned.into_inner()
-            }
-        };
-        if let Err(e) = watcher.start(&project_path, feature_id, app_state.file_change_tx.clone()) {
-            warn!(error = %e, "failed to start file watcher");
-            super::send_error(sender, &envelope.id, "WATCHER_ERROR", &e);
-            return;
-        }
-    }
-
-    // ACK subscription
-    let ack = WsEnvelope::reply(
-        &envelope.id,
-        "app",
-        "file_watcher.subscribed",
-        serde_json::json!({}),
-    );
-    let _ = sender.send(Message::Text(String::from(ack).into()));
-
-    // Forward file change events to this WS client
-    let mut rx = app_state.file_change_tx.subscribe();
-    let sender = sender.clone();
-
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let update = WsEnvelope::new("editor", "file_tree.changed", event.payload());
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    // Just send one notification — the frontend will refetch anyway
-                    let update =
-                        WsEnvelope::new("editor", "file_tree.changed", serde_json::json!({}));
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    break;
-                }
             }
         }
     });

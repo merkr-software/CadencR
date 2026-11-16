@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { errnoCode } from "./errno";
 
 export function ensureLinuxSidecarExecutable(binary: string, platform: NodeJS.Platform): void {
   if (platform !== "linux") return;
@@ -26,10 +27,4 @@ function isExecutable(binary: string): boolean {
   } catch {
     return false;
   }
-}
-
-function errnoCode(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : undefined;
 }

@@ -157,6 +157,20 @@ describe("PluginTabManager layout", () => {
     expect(guests[0]?.view.setVisible).toHaveBeenLastCalledWith(true);
   });
 
+  it("focuses an editor surface only while it is visible and attached", () => {
+    const host = manager();
+    host.open("7:editor:graph", "graph", { kind: "editor" });
+    host.setBounds("7:editor:graph", BOUNDS, 1);
+    host.focus("7:editor:graph");
+    expect(guests[0]?.webContents.focus).not.toHaveBeenCalled();
+    host.setVisible("7:editor:graph", true);
+    host.focus("7:editor:graph");
+    expect(guests[0]?.webContents.focus).toHaveBeenCalledOnce();
+    host.setSuppressed(true);
+    host.focus("7:editor:graph");
+    expect(guests[0]?.webContents.focus).toHaveBeenCalledOnce();
+  });
+
   it("keeps hidden guests out of the window when an overlay closes", () => {
     const tabs = manager();
     tabs.open("a", "graph");
@@ -323,17 +337,11 @@ describe("PluginTabManager lifecycle", () => {
     expect(guests).toHaveLength(2);
   });
 
-  it("opens DevTools detached and focuses only a visible attached guest", () => {
+  it("opens DevTools detached", () => {
     const tabs = manager();
     tabs.open("i1", "graph");
     tabs.openDevTools("i1");
     expect(guests[0]?.webContents.openDevTools).toHaveBeenCalledWith({ mode: "detach" });
-    tabs.focus("i1");
-    expect(guests[0]?.webContents.focus).not.toHaveBeenCalled();
-    tabs.setVisible("i1", true);
-    tabs.setBounds("i1", BOUNDS, 1);
-    tabs.focus("i1");
-    expect(guests[0]?.webContents.focus).toHaveBeenCalled();
   });
 
   it("hands Cadencr's shortcuts to the renderer, the tab's own to its page, and the rest back", () => {

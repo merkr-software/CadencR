@@ -7,6 +7,7 @@ use crate::domain::ws_session::persistence::WsSessionPersistence;
 use super::super::helpers::send_state_not_saved;
 use super::super::send_error;
 
+#[bon::builder]
 pub(in crate::domain::ws_session) async fn persist_pause_and_send_session_error(
     pool: &SqlitePool,
     session_status_tx: &SessionStatusBroadcaster,

@@ -5,7 +5,9 @@ use crate::domain::agents::adapter::{
     is_file_change_tool_name, RuntimeStreamScope, RuntimeToolInputBuffer,
 };
 
+#[bon::bon]
 impl TranscriptWriter {
+    #[builder]
     pub(super) async fn insert_tool_call_block(
         &mut self,
         session_id: i64,

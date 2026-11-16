@@ -83,6 +83,13 @@ impl SessionStatusBroadcaster {
         self.lock().is_busy(session_id)
     }
 
+    /// Whether the session shows a pending user-input gate. Unlike a working
+    /// turn, a gate can outlive the turn that raised it (a question asked
+    /// without blocking).
+    pub fn is_waiting_on_gate(&self, session_id: i64) -> bool {
+        self.lock().is_waiting_on_gate(session_id)
+    }
+
     /// Broadcast a status transition of the current turn. Returns the new
     /// seq, or `None` when nothing changed.
     pub fn broadcast(
@@ -127,6 +134,48 @@ impl SessionStatusBroadcaster {
                 request_id: request_id.to_string(),
             },
             ..Transition::new(session_id, feature_id, status)
+        })
+    }
+
+    /// Close `request_id`, a gate the agent never waited on, while the session
+    /// still shows it: `status` once nothing is pending, or `next_gate`, raised
+    /// meanwhile and left pending. `None` when the book moved on already.
+    pub fn broadcast_gate_dismissed(
+        &self,
+        session_id: i64,
+        feature_id: i64,
+        request_id: &str,
+        status: AgentStatus,
+        next_gate: Option<(PendingKind, String)>,
+    ) -> Option<u64> {
+        let (status, kind, next_request) = match next_gate {
+            Some((kind, next_request)) => (AgentStatus::Question, Some(kind), Some(next_request)),
+            None => (status, None, None),
+        };
+        self.apply(Transition {
+            kind,
+            request_id: next_request,
+            source: Source::GateDismissed {
+                request_id: request_id.to_string(),
+            },
+            ..Transition::new(session_id, feature_id, status)
+        })
+    }
+
+    /// A turn ended with `request_id` still pending: show it again where a
+    /// reply sent while it waited showed the turn working.
+    pub fn broadcast_gate_left_pending(
+        &self,
+        session_id: i64,
+        feature_id: i64,
+        kind: PendingKind,
+        request_id: String,
+    ) -> Option<u64> {
+        self.apply(Transition {
+            kind: Some(kind),
+            request_id: Some(request_id),
+            source: Source::GateLeftPending,
+            ..Transition::new(session_id, feature_id, AgentStatus::Question)
         })
     }
 
@@ -381,6 +430,66 @@ mod tests {
             broadcaster.snapshot().states["7"].status,
             AgentStatus::Agent
         );
+    }
+
+    #[test]
+    fn a_dismissal_applies_only_while_the_dismissed_gate_shows() {
+        let broadcaster = broadcaster();
+        // A turn that started meanwhile, or no entry at all, is left alone.
+        assert!(broadcaster
+            .broadcast_gate_dismissed(7, 8, "q", AgentStatus::Idle, None)
+            .is_none());
+        broadcaster.broadcast_running(7, 8);
+        assert!(broadcaster
+            .broadcast_gate_dismissed(7, 8, "q", AgentStatus::Idle, None)
+            .is_none());
+        assert_eq!(
+            broadcaster.snapshot().states["7"].status,
+            AgentStatus::Agent
+        );
+
+        broadcaster.broadcast_gate(7, 8, PendingKind::Question, "q".into());
+        assert!(broadcaster
+            .broadcast_gate_dismissed(
+                7,
+                8,
+                "q",
+                AgentStatus::Idle,
+                Some((PendingKind::Permission, "approval".into())),
+            )
+            .is_some());
+        let pending = &broadcaster.snapshot().states["7"];
+        assert_eq!(pending.kind, Some(PendingKind::Permission));
+        assert_eq!(pending.request_id.as_deref(), Some("approval"));
+        assert!(broadcaster
+            .broadcast_gate_dismissed(7, 8, "q", AgentStatus::Idle, None)
+            .is_none());
+
+        broadcaster.broadcast_gate(7, 8, PendingKind::Question, "q2".into());
+        assert!(broadcaster
+            .broadcast_gate_dismissed(7, 8, "q2", AgentStatus::Idle, None)
+            .is_some());
+        assert!(broadcaster.snapshot().states.is_empty());
+    }
+
+    #[test]
+    fn a_turn_ending_shows_its_pending_gate_only_over_its_working_status() {
+        let broadcaster = broadcaster();
+        broadcaster.broadcast_gate(7, 8, PendingKind::Question, "q".into());
+        // A reply sent while the question waited showed the turn working.
+        broadcaster.broadcast_running(7, 8);
+        assert!(broadcaster
+            .broadcast_gate_left_pending(7, 8, PendingKind::Question, "q".into())
+            .is_some());
+        let pending = &broadcaster.snapshot().states["7"];
+        assert_eq!(pending.status, AgentStatus::Question);
+        assert_eq!(pending.request_id.as_deref(), Some("q"));
+        // Closed meanwhile: an idle session stays idle.
+        broadcaster.broadcast(7, 8, AgentStatus::Idle, None);
+        assert!(broadcaster
+            .broadcast_gate_left_pending(7, 8, PendingKind::Question, "q".into())
+            .is_none());
+        assert!(broadcaster.snapshot().states.is_empty());
     }
 
     #[tokio::test]

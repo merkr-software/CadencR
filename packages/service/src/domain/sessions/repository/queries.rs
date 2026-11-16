@@ -304,6 +304,6 @@ mod tests {
         assert_eq!(s3.request_id.as_deref(), Some("r"));
 
         // Plain-paused must NOT appear (no pending → idle → filtered out).
-        assert!(states.get(&sid5.to_string()).is_none());
+        assert!(!states.contains_key(&sid5.to_string()));
     }
 }

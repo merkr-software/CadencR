@@ -2,6 +2,7 @@ import { browserTelemetryRelayStatus } from "./telemetry-relay";
 import { persistBrowserDiagnostic, exportBrowserDiagnostics } from "./renderer-diagnostics-browser";
 import { isSafeExternalUrl, isUserOpenableUrl } from "@/lib/safe-url";
 import type { PluginTabsBridge } from "@/shared/plugin-tab-host";
+import { INITIAL_UPDATE_SNAPSHOT } from "@/shared/update-state";
 import type { CadencrBrowserBridge, DesktopTheme } from "./desktop-bridge-types";
 
 export type {
@@ -50,7 +51,6 @@ export type {
   RendererErrorReportPayload,
   RouteType,
   RuntimeConfig,
-  UpdateEvent,
 } from "./desktop-bridge-types";
 
 let bridgeOverride: Partial<CadencrBrowserBridge> | null = null;
@@ -155,6 +155,15 @@ const browserBridge: CadencrBrowserBridge = {
   notchPushSnapshot: () => Promise.resolve(),
   notchNotify: () => unavailable("notchNotify"),
   onNotchDismissed: () => () => undefined,
+  drainCliRequests: () => Promise.resolve([]),
+  onCliRequestsPending: () => () => undefined,
+  cliInstallStatus: () =>
+    Promise.resolve({
+      state: "unavailable",
+      reason: "The cadencr command is installed from the desktop app.",
+    }),
+  installCli: () => unavailable("installCli"),
+  uninstallCli: () => unavailable("uninstallCli"),
 
   createBrowserTab: () => unavailable("createBrowserTab"),
   listBrowserTabs: () => unavailable("listBrowserTabs"),
@@ -183,11 +192,6 @@ const browserBridge: CadencrBrowserBridge = {
   // No native browser view exists in a remote/browser tab, so suppression is a
   // no-op (resolve) rather than an error — dialogs never call it expecting work.
   setBrowserSuppressed: () => Promise.resolve(),
-  listBrowserProfiles: () => unavailable("listBrowserProfiles"),
-  clearBrowserStorage: () => unavailable("clearBrowserStorage"),
-  createBrowserProfile: () => unavailable("createBrowserProfile"),
-  duplicateBrowserProfile: () => unavailable("duplicateBrowserProfile"),
-  deleteBrowserProfile: () => unavailable("deleteBrowserProfile"),
   getBrowserSiteInfo: () => unavailable("getBrowserSiteInfo"),
   setBrowserSitePermission: () => unavailable("setBrowserSitePermission"),
   clearBrowserSiteData: () => unavailable("clearBrowserSiteData"),
@@ -210,13 +214,7 @@ const browserBridge: CadencrBrowserBridge = {
   setBrowserBookmark: () => unavailable("setBrowserBookmark"),
   toggleBrowserDevTools: () => unavailable("toggleBrowserDevTools"),
   setBrowserResponsive: () => unavailable("setBrowserResponsive"),
-  getBrowserConsole: () => unavailable("getBrowserConsole"),
-  getBrowserNetwork: () => unavailable("getBrowserNetwork"),
-  getBrowserSnapshot: () => unavailable("getBrowserSnapshot"),
   getBrowserScreenshot: () => unavailable("getBrowserScreenshot"),
-  browserClick: () => unavailable("browserClick"),
-  browserType: () => unavailable("browserType"),
-  browserKeypress: () => unavailable("browserKeypress"),
   selectBrowserElementContext: () => unavailable("selectBrowserElementContext"),
   // No native browser view in a remote/browser tab, so badge ops are no-ops.
   removeBrowserCommentBadge: () => Promise.resolve(),
@@ -233,11 +231,12 @@ const browserBridge: CadencrBrowserBridge = {
   onBrowserPopupRequestsChanged: () => () => undefined,
   onBrowserDownloadsChanged: () => () => undefined,
   onBrowserDownloadCounts: () => () => undefined,
+  getUpdateState: () => Promise.resolve(INITIAL_UPDATE_SNAPSHOT),
   checkForUpdates: () => unavailable("checkForUpdates"),
   installUpdate: () => unavailable("installUpdate"),
   fetchChangelog: () => Promise.resolve(null),
   fetchChangelogImage: () => unavailable("fetchChangelogImage"),
-  onUpdateEvent: () => () => undefined,
+  onUpdateState: () => () => undefined,
   pluginTabs: noopPluginTabs,
 };
 

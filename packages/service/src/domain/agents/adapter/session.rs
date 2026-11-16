@@ -164,6 +164,13 @@ pub trait AgentRuntimeSession: Send + Sync {
     fn permission_response_kind(&self, _request_id: &str) -> RuntimePermissionResponseKind {
         RuntimePermissionResponseKind::Normal
     }
+    /// The user closed `request_id` without answering. `Ok(true)` when the
+    /// agent never waited on it (a question asked without blocking): the
+    /// runtime dropped it and the turn goes on. `Ok(false)`, the default, means
+    /// the agent is blocked on it, so the caller denies it and stops the turn.
+    async fn dismiss_nonblocking_request(&self, _request_id: &str) -> Result<bool, RuntimeError> {
+        Ok(false)
+    }
     /// Pid of the runtime's own process, when it has one. Port attribution
     /// walks process ancestry from it to find servers the agent started.
     fn pid(&self) -> Option<u32>;

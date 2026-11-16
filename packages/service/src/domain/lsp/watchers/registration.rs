@@ -168,7 +168,7 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         let rules = compile(
             json!({"watchers":[{"globPattern":"**/*.{ts,js}","kind":5}]}),
-            &[root.clone()],
+            std::slice::from_ref(&root),
         )
         .unwrap();
         assert!(rules[0].matches(&root.join("src/main.ts"), 1));
@@ -177,7 +177,7 @@ mod tests {
         assert!(!rules[0].matches(&root.join("main.rs"), 1));
         assert!(compile(
             json!({"watchers":[{"globPattern":"/outside/**/*"}]}),
-            &[root.clone()]
+            std::slice::from_ref(&root)
         )
         .is_err());
         assert!(compile(json!({"watchers":[{"globPattern":"../escape/*"}]}), &[root]).is_err());
@@ -191,7 +191,7 @@ mod tests {
             json!({"watchers":[{"globPattern":{"baseUri":{
             "uri":reqwest::Url::from_directory_path(&root).unwrap().as_str(),"name":"root"},
             "pattern":"new/**/*.json"}}]}),
-            &[root.clone()],
+            std::slice::from_ref(&root),
         )
         .unwrap();
         assert!(rules[0].matches(&root.join("new/config.json"), 2));

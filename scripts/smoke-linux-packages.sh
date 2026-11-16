@@ -64,10 +64,22 @@ check "AppImage payload ($appimage)" docker run --rm --platform "$platform" -v "
   ./'$appimage' --appimage-extract > /dev/null
   test -x squashfs-root/resources/cadencr-service
   squashfs-root/resources/cadencr-service --help > /dev/null
+  test -x squashfs-root/resources/bin/cadencr
+  squashfs-root/resources/bin/cadencr --version > /dev/null
   # AppImages install no package, so electron-updater must not see an identity.
   test ! -e squashfs-root/resources/package-type
 "
 
+# /usr/bin/cadencr is the command line (build/linux/after-install.tpl), which
+# finds the app beside it and refuses to open it without a display.
+cli_check='
+  cli="$(dirname "$sidecar")/bin/cadencr"
+  test -x "$cli"
+  test "$(readlink -f /usr/bin/cadencr)" = "$(readlink -f "$cli")"
+  cadencr --version > /dev/null
+  if out=$(env -u DISPLAY -u WAYLAND_DISPLAY cadencr open / 2>&1); then exit 1; fi
+  case "$out" in *CLI_NO_DISPLAY*) ;; *) echo "$out" >&2; exit 1 ;; esac
+'
 # Every library the Electron binary links must resolve on a stock install:
 # a missing one (ALSA, GBM…) installs fine but the app never opens.
 libs_check='
@@ -83,7 +95,7 @@ deb_check='
   test "$(cat "$package_type")" = deb
   "$sidecar" --help > /dev/null
   command -v git > /dev/null && command -v lsof > /dev/null
-'"$libs_check"
+'"$cli_check$libs_check"
 for image in debian:12 ubuntu:22.04 ubuntu:24.04; do
   check "DEB install on $image" docker run --rm --platform "$platform" -v "$dist_dir:/pkg:ro" "$image" bash -eu -c "
     export DEBIAN_FRONTEND=noninteractive
@@ -100,7 +112,7 @@ rpm_check='
   test "$(cat "$package_type")" = rpm
   "$sidecar" --help > /dev/null
   command -v git > /dev/null && command -v lsof > /dev/null
-'"$libs_check"
+'"$cli_check$libs_check"
 check "RPM install on fedora:41" docker run --rm --platform "$platform" -v "$dist_dir:/pkg:ro" fedora:41 bash -eu -c "
   dnf install -y -q /pkg/$rpm > /dev/null
   $rpm_check

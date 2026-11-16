@@ -47,7 +47,7 @@ impl TranscriptWriter {
         let Ok(parsed) = serde_json::from_str::<serde_json::Value>(buffer.accumulated()) else {
             return Ok(());
         };
-        let is_trivial_object = parsed.as_object().map_or(false, |obj| obj.is_empty());
+        let is_trivial_object = parsed.as_object().is_some_and(|obj| obj.is_empty());
         if is_trivial_object {
             return Ok(());
         }

@@ -75,16 +75,16 @@ pub fn map_tool_call_update(
         let updates = carrier_input_update(tool_call_id, &tool_name, body, hooks);
         events.push(delta_event.with_subagent_updates(updates.into_iter().collect()));
     }
-    push_tool_result(
-        body,
-        tool_call_id,
-        status,
-        parent.clone(),
-        metadata.clone(),
-        hooks,
-        indexer,
-        &mut events,
-    );
+    push_tool_result()
+        .body(body)
+        .tool_call_id(tool_call_id)
+        .status(status)
+        .maybe_parent(parent.clone())
+        .metadata(metadata.clone())
+        .hooks(hooks)
+        .indexer(indexer)
+        .events(&mut events)
+        .call();
     if matches!(status, "completed" | "failed") {
         let call = TerminalToolCall {
             tool_call_id,

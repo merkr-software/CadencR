@@ -64,3 +64,11 @@ test("refuses missing, wrong-arch, non-ELF and unsupported-arch sidecars", (t) =
   assert.throws(() => prepareLinuxSidecar(macho, "arm64"), /not an ELF executable/);
   assert.throws(() => prepareLinuxSidecar(arm, "ia32"), /Unsupported Linux package arch/);
 });
+
+test("prepares the bundled CLI like the sidecar", (t) => {
+  const dir = scratch(t);
+  const binary = join(dir, "cadencr");
+  writeFileSync(binary, elfHeader(ELF_MACHINE.x64), { mode: 0o644 });
+  prepareLinuxSidecar(binary, "x64", "the cadencr CLI");
+  assert.equal(statSync(binary).mode & 0o777, 0o755);
+});

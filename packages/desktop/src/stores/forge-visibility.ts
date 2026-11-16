@@ -9,11 +9,15 @@ function clientId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `forge-${Date.now()}-${Math.random()}`;
 }
 
+/** The app socket's connection; it drops a send while it is not open. */
+interface ForgeStatusSocket {
+  send(data: string): unknown;
+}
+
 /** Subscribe the app socket and keep its focus/visibility state current. */
-export function subscribeForgeStatus(ws: WebSocket): () => void {
+export function subscribeForgeStatus(ws: ForgeStatusSocket): () => void {
   const id = clientId();
   const send = (action: "subscribe.forge_status" | "forge_visibility"): void => {
-    if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(
       JSON.stringify(
         createEnvelope("app", action, {

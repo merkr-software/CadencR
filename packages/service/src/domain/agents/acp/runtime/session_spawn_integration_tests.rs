@@ -201,16 +201,15 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx,
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx)
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
     let active_turn = prompt_turn_lock.lock().await;
@@ -275,16 +274,15 @@ async fn prompt_receipt_waits_for_user_message_echo() {
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx.clone(),
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx.clone())
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
     let event_rx = client.subscribe_reliable();
     let _event_loop = spawn_event_loop(
         client.clone(),
@@ -398,16 +396,15 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
-    let mut session = AcpRuntimeSession::assemble(
-        &client,
-        &negotiated,
-        std::env::temp_dir(),
-        None,
-        rx,
-        tx,
-        Arc::new(SpawnHooks),
-        Arc::new(StdMutex::new(EventIndexer::default())),
-    );
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx)
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
     let active_turn = prompt_turn_lock.lock().await;

@@ -78,6 +78,12 @@ pub struct PtyManager {
     pub terminals: Arc<DashMap<String, Arc<PtyHandle>>>,
 }
 
+impl Default for PtyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PtyManager {
     pub fn new() -> Self {
         Self {

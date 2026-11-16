@@ -5,7 +5,7 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 use crate::domain::custom_actions::run_registry::CustomActionRunRegistry;
-use crate::domain::editor::watcher::{FileChangeEvent, SharedFileWatcher};
+use crate::domain::editor::watcher::EditorWatchers;
 use crate::domain::feature_events::FeatureEventBroadcaster;
 use crate::domain::features::run_registry::FeatureRunRegistry;
 use crate::domain::gate_registry::GateRegistry;
@@ -112,8 +112,6 @@ pub struct AppState {
     pub pty_manager: PtyManager,
     /// Neovim RPC manager (stub — RPC surface removed; awaiting PTY migration).
     pub neovim_manager: NeovimManager,
-    /// Broadcast channel for file-system change events.
-    pub file_change_tx: broadcast::Sender<FileChangeEvent>,
     /// Broadcast when a settings JSON file changes on disk (our own writes or an
     /// external editor). Drives the frontend to re-fetch settings live.
     pub settings_events_tx: broadcast::Sender<crate::domain::settings_store::SettingsChangeEvent>,
@@ -148,8 +146,8 @@ pub struct AppState {
     pub storage_maintenance_events_tx: StorageMaintenanceBroadcaster,
     /// Cached provider version checks and background provider updates.
     pub provider_updates: crate::domain::agents::updates::ProviderUpdateService,
-    /// Shared file watcher (one project at a time).
-    pub file_watcher: SharedFileWatcher,
+    /// Per-client editor file-watcher subscriptions.
+    pub editor_watchers: Arc<EditorWatchers>,
     /// Per-launch bearer token required on every HTTP request (via the
     /// `X-Cadencr-Token` header) and WebSocket upgrade (via the
     /// `cadencr-token.<tok>` `Sec-WebSocket-Protocol` entry).
@@ -283,7 +281,6 @@ impl AppState {
         let (session_status_tx, _) = broadcast::channel(64);
         let (feature_events_tx, _) = broadcast::channel(64);
         let (schedule_events_tx, _) = broadcast::channel(64);
-        let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (theme_events_tx, _) = broadcast::channel(16);
         let (plugin_tab_events_tx, _) = broadcast::channel(16);
@@ -317,7 +314,6 @@ impl AppState {
             schedule_events_tx,
             pty_manager: pty_manager.clone(),
             neovim_manager: NeovimManager::new(pty_manager, read_pool),
-            file_change_tx,
             settings_events_tx,
             theme_events_tx,
             plugin_tab_events_tx,
@@ -330,7 +326,7 @@ impl AppState {
             remote_events_tx,
             storage_maintenance_events_tx,
             provider_updates,
-            file_watcher: crate::domain::editor::watcher::new_shared(),
+            editor_watchers: Arc::default(),
             auth_token,
             mcp_control_secret: uuid::Uuid::new_v4().to_string(),
             frontend_port,
@@ -383,7 +379,6 @@ impl AppState {
         let (session_status_tx, _) = broadcast::channel(64);
         let (feature_events_tx, _) = broadcast::channel(64);
         let (schedule_events_tx, _) = broadcast::channel(64);
-        let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (theme_events_tx, _) = broadcast::channel(16);
         let (plugin_tab_events_tx, _) = broadcast::channel(16);
@@ -411,7 +406,6 @@ impl AppState {
             schedule_events_tx,
             pty_manager: pty_manager.clone(),
             neovim_manager: NeovimManager::new(pty_manager, pool),
-            file_change_tx,
             settings_events_tx,
             theme_events_tx,
             plugin_tab_events_tx,
@@ -424,7 +418,7 @@ impl AppState {
             remote_events_tx,
             storage_maintenance_events_tx,
             provider_updates,
-            file_watcher: crate::domain::editor::watcher::new_shared(),
+            editor_watchers: Arc::default(),
             auth_token: "test-token".to_string(),
             mcp_control_secret: crate::domain::mcp::control_grant::TEST_MCP_CONTROL_SECRET
                 .to_string(),

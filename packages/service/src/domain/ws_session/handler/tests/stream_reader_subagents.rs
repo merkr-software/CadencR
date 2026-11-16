@@ -81,17 +81,17 @@ async fn a_destroyed_runtime_stops_its_sub_agents() {
     sdk_sessions.lock().await.insert(session_id, handle);
 
     let (msg_tx, msg_rx) = mpsc::channel(2);
-    spawn_test_stream_reader_for_runtime(
-        &app_state,
-        session_id,
-        1,
-        msg_rx,
-        Some(Arc::downgrade(&query)),
-        ws_tx,
-        sdk_sessions.clone(),
-        DEFAULT_PROVIDER,
-        false,
-    );
+    spawn_test_stream_reader_for_runtime()
+        .app_state(&app_state)
+        .db_session_id(session_id)
+        .feature_id(1)
+        .msg_rx(msg_rx)
+        .runtime_session_handle(Arc::downgrade(&query))
+        .ws_tx(ws_tx)
+        .sdk_sessions(sdk_sessions.clone())
+        .runtime_provider(DEFAULT_PROVIDER)
+        .cleanup_session_on_end(false)
+        .call();
     msg_tx.send(Ok(launch("toolu_1", false))).await.unwrap();
     wait_for_run(&app_state, session_id, "toolu_1", |status| {
         status == SubagentRunStatus::Running

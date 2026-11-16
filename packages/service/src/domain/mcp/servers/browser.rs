@@ -291,26 +291,24 @@ impl ServerHandler for BrowserServer {
         std::future::ready(Ok(super::tool_list_result(tools())))
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResponse, ErrorData>> + Send + '_ {
-        async move {
-            let args = request
-                .arguments
-                .as_ref()
-                .map(|m| serde_json::Value::Object(m.clone()))
-                .unwrap_or(serde_json::Value::Null);
-            if let Err(e) = pinned_feature_id(&args, self.ctx.feature_id) {
-                return Ok(error_result(&e).into());
-            }
-            Ok(
-                run_browser_tool(request.name.as_ref(), args, self.ctx.feature_id)
-                    .await
-                    .into(),
-            )
+    ) -> Result<CallToolResponse, ErrorData> {
+        let args = request
+            .arguments
+            .as_ref()
+            .map(|m| serde_json::Value::Object(m.clone()))
+            .unwrap_or(serde_json::Value::Null);
+        if let Err(e) = pinned_feature_id(&args, self.ctx.feature_id) {
+            return Ok(error_result(&e).into());
         }
+        Ok(
+            run_browser_tool(request.name.as_ref(), args, self.ctx.feature_id)
+                .await
+                .into(),
+        )
     }
 }
 

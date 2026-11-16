@@ -33,8 +33,26 @@ impl PendingAsyncQuestions {
 
     pub(crate) fn complete(&mut self, id: &str) -> Result<Option<RuntimeEvent>, RuntimeError> {
         self.current(id)?;
-        self.events.pop_front();
-        Ok(self.events.front().cloned())
+        Ok(self.discard(id))
+    }
+
+    pub(crate) fn contains(&self, id: &str) -> bool {
+        self.events
+            .iter()
+            .any(|event| request_id(event) == Some(id))
+    }
+
+    /// Drop a question the user dismissed. Returns the next form to show when
+    /// the dismissed one was the form on screen.
+    pub(crate) fn discard(&mut self, id: &str) -> Option<RuntimeEvent> {
+        let position = self
+            .events
+            .iter()
+            .position(|event| request_id(event) == Some(id))?;
+        self.events.remove(position);
+        (position == 0)
+            .then(|| self.events.front().cloned())
+            .flatten()
     }
 
     pub(crate) fn clear(&mut self) {
@@ -78,6 +96,20 @@ mod tests {
             .complete("codex_async_question_second")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn discarding_the_shown_form_surfaces_the_next_and_a_queued_one_stays_hidden() {
+        let mut queue = PendingAsyncQuestions::default();
+        queue.enqueue(&question("first", "root"));
+        queue.enqueue(&question("second", "root"));
+        queue.enqueue(&question("third", "root"));
+        assert!(queue.discard("codex_async_question_third").is_none());
+        assert!(!queue.contains("codex_async_question_third"));
+        let next = queue.discard("codex_async_question_first").unwrap();
+        assert_eq!(request_id(&next), Some("codex_async_question_second"));
+        assert!(queue.discard("codex_async_question_unknown").is_none());
+        assert!(queue.contains("codex_async_question_second"));
     }
 
     #[test]

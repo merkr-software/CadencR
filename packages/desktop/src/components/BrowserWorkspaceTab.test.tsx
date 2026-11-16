@@ -88,6 +88,11 @@ function bridge(): CadencrBrowserBridge {
     notchPushSnapshot: vi.fn(() => Promise.resolve()),
     notchNotify: vi.fn(() => Promise.resolve()),
     onNotchDismissed: vi.fn(() => () => undefined),
+    drainCliRequests: vi.fn(() => Promise.resolve([])),
+    onCliRequestsPending: vi.fn(() => () => undefined),
+    cliInstallStatus: vi.fn(),
+    installCli: vi.fn(),
+    uninstallCli: vi.fn(),
     setZoom: vi.fn(),
     setTrafficLightsCenter: vi.fn(() => Promise.resolve()),
     currentTheme: vi.fn<() => Promise<"dark">>(() => Promise.resolve("dark")),
@@ -123,20 +128,6 @@ function bridge(): CadencrBrowserBridge {
     dismissBrowserPopup: vi.fn(() => Promise.resolve()),
     setBrowserBounds: vi.fn(() => Promise.resolve(state)),
     setBrowserSuppressed: vi.fn(() => Promise.resolve()),
-    listBrowserProfiles: vi.fn(() =>
-      Promise.resolve([
-        { id: "default", label: "default", mode: "persistent" as const },
-        { id: "dev", label: "dev", mode: "persistent" as const },
-      ]),
-    ),
-    clearBrowserStorage: vi.fn(() => Promise.resolve()),
-    createBrowserProfile: vi.fn(() =>
-      Promise.resolve({ id: "created", label: "created", mode: "persistent" as const }),
-    ),
-    duplicateBrowserProfile: vi.fn(() =>
-      Promise.resolve({ id: "copy", label: "copy", mode: "persistent" as const }),
-    ),
-    deleteBrowserProfile: vi.fn(() => Promise.resolve()),
     getBrowserSiteInfo: vi.fn(() =>
       Promise.resolve({
         tabId: "tab-1",
@@ -177,13 +168,7 @@ function bridge(): CadencrBrowserBridge {
     setBrowserBookmark: vi.fn(() => Promise.resolve(null)),
     toggleBrowserDevTools: vi.fn(() => Promise.resolve(state.tabs[0])),
     setBrowserResponsive: vi.fn(() => Promise.resolve(state.tabs[0])),
-    getBrowserConsole: vi.fn(() => Promise.resolve([])),
-    getBrowserNetwork: vi.fn(() => Promise.resolve([])),
-    getBrowserSnapshot: vi.fn(),
     getBrowserScreenshot: vi.fn(() => Promise.resolve("png-base64")),
-    browserClick: vi.fn(),
-    browserType: vi.fn(),
-    browserKeypress: vi.fn(),
     selectBrowserElementContext: vi.fn(),
     removeBrowserCommentBadge: vi.fn(() => Promise.resolve()),
     clearBrowserCommentBadges: vi.fn(() => Promise.resolve()),
@@ -202,7 +187,8 @@ function bridge(): CadencrBrowserBridge {
     installUpdate: vi.fn(),
     fetchChangelog: vi.fn(),
     fetchChangelogImage: vi.fn(),
-    onUpdateEvent: vi.fn(() => () => undefined),
+    getUpdateState: vi.fn(),
+    onUpdateState: vi.fn(() => () => undefined),
     pluginTabs: noopPluginTabs,
   };
 }

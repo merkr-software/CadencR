@@ -380,6 +380,14 @@ impl AgentRuntimeSession for CodexSession {
         permission_kind_for_request_id(request_id)
     }
 
+    async fn dismiss_nonblocking_request(&self, request_id: &str) -> Result<bool, RuntimeError> {
+        if !super::async_questions::is_async_question(request_id) {
+            return Ok(false);
+        }
+        self.dismiss_async_question(request_id).await?;
+        Ok(true)
+    }
+
     fn pid(&self) -> Option<u32> {
         self.client.pid()
     }

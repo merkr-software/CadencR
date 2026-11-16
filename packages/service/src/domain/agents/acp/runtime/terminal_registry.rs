@@ -10,7 +10,7 @@
 //! payload helpers live in `terminal_io.rs`.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -53,11 +53,7 @@ struct TerminalEntry {
 
 impl TerminalRegistry {
     /// Spawn a new terminal under the given session and return its id.
-    pub async fn create(
-        &self,
-        params: &Value,
-        session_cwd: &PathBuf,
-    ) -> Result<Value, (i64, String)> {
+    pub async fn create(&self, params: &Value, session_cwd: &Path) -> Result<Value, (i64, String)> {
         let command = params
             .get("command")
             .and_then(Value::as_str)

@@ -26,24 +26,13 @@ const DEFAULT_CURSOR_SHAPE: &str = "Block";
 /// Alacritty's own documented default: `cursor.style.blinking`.
 const DEFAULT_CURSOR_BLINKING: &str = "Off";
 
-#[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq)]
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
 #[serde(default)]
 pub struct AlacrittyConfig {
     pub font: FontConfig,
     pub colors: ColorsConfig,
     pub cursor: CursorConfig,
     pub scrolling: ScrollingConfig,
-}
-
-impl Default for AlacrittyConfig {
-    fn default() -> Self {
-        Self {
-            font: FontConfig::default(),
-            colors: ColorsConfig::default(),
-            cursor: CursorConfig::default(),
-            scrolling: ScrollingConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq, Default)]
@@ -129,18 +118,10 @@ impl Default for CursorStyle {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq)]
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
 #[serde(default)]
 pub struct CursorConfig {
     pub style: CursorStyle,
-}
-
-impl Default for CursorConfig {
-    fn default() -> Self {
-        Self {
-            style: CursorStyle::default(),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, PartialEq)]

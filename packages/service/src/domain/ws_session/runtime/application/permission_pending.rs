@@ -1,9 +1,33 @@
+use crate::domain::session_status::PendingKind;
+
+/// The session row as answering a gate left it, read in the statement that
+/// cleared the gate so no turn start or end can slip in between.
+pub(crate) struct ClearedGate {
+    pub status: String,
+    pub feature_id: i64,
+    /// A gate raised meanwhile, which stays pending.
+    pub remaining: Option<(PendingKind, String)>,
+}
+
 pub(super) async fn clear_answered_gate_preserving_replacement(
     pool: &sqlx::SqlitePool,
     db_session_id: i64,
     answered_request_id: &str,
 ) -> Result<bool, sqlx::Error> {
-    let remaining: bool = sqlx::query_scalar(
+    let cleared = clear_answered_gate(pool, db_session_id, answered_request_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+    Ok(cleared.remaining.is_some())
+}
+
+/// Clear `answered_request_id`, keeping a gate raised meanwhile. `None` when
+/// the session does not exist.
+pub(crate) async fn clear_answered_gate(
+    pool: &sqlx::SqlitePool,
+    db_session_id: i64,
+    answered_request_id: &str,
+) -> Result<Option<ClearedGate>, sqlx::Error> {
+    let row: Option<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
         "UPDATE agent_sessions SET \
             pending_permission = CASE \
                 WHEN pending_permission IS NOT NULL \
@@ -22,14 +46,25 @@ pub(super) async fn clear_answered_gate_preserving_replacement(
                 ELSE NULL \
             END \
          WHERE id = ? \
-         RETURNING pending_permission IS NOT NULL OR pending_questions IS NOT NULL",
+         RETURNING status, feature_id, \
+            json_extract(pending_permission, '$.request_id'), \
+            json_extract(pending_questions, '$.request_id')",
     )
     .bind(answered_request_id)
     .bind(answered_request_id)
     .bind(db_session_id)
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
-    Ok(remaining)
+    Ok(row.map(|(status, feature_id, permission, question)| {
+        let remaining = permission
+            .map(|id| (PendingKind::Permission, id))
+            .or_else(|| question.map(|id| (PendingKind::Question, id)));
+        ClearedGate {
+            status,
+            feature_id,
+            remaining,
+        }
+    }))
 }
 
 #[cfg(test)]
@@ -44,7 +79,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        sqlx::query("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, pending_permission TEXT, pending_questions TEXT)")
+        sqlx::query("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL DEFAULT 7, status TEXT NOT NULL DEFAULT 'completed', pending_permission TEXT, pending_questions TEXT)")
             .execute(&pool).await.unwrap();
         let old = json!({"request_id":"old"}).to_string();
         let new = json!({"request_id":"new"}).to_string();
@@ -66,7 +101,7 @@ mod tests {
             (Some("{}"), Some("{}"), None, None),
             (Some("invalid"), Some("invalid"), None, None),
         ] {
-            sqlx::query("INSERT OR REPLACE INTO agent_sessions VALUES (1, ?, ?)")
+            sqlx::query("INSERT OR REPLACE INTO agent_sessions (id, pending_permission, pending_questions) VALUES (1, ?, ?)")
                 .bind(permission)
                 .bind(question)
                 .execute(&pool)
@@ -88,5 +123,41 @@ mod tests {
             assert_eq!(permission.as_deref(), expected_permission);
             assert_eq!(question.as_deref(), expected_question);
         }
+    }
+
+    #[tokio::test]
+    async fn clearing_reports_the_row_and_the_gate_that_stays() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL, status TEXT NOT NULL, pending_permission TEXT, pending_questions TEXT)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO agent_sessions VALUES (1, 7, 'running', ?, ?)")
+            .bind(json!({"request_id":"approval"}).to_string())
+            .bind(json!({"request_id":"old"}).to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let cleared = clear_answered_gate(&pool, 1, "old").await.unwrap().unwrap();
+        assert_eq!(
+            (cleared.status.as_str(), cleared.feature_id),
+            ("running", 7)
+        );
+        assert_eq!(
+            cleared.remaining,
+            Some((PendingKind::Permission, "approval".to_string()))
+        );
+        let cleared = clear_answered_gate(&pool, 1, "approval")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cleared.remaining, None);
+        assert!(clear_answered_gate(&pool, 2, "old")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

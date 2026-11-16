@@ -6,7 +6,11 @@ use crate::args::{Cli, Command, PluginArgs, PluginCommand, PluginKind, RegistryC
 use crate::{operation_error, output, signing, Diagnostic};
 
 pub(crate) fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
-    match &cli.command {
+    let Some(command) = &cli.command else {
+        return crate::app::run(None, cli.json);
+    };
+    match command {
+        Command::App(command) => crate::app::run(Some(command), cli.json),
         Command::Plugin(PluginArgs {
             command: PluginCommand::InspectRelease { request, directory },
         }) => crate::author_release::run(request, directory, None),
