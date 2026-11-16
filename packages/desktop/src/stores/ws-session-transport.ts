@@ -27,8 +27,8 @@ interface SessionTransport {
   pendingWsRequests: Map<string, (payload: unknown) => void>;
   pendingCommands: Map<string, PendingSessionCommand>;
   outboundQueue: WsEnvelope[];
-  /** Automatic reconnects gave up: nothing may wait for a socket until one opens. */
-  reconnectPaused: boolean;
+  /** Reconnect registry key of this session's socket (`lib/ws-reconnect`). */
+  reconnectKey: string | null;
   delivery: ReturnType<typeof createPromptDeliveryTracker>;
 }
 
@@ -48,7 +48,7 @@ export class SessionTransportRegistry {
         pendingWsRequests: new Map(),
         pendingCommands: new Map(),
         outboundQueue: [],
-        reconnectPaused: false,
+        reconnectKey: null,
         delivery: createPromptDeliveryTracker(),
       };
       this.sessions.set(sessionId, transport);

@@ -507,6 +507,17 @@ describe("ws-session outbound queue", () => {
       useWsSessionStore.getState().setThinkingEffort("s-gives-up", "high");
       expect(toastError).toHaveBeenCalledWith("Couldn't change thinking effort", expect.anything());
       expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([]);
+
+      // "Retry now" resumes automatic reconnects even though the service is
+      // still down: a setting waits for them again.
+      forceReconnectAll({ bypassManualPause: true });
+      await vi.advanceTimersByTimeAsync(0);
+      toastError.mockClear();
+      useWsSessionStore.getState().setPermissionMode("s-gives-up", "plan");
+      expect(toastError).not.toHaveBeenCalled();
+      expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([
+        "mode.set",
+      ]);
     } finally {
       MockWebSocket.failOpen = false;
       vi.useRealTimers();

@@ -20,6 +20,7 @@
  * (`expireQueuedCommands`).
  */
 import { toast } from "sonner";
+import { isReconnectPaused } from "@/lib/ws-reconnect";
 import type { WsEnvelope } from "@/lib/ws-envelope";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { handleCommandError } from "./ws-envelope-error-handler";
@@ -144,9 +145,10 @@ export function sendSessionCommand(
   if (!ctx.get().sessions[sessionId]) return false;
   const transport = ctx.transport.ensure(sessionId);
   const sent = transport.conn?.sendJson(envelope) ?? false;
-  // A setting may wait for a reconnect that is coming; once reconnects are
+  // A setting may wait for a reconnect that is coming; while reconnects are
   // paused for a manual retry, none is, so it fails at once like a Stop.
-  if (!sent && (!spec.replay || transport.reconnectPaused)) {
+  const paused = transport.reconnectKey !== null && isReconnectPaused(transport.reconnectKey);
+  if (!sent && (!spec.replay || paused)) {
     reportUnsent(spec.failure, envelope.id);
     return false;
   }
@@ -176,13 +178,12 @@ export function queuedCommandHooks(ctx: StoreAccessors, sessionId: string) {
 
 /**
  * Automatic reconnects gave up: the settings still waiting are dropped and
- * reported, never sent by a manual retry minutes later, and new ones are
- * refused until a socket opens again.
+ * reported, never sent by a manual retry minutes later. New ones are refused
+ * while the reconnect registry keeps the socket paused (until "Retry now").
  */
 export function expireQueuedCommands(ctx: StoreAccessors, sessionId: string): void {
   const transport = ctx.transport.get(sessionId);
   if (!transport) return;
-  transport.reconnectPaused = true;
   for (const command of [...transport.pendingCommands.values()]) {
     if (!command.queued) continue;
     ctx.transport.unqueue(sessionId, command.envelope.id);

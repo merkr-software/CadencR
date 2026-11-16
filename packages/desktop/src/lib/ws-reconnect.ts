@@ -99,6 +99,14 @@ function applyOptions(entry: ReconnectEntry, options?: ReconnectorOptions): void
   if (options?.onManualRequired) entry.onManualRequired = options.onManualRequired;
 }
 
+/**
+ * Automatic retries for `key` gave up and wait for a manual retry ("Retry
+ * now" clears it, as does a connection that stays up).
+ */
+export function isReconnectPaused(key: string): boolean {
+  return entries.get(key)?.manualOnly ?? false;
+}
+
 function pauseForManualReconnect(key: string, entry: ReconnectEntry): void {
   if (entry.manualOnly) return;
   entry.manualOnly = true;

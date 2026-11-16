@@ -37,8 +37,7 @@ interface SessionConnectionContext {
 
 /** Open and current: replayed init and queued commands follow (see `createSessionConnection`). */
 function markConnected(context: SessionConnectionContext): void {
-  const { get, set, transport } = context.deps.ctx;
-  transport.ensure(context.sessionId).reconnectPaused = false;
+  const { get, set } = context.deps.ctx;
   set(updateSession(get(), context.sessionId, { isConnected: true, isConnecting: false }));
 }
 
@@ -138,6 +137,7 @@ export function connectSession(deps: ConnectSessionDeps, sessionId: string): voi
 
   const entry = existing ?? createSessionEntry();
   const reconnectKey = sourceKey(sessionId);
+  transport.reconnectKey = reconnectKey;
   registerSocketRetry(
     reconnectKey,
     () => forceReconnectSession(sessionId),
