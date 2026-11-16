@@ -8,11 +8,11 @@ use crate::domain::plugin_tabs::backend::launch::unavailable;
 use crate::domain::plugin_tabs::backend::protocol::{
     read_stderr, read_stdout, write_stdin, Pending, Stdout,
 };
+use crate::domain::plugin_tabs::backend::retry::SpawnError;
 use crate::domain::plugin_tabs::backend::{
     events::Events, handshake, history::History, BackendLaunch,
 };
 use crate::domain::plugin_tabs::grants::{GrantRequest, GrantStore, Lifetime};
-use crate::error::AppError;
 use cadencr_tab_backend::protocol::MAX_IN_FLIGHT;
 use std::process::Stdio;
 use std::sync::atomic::AtomicU64;
@@ -25,12 +25,12 @@ use tokio_util::sync::CancellationToken;
 #[bon::builder]
 pub(in crate::domain::plugin_tabs::backend) fn spawn(
     launch: &BackendLaunch,
-    prepared: Prepared,
+    prepared: &Prepared,
     grants: &GrantStore,
     history: Arc<History>,
     events: Events,
-) -> Result<Arc<Running>, AppError> {
-    let (mut child, tree) = spawn_child(launch, &prepared)?;
+) -> Result<Arc<Running>, SpawnError> {
+    let (mut child, tree) = spawn_child(launch, prepared)?;
     let (Some(pid), Some(stdin), Some(stdout), Some(stderr)) = (
         child.id(),
         child.stdin.take(),
@@ -38,7 +38,7 @@ pub(in crate::domain::plugin_tabs::backend) fn spawn(
         child.stderr.take(),
     ) else {
         let _ = child.start_kill();
-        return Err(unavailable("the backend's stdio was unavailable".into()));
+        return Err(unavailable("the backend's stdio was unavailable".into()).into());
     };
     let minted = grants.mint(
         GrantRequest::builder()
@@ -76,7 +76,7 @@ pub(in crate::domain::plugin_tabs::backend) fn spawn(
         Err(error) => {
             let _ = child.start_kill();
             grants.revoke_key(&minted.grant.key);
-            return Err(error);
+            return Err(error.into());
         }
     };
     running.events.start(&running.run_id);
@@ -109,20 +109,16 @@ pub(in crate::domain::plugin_tabs::backend) fn spawn(
 fn spawn_child(
     launch: &BackendLaunch,
     prepared: &Prepared,
-) -> Result<(Child, ProcessTreeControl), AppError> {
+) -> Result<(Child, ProcessTreeControl), SpawnError> {
     let mut command = long_lived_managed_command(&prepared.executable, &launch.plugin_dir)
         .map_err(|error| unavailable(format!("the backend cannot start: {error}")))?;
     command.stdin(Stdio::piped());
     let tree = ProcessTreeControl::prepare(&mut command, managed_process_tree_policy())
         .map_err(|error| unavailable(format!("the backend cannot be contained: {error}")))?;
-    let mut child = command
-        .spawn()
-        .map_err(|error| unavailable(format!("the backend failed to start: {error}")))?;
+    let mut child = command.spawn().map_err(SpawnError::Exec)?;
     if let Err(error) = tree.attach(&child) {
         let _ = child.start_kill();
-        return Err(unavailable(format!(
-            "the backend cannot be contained: {error}"
-        )));
+        return Err(unavailable(format!("the backend cannot be contained: {error}")).into());
     }
     Ok((child, tree))
 }

@@ -22,6 +22,7 @@ pub mod models;
 mod process;
 mod protocol;
 mod request;
+mod retry;
 mod stop_reason;
 mod subscription;
 
@@ -38,6 +39,7 @@ use self::models::{PluginBackendRequest, PluginBackendResponse, PluginTabBackend
 use self::process::{Prepared, Running};
 use self::request::check_request;
 pub use self::request::RunningBackend;
+use self::retry::SpawnError;
 pub use self::stop_reason::StopReason;
 use super::grants::GrantStore;
 use super::presence::PresenceStore;
@@ -193,8 +195,12 @@ impl BackendSupervisor {
             Ok(prepared) => prepared,
             Err(error) => return Err(failed_start(&history, error)),
         };
-        self.spawn_unless_stopped(grants, launch, prepared, &history, stops)
+        retry::spawn(|| self.spawn_unless_stopped(grants, launch, &prepared, &history, stops))
             .await
+            .map_err(|error| match error {
+                SpawnError::Stopped(error) => error,
+                error => failed_start(&history, error.into()),
+            })
     }
 
     /// Spawn `prepared` and register it, unless `launch`'s tab was stopped
@@ -203,17 +209,19 @@ impl BackendSupervisor {
         &self,
         grants: &GrantStore,
         launch: &BackendLaunch,
-        prepared: Prepared,
+        prepared: &Prepared,
         history: &Arc<History>,
         stops: u64,
-    ) -> Result<Arc<Running>, AppError> {
+    ) -> Result<Arc<Running>, SpawnError> {
         let mut slots = self.slots.lock().await;
         if slots.closed {
-            return Err(quitting());
+            return Err(SpawnError::Stopped(quitting()));
         }
         let slot = slots.by_key.entry(Key::of(launch)).or_default();
         if slot.stops != stops {
-            return Err(process::exited_error("it was stopped while starting"));
+            return Err(SpawnError::Stopped(process::exited_error(
+                "it was stopped while starting",
+            )));
         }
         let running = process::spawn()
             .launch(launch)
@@ -221,8 +229,7 @@ impl BackendSupervisor {
             .grants(grants)
             .history(history.clone())
             .events(slot.events.clone())
-            .call()
-            .map_err(|error| failed_start(history, error))?;
+            .call()?;
         slot.running = Some(running.clone());
         slot.orphaned_since = None;
         Ok(running)
@@ -940,11 +947,12 @@ mod tests {
         let prepared = launch.prepare().await.unwrap();
         supervisor.stop_plugin("tab", StopReason::TabRemoved).await;
         let Err(error) = supervisor
-            .spawn_unless_stopped(&grants, &launch, prepared, &history, stops)
+            .spawn_unless_stopped(&grants, &launch, &prepared, &history, stops)
             .await
         else {
             panic!("a stopped tab started its backend");
         };
+        let error: AppError = error.into();
         assert_eq!(error_code(&error), "PLUGIN_BACKEND_EXITED", "{error}");
         let status = supervisor.status("tab", 2).await.unwrap();
         assert_eq!((status.starts, status.start_error), (0, None));
