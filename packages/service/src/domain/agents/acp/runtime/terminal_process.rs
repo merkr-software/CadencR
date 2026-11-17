@@ -351,15 +351,12 @@ mod tests {
     async fn kill_gives_descendants_the_grace_period_after_the_shell_dies() {
         // The shell dies on SIGTERM at once; its child traps SIGTERM to clean
         // up first. Killing the rest of the group as soon as the shell was
-        // reaped cut that cleanup short.
-        let marker = std::env::temp_dir().join(format!(
-            "cadencr-terminal-grace-{}-{:?}",
-            std::process::id(),
-            std::time::SystemTime::now()
-        ));
+        // reaped cut that cleanup short. The child prints its pid only once
+        // its trap is set: a kill before that would end it with no cleanup.
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("cleaned");
         let script = format!(
-            "(trap 'sleep 0.3; echo cleaned > \"{}\"; exit 0' TERM; \
-             while :; do sleep 0.05; done) & echo $!; wait",
+            r#"/bin/sh -c 'trap "sleep 0.3; echo cleaned > \"$0\"; exit 0" TERM; echo $$; while :; do sleep 0.05; done' "{}" & wait"#,
             marker.display()
         );
         let (process, output) = start_capturing(&script);
@@ -368,7 +365,6 @@ mod tests {
         within(process.kill()).await.expect("kill succeeds");
         within(waiter).await.unwrap().expect("exit status");
         let cleaned = std::fs::read_to_string(&marker);
-        let _ = std::fs::remove_file(&marker);
         assert_eq!(
             cleaned.expect("the descendant finished its cleanup").trim(),
             "cleaned"

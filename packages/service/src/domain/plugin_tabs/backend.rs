@@ -499,8 +499,16 @@ mod tests {
             )
         };
         assert!(call().await.is_err(), "the backend never answers");
-        let child = std::fs::read_to_string(dir.join("child.pid")).unwrap();
-        let child = child.trim();
+        // The start is detached from the 200 ms request and may still be
+        // under way; the backend publishes its child's pid before `ready`.
+        let child = crate::shared::test_processes::wait_for_published_pid(
+            &dir.join("child.pid"),
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("the backend started its child")
+        .to_string();
+        let child = child.as_str();
         assert!(is_alive(child));
         supervisor.shutdown().await;
         assert!(
@@ -535,6 +543,15 @@ mod tests {
             let slots = supervisor.slots.lock().await;
             slots.by_key.values().find_map(Slot::usable).is_some()
         };
+        // The start is detached from the 50 ms request: on a loaded machine it
+        // is still under way when the request gives up.
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while !running().await {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the backend starts");
         // Its grant never lapses and the tab, however idle, holds a lease.
         supervisor.reap(&presence).await;
         assert!(running().await);

@@ -10,7 +10,8 @@ export function parseWorktreeList(output: string): string[] {
   return worktrees;
 }
 
-function runGit(cwd: string, args: string[]): string {
+/** Run git in `cwd`; throws with its stderr when it fails. */
+export function runGit(cwd: string, args: string[]): string {
   const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",

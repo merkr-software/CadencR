@@ -11,6 +11,7 @@
   ],
   "globalPassThroughEnv": [
     "RUSTC_WRAPPER",
+    "RUST_TEST_THREADS",
     "TMPDIR",
     "CADENCR_MANAGED_*",
     "CADENCR_REGISTRY_*",

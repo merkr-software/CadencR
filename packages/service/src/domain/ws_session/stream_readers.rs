@@ -16,7 +16,7 @@ use crate::domain::agents::adapter::RuntimeSessionWeakHandle;
 use crate::domain::usage_stats::health;
 
 #[allow(dead_code)] // Called by the service binary's shutdown module.
-const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Cancelled once shutdown starts closing the runtimes.
 static CLOSING: LazyLock<CancellationToken> = LazyLock::new(CancellationToken::new);

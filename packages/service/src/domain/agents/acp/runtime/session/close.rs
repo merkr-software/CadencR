@@ -10,6 +10,11 @@ use super::implementation::AcpRuntimeSession;
 // peer that advertises `session/close` but never replies must still leave time
 // to close the local runtime channel before the reader is joined.
 const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+const _: () = assert!(
+    SESSION_CLOSE_TIMEOUT.as_millis()
+        < crate::domain::ws_session::stream_readers::READER_SHUTDOWN_TIMEOUT.as_millis(),
+    "an agent's session/close must leave time for the local teardown"
+);
 
 /// Prefer the stable lifecycle request when advertised. A connector that
 /// accepts it must cancel ongoing work and release the session's resources.

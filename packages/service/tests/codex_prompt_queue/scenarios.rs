@@ -8,24 +8,6 @@ fn requests(h: &Harness) -> Vec<Value> {
         .collect()
 }
 
-async fn wait_idle(h: &Harness, session: i64) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let status: String = sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id=?")
-                .bind(session)
-                .fetch_one(&h.pool)
-                .await
-                .unwrap();
-            if status != "running" {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
-}
-
 pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     let (mut socket, session) = h.session(true).await;
     send(
@@ -50,7 +32,7 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     .unwrap();
     assert_eq!(h.queue(session).await.len(), 2);
     h.wait_empty(session).await;
-    wait_idle(h, session).await;
+    h.wait_idle(session).await;
     send(&mut socket, "prompt.send", payload).await;
     prompt(&mut socket, session, "after replay").await;
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -66,7 +48,7 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     })
     .await
     .unwrap();
-    wait_idle(h, session).await;
+    h.wait_idle(session).await;
     let delivered: Vec<Value> = requests(h)
         .into_iter()
         .filter(|r| r["params"]["input"][0]["text"] == "same logical request")
@@ -132,7 +114,7 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
             queued.expect("enqueue must not start another runtime while compaction initializes");
         assert_eq!(h.state(queued).await, "pending");
         h.wait_empty(session).await;
-        wait_idle(h, session).await;
+        h.wait_idle(session).await;
         let resume_count = requests(h)
             .iter()
             .filter(|r| r["method"] == "thread/resume" && r["params"]["threadId"] == runtime_id)

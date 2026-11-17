@@ -1,6 +1,34 @@
 use super::*;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+/// Accept one connection on a non-blocking `listener` within 3 s, as a
+/// blocking stream with 2 s read/write timeouts. macOS hands accepted sockets
+/// the listener's non-blocking mode, so a read before the request arrives
+/// would fail with EAGAIN ("Resource temporarily unavailable").
+pub(crate) fn accept_bounded(listener: &TcpListener) -> std::net::TcpStream {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                return stream;
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => panic!("fixture accept failed: {error}"),
+        }
+    }
+}
 pub(crate) fn serve_json(status: &str, body: &str) -> (String, std::thread::JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

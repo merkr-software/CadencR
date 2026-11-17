@@ -7,8 +7,13 @@
 // `buildPrecommitPlan` is pure (staged paths in, ordered steps out) so the
 // routing rules are unit-tested in scripts/pre-commit.test.mjs.
 import { spawnSync } from "node:child_process";
+import { constants as osConstants } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rustTestThreads } from "./cargo-env.mjs";
+import { workspaceMembers } from "./cargo-workspace.mjs";
+import { requireDiskSpace } from "./disk-space.mjs";
+import { toolchainEnv } from "./toolchain-env.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(scriptPath));
@@ -28,7 +33,6 @@ const RUST_ROOT_FILES = new Set([
   "clippy.toml",
   "deny.toml",
 ]);
-const RUST_PACKAGE = /^packages\/(service|cli-discovery|[^/]+-rs)\//;
 const RUST_PLUGIN = /^plugins\/providers\/[^/]+\/(?:Cargo\.toml$|.*\.rs$|tests\/fixtures\/)/;
 // Files that configure every package's tooling: any change re-checks everything.
 const FULL_ROOT_FILES = new Set([
@@ -69,11 +73,18 @@ const STEP = {
   themePluginTests: ["theme plugin checks", ["pnpm", "run", "test:plugin:themes"]],
   releaseTests: ["release script tests", ["pnpm", "run", "test:release-scripts"]],
   rustFormat: ["Rust format", ["pnpm", "--filter", "@cadencr/service", "run", "format:check"]],
-  rustLint: ["Rust clippy", ["pnpm", "--filter", "@cadencr/service", "run", "lint"]],
-  rustTest: ["Rust tests", ["pnpm", "--filter", "@cadencr/service", "run", "test"]],
+  rustLint: ["Rust clippy", ["pnpm", "--filter", "@cadencr/service", "run", "lint"], true],
+  rustTest: ["Rust tests", ["pnpm", "--filter", "@cadencr/service", "run", "test"], true],
 };
 
-const step = ([label, command]) => ({ label, command });
+// `heavy` steps compile the Rust workspace or run every suite: the disk check guards them.
+// Every package of the Cargo workspace runs the Rust checks. Connectors under
+// plugins/providers/ keep their finer rule (RUST_PLUGIN) above.
+const RUST_PACKAGES = workspaceMembers(repoRoot)
+  .filter((member) => member.startsWith("packages/"))
+  .map((member) => `${member}/`);
+
+const step = ([label, command, heavy]) => (heavy ? { label, command, heavy } : { label, command });
 const turbo = (tasks, filters) => [
   "pnpm",
   "turbo",
@@ -105,7 +116,9 @@ export function classifyPath(path) {
     return ["full"];
   }
   const areas = ["other"];
-  if (RUST_ROOT_FILES.has(path) || RUST_PACKAGE.test(path)) areas.push("rust");
+  if (RUST_ROOT_FILES.has(path) || RUST_PACKAGES.some((member) => path.startsWith(member))) {
+    areas.push("rust");
+  }
   const jsPackage = path.match(/^packages\/(desktop|landing|brand|tab-sdk|tab-kit)\//)?.[1];
   if (jsPackage) areas.push(jsPackage);
   if (LANDING_READS_DESKTOP.test(path)) areas.push("landing");
@@ -167,6 +180,7 @@ function fullPlan(reason) {
       {
         label: "workspace checks",
         command: turbo(["format:check", "lint", "ts-check", "test", "knip"], []),
+        heavy: true,
       },
     ],
   };
@@ -255,8 +269,8 @@ export function formatCommand(command) {
     .join(" ");
 }
 
-function git(args) {
-  const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+function git(args, cwd = repoRoot) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(" ")} failed`);
   return result.stdout.split("\0").filter(Boolean);
@@ -275,6 +289,54 @@ function stagedEntries() {
   return parseNameStatus(git(["diff", "--cached", "--name-status", "--no-renames", "-z"]));
 }
 
+/** The paths `commit` changed against its first parent (everything for a root commit). */
+export function commitEntries(commit, cwd = repoRoot) {
+  const [, firstParent] = git(["rev-list", "--parents", "-n", "1", commit], cwd)[0]
+    .trim()
+    .split(" ");
+  const diff = firstParent
+    ? ["diff", "--name-status", "--no-renames", "-z", firstParent, commit]
+    : [
+        "diff-tree",
+        "--root",
+        "-r",
+        "--no-commit-id",
+        "--name-status",
+        "--no-renames",
+        "-z",
+        commit,
+      ];
+  return parseNameStatus(git(diff, cwd));
+}
+
+/**
+ * The environment the plan's checks run in: git's hook variables dropped, a
+ * compatible python3 and node (scripts/toolchain-env.mjs), and enough disk for
+ * heavy steps. Throws with the fix when the machine can't run the plan.
+ */
+export function prepareChecks(
+  plan,
+  { env = process.env, root = repoRoot, diskPath = root, log = console.log } = {},
+) {
+  if (plan.steps.some((planned) => planned.heavy)) {
+    requireDiskSpace(`pre-commit (${plan.mode})`, { path: diskPath, env });
+  }
+  // A docs-only plan only checks AGENTS.md, which runs on any Node and no Python.
+  if (plan.mode === "docs" || plan.mode === "empty") return checkEnv(env);
+  const prepared = toolchainEnv(checkEnv(env), { root });
+  for (const note of prepared.notes) log(`  toolchain: ${note}`);
+  // Heavy steps are the ones that run the Rust tests (scripts/cargo-env.mjs applies the same value).
+  if (plan.steps.some((planned) => planned.heavy)) {
+    // Fixed here so the value printed is the one every step uses.
+    const threads = rustTestThreads(env);
+    prepared.env.RUST_TEST_THREADS = threads.value;
+    log(
+      `  Rust tests: ${threads.value} test threads (${threads.source}; RUST_TEST_THREADS overrides)`,
+    );
+  }
+  return prepared.env;
+}
+
 function printPlan(plan) {
   console.log(`pre-commit plan (${plan.mode}):`);
   for (const reason of plan.reasons) console.log(`  - ${reason}`);
@@ -283,12 +345,17 @@ function printPlan(plan) {
   });
 }
 
-export function runPlan(plan) {
-  const env = checkEnv(process.env);
+/** A child's exit status; 128 + the signal number when a signal ended it (130 for SIGINT). */
+export function exitStatus({ status, signal }) {
+  if (status !== null) return status;
+  return 128 + (signal ? (osConstants.signals[signal] ?? 0) : 0) || 1;
+}
+
+export function runPlan(plan, { env = checkEnv(process.env), cwd = repoRoot } = {}) {
   for (const [index, { label, command }] of plan.steps.entries()) {
     console.log(`\n==> [${index + 1}/${plan.steps.length}] ${label}`);
     const result = spawnSync(command[0], command.slice(1), {
-      cwd: repoRoot,
+      cwd,
       env,
       stdio: "inherit",
     });
@@ -297,7 +364,7 @@ export function runPlan(plan) {
       console.error(`\npre-commit: "${label}" failed (exit ${result.status ?? result.signal}).`);
       console.error(`rerun with:\n  ${formatCommand(command)}`);
       console.error("see the whole plan with: node scripts/pre-commit.mjs --dry-run");
-      return result.status ?? 1;
+      return exitStatus(result);
     }
   }
   console.log(`\npre-commit: ${plan.steps.length} check(s) passed.`);
@@ -318,7 +385,7 @@ function main() {
   const plan = buildPrecommitPlan(stagedEntries(), { full });
   printPlan(plan);
   if (dryRun) return 0;
-  return runPlan(plan);
+  return runPlan(plan, { env: prepareChecks(plan) });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {

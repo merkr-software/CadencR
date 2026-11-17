@@ -96,6 +96,17 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
+    /// Bound for "this eventually happens". Admission and completion each make
+    /// durable journal writes (file + directory sync; F_FULLFSYNC on macOS),
+    /// measured at 0.4 s median and 1.3 s worst case apiece under a load
+    /// average of 40, so a 1 s bound failed on healthy runs. A regression
+    /// (a job that never runs, a blocked worker) never finishes at all.
+    const LIVENESS: Duration = Duration::from_secs(15);
+    /// The lock holder lets go on its own after this, so a test that wrongly
+    /// blocks behind it still ends. Longer than LIVENESS, or a worker blocked
+    /// by the held lock would make progress in time and pass.
+    const HOLD_WATCHDOG: Duration = Duration::from_secs(30);
+
     #[test]
     fn admission_proves_new_registry_pre_write_without_promoting_legacy_uncertainty() {
         let root = tempfile::tempdir().unwrap();
@@ -153,9 +164,9 @@ mod tests {
             let _guard = lock.lock().unwrap();
             ready.send(()).unwrap();
             // Watchdog also releases the lock if a regression blocks the runtime.
-            let _ = wait.recv_timeout(Duration::from_secs(5));
+            let _ = wait.recv_timeout(HOLD_WATCHDOG);
         });
-        acquired.recv_timeout(Duration::from_secs(1)).unwrap();
+        acquired.recv_timeout(LIVENESS).unwrap();
         (release, thread)
     }
 
@@ -210,11 +221,11 @@ mod tests {
         request.abort();
         let _ = release.send(());
         holder.join().unwrap();
-        tokio::time::timeout(Duration::from_secs(1), completion)
+        tokio::time::timeout(LIVENESS, completion)
             .await
             .unwrap()
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::time::timeout(LIVENESS, async {
             loop {
                 let path = root.path().to_owned();
                 let status = tokio::task::spawn_blocking(move || {
@@ -250,11 +261,8 @@ mod tests {
             "b".repeat(64),
             async { Ok(result()) },
         ));
-        let progress = tokio::time::timeout(
-            Duration::from_secs(1),
-            unrelated_project_progresses(other.path().into()),
-        )
-        .await;
+        let progress =
+            tokio::time::timeout(LIVENESS, unrelated_project_progresses(other.path().into())).await;
         let still_waiting = !operation.is_finished();
         let _ = release.send(());
         holder.join().unwrap();
@@ -297,11 +305,8 @@ mod tests {
         admitted.await.unwrap();
         let (release, holder) = hold_lock(root.path().into());
         finish.send(()).unwrap();
-        let progress = tokio::time::timeout(
-            Duration::from_secs(1),
-            unrelated_project_progresses(other.path().into()),
-        )
-        .await;
+        let progress =
+            tokio::time::timeout(LIVENESS, unrelated_project_progresses(other.path().into())).await;
         let still_waiting = !operation.is_finished();
         let _ = release.send(());
         holder.join().unwrap();

@@ -86,8 +86,7 @@ async fn same_logical_content(existing: &str, incoming: &str) -> bool {
 mod tests {
     use super::*;
     use crate::shared::migrate::{run_migrations, MigrationContext};
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-    use std::str::FromStr;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 
     async fn setup() -> (sqlx::SqlitePool, i64) {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -157,35 +156,47 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_identity_race_has_exactly_one_insert_winner() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let options =
-            SqliteConnectOptions::from_str(&format!("sqlite:{}", tmp.path().to_str().unwrap()))
-                .unwrap()
-                .create_if_missing(true)
-                .busy_timeout(std::time::Duration::from_secs(2));
-        let pool = SqlitePoolOptions::new()
-            .max_connections(4)
-            .connect_with(options)
+        let dir = tempfile::tempdir().unwrap();
+        // Same journal mode and busy timeout as the service's write pool.
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("race.db"))
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        // Like startup, change the schema on one connection before the racing
+        // pool exists. A pooled connection that cached the schema before the
+        // migrator's last DDL fails its first agent_messages insert with
+        // "no such table": the FTS5 table it connects while compiling the
+        // insert triggers resets its stale schema mid-prepare.
+        let setup_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
             .await
             .unwrap();
-        run_migrations(&MigrationContext::pool_only(&pool))
+        run_migrations(&MigrationContext::pool_only(&setup_pool))
             .await
             .unwrap();
         sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'p', '/tmp/p')")
-            .execute(&pool)
+            .execute(&setup_pool)
             .await
             .unwrap();
         sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'f')")
-            .execute(&pool)
+            .execute(&setup_pool)
             .await
             .unwrap();
         let session_id: i64 = sqlx::query_scalar(
             "INSERT INTO agent_sessions (feature_id, agent_type, status)
              VALUES (1, 'session', 'paused') RETURNING id",
         )
-        .fetch_one(&pool)
+        .fetch_one(&setup_pool)
         .await
         .unwrap();
+        setup_pool.close().await;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .unwrap();
         let message_uuid = Uuid::new_v4();
         let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
 

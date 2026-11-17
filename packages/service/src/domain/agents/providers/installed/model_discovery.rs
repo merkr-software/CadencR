@@ -212,7 +212,11 @@ mod tests {
             .arg("60")
             .spawn()
             .expect("spawn descendant");
-        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        crate::shared::test_processes::publish_pid(
+            std::path::Path::new(&pid_file),
+            descendant.id(),
+        )
+        .expect("write descendant pid");
         let _ = descendant.wait();
     }
 

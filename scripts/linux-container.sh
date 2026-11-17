@@ -9,6 +9,8 @@
 #   rust-test [args]  workspace Rust tests on Linux (args go to `cargo test`)
 #   clippy            workspace clippy on Linux (cfg(target_os = "linux") code)
 #   vitest            desktop + landing unit tests on Linux
+#   scripts           root script tests on Linux (`pnpm run test:scripts`)
+#   run <command>     any command in the synced Linux tree, non-interactively
 #   package           release sidecar + AppImage/DEB/RPM for the container arch,
 #                     copied to packages/desktop/dist-electron/linux-<arch>/
 #   smoke             scripts/smoke-linux-packages.sh on those packages
@@ -167,7 +169,7 @@ e2e_script='
 '
 
 subcommand="${1:-}"
-[ -n "$subcommand" ] || fail "usage: $0 shell|rust-test|clippy|vitest|package|smoke|e2e"
+[ -n "$subcommand" ] || fail "usage: $0 shell|rust-test|clippy|vitest|scripts|run|package|smoke|e2e"
 shift || true
 mkdir -p "$dist_dir"
 ensure_image
@@ -187,6 +189,15 @@ case "$subcommand" in
   vitest)
     sync_tree
     run_in "$bootstrap pnpm --filter @cadencr/desktop exec vitest run && pnpm --filter @cadencr/landing test"
+    ;;
+  scripts)
+    sync_tree
+    run_in "$bootstrap pnpm run test:scripts"
+    ;;
+  run)
+    [ "$#" -gt 0 ] || fail "usage: $0 run <command>"
+    sync_tree
+    run_in "$bootstrap $*"
     ;;
   package)
     sync_tree
