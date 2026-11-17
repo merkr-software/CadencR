@@ -422,8 +422,8 @@ picks both itself, without changing your `PATH`:
 When one is replaced, the hook prints which, and the checks run with a private
 directory holding only `python3` / `node` links (under
 `node_modules/.cache/cadencr-toolchain/`) first on their `PATH`. It stops with
-the fix when no compatible Python exists, or when Node is a different major and
-no `.nvmrc` install is found. `pnpm run test:scripts` does the same, and
+the fix when no compatible Python exists, or when the running Node is outside
+`engines.node` and no compatible install is found. `pnpm run test:scripts` does the same, and
 `pnpm doctor` reports the interpreter the hook will use. To run another command
 the same way: `node scripts/toolchain-env.mjs -- <command>`.
 

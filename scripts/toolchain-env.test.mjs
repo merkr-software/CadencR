@@ -57,13 +57,20 @@ test("a Node outside engines uses the .nvmrc install, never another major", () =
   assert.deepEqual(result.links, { node: "/fnm/v22.19.0/installation/bin/node" });
   assert.match(result.notes[0], /current 22\.18\.0 is outside/);
 
-  const sameMajor = plan({ nodeVersion: "22.18.0", chooseNode: () => null });
-  assert.deepEqual(sameMajor.links, {});
-  assert.deepEqual(sameMajor.errors, [], "same major: warn and keep going");
-  assert.match(sameMajor.notes[0], /install 22\.19\.0/);
+  // Same major is not enough: engines and .nvmrc set the range.
+  for (const nodeVersion of ["22.0.0", "22.18.0"]) {
+    const sameMajor = plan({ nodeVersion, chooseNode: () => null });
+    assert.deepEqual(sameMajor.links, {});
+    assert.equal(sameMajor.errors.length, 1, `${nodeVersion} must not run the checks`);
+    assert.match(
+      sameMajor.errors[0],
+      new RegExp(`node ${nodeVersion} is outside >=22\\.19\\.0 <23\\.0\\.0`),
+    );
+    assert.match(sameMajor.errors[0], /fnm install 22\.19\.0/);
+  }
 
   const homebrew = plan({ nodeVersion: "26.1.0", chooseNode: () => null });
-  assert.match(homebrew.errors[0], /node 26\.1\.0 is outside .*Node ≥ 25 fails the desktop tests/s);
+  assert.match(homebrew.errors[0], /node 26\.1\.0 is outside .*nvm install 22\.19\.0/s);
 });
 
 test("each set of links has its own directory, first on PATH, the rest of PATH kept", () => {

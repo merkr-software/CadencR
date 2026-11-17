@@ -50,21 +50,17 @@ export function planToolchain({ nodeVersion, requirement, python, chooseNode }) 
   }
   if (!satisfiesRange(nodeVersion, requirement.range)) {
     const installed = chooseNode();
-    const sameMajor = nodeVersion.split(".")[0] === requirement.nvmrc.split(".")[0];
     if (installed) {
       links.node = join(installed.binDir, "node");
       notes.push(
         `node for the checks: ${installed.version} from ${installed.binDir} (current ${nodeVersion} is outside ${requirement.range})`,
       );
-    } else if (sameMajor) {
-      notes.push(
-        `node ${nodeVersion} is outside ${requirement.range}; install ${requirement.nvmrc} (\`fnm install\` or \`nvm install\` read .nvmrc)`,
-      );
     } else {
+      // Even a same-major Node: engines and .nvmrc set the range the checks run in.
       errors.push(
-        `node ${nodeVersion} is outside ${requirement.range} and no ${requirement.nvmrc} install was found ` +
-          "(fnm, nvm, volta, mise, asdf). Node ≥ 25 fails the desktop tests. " +
-          `Fix: install Node ${requirement.nvmrc} (\`fnm install\` or \`nvm install\` read .nvmrc).`,
+        `node ${nodeVersion} is outside ${requirement.range} (package.json engines) and no ` +
+          "compatible install was found (fnm, nvm, volta, mise, asdf). " +
+          `Fix: \`fnm install ${requirement.nvmrc}\` or \`nvm install ${requirement.nvmrc}\` (the .nvmrc version).`,
       );
     }
   }
