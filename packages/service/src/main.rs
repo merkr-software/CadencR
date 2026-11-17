@@ -88,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Freeze the data roots from Electron's launch env, then hydrate the
             // login-shell env before any git, agent or PTY subprocess spawns.
-            shared::app_paths::pin_roots()
+            shared::app_paths::pin_roots(config.data_dir.as_deref())
                 .map_err(anyhow::Error::msg)
                 .context("could not resolve Cadencr's data directories")?;
             shared::login_env::hydrate_from_login_shell().await;
