@@ -35,6 +35,7 @@ import {
 } from "@/lib/agent-verbosity";
 import { AgentSessionComposer } from "./AgentSessionComposer";
 import { AgentSessionPersistenceNotice } from "./AgentSessionPersistenceNotice";
+import { AgentSessionHistoryFailure } from "./AgentSessionHistoryFailure";
 import { AgentSessionStreamNotice } from "./AgentSessionStreamNotice";
 import { AgentSessionFrame } from "./AgentSessionFrame";
 import { AgentSessionStreamContent } from "./AgentSessionStreamContent";
@@ -293,14 +294,7 @@ export const AgentSession = memo(
         workingLabel={s.workingLabel}
         workingClock={s.workingClock}
         projectPath={s.projectPath}
-        scrollContainerRef={s.scroll.scrollContainerRef}
-        virtuosoRef={s.scroll.virtuosoRef}
-        itemSize={s.scroll.itemSize}
-        followOutput={s.scroll.followOutput}
-        onAtBottomStateChange={s.scroll.onAtBottomStateChange}
-        onTotalListHeightChanged={s.scroll.onTotalListHeightChanged}
-        onStartReached={s.scroll.onStartReached}
-        isLoadingOlder={s.scroll.isLoadingOlder}
+        scroll={s.scroll}
         historyPrependDisplayOffset={props.historyPrependDisplayOffset}
         verbosityMode={s.verbosityMode}
         summaryMode={s.summaryMode}
@@ -311,6 +305,9 @@ export const AgentSession = memo(
 
     const bottomSection = (
       <>
+        {s.isIdle ? null : (
+          <AgentSessionHistoryFailure sessionId={props.wsSessionId} variant="notice" />
+        )}
         <AgentSessionPersistenceNotice sessionId={props.wsSessionId} />
         <AgentSessionStreamNotice sessionId={props.wsSessionId} />
         <AgentSessionComposer
@@ -377,6 +374,7 @@ export const AgentSession = memo(
             canDelete={props.canDelete}
             onDelete={props.onDelete}
             onToggleMaximize={props.onToggleMaximize}
+            wsSessionId={props.wsSessionId}
           />
         </SubagentLinkContext.Provider>
       </AgentSessionProvider>

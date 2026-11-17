@@ -129,6 +129,11 @@ export function createStreamHealth(): StreamHealth {
 // Per-session state
 // ---------------------------------------------------------------------------
 
+export interface HistoryLoadFailure {
+  message: string;
+  retrying: boolean;
+}
+
 export interface SessionEntry extends SessionConfigState {
   runtimeOverrides?: {
     model: string | null;
@@ -205,6 +210,12 @@ export interface SessionEntry extends SessionConfigState {
   mcpServers: McpServerStatus[] | null;
   supportsPromptReceipts: boolean;
   persistedLoaded: boolean;
+  /**
+   * Why the conversation's saved history failed to load, shown in the
+   * transcript with a retry; `retrying` while that retry is in flight. Null
+   * once a snapshot is applied.
+   */
+  historyLoadFailure: HistoryLoadFailure | null;
   contextUsage: ContextUsageState | null;
   hasFileChanges: boolean;
   slashCommands: SlashCommand[];
@@ -289,6 +300,7 @@ export function createSessionEntry(): SessionEntry {
     mcpServers: null,
     supportsPromptReceipts: false,
     persistedLoaded: false,
+    historyLoadFailure: null,
     contextUsage: null,
     hasFileChanges: false,
     slashCommands: [],

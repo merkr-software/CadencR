@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
+import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
 import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
@@ -246,7 +247,10 @@ function useAgentSendHandler(args: {
         controls.ws.compactSession();
         return;
       }
-      const isFirstPrompt = (data.session?.blocks?.length ?? 0) === 0;
+      const isFirstPrompt = isNewConversation(
+        data.session?.blocks?.length ?? 0,
+        data.session?.historyLoadFailure != null,
+      );
       const choice = resolveWorktreeChoice({
         mode: controls.worktreeMode,
         selectedBranch: controls.selectedBranch,

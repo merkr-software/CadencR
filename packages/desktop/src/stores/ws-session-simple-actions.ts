@@ -1,4 +1,3 @@
-import type { DisplayRowMode } from "@/types/agent-stream";
 import {
   createAccessModeSet,
   createCommandsGet,
@@ -22,19 +21,12 @@ import {
 } from "@/lib/ws-envelope";
 import { DEFAULT_PROMPT_COMMAND_POLICY } from "@/lib/prompt-command-policy";
 import type { AccessMode } from "@/types/access-mode";
-import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
 import { submitPlanDecision } from "./ws-session-plan-actions";
-import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
+import { createHistoryActions } from "./ws-session-history-actions";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
-import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import { buildSlashCommandsKey } from "./ws-session-store-helpers";
-import type {
-  PermissionMode,
-  PersistedStatePayload,
-  ResyncTarget,
-  WsSessionStore,
-} from "./ws-session-types";
+import type { PermissionMode, WsSessionStore } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
 import { SESSION_COMMANDS, settleInterrupt, type SessionCommandSpec } from "./ws-session-commands";
 
@@ -60,6 +52,8 @@ type SimpleSessionActions = Pick<
   | "retryWorktreeSetup"
   | "requestSlashCommands"
   | "markPersistedLoaded"
+  | "failPersistedLoad"
+  | "retryPersistedLoad"
   | "setPersistedState"
   | "loadOlderMessages"
   | "loadPromptTurn"
@@ -79,6 +73,7 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
     ...createConfigurationActions(deps),
     ...createRuntimeOverrideActions(deps),
     ...createWorkflowActions(deps),
+    ...createHistoryActions(deps.ctx),
   };
 }
 
@@ -328,30 +323,6 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         }),
       );
       sendRaw(sessionId, envelope);
-    },
-
-    markPersistedLoaded(sessionId: string) {
-      set(updateSession(get(), sessionId, { persistedLoaded: true }));
-    },
-
-    setPersistedState(sessionId: string, payload: PersistedStatePayload) {
-      applyPersistedState(ctx, sessionId, payload);
-    },
-
-    async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {
-      return loadOlderSessionMessages(ctx, sessionId, displayMode);
-    },
-
-    loadPromptTurn(
-      sessionId: string,
-      messageDbId: number,
-      displayMode?: DisplayRowMode,
-    ): Promise<boolean> {
-      return loadSessionPromptTurn(ctx, sessionId, messageDbId, displayMode);
-    },
-
-    refreshSessionMessages(sessionId: string, target?: ResyncTarget): Promise<void> {
-      return resyncMessagesOnReconnect(ctx, sessionId, target);
     },
   };
 }

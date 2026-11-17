@@ -62,6 +62,9 @@ export interface UseAgentSessionScrollResult {
   onTotalListHeightChanged: (height: number) => void;
   autoScrollEnabled: boolean;
   isLoadingOlder: boolean;
+  /** Why the last older-history page failed to load; null once a load starts. */
+  olderLoadError: string | null;
+  retryOlderHistory: () => void;
   scrollToBottom: () => void;
   /** Hand the viewport to a programmatic jump (releases bottom-stick and the anchor guard). */
   startJump: StartJump;

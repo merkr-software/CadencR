@@ -9,7 +9,6 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { Loader2Icon } from "lucide-react";
 import {
   Virtuoso,
   type Components,
@@ -22,6 +21,7 @@ import type { AgentBlockData } from "@/types/agent-block";
 import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { STREAM_AT_BOTTOM_THRESHOLD_PX, STREAM_BOTTOM_GAP_PX } from "./agent-session/stream-fade";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
+import { OlderHistoryStatus } from "./agent-session/OlderHistoryStatus";
 import { flowStreamingBlockId, liveDisplayItemKey } from "@/lib/agent-stream-display";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
@@ -111,6 +111,9 @@ interface AgentStreamProps {
   onStartReached?: () => void;
   /** When true, a spinner is shown above the first item (older history loading). */
   isLoadingOlder?: boolean;
+  /** Why the last older-history page failed; shown above the first item with a retry. */
+  olderLoadError?: string | null;
+  onRetryOlder?: () => void;
   /** Number of rendered Virtuoso rows prepended by older-history pagination. */
   historyPrependDisplayOffset?: number;
   verbosityMode?: AgentVerbosityMode;
@@ -173,16 +176,6 @@ function EmptyStream({ context }: { context: AgentStreamVirtuosoContext }) {
     </div>
   );
 }
-
-const LoadingOlderOverlay = memo(function LoadingOlderOverlay() {
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
-      <div className="rounded-full border bg-background/80 p-1 shadow-sm backdrop-blur">
-        <Loader2Icon className="h-4 w-4 animate-spin text-muted-foreground" />
-      </div>
-    </div>
-  );
-});
 
 function useAgentStreamRefs(
   virtuosoRef: Ref<VirtuosoHandle> | undefined,
@@ -377,6 +370,8 @@ export const AgentStream = memo(function AgentStream({
   onTotalListHeightChanged,
   onStartReached,
   isLoadingOlder = false,
+  olderLoadError = null,
+  onRetryOlder,
   historyPrependDisplayOffset = 0,
   verbosityMode = "maximal",
   summaryMode = false,
@@ -424,7 +419,7 @@ export const AgentStream = memo(function AgentStream({
       className={messageNavigator ? "relative mr-2 h-full" : "relative h-full"}
       data-rich-copy="true"
     >
-      {isLoadingOlder && <LoadingOlderOverlay />}
+      <OlderHistoryStatus loading={isLoadingOlder} error={olderLoadError} onRetry={onRetryOlder} />
       <AgentStreamTools
         items={displayItems}
         toolResultMap={toolResultMap}

@@ -8,8 +8,6 @@
 import { useEffect, useMemo } from "react";
 import type { AgentBlockData } from "@/types/agent-block";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
-import { useGetFeatureAgentState } from "@/api/generated";
-import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import {
   useWsSessionStore,
   type PermissionMode,
@@ -20,22 +18,17 @@ import type { PendingPermission } from "@/types/agent-permission";
 import type { PermissionDecisionValue } from "@/types/agent-permission";
 import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 import type { GateCloseReason, PromptDispatchOptions, SessionConfig } from "@/lib/ws-envelope";
-import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
+import type { ContextUsageState } from "@/types/agent";
 import type { LiveAgentStatus } from "@/types/agent";
-import {
-  type TurnLifecycle,
-  createIdleTurnLifecycle,
-  persistedSessionToLifecycle,
-} from "@/stores/ws-turn-lifecycle";
+import { type TurnLifecycle, createIdleTurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import { turnClockFromStatus, type TurnClock } from "@/lib/turn-clock";
 import type { SessionStatusEntry } from "@/stores/session-status-store";
 import { useSessionStatus } from "@/stores/session-status-selectors";
-import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import type { DisplayRowMode } from "@/types/agent-stream";
-import { parseAccessMode, type AccessMode } from "@/types/access-mode";
-import { parsePermissionMode } from "@/types/permission-mode";
+import type { AccessMode } from "@/types/access-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
 import { retainWsSession } from "@/hooks/ws-session-retention";
+import { usePersistedSessionLoader } from "@/hooks/usePersistedSessionLoader";
 
 export interface UseWebSocketSessionReturn {
   blocks: AgentBlockData[];
@@ -130,7 +123,7 @@ export interface UseWebSocketSessionReturn {
   initSession: (config: SessionConfig) => void;
 }
 
-interface UseWebSocketSessionOptions {
+export interface UseWebSocketSessionOptions {
   loadPersisted?: boolean;
 }
 
@@ -191,83 +184,6 @@ export function useWebSocketSession(
   usePersistedSessionLoader(session, sessionId, featureId, options);
   const actions = useSessionActions(sessionId);
   return useSessionSnapshot(session, sessionId, actions, liveEntry);
-}
-
-function usePersistedSessionLoader(
-  session: SessionEntry | undefined,
-  sessionId: string,
-  featureId: number | undefined,
-  options: UseWebSocketSessionOptions | undefined,
-): void {
-  const loadPersisted = options?.loadPersisted ?? true;
-  const persistedLoaded = session?.persistedLoaded ?? false;
-  const persistedStateParams = useMemo(() => ({ limit: AGENT_STATE_INITIAL_MESSAGE_LIMIT }), []);
-  const agentStateQuery = useGetFeatureAgentState(featureId ?? 0, persistedStateParams, {
-    query: {
-      enabled: loadPersisted && !!featureId && !persistedLoaded,
-      gcTime: 0,
-    },
-  });
-
-  useEffect(() => {
-    if (persistedLoaded || !featureId) return;
-    const store = useWsSessionStore.getState();
-    // Settle the gate even when the snapshot fetch fails so a transient REST
-    // error can't permanently block `session.init` (the auto-init effect now
-    // waits on `persistedLoaded`).
-    if (agentStateQuery.isError) {
-      store.markPersistedLoaded(sessionId);
-      return;
-    }
-    if (!agentStateQuery.data) return;
-    const sessions = agentStateQuery.data.sessions;
-    if (sessions.length === 0) {
-      store.markPersistedLoaded(sessionId);
-      return;
-    }
-
-    const lastSession = sessions[sessions.length - 1];
-    const restoredBlocks = serverBlocksToAgentBlocks(lastSession.blocks);
-
-    const restoredLifecycle = persistedSessionToLifecycle(lastSession);
-
-    const persistedContextUsage: ContextUsageState | null =
-      lastSession.inputTokens > 0 ||
-      lastSession.outputTokens > 0 ||
-      normalizeContextWindow(lastSession.contextWindow) != null
-        ? {
-            inputTokens: lastSession.inputTokens ?? 0,
-            outputTokens: lastSession.outputTokens ?? 0,
-            contextWindow: normalizeContextWindow(lastSession.contextWindow),
-            wasCompacted: lastSession.wasCompacted ?? false,
-          }
-        : null;
-    store.setPersistedState(sessionId, {
-      blocks: restoredBlocks,
-      lifecycle: restoredLifecycle,
-      hasMore: lastSession.hasMore,
-      oldestMessageId: lastSession.oldestMessageId,
-      maxMessageId: lastSession.maxMessageId,
-      maxContentRevision: lastSession.maxContentRevision,
-      featureId,
-      sessionDbId: lastSession.sessionDbId,
-      currentSelection:
-        lastSession.runtimeProvider && lastSession.model
-          ? {
-              providerId: lastSession.runtimeProvider,
-              modelId: lastSession.model,
-            }
-          : undefined,
-      currentProfile: lastSession.profile ?? undefined,
-      permissionMode: parsePermissionMode(lastSession.permissionMode) ?? undefined,
-      accessMode: parseAccessMode(lastSession.accessMode),
-      runtimeSessionId: lastSession.runtimeSessionId ?? undefined,
-      pendingPermission: lastSession.pendingPermission,
-      pendingQuestions: lastSession.pendingQuestions,
-      contextUsage: persistedContextUsage,
-      hasFileChanges: lastSession.hasFileChanges,
-    });
-  }, [featureId, agentStateQuery.data, agentStateQuery.isError, persistedLoaded, sessionId]);
 }
 
 function useSessionActions(sessionId: string): SessionActions {

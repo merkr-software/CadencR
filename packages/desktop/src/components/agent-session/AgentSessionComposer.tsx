@@ -8,6 +8,7 @@ import { MetaBar, type MetaBarHandle, type MetaBarSection } from "./MetaBar";
 import { findProviderMode } from "@/lib/provider-modes";
 import { useSessionSchedules } from "./SessionSchedules";
 import { LaunchManifest } from "../composer/LaunchManifest";
+import { useIsNewConversation } from "./AgentSessionHistoryFailure";
 import { AgentTodoList } from "../AgentTodoList";
 import { AutoScrollChip } from "./AutoScrollChip";
 import { useComposerSessionInfo } from "./ComposerSessionSlots";
@@ -210,6 +211,7 @@ function AgentSessionMeta(
 /** The prompt bar's derived inputs, kept stable across composer renders. */
 function useAgentSessionPromptInputs(props: AgentSessionComposerProps) {
   const session = props.sessionProps;
+  const isNewConversation = useIsNewConversation(session.wsSessionId, session.blocks.length);
   const selectReferencedWorktree = useCallback(
     (branch: string): void => {
       session.onWorktreeBranchChange?.(branch);
@@ -219,7 +221,7 @@ function useAgentSessionPromptInputs(props: AgentSessionComposerProps) {
   );
   const referencedWorktreeSelection = useMemo(
     () =>
-      session.blocks.length === 0 &&
+      isNewConversation &&
       session.worktreeMode != null &&
       session.onWorktreeBranchChange &&
       session.onWorktreeModeChange
@@ -231,7 +233,7 @@ function useAgentSessionPromptInputs(props: AgentSessionComposerProps) {
         : undefined,
     [
       selectReferencedWorktree,
-      session.blocks.length,
+      isNewConversation,
       session.onWorktreeBranchChange,
       session.onWorktreeModeChange,
       session.worktreeMode,
@@ -247,7 +249,7 @@ function useAgentSessionPromptInputs(props: AgentSessionComposerProps) {
       ) : undefined,
     [props.projectPath, session.sessionId],
   );
-  return { referencedWorktreeSelection, openModelPicker, sideConversations };
+  return { referencedWorktreeSelection, openModelPicker, sideConversations, isNewConversation };
 }
 
 function AgentSessionPrompt(
@@ -259,7 +261,7 @@ function AgentSessionPrompt(
   },
 ): ReactElement {
   const session = props.sessionProps;
-  const { referencedWorktreeSelection, openModelPicker, sideConversations } =
+  const { referencedWorktreeSelection, openModelPicker, sideConversations, isNewConversation } =
     useAgentSessionPromptInputs(props);
   return (
     <AgentPromptBar
@@ -292,7 +294,7 @@ function AgentSessionPrompt(
       providerId={props.activeProviderId}
       onToggleMaximize={session.onToggleMaximize}
       noTopPadding={props.hasMeta}
-      isFirstPrompt={session.blocks.length === 0}
+      isFirstPrompt={isNewConversation}
       contextUsage={session.contextUsage}
       sessionInfo={props.sessionInfo}
       instrumentStart={composerAutoScroll(props)}
