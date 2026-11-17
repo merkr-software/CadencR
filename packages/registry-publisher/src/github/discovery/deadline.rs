@@ -146,8 +146,9 @@ mod tests {
         assert!(client
             .get_discovery_before("catalog", start + Duration::from_millis(250))
             .is_err());
-        // Far below the server's 10 s hold, with room for a loaded machine.
-        assert!(start.elapsed() < Duration::from_secs(5));
+        // Measured over 720 runs, 12 in parallel, at load averages 15 and 42:
+        // p99 258 ms, max 260 ms. 1 s still flags a request that outlives it.
+        assert!(start.elapsed() < Duration::from_secs(1));
         let _ = release.send(());
         server.join().unwrap();
     }
