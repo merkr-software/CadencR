@@ -172,9 +172,11 @@ export interface SessionEntry extends SessionConfigState {
    */
   submittingPermissionRequestId: string | null;
   /**
-   * Actions (`interrupt`, `model.set`, …) of session commands sent and not yet
-   * settled by a correlated reply, an error, or their acknowledgement window.
-   * Drives "stopping…"-style sending states; see `ws-session-commands`.
+   * Session commands sent or waiting and not yet settled by a correlated
+   * reply, an error, or their acknowledgement window, by `commandKind`: the
+   * action (`interrupt`, `model.set`, …), or for a runtime override
+   * `runtime_overrides.set:<fields>`. Drives "stopping…"-style sending states;
+   * see `ws-session-commands`.
    */
   pendingCommandActions: readonly string[];
   /**

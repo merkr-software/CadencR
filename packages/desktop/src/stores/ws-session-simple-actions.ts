@@ -24,7 +24,7 @@ import type { AccessMode } from "@/types/access-mode";
 import { submitPlanDecision } from "./ws-session-plan-actions";
 import { createHistoryActions } from "./ws-session-history-actions";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
+import { parseErrorPayload } from "./ws-envelope-payload";
 import { buildSlashCommandsKey } from "./ws-session-store-helpers";
 import type { PermissionMode, WsSessionStore } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
@@ -154,17 +154,13 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
     async setFastMode(sessionId: string, enabled: boolean): Promise<void> {
       const session = getSession(sessionId);
       if (!session.serverSessionId) throw new Error("Session is not initialized yet");
-      const payload = await get().sendRequest(
+      // A setting like `model.set`: the latest one waits for a reconnect, and
+      // `fastMode` changes only on the correlated `fast_mode.set.ok`.
+      sendCommand(
         sessionId,
         createFastModeSet(session.serverSessionId, enabled),
+        SESSION_COMMANDS.fastMode,
       );
-      const error = parseErrorPayload(payload);
-      if (error?.message || payload === null) {
-        throw new Error(error?.message ?? "Fast mode update timed out");
-      }
-      const next = parseFastModePayload(payload);
-      if (!next) throw new Error("Fast mode update returned an invalid response");
-      set(updateSession(get(), sessionId, { fastMode: next.enabled }));
     },
 
     setProfile(sessionId: string, profile: string) {
@@ -239,10 +235,16 @@ function createRuntimeOverrideActions(deps: SimpleSessionActionDeps) {
       sendCommand(
         sessionId,
         createRuntimeOverridesSet(session.serverSessionId, setting),
-        "model" in setting ? SESSION_COMMANDS.runtimeModel : SESSION_COMMANDS.runtimeEffort,
+        runtimeOverrideSpec(setting),
       );
     },
   };
+}
+
+function runtimeOverrideSpec(setting: RuntimeSettingOverride): SessionCommandSpec {
+  if ("model" in setting) return SESSION_COMMANDS.runtimeModel;
+  if ("fast_mode" in setting) return SESSION_COMMANDS.fastMode;
+  return SESSION_COMMANDS.runtimeEffort;
 }
 
 function createWorkflowActions(deps: SimpleSessionActionDeps) {

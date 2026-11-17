@@ -56,7 +56,8 @@ function useStableSessionCallbacks(controls: SessionControls) {
         handleModelChange(nextProviderId, modelId, latest.current),
       onThinkingEffortChange: (effort: string | undefined): void =>
         applyThinkingEffort(latest.current, effort),
-      onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
+      onFastModeChange: (enabled: boolean): Promise<void> =>
+        changeFastMode(latest.current, enabled),
     }),
     [latest],
   );
@@ -184,9 +185,14 @@ function AgentTabContent({
   );
 }
 
-function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
+/**
+ * Fast mode, through the session command queue like the model and effort:
+ * a runtime override for providers that take one, `fast_mode.set` otherwise.
+ */
+export function changeFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
   if (controls.supportsConfigInheritance) {
-    return controls.ws.setRuntimeOverrides({ fast_mode: enabled });
+    controls.ws.queueRuntimeOverride({ fast_mode: enabled });
+    return Promise.resolve();
   }
   return controls.ws.setFastMode(enabled);
 }
