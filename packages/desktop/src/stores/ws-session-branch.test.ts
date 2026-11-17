@@ -159,6 +159,28 @@ it.each([
   },
 );
 
+// The provider no longer holds the source conversation (its history was
+// deleted or never saved): the title says so, naming the provider from the
+// catalog, never by matching the provider's own wording.
+it.each([
+  ["fork", "Codex no longer has this conversation, so it can't be forked."],
+  ["rewind", "Codex no longer has this conversation, so it can't be rewound."],
+] as const)("a %s of a conversation the provider lost names the provider", async (kind, title) => {
+  const message = "Codex no longer has this conversation: no rollout found for thread id x";
+  const { deps, getState } = makeHarness({ code: "PROVIDER_CONVERSATION_MISSING", message });
+  const session = getState().sessions["ws-1"];
+  deps.set({
+    sessions: {
+      "ws-1": { ...session, currentSelection: { providerId: "codex_cli", modelId: "gpt-5" } },
+    },
+  });
+  vi.mocked(toast.error).mockClear();
+
+  await (kind === "fork" ? forkFromMessage : rewindToMessage)(deps, "ws-1", 3);
+
+  expect(toast.error).toHaveBeenCalledWith(title, { id: "branch-ws-1", description: message });
+});
+
 describe("rewindToMessage", () => {
   it("truncates blocks and prefills the composer on success", async () => {
     const { deps, sendRequest, getState } = makeHarness({

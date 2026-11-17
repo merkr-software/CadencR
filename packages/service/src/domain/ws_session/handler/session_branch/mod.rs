@@ -60,6 +60,8 @@ pub(super) enum BranchAbort {
     /// abort *before* mutating code or the conversation so nothing is left half
     /// rewound.
     Surgery(String),
+    /// The provider no longer has the conversation to branch from.
+    ConversationMissing(String),
     Db(String),
 }
 
@@ -71,6 +73,7 @@ impl BranchAbort {
             BranchAbort::NoWorktree => "NO_WORKTREE",
             BranchAbort::Unsupported(_) => "UNSUPPORTED_BRANCHING",
             BranchAbort::Surgery(_) => "BRANCH_SURGERY_FAILED",
+            BranchAbort::ConversationMissing(_) => "PROVIDER_CONVERSATION_MISSING",
             BranchAbort::Db(_) => "DB_ERROR",
         }
     }
@@ -81,7 +84,9 @@ impl BranchAbort {
                 "Rewind/Fork can only target a user message".to_string()
             }
             BranchAbort::NoWorktree => "This session has no worktree yet".to_string(),
-            BranchAbort::Unsupported(msg) | BranchAbort::Surgery(msg) => msg.clone(),
+            BranchAbort::Unsupported(msg)
+            | BranchAbort::Surgery(msg)
+            | BranchAbort::ConversationMissing(msg) => msg.clone(),
             BranchAbort::Db(msg) => msg.clone(),
         }
     }
@@ -267,7 +272,10 @@ fn surgery_abort(inputs: &BranchInputs, error: BranchError) -> BranchAbort {
         error = %error,
         "transcript surgery failed; aborting branch before any mutation"
     );
-    BranchAbort::Surgery(format!("The conversation couldn't be branched: {error}"))
+    match error {
+        BranchError::ConversationMissing(message) => BranchAbort::ConversationMissing(message),
+        error => BranchAbort::Surgery(format!("The conversation couldn't be branched: {error}")),
+    }
 }
 
 /// Interrupt and close any live turn for this session, then reset the handle to
@@ -375,6 +383,20 @@ mod tests {
         );
         // The carried message is surfaced verbatim to the user.
         assert_eq!(BranchAbort::Surgery("boom".into()).message(), "boom");
+    }
+
+    #[test]
+    fn a_conversation_the_provider_lost_has_its_own_code() {
+        let inputs = first_message_of(None);
+        let abort = surgery_abort(
+            &inputs,
+            BranchError::ConversationMissing("Codex no longer has this conversation.".into()),
+        );
+        assert_eq!(abort.code(), "PROVIDER_CONVERSATION_MISSING");
+        assert_eq!(abort.message(), "Codex no longer has this conversation.");
+
+        let failed = surgery_abort(&inputs, BranchError::Surgery("boom".into()));
+        assert_eq!(failed.code(), "BRANCH_SURGERY_FAILED");
     }
 
     fn first_message_of(profile: Option<&str>) -> BranchInputs {

@@ -66,6 +66,13 @@ impl RpcErrorKind {
     }
 }
 
+/// How Codex (0.167) words a request on a thread it does not have.
+const UNKNOWN_THREAD_PREFIXES: [&str; 3] = [
+    "no rollout found for thread id ",
+    "thread not loaded: ",
+    "thread not found: ",
+];
+
 /// An unknown-method error lists every method the app-server knows (well
 /// over a hundred); only what precedes that list says what went wrong.
 fn rpc_message_summary(message: &str) -> &str {
@@ -98,6 +105,22 @@ impl SdkError {
             }
             _ => false,
         }
+    }
+
+    /// Codex no longer has the thread: no rollout of it on disk (`thread/fork`,
+    /// `thread/resume`) or no such thread (`thread/read`; on a fresh
+    /// app-server, Codex 0.167 reads a thread it has a rollout of and answers
+    /// "thread not loaded" only for one it has none of). Codex sends these as
+    /// -32600, the code it also uses for an unknown method, a bad param or a
+    /// refused state, with no `data`: only the message tells them apart.
+    pub fn is_unknown_thread(&self) -> bool {
+        let Self::Rpc { code, message } = self else {
+            return false;
+        };
+        RpcErrorKind::from_code(*code) == RpcErrorKind::InvalidRequest
+            && UNKNOWN_THREAD_PREFIXES
+                .iter()
+                .any(|prefix| message.starts_with(prefix))
     }
 
     pub fn is_no_active_turn_to_steer(&self) -> bool {
@@ -157,6 +180,23 @@ mod tests {
         assert!(!error.is_unknown_method("thread/revert"));
         assert!(rpc(-32601, "Method not found").is_unknown_method("thread/revert"));
         assert!(!rpc(-32600, "thread not found: x").is_unknown_method("thread/revert"));
+    }
+
+    /// Codex 0.167's answers for a thread id it has no rollout of.
+    #[test]
+    fn detects_a_thread_codex_no_longer_has() {
+        for message in [
+            "no rollout found for thread id 0199a000-0000-7000-8000-000000000000",
+            "thread not loaded: 0199a000-0000-7000-8000-000000000000",
+            "thread not found: 0199a000-0000-7000-8000-000000000000",
+        ] {
+            assert!(rpc(-32600, message).is_unknown_thread(), "{message}");
+            // Only a request Codex refused; an internal failure that quotes it is not.
+            assert!(!rpc(-32603, message).is_unknown_thread(), "{message}");
+        }
+        assert!(!rpc(-32600, UNKNOWN_ROLLBACK).is_unknown_thread());
+        assert!(!rpc(-32600, "Invalid request: missing field `beforeTurnId`").is_unknown_thread());
+        assert!(!SdkError::ProcessExited.is_unknown_thread());
     }
 
     #[test]
