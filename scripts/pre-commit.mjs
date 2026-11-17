@@ -11,6 +11,7 @@ import { constants as osConstants } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rustTestThreads } from "./cargo-env.mjs";
+import { workspaceMembers } from "./cargo-workspace.mjs";
 import { requireDiskSpace } from "./disk-space.mjs";
 import { toolchainEnv } from "./toolchain-env.mjs";
 
@@ -32,7 +33,6 @@ const RUST_ROOT_FILES = new Set([
   "clippy.toml",
   "deny.toml",
 ]);
-const RUST_PACKAGE = /^packages\/(service|cli-discovery|[^/]+-rs)\//;
 const RUST_PLUGIN = /^plugins\/providers\/[^/]+\/(?:Cargo\.toml$|.*\.rs$|tests\/fixtures\/)/;
 // Files that configure every package's tooling: any change re-checks everything.
 const FULL_ROOT_FILES = new Set([
@@ -78,6 +78,12 @@ const STEP = {
 };
 
 // `heavy` steps compile the Rust workspace or run every suite: the disk check guards them.
+// Every package of the Cargo workspace runs the Rust checks. Connectors under
+// plugins/providers/ keep their finer rule (RUST_PLUGIN) above.
+const RUST_PACKAGES = workspaceMembers(repoRoot)
+  .filter((member) => member.startsWith("packages/"))
+  .map((member) => `${member}/`);
+
 const step = ([label, command, heavy]) => (heavy ? { label, command, heavy } : { label, command });
 const turbo = (tasks, filters) => [
   "pnpm",
@@ -110,7 +116,9 @@ export function classifyPath(path) {
     return ["full"];
   }
   const areas = ["other"];
-  if (RUST_ROOT_FILES.has(path) || RUST_PACKAGE.test(path)) areas.push("rust");
+  if (RUST_ROOT_FILES.has(path) || RUST_PACKAGES.some((member) => path.startsWith(member))) {
+    areas.push("rust");
+  }
   const jsPackage = path.match(/^packages\/(desktop|landing|brand|tab-sdk|tab-kit)\//)?.[1];
   if (jsPackage) areas.push(jsPackage);
   if (LANDING_READS_DESKTOP.test(path)) areas.push("landing");
