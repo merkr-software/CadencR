@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent } from "@pierre/trees";
 import type { FileTreeMutations } from "@/hooks/useFileTreeMutations";
 import { fromPierrePath, toPierrePath } from "@/components/file-tree/CadencrFileTree";
+import { typedEntryName } from "@/components/file-tree/cadencrFileTreeModel";
 import { validateSimpleName } from "@/lib/validate-name";
 
 export type DraftKind = "file" | "folder";
@@ -30,8 +31,10 @@ interface DraftState {
 const DRAFT_LEAF = " ";
 
 function makeDraftPath(parentDir: string, kind: DraftKind): string {
-  const trailing = kind === "folder" ? "/" : "";
-  return parentDir ? `${parentDir}/${DRAFT_LEAF}${trailing}` : `${DRAFT_LEAF}${trailing}`;
+  return toPierrePath({
+    path: parentDir ? `${parentDir}/${DRAFT_LEAF}` : DRAFT_LEAF,
+    is_dir: kind === "folder",
+  });
 }
 
 function pierrePathForKind(path: string, kind: DraftKind): string {
@@ -46,8 +49,8 @@ function removeDraftFromModel(model: FileTreeModel, path: string, kind: DraftKin
   }
 }
 
-function addConfirmedCreateToModel(model: FileTreeModel, path: string, kind: DraftKind): void {
-  const pierrePath = pierrePathForKind(path, kind);
+function addConfirmedCreateToModel(model: FileTreeModel, fsPath: string, kind: DraftKind): void {
+  const pierrePath = toPierrePath({ path: fsPath, is_dir: kind === "folder" });
   if (model.getItem(pierrePath) == null) model.add(pierrePath);
 }
 
@@ -163,8 +166,7 @@ export function useFileTreeDraft({
         return false;
       }
 
-      const fsDest = fromPierrePath(event.destinationPath);
-      const newName = fsDest.slice(fsDest.lastIndexOf("/") + 1);
+      const newName = typedEntryName(event.destinationPath);
 
       // Validate first; pierre has already locally moved the placeholder
       // to `pierreDest` at this point, so on bad input we clean it up.

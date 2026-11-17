@@ -4,16 +4,36 @@ import type {
   FileTreeOptions,
 } from "@pierre/trees";
 import type { FileTreeEntry } from "@/api/generated";
+import { displayGitPath, displayGitTreePath, parseGitTreePath } from "@/lib/git-display-path";
 import { gitPathToFeaturePath } from "@/lib/git-paths";
 
-/** Convert a backend entry to Pierre's trailing-slash directory identity. */
+/**
+ * Convert a backend entry to Pierre's identity: a trailing slash marks a
+ * directory, and each segment holding a control character, quote or backslash
+ * is escaped the way git prints it (`dir/"a\nb.txt"`), since Pierre labels a
+ * row with its segment and HTML folds a newline into a space.
+ */
 export function toPierrePath(entry: Pick<FileTreeEntry, "path" | "is_dir">): string {
-  return entry.is_dir ? `${entry.path}/` : entry.path;
+  const treePath = displayGitTreePath(entry.path);
+  return entry.is_dir ? `${treePath}/` : treePath;
 }
 
-/** Strip Pierre's trailing-slash directory marker, returning the FS path. */
+/** The real FS path behind a Pierre path: no directory slash, no escapes. */
 export function fromPierrePath(pierrePath: string): string {
-  return pierrePath.endsWith("/") ? pierrePath.slice(0, -1) : pierrePath;
+  return parseGitTreePath(pierrePath.endsWith("/") ? pierrePath.slice(0, -1) : pierrePath);
+}
+
+/**
+ * The name a rename or create in the tree ends on, as the user typed it: a
+ * typed name is never decoded as an escaped one. When the field still holds
+ * the displayed (escaped) form of `previousName`, the real name is kept.
+ */
+export function typedEntryName(pierreDestination: string, previousName?: string): string {
+  const path = pierreDestination.endsWith("/") ? pierreDestination.slice(0, -1) : pierreDestination;
+  const typed = path.slice(path.lastIndexOf("/") + 1);
+  return previousName !== undefined && typed === displayGitPath(previousName)
+    ? previousName
+    : typed;
 }
 
 /** Build Pierre paths plus the minimal set of ignored subtree roots. */
@@ -54,7 +74,7 @@ export function gitStatusFromUncommittedFiles(
   for (const file of files) {
     const status = toPierreGitStatus(file.change_kind);
     const path = gitPathToFeaturePath(file.path, gitPrefix);
-    if (status != null && path != null) entries.push({ path, status });
+    if (status != null && path != null) entries.push({ path: displayGitTreePath(path), status });
   }
   return entries;
 }

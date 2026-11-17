@@ -7,6 +7,7 @@ import { FileSymbolIcon } from "./file-icons";
 import { useEditorStore } from "@/stores/editor-store";
 import { saveFile } from "./editorSaveRegistry";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { displayGitPath, displayGitTreePath } from "@/lib/git-display-path";
 import {
   Dialog,
   DialogContent,
@@ -199,6 +200,8 @@ function EditorSubTab({
 }) {
   const isActive = controller.activeFilePath === tab.filePath;
   const showClose = !tab.isDirty || controller.hoveredClose === tab.filePath;
+  // HTML folds a newline in a name into a space: show it the way git prints it.
+  const shownName = displayGitTreePath(tab.disambiguatedName);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -211,10 +214,10 @@ function EditorSubTab({
           onClick={() => controller.setActiveFile(featureId, paneId, tab.filePath)}
         >
           <FileSymbolIcon fileName={tab.fileName} className="shrink-0 flex items-center" />
-          <span>{tab.disambiguatedName}</span>
+          <span>{shownName}</span>
           <span
             role="button"
-            aria-label={`Close ${tab.disambiguatedName}`}
+            aria-label={`Close ${shownName}`}
             tabIndex={0}
             className="ml-0.5 rounded hover:bg-muted p-0.5 flex items-center justify-center w-4 h-4"
             onMouseEnter={() => controller.setHoveredClose(tab.filePath)}
@@ -306,8 +309,9 @@ function UnsavedChangesDialog({ controller }: { controller: EditorSubTabsControl
         <DialogHeader>
           <DialogTitle>Unsaved Changes</DialogTitle>
           <DialogDescription>
-            You have unsaved changes in <strong>{controller.pendingClose?.fileName}</strong>.
-            Discard changes?
+            You have unsaved changes in{" "}
+            <strong>{displayGitPath(controller.pendingClose?.fileName ?? "")}</strong>. Discard
+            changes?
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
