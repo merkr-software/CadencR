@@ -29,6 +29,11 @@ def notify(method, **params):
 def finish(turn_id, text, delay):
     global turn, compacting
     time.sleep(delay)
+    if text == 'hold until released':
+        # Ends when the test creates the file; the cap only frees an abandoned fixture.
+        deadline = time.time() + 120
+        while not os.path.exists('release-hold') and time.time() < deadline:
+            time.sleep(0.01)
     if text == 'compact':
         notify('item/completed', threadId=root, turnId=turn_id,
                item={'type': 'contextCompaction', 'id': turn_id + '-item'})

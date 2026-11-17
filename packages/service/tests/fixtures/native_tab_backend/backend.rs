@@ -8,8 +8,8 @@
 //! - `future`: answers `hello` with `ready` for protocol 2;
 //! - `chatty`: writes a log line to stdout before anything else;
 //! - `early`: reads `hello`, then exits with status 0 without `ready`;
-//! - `deaf`: writes `ready`, starts `/bin/sleep 300` (its pid in `child.pid`
-//!   in the working directory) and never reads stdin again;
+//! - `deaf`: starts `/bin/sleep 300`, publishes its pid in `child.pid` in the
+//!   working directory, writes `ready` and never reads stdin again;
 //! - any other name: `ready`, then answers `echo`, `context`, `api`,
 //!   `write_cwd` (whether a file can be created in its working directory),
 //!   `fail` and `crash` requests until stdin closes.
@@ -333,12 +333,15 @@ fn main() {
         "early" => return,
         "future" => ready(2),
         "deaf" => {
-            ready(1);
+            // The pid is whole and on disk before `ready`: a test that reads
+            // it once its first request is over must not race this process.
             let child = std::process::Command::new("/bin/sleep")
                 .arg("300")
                 .spawn()
                 .expect("spawn a child");
-            std::fs::write("child.pid", child.id().to_string()).expect("write child.pid");
+            std::fs::write("child.pid.partial", child.id().to_string()).expect("write child.pid");
+            std::fs::rename("child.pid.partial", "child.pid").expect("publish child.pid");
+            ready(1);
             std::thread::sleep(std::time::Duration::from_secs(300));
             return;
         }

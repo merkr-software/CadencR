@@ -8,6 +8,11 @@ use crate::error::AppError;
 /// A listening socket can exist while init.lua is still running. Poll from
 /// Rust: vim.wait() inside an RPC would block the init that must finish first.
 /// Only file opens use this barrier; PTY attachment must allow startup input.
+///
+/// A timeout can drop a request still in flight, and nvim-rs ends the
+/// connection's I/O loop when the answer to a dropped request arrives: every
+/// later request on that connection waits forever. After a timeout, discard
+/// the connection (as `open_file` does) and connect again.
 pub(super) async fn wait_until_ready<W>(nvim: &Neovim<W>, timeout: Duration) -> Result<(), AppError>
 where
     W: AsyncWrite + Send + Unpin + 'static,
@@ -48,6 +53,18 @@ mod tests {
     use crate::domain::terminal::service::{PtyKind, PtyManager};
     use crate::error::AppError;
 
+    /// Every test here waits on a real Neovim over RPC, and nvim-rs waits
+    /// forever for an answer that never comes. Passing runs take 2–8 s at a
+    /// load average of 57–71; this only turns a stuck Neovim into a failure
+    /// instead of a frozen suite.
+    const TEST_BUDGET: Duration = Duration::from_secs(60);
+
+    async fn bounded(test: impl std::future::Future<Output = ()>) {
+        tokio::time::timeout(TEST_BUDGET, test)
+            .await
+            .expect("Neovim test exceeded its budget (Neovim stopped answering)");
+    }
+
     enum StartupPhase {
         Init,
         VimEnter,
@@ -63,9 +80,14 @@ mod tests {
         let initialize = r#"
             local function initialize()
                 vim.fn.writefile({'waiting'}, 'init-waiting')
-                assert(vim.wait(15000, function()
+                -- Safety net for an abandoned Neovim, as long as the test
+                -- budget. Quit rather than fail: an error in init leaves Neovim
+                -- at a hit-enter prompt that answers no RPC.
+                if not vim.wait(60000, function()
                     return vim.fn.filereadable('release-init') == 1
-                end, 10), 'test did not release initialization')
+                end, 10) then
+                    vim.cmd('cquit 1')
+                end
                 vim.cmd('filetype plugin indent on')
                 vim.cmd('syntax on')
                 vim.api.nvim_create_autocmd('FileType', {
@@ -180,39 +202,57 @@ mod tests {
 
     #[tokio::test]
     async fn file_open_waits_for_initialization_and_runs_filetype_plugins() {
-        assert_file_open_waits(StartupPhase::Init).await;
+        bounded(assert_file_open_waits(StartupPhase::Init)).await;
     }
 
     #[tokio::test]
     async fn file_open_waits_for_vimenter_callbacks_to_finish() {
-        assert_file_open_waits(StartupPhase::VimEnter).await;
+        bounded(assert_file_open_waits(StartupPhase::VimEnter)).await;
     }
 
     #[tokio::test]
     async fn initialization_timeout_is_reported_without_opening_a_buffer() {
+        bounded(assert_timeout_opens_nothing()).await;
+    }
+
+    async fn assert_timeout_opens_nothing() {
         let Some((directory, _cleanup)) = paused_neovim(StartupPhase::Init).await else {
             return;
         };
-        let (nvim, io) =
-            nvim_rs::create::tokio::new_path(directory.path().join("nvim.sock"), Dummy::new())
-                .await
-                .unwrap();
-        let _io = RpcTask(io.abort_handle());
-        let error = wait_until_ready(&nvim, Duration::from_millis(100))
+        let socket = directory.path().join("nvim.sock");
+        let (timed_out, io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+            .await
+            .unwrap();
+        let timed_out_io = RpcTask(io.abort_handle());
+        let error = wait_until_ready(&timed_out, Duration::from_millis(100))
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::NeovimHandshakeTimeout));
-        assert_eq!(
-            nvim.exec_lua("return vim.api.nvim_buf_get_name(0)", vec![])
-                .await
-                .unwrap()
-                .as_str(),
-            Some("")
-        );
+        // Under load the timeout drops a request in flight, which leaves that
+        // connection unable to answer anything (see `wait_until_ready`):
+        // query on a new one, as `open_file` would.
+        drop((timed_out, timed_out_io));
+        std::fs::write(directory.path().join("release-init"), "").unwrap();
+        let (nvim, io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+            .await
+            .unwrap();
+        let _io = RpcTask(io.abort_handle());
+        wait_until_ready(&nvim, Duration::from_secs(5))
+            .await
+            .expect("Neovim finishes its init once released");
+        let name = nvim
+            .exec_lua("return vim.api.nvim_buf_get_name(0)", vec![])
+            .await
+            .unwrap();
+        assert_eq!(name.as_str(), Some(""), "the timed-out wait opened nothing");
     }
 
     #[tokio::test]
     async fn cancelled_file_open_does_not_run_after_initialization() {
+        bounded(assert_cancelled_open_never_runs()).await;
+    }
+
+    async fn assert_cancelled_open_never_runs() {
         let Some((directory, _cleanup)) = paused_neovim(StartupPhase::Init).await else {
             return;
         };

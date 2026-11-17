@@ -133,7 +133,6 @@ mod tests {
     use crate::domain::plugin_tabs::managed::storage;
     use serde_json::json;
     use std::cell::Cell;
-    use std::time::Duration;
 
     #[tokio::test(flavor = "current_thread")]
     async fn polls_once_at_startup_coalesces_and_backs_off_after_failure() {
@@ -169,7 +168,10 @@ mod tests {
             calls.set(calls.get() + 1);
             std::future::ready(Err(super::super::unavailable("feed offline")))
         };
-        let due = requested + FEED.poll_cadence + Duration::from_secs(1);
+        // A full cadence after the first poll *completed*: `refresh_with`
+        // records the real completion time, which under load can be seconds
+        // after `requested`.
+        let due = Instant::now() + FEED.poll_cadence;
         let served = refresh_with()
             .root(root.clone())
             .trust(trust.clone())

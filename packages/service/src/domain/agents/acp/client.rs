@@ -293,7 +293,11 @@ mod tests {
             .arg("60")
             .spawn()
             .expect("spawn ACP descendant");
-        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        crate::shared::test_processes::publish_pid(
+            std::path::Path::new(&pid_file),
+            descendant.id(),
+        )
+        .expect("write descendant pid");
         let _ = descendant.wait();
     }
 
@@ -325,23 +329,19 @@ mod tests {
         )
         .await
         .expect("spawn isolated ACP process");
-        let pid = wait_for_test_pid(&pid_file).await;
+        // The helper is this test binary started again: under load, loading
+        // it takes seconds. The wait ends as soon as the pid is published.
+        let pid = crate::shared::test_processes::wait_for_published_pid(
+            &pid_file,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("ACP helper did not publish its descendant pid");
         let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
 
         client.shutdown().await;
 
         wait_for_process_exit(pid).await;
-    }
-
-    #[cfg(unix)]
-    async fn wait_for_test_pid(path: &std::path::Path) -> libc::pid_t {
-        for _ in 0..100 {
-            if let Ok(contents) = std::fs::read_to_string(path) {
-                return contents.parse().expect("numeric ACP descendant pid");
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("ACP helper did not publish its descendant pid");
     }
 
     #[cfg(unix)]

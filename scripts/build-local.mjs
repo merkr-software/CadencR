@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { requireDiskSpace } from "./disk-space.mjs";
 import { validatedBuildEnv } from "./validate-marketplace-build-env.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -116,6 +117,7 @@ function main() {
     console.log(`${description} No build started.`);
     return;
   }
+  requireDiskSpace(linux ? "pnpm build:local:linux" : "pnpm build:local");
   console.log(`${description} Building locally…`);
   const command = linux
     ? ["pnpm", "--filter", "@cadencr/desktop", "build:local:linux"]

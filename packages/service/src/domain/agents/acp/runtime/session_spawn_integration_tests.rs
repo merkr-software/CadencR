@@ -165,11 +165,17 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
     .await
     .expect("initial prompt did not start");
 
-    tokio::time::timeout(std::time::Duration::from_secs(2), session.close())
+    // The agent never answers `session/close`: close gives it 1 s, then the
+    // client waits up to 2 s for each of its three tasks. Under load that
+    // passes the 2 s stream-reader deadline, which production tolerates (it
+    // retries the close); that the 1 s stays below it is checked at compile
+    // time in `session/close.rs`. Waiting on the silent agent would never end.
+    tokio::time::timeout(std::time::Duration::from_secs(10), session.close())
         .await
-        .expect("runtime close exceeded the process-wide shutdown deadline")
+        .expect("runtime close waited on the silent agent")
         .unwrap();
-    tokio::time::timeout(std::time::Duration::from_millis(100), async {
+    // The runtime dropped its sender: only buffered events remain to drain.
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while runtime_rx.recv().await.is_some() {}
     })
     .await
