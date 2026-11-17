@@ -37,6 +37,8 @@ pub mod ssh_env;
 pub mod startup_progress;
 pub mod terminal_shell;
 #[cfg(test)]
+pub(crate) mod test_dirs;
+#[cfg(test)]
 pub mod test_env;
 #[cfg(all(test, unix))]
 pub mod test_processes;

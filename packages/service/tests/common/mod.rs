@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -273,8 +273,15 @@ pub async fn start_migrated_test_server() -> TestServer {
     create_test_repo(&repo_path);
 
     let db_path = tmp_dir.path().join("test.db");
+    // WAL like the production pools. Unlike production, skip the per-commit
+    // fsync (`NORMAL` still syncs at checkpoints and never corrupts the file):
+    // a throwaway database doesn't need to survive power loss, and a streamed
+    // reply commits once per delta, so under a loaded machine's disk queue a
+    // fsync per delta throttles a replay to a few dozen deltas per second.
     let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", db_path.display()))
         .unwrap()
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
         .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)

@@ -69,26 +69,7 @@ mod tests {
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                            && std::time::Instant::now() < deadline =>
-                    {
-                        std::thread::sleep(std::time::Duration::from_millis(5));
-                    }
-                    Err(error) => panic!("fixture accept failed: {error}"),
-                }
-            };
-            stream.set_nonblocking(false).unwrap();
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(std::time::Duration::from_secs(2)))
-                .unwrap();
+            let mut stream = crate::github::fixture::accept_bounded(&listener);
             let mut request = [0_u8; 4096];
             let count = stream.read(&mut request).unwrap();
             stream.write_all(&response).unwrap();
@@ -273,33 +254,17 @@ mod tests {
             listener.local_addr().unwrap()
         ))
         .unwrap();
+        // The server keeps the body unfinished until the client gave up (or
+        // 10 s): a client that ignored its 200 ms budget would wait that long.
+        let (release, held) = std::sync::mpsc::channel::<()>();
         let server = std::thread::spawn(move || {
-            let accept_deadline = std::time::Instant::now() + Duration::from_secs(2);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                            && std::time::Instant::now() < accept_deadline =>
-                    {
-                        std::thread::sleep(Duration::from_millis(5))
-                    }
-                    Err(error) => panic!("fixture accept failed: {error}"),
-                }
-            };
-            stream.set_nonblocking(false).unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
+            let mut stream = crate::github::fixture::accept_bounded(&listener);
             let mut bytes = [0; 4096];
             assert!(stream.read(&mut bytes).unwrap() > 0);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\na")
                 .unwrap();
-            std::thread::sleep(Duration::from_millis(700));
+            let _ = held.recv_timeout(Duration::from_secs(10));
         });
         let output = directory.path().join("deadline");
         let started = std::time::Instant::now();
@@ -312,7 +277,9 @@ mod tests {
             .remaining(Duration::from_millis(200))
             .call()
             .unwrap_err();
-        assert!(started.elapsed() < Duration::from_millis(600));
+        // Far below the server's 10 s hold, with room for a loaded machine.
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let _ = release.send(());
         assert!(
             error
                 .to_string()

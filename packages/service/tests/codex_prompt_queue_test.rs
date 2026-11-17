@@ -123,6 +123,42 @@ impl Harness {
         .await
         .expect("queue should drain");
     }
+    /// Wait for the session's turn to end. A fixed pause raced the turn under
+    /// load: a prompt enqueued while it still ran stays pending instead of
+    /// being delivered at once.
+    async fn wait_idle(&self, session: i64) {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let status: String =
+                    sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id=?")
+                        .bind(session)
+                        .fetch_one(&self.pool)
+                        .await
+                        .unwrap();
+                if status != "running" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the turn should end");
+    }
+    /// The item's status once delivery settled: the service can still be
+    /// finishing the previous turn when the item is enqueued.
+    async fn settled_state(&self, id: i64) -> String {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let state = self.state(id).await;
+                if state != "pending" && state != "delivering" {
+                    break state;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the queued prompt should be delivered or rejected")
+    }
     async fn user_messages(&self, session: i64) -> Vec<String> {
         sqlx::query_scalar(
             "SELECT content FROM agent_messages WHERE session_id=? AND role='user' ORDER BY id",
@@ -254,13 +290,13 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         ["hold", "normal steer", "normal A", "normal B"]
     );
     // An owner stays connected after its turn; that must not strand a queue.
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    h.wait_idle(session).await;
     let idle = h.enqueue(session, "queued while idle").await;
     h.wait_empty(session).await;
     assert_eq!(h.state(idle).await, "delivered");
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    h.wait_idle(session).await;
     let rejected = h.enqueue(session, "reject").await;
-    assert_eq!(h.state(rejected).await, "error");
+    assert_eq!(h.settled_state(rejected).await, "error");
     assert!(h.queue(session).await[0]["error"]
         .as_str()
         .unwrap()
@@ -314,7 +350,9 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         .contains("QUEUE_DELIVERY_REJECTED"));
 
     let (mut socket, running) = h.session(false).await;
-    prompt(&mut socket, running, "hold").await;
+    // Unlike "hold" (1.5 s), this turn lasts until the test says so: the
+    // checks below must see it still running however slow the machine is.
+    prompt(&mut socket, running, "hold until released").await;
     until(&mut socket, "runtime_session_id").await;
     let rejected = h.enqueue(running, "reject").await;
     let response = h
@@ -337,6 +375,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         status, "running",
         "a rejected steer must not stop the existing turn"
     );
+    std::fs::write(h.repo.join("release-hold"), "").unwrap();
     h.client
         .delete(format!(
             "{}/api/sessions/{running}/prompt-queue/{rejected}",

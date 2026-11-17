@@ -35,18 +35,7 @@ pub fn blob_dir() -> PathBuf {
 /// test on its own OS thread, so this keeps store tests from colliding.
 #[cfg(test)]
 fn test_dir() -> PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    thread_local! {
-        static DIR: PathBuf = {
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir()
-                .join(format!("cadencr-blobs-test-{}-{n}", std::process::id()));
-            let _ = std::fs::create_dir_all(&dir);
-            dir
-        };
-    }
-    DIR.with(Clone::clone)
+    crate::shared::test_dirs::per_thread_dir("cadencr-blobs-test-")
 }
 
 /// Production DB layout is `<base>/database/<db>` → blobs live at
