@@ -70,7 +70,8 @@ function unconfiguredBuild(reason) {
   return { env: validatedBuildEnv(withoutBuildConfiguration(process.env)), configured: false };
 }
 
-function fetchBuildEnv() {
+/** The repository's public build variables, or `configured: false` when unavailable. */
+export function fetchBuildEnv() {
   console.log(`Loading public build configuration from ${repository}…`);
   const result = spawnSync(
     "gh",

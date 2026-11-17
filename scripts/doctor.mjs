@@ -79,7 +79,11 @@ function pythonCheck({ python }) {
   );
 }
 
-function rustChecks({ rust, watcher }) {
+function rustChecks(facts) {
+  return [...rustToolchainChecks(facts), watcherCheck(facts)];
+}
+
+function rustToolchainChecks({ rust }) {
   const checks = [];
   if (rust.toolchain === null) {
     checks.push(
@@ -102,27 +106,25 @@ function rustChecks({ rust, watcher }) {
           ),
     );
   }
-  const fix = `install watchexec: ${WATCHEXEC_INSTALL}`;
-  if (watcher.tool === "watchexec") checks.push(ok(`watchexec at ${watcher.path}`));
-  else if (watcher.tool === "cargo-watch") {
-    checks.push(warn(`service watcher: cargo-watch at ${watcher.path} (watchexec preferred)`, fix));
-  } else {
-    checks.push(error("no Rust file watcher: `pnpm dev` cannot restart the service", fix));
-  }
   return checks;
 }
 
-function envFileChecks({ env, linkedWorktree, gitProblem }) {
+function watcherCheck({ watcher }) {
+  const fix = `install watchexec: ${WATCHEXEC_INSTALL}`;
+  if (watcher.tool === "watchexec") return ok(`watchexec at ${watcher.path}`);
+  if (watcher.tool === "cargo-watch") {
+    return warn(`service watcher: cargo-watch at ${watcher.path} (watchexec preferred)`, fix);
+  }
+  return error("no Rust file watcher: `pnpm dev` cannot restart the service", fix);
+}
+
+/**
+ * Existence and required keys of the two `.env` files. A debug service refuses
+ * to start without them, even when every value comes from its CLI flags.
+ */
+function envPresenceChecks({ env, linkedWorktree }) {
   const setup = linkedWorktree ? "pnpm dev:configure-worktree" : "pnpm setup:dev";
   const checks = [];
-  if (gitProblem) {
-    checks.push(
-      warn(
-        `cannot tell whether this checkout is a linked worktree: ${gitProblem}`,
-        "the fixes below assume a main checkout; check that `git rev-parse --git-dir` works here",
-      ),
-    );
-  }
   for (const [path, values] of [
     [SERVICE_ENV, env.service],
     [DESKTOP_ENV, env.desktop],
@@ -140,6 +142,20 @@ function envFileChecks({ env, linkedWorktree, gitProblem }) {
       );
     }
   }
+  return checks;
+}
+
+function envFileChecks({ env, linkedWorktree, gitProblem }) {
+  const checks = [];
+  if (gitProblem) {
+    checks.push(
+      warn(
+        `cannot tell whether this checkout is a linked worktree: ${gitProblem}`,
+        "the fixes below assume a main checkout; check that `git rev-parse --git-dir` works here",
+      ),
+    );
+  }
+  checks.push(...envPresenceChecks({ env, linkedWorktree }));
   if (!env.service || !env.desktop) return checks;
 
   const serviceToken = env.service.CADENCR_AUTH_TOKEN;
@@ -181,23 +197,38 @@ function envFileChecks({ env, linkedWorktree, gitProblem }) {
   return checks;
 }
 
+function electronCheck({ electron }) {
+  return electron.installed
+    ? ok("Electron binary present")
+    : error(
+        `Electron binary missing: ${electron.problem}`,
+        "run `pnpm --filter @cadencr/desktop ensure:electron`",
+      );
+}
+
 /** Turn probed facts into ordered check results. Pure. */
 export function evaluate(facts) {
-  const checks = [
+  return [
     ...toolchainChecks(facts),
     pythonCheck(facts),
     ...rustChecks(facts),
     ...envFileChecks(facts),
+    electronCheck(facts),
   ];
-  checks.push(
-    facts.electron.installed
-      ? ok("Electron binary present")
-      : error(
-          `Electron binary missing: ${facts.electron.problem}`,
-          "run `pnpm --filter @cadencr/desktop ensure:electron`",
-        ),
-  );
-  return checks;
+}
+
+/**
+ * The subset an isolated QA run (`pnpm qa:up`) depends on. It brings its own
+ * ports, token and database, so the `.env` values, the file watcher and Python
+ * do not matter; the toolchain, the `.env` files themselves and Electron do.
+ */
+export function evaluateForQa(facts, { electron }) {
+  return [
+    ...toolchainChecks(facts),
+    ...rustToolchainChecks(facts),
+    ...envPresenceChecks(facts),
+    ...(electron ? [electronCheck(facts)] : []),
+  ];
 }
 
 export function formatReport(checks) {
