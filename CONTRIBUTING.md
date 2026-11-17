@@ -160,7 +160,8 @@ them cheap:
   hold data of its own, so every later migration backs up as usual. A database
   the worktree already had (rerunning the script never replaces it), a custom
   `CADENCR_DB_PATH` that may name a shared database, the main checkout and
-  release builds always back up before migrating.
+  release builds always back up before migrating. Git ignores the marker, so a
+  worktree whose service never started still removes cleanly.
 
 `pnpm rust:storage` lists every dev database and the installed app's
 `~/.cadencr/database`, and names the backups the service never rotates (legacy
