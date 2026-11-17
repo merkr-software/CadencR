@@ -69,6 +69,15 @@ impl AgentRuntimeAdapter for CodexAdapter {
         permissions::parse_permission_request(raw)
     }
 
+    /// Codex never waits on its questions: an answer to one asked before
+    /// this runtime existed is ordinary input, rebuilt from the echoed form.
+    fn unheld_question_prompt(
+        &self,
+        response: &super::adapter::RuntimePermissionResponse,
+    ) -> Option<Result<Option<String>, RuntimeError>> {
+        Some(async_questions::unheld_answer_prompt(response))
+    }
+
     fn catalog_entry(&self) -> ProviderCatalogEntry {
         unavailable_catalog("Codex availability has not been checked yet")
     }

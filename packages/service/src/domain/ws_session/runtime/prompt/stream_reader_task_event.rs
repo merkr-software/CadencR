@@ -246,6 +246,11 @@ impl StreamReaderTask {
             // New turn: clear any error surfaced in the previous turn so this
             // turn's terminal error-result (if any) can surface (issue #78).
             state.turn_state.mark_fresh_turn_started();
+            // Also a turn the CLI opened itself: a Stop during it must count.
+            self.app_state
+                .active_turns
+                .resume_turn(self.db_session_id)
+                .await;
         }
         if !state.turn_state.is_between_turns() {
             self.broadcast_runtime_signal(runtime_event).await;

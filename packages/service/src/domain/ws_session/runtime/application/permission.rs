@@ -315,6 +315,15 @@ pub(crate) async fn respond_permission(
             session_id,
         )
         .await
+    } else if kind == Some(GateKind::Question) {
+        super::restored_question::respond_claimed_question(
+            context,
+            sdk_sessions,
+            payload,
+            output,
+            session_id,
+        )
+        .await
     } else {
         respond_claimed(context, sdk_sessions, payload, output, session_id).await
     };

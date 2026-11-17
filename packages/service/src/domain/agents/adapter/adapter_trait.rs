@@ -98,6 +98,15 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         RuntimePermissionResponseRoute::Session
     }
 
+    /// The next prompt answering a question a runtime since gone asked
+    /// (`Ok(None)`: nothing to tell); `None` when only that runtime can take it.
+    fn unheld_question_prompt(
+        &self,
+        _response: &super::permission::RuntimePermissionResponse,
+    ) -> Option<Result<Option<String>, RuntimeError>> {
+        None
+    }
+
     /// A saved conversation cannot be handed silently to another provider owner.
     fn resume_session_rejection(&self, _session_id: &str) -> Option<String> {
         None
@@ -375,15 +384,9 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         false
     }
 
-    /// If the runtime session has reached a terminal state, return the text
-    /// of the latest assistant message. May be empty when the provider can't
-    /// expose final text or the message contains only non-text parts. Return
-    /// `None` if the session is still running.
-    ///
-    /// Default delegates to `session_finished` and returns no text — adapters
-    /// whose drain loop can race ahead of streamed text (e.g. short turns)
-    /// should override to return the actual text so callers can recover from
-    /// a probe-wins-the-race exit.
+    /// The latest assistant text (possibly empty) once the runtime session
+    /// ended, `None` while it runs. Adapters whose drain loop can outrun
+    /// streamed text override it so callers recover from that race.
     async fn session_finished_text(&self, runtime_session_id: &str) -> Option<String> {
         if self.session_finished(runtime_session_id).await {
             Some(String::new())
