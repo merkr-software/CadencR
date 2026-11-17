@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { electronBundleProblem } from "../packages/desktop/scripts/ensure-electron-lib.mjs";
-import { evaluate, formatReport, satisfiesRange } from "./doctor.mjs";
+import { evaluate, formatReport } from "./doctor.mjs";
 
 const SERVICE = {
   CADENCR_AUTH_TOKEN: "tok",
@@ -23,7 +23,7 @@ function facts(overrides = {}) {
     node: { version: "22.19.0", range: ">=22.19.0 <23.0.0", nvmrc: "22.19.0" },
     pnpm: { version: "11.1.3", expected: "11.1.3", problem: "" },
     deps: { installed: true },
-    python: { version: "3.12.3", path: "/usr/bin/python3" },
+    python: { onPath: { version: "3.12.3", path: "/usr/bin/python3" }, chosen: null, tried: [] },
     rust: { toolchain: "stable-x86_64-unknown-linux-gnu", components: ["rustfmt-x", "clippy-x"] },
     watcher: { tool: "watchexec", path: "/usr/bin/watchexec" },
     env: { service: { ...SERVICE }, desktop: { ...DESKTOP } },
@@ -34,15 +34,6 @@ function facts(overrides = {}) {
   };
 }
 const problems = (result) => result.filter(({ status }) => status !== "ok");
-
-test("satisfiesRange handles the engines range and alternatives", () => {
-  assert.ok(satisfiesRange("22.19.0", ">=22.19.0 <23.0.0"));
-  assert.ok(satisfiesRange("v22.23.2", ">=22.19.0 <23.0.0"));
-  assert.ok(!satisfiesRange("22.18.0", ">=22.19.0 <23.0.0"));
-  assert.ok(!satisfiesRange("23.0.0", ">=22.19.0 <23.0.0"));
-  assert.ok(satisfiesRange("20.1.0", ">=22 || 20.1.0"));
-  assert.throws(() => satisfiesRange("22.0.0", "^22"), /unsupported/);
-});
 
 test("a healthy checkout reports no problems", () => {
   assert.deepEqual(problems(evaluate(facts())), []);
@@ -57,23 +48,32 @@ test("an old Node is an error that points at .nvmrc auto-switching", () => {
   assert.match(node.fix, /22\.19\.0/);
 });
 
-test("a python3 older than the root scripts need is a warning with a fix", () => {
+const OLD_PYTHON = { version: "3.9.6", path: "/usr/bin/python3" };
+const OLD_PROBLEM = "python3 3.9.6 at /usr/bin/python3 is older than 3.11";
+
+test("an old python3 on PATH is fine when the hooks find a compatible one", () => {
+  const chosen = { version: "3.14.5", path: "/opt/homebrew/bin/python3.14" };
+  const checks = evaluate(facts({ python: { onPath: OLD_PYTHON, chosen, tried: [OLD_PROBLEM] } }));
+  assert.deepEqual(problems(checks), []);
+  const python = checks.find(({ title }) => title.includes("Python 3.14.5"));
+  assert.match(python.title, /hooks run Python 3\.14\.5 from \/opt\/homebrew\/bin\/python3\.14/);
+  assert.match(python.title, /older than 3\.11/);
+});
+
+test("no compatible Python anywhere is a warning listing what was found and the fix", () => {
   const [python] = problems(
-    evaluate(facts({ python: { version: "3.9.6", path: "/usr/bin/python3" } })),
+    evaluate(facts({ python: { onPath: OLD_PYTHON, chosen: null, tried: [OLD_PROBLEM] } })),
   );
   assert.equal(python.status, "warn");
-  assert.match(python.title, /3\.9\.6 at \/usr\/bin\/python3 is older than 3\.11/);
-  assert.match(python.fix, /before any older `python3` on PATH/);
-
-  const [missing] = problems(
-    evaluate(facts({ python: { version: null, problem: "spawnSync python3 ENOENT" } })),
-  );
-  assert.match(missing.title, /python3 not runnable: spawnSync python3 ENOENT/);
+  assert.match(python.title, /pre-commit will stop/);
+  assert.match(python.fix, /3\.9\.6 at \/usr\/bin\/python3 is older than 3\.11/);
+  assert.match(python.fix, /without changing your PATH/);
 });
 
 test("python3 3.11 and newer meet the requirement", () => {
   for (const version of ["3.11.0", "3.14.5", "4.0.0"]) {
-    assert.deepEqual(problems(evaluate(facts({ python: { version, path: "/x/python3" } }))), []);
+    const python = { onPath: { version, path: "/x/python3" }, chosen: null, tried: [] };
+    assert.deepEqual(problems(evaluate(facts({ python }))), []);
   }
 });
 

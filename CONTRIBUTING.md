@@ -407,6 +407,71 @@ Checks run against your working tree, so unstaged edits in the same files are
 checked too. CI always runs everything, so a scoped pass locally is not a
 guarantee.
 
+### Interpreters
+
+The root script tests need Python 3.11+, and the desktop tests need the Node of
+`.nvmrc` (Node ≥ 25 ships its own `localStorage`, which breaks them). The hook
+picks both itself, without changing your `PATH`:
+
+- `python3` on `PATH` when it is 3.11+; otherwise the newest `python3.1x` found
+  on `PATH`, then in pyenv, uv, `~/.local/bin`, Homebrew (`/opt/homebrew/bin`,
+  `/usr/local/bin`) on macOS, or Linuxbrew and `/usr/bin` on Linux.
+- the running `node` when it satisfies `engines.node`; otherwise the `.nvmrc`
+  version installed by fnm, nvm, volta, mise or asdf.
+
+When one is replaced, the hook prints which, and the checks run with a private
+directory holding only `python3` / `node` links (under
+`node_modules/.cache/cadencr-toolchain/`) first on their `PATH`. It stops with
+the fix when no compatible Python exists, or when Node is a different major and
+no `.nvmrc` install is found. `pnpm run test:scripts` does the same, and
+`pnpm doctor` reports the interpreter the hook will use. To run another command
+the same way: `node scripts/toolchain-env.mjs -- <command>`.
+
+### Rust test threads
+
+Many Rust tests spawn processes and bound how long a child may take, so a
+full-width suite on a machine other sessions already load starves its own
+children. Every Cargo command run through `pnpm rust` or the package scripts
+(the hook's Rust tests included) therefore sets `RUST_TEST_THREADS` when you
+have not: every CPU while they are idle, down to half of them (at least four,
+libtest's own default on a 4-CPU CI runner) as the load average takes them.
+The hook prints the value it uses and passes it to every step, Turbo's
+included. Set `RUST_TEST_THREADS` yourself, or pass `--test-threads`, to
+override it.
+
+### Disk space
+
+Steps that compile the Rust workspace or run every suite (Rust clippy and
+tests, the full workspace check), `pnpm dev:precompile`, `pnpm build`,
+`pnpm build:local` and `pnpm test` stop first when less than 10 GiB is free on
+the checkout's volume, and print what to clean (`pnpm rust:storage`,
+`pnpm rust:prune`). Set `CADENCR_MIN_FREE_DISK_GIB` to change the threshold
+(`0` disables the check).
+
+### Verifying a series of commits
+
+Before you push several commits, check each one on its own the way the hook
+would have:
+
+```bash
+pnpm verify:commits                       # main..HEAD
+pnpm verify:commits -- origin/main..HEAD --keep-going
+pnpm verify:commits -- HEAD~3..HEAD --full
+pnpm verify:commits -- --dry-run          # list the commits and their plans
+```
+
+It creates one temporary detached worktree (under the system temp directory, or
+`CADENCR_VERIFY_DIR`, for instance when `/tmp` is RAM-backed), checks out each
+commit in turn, installs dependencies when the lockfile changes, routes the
+files the commit changed with this checkout's `scripts/pre-commit.mjs`, runs
+those steps in the commit's tree with its own scripts, prints a summary, and
+removes the worktree, also after a failure or Ctrl-C. Your checkout, branch,
+index, uncommitted edits and `target/` are never touched: Rust builds go to
+`target/verify-commits`, kept between runs (the first one builds the
+dependencies; `pnpm rust:clean` removes it with the rest of `target/`).
+Without `--keep-going` it stops at the first failing commit; Ctrl-C always
+stops the series. Free space is checked on both volumes first.
+
 ## Pull Request Process
 
 1. **Target the active version branch.** Contributor PRs are opened against the upcoming release branch

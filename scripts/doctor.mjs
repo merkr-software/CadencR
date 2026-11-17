@@ -16,44 +16,12 @@ import {
   readEnvFile,
 } from "./dev-env.mjs";
 import { gitCheckout } from "./git-worktrees.mts";
-import { MIN_PYTHON, PYTHON_FIX, probePython, pythonProblem } from "./python-requirement.mjs";
+import { nodeRequirement, satisfiesRange } from "./node-requirement.mjs";
+import { MIN_PYTHON, choosePython, noPythonMessage, pythonProblem } from "./python-requirement.mjs";
 import { WATCHEXEC_INSTALL, executableOnPath, pickWatcher } from "./service-dev-watch.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(scriptPath));
-
-const parseVersion = (value) => value.replace(/^v/, "").split(".").map(Number);
-
-function compare(a, b) {
-  for (let index = 0; index < 3; index += 1) {
-    const delta = (a[index] ?? 0) - (b[index] ?? 0);
-    if (delta !== 0) return Math.sign(delta);
-  }
-  return 0;
-}
-
-/** Minimal semver range check: space-joined comparators, `||` alternatives. */
-export function satisfiesRange(version, range) {
-  const actual = parseVersion(version);
-  return range.split("||").some((set) =>
-    set
-      .trim()
-      .split(/\s+/)
-      .every((comparator) => {
-        const [, op = "=", target] =
-          comparator.match(/^(>=|<=|>|<|=)?v?(\d+(?:\.\d+){0,2})$/) ?? [];
-        if (!target) throw new Error(`unsupported version comparator: ${comparator}`);
-        const order = compare(actual, parseVersion(target));
-        return {
-          ">=": order >= 0,
-          "<=": order <= 0,
-          ">": order > 0,
-          "<": order < 0,
-          "=": order === 0,
-        }[op];
-      }),
-  );
-}
 
 const ok = (title) => ({ status: "ok", title });
 const warn = (title, fix) => ({ status: "warn", title, fix });
@@ -90,13 +58,25 @@ function toolchainChecks({ node, pnpm, deps }) {
   return checks;
 }
 
-/** Not needed by `pnpm dev`, but the root script tests (pre-commit, CI) fail without it. */
+/**
+ * Not needed by `pnpm dev`, but the root script tests (pre-commit, CI) need it.
+ * The hooks pick a compatible interpreter themselves (scripts/toolchain-env.mjs),
+ * so an old `python3` first on PATH is fine when another one qualifies.
+ */
 function pythonCheck({ python }) {
-  const problem = pythonProblem(python);
-  if (problem === null) {
-    return ok(`python3 ${python.version} (root script tests need ${MIN_PYTHON}+)`);
+  if (pythonProblem(python.onPath) === null) {
+    return ok(`python3 ${python.onPath.version} (root script tests need ${MIN_PYTHON}+)`);
   }
-  return warn(`${problem}: the root script tests, pre-commit's included, will fail`, PYTHON_FIX);
+  if (python.chosen) {
+    return ok(
+      `the hooks run Python ${python.chosen.version} from ${python.chosen.path} ` +
+        `(${pythonProblem(python.onPath)})`,
+    );
+  }
+  return warn(
+    "no Python for the root script tests: pre-commit will stop before running them",
+    noPythonMessage(python.tried),
+  );
 }
 
 function rustChecks({ rust, watcher }) {
@@ -292,18 +272,14 @@ export function gatherFacts(root = repoRoot) {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const pnpm = probe("pnpm", ["--version"]);
   return {
-    node: {
-      version: process.versions.node,
-      range: pkg.engines.node,
-      nvmrc: readFileSync(join(root, ".nvmrc"), "utf8").trim(),
-    },
+    node: { version: process.versions.node, ...nodeRequirement(root) },
     pnpm: {
       version: pnpm.ok ? pnpm.output.split("\n").at(-1) : null,
       problem: pnpm.output.split("\n")[0],
       expected: pkg.packageManager.replace(/^pnpm@/, "").replace(/\+.*$/, ""),
     },
     deps: { installed: existsSync(join(root, "node_modules/.modules.yaml")) },
-    python: probePython(),
+    python: choosePython(),
     rust: rustFacts(),
     watcher: watcherFacts(),
     env: { service: readEnvFile(root, SERVICE_ENV), desktop: readEnvFile(root, DESKTOP_ENV) },
