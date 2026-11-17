@@ -277,8 +277,10 @@ mod tests {
             .remaining(Duration::from_millis(200))
             .call()
             .unwrap_err();
-        // Far below the server's 10 s hold, with room for a loaded machine.
-        assert!(started.elapsed() < Duration::from_secs(5));
+        // Measured over 780 runs at load averages 15 to 140: p99 1.64 s, max
+        // 1.77 s (reqwest's timeout fires late under load, even run alone).
+        // 3 s keeps that margin, far below the server's 10 s hold.
+        assert!(started.elapsed() < Duration::from_secs(3));
         let _ = release.send(());
         assert!(
             error
