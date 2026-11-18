@@ -49,8 +49,8 @@ function checkouts(t) {
 }
 
 /** Run the checkout's copy of the script; no Docker needed when the arch is given. */
-function run(checkout, args, env = {}) {
-  const result = spawnSync("bash", [join(checkout, "scripts/linux-container.sh"), ...args], {
+function attempt(checkout, args, env = {}) {
+  return spawnSync("bash", [join(checkout, "scripts/linux-container.sh"), ...args], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -60,6 +60,10 @@ function run(checkout, args, env = {}) {
       ...env,
     },
   });
+}
+
+function run(checkout, args, env = {}) {
+  const result = attempt(checkout, args, env);
   assert.equal(result.status, 0, `linux-container.sh ${args.join(" ")}: ${result.stderr}`);
   return result.stdout;
 }
@@ -89,7 +93,8 @@ test("CADENCR_LINUX_SRC_VOLUME picks the volume explicitly", (t) => {
   );
 });
 
-/** Docker's volume commands over a JSON file of volume labels; every call is logged. */
+/** Docker's volume commands over a JSON file of volume labels; every call is
+ * logged, and a call whose "group action" matches FAKE_DOCKER_FAIL fails. */
 const FAKE_DOCKER = `#!/usr/bin/env node
 const fs = require("node:fs");
 const state = process.env.FAKE_DOCKER_STATE;
@@ -97,11 +102,22 @@ const args = process.argv.slice(2);
 fs.appendFileSync(state + "/calls", args.join(" ") + "\\n");
 const volumes = JSON.parse(fs.readFileSync(state + "/volumes.json", "utf8"));
 const [group, action, ...rest] = args;
-if (group === "volume" && action === "ls") {
+if (process.env.FAKE_DOCKER_FAIL && group + " " + action === process.env.FAKE_DOCKER_FAIL) {
+  console.error("Cannot connect to the Docker daemon");
+  process.exit(1);
+}
+if (group === "info") {
+  console.log("aarch64");
+} else if (group === "volume" && action === "ls") {
   const at = rest.indexOf("--filter");
-  const [key, ...value] = at < 0 ? [] : rest[at + 1].replace(/^label=/, "").split("=");
+  const filter = at < 0 ? "" : rest[at + 1];
   for (const [name, labels] of Object.entries(volumes)) {
-    const matches = key === undefined || (key in labels && (!value.length || labels[key] === value.join("=")));
+    let matches = true;
+    if (filter.startsWith("name=")) matches = name.includes(filter.slice(5));
+    if (filter.startsWith("label=")) {
+      const [key, ...value] = filter.slice(6).split("=");
+      matches = key in labels && (!value.length || labels[key] === value.join("="));
+    }
     if (matches) console.log(name);
   }
 } else if (group === "volume" && action === "inspect") {
@@ -196,4 +212,78 @@ test("prune refuses arguments it does not know", (t) => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /usage: .* prune \[--dry-run\]/);
   assert.deepEqual(docker.calls(), [""]);
+});
+
+test("prune stops on a Docker failure instead of reporting no orphan", (t) => {
+  const { root, main } = checkouts(t);
+  const docker = fakeDocker(root, {
+    "cadencr-linux-src-arm64-w1-old-1": { "cadencr.repo": "/elsewhere/.git" },
+  });
+  for (const [failing, message] of [
+    ["volume ls", /docker volume ls failed; nothing removed/],
+    ["volume inspect", /docker volume inspect cadencr-linux-src-arm64-w1-old-1 failed/],
+  ]) {
+    for (const args of [["prune", "--dry-run"], ["prune"]]) {
+      const result = attempt(main, args, { ...docker.env, FAKE_DOCKER_FAIL: failing });
+      assert.notEqual(result.status, 0, `${failing}, ${args.join(" ")}`);
+      assert.match(result.stderr, message);
+      assert.doesNotMatch(result.stdout, /no orphan volume/);
+    }
+  }
+  assert.ok(docker.calls().every((call) => !call.startsWith("volume rm")));
+});
+
+test("every argument is checked before any Docker call", (t) => {
+  const { root, main } = checkouts(t);
+  const docker = fakeDocker(root, {});
+  for (const args of [
+    ["prune", "--dry-run", "--unknown"],
+    ["prune", "--force"],
+    ["clean", "extra"],
+    ["volume", "extra"],
+    ["no-such-command"],
+    [],
+  ]) {
+    // No CADENCR_LINUX_ARCH: the host arch would come from `docker info`.
+    const result = attempt(main, args, { ...docker.env, CADENCR_LINUX_ARCH: "" });
+    assert.notEqual(result.status, 0, args.join(" "));
+    assert.match(result.stderr, /usage|unknown command/, args.join(" "));
+  }
+  assert.deepEqual(docker.calls(), [""], "Docker was never called");
+});
+
+test("prune lists volumes without a repository label for removal by hand", (t) => {
+  const { root, main } = checkouts(t);
+  const legacy = "cadencr-linux-src-arm64-old-worktree-123";
+  const docker = fakeDocker(root, {
+    [legacy]: {},
+    "cadencr-linux-src-arm64": {},
+    "unrelated-project-volume": {},
+  });
+
+  const output = run(main, ["prune"], docker.env);
+  assert.match(output, new RegExp(`legacy ${legacy} .*docker volume rm ${legacy}$`, "m"));
+  assert.doesNotMatch(output, /legacy cadencr-linux-src-arm64 /, "the main checkout's volume");
+  assert.doesNotMatch(output, /unrelated-project-volume/);
+  assert.match(output, /no orphan volume/);
+  assert.deepEqual(docker.volumes(), [legacy, "cadencr-linux-src-arm64", "unrelated-project-volume"]);
+});
+
+test("clean also removes the worktree's volume named before repository labels", (t) => {
+  const { root, first, second } = checkouts(t);
+  const checksum = (path) =>
+    spawnSync("cksum", { input: path, encoding: "utf8" }).stdout.split(" ")[0];
+  const legacyName = (path) => `cadencr-linux-src-arm64-feature-work-${checksum(path)}`;
+  const docker = fakeDocker(root, {
+    [volume(first)]: {},
+    [legacyName(first)]: {},
+    [volume(second)]: {},
+    [legacyName(second)]: {},
+    "cadencr-linux-src-arm64": {},
+  });
+
+  const output = run(first, ["clean"], docker.env);
+  assert.match(output, new RegExp(`removed ${volume(first)}$`, "m"));
+  assert.match(output, new RegExp(`removed ${legacyName(first)}$`, "m"));
+  assert.deepEqual(docker.volumes(), [volume(second), legacyName(second), "cadencr-linux-src-arm64"]);
 });
