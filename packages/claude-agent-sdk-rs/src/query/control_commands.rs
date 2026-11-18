@@ -149,6 +149,31 @@ impl Query {
         request: serde_json::Value,
         timeout: std::time::Duration,
     ) -> Result<serde_json::Value, SdkError> {
+        let (request_id, rx) = self.start_control_request(request).await?;
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(outcome)) => outcome,
+            Ok(Err(_recv_err)) => {
+                // Sender dropped without resolving — the reader loop must
+                // have exited (process gone, channel closed, …).
+                Err(SdkError::Cancelled)
+            }
+            Err(_elapsed) => {
+                // Pull the entry so a late response doesn't try to resolve
+                // a defunct sender.
+                self.pending_control.lock().await.remove(&request_id);
+                Err(SdkError::Timeout)
+            }
+        }
+    }
+
+    /// Write a `control_request` and register for its `control_response`
+    /// without waiting for it. Returns the request id and the receiver the
+    /// reader loop resolves. An unanswered entry stays in `pending_control`
+    /// until the query is dropped, so a caller that stops waiting removes it.
+    pub(super) async fn start_control_request(
+        &self,
+        request: serde_json::Value,
+    ) -> Result<(String, oneshot::Receiver<ControlOutcome>), SdkError> {
         let subtype = request
             .get("subtype")
             .and_then(|v| v.as_str())
@@ -178,21 +203,7 @@ impl Query {
             self.pending_control.lock().await.remove(&request_id);
             return Err(e);
         }
-
-        match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(outcome)) => outcome,
-            Ok(Err(_recv_err)) => {
-                // Sender dropped without resolving — the reader loop must
-                // have exited (process gone, channel closed, …).
-                Err(SdkError::Cancelled)
-            }
-            Err(_elapsed) => {
-                // Pull the entry so a late response doesn't try to resolve
-                // a defunct sender.
-                self.pending_control.lock().await.remove(&request_id);
-                Err(SdkError::Timeout)
-            }
-        }
+        Ok((request_id, rx))
     }
 
     /// Mint a fresh `request_id` for an outbound control request.
