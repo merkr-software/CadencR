@@ -5,6 +5,7 @@ pub mod atomic_file;
 pub mod bounded_command;
 pub mod capped_read;
 pub mod cli_stderr;
+pub mod data_roots;
 pub mod db;
 pub mod disk_space;
 pub mod document_file;

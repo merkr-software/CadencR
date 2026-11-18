@@ -30,6 +30,31 @@ pnpm --filter @cadencr/desktop <script>
 pnpm --filter @cadencr/service <script>
 ```
 
+### Isolated QA runs
+
+`pnpm qa:up` starts the app on throwaway state for manual or agent QA, and
+`pnpm qa:down <run>` stops and removes exactly what that run created. Several
+runs can live side by side; the [`qa` skill](./.agents/skills/qa/SKILL.md) is
+the full workflow.
+
+```bash
+pnpm qa:build                       # checks + Rust build, never times out
+pnpm qa:up --skip-build             # --surface electron|renderer|service
+pnpm -s qa env "<run>"              # shell exports: URLs, token, CDP port
+pnpm -s qa cdp "<run>" screenshot x # also eval, click, type, key, targets
+pnpm qa:down "<run>"                # --purge also drops evidence and logs
+```
+
+A run lives in `$CADENCR_QA_ROOT/<run-id>` (default `$TMPDIR/cadencr-qa`). It
+owns a fresh database, a settings dir, free ports, a browser profile and a data
+root passed as the service's `--data-dir` (`CADENCR_DATA_DIR`). That root
+replaces `~/.cadencr` (macOS) or the XDG directories (Linux) for worktrees,
+marketplace LSP servers, forge and remote credentials and caches, while `HOME`
+stays real so agent CLIs keep their login. Without the flag the service
+resolves those paths exactly as before. `pnpm qa:build --marketplace` compiles a
+service with the repository's public catalog pins into `target/qa-marketplace`
+to test marketplace installs.
+
 ### Packaged local builds
 
 Run:
@@ -160,7 +185,8 @@ them cheap:
   hold data of its own, so every later migration backs up as usual. A database
   the worktree already had (rerunning the script never replaces it), a custom
   `CADENCR_DB_PATH` that may name a shared database, the main checkout and
-  release builds always back up before migrating.
+  release builds always back up before migrating. Git ignores the marker, so a
+  worktree whose service never started still removes cleanly.
 
 `pnpm rust:storage` lists every dev database and the installed app's
 `~/.cadencr/database`, and names the backups the service never rotates (legacy

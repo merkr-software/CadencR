@@ -12,208 +12,131 @@ allowed-tools: Bash(*), mcp__chrome-devtools__*
 
 # QA Testing
 
-Test Cadencr features by driving the app in Chrome via the `chrome-devtools` MCP server and verifying behavior interactively.
+Test Cadencr features in an **isolated run** started by `pnpm qa:up`, drive it over CDP, report with the
+run's evidence summary, then stop it with `pnpm qa:down`.
 
-The argument (`$ARGUMENTS`) describes the feature to test. If empty, infer the feature from the current session context (recent file changes, active branch, conversation history).
+The argument (`$ARGUMENTS`) describes the feature to test. If empty, infer it from the session context
+(recent file changes, active branch, conversation history).
 
-## Step 1: Ensure Dev Servers Are Running
+## What a run gives you
 
-The Cadencr stack has two servers:
-- **Frontend** (Vite): `http://127.0.0.1:$VITE_FRONTEND_PORT`
-- **Backend** (Rust service): `http://127.0.0.1:$CADENCR_RUST_PORT/api/health`
+Each run has its own id and directory, so several QAs can run on the same machine at once, from the same
+checkout or different ones:
 
-Check if they're already up and healthy:
+- a fresh database, settings dir and data root (`--data-dir`: worktrees, marketplace LSP servers, forge and
+  remote credentials, caches) under `<run>/app/`, never `cadencr.local.db`, a `.fresh-clone` or a copy of a
+  database holding real schedules;
+- free ports for the service, renderer and CDP, a random API token, a browser/Electron profile in the run;
+- a scratch Git project already registered (`<run>/project`), onboarding and telemetry decision done;
+- the **real `HOME`**: the Claude and Codex CLIs stay logged in, so agent turns work;
+- `state.json` (PIDs with start times, ports, URLs, token, paths) and `evidence.md` to complete.
 
-```bash
-# Load local overrides from the package env files when present
-set -a
-[ -f packages/service/.env ] && . ./packages/service/.env
-[ -f packages/desktop/.env ] && . ./packages/desktop/.env
-set +a
+`qa:down` stops exactly the processes the run started (PID and start time re-checked, their descendants
+included) and removes exactly its directories. A worktree the app created for a project outside the run is
+unregistered from that repository with `git worktree remove`; its branch is left for you to delete.
 
-FRONTEND_PORT="${VITE_FRONTEND_PORT:-1420}"
-API_PORT="${CADENCR_RUST_PORT:-5005}"
-FRONTEND_URL="http://127.0.0.1:$FRONTEND_PORT"
-API_HEALTH_URL="http://127.0.0.1:$API_PORT/api/health"
+## Step 1: Build (no time limit)
 
-# Clear stale QA-run markers before checking server health
-export CADENCR_QA_RUN_DIR="/tmp/cadencr-qa"
-mkdir -p "$CADENCR_QA_RUN_DIR"
-rm -f "$CADENCR_QA_RUN_DIR/dev.pid" "$CADENCR_QA_RUN_DIR/dev.pgid"
-
-# Health-check both servers (2-second timeout each)
-curl -sf --max-time 2 "$API_HEALTH_URL" && echo "API: ok" || echo "API: down"
-curl -sf --max-time 2 "$FRONTEND_URL" && echo "Frontend: ok" || echo "Frontend: down"
-```
-
-**If both are healthy**, skip to Step 2.
-
-**If either is down**, start the full stack in a tracked process group and write logs to disk so the agent can inspect them during QA:
+`pnpm qa …` reruns itself on the `.nvmrc` Node when the current one is outside `engines.node` (as the
+pre-commit hook does), so Electron and Vite get the right one. Runs go under `CADENCR_QA_ROOT` (default
+`$TMPDIR/cadencr-qa`); point it at your scratchpad. Agent shells do not keep variables between tool calls,
+so set it in **every** command that names a run by id (`CADENCR_QA_ROOT="…" pnpm -s qa cdp <id> …`), or pass
+the run's absolute directory instead of its id.
 
 ```bash
-# Start the full stack from the project root and capture logs for later inspection
-sh -c 'repo_root=$(git rev-parse --show-toplevel) && cd "$repo_root" && exec pnpm dev' \
-  >"$CADENCR_QA_RUN_DIR/dev.log" 2>&1 &
-DEV_PID=$!
-DEV_PGID=$(ps -o pgid= -p "$DEV_PID" | tr -d ' ')
-printf '%s\n' "$DEV_PID" > "$CADENCR_QA_RUN_DIR/dev.pid"
-printf '%s\n' "$DEV_PGID" > "$CADENCR_QA_RUN_DIR/dev.pgid"
-echo "QA started dev stack: pid=$DEV_PID pgid=$DEV_PGID"
-echo "QA dev log: $CADENCR_QA_RUN_DIR/dev.log"
+pnpm qa:build                    # doctor subset, dev .env files, Electron binary, lsof, Rust build
 ```
 
-Then poll until both servers respond (timeout after 60 seconds):
+Run it in the **foreground**. A cold Rust build can take many minutes and the script never abandons it; if
+your tool call times out first, rerun the same command: Cargo resumes. Add `--marketplace` only to test
+marketplace installs (themes, tabs, LSP servers): it builds a service with the repository's public catalog
+pins into `target/qa-marketplace`.
+
+## Step 2: Start the run
 
 ```bash
-for i in $(seq 1 60); do
-  api=$(curl -sf --max-time 1 "$API_HEALTH_URL" && echo "ok" || echo "")
-  fe=$(curl -sf --max-time 1 "$FRONTEND_URL" > /dev/null 2>&1 && echo "ok" || echo "")
-  [ "$api" = "ok" ] && [ "$fe" = "ok" ] && echo "Both servers ready" && break
-  sleep 1
-done
+CADENCR_QA_ROOT="<scratchpad>/qa-runs" pnpm qa:up --skip-build [--surface electron|renderer|service] [--marketplace] [--headed]
+eval "$(pnpm -s qa env "<run-dir>")" # QA_RUN_DIR, QA_SERVICE_URL, QA_TOKEN, QA_CDP_PORT, QA_PROJECT_ID…
 ```
 
-If servers don't come up within 60 seconds, report the failure and stop.
+| Surface              | What runs                                                        | Use for                                                                                 |
+| -------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `electron` (default) | service + real dev Electron app, CDP on its own port             | anything desktop-only: IPC, in-app browser, browser MCP, notch, menus, window behaviour |
+| `renderer`           | service + Vite renderer + headless Chrome (`--headed` to see it) | pure UI flows when no Electron window should appear                                     |
+| `service`            | service only                                                     | API and WebSocket behaviour                                                             |
 
-If startup fails, inspect the captured log before continuing:
+`qa:up` returns only after the service answers with the run's token, refuses a request without it, and is
+the process listening on its port, and (UI surfaces) after the renderer page is up on this run's CDP port and
+the app has mounted. On failure it stops what it started and keeps `logs/` for inspection.
+
+## Step 3: Plan
+
+Before touching the UI, list 3-5 concrete cases (happy path and key edge cases), each with steps and the
+expected outcome. Tell the user briefly what you are about to test.
+
+## Step 4: Drive the app
+
+Use the run's CDP helper. It talks to this run only, so it works with parallel runs; every command brings
+the window to front and enables focus emulation (a hidden window otherwise breaks Radix popovers):
 
 ```bash
-tail -n 200 /tmp/cadencr-qa/dev.log
+pnpm -s qa cdp "<run>" eval "<js expression; promises are awaited, the value is printed as JSON>"
+pnpm -s qa cdp "<run>" click 'button[aria-label="Send message"]'   # CSS selector, or text=<exact visible text>
+pnpm -s qa cdp "<run>" type "some text"                            # into the focused element
+pnpm -s qa cdp "<run>" key Enter
+pnpm -s qa cdp "<run>" screenshot <name>                           # -> <run>/screenshots/<name>.png
+pnpm -s qa cdp "<run>" targets
 ```
 
-## Step 2: Plan Test Procedures
+- `click` is a real mouse event; Radix triggers ignore synthetic `el.click()`.
+- Each command fails (instead of hanging) when the page reloads or the app exits, and after 180 s.
+- Quote run paths: a scratchpad or `$TMPDIR` may contain spaces. The commands `qa` prints are already quoted.
+- Wait for state before asserting: `eval` a promise that polls the DOM (with a deadline) instead of sleeping.
+- Hash routing: `eval "location.hash = '#/projects/$QA_PROJECT_ID/features/<id>'"`.
+- API calls: `curl -H "X-Cadencr-Token: $QA_TOKEN" "$QA_SERVICE_URL/api/…"`. A feature for an agent turn:
+  `POST /api/features {"project_id": $QA_PROJECT_ID, "title": "…", "worktree_mode": "new"}`; its worktree
+  lands under `<run>/app/data/worktrees`.
+- Controlled React inputs: `type` goes through the browser's input pipeline. With `eval`, use the native value
+  setter then dispatch `input` (`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set`).
+- Under Vite dev, importing an app module from `eval` needs the exact URL the app loaded (HMR adds `?t=`);
+  a plain `/src/...` import is a second, empty module instance.
+- The chrome-devtools MCP drives one shared browser profile: use it only when a single QA runs, and only for
+  the `renderer` surface (open `$QA_RENDERER_URL`).
 
-Before touching the browser, think about what to test. Based on the feature description:
+**Agent turns use a small model.** In the composer open the model picker
+(`click 'text=Default (recommended)'`) and pick Haiku (`click 'text=Haiku 5.5'`) before sending. Keep prompts
+trivial ("Reply with exactly the word: pong").
 
-1. Identify 3-5 concrete test cases covering the happy path and key edge cases
-2. For each test case, note the steps (navigate, click, type, verify) and expected outcome
-3. Briefly tell the user what you're about to test so they can course-correct if needed
+After the cases, check the console (`eval` reading what the app logged, or `logs/desktop.log`) and
+`logs/service.log`.
 
-Keep test cases focused and practical — test what the user built, not the entire app.
+## Step 5: Report
 
-## Step 3: Open the App in Chrome
+Complete `<run>/evidence.md` (tested SHA, surface, scenarios, screenshots, limits, platforms not validated;
+`qa:up` pre-fills what it knows) and put its content in your reply or the PR description. Embed each screenshot
+with a one-line caption and its absolute path: `![caption](<run>/screenshots/<name>.png)`. If checks ran
+somewhere else than the run's surface (for example an HTML bench rendering components alone), say so in the
+Surface line: it changes what the result proves.
 
-Use the `chrome-devtools` MCP tools. There is no "surface ID" — pages are tracked by the MCP server; use `list_pages` / `select_page` if you need to switch among tabs.
+Never write the report, screenshots or helper scripts to a tracked file (rule `no-session-docs`).
 
-1. Open a new tab on the frontend URL:
-   - `mcp__chrome-devtools__new_page` with `url = $FRONTEND_URL`
-2. Wait for first paint / a known root element:
-   - `mcp__chrome-devtools__wait_for` with a stable selector (e.g. the app root or sidebar)
-3. Take an initial snapshot to anchor your interactions:
-   - `mcp__chrome-devtools__take_snapshot`
-
-## Step 4: Execute Test Cases
-
-For each test case, follow this loop:
-
-1. **Navigate** to the right part of the app
-2. **Interact** — click buttons, fill forms, trigger the feature
-3. **Verify** — take a snapshot or screenshot and check the result against expectations
-4. **Record** — note pass/fail and any unexpected behavior
-
-### chrome-devtools MCP tool map
-
-| Action | Tool |
-|--------|------|
-| Open new tab at URL | `mcp__chrome-devtools__new_page` |
-| Navigate current tab | `mcp__chrome-devtools__navigate_page` |
-| List / switch tabs | `mcp__chrome-devtools__list_pages`, `mcp__chrome-devtools__select_page` |
-| DOM snapshot (text) | `mcp__chrome-devtools__take_snapshot` |
-| Screenshot (file) | `mcp__chrome-devtools__take_screenshot` |
-| Click element | `mcp__chrome-devtools__click` |
-| Type into focused input | `mcp__chrome-devtools__type_text` |
-| Set a single field | `mcp__chrome-devtools__fill` |
-| Set multiple fields | `mcp__chrome-devtools__fill_form` |
-| Hover | `mcp__chrome-devtools__hover` |
-| Drag | `mcp__chrome-devtools__drag` |
-| Press a key | `mcp__chrome-devtools__press_key` |
-| Wait for selector / state | `mcp__chrome-devtools__wait_for` |
-| Run JS in page | `mcp__chrome-devtools__evaluate_script` |
-| Console messages | `mcp__chrome-devtools__list_console_messages`, `mcp__chrome-devtools__get_console_message` |
-| Network requests | `mcp__chrome-devtools__list_network_requests`, `mcp__chrome-devtools__get_network_request` |
-| Native dialogs (alert/confirm) | `mcp__chrome-devtools__handle_dialog` |
-| Resize viewport | `mcp__chrome-devtools__resize_page` |
-
-Use `take_snapshot` liberally to understand current page state before interacting. Snapshots are cheap and prevent blind clicking.
-
-After all interactions, always check the console — issues often surface there even when the UI looks fine:
-
-```text
-mcp__chrome-devtools__list_console_messages
-```
-
-If something behaved unexpectedly during startup or while testing, inspect the dev log too:
+## Step 6: Stop the run, even on failure
 
 ```bash
-tail -n 200 /tmp/cadencr-qa/dev.log
+pnpm qa:down "<run>"          # stops its processes, removes app/, bin/, browser-profile/, project/
+pnpm qa:down "<run>" --purge  # also removes evidence, screenshots and logs, once the user has seen them
+pnpm -s qa list               # every run under CADENCR_QA_ROOT and whether its processes are alive
 ```
 
-### React controlled inputs
+`qa:down` names any process still mentioning the run and any of its ports listening again. Never stop
+processes that are not in the run's `state.json`: other Cadencr sessions, Electron apps and containers run on
+this machine.
 
-`fill` / `type_text` set the DOM value but do **not** always trigger React's synthetic `onChange` on controlled inputs (`value={state}`). The input looks updated but React's internal state is stale, so blur/submit handlers see the old value.
+## Limits to state in the report
 
-**Workaround** — use `evaluate_script` with the native value setter to fire a React-compatible `input` event:
-
-```js
-// mcp__chrome-devtools__evaluate_script
-const input = document.querySelector('YOUR_SELECTOR');
-const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-nativeSetter.call(input, 'NEW_VALUE');
-input.dispatchEvent(new Event('input', { bubbles: true }));
-```
-
-Then trigger blur/submit via another `evaluate_script` if needed:
-
-```js
-document.querySelector('YOUR_SELECTOR').blur();
-```
-
-### Tips
-
-- Cadencr uses **hash routing** (`/#/...`), so URLs look like `$FRONTEND_URL/#/projects/1/features`.
-- Prefer `take_snapshot` for structured DOM context; reach for `take_screenshot` (saved to e.g. `/tmp/qa-*.png`) when the bug is visual or when documenting failures.
-- If a click "doesn't work," snapshot first — selectors drift as the UI changes.
-- Use `wait_for` between an action and the assertion that follows it; do not rely on implicit timing.
-- `evaluate_script` returns the value of the last expression, so it doubles as a read primitive (e.g. `document.querySelector(sel)?.textContent`).
-
-## Step 5: Report Results
-
-After running all test cases, produce a concise report in your reply (and the PR description when there is one). Never write it, its screenshots or check scripts to a tracked file such as `docs/qa/`; keep artifacts in your scratch directory.
-
-```
-## QA Report: [Feature Name]
-
-**Result**: X/Y passed
-
-### Failed
-- **[Test case name]**: Expected [X], got [Y]. Screenshot: /tmp/qa-failure-1.png
-
-### Passed
-- [Test case name]
-- [Test case name]
-
-### Console Errors
-- [Any errors found, or "None"]
-```
-
-Focus the report on failures — what broke and why. Passing tests get a one-liner each. If everything passed, say so and keep it short.
-
-## Step 6: Clean Up Only What QA Started
-
-If Step 1 found both servers already healthy, do **not** stop them.
-
-If this QA run started the stack, stop that tracked process group at the end, even on failure:
-
-```bash
-if [ -f /tmp/cadencr-qa/dev.pgid ]; then
-  DEV_PGID=$(cat /tmp/cadencr-qa/dev.pgid)
-  kill -TERM -- "-$DEV_PGID" 2>/dev/null || true
-  sleep 2
-  kill -KILL -- "-$DEV_PGID" 2>/dev/null || true
-fi
-```
-
-Close any QA-opened tabs with `mcp__chrome-devtools__close_page` if they would otherwise clutter the user's browser.
-
-Mention the log path in the final report if startup or runtime issues required inspection.
+- The real `HOME` is shared: agent CLIs read `~/.claude` and `~/.codex`. Do not edit them, copy credentials,
+  or install marketplace skills or MCP servers (they go through the CLIs into the real config) without the
+  user's go-ahead.
+- Two Electron runs from one checkout share `packages/desktop/out` (identical builds; their starts are
+  serialized) and macOS keeps one preferences file for the dev Electron binary.
+- A run on macOS proves nothing about Linux, and the reverse: list the other platform as not validated.
