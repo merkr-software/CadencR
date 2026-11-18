@@ -16,7 +16,14 @@ import { findInstalledNode, nodeRequirement, satisfiesRange } from "./node-requi
 import { down } from "./isolated-qa/down.mjs";
 import { SURFACES } from "./isolated-qa/evidence.mjs";
 import { isAlive } from "./isolated-qa/processes.mjs";
-import { STATE_FILE, qaRoot, readState, resolveRunDir, runLayout } from "./isolated-qa/run.mjs";
+import {
+  STATE_FILE,
+  readState,
+  resolveRunDir,
+  runLayout,
+  runsRoot,
+  shellQuote,
+} from "./isolated-qa/run.mjs";
 import { build } from "./isolated-qa/build.mjs";
 import { up } from "./isolated-qa/up.mjs";
 
@@ -65,8 +72,7 @@ export function envLines(state) {
     QA_PROJECT_ID: state.project?.id === undefined ? "" : String(state.project.id),
     QA_EVIDENCE: state.paths.evidence,
   };
-  const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-  return Object.entries(values).map(([key, value]) => `export ${key}=${quote(value)}`);
+  return Object.entries(values).map(([key, value]) => `export ${key}=${shellQuote(value)}`);
 }
 
 function printReady(state) {
@@ -80,7 +86,7 @@ function printReady(state) {
   if (state.project) console.log(`  project:   #${state.project.id} ${state.paths.project}`);
   console.log(`  tested:    ${state.git.sha}${state.git.dirty ? " + uncommitted changes" : ""}`);
   // The absolute path works from any shell, whatever its CADENCR_QA_ROOT.
-  console.log(`\nStop it with: pnpm qa:down ${state.runDir}`);
+  console.log(`\nStop it with: pnpm qa:down ${shellQuote(state.runDir)}`);
 }
 
 function status(state) {
@@ -93,7 +99,7 @@ function status(state) {
 }
 
 function list() {
-  const root = qaRoot();
+  const root = runsRoot();
   if (!existsSync(root)) return console.log(`No runs under ${root}`);
   for (const name of readdirSync(root).sort()) {
     if (!existsSync(join(root, name, STATE_FILE))) continue;
@@ -126,7 +132,7 @@ async function cdpCommand(state, [action, ...rest]) {
   }
 }
 
-const runState = (target) => readState(resolveRunDir(target, qaRoot()));
+const runState = (target) => readState(resolveRunDir(target, runsRoot()));
 
 async function main([command, ...args]) {
   if (command === "build") return build({ repoRoot, ...parseUpOptions(args) });

@@ -29,6 +29,16 @@ export function qaRoot(env = process.env, tmpdir = os.tmpdir()) {
   return explicit;
 }
 
+/**
+ * The runs root every command uses, canonical (symlinks resolved, e.g. macOS's
+ * `/tmp` → `/private/tmp`): run directories and their recorded paths are
+ * canonical, so a root reached through a link must resolve to the same place.
+ */
+export function runsRoot(env = process.env, tmpdir = os.tmpdir()) {
+  const root = qaRoot(env, tmpdir);
+  return existsSync(root) ? realpathSync(root) : root;
+}
+
 /** `20261117-101500-a1b2c3`: sortable, and unique even for runs started in the same second. */
 export function newRunId(now = new Date(), suffix = randomBytes(3).toString("hex")) {
   const stamp = now
@@ -37,6 +47,12 @@ export function newRunId(now = new Date(), suffix = randomBytes(3).toString("hex
     .replace(/[-:]/g, "")
     .replace("T", "-");
   return `${stamp}-${suffix}`;
+}
+
+/** One shell word for any value: printed commands must survive spaces and quotes in paths. */
+export function shellQuote(value) {
+  const text = String(value);
+  return /^[\w@%+=:,./-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 /** Every path a run owns. Only these are ever created or removed. */
@@ -84,7 +100,7 @@ export function createRunDir(root, runId) {
 }
 
 /** A run id resolves under the QA root; anything with a slash is taken as a run directory. */
-export function resolveRunDir(target, root = qaRoot()) {
+export function resolveRunDir(target, root = runsRoot()) {
   if (!target) throw new Error("name the run: its id or its directory");
   const dir = target.includes("/") ? resolve(target) : join(root, target);
   return existsSync(dir) ? realpathSync(dir) : dir;

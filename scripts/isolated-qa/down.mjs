@@ -13,7 +13,8 @@ import {
 } from "./processes.mjs";
 import {
   DISPOSABLE_KEYS,
-  qaRoot,
+  runsRoot,
+  shellQuote,
   readState,
   resolveRunDir,
   runLayout,
@@ -68,7 +69,7 @@ export function detachExternalWorktrees(layout) {
     } catch (error) {
       const reason = error instanceof Error ? error.message : error;
       problems.push(
-        `${worktree}: ${reason}\n  fix by hand: git -C <its repository> worktree remove --force ${worktree}`,
+        `${worktree}: ${reason}\n  fix by hand: git -C <its repository> worktree remove --force ${shellQuote(worktree)}`,
       );
     }
   }
@@ -126,7 +127,7 @@ function refuseWhileStarting(state) {
 }
 
 export async function down({ target, purge }) {
-  const runDir = resolveRunDir(target, qaRoot());
+  const runDir = resolveRunDir(target, runsRoot());
   const state = readState(runDir);
   const layout = runLayout(runDir);
   refuseWhileStarting(state);
@@ -151,7 +152,7 @@ export async function down({ target, purge }) {
     state.processes = [];
     writeState(layout, state);
     console.log(`Kept for the report: ${layout.evidence}, ${layout.screenshots}/, ${layout.logs}/`);
-    console.log(`Remove them with: pnpm qa:down ${runDir} --purge`);
+    console.log(`Remove them with: pnpm qa:down ${shellQuote(runDir)} --purge`);
   }
   printLeftovers(state);
 }

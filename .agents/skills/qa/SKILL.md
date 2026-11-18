@@ -40,7 +40,7 @@ unregistered from that repository with `git worktree remove`; its branch is left
 `pnpm qa …` reruns itself on the `.nvmrc` Node when the current one is outside `engines.node` (as the
 pre-commit hook does), so Electron and Vite get the right one. Runs go under `CADENCR_QA_ROOT` (default
 `$TMPDIR/cadencr-qa`); point it at your scratchpad. Agent shells do not keep variables between tool calls,
-so set it in **every** command that names a run by id (`CADENCR_QA_ROOT=… pnpm -s qa cdp <id> …`), or pass
+so set it in **every** command that names a run by id (`CADENCR_QA_ROOT="…" pnpm -s qa cdp <id> …`), or pass
 the run's absolute directory instead of its id.
 
 ```bash
@@ -55,8 +55,8 @@ pins into `target/qa-marketplace`.
 ## Step 2: Start the run
 
 ```bash
-CADENCR_QA_ROOT=<scratchpad>/qa-runs pnpm qa:up --skip-build [--surface electron|renderer|service] [--marketplace] [--headed]
-eval "$(pnpm -s qa env <run-dir>)"   # QA_RUN_DIR, QA_SERVICE_URL, QA_TOKEN, QA_CDP_PORT, QA_PROJECT_ID…
+CADENCR_QA_ROOT="<scratchpad>/qa-runs" pnpm qa:up --skip-build [--surface electron|renderer|service] [--marketplace] [--headed]
+eval "$(pnpm -s qa env "<run-dir>")" # QA_RUN_DIR, QA_SERVICE_URL, QA_TOKEN, QA_CDP_PORT, QA_PROJECT_ID…
 ```
 
 | Surface              | What runs                                                        | Use for                                                                                 |
@@ -80,16 +80,17 @@ Use the run's CDP helper. It talks to this run only, so it works with parallel r
 the window to front and enables focus emulation (a hidden window otherwise breaks Radix popovers):
 
 ```bash
-pnpm -s qa cdp <run> eval "<js expression; promises are awaited, the value is printed as JSON>"
-pnpm -s qa cdp <run> click 'button[aria-label="Send message"]'   # CSS selector, or text=<exact visible text>
-pnpm -s qa cdp <run> type "some text"                            # into the focused element
-pnpm -s qa cdp <run> key Enter
-pnpm -s qa cdp <run> screenshot <name>                           # -> <run>/screenshots/<name>.png
-pnpm -s qa cdp <run> targets
+pnpm -s qa cdp "<run>" eval "<js expression; promises are awaited, the value is printed as JSON>"
+pnpm -s qa cdp "<run>" click 'button[aria-label="Send message"]'   # CSS selector, or text=<exact visible text>
+pnpm -s qa cdp "<run>" type "some text"                            # into the focused element
+pnpm -s qa cdp "<run>" key Enter
+pnpm -s qa cdp "<run>" screenshot <name>                           # -> <run>/screenshots/<name>.png
+pnpm -s qa cdp "<run>" targets
 ```
 
 - `click` is a real mouse event; Radix triggers ignore synthetic `el.click()`.
 - Each command fails (instead of hanging) when the page reloads or the app exits, and after 180 s.
+- Quote run paths: a scratchpad or `$TMPDIR` may contain spaces. The commands `qa` prints are already quoted.
 - Wait for state before asserting: `eval` a promise that polls the DOM (with a deadline) instead of sleeping.
 - Hash routing: `eval "location.hash = '#/projects/$QA_PROJECT_ID/features/<id>'"`.
 - API calls: `curl -H "X-Cadencr-Token: $QA_TOKEN" "$QA_SERVICE_URL/api/…"`. A feature for an agent turn:
@@ -122,8 +123,8 @@ Never write the report, screenshots or helper scripts to a tracked file (rule `n
 ## Step 6: Stop the run, even on failure
 
 ```bash
-pnpm qa:down <run>            # stops its processes, removes app/, bin/, browser-profile/, project/
-pnpm qa:down <run> --purge    # also removes evidence, screenshots and logs, once the user has seen them
+pnpm qa:down "<run>"          # stops its processes, removes app/, bin/, browser-profile/, project/
+pnpm qa:down "<run>" --purge  # also removes evidence, screenshots and logs, once the user has seen them
 pnpm -s qa list               # every run under CADENCR_QA_ROOT and whether its processes are alive
 ```
 

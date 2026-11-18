@@ -1,12 +1,12 @@
 // `pnpm qa:up`: start one run on fresh, run-owned state (database, settings,
 // data root, ports, browser profile) and verify it before reporting it ready.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import { join } from "node:path";
 import { generateToken } from "../dev-env.mjs";
-import { build, copyServiceBinary, preflight, serviceBinary } from "./build.mjs";
+import { build, copyServiceBinary, preflight, requireServiceBinary } from "./build.mjs";
 import { evidenceTemplate } from "./evidence.mjs";
 import { lockPath, withLock } from "./lock.mjs";
 import { readProcessTable, stopRunProcesses } from "./processes.mjs";
@@ -16,7 +16,7 @@ import {
   STATE_VERSION,
   createRunDir,
   newRunId,
-  qaRoot,
+  runsRoot,
   writeState,
 } from "./run.mjs";
 import {
@@ -152,12 +152,7 @@ async function start({ repoRoot, layout, state, options }) {
     writeState(layout, state);
     return entry;
   };
-  const binary = serviceBinary(repoRoot, { marketplace: options.marketplace });
-  if (!existsSync(binary)) {
-    const flag = options.marketplace ? " --marketplace" : "";
-    throw new Error(`${binary} is missing: run \`pnpm qa:build${flag}\``);
-  }
-  copyServiceBinary(binary, join(layout.bin, "cadencr-service"));
+  copyServiceBinary(state.binary, join(layout.bin, "cadencr-service"));
   createScratchProject(layout.project);
   const { ports, token, urls } = state;
   const service = record(spawnService({ layout, ports, token }));
@@ -199,11 +194,12 @@ export async function up({ repoRoot, options }) {
   if (options.skipBuild) preflight({ repoRoot, surface: options.surface });
   else build({ repoRoot, surface: options.surface, marketplace: options.marketplace });
   // Everything that can fail before the run has a state file happens first.
+  const binary = requireServiceBinary(repoRoot, { marketplace: options.marketplace });
   const commit = gitFacts(repoRoot);
   const ports = await allocatePorts(["service", "frontend", "remote", "cdp"]);
   const runId = newRunId();
-  const layout = createRunDir(qaRoot(), runId);
-  const state = initialState({ repoRoot, layout, runId, options, ports, commit });
+  const layout = createRunDir(runsRoot(), runId);
+  const state = { ...initialState({ repoRoot, layout, runId, options, ports, commit }), binary };
   writeState(layout, state);
   const { os: platform, release, arch } = state.platform;
   const { createdAt: startedAt, surface } = state;

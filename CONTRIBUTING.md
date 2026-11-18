@@ -40,9 +40,9 @@ the full workflow.
 ```bash
 pnpm qa:build                       # checks + Rust build, never times out
 pnpm qa:up --skip-build             # --surface electron|renderer|service
-pnpm -s qa env <run>                # shell exports: URLs, token, CDP port
-pnpm -s qa cdp <run> screenshot x   # also eval, click, type, key, targets
-pnpm qa:down <run>                  # --purge also drops evidence and logs
+pnpm -s qa env "<run>"              # shell exports: URLs, token, CDP port
+pnpm -s qa cdp "<run>" screenshot x # also eval, click, type, key, targets
+pnpm qa:down "<run>"                # --purge also drops evidence and logs
 ```
 
 A run lives in `$CADENCR_QA_ROOT/<run-id>` (default `$TMPDIR/cadencr-qa`). It

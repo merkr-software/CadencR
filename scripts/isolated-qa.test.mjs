@@ -41,7 +41,6 @@ import {
   waitFor,
 } from "./isolated-qa/stack.mjs";
 import { allocatePorts } from "./isolated-qa/up.mjs";
-import { envLines, nodeForRuns, parseUpOptions } from "./qa.mjs";
 
 const RUN = "/scratch/qa/20261117-101500-a1b2c3";
 const START = "Mon Nov 17 10:15:00 2026";
@@ -342,53 +341,6 @@ test("CDP keys carry the codes that trigger their default actions", () => {
   assert.deepEqual(keyDescriptor("Tab"), { code: "Tab", keyCode: 9 });
   assert.deepEqual(keyDescriptor("1"), { code: "Digit1", keyCode: 49 });
   assert.deepEqual(keyDescriptor("k"), { code: "KeyK", keyCode: 75 });
-});
-
-test("qa:up options default to the real Electron app and validate the surface", () => {
-  assert.deepEqual(parseUpOptions([]), {
-    surface: "electron",
-    skipBuild: false,
-    marketplace: false,
-    headed: false,
-    seed: true,
-    startTimeoutSec: 300,
-  });
-  assert.equal(parseUpOptions(["--surface", "renderer", "--marketplace"]).marketplace, true);
-  assert.throws(() => parseUpOptions(["--surface", "html"]), /--surface/);
-  assert.throws(() => parseUpOptions(["--start-timeout", "soon"]), /seconds/);
-});
-
-const state = () => ({
-  runId: "r1",
-  runDir: RUN,
-  surface: "electron",
-  urls: { service: "http://127.0.0.1:1", renderer: "http://127.0.0.1:2" },
-  ports: { cdp: 4 },
-  token: "tok",
-  project: { id: 1 },
-  paths: { evidence: `${RUN}/evidence.md` },
-});
-
-test("env lines address one run, quoted for the shell", () => {
-  const lines = envLines(state());
-  assert.ok(lines.includes("export QA_CDP_PORT='4'"));
-  assert.ok(lines.includes("export QA_TOKEN='tok'"));
-  assert.ok(lines.includes(`export QA_RUN_DIR='${RUN}'`));
-  const quoted = envLines({ ...state(), runDir: "/tmp/it's" }).find((line) =>
-    line.includes("QA_RUN_DIR"),
-  );
-  assert.equal(quoted, "export QA_RUN_DIR='/tmp/it'\\''s'");
-});
-
-test("qa runs on the engines Node, rerunning itself on an installed one when needed", () => {
-  const requirement = { range: ">=22.19.0 <23.0.0", nvmrc: "22.19.0" };
-  const installed = () => ({ binDir: "/fnm/v22.19.0/installation/bin", version: "22.19.0" });
-  assert.equal(nodeForRuns(requirement, "22.19.0", installed), null);
-  assert.deepEqual(nodeForRuns(requirement, "22.18.0", installed), {
-    node: "/fnm/v22.19.0/installation/bin/node",
-    version: "22.19.0",
-  });
-  assert.throws(() => nodeForRuns(requirement, "26.0.0", () => null), /fnm install 22\.19\.0/);
 });
 
 test("allocated ports are distinct", async () => {

@@ -1,7 +1,7 @@
 // `pnpm qa:build`: the checks and builds a run needs, kept apart from starting
 // it so no start-up timeout can ever abandon a compilation in progress.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, constants } from "node:fs";
+import { constants, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fetchBuildEnv } from "../build-local.mjs";
 import { createCargoEnv } from "../cargo-env.mjs";
@@ -95,6 +95,18 @@ export function serviceBinary(repoRoot, { marketplace = false } = {}) {
   const target = cargoTarget(repoRoot);
   const dir = marketplace ? join(target, MARKETPLACE_TARGET) : target;
   return join(dir, "debug", `cadencr-service${exe}`);
+}
+
+/**
+ * The service binary a run will copy, or an error naming the build to run.
+ * Checked before a run directory exists, so `--skip-build` without a build
+ * leaves nothing behind.
+ */
+export function requireServiceBinary(repoRoot, { marketplace = false } = {}, exists = existsSync) {
+  const binary = serviceBinary(repoRoot, { marketplace });
+  if (exists(binary)) return binary;
+  const command = marketplace ? "pnpm qa:build --marketplace" : "pnpm qa:build";
+  throw new Error(`no service binary at ${binary}: run \`${command}\` first`);
 }
 
 /**
