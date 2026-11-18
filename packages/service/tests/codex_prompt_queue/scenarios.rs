@@ -10,6 +10,7 @@ fn requests(h: &Harness) -> Vec<Value> {
 
 pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     let (mut socket, session) = h.session(true).await;
+    let completion = ProviderGate::arm(&h.repo, "compact-turn-completion");
     send(
         &mut socket,
         "compact",
@@ -17,6 +18,7 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     )
     .await;
     until(&mut socket, "compact.started").await;
+    completion.wait().await;
     let message_uuid = uuid::Uuid::new_v4().to_string();
     let payload = json!({"session_id":session.to_string(),"text":"same logical request","message_uuid":message_uuid});
     send(&mut socket, "prompt.send", payload.clone()).await;
@@ -31,6 +33,7 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     .await
     .unwrap();
     assert_eq!(h.queue(session).await.len(), 2);
+    completion.release();
     h.wait_empty(session).await;
     h.wait_idle(session).await;
     send(&mut socket, "prompt.send", payload).await;
@@ -82,8 +85,7 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
                 .fetch_one(&h.pool)
                 .await
                 .unwrap();
-        let barrier = h.repo.join("pause-resume");
-        std::fs::write(&barrier, "").unwrap();
+        let resume = ProviderGate::arm(&h.repo, "resume-reply");
         if reject_resume {
             std::fs::write(h.repo.join("fail-resume-once"), "").unwrap();
         }
@@ -93,26 +95,16 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
             json!({"session_id":session.to_string()}),
         )
         .await;
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !requests(h)
-                .iter()
-                .any(|r| r["method"] == "thread/resume" && r["params"]["threadId"] == runtime_id)
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        resume.wait().await;
         let queued = tokio::time::timeout(
             Duration::from_secs(2),
             h.enqueue(session, "queued during initialization"),
         )
         .await;
-        // Release the subprocess even when acceptance unexpectedly blocked.
-        std::fs::remove_file(&barrier).unwrap();
         let queued =
             queued.expect("enqueue must not start another runtime while compaction initializes");
         assert_eq!(h.state(queued).await, "pending");
+        resume.release();
         h.wait_empty(session).await;
         h.wait_idle(session).await;
         let resume_count = requests(h)
@@ -127,30 +119,28 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
 
 pub(super) async fn completed_compaction_with_late_ack_drains_queue(h: &Harness) {
     let (mut socket, session) = h.session(true).await;
-    let runtime_id: String =
-        sqlx::query_scalar("SELECT runtime_session_id FROM agent_sessions WHERE id=?")
-            .bind(session)
-            .fetch_one(&h.pool)
-            .await
-            .unwrap();
-    std::fs::write(h.repo.join("slow-compact-ack"), "").unwrap();
+    let reply = ProviderGate::arm(&h.repo, "compact-reply");
+    let completion = ProviderGate::arm(&h.repo, "compact-turn-completion");
     send(
         &mut socket,
         "compact",
         json!({"session_id":session.to_string()}),
     )
     .await;
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !requests(h)
-            .iter()
-            .any(|r| r["method"] == "thread/compact/start" && r["params"]["threadId"] == runtime_id)
-        {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
+    reply.wait().await;
+    let queued = tokio::time::timeout(
+        Duration::from_secs(2),
+        h.enqueue(session, "after compact late ack"),
+    )
     .await
-    .unwrap();
-    let queued = h.enqueue(session, "after compact late ack").await;
+    .expect("enqueue must not wait for the provider's compaction reply");
+    assert_eq!(h.state(queued).await, "pending");
+    completion.wait().await;
+    completion.release();
+    let ended = until(&mut socket, "ended").await;
+    assert_eq!(ended["payload"]["reason"], "turn_complete");
+    assert_eq!(h.state(queued).await, "pending");
+    reply.release();
     h.wait_empty(session).await;
     assert_eq!(h.state(queued).await, "delivered");
     socket.close(None).await.unwrap();

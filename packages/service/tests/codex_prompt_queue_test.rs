@@ -1,11 +1,15 @@
 //! Replay queue/steering through HTTP, WS, the service, and a Codex subprocess.
 mod common;
+#[path = "common/provider_gate.rs"]
+mod provider_gate;
 #[path = "codex_prompt_queue/scenarios.rs"]
 mod scenarios;
 
 use cadencr_service::domain::ws_session::protocol::WsEnvelope;
+use cadencr_service::shared::app_paths;
 use common::TEST_AUTH_TOKEN;
 use futures::{SinkExt, StreamExt};
+use provider_gate::ProviderGate;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,6 +23,7 @@ struct Harness {
     client: reqwest::Client,
     pool: sqlx::SqlitePool,
     repo: PathBuf,
+    _tmp_dir: tempfile::TempDir,
 }
 impl Harness {
     async fn new() -> Self {
@@ -30,12 +35,12 @@ impl Harness {
             pool,
             tmp_dir,
         } = server;
-        eprintln!("Queue regression artifacts: {}", tmp_dir.keep().display());
         Self {
             base: base_url,
             client,
             pool,
             repo,
+            _tmp_dir: tmp_dir,
         }
     }
     async fn session(&self, resumed: bool) -> (Socket, i64) {
@@ -204,7 +209,9 @@ async fn until(socket: &mut Socket, action: &str) -> Value {
 
 #[tokio::test]
 async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
-    cadencr_service::domain::settings_store::init(tempfile::tempdir().unwrap().keep());
+    let data = tempfile::tempdir().unwrap();
+    app_paths::pin_roots(Some(data.path())).unwrap();
+    cadencr_service::domain::settings_store::init(app_paths::settings_dir().unwrap());
     codex_app_server_sdk_rs::set_binary_override(Some(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/fake_codex_queue.py")
@@ -218,6 +225,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
             prompt(&mut socket, session, "warmup").await;
             until(&mut socket, "ended").await;
         }
+        let completion = ProviderGate::arm(&h.repo, "compact-turn-completion");
         send(
             &mut socket,
             "compact",
@@ -225,6 +233,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         )
         .await;
         until(&mut socket, "compact.started").await;
+        completion.wait().await;
         let first = h.enqueue(session, "first queued").await;
         prompt(&mut socket, session, "steer during compact").await;
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -253,6 +262,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
             .await
             .unwrap();
         assert_eq!(status, "running");
+        completion.release();
         h.wait_empty(session).await;
         let messages = h.user_messages(session).await;
         assert!(
@@ -275,15 +285,21 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         socket.close(None).await.unwrap();
     }
     let (mut socket, session) = h.session(false).await;
+    let completion = ProviderGate::arm(&h.repo, "held-turn-completion");
     prompt(&mut socket, session, "hold").await;
     until(&mut socket, "user_message").await;
     // Wait for the fixture's first provider event, not just local persistence.
     until(&mut socket, "runtime_session_id").await;
+    completion.wait().await;
     let a = h.enqueue(session, "normal A").await;
     let b = h.enqueue(session, "normal B").await;
+    let steer = ProviderGate::arm(&h.repo, "steer-reply");
     prompt(&mut socket, session, "normal steer").await;
+    steer.wait().await;
     assert_eq!(h.state(a).await, "pending");
     assert_eq!(h.state(b).await, "pending");
+    steer.release();
+    completion.release();
     h.wait_empty(session).await;
     assert_eq!(
         h.user_messages(session).await,
@@ -350,10 +366,10 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         .contains("QUEUE_DELIVERY_REJECTED"));
 
     let (mut socket, running) = h.session(false).await;
-    // Unlike "hold" (1.5 s), this turn lasts until the test says so: the
-    // checks below must see it still running however slow the machine is.
-    prompt(&mut socket, running, "hold until released").await;
+    let completion = ProviderGate::arm(&h.repo, "held-turn-completion");
+    prompt(&mut socket, running, "hold").await;
     until(&mut socket, "runtime_session_id").await;
+    completion.wait().await;
     let rejected = h.enqueue(running, "reject").await;
     let response = h
         .client
@@ -375,7 +391,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
         status, "running",
         "a rejected steer must not stop the existing turn"
     );
-    std::fs::write(h.repo.join("release-hold"), "").unwrap();
+    completion.release();
     h.client
         .delete(format!(
             "{}/api/sessions/{running}/prompt-queue/{rejected}",

@@ -3,6 +3,9 @@
 //! Own test binary: the Codex binary override and `settings_store::init` are
 //! process-wide.
 
+#[path = "common/provider_gate.rs"]
+mod provider_gate;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -10,6 +13,8 @@ use cadencr_service::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeError, RuntimeMessageRx, RuntimeSpawnConfig,
 };
 use cadencr_service::domain::agents::providers::provider_registry;
+use cadencr_service::shared::app_paths;
+use provider_gate::ProviderGate;
 use serde_json::json;
 
 /// A Codex runtime whose first turn was sent `prompt`, with its stream.
@@ -78,8 +83,9 @@ fn requests(cwd: &Path) -> Vec<String> {
 fn use_fixture() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        let settings = tempfile::tempdir().unwrap().keep();
-        cadencr_service::domain::settings_store::init(settings);
+        let data = tempfile::tempdir().unwrap().keep();
+        app_paths::pin_roots(Some(&data)).unwrap();
+        cadencr_service::domain::settings_store::init(app_paths::settings_dir().unwrap());
         codex_app_server_sdk_rs::set_binary_override(Some(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/fake_codex_stop.py")
@@ -164,11 +170,15 @@ async fn a_stop_during_a_turn_start_stops_the_starting_turn() {
     let (session, mut stream) = codex(&cwd, "reply").await;
     wait_for_result(&mut stream).await;
 
-    let (started, stopped) =
-        tokio::join!(session.stream_input(json!("slow-start command")), async {
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            session.interrupt().await
-        });
+    let start_reply = ProviderGate::arm(&cwd, "turn-start-reply");
+    let (started, stopped) = tokio::join!(session.stream_input(json!("command")), async {
+        start_reply.wait().await;
+        let mut stop = std::pin::pin!(session.interrupt());
+        // Enter the real interrupt path while turn/start is still unanswered.
+        assert!(futures::poll!(stop.as_mut()).is_pending());
+        start_reply.release();
+        stop.await
+    });
 
     started.expect("the turn starts");
     stopped.expect("the starting turn is stopped");
