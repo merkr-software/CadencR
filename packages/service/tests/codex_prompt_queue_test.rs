@@ -406,18 +406,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
     h.wait_empty(running).await;
     assert_eq!(h.state(last).await, "delivered");
 
-    // Codex can complete a short turn before the delivery RPC returns.
-    // The next enqueue must still make progress, without another manual turn.
-    let (_socket, quick) = h.session(false).await;
-    let slow = h.enqueue(quick, "slow-ack");
-    let later = async {
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        h.enqueue(quick, "after slow ack").await
-    };
-    let (slow, later) = tokio::join!(slow, later);
-    h.wait_empty(quick).await;
-    assert_eq!(h.state(slow).await, "delivered");
-    assert_eq!(h.state(later).await, "delivered");
+    scenarios::completed_turn_with_late_ack_drains_queue(&h).await;
     scenarios::deferred_retransmissions_run_once(&h).await;
     scenarios::queue_waits_for_compaction_initialization(&h).await;
     scenarios::completed_compaction_with_late_ack_drains_queue(&h).await;

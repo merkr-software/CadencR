@@ -47,6 +47,12 @@ def finish(turn_id, text, delay):
     notify('turn/completed', threadId=root, turn={'id': turn_id, 'status': 'completed', 'items': []})
 
 
+def finish_before_reply(turn_id, text, reply):
+    finish(turn_id, text, 0)
+    pause_at('turn-start-reply')
+    emit(reply)
+
+
 for line in sys.stdin:
     msg = json.loads(line)
     if 'id' not in msg:
@@ -98,10 +104,13 @@ for line in sys.stdin:
         else:
             notify('item/completed', threadId=root, turnId=turn, item={'type': 'userMessage', 'id': str(uuid.uuid4()),
                    'clientUserMessageId': params.get('clientUserMessageId'), 'content': [{'type': 'text', 'text': text}]})
+        if method == 'turn/start' and text == 'slow-ack':
+            # Keep reading requests while the turn/start reply is held.
+            reply = {'id': msg['id'], 'result': result}
+            threading.Thread(target=finish_before_reply, args=(turn, text, reply), daemon=True).start()
+            continue
         if method != 'turn/steer':
             threading.Thread(target=finish, args=(turn, text, 0.15), daemon=True).start()
-        if text == 'slow-ack':
-            time.sleep(0.4)
         if method == 'thread/compact/start':
             pause_at('compact-reply')
         elif method == 'turn/steer':

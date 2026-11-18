@@ -8,6 +8,40 @@ fn requests(h: &Harness) -> Vec<Value> {
         .collect()
 }
 
+pub(super) async fn completed_turn_with_late_ack_drains_queue(h: &Harness) {
+    let (mut socket, session) = h.session(false).await;
+    // The first turn's reply is required before the service starts reading
+    // the runtime's stream. Warm up so it can process the next turn's events.
+    prompt(&mut socket, session, "warmup").await;
+    until(&mut socket, "ended").await;
+    until(&mut socket, "mcp_servers").await;
+
+    let reply = ProviderGate::arm(&h.repo, "turn-start-reply");
+    let (slow, later) = tokio::join!(h.enqueue(session, "slow-ack"), async {
+        reply.wait().await;
+        let ended = until(&mut socket, "ended").await;
+        assert_eq!(ended["payload"]["reason"], "turn_complete");
+        // The post-turn MCP refresh follows the completion-triggered drain.
+        until(&mut socket, "mcp_servers").await;
+        let later =
+            tokio::time::timeout(Duration::from_secs(2), h.enqueue(session, "after slow ack"))
+                .await
+                .expect("enqueue must return while the previous delivery is unacknowledged");
+        let queue = h.queue(session).await;
+        assert_eq!(queue.len(), 2, "{queue:?}");
+        assert_eq!(queue[0]["content"], "slow-ack");
+        assert_eq!(queue[0]["status"], "delivering");
+        assert_eq!(queue[1]["id"], later);
+        assert_eq!(queue[1]["status"], "pending");
+        reply.release();
+        later
+    });
+    h.wait_empty(session).await;
+    assert_eq!(h.state(slow).await, "delivered");
+    assert_eq!(h.state(later).await, "delivered");
+    socket.close(None).await.unwrap();
+}
+
 pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     let (mut socket, session) = h.session(true).await;
     let completion = ProviderGate::arm(&h.repo, "compact-turn-completion");
