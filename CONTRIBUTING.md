@@ -465,6 +465,26 @@ The hook prints the value it uses and passes it to every step, Turbo's
 included. Set `RUST_TEST_THREADS` yourself, or pass `--test-threads`, to
 override it.
 
+### Intermittent test failures
+
+1. Record the tested SHA (`git rev-parse HEAD`), any local changes, the test
+   name, and the exact failing command and suite or CI shard. Include the OS,
+   toolchain and relevant environment, such as the effective `RUST_TEST_THREADS`
+   and concurrent load. Save the failure output or CI run link in the PR test
+   plan or existing issue, and link the issue from the PR when one exists.
+2. Rerun the original suite with the same SHA and local changes under comparable
+   conditions. If an isolated run helps narrow the cause, record its command and
+   result separately from the suite rerun. An isolated pass only establishes
+   that the test can pass on its own. A failure and a pass in comparable suite
+   runs support classifying the failure as intermittent. Keep the classification
+   open if the evidence is unclear.
+3. Fix the cause and keep the test in the suite. Rerun the affected suite under
+   the conditions that exposed the failure, and record the fixed SHA, command
+   and results alongside the original evidence. Mark the classification fixed
+   when the change addresses the observed cause and the affected suite passes
+   under comparable conditions. Link the fix in the existing issue, if any, and
+   follow the [issue lifecycle](#issue-lifecycle).
+
 ### Disk space
 
 Steps that compile the Rust workspace or run every suite (Rust clippy and
