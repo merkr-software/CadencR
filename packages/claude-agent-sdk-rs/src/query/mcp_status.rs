@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -6,6 +7,7 @@ use crate::error::SdkError;
 use crate::types::McpServerStatus;
 
 use super::query_struct::Query;
+use super::wire::CONTROL_REQUEST_TIMEOUT;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,7 +15,6 @@ struct McpStatusResponse {
     mcp_servers: Vec<McpServerStatus>,
 }
 
-const BOOT_MCP_STATUS_TIMEOUT: Duration = Duration::from_millis(500);
 const REFRESH_MCP_STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 
 impl Query {
@@ -23,7 +24,7 @@ impl Query {
     /// `mcpServerStatus()` method and uses the CLI control subtype
     /// `mcp_status`, which returns `{ "mcpServers": [...] }`.
     pub async fn mcp_server_status(&self) -> Result<Vec<McpServerStatus>, SdkError> {
-        self.mcp_server_status_with_timeout(super::wire::CONTROL_REQUEST_TIMEOUT)
+        self.mcp_server_status_with_timeout(CONTROL_REQUEST_TIMEOUT)
             .await
     }
 
@@ -36,30 +37,54 @@ impl Query {
         Ok(servers)
     }
 
+    /// Ask for the live MCP status before the first prompt, without waiting
+    /// for the answer. The CLI handles its stdin in order, so the reply only
+    /// comes once it has answered `initialize`, i.e. after its whole startup
+    /// (plugins, hooks, MCP config): waiting for it held the first prompt for
+    /// that long, and a short timeout expired on every spawn. The reply fills
+    /// the cache when it lands, unless the session's `init` already reported
+    /// statuses.
     pub(super) async fn preload_mcp_server_status(&self) {
-        match self
-            .mcp_server_status_with_timeout(BOOT_MCP_STATUS_TIMEOUT)
+        let (request_id, response) = match self
+            .start_control_request(serde_json::json!({ "subtype": "mcp_status" }))
             .await
         {
-            Ok(servers) => {
-                let server_names = servers
-                    .iter()
-                    .map(|server| format!("{}:{}", server.name, server.status))
-                    .collect::<Vec<_>>();
-                info!(
-                    mcp_count = server_names.len(),
-                    mcp_servers = ?server_names,
-                    "claude mcp: pre-prompt mcp_status response received"
-                );
-                *self.mcp_servers.lock().await = servers;
-            }
+            Ok(started) => started,
             Err(error) => {
                 warn!(
                     ?error,
-                    "failed to preload Claude MCP status before first prompt"
+                    "claude mcp: could not request the pre-prompt MCP status"
                 );
+                return;
             }
-        }
+        };
+        let cache = Arc::clone(&self.mcp_servers);
+        let pending = Arc::clone(&self.pending_control);
+        tokio::spawn(async move {
+            let servers = match tokio::time::timeout(CONTROL_REQUEST_TIMEOUT, response).await {
+                Ok(Ok(outcome)) => outcome.and_then(parse_mcp_status),
+                // The query was dropped with the request still pending.
+                Ok(Err(_closed)) => return,
+                Err(_elapsed) => {
+                    // The reader keeps unanswered entries for the query's life.
+                    pending.lock().await.remove(&request_id);
+                    Err(SdkError::Timeout)
+                }
+            };
+            match servers {
+                Ok(servers) => {
+                    let mut cached = cache.lock().await;
+                    if cached.is_empty() {
+                        info!(
+                            mcp_count = servers.len(),
+                            "claude mcp: pre-prompt mcp_status response received"
+                        );
+                        *cached = servers;
+                    }
+                }
+                Err(error) => warn!(?error, "claude mcp: pre-prompt mcp_status failed"),
+            }
+        });
     }
 
     async fn mcp_server_status_with_timeout(
@@ -79,10 +104,14 @@ impl Query {
             )
             .await?;
         debug!(response = ?response, "claude mcp: raw mcp_status response");
-        let parsed: McpStatusResponse =
-            serde_json::from_value(response).map_err(SdkError::SerializationError)?;
-        Ok(parsed.mcp_servers)
+        parse_mcp_status(response)
     }
+}
+
+fn parse_mcp_status(response: serde_json::Value) -> Result<Vec<McpServerStatus>, SdkError> {
+    serde_json::from_value::<McpStatusResponse>(response)
+        .map(|parsed| parsed.mcp_servers)
+        .map_err(SdkError::SerializationError)
 }
 
 #[cfg(test)]
@@ -161,6 +190,51 @@ mod tests {
         assert_eq!(cached[0].status, "connected");
         q.close().await;
         assert_mcp_status_request_was_sent(&captured_path);
+    }
+
+    /// A CLI still starting up answers the pre-prompt `mcp_status` only once
+    /// it gets to it; the first prompt must not wait for that, and the late
+    /// answer must still fill the cache.
+    #[tokio::test]
+    async fn the_pre_prompt_status_neither_holds_the_prompt_nor_drops_a_late_reply() {
+        let dir = TempDir::new().unwrap();
+        let script = r#"#!/bin/sh
+set -e
+read -r INIT_REQ
+INIT_ID=$(printf '%s' "$INIT_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{}}}\n' "$INIT_ID"
+read -r MCP_REQ
+read -r USER_PROMPT
+MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"mcpServers":[{"name":"late-server","status":"pending"}]}}}\n' "$MCP_ID"
+echo '{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_late","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}'
+read -r DUMMY
+"#;
+        let script_path = write_mock_cli(dir.path(), script);
+        let options = Options {
+            path_to_cli: Some(script_path),
+            mcp_servers: Some(mock_mcp_servers()),
+            ..Options::default()
+        };
+
+        let mut q = query(serde_json::Value::String("test".into()), options)
+            .await
+            .unwrap();
+        q.next().await.expect("init message").unwrap();
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let servers = q.available_mcp_servers().await.unwrap();
+            if servers.iter().any(|server| server.name == "late-server") {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "late mcp_status reply never reached the cache: {servers:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        q.close().await;
     }
 
     fn live_mcp_status_script(path: &std::path::Path) -> String {

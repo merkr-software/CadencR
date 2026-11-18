@@ -5,7 +5,11 @@
  * renderer CSP (`font-src 'self'`) blocks — so hand-drawn text silently fell
  * back to a system font. We serve the fonts at `<renderer-root>/fonts/...`
  * instead (dev: a Vite middleware; packaged: copied into the build output by
- * the `cadencr-excalidraw-fonts` plugin in `electron.vite.config.ts`).
+ * the `cadencr-static-asset-dirs` plugin in `electron.vite.config.ts`).
+ * Upstream still appends the CDN to every font's `src` after this base, and
+ * Chromium checks every source against the CSP when the FontFace is built;
+ * `electron/excalidraw-font-fallback.ts` drops it at bundle time while a base
+ * is set.
  *
  * The app uses a hash router, so `location.pathname` never changes and the
  * document directory is a stable base in both the dev server (`http://…/`) and

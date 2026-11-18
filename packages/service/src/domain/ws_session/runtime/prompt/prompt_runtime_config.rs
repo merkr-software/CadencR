@@ -317,6 +317,7 @@ mod tests {
             hold.observe(
                 &RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
                     .with_background_task_count(Some(live)),
+                false,
             );
             let registration = register(db_session_id, &Arc::downgrade(query), &hold);
             (handle, registration)
