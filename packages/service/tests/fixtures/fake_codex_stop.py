@@ -2,20 +2,22 @@
 """Codex app-server fixture for Stop, as Codex 0.167 behaves. No model or user files.
 
 A turn whose prompt holds `command` starts a command and keeps running; any
-other prompt ends its turn at once. `slow-start` delays the `turn/start` reply;
-after a `broken-interrupt` turn, `turn/interrupt` fails with an internal error. `turn/interrupt` ends a running turn but leaves
+other prompt ends its turn at once. The `turn-start-reply` checkpoint can hold
+a `turn/start` reply. After a `broken-interrupt` turn, `turn/interrupt` fails
+with an internal error. `turn/interrupt` ends a running turn but leaves
 its command running (a background terminal), and is refused once the turn has
 ended. Every request is appended to `requests.log` in the working directory.
 """
 import json
 import pathlib
+import runpy
 import sys
-import time
 
 if "--version" in sys.argv:
     print("codex-cli 0.167.1")
     sys.exit(0)
 
+pause_at = runpy.run_path(str(pathlib.Path(__file__).with_name("provider_gate.py")))["pause_at"]
 log = pathlib.Path("requests.log")
 root = "root-thread"
 running = None
@@ -99,8 +101,7 @@ for line in sys.stdin:
     if method == "turn/start":
         prompt = " ".join(i.get("text", "") for i in params.get("input", []))
         broken_interrupt = "broken-interrupt" in prompt
-        if "slow-start" in prompt:
-            time.sleep(0.5)
+        pause_at("turn-start-reply")
         turn_id = f"turn-{generation + 1}"
         emit({"id": msg["id"], "result": {"turn": {"id": turn_id}}})
         start_turn(prompt)

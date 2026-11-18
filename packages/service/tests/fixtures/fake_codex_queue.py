@@ -2,6 +2,8 @@
 """Codex queue/compaction contract fixture, without a model or user files."""
 import json
 import os
+from pathlib import Path
+import runpy
 import sys
 import threading
 import time
@@ -10,6 +12,8 @@ import uuid
 if '--version' in sys.argv:
     print('codex-cli 0.154.0')
     sys.exit()
+
+pause_at = runpy.run_path(str(Path(__file__).with_name('provider_gate.py')))['pause_at']
 lock = threading.Lock()
 root = str(uuid.uuid4())
 turn = None
@@ -29,16 +33,13 @@ def notify(method, **params):
 def finish(turn_id, text, delay):
     global turn, compacting
     time.sleep(delay)
-    if text == 'hold until released':
-        # Ends when the test creates the file; the cap only frees an abandoned fixture.
-        deadline = time.time() + 120
-        while not os.path.exists('release-hold') and time.time() < deadline:
-            time.sleep(0.01)
     if text == 'compact':
         notify('item/completed', threadId=root, turnId=turn_id,
                item={'type': 'contextCompaction', 'id': turn_id + '-item'})
-        time.sleep(0.1)  # The item finishes before the turn releases its writer.
+        pause_at('compact-turn-completion')
     else:
+        if text == 'hold':
+            pause_at('held-turn-completion')
         notify('item/agentMessage/delta', threadId=root, itemId=turn_id + '-reply', delta='DONE ' + text)
     if turn == turn_id:
         turn = None
@@ -63,8 +64,7 @@ for line in sys.stdin:
                             'supportedReasoningEfforts': [], 'defaultReasoningEffort': 'low'}], 'nextCursor': None}
     elif method in ('thread/start', 'thread/resume'):
         if method == 'thread/resume':
-            while os.path.exists('pause-resume'):
-                time.sleep(0.01)
+            pause_at('resume-reply')
             if os.path.exists('fail-resume-once'):
                 os.remove('fail-resume-once')
                 emit({'id': msg['id'], 'error': {'code': -32600, 'message': 'RESUME_REJECTED'}})
@@ -99,12 +99,13 @@ for line in sys.stdin:
             notify('item/completed', threadId=root, turnId=turn, item={'type': 'userMessage', 'id': str(uuid.uuid4()),
                    'clientUserMessageId': params.get('clientUserMessageId'), 'content': [{'type': 'text', 'text': text}]})
         if method != 'turn/steer':
-            threading.Thread(target=finish, args=(turn, text, 1.5 if text in ('compact', 'hold') else 0.15), daemon=True).start()
+            threading.Thread(target=finish, args=(turn, text, 0.15), daemon=True).start()
         if text == 'slow-ack':
             time.sleep(0.4)
-        if compacting and os.path.exists('slow-compact-ack'):
-            os.remove('slow-compact-ack')
-            time.sleep(2.0)
+        if method == 'thread/compact/start':
+            pause_at('compact-reply')
+        elif method == 'turn/steer':
+            pause_at('steer-reply')
     elif method == 'turn/interrupt':
         if turn:
             threading.Thread(target=finish, args=(turn, 'interrupted', 0), daemon=True).start()
