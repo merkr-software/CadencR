@@ -66,23 +66,6 @@ async fn seed_armed_reply_wait(app_state: &AppState, responder_session_id: i64) 
     .unwrap();
 }
 
-fn message_start() -> RuntimeEvent {
-    RuntimeEvent::new(
-        RuntimeEventMetadata {
-            session_id: Some("cli".into()),
-            raw: serde_json::json!({ "type": "stream_event" }),
-            ..RuntimeEventMetadata::default()
-        },
-        RuntimeEventKind::StreamEvent {
-            event: crate::domain::agents::adapter::RuntimeStreamEvent::MessageStart {
-                model: Some("claude-sonnet".into()),
-                input_tokens: None,
-            },
-            parent_tool_use_id: None,
-        },
-    )
-}
-
 fn interrupted_error_result() -> RuntimeEvent {
     RuntimeEvent::new(
         RuntimeEventMetadata {
@@ -202,7 +185,10 @@ async fn intentional_stop_with_stream_close_is_benign_and_keeps_parent_wait_arme
     setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
 
     let (msg_tx, msg_rx) = mpsc::channel(1);
-    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Ok(message_start("claude-sonnet")))
+        .await
+        .unwrap();
     drop(msg_tx);
     spawn_test_stream_reader(
         &app_state,
@@ -231,7 +217,10 @@ async fn a_stop_that_had_to_kill_the_runtime_is_shown() {
     setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
 
     let (msg_tx, msg_rx) = mpsc::channel(2);
-    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Ok(message_start("claude-sonnet")))
+        .await
+        .unwrap();
     msg_tx
         .send(Err(RuntimeError::stop_escalated(
             "The agent did not stop within 15s after Stop; its process was terminated.",
@@ -439,7 +428,10 @@ async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
     )
     .await;
     let (msg_tx, msg_rx) = mpsc::channel(2);
-    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Ok(message_start("claude-sonnet")))
+        .await
+        .unwrap();
     msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
     spawn_test_stream_reader(
         &app_state,

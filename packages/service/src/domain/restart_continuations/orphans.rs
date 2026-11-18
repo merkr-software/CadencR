@@ -248,17 +248,11 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn reap_stops_a_recorded_survivor_and_spares_a_reused_pid() {
+        use crate::shared::{process_group::wait_bounded, test_processes::sleeping_child_command};
+
         let (pool, _, _) = crate::domain::schedules::repository::test_support::fixture().await;
-        let mut survivor = tokio::process::Command::new("sleep")
-            .arg("30")
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
-        let mut bystander = tokio::process::Command::new("sleep")
-            .arg("30")
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
+        let mut survivor = sleeping_child_command().spawn().unwrap();
+        let mut bystander = sleeping_child_command().spawn().unwrap();
         let survivor_pid = survivor.id().unwrap();
         let bystander_pid = bystander.id().unwrap();
         let identity = process_identity(survivor_pid).await.unwrap();
@@ -272,10 +266,9 @@ mod tests {
 
         assert_eq!(reap(&pool).await.unwrap(), 1);
 
-        let status = tokio::time::timeout(Duration::from_secs(5), survivor.wait())
+        let status = wait_bounded(&mut survivor, Duration::from_secs(5))
             .await
-            .unwrap()
-            .unwrap();
+            .expect("the recorded survivor must exit");
         assert!(!status.success());
         assert!(
             bystander.try_wait().unwrap().is_none(),
