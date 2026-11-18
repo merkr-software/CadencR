@@ -39,11 +39,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         _cwd: &Path,
         overrides: &RuntimeConfigOverrides,
     ) -> Result<RuntimeEffectiveConfig, RuntimeError> {
-        Ok(RuntimeEffectiveConfig {
-            model: overrides.model.clone(),
-            thinking_effort: overrides.thinking_effort.clone(),
-            fast_mode: overrides.fast_mode.unwrap_or(false),
-        })
+        Ok(super::adapter_defaults::effective_config(overrides))
     }
     /// Public, secret-free profile metadata for generic selection surfaces.
     async fn profile_catalog(
@@ -228,9 +224,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         runtime_event: &RuntimeEvent,
         _active_model: Option<&str>,
     ) -> Option<u64> {
-        runtime_event
-            .context_window()
-            .or_else(|| runtime_event.init().and_then(|init| init.context_window))
+        super::adapter_defaults::context_window_for_event(runtime_event)
     }
 
     /// Called once at startup for background warmup (e.g. starting sidecar processes).
@@ -297,9 +291,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         &self,
         _cwd: &str,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-        Err(RuntimeError::new(
-            "runtime slash command refresh is not supported by this provider",
-        ))
+        Err(super::adapter_defaults::slash_command_refresh_unsupported())
     }
 
     fn compaction_strategy(&self) -> Option<RuntimeCompactionStrategy> {
@@ -388,11 +380,9 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     /// ended, `None` while it runs. Adapters whose drain loop can outrun
     /// streamed text override it so callers recover from that race.
     async fn session_finished_text(&self, runtime_session_id: &str) -> Option<String> {
-        if self.session_finished(runtime_session_id).await {
-            Some(String::new())
-        } else {
-            None
-        }
+        self.session_finished(runtime_session_id)
+            .await
+            .then(String::new)
     }
 
     async fn spawn(
@@ -408,7 +398,7 @@ mod tests {
     use serde_json::json;
     use tokio::sync::RwLock;
 
-    use super::super::config::RuntimeSpawnConfig;
+    use super::super::config::{RuntimeConfigOverrides, RuntimeSpawnConfig};
     use super::super::error::RuntimeError;
     use super::super::permission::RuntimePermissionResponseRoute;
     use super::super::session::test_support::DummySession;
@@ -469,6 +459,20 @@ mod tests {
             adapter.user_shell_strategy(),
             RuntimeUserShellStrategy::Unsupported
         );
+        let overrides = RuntimeConfigOverrides {
+            model: Some("m".into()),
+            thinking_effort: Some("high".into()),
+            ..Default::default()
+        };
+        let effective = adapter
+            .resolve_profile_effective_config(None, std::path::Path::new("/"), &overrides)
+            .await
+            .unwrap();
+        assert_eq!(effective.model.as_deref(), Some("m"));
+        assert_eq!(effective.thinking_effort.as_deref(), Some("high"));
+        assert!(!effective.fast_mode, "fast mode is off unless overridden");
+        let refresh = adapter.refresh_runtime_slash_commands("/").await;
+        assert!(refresh.unwrap_err().to_string().contains("not supported"));
 
         let spawned = adapter
             .spawn(serde_json::Value::Null, RuntimeSpawnConfig::default())
