@@ -60,7 +60,7 @@ pub(crate) fn process_group_alive(pid: u32) -> bool {
 pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        macos_signal::cleanup_after_exit(pid).await
+        macos_signal::kill_after_leader_exit(pid)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -83,10 +83,7 @@ pub(crate) async fn terminate_process_group(
     match tokio::time::timeout(grace, child.wait()).await {
         Ok(status) => {
             let status = status?;
-            #[cfg(target_os = "macos")]
-            macos_signal::kill_after_leader_exit(pid, grace).await?;
-            #[cfg(not(target_os = "macos"))]
-            signal_process_group(pid, libc::SIGKILL)?;
+            kill_group_after_leader_exit(pid).await?;
             Ok(status)
         }
         Err(_) => {

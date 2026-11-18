@@ -245,7 +245,8 @@ mod tests {
         let error = capture_provider_command(command, true, std::time::Duration::from_secs(1))
             .await
             .expect_err("managed discovery helper must time out");
-        assert!(error.to_string().contains("timed out"), "{error}");
+        // Not "could not terminate timed-out …": the tree was terminated.
+        assert!(error.to_string().contains("timed out after"), "{error}");
         let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
             .expect("helper should publish descendant pid")
             .parse()
