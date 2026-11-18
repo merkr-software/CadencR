@@ -20,6 +20,10 @@ import {
 } from "./electron/bundle-contract";
 import { macNativeAddonPlugin } from "./electron/mac-native-addon";
 import { devServiceProxy } from "./electron/dev-service-proxy";
+import {
+  excalidrawFontFallbackEsbuildPlugin,
+  excalidrawFontFallbackVitePlugin,
+} from "./electron/excalidraw-font-fallback";
 import { rendererBuildInfo } from "./electron/renderer-build-info";
 import pkg from "./package.json" with { type: "json" };
 
@@ -251,6 +255,9 @@ export default defineConfig(({ mode }) => {
       // moves the module and breaks those paths (production builds are fine).
       optimizeDeps: {
         exclude: ["@silurus/ooxml"],
+        // Dev serves Excalidraw from this pre-bundle, which Rollup plugins skip.
+        // Vite 6's optimizer runs esbuild; a Rolldown-based Vite needs this moved.
+        esbuildOptions: { plugins: [excalidrawFontFallbackEsbuildPlugin()] },
       },
       plugins: [
         rendererDiagnostics.plugin,
@@ -259,6 +266,7 @@ export default defineConfig(({ mode }) => {
         react(),
         tailwindcss(),
         staticAssetDirsPlugin(STATIC_ASSET_DIRS),
+        excalidrawFontFallbackVitePlugin(),
         cspMetaPlugin(mode === "production", development),
         TanStackRouterVite({
           routesDirectory: "src/routes",
