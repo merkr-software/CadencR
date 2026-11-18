@@ -15,7 +15,7 @@ import {
   shellQuote,
   writeState,
 } from "./isolated-qa/run.mjs";
-import { envLines, nodeForRuns, parseUpOptions } from "./qa.mjs";
+import { announcesNodeSwitch, envLines, nodeForRuns, parseUpOptions } from "./qa.mjs";
 
 // The `pnpm qa` command line: options, shell output, Node choice, run lookup.
 const RUN = "/scratch/qa/20261117-101500-a1b2c3";
@@ -65,6 +65,14 @@ test("qa runs on the engines Node, rerunning itself on an installed one when nee
     version: "22.19.0",
   });
   assert.throws(() => nodeForRuns(requirement, "26.0.0", () => null), /fnm install 22\.19\.0/);
+});
+
+test("only the commands that start a run say qa switched Node", () => {
+  assert.ok(announcesNodeSwitch("up"));
+  assert.ok(announcesNodeSwitch("build"));
+  for (const command of ["env", "status", "list", "cdp", "down", undefined]) {
+    assert.equal(announcesNodeSwitch(command), false, String(command));
+  }
 });
 
 test("every command finds runs under a root reached through a symlink", async () => {

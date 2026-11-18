@@ -50,6 +50,15 @@ pub async fn start_time(pid: u32) -> Option<String> {
     }
 }
 
+/// Whether a process that has not exited is still in the group `pgid`
+/// (macOS). `proc_listpgrppids` still lists a member that exited and awaits
+/// reaping, which `proc_pidinfo` then reports as gone: such a member is
+/// dead, as is one a reused pid moved out of the group since the listing.
+#[cfg(target_os = "macos")]
+pub(crate) fn group_has_live_member(pgid: i32) -> io::Result<bool> {
+    platform::group_has_live_member(pgid)
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use std::collections::HashMap;
@@ -83,6 +92,39 @@ mod platform {
         ))
     }
 
+    pub(super) fn group_has_live_member(pgid: i32) -> io::Result<bool> {
+        for pid in group_pids(pgid)? {
+            let info: Option<libc::proc_bsdshortinfo> =
+                read_pid_info(pid, libc::PROC_PIDT_SHORTBSDINFO)?;
+            let live_member = info.is_some_and(|info| {
+                i32::try_from(info.pbsi_pgid) == Ok(pgid) && info.pbsi_status != libc::SZOMB
+            });
+            if live_member {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Every pid in the group `pgid`, members that exited unreaped included.
+    fn group_pids(pgid: i32) -> io::Result<Vec<i32>> {
+        let mut capacity = 64;
+        loop {
+            let mut pids = vec![0 as libc::pid_t; capacity];
+            let bytes = libc::c_int::try_from(capacity * size_of::<libc::pid_t>())
+                .map_err(io::Error::other)?;
+            // SAFETY: the buffer holds `bytes` bytes of pids.
+            let count = unsafe { libc::proc_listpgrppids(pgid, pids.as_mut_ptr().cast(), bytes) };
+            let count = usize::try_from(count).map_err(|_| io::Error::last_os_error())?;
+            // A full buffer may have missed members: read again, larger.
+            if count < capacity {
+                pids.truncate(count);
+                return Ok(pids);
+            }
+            capacity *= 2;
+        }
+    }
+
     fn all_pids() -> io::Result<Vec<i32>> {
         loop {
             // SAFETY: a null buffer only asks for the table's size.
@@ -107,14 +149,30 @@ mod platform {
     /// One `proc_pidinfo` flavor, `None` when the process is gone or the
     /// flavor is refused for it.
     fn pid_info<T: Copy>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
-        let size = libc::c_int::try_from(size_of::<T>()).ok()?;
+        read_pid_info(pid, flavor).ok().flatten()
+    }
+
+    /// One `proc_pidinfo` flavor, `None` only when the process is gone
+    /// (ESRCH, which an exited, unreaped process answers too).
+    fn read_pid_info<T: Copy>(pid: libc::c_int, flavor: libc::c_int) -> io::Result<Option<T>> {
+        let size = libc::c_int::try_from(size_of::<T>()).map_err(io::Error::other)?;
         // SAFETY: the proc_* info structs are plain integers, valid zeroed.
         let mut info: T = unsafe { std::mem::zeroed() };
         // SAFETY: `info` is `size` writable bytes.
         let written = unsafe {
             libc::proc_pidinfo(pid, flavor, 0, std::ptr::from_mut(&mut info).cast(), size)
         };
-        (written == size).then_some(info)
+        if written == size {
+            return Ok(Some(info));
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::ESRCH) => Ok(None),
+            _ if written > 0 => Err(io::Error::other(format!(
+                "proc_pidinfo wrote {written} of {size} bytes for pid {pid}"
+            ))),
+            _ => Err(error),
+        }
     }
 }
 

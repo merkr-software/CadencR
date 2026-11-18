@@ -174,12 +174,23 @@ export function nodeForRuns(requirement, current, findInstalled = findInstalledN
   );
 }
 
+/**
+ * Whether `command` says it switched Node: only the commands that start
+ * children on it (`build`, `up`), so once per run. `env`, `status` or `cdp`,
+ * run many times against a run, switch silently.
+ */
+export function announcesNodeSwitch(command) {
+  return command === "build" || command === "up";
+}
+
 function runOnQualifyingNode(args) {
   const other = nodeForRuns(nodeRequirement(repoRoot), process.versions.node);
   if (!other) return false;
-  console.error(
-    `qa: running on node ${other.version} (${process.versions.node} is outside engines.node)`,
-  );
+  if (announcesNodeSwitch(args[0])) {
+    console.error(
+      `qa: running on node ${other.version} (${process.versions.node} is outside engines.node)`,
+    );
+  }
   const result = spawnSync(other.node, [scriptPath, ...args], { stdio: "inherit" });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;

@@ -1,10 +1,17 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AxiosError, AxiosHeaders } from "axios";
 import { render, screen } from "@/test-utils";
 import { createTestQueryClient } from "@/test-utils";
 import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { SidebarPendingRequestLine } from "./SidebarPendingRequestLine";
+
+const getPendingGate = vi.hoisted(() => vi.fn());
+vi.mock("@/api/generated", async () => ({
+  ...(await vi.importActual<typeof import("@/api/generated")>("@/api/generated")),
+  getPendingGate,
+}));
 
 function clientWithGate() {
   const client = createTestQueryClient();
@@ -56,6 +63,24 @@ describe("SidebarPendingRequestLine", () => {
       "data-feature-pending-request",
       "empty",
     );
+  });
+
+  it("waits, not fails, while the service has no open gate for the row", async () => {
+    // A restart cleared the gate; the resumed turn raises it a few seconds later.
+    const config = { headers: new AxiosHeaders() };
+    getPendingGate.mockRejectedValueOnce(
+      new AxiosError("Request failed with status code 404", "ERR_BAD_REQUEST", config, null, {
+        data: { error: "feature 1 has no pending gate", code: "NOT_FOUND" },
+        status: 404,
+        statusText: "",
+        headers: {},
+        config,
+      }),
+    );
+    const queryClient = createTestQueryClient();
+    render(<SidebarPendingRequestLine attention={WAITING} fillsLine />, { queryClient });
+    expect(await screen.findByText("Waiting for you")).toBeInTheDocument();
+    expect(screen.queryByText("Request details unavailable")).not.toBeInTheDocument();
   });
 
   it("stays out when the row element is switched off", () => {

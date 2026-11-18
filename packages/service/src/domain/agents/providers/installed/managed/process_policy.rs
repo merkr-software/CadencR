@@ -519,7 +519,11 @@ mod tests {
             if unsafe { libc::kill(pid, 0) } != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
             {
-                assert_eq!(error.code, ManagedProcessPolicyErrorCode::ProcessTimedOut);
+                assert_eq!(
+                    error.code,
+                    ManagedProcessPolicyErrorCode::ProcessTimedOut,
+                    "{error}"
+                );
                 return;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;

@@ -15,10 +15,29 @@
 #                     copied to packages/desktop/dist-electron/linux-<arch>/
 #   smoke             scripts/smoke-linux-packages.sh on those packages
 #   e2e               headless launch of the packaged DEB and AppImage
+#   volume            print this checkout's source volume
+#   clean             remove this checkout's source volume (tree, node_modules,
+#                     Cargo target), under its current or its pre-label name;
+#                     the next run starts from a cold build
+#   prune [--dry-run] remove this repository's worktree volumes whose
+#                     worktree git no longer knows (a removed worktree cannot
+#                     `clean` its own); lists them first, `--dry-run` only lists.
+#                     Volumes from before repository labels are only listed,
+#                     with the command that removes them
 #
 # The working tree (tracked + untracked, minus ignored files) is synced into a
 # Docker volume on every run; node_modules and Cargo artifacts stay in that
-# volume, never mixing with the host's macOS builds.
+# volume, never mixing with the host's macOS builds. Like `pnpm rust` keeps a
+# Cargo target per worktree, each checkout gets its own source volume: the main
+# checkout `cadencr-linux-src-<arch>`, a linked worktree
+# `cadencr-linux-src-<arch>-w<repository checksum>-<dir>-<path checksum>`, so
+# two branches never overwrite each other's tree or build. Download caches
+# (Cargo registry, pnpm store, Electron) stay in one shared volume. A volume
+# this script creates is labelled with its checkout's path and its repository
+# (the shared git directory), which is how `prune` finds this repository's
+# orphans and never touches another's.
+#   CADENCR_LINUX_SRC_VOLUME=name
+#                                 use that source volume instead
 #   CADENCR_LINUX_ARCH=x64|arm64  defaults to the Docker host arch (x64 on
 #                                 Apple Silicon runs emulated and slowly)
 #   CADENCR_LINUX_JOBS=N          Cargo parallelism (default 3; the service
@@ -30,18 +49,72 @@ fail() {
   exit 1
 }
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-command -v docker > /dev/null || fail "docker is required"
+usage="usage: $0 shell|rust-test|clippy|vitest|scripts|run|package|smoke|e2e|volume|clean|prune [--dry-run]"
+# Every argument is checked here, before any Docker call.
+subcommand="${1:-}"
+[ -n "$subcommand" ] || fail "$usage"
+shift
+prune_mode=remove
+case "$subcommand" in
+  shell | rust-test | clippy | vitest | scripts | run | package | smoke | e2e) ;;
+  volume | clean) [ "$#" -eq 0 ] || fail "usage: $0 $subcommand" ;;
+  prune)
+    for arg in "$@"; do
+      case "$arg" in
+        --dry-run) prune_mode=dry-run ;;
+        *) fail "usage: $0 prune [--dry-run]" ;;
+      esac
+    done
+    ;;
+  *) fail "unknown command: $subcommand ($usage)" ;;
+esac
 
-host_arch="$(docker info --format '{{.Architecture}}')"
-case "${CADENCR_LINUX_ARCH:-$host_arch}" in
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# The repository every worktree of it shares: its common git directory.
+repo_id="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)" \
+  || fail "$repo_root is not a git checkout"
+repo_id="$(cd "$repo_id" && pwd -P)"
+repo_sum="$(printf '%s' "$repo_id" | cksum | cut -d' ' -f1)"
+
+# A linked worktree has a `.git` file; the main checkout a `.git` directory and
+# the volume name it always had, so its warm build survives.
+source_volume() {
+  if [ -n "${CADENCR_LINUX_SRC_VOLUME:-}" ]; then
+    printf '%s\n' "$CADENCR_LINUX_SRC_VOLUME"
+  elif [ -f "$repo_root/.git" ]; then
+    local dir sum
+    dir="$(basename "$repo_root" | LC_ALL=C tr -c 'A-Za-z0-9_.\n-' '-' | cut -c1-40)"
+    sum="$(printf '%s' "$repo_root" | cksum | cut -d' ' -f1)"
+    printf 'cadencr-linux-src-%s-w%s-%s-%s\n' "$1" "$repo_sum" "$dir" "$sum"
+  else
+    printf 'cadencr-linux-src-%s\n' "$1"
+  fi
+}
+
+# Before repository-scoped names, a worktree's volume was named from its path
+# alone (as the shell spelled it, symlinks included): `clean` removes it too.
+legacy_source_volumes() {
+  [ -z "${CADENCR_LINUX_SRC_VOLUME:-}" ] && [ -f "$repo_root/.git" ] || return 0
+  local dir root
+  dir="$(basename "$repo_root" | LC_ALL=C tr -c 'A-Za-z0-9_.\n-' '-' | cut -c1-40)"
+  for root in "$repo_root" "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; do
+    printf 'cadencr-linux-src-%s-%s-%s\n' "$1" "$dir" "$(printf '%s' "$root" | cksum | cut -d' ' -f1)"
+  done | sort -u
+}
+
+host_arch="${CADENCR_LINUX_ARCH:-}"
+if [ -z "$host_arch" ]; then
+  command -v docker > /dev/null || fail "docker is required"
+  host_arch="$(docker info --format '{{.Architecture}}')"
+fi
+case "$host_arch" in
   arm64 | aarch64) arch=arm64 platform=linux/arm64 ;;
   x64 | x86_64 | amd64) arch=x64 platform=linux/amd64 ;;
-  *) fail "unsupported arch: ${CADENCR_LINUX_ARCH:-$host_arch}" ;;
+  *) fail "unsupported arch: $host_arch" ;;
 esac
 
 image="cadencr-linux-dev:$arch"
-src_volume="cadencr-linux-src-$arch"
+src_volume="$(source_volume "$arch")"
 cache_volume="cadencr-linux-cache-$arch"
 dist_dir="$repo_root/packages/desktop/dist-electron/linux-$arch"
 version="$(node -p "require('$repo_root/packages/desktop/package.json').version")"
@@ -60,6 +133,9 @@ ensure_image() {
 # and every directory above them go to `dev` (uid 1000) on each run, whatever
 # the host uid, so pnpm can always write next to them.
 sync_tree() {
+  docker volume inspect "$src_volume" > /dev/null 2>&1 \
+    || docker volume create --label "cadencr.checkout=$repo_root" \
+      --label "cadencr.repo=$repo_id" "$src_volume" > /dev/null
   (
     cd "$repo_root"
     git ls-files -co --exclude-standard -z \
@@ -168,9 +244,104 @@ e2e_script='
   fi
 '
 
-subcommand="${1:-}"
-[ -n "$subcommand" ] || fail "usage: $0 shell|rust-test|clippy|vitest|scripts|run|package|smoke|e2e"
-shift || true
+# One volume label, empty when unset (`docker volume inspect` prints nothing,
+# or `<no value>` when the volume has other labels).
+volume_label() {
+  local value
+  value="$(docker volume inspect -f "{{ index .Labels \"$2\" }}" "$1")" || return 1
+  [ "$value" = "<no value>" ] || printf '%s' "$value"
+}
+
+# Every volume name, one per line; a failing Docker stops the script rather
+# than reading as "no volume".
+volume_names() {
+  docker volume ls -q "$@" || fail "docker volume ls failed; nothing removed"
+}
+
+# macOS reaches /tmp and /var through /private: compare paths without it.
+comparable_path() { printf '%s\n' "${1#/private}"; }
+
+# This repository's worktree volumes whose worktree is gone, printed before
+# any removal. A volume qualifies only if all hold: this repository's label,
+# this repository's worktree name prefix, not a main checkout's volume, a
+# checkout path that is not the main checkout, that git no longer lists as a
+# worktree (a worktree git still knows, on an unmounted disk for instance, is
+# kept) and that does not exist. Volumes from before repository labels are
+# only listed, for removal by hand. `dry-run` only reads; any Docker failure
+# stops before anything is removed.
+prune_volumes() {
+  local mode="$1" known main volumes volume repo checkout count=0 failed=0 orphans=()
+  known="$(git -C "$repo_root" worktree list --porcelain | sed -n 's/^worktree //p')" \
+    || fail "could not list this repository's git worktrees; nothing removed"
+  main="$(printf '%s\n' "$known" | head -n 1)"
+  known="$(printf '%s\n' "$known" | while IFS= read -r path; do comparable_path "$path"; done)"
+  volumes="$(volume_names --filter name=cadencr-linux-src-)" || exit 1
+  while IFS= read -r volume; do
+    case "$volume" in
+      cadencr-linux-src-arm64 | cadencr-linux-src-x64 | "") continue ;;
+      cadencr-linux-src-*) ;;
+      *) continue ;;
+    esac
+    repo="$(volume_label "$volume" cadencr.repo)" \
+      || fail "docker volume inspect $volume failed; nothing removed"
+    if [ -z "$repo" ]; then
+      echo "linux-container: legacy $volume has no repository label, so it is not" \
+        "removed; if no checkout uses it, remove it by hand: docker volume rm $volume"
+      continue
+    fi
+    [ "$repo" = "$repo_id" ] || continue
+    case "$volume" in cadencr-linux-src-*-w"$repo_sum"-*) ;; *) continue ;; esac
+    checkout="$(volume_label "$volume" cadencr.checkout)" \
+      || fail "docker volume inspect $volume failed; nothing removed"
+    case "$checkout" in /?*) ;; *) continue ;; esac
+    [ "$(comparable_path "$checkout")" = "$(comparable_path "$main")" ] && continue
+    printf '%s\n' "$known" | grep -Fxq -- "$(comparable_path "$checkout")" && continue
+    [ -e "$checkout" ] && continue
+    orphans+=("$volume")
+    count=$((count + 1))
+    echo "linux-container: orphan $volume (worktree $checkout is gone)"
+  done <<< "$volumes"
+  if [ "$count" -eq 0 ]; then
+    echo "linux-container: no orphan volume"
+    return
+  fi
+  if [ "$mode" = dry-run ]; then
+    echo "linux-container: dry run, nothing removed"
+    return
+  fi
+  for volume in "${orphans[@]}"; do
+    if docker volume rm "$volume" > /dev/null; then
+      echo "linux-container: removed $volume"
+    else
+      echo "linux-container: could not remove $volume (still in use?)" >&2
+      failed=1
+    fi
+  done
+  [ "$failed" -eq 0 ] || fail "some orphan volumes were not removed"
+}
+
+if [ "$subcommand" = volume ]; then
+  printf '%s\n' "$src_volume"
+  exit 0
+fi
+command -v docker > /dev/null || fail "docker is required"
+if [ "$subcommand" = clean ]; then
+  volumes="$(volume_names)" || exit 1
+  removed=0
+  for volume in "$src_volume" $(legacy_source_volumes "$arch"); do
+    printf '%s\n' "$volumes" | grep -Fxq -- "$volume" || continue
+    docker volume rm "$volume" > /dev/null || fail "could not remove $volume (still in use?)"
+    echo "linux-container: removed $volume"
+    removed=1
+  done
+  [ "$removed" -eq 1 ] || echo "linux-container: no volume $src_volume"
+  exit 0
+fi
+if [ "$subcommand" = prune ]; then
+  prune_volumes "$prune_mode"
+  exit 0
+fi
+echo "linux-container: source volume $src_volume" >&2
 mkdir -p "$dist_dir"
 ensure_image
 case "$subcommand" in
