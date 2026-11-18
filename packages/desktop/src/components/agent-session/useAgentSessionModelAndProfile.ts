@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { useAgentCatalog } from "../../api/agentRuntime";
 import { toastError } from "@/lib/api-errors";
+import { useSessionCommandPending } from "@/hooks/useSessionCommandPending";
+import { FAST_MODE_COMMAND_KINDS } from "@/stores/ws-session-commands";
 import type { AgentSessionProps } from "./types";
 import { useAgentSessionModelState } from "./useAgentSessionModelState";
 import { useClaudeProfileSelection } from "./useClaudeProfileSelection";
@@ -57,17 +59,16 @@ export function useAgentSessionModelAndProfile(
   });
   const profile = claudeProfileSelection ?? localClaudeProfileSelection;
 
-  const [isFastModePending, setIsFastModePending] = useState(false);
+  // Pending from the session's command queue: a change on the wire or waiting
+  // for a reconnect. The value shown changes only on the backend's answer.
+  const isFastModePending = useSessionCommandPending(wsSessionId, FAST_MODE_COMMAND_KINDS);
   const handleFastModeChange = useCallback(
     async (enabled: boolean): Promise<void> => {
       if (!props.onFastModeChange || isFastModePending) return;
-      setIsFastModePending(true);
       try {
         await props.onFastModeChange(enabled);
       } catch (error) {
         toastError(error, "Could not update fast mode");
-      } finally {
-        setIsFastModePending(false);
       }
     },
     [isFastModePending, props.onFastModeChange],

@@ -1,20 +1,15 @@
 import { recordDiagnosticEvent } from "@/lib/renderer-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import type { FollowOutput, VirtuosoHandle } from "react-virtuoso";
 import type { AgentBlockData } from "@/types/agent-block";
 import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
 import { isIos } from "@/lib/is-ios";
 import { subscribeResize } from "@/lib/resize-coordinator";
-import {
-  canScrollStream,
-  MAX_VIEWPORT_FILL_PAGES,
-  type StartJump,
-  type UseAgentSessionScrollResult,
-} from "./agent-session-scroll-utils";
+import { type StartJump, type UseAgentSessionScrollResult } from "./agent-session-scroll-utils";
 import { ScrollAnchorGuard } from "./stream-scroll-anchor";
 import { StreamScrollWriter } from "./stream-scroll-writer";
 import { useAgentSessionScrollInput } from "./useAgentSessionScrollInput";
+import { type HistoryLoader, useHistoryLoader } from "./useOlderHistoryLoader";
 
 interface UseAgentSessionScrollOptions {
   blocks: AgentBlockData[];
@@ -38,6 +33,7 @@ function useScrollState(options: UseAgentSessionScrollOptions) {
   const viewportFillPagesRef = useRef(0);
   const [autoScrollEnabled, setAutoScrollEnabledState] = useState(true);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
   const hasMoreRef = useRef(options.hasMore);
   const onLoadOlderRef = useRef(options.onLoadOlder);
   hasMoreRef.current = options.hasMore;
@@ -52,22 +48,24 @@ function useScrollState(options: UseAgentSessionScrollOptions) {
       lastScrollTopRef,
       loadGenerationRef,
       loadingOlderRef,
+      olderLoadError,
       onLoadOlderRef,
       prevConversationKeyRef,
       scrollerElRef,
       setAutoScrollEnabledState,
       setIsLoadingOlder,
+      setOlderLoadError,
       stickRef,
       suppressScrollIntentRef,
       userScrollIntentRef,
       viewportFillPagesRef,
       virtuosoRef,
     }),
-    [autoScrollEnabled, isLoadingOlder],
+    [autoScrollEnabled, isLoadingOlder, olderLoadError],
   );
 }
 
-type ScrollState = ReturnType<typeof useScrollState>;
+export type ScrollState = ReturnType<typeof useScrollState>;
 
 function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
   const setAutoScrollEnabled = useCallback(
@@ -139,66 +137,6 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
 }
 
 type ScrollPinning = ReturnType<typeof useScrollPinning>;
-
-function useHistoryLoader(state: ScrollState) {
-  // Depends on the refs it reads rather than on `state`, which is rebuilt on
-  // every stick and loading toggle: `onScroll` closes over this, and with it the
-  // scroller ref, whose identity must hold (see `useScrollContainerRef`).
-  const requestOlderHistory = useCallback((): void => {
-    const loadOlder = state.onLoadOlderRef.current;
-    if (!state.hasMoreRef.current || !loadOlder || state.loadingOlderRef.current) return;
-    const generation = state.loadGenerationRef.current;
-    state.loadingOlderRef.current = true;
-    state.setIsLoadingOlder(true);
-    void loadOlder()
-      .then(() => {
-        if (generation !== state.loadGenerationRef.current) return;
-        state.historyLoadArmedRef.current = false;
-        state.userScrollIntentRef.current = false;
-        state.loadingOlderRef.current = false;
-        state.setIsLoadingOlder(false);
-      })
-      .catch(() => {
-        if (generation !== state.loadGenerationRef.current) return;
-        state.historyLoadArmedRef.current = false;
-        state.userScrollIntentRef.current = false;
-        state.loadingOlderRef.current = false;
-        state.setIsLoadingOlder(false);
-        toast.error("Failed to load older messages");
-      });
-  }, [
-    state.hasMoreRef,
-    state.historyLoadArmedRef,
-    state.loadGenerationRef,
-    state.loadingOlderRef,
-    state.onLoadOlderRef,
-    state.setIsLoadingOlder,
-    state.userScrollIntentRef,
-  ]);
-  const maybeFillViewport = useCallback((): void => {
-    if (!state.stickRef.current || state.loadingOlderRef.current) return;
-    if (!state.hasMoreRef.current || !state.onLoadOlderRef.current) return;
-    if (state.viewportFillPagesRef.current >= MAX_VIEWPORT_FILL_PAGES) return;
-    const element = state.scrollerElRef.current;
-    if (!element || canScrollStream(element)) return;
-    state.viewportFillPagesRef.current += 1;
-    requestOlderHistory();
-  }, [requestOlderHistory, state]);
-  const resetIntent = useCallback((): void => {
-    state.historyLoadArmedRef.current = false;
-    state.userScrollIntentRef.current = false;
-    state.lastScrollTopRef.current = state.scrollerElRef.current?.scrollTop ?? 0;
-  }, [state]);
-  const armUserScrollIntent = useCallback((): void => {
-    state.userScrollIntentRef.current = true;
-  }, [state.userScrollIntentRef]);
-  return useMemo(
-    () => ({ armUserScrollIntent, maybeFillViewport, requestOlderHistory, resetIntent }),
-    [armUserScrollIntent, maybeFillViewport, requestOlderHistory, resetIntent],
-  );
-}
-
-type HistoryLoader = ReturnType<typeof useHistoryLoader>;
 
 function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history: HistoryLoader) {
   const scrollToBottom = useCallback((): void => {
@@ -283,6 +221,7 @@ function useScrollLifecycle(
     state.stickRef.current = true;
     history.resetIntent();
     state.setIsLoadingOlder(false);
+    state.setOlderLoadError(null);
     state.setAutoScrollEnabledState(true);
     state.didFirstPaintScrollRef.current = false;
     state.viewportFillPagesRef.current = 0;
@@ -377,6 +316,8 @@ export function useAgentSessionScroll(
       onTotalListHeightChanged: callbacks.onTotalListHeightChanged,
       autoScrollEnabled: state.autoScrollEnabled,
       isLoadingOlder: state.isLoadingOlder,
+      olderLoadError: state.olderLoadError,
+      retryOlderHistory: history.requestOlderHistory,
       scrollToBottom: callbacks.scrollToBottom,
       startJump,
     }),
@@ -387,7 +328,9 @@ export function useAgentSessionScroll(
       startJump,
       state.autoScrollEnabled,
       state.isLoadingOlder,
+      state.olderLoadError,
       state.virtuosoRef,
+      history.requestOlderHistory,
     ],
   );
 }

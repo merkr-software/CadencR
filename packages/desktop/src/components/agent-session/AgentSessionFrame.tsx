@@ -7,6 +7,7 @@ import type { AgentSessionProps } from "./types";
 import { CollapsibleHeader } from "./CollapsibleHeader";
 import type { BadgeConfig } from "./CollapsibleHeader";
 import { SessionHint } from "./SessionHint";
+import { AgentSessionHistoryFailure, useHasHistoryLoadFailure } from "./AgentSessionHistoryFailure";
 import { STREAM_DISSOLVE_STYLE } from "./stream-fade";
 
 interface AgentSessionFrameProps extends Pick<
@@ -34,6 +35,8 @@ interface AgentSessionFrameProps extends Pick<
   IconComponent: ComponentType<LucideProps>;
   badge: BadgeConfig;
   displayLabel: string;
+  /** Session whose history-load failure replaces the empty state. */
+  wsSessionId?: string;
 }
 
 export const AgentSessionFrame = memo(function AgentSessionFrame({
@@ -59,7 +62,9 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
   canDelete,
   onDelete,
   onToggleMaximize,
+  wsSessionId,
 }: AgentSessionFrameProps): ReactElement {
+  const historyFailed = useHasHistoryLoadFailure(wsSessionId);
   if (!collapsible) {
     return (
       <div ref={containerRef} className={cn("flex h-full flex-col", className)}>
@@ -77,7 +82,11 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
           // to 0px: on the outer box it was 48px the composer could never have.
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center px-4 pt-4 pb-8">
-              <SessionHint />
+              {historyFailed ? (
+                <AgentSessionHistoryFailure sessionId={wsSessionId} variant="empty" />
+              ) : (
+                <SessionHint />
+              )}
             </div>
           </div>
         ) : (
@@ -126,7 +135,11 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
         <>
           {blocks.length === 0 && status === "idle" ? (
             <div className="flex flex-1 items-center justify-center border-t border-border/30 p-6 text-sm text-muted-foreground">
-              No output yet
+              {historyFailed ? (
+                <AgentSessionHistoryFailure sessionId={wsSessionId} variant="empty" />
+              ) : (
+                "No output yet"
+              )}
             </div>
           ) : (
             // Bottom padding omitted for the same reason as the full-page

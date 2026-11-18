@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleModelChange } from "./WebSocketSessionAgentTab";
+import { changeFastMode, handleModelChange } from "./WebSocketSessionAgentTab";
 
 type Controls = Parameters<typeof handleModelChange>[2];
 
@@ -9,6 +9,7 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
   const setThinkingEffort = vi.fn();
   const setRuntimeOverrides = vi.fn().mockResolvedValue(undefined);
   const queueRuntimeOverride = vi.fn();
+  const setFastMode = vi.fn().mockResolvedValue(undefined);
   const controls = {
     ws: {
       setProvider,
@@ -16,6 +17,7 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
       setThinkingEffort,
       setRuntimeOverrides,
       queueRuntimeOverride,
+      setFastMode,
       currentThinkingEffort: undefined,
       currentSelection: currentProviderId
         ? { providerId: currentProviderId, modelId: "old-model" }
@@ -31,6 +33,7 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
     setThinkingEffort,
     setRuntimeOverrides,
     queueRuntimeOverride,
+    setFastMode,
   };
 }
 
@@ -81,5 +84,26 @@ describe("handleModelChange", () => {
     expect(queueRuntimeOverride).toHaveBeenCalledWith({ model: "gpt-5.6-sol" });
     expect(setRuntimeOverrides).not.toHaveBeenCalled();
     expect(setModel).not.toHaveBeenCalled();
+  });
+});
+
+describe("changeFastMode", () => {
+  it("queues a fast mode override like the model and effort ones", async () => {
+    const { controls, setRuntimeOverrides, queueRuntimeOverride, setFastMode } = makeControls(
+      "codex_cli",
+      true,
+    );
+    await changeFastMode(controls, true);
+    // Through the session command queue: no 10 s request, replayed after a reconnect.
+    expect(queueRuntimeOverride).toHaveBeenCalledWith({ fast_mode: true });
+    expect(setRuntimeOverrides).not.toHaveBeenCalled();
+    expect(setFastMode).not.toHaveBeenCalled();
+  });
+
+  it("sends fast_mode.set when the provider has no runtime overrides", async () => {
+    const { controls, queueRuntimeOverride, setFastMode } = makeControls("claude_code");
+    await changeFastMode(controls, true);
+    expect(setFastMode).toHaveBeenCalledWith(true);
+    expect(queueRuntimeOverride).not.toHaveBeenCalled();
   });
 });

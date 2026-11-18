@@ -1,4 +1,5 @@
 import type { FileTree as FileTreeModel, FileTreeDirectoryHandle } from "@pierre/trees";
+import { toPierrePath } from "./cadencrFileTreeModel";
 
 /**
  * Reveal an FS-form file path inside a pierre file-tree model: expand each
@@ -30,9 +31,8 @@ export function revealInFileTree(
   fsPath: string,
   ensureDirLoaded?: (dirPath: string) => void,
 ): boolean {
-  // Pierre encodes files without a trailing slash, so the FS path doubles
-  // as the pierre path for files.
-  if (model.getItem(fsPath) == null) {
+  const pierrePath = toPierrePath({ path: fsPath, is_dir: false });
+  if (model.getItem(pierrePath) == null) {
     // Lazy mode: the file's ancestor directories may not be loaded yet. Pull
     // the ancestor chain in (deduped/cached by the caller's `ensureDirLoaded`)
     // and return false so the caller retries once `paths` next updates.
@@ -40,32 +40,34 @@ export function revealInFileTree(
     return false;
   }
 
-  expandFileTreeAncestors(model, fsPath);
+  expandFileTreeAncestors(model, pierrePath);
 
   requestAnimationFrame(() => {
     // The row may have disappeared between the rAF schedule and fire
     // (tree refetch dropped it, user closed the workspace, etc.).
-    if (model.getItem(fsPath) == null) return;
-    model.scrollToPath(fsPath, { focus: true, offset: "nearest" });
+    if (model.getItem(pierrePath) == null) return;
+    model.scrollToPath(pierrePath, { focus: true, offset: "nearest" });
   });
   return true;
 }
 
 /**
- * Expand every collapsed ancestor folder of `fsPath` in place, so the file's
- * row becomes one of the model's visible paths and can take focus.
+ * Expand every collapsed ancestor folder of the file at Pierre path
+ * `treePath` in place, so its row becomes one of the model's visible paths
+ * and can take focus. An escaped segment never holds a slash, so splitting
+ * the tree path walks the same folders as the real one.
  *
  * Returns `true` when at least one folder was expanded — the caller then owes
  * the render a frame before `scrollToPath`, since pierre captures the target's
  * `visibleIndex` at call time and silently drops a request that points past
  * the not-yet-recomputed virtual row list.
  */
-export function expandFileTreeAncestors(model: FileTreeModel, fsPath: string): boolean {
+export function expandFileTreeAncestors(model: FileTreeModel, treePath: string): boolean {
   // Walk forward so each parent exists before we look up its child:
   // "src/components/Foo.tsx" → query "src/", then "src/components/".
   let cursor = "";
   let expandedAny = false;
-  const segments = fsPath.split("/");
+  const segments = treePath.split("/");
   for (let i = 0; i < segments.length - 1; i++) {
     cursor = cursor ? `${cursor}/${segments[i]}` : segments[i];
     const dir = model.getItem(`${cursor}/`);

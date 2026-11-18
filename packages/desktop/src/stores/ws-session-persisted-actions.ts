@@ -76,6 +76,7 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
       : undefined;
   return {
     persistedLoaded: true,
+    historyLoadFailure: null,
     historyPrependDisplayOffset: 0,
     hasMore: payload.hasMore ?? false,
     oldestMessageId: payload.oldestMessageId ?? null,

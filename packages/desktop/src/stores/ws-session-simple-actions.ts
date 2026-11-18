@@ -1,4 +1,3 @@
-import type { DisplayRowMode } from "@/types/agent-stream";
 import {
   createAccessModeSet,
   createCommandsGet,
@@ -22,19 +21,12 @@ import {
 } from "@/lib/ws-envelope";
 import { DEFAULT_PROMPT_COMMAND_POLICY } from "@/lib/prompt-command-policy";
 import type { AccessMode } from "@/types/access-mode";
-import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
 import { submitPlanDecision } from "./ws-session-plan-actions";
-import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
+import { createHistoryActions } from "./ws-session-history-actions";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
-import { resyncMessagesOnReconnect } from "./ws-session-resync";
+import { parseErrorPayload } from "./ws-envelope-payload";
 import { buildSlashCommandsKey } from "./ws-session-store-helpers";
-import type {
-  PermissionMode,
-  PersistedStatePayload,
-  ResyncTarget,
-  WsSessionStore,
-} from "./ws-session-types";
+import type { PermissionMode, WsSessionStore } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
 import { SESSION_COMMANDS, settleInterrupt, type SessionCommandSpec } from "./ws-session-commands";
 
@@ -60,6 +52,8 @@ type SimpleSessionActions = Pick<
   | "retryWorktreeSetup"
   | "requestSlashCommands"
   | "markPersistedLoaded"
+  | "failPersistedLoad"
+  | "retryPersistedLoad"
   | "setPersistedState"
   | "loadOlderMessages"
   | "loadPromptTurn"
@@ -79,6 +73,7 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
     ...createConfigurationActions(deps),
     ...createRuntimeOverrideActions(deps),
     ...createWorkflowActions(deps),
+    ...createHistoryActions(deps.ctx),
   };
 }
 
@@ -159,17 +154,13 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
     async setFastMode(sessionId: string, enabled: boolean): Promise<void> {
       const session = getSession(sessionId);
       if (!session.serverSessionId) throw new Error("Session is not initialized yet");
-      const payload = await get().sendRequest(
+      // A setting like `model.set`: the latest one waits for a reconnect, and
+      // `fastMode` changes only on the correlated `fast_mode.set.ok`.
+      sendCommand(
         sessionId,
         createFastModeSet(session.serverSessionId, enabled),
+        SESSION_COMMANDS.fastMode,
       );
-      const error = parseErrorPayload(payload);
-      if (error?.message || payload === null) {
-        throw new Error(error?.message ?? "Fast mode update timed out");
-      }
-      const next = parseFastModePayload(payload);
-      if (!next) throw new Error("Fast mode update returned an invalid response");
-      set(updateSession(get(), sessionId, { fastMode: next.enabled }));
     },
 
     setProfile(sessionId: string, profile: string) {
@@ -244,10 +235,16 @@ function createRuntimeOverrideActions(deps: SimpleSessionActionDeps) {
       sendCommand(
         sessionId,
         createRuntimeOverridesSet(session.serverSessionId, setting),
-        "model" in setting ? SESSION_COMMANDS.runtimeModel : SESSION_COMMANDS.runtimeEffort,
+        runtimeOverrideSpec(setting),
       );
     },
   };
+}
+
+function runtimeOverrideSpec(setting: RuntimeSettingOverride): SessionCommandSpec {
+  if ("model" in setting) return SESSION_COMMANDS.runtimeModel;
+  if ("fast_mode" in setting) return SESSION_COMMANDS.fastMode;
+  return SESSION_COMMANDS.runtimeEffort;
 }
 
 function createWorkflowActions(deps: SimpleSessionActionDeps) {
@@ -328,30 +325,6 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         }),
       );
       sendRaw(sessionId, envelope);
-    },
-
-    markPersistedLoaded(sessionId: string) {
-      set(updateSession(get(), sessionId, { persistedLoaded: true }));
-    },
-
-    setPersistedState(sessionId: string, payload: PersistedStatePayload) {
-      applyPersistedState(ctx, sessionId, payload);
-    },
-
-    async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {
-      return loadOlderSessionMessages(ctx, sessionId, displayMode);
-    },
-
-    loadPromptTurn(
-      sessionId: string,
-      messageDbId: number,
-      displayMode?: DisplayRowMode,
-    ): Promise<boolean> {
-      return loadSessionPromptTurn(ctx, sessionId, messageDbId, displayMode);
-    },
-
-    refreshSessionMessages(sessionId: string, target?: ResyncTarget): Promise<void> {
-      return resyncMessagesOnReconnect(ctx, sessionId, target);
     },
   };
 }

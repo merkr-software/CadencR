@@ -23,6 +23,7 @@ import SearchResultEditor from "./SearchResultEditor";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { copyToClipboard } from "@/lib/clipboard";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
+import { displayGitTreePath } from "@/lib/git-display-path";
 
 interface ContentSearchDialogProps {
   projectId: number;
@@ -357,7 +358,7 @@ const FileGroup = memo(function FileGroup({
             className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-xs font-medium text-foreground hover:bg-accent rounded transition-colors"
           >
             <FileSymbolIcon fileName={fileName} className="shrink-0 flex items-center" />
-            <span className="truncate">{group.path}</span>
+            <span className="truncate">{displayGitTreePath(group.path)}</span>
             <span className="ml-auto text-muted-foreground shrink-0">{group.matches.length}</span>
           </button>
         </ContextMenuTrigger>

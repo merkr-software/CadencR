@@ -458,3 +458,66 @@ async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
     assert!(actions.iter().all(|(action, _)| action != "error"));
     assert_benign_stop_state(&app_state, session_id).await;
 }
+
+/// Memory `codex-async-question-stale-status`: a Stop read the turn as running,
+/// but the turn ended before the Stop marked it; the runtime accepted the
+/// interrupt with no turn left to end, so no result consumed the mark. The
+/// next turn must still end normally instead of having its result taken for
+/// the stopped turn's and dropped, which left the session `running`.
+#[tokio::test]
+async fn a_stop_marked_after_its_turn_ended_does_not_swallow_the_next_turns_result() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let session_id = 616;
+    sqlx::query("INSERT INTO agent_sessions (id, feature_id, status) VALUES (?, 1, 'running')")
+        .bind(session_id)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+    let runtime = make_active_handle(1, Some("cli".into()));
+    let QueryState::Active { query, .. } = &runtime.state else {
+        unreachable!()
+    };
+    let query = query.clone();
+    sdk_sessions.lock().await.insert(session_id, runtime);
+    let turns = &app_state.active_turns;
+    turns.begin_turn(session_id, &sdk_sessions).await;
+    let (msg_tx, msg_rx) = mpsc::channel(4);
+    spawn_test_stream_reader(
+        &app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions.clone(),
+        DEFAULT_PROVIDER,
+    );
+
+    // 1. Turn N ends.
+    msg_tx.send(Ok(result_event())).await.unwrap();
+    let first = drain_actions(&mut ws_rx).await;
+    assert!(
+        first.iter().any(|(action, _)| action == "ended"),
+        "{first:?}"
+    );
+    // 2. The Stop's mark lands after that end.
+    turns.request_interruption(session_id, &query).await;
+    // 3. The user's next prompt starts turn N+1, and it ends.
+    turns.begin_turn(session_id, &sdk_sessions).await;
+    sqlx::query("UPDATE agent_sessions SET status = 'running' WHERE id = ?")
+        .bind(session_id)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+    msg_tx.send(Ok(result_event())).await.unwrap();
+
+    let second = drain_actions(&mut ws_rx).await;
+    assert!(
+        second
+            .iter()
+            .any(|(action, payload)| action == "ended" && payload["reason"] == "turn_complete"),
+        "{second:?}"
+    );
+    assert_eq!(db_status(&app_state, session_id).await, "completed");
+}

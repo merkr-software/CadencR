@@ -145,7 +145,12 @@ export interface WsSessionStore {
     profile?: string,
   ) => void;
 
+  /** Settle the history gate: there is no saved history to apply. */
   markPersistedLoaded: (sessionId: string) => void;
+  /** Settle the history gate with a visible failure (`historyLoadFailure`). */
+  failPersistedLoad: (sessionId: string, message: string) => void;
+  /** Re-open the history gate so the snapshot is fetched again. */
+  retryPersistedLoad: (sessionId: string) => void;
   setPersistedState: (sessionId: string, options: PersistedStatePayload) => void;
   /**
    * Loads older messages for a session. Resolves with the number of blocks

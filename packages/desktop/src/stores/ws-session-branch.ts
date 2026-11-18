@@ -65,7 +65,7 @@ export async function rewindToMessage(
   }
   const failure = branchError(reply);
   if (failure) {
-    showBranchFailure("rewind", toastId, failure);
+    showBranchFailure("rewind", toastId, failure, session.currentSelection?.providerId);
     return;
   }
   if (isNeedsConfirm(reply)) {
@@ -127,7 +127,7 @@ export async function forkFromMessage(
   }
   const failure = branchError(reply);
   if (failure) {
-    showBranchFailure("fork", toastId, failure);
+    showBranchFailure("fork", toastId, failure, session.currentSelection?.providerId);
     return;
   }
 

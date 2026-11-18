@@ -107,4 +107,12 @@ describe("ContentSearchDialog", () => {
 
     expect(screen.queryByText("No results found.")).not.toBeInTheDocument();
   });
+
+  it("shows a file name holding a newline escaped the way git prints it", async () => {
+    mockResult({ matches: [match("src/a\nb.txt", 3)], truncated: false });
+    renderDialog();
+    await typeQuery();
+
+    expect(screen.getByText('src/"a\\nb.txt"')).toBeInTheDocument();
+  });
 });

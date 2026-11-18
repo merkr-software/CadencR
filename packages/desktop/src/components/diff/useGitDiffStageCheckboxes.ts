@@ -7,7 +7,7 @@ import {
   type GitFileIndexAction,
   type GitFileIndexActions,
 } from "./useGitFileIndexActions";
-import { realGitDiffTreePath } from "./gitDiffTreePath";
+import { parseGitTreePath } from "@/lib/git-display-path";
 import { resolvedStageState } from "./useGitDiffFileTreeModel";
 import { useGitStageControlState, type GitStageControlState } from "./useGitStageControlState";
 import {
@@ -144,11 +144,11 @@ function syncStageRow(
   byPath: ReadonlyMap<string, ChangedFile>,
   controlState: GitStageControlState,
 ): void {
-  // Rows carry the tree's escaped path (`gitDiffTreePath`); files are keyed by the real one.
+  // Rows carry the tree's escaped path (`displayGitTreePath`); files are keyed by the real one.
   const path = row.getAttribute("data-item-path");
   const file =
     row.getAttribute("data-item-type") === "file" && path
-      ? byPath.get(realGitDiffTreePath(path))
+      ? byPath.get(parseGitTreePath(path))
       : undefined;
   syncRowAdornments(row, file, controlState);
 }

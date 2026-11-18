@@ -73,10 +73,17 @@ export const SESSION_COMMANDS = {
   profile: { failure: "Couldn't switch profile", replay: true },
   mode: { failure: "Couldn't change permission mode", replay: true },
   accessMode: { failure: "Couldn't change access mode", replay: true },
+  fastMode: { failure: "Couldn't change fast mode", replay: true },
   // Providers whose model and effort are runtime overrides (Codex).
   runtimeModel: { failure: "Couldn't switch model", replay: true },
   runtimeEffort: { failure: "Couldn't change thinking effort", replay: true },
 } as const satisfies Record<string, SessionCommandSpec>;
+
+/** The command kinds (`commandKind`) that change fast mode, one per provider path. */
+export const FAST_MODE_COMMAND_KINDS: readonly string[] = [
+  "fast_mode.set",
+  "runtime_overrides.set:fast_mode",
+];
 
 const NOT_CONNECTED = "Not connected to the backend. Try again once it reconnects.";
 
@@ -93,7 +100,10 @@ function setPendingActions(ctx: StoreAccessors, sessionId: string): void {
   const commands = [...(ctx.transport.get(sessionId)?.pendingCommands.values() ?? [])];
   ctx.set(
     updateSession(ctx.get(), sessionId, {
-      pendingCommandActions: commands.map((c) => c.envelope.action),
+      pendingCommandActions: sameOr(
+        session.pendingCommandActions,
+        commands.map((c) => commandKind(c.envelope)),
+      ),
       queuedCommandActions: sameOr(
         session.queuedCommandActions,
         commands.filter((c) => c.queued).map((c) => commandKind(c.envelope)),

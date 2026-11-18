@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
+import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
 import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
@@ -55,7 +56,8 @@ function useStableSessionCallbacks(controls: SessionControls) {
         handleModelChange(nextProviderId, modelId, latest.current),
       onThinkingEffortChange: (effort: string | undefined): void =>
         applyThinkingEffort(latest.current, effort),
-      onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
+      onFastModeChange: (enabled: boolean): Promise<void> =>
+        changeFastMode(latest.current, enabled),
     }),
     [latest],
   );
@@ -183,9 +185,14 @@ function AgentTabContent({
   );
 }
 
-function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
+/**
+ * Fast mode, through the session command queue like the model and effort:
+ * a runtime override for providers that take one, `fast_mode.set` otherwise.
+ */
+export function changeFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
   if (controls.supportsConfigInheritance) {
-    return controls.ws.setRuntimeOverrides({ fast_mode: enabled });
+    controls.ws.queueRuntimeOverride({ fast_mode: enabled });
+    return Promise.resolve();
   }
   return controls.ws.setFastMode(enabled);
 }
@@ -246,7 +253,10 @@ function useAgentSendHandler(args: {
         controls.ws.compactSession();
         return;
       }
-      const isFirstPrompt = (data.session?.blocks?.length ?? 0) === 0;
+      const isFirstPrompt = isNewConversation(
+        data.session?.blocks?.length ?? 0,
+        data.session?.historyLoadFailure != null,
+      );
       const choice = resolveWorktreeChoice({
         mode: controls.worktreeMode,
         selectedBranch: controls.selectedBranch,

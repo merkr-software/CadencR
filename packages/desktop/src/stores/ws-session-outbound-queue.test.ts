@@ -297,7 +297,95 @@ describe("ws-session outbound queue", () => {
     });
     const session = useWsSessionStore.getState().sessions.s1;
     expect(session.currentSelection?.modelId).toBe("gpt-c");
-    expect(session.pendingCommandActions).toEqual(["runtime_overrides.set"]);
+    // Only the effort change is still unanswered.
+    expect(session.pendingCommandActions).toEqual(["runtime_overrides.set:thinking_effort"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("replays the latest Codex fast mode change made during an outage", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const first = getWs();
+    first.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "codex_cli", model: "gpt-a" },
+    });
+    first.readyState = MockWebSocket.CLOSED;
+    first.fireEvent("close", { code: 1006 });
+
+    store.queueRuntimeOverride("s1", { model: "gpt-b" });
+    store.queueRuntimeOverride("s1", { fast_mode: true });
+    store.queueRuntimeOverride("s1", { fast_mode: false });
+    // One per field: the newer fast mode replaces the waiting one, the model stays.
+    const waiting = useWsSessionStore.getState().sessions.s1;
+    expect(waiting.queuedCommandActions).toEqual([
+      "runtime_overrides.set:model",
+      "runtime_overrides.set:fast_mode",
+    ]);
+    // The fast mode control can tell its own change is waiting, and nothing
+    // optimistic: the value shown is still the confirmed one.
+    expect(waiting.pendingCommandActions).toContain("runtime_overrides.set:fast_mode");
+    expect(waiting.fastMode).toBe(false);
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    const overrides = ws.sent
+      .map(
+        (raw) =>
+          JSON.parse(raw) as { id: string; action: string; payload: Record<string, unknown> },
+      )
+      .filter((envelope) => envelope.action === "runtime_overrides.set");
+    expect(overrides.map((envelope) => envelope.payload.runtime_overrides)).toEqual([
+      { model: "gpt-b" },
+      { fast_mode: false },
+    ]);
+
+    // A refusal is reported as a fast mode failure, not as another setting's.
+    ws.simulateMessage({
+      domain: "session",
+      action: SESSION_ACTION.error,
+      ref: overrides[1].id,
+      payload: { code: "INVALID_OVERRIDES", message: "fast mode unavailable" },
+    });
+    expect(toastError).toHaveBeenCalledWith(
+      "Couldn't change fast mode",
+      expect.objectContaining({ description: expect.stringContaining("fast mode unavailable") }),
+    );
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([
+      "runtime_overrides.set:model",
+    ]);
+  });
+
+  it("queues a fast mode change made during an outage and applies it once confirmed", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+
+    await store.setFastMode("s1", true);
+    const waiting = useWsSessionStore.getState().sessions.s1;
+    expect(waiting.queuedCommandActions).toEqual(["fast_mode.set"]);
+    expect(waiting.fastMode).toBe(false);
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    const sent = ws.sent
+      .map((raw) => JSON.parse(raw) as { id: string; action: string; payload: unknown })
+      .filter((envelope) => envelope.action === "fast_mode.set");
+    expect(sent.map((envelope) => envelope.payload)).toEqual([{ session_id: "7", enabled: true }]);
+    expect(useWsSessionStore.getState().sessions.s1.fastMode).toBe(false);
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "fast_mode.set.ok",
+      ref: sent[0].id,
+      payload: { enabled: true },
+    });
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(session.fastMode).toBe(true);
+    expect(session.pendingCommandActions).toEqual([]);
     expect(toastError).not.toHaveBeenCalled();
   });
 

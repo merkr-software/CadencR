@@ -92,4 +92,15 @@ describe("FileSearchDialog", () => {
     expect(openInNeovim).toHaveBeenCalledWith("src/alpha.ts");
     expect(mockOpenFile).not.toHaveBeenCalled();
   });
+
+  it("shows a name holding a newline escaped and opens the real path", async () => {
+    mockResult({ files: [file("src/a\nb.txt")] });
+    renderDialog();
+    await typeQuery();
+
+    expect(screen.getByText('src/"a\\nb.txt"')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('"a\\nb.txt"'));
+
+    expect(mockOpenFile).toHaveBeenCalledWith("main", "src/a\nb.txt", 10);
+  });
 });

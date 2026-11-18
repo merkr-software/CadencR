@@ -119,18 +119,30 @@ impl StreamReaderTask {
             "that the agent paused",
         )
         .await;
+        self.app_state
+            .active_turns
+            .end_turn(self.db_session_id)
+            .await;
     }
 
     pub(in crate::domain::ws_session) async fn record_completed(&self) {
         let written =
             WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
         self.check_write(written, "that the agent finished").await;
+        self.app_state
+            .active_turns
+            .end_turn(self.db_session_id)
+            .await;
     }
 
     pub(in crate::domain::ws_session) async fn record_running(&self) {
         let written =
             WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
         self.check_write(written, "that the agent is working").await;
+        self.app_state
+            .active_turns
+            .resume_turn(self.db_session_id)
+            .await;
     }
 
     /// Surface a session-state write that failed to every viewer.

@@ -35,6 +35,7 @@ import { getFileName } from "@/lib/file-language";
 import { registerSave, unregisterSave } from "./editorSaveRegistry";
 import { useExcalidrawSave } from "./useExcalidrawSave";
 import { parseScene, type ParsedScene } from "./excalidraw-scene";
+import { displayGitPath } from "@/lib/git-display-path";
 
 interface ExcalidrawEditorProps {
   filePath: string;
@@ -204,7 +205,7 @@ function ExcalidrawEditorView({
         )}
       </div>
       <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-card text-xs text-muted-foreground shrink-0">
-        <span className="truncate">{fileName}</span>
+        <span className="truncate">{displayGitPath(fileName)}</span>
         {autoSavedVisible ? <span>Auto-saved</span> : null}
       </div>
     </div>

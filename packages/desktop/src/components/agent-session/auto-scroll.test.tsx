@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
 import { AgentSession } from "./AgentSession";
 import type { AgentBlockData } from "@/types/agent-block";
-import { toast } from "sonner";
+import { useWsSessionStore } from "@/stores/ws-session-store";
+import { createSessionEntry } from "@/stores/ws-session-types";
 
 // PromptEditor renders a contenteditable surface backed by CodeMirror, which
 // jsdom can't drive. Swap in a real <textarea> so the send-flow test can
@@ -68,10 +69,6 @@ vi.mock("../prompt-editor/PromptEditor", () => {
 
 vi.mock("@tanstack/react-hotkeys", () => ({
   useHotkeys: vi.fn(),
-}));
-
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn() },
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
@@ -758,7 +755,34 @@ describe("AgentSession auto-scroll", () => {
     });
   });
 
-  it("shows a toast when loading older history fails", async () => {
+  // A conversation whose history failed to load reads as empty, but is not a
+  // new one: its composer must not offer (nor send with) first-prompt setup.
+  it("does not treat a conversation whose history failed to load as a new one", () => {
+    const session = createSessionEntry();
+    session.persistedLoaded = true;
+    session.historyLoadFailure = { message: "database is locked", retrying: false };
+    useWsSessionStore.setState({ sessions: { "s-failed": session } });
+
+    render(
+      <AgentSession
+        agentType="session"
+        blocks={[]}
+        status="idle"
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        wsSessionId="s-failed"
+      />,
+    );
+
+    expect(screen.getByRole("textbox").getAttribute("placeholder")).toMatch(/^Message the agent/);
+    useWsSessionStore.setState({ sessions: {} });
+  });
+
+  it("says in the transcript why older history failed to load and retries it", async () => {
+    const onLoadOlder = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("database is locked"))
+      .mockResolvedValueOnce(undefined);
     render(
       <AgentSession
         agentType="session"
@@ -767,9 +791,7 @@ describe("AgentSession auto-scroll", () => {
         onSend={vi.fn()}
         onStop={vi.fn()}
         hasMore
-        onLoadOlder={vi.fn(async () => {
-          throw new Error("boom");
-        })}
+        onLoadOlder={onLoadOlder}
       />,
     );
 
@@ -778,7 +800,13 @@ describe("AgentSession auto-scroll", () => {
     userWheelUp(scroller, 100);
     fireStartReached();
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Failed to load older messages"));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't load older messages");
+    expect(alert).toHaveTextContent("database is locked");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(onLoadOlder).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
   // Regression ("jumps when scrolling up"): replaying the offset captured when

@@ -28,6 +28,7 @@
 use serde::Serialize;
 
 mod broadcaster;
+mod closed_gates;
 mod journal;
 mod live;
 mod provider;

@@ -26,7 +26,7 @@ import type { GitDiffTreeDisplayMode } from "./useGitDiffTreeDisplaySetting";
 import { getGitFileActionAvailability, type GitFileIndexActions } from "./useGitFileIndexActions";
 import { isUnavailableDeleteConflict, resolvedStageState } from "./useGitDiffFileTreeModel";
 import { openGitFileInEditor } from "./gitFileEditorHandoff";
-import { realGitDiffTreePath } from "./gitDiffTreePath";
+import { parseGitTreePath } from "@/lib/git-display-path";
 import { useGitDiffStageCheckboxes } from "./useGitDiffStageCheckboxes";
 
 interface GitDiffFileTreeProps {
@@ -184,7 +184,7 @@ function GitDiffTreeContextMenu({
   const unavailableReason = file && isUnavailableDeleteConflict(file);
   const stageState = file ? resolvedStageState(file) : FileStageState.not_applicable;
   const availability = getGitFileActionAvailability(stageState);
-  const exactPath = file?.file ?? realGitDiffTreePath(item.path);
+  const exactPath = file?.file ?? parseGitTreePath(item.path);
   const pathPending = indexActions.pendingPath === exactPath;
   const closeAndRun = (action: () => void): void => {
     context.close();

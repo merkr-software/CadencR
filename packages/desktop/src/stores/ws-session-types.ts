@@ -129,6 +129,11 @@ export function createStreamHealth(): StreamHealth {
 // Per-session state
 // ---------------------------------------------------------------------------
 
+export interface HistoryLoadFailure {
+  message: string;
+  retrying: boolean;
+}
+
 export interface SessionEntry extends SessionConfigState {
   runtimeOverrides?: {
     model: string | null;
@@ -167,9 +172,11 @@ export interface SessionEntry extends SessionConfigState {
    */
   submittingPermissionRequestId: string | null;
   /**
-   * Actions (`interrupt`, `model.set`, …) of session commands sent and not yet
-   * settled by a correlated reply, an error, or their acknowledgement window.
-   * Drives "stopping…"-style sending states; see `ws-session-commands`.
+   * Session commands sent or waiting and not yet settled by a correlated
+   * reply, an error, or their acknowledgement window, by `commandKind`: the
+   * action (`interrupt`, `model.set`, …), or for a runtime override
+   * `runtime_overrides.set:<fields>`. Drives "stopping…"-style sending states;
+   * see `ws-session-commands`.
    */
   pendingCommandActions: readonly string[];
   /**
@@ -205,6 +212,12 @@ export interface SessionEntry extends SessionConfigState {
   mcpServers: McpServerStatus[] | null;
   supportsPromptReceipts: boolean;
   persistedLoaded: boolean;
+  /**
+   * Why the conversation's saved history failed to load, shown in the
+   * transcript with a retry; `retrying` while that retry is in flight. Null
+   * once a snapshot is applied.
+   */
+  historyLoadFailure: HistoryLoadFailure | null;
   contextUsage: ContextUsageState | null;
   hasFileChanges: boolean;
   slashCommands: SlashCommand[];
@@ -289,6 +302,7 @@ export function createSessionEntry(): SessionEntry {
     mcpServers: null,
     supportsPromptReceipts: false,
     persistedLoaded: false,
+    historyLoadFailure: null,
     contextUsage: null,
     hasFileChanges: false,
     slashCommands: [],

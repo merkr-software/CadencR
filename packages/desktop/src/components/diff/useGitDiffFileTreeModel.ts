@@ -15,12 +15,8 @@ import {
 } from "@/api/generated";
 import { useCadencrFileTree } from "@/components/file-tree/CadencrFileTree";
 import { expandFileTreeAncestors } from "@/components/file-tree/revealInFileTree";
-import {
-  gitDiffTreeFiles,
-  gitDiffTreePath,
-  realGitDiffTreePath,
-  realPathNavigation,
-} from "./gitDiffTreePath";
+import { displayGitTreePath, parseGitTreePath } from "@/lib/git-display-path";
+import { gitDiffTreeFiles, realPathNavigation } from "./gitDiffTreePath";
 import {
   useGitDiffTreeDisplaySetting,
   type GitDiffTreeDisplayMode,
@@ -322,14 +318,14 @@ export function useGitDiffFileTreeModel({
   // Mirrors `DiffContent`'s render order so keyboard navigation moves down the
   // diff pane rather than down the tree.
   const orderedPaths = useMemo(
-    () => sortChangedFilesForDiff(changedFiles).map((file) => gitDiffTreePath(file.file)),
+    () => sortChangedFilesForDiff(changedFiles).map((file) => displayGitTreePath(file.file)),
     [changedFiles],
   );
   const conflictSort = useConflictSort(files);
   const handleSelectionChange = useCallback(
     (selectedPaths: readonly string[]): void => {
       const selectedPath = selectedPaths.findLast((path) => filePaths.has(path));
-      if (selectedPath) onSelectionChange(realGitDiffTreePath(selectedPath));
+      if (selectedPath) onSelectionChange(parseGitTreePath(selectedPath));
     },
     [filePaths, onSelectionChange],
   );
@@ -340,7 +336,7 @@ export function useGitDiffFileTreeModel({
       const conflict = file ? gitDiffTreeConflictDecoration(file) : null;
       const reviewCount =
         displayMode === "filenames"
-          ? (reviewCountsByFile?.get(realGitDiffTreePath(item.path)) ?? 0)
+          ? (reviewCountsByFile?.get(parseGitTreePath(item.path)) ?? 0)
           : 0;
       return reviewDecoration(reviewCount, conflict);
     },
@@ -367,11 +363,11 @@ export function useGitDiffFileTreeModel({
     rowDecorationVersion: renderRowDecoration,
   });
   const activeTreePath = useActivePath(model, filePaths);
-  const activePath = activeTreePath == null ? null : realGitDiffTreePath(activeTreePath);
+  const activePath = activeTreePath == null ? null : parseGitTreePath(activeTreePath);
   const treeNavigation = useNavigationAdapter(model, filePaths, orderedPaths);
   const navigation = useMemo(() => realPathNavigation(treeNavigation), [treeNavigation]);
   const resolveFilePath = useCallback(
-    (path: string) => (filePaths.has(path) ? realGitDiffTreePath(path) : null),
+    (path: string) => (filePaths.has(path) ? parseGitTreePath(path) : null),
     [filePaths],
   );
 

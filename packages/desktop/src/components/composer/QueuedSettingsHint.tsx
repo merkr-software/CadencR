@@ -2,6 +2,7 @@ import { memo, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { capitalize } from "@/lib/utils";
 import { useWsSessionStore } from "@/stores/ws-session-store";
+import { FAST_MODE_COMMAND_KINDS } from "@/stores/ws-session-commands";
 
 const NO_ACTIONS: readonly string[] = [];
 
@@ -15,6 +16,7 @@ const SETTING_NAMES: Readonly<Record<string, string>> = {
   "access_mode.set": "access mode",
   "runtime_overrides.set:model": "model",
   "runtime_overrides.set:thinking_effort": "thinking effort",
+  ...Object.fromEntries(FAST_MODE_COMMAND_KINDS.map((kind) => [kind, "fast mode"])),
 };
 
 /** "Model change waits…" / "Model and permission mode changes wait…"; null when nothing waits. */

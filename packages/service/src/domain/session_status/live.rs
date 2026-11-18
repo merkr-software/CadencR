@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::domain::sessions::models::SessionStatusSnapshotEntry;
 
+use super::closed_gates::ClosedGates;
 use super::turn_clock::{CompletedTurn, TurnClock};
 use super::{AgentStatus, PendingKind, SessionStatusEvent, TurnOutcome};
 
@@ -81,6 +82,7 @@ pub(super) struct Applied {
 pub(super) struct LiveStatusBook {
     seq: u64,
     sessions: HashMap<i64, SessionStatusSnapshotEntry>,
+    closed_gates: ClosedGates,
 }
 
 impl LiveStatusBook {
@@ -116,6 +118,9 @@ impl LiveStatusBook {
     /// Apply a transition. `None` when it changes nothing (a repeat, or stream
     /// activity under a pending gate); otherwise what to broadcast and record.
     pub(super) fn apply(&mut self, transition: &Transition, now_ms: i64) -> Option<Applied> {
+        if self.shows_a_closed_gate(transition, now_ms) {
+            return None;
+        }
         let current = self.sessions.get(&transition.session_id);
         if transition_cannot_apply(current, transition) {
             return None;
@@ -158,6 +163,26 @@ impl LiveStatusBook {
             completed,
             persist,
         })
+    }
+
+    /// Track gates closing and opening; true when `transition` would show
+    /// again a gate that closed after its turn's end read it as pending.
+    fn shows_a_closed_gate(&mut self, transition: &Transition, now_ms: i64) -> bool {
+        let session_id = transition.session_id;
+        match (&transition.source, transition.request_id.as_deref()) {
+            (Source::GateResponse { request_id } | Source::GateDismissed { request_id }, _) => {
+                self.closed_gates.record(session_id, request_id, now_ms);
+                false
+            }
+            (Source::GateLeftPending, Some(request_id)) => {
+                self.closed_gates.contains(session_id, request_id)
+            }
+            (Source::Authoritative, Some(request_id)) => {
+                self.closed_gates.reopen(session_id, request_id);
+                false
+            }
+            _ => false,
+        }
     }
 
     /// The CLI reports the model running a busy session's root agent.
