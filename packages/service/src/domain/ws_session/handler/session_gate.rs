@@ -18,6 +18,7 @@ use crate::domain::ws_session::protocol::{
 use crate::domain::ws_session::runtime::output::OutputTarget;
 
 mod dismissed;
+mod durable_close;
 
 struct GateRuntimeGuard {
     _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
@@ -70,20 +71,17 @@ pub(super) async fn handle_gate_close(
             }
         };
 
-    // A turn blocked on the gate is stopped before Idle is advertised or the
-    // gate released. Otherwise a queued reply can start before this
-    // cancellation interrupts it.
-    let closed = match deny_runtime_gate(sdk_sessions, db_session_id, &request_id, app_state).await
-    {
-        Ok(closed) => closed,
-        Err(error) => {
-            app_state
-                .pending_gates
-                .release(db_session_id, &request_id)
-                .await;
-            send_error(sender, &envelope.id, "SDK_ERROR", &error.to_string());
-            return;
-        }
+    let Some((closed, cleared_ahead)) = durable_close::close_runtime_side(
+        sender,
+        sdk_sessions,
+        app_state,
+        db_session_id,
+        &request_id,
+        &envelope.id,
+    )
+    .await
+    else {
+        return;
     };
 
     let cleared = match &closed {
@@ -106,6 +104,7 @@ pub(super) async fn handle_gate_close(
                 Some(&request_id),
                 payload.reason,
                 Some(&envelope.id),
+                cleared_ahead,
             )
             .await
             .map(|found| found.then_some(matches!(closed, RuntimeGateClose::Stopped { .. })))
@@ -193,6 +192,7 @@ pub(super) async fn clear_persisted_gate_and_notify(
     request_id: Option<&str>,
     reason: GateCloseReason,
     ref_id: Option<&str>,
+    cleared_ahead: bool,
 ) -> Result<bool, sqlx::Error> {
     let Some(row) =
         WsSessionPersistence::get_session_row(&app_state.write_pool, db_session_id).await?
@@ -200,6 +200,16 @@ pub(super) async fn clear_persisted_gate_and_notify(
         return Ok(false);
     };
     if !row.has_pending_user_input() {
+        // The caller cleared this gate itself just before: the session is
+        // idle now, as when the clear happens here.
+        if cleared_ahead {
+            app_state.session_status_tx.broadcast(
+                db_session_id,
+                row.feature_id,
+                AgentStatus::Idle,
+                None,
+            );
+        }
         // Idempotent ack: the DB row has no pending gate, but the renderer
         // may still be holding stale gate state (e.g. it raced an earlier
         // answer or the row was cleared on another path). Send the

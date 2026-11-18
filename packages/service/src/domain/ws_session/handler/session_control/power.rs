@@ -173,6 +173,7 @@ async fn close_gates_for_sleep(
         None,
         GateCloseReason::Sleep,
         None,
+        false,
     )
     .await
     .map(|_| ())
