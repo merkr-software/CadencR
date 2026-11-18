@@ -28,8 +28,12 @@ impl SharedRuntimeHold {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    pub(in crate::domain::ws_session) fn observe(&self, event: &RuntimeEvent) {
-        self.lock().observe(event);
+    pub(in crate::domain::ws_session) fn observe(
+        &self,
+        event: &RuntimeEvent,
+        turn_in_progress: bool,
+    ) {
+        self.lock().observe(event, turn_in_progress);
     }
 
     pub(in crate::domain::ws_session) fn holds_runtime(&self) -> bool {
@@ -120,6 +124,7 @@ mod tests {
         hold.observe(
             &RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
                 .with_background_task_count(Some(1)),
+            false,
         );
         hold
     }

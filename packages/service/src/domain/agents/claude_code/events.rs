@@ -293,6 +293,31 @@ mod tests {
         assert_eq!(raw["status"], "compacting");
     }
 
+    /// The CLI announces each model request (`status: "requesting"`) before
+    /// its first token. For a turn the CLI opens itself — a background task's
+    /// resume — that is the first sign of the turn: without it the reader
+    /// stays "between turns" until the first token, and the orphan teardown
+    /// can close the CLI under a slow first response.
+    #[test]
+    fn normalize_event_turns_a_model_request_into_provider_activity() {
+        let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "system",
+            "subtype": "status",
+            "status": "requesting",
+            "session_id": "s1",
+            "uuid": "st2"
+        }))
+        .unwrap();
+        let event = normalize_event(msg);
+        assert_eq!(
+            event.turn_started_source(),
+            Some(crate::domain::agents::adapter::RuntimeTurnStartedSource::ProviderActivity)
+        );
+        assert!(crate::domain::session_status::event_starts_fresh_turn(
+            &event
+        ));
+    }
+
     #[test]
     fn normalize_event_extracts_context_window_from_result() {
         let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({

@@ -163,6 +163,15 @@ impl SystemMessage {
         }
     }
 
+    /// `true` when this status message marks a model request the CLI is
+    /// sending (`status: "requesting"`, once per request).
+    pub fn is_model_request(&self) -> bool {
+        matches!(
+            self,
+            SystemMessage::Status { status: Some(s), .. } if s == "requesting"
+        )
+    }
+
     /// `true` when this status message marks the start of a compaction.
     pub fn is_compaction_started(&self) -> bool {
         matches!(

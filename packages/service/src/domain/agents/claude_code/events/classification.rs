@@ -113,9 +113,11 @@ pub(super) fn classify_message(
 
 /// Map a `system` message to its runtime event kind. Compaction start is a
 /// synthetic turn boundary; its end/failure is carried by the typed
-/// `CompactBoundary` and the compact command's own response, so other status
-/// values are operational and unmapped — but a status we've never seen must
-/// leave a trace.
+/// `CompactBoundary` and the compact command's own response. A model request
+/// (`requesting`, sent before each request of a turn) is the first sign of a
+/// turn the CLI opens itself, such as a background task's resume, well before
+/// its first token. Other status values are operational and unmapped — but a
+/// status we've never seen must leave a trace.
 fn classify_system_message(
     system: claude_agent_sdk_rs::messages::SystemMessage,
 ) -> RuntimeEventKind {
@@ -149,6 +151,10 @@ fn classify_system_message(
             if status.is_compaction_started() {
                 RuntimeEventKind::TurnStarted {
                     source: RuntimeTurnStartedSource::ManualCompact,
+                }
+            } else if status.is_model_request() {
+                RuntimeEventKind::TurnStarted {
+                    source: RuntimeTurnStartedSource::ProviderActivity,
                 }
             } else {
                 if let claude_agent_sdk_rs::messages::SystemMessage::Status {
@@ -322,9 +328,13 @@ mod tests {
     }
 
     fn classify_system(subtype: &str) -> (RuntimeEventKind, String) {
-        let msg = claude_agent_sdk_rs::SdkMessage::from_raw(serde_json::json!({
+        classify_raw(serde_json::json!({
             "type": "system", "subtype": subtype, "session_id": "s", "tokens": 12
-        }));
+        }))
+    }
+
+    fn classify_raw(raw: serde_json::Value) -> (RuntimeEventKind, String) {
+        let msg = claude_agent_sdk_rs::SdkMessage::from_raw(raw);
         let mut classified = None;
         let warnings = warnings_while(|| classified = Some(classify_message(msg)));
         let (kind, result_error) = classified.unwrap();
@@ -338,6 +348,31 @@ mod tests {
         // Out of the conversation and not a turn boundary: the turn goes on.
         assert!(matches!(kind, RuntimeEventKind::Other));
         assert!(warnings.is_empty(), "unexpected warning: {warnings}");
+    }
+
+    #[test]
+    fn a_model_request_opens_a_turn_quietly() {
+        let (kind, warnings) = classify_raw(serde_json::json!({
+            "type": "system", "subtype": "status", "status": "requesting",
+            "uuid": "u", "session_id": "s"
+        }));
+        assert!(matches!(
+            kind,
+            RuntimeEventKind::TurnStarted {
+                source: crate::domain::agents::adapter::RuntimeTurnStartedSource::ProviderActivity
+            }
+        ));
+        assert!(warnings.is_empty(), "unexpected warning: {warnings}");
+    }
+
+    #[test]
+    fn an_unknown_system_status_still_warns() {
+        let (kind, warnings) = classify_raw(serde_json::json!({
+            "type": "system", "subtype": "status", "status": "brand_new_status",
+            "uuid": "u", "session_id": "s"
+        }));
+        assert!(matches!(kind, RuntimeEventKind::Other));
+        assert!(warnings.contains("brand_new_status"), "{warnings}");
     }
 
     #[test]

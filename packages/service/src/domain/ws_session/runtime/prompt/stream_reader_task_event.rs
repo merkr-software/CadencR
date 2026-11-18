@@ -62,7 +62,9 @@ impl StreamReaderTask {
         if runtime_event.is_subagent_signal_only() {
             return;
         }
-        state.runtime_hold.observe(&runtime_event);
+        state
+            .runtime_hold
+            .observe(&runtime_event, !state.turn_state.is_between_turns());
 
         match forward_immediate_event(self, state, &runtime_event).await {
             // `prompt_received` / `commands.updated` / `stream_status` are
