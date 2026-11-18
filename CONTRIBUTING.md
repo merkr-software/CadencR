@@ -148,6 +148,10 @@ Precompile the Rust targets used by `pnpm dev` without starting the app:
 pnpm dev:precompile
 ```
 
+Development precompiles and isolated QA Rust warm-ups share one build slot
+across linked worktrees of the same repository. Cargo targets stay isolated
+per worktree. On Linux, install `flock` from the `util-linux` package.
+
 For Cadencr-managed worktrees, set the project's worktree setup commands to
 `pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile`. The setup
 runs in the new worktree, so it gets its own `.env` ports and a warm local

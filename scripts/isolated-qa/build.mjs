@@ -5,8 +5,8 @@ import { constants, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fetchBuildEnv } from "../build-local.mjs";
 import { createCargoEnv } from "../cargo-env.mjs";
-import { requireDiskSpace } from "../disk-space.mjs";
 import { evaluateForQa, formatReport, gatherFacts } from "../doctor.mjs";
+import { withRustPrecompile } from "../precompile-dev.mjs";
 import { lsofCommand } from "./processes.mjs";
 
 // A marketplace build has its own target dir: its compile-time catalog pins
@@ -79,11 +79,15 @@ function buildMarketplaceService(repoRoot) {
     throw new Error("marketplace build variables are unavailable (needs `gh` access)");
   }
   for (const name of TELEMETRY_BUILD_VARIABLES) delete env[name];
-  // A cold target of its own: same guard as `pnpm dev:precompile`.
-  requireDiskSpace("pnpm qa:build --marketplace", { path: repoRoot });
   const targetDir = join(cargoTarget(repoRoot), MARKETPLACE_TARGET);
-  const cargo = ["scripts/cargo-env.mjs", "cargo", "build", "--quiet", "-p", "cadencr-service"];
-  run(process.execPath, [...cargo, "--target-dir", targetDir], repoRoot, env);
+  withRustPrecompile(
+    repoRoot,
+    "pnpm qa:build --marketplace",
+    (run) => {
+      run("cargo", ["build", "--quiet", "-p", "cadencr-service", "--target-dir", targetDir]);
+    },
+    env,
+  );
 }
 
 function cargoTarget(repoRoot) {
