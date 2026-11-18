@@ -94,7 +94,7 @@ fn prepare_provider_command_with_classification(
         for (key, value) in environment {
             command.env(key, value);
         }
-        (command, AcpProcessTreePolicy::Inherit)
+        (command, AcpProcessTreePolicy::Grouped)
     };
     command.args(args);
     Ok(PreparedProviderCommand {
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_descriptors_keep_explicit_environment_and_inherit_processes() {
+    async fn local_descriptors_keep_explicit_environment_and_own_their_process_tree() {
         let directory = tempfile::tempdir().unwrap();
         let mut executable = executable(&directory);
         executable
@@ -146,7 +146,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(prepared.process_tree_policy, AcpProcessTreePolicy::Inherit);
+        assert_eq!(prepared.process_tree_policy, AcpProcessTreePolicy::Grouped);
         assert_eq!(
             prepared
                 .command
