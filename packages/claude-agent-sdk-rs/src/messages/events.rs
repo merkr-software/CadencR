@@ -145,6 +145,27 @@ pub enum SystemMessage {
         #[serde(flatten)]
         extra: HashMap<String, Value>,
     },
+
+    /// Running estimate of the thinking tokens the model has produced in the
+    /// current response, emitted (since CLI 2.1.32x) once per streamed
+    /// thinking chunk. Progress metadata only: the thinking itself arrives
+    /// through `stream_event` deltas and the `assistant` message.
+    #[serde(rename = "thinking_tokens")]
+    ThinkingTokens {
+        #[serde(default)]
+        uuid: String,
+        session_id: String,
+        /// Counters tolerate absence and `null`: a drift there must not turn
+        /// every thinking chunk into a malformed frame.
+        #[serde(default)]
+        estimated_tokens: Option<i64>,
+        #[serde(default)]
+        estimated_tokens_delta: Option<i64>,
+        /// Client `uuid` of the user message this turn answers, when the
+        /// prompt carried one.
+        #[serde(default)]
+        user_message_uuid: Option<String>,
+    },
     // NOTE: intentionally NO `#[serde(other)]` catch-all here. The background
     // run-in-background agent protocol (issue #58) relies on the CLI's
     // `system/task_started` and `system/task_notification` subtypes arriving as
@@ -160,6 +181,7 @@ impl SystemMessage {
             SystemMessage::Init { session_id, .. } => session_id,
             SystemMessage::CompactBoundary { session_id, .. } => session_id,
             SystemMessage::Status { session_id, .. } => session_id,
+            SystemMessage::ThinkingTokens { session_id, .. } => session_id,
         }
     }
 
