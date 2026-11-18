@@ -5,6 +5,10 @@ use super::super::super::protocol::{permission_request_envelope, PermissionReque
 use super::super::WsSender;
 use crate::app_state::AppState;
 use crate::domain::session_status::{AgentStatus, PendingKind};
+use crate::domain::ws_session::runtime::helpers::{
+    report_if_unsaved, send_session_error, SESSION_STATE_UNREADABLE,
+};
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 pub(super) async fn restore_pending_or_idle(
@@ -13,7 +17,23 @@ pub(super) async fn restore_pending_or_idle(
     db_session_id: i64,
     feature_id: i64,
 ) {
-    let row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await;
+    let row = match WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await
+    {
+        Ok(row) => row,
+        Err(error) => {
+            // Unknown is not "nothing pending": clearing here would erase a
+            // gate the agent is still waiting on.
+            tracing::error!(db_session_id, %error, "failed to read pending user input");
+            send_session_error(
+                sender,
+                SESSION_STATE_UNREADABLE,
+                format!(
+                    "Cadencr could not read whether this conversation is waiting for you ({error}). Reopen it to try again."
+                ),
+            );
+            return;
+        }
+    };
     if let Some((kind, payload)) = row.as_ref().and_then(|row| row.pending_gate_payload()) {
         send_pending(
             app_state,
@@ -55,15 +75,29 @@ fn send_pending(
     let request_id = payload.request_id.clone();
     let envelope =
         permission_request_envelope(payload).expect("permission request payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
+    sender
+        .send(Message::Text(String::from(envelope).into()))
+        .ignore_closed();
     app_state
         .session_status_tx
         .broadcast_gate(db_session_id, feature_id, kind, request_id);
 }
 
 async fn clear_stale_pending(app_state: &AppState, db_session_id: i64, feature_id: i64) {
-    WsSessionPersistence::clear_all_pending_user_input_static(&app_state.write_pool, db_session_id)
-        .await;
+    // Unsaved, the columns still name a gate the next open would show again.
+    let cleared = WsSessionPersistence::try_clear_all_pending_user_input_static(
+        &app_state.write_pool,
+        db_session_id,
+    )
+    .await;
+    report_if_unsaved(
+        &app_state.ws_feature_senders,
+        feature_id,
+        db_session_id,
+        "that nothing is waiting for you",
+        cleared,
+    )
+    .await;
     app_state
         .session_status_tx
         .broadcast(db_session_id, feature_id, AgentStatus::Idle, None);
@@ -249,6 +283,27 @@ mod tests {
         let status = status_rx.recv().await.unwrap();
         assert_eq!(status.status, AgentStatus::Idle);
         assert_eq!(status.kind, None);
+    }
+
+    /// A failed read is not "nothing pending": the gate must survive and the
+    /// client must hear why its state is unknown.
+    #[tokio::test]
+    async fn restore_with_unreadable_session_reports_error_and_keeps_status() {
+        let state = test_state().await;
+        sqlx::query("DROP TABLE agent_sessions")
+            .execute(&state.write_pool)
+            .await
+            .unwrap();
+        let mut status_rx = state.session_status_tx.subscribe();
+        let (sender, mut rx) = mpsc::unbounded_channel();
+
+        restore_pending_or_idle(&state, &sender, 4, 40).await;
+
+        let Message::Text(text) = rx.try_recv().expect("an error envelope") else {
+            panic!("expected text envelope");
+        };
+        assert!(text.contains("SESSION_STATE_UNREADABLE"), "{text}");
+        assert!(status_rx.try_recv().is_err(), "no Idle broadcast");
     }
 
     /// A second device opening a *running* conversation (no pending input)

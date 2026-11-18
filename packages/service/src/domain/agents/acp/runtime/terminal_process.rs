@@ -13,6 +13,7 @@
 //! with `&`) lives on until a kill, a release, the session closing or the
 //! service shutting down.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -164,7 +165,7 @@ async fn supervise(
                     escalate_at = Some(Instant::now() + KILL_GRACE);
                 }
                 // The requester may have gone away (request aborted).
-                let _ = reply.send(result);
+                reply.send_ignore_closed(result);
             }
             () = sleep_until(escalate_at.unwrap_or_else(Instant::now)), if escalate_at.is_some() => {
                 escalate_at = None;

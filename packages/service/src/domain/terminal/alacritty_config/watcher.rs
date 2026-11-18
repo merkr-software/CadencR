@@ -12,11 +12,10 @@
 //! kept in [`watch_error`] and returned by the config route, so the client
 //! can tell the user that external edits won't show up until a restart.
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
@@ -305,8 +304,8 @@ fn event_handler(
                 // Events may have been lost: refetch and recompute rather
                 // than leave the terminal on a stale config.
                 warn!("alacritty config watcher error: {e:?}");
-                let _ = tx.send(AlacrittyConfigChangedEvent {});
-                let _ = recompute_tx.send(Vec::new());
+                tx.send(AlacrittyConfigChangedEvent {}).ignore_closed();
+                recompute_tx.send(Vec::new()).ignore_closed();
                 return;
             }
         };
@@ -317,12 +316,12 @@ fn event_handler(
         let created = created_subdirs_of_watched_dirs(&events, &watched.dirs);
         if config_changed {
             debug!("alacritty.toml change detected");
-            let _ = tx.send(AlacrittyConfigChangedEvent {});
+            tx.send(AlacrittyConfigChangedEvent {}).ignore_closed();
         }
         if config_changed || !created.is_empty() {
             // A batch can contain both a chain-file edit and a recreated
             // directory: recompute the graph without losing invalidations.
-            let _ = recompute_tx.send(created);
+            recompute_tx.send(created).ignore_closed();
         }
     }
 }
@@ -392,7 +391,8 @@ impl Resubscriber {
         // `watch_error`. An ordinary edit to an already-watched file changes
         // none of this and already got its ping from the event callback.
         if changed {
-            let _ = self.reload_tx.send(AlacrittyConfigChangedEvent {});
+            let event = AlacrittyConfigChangedEvent {};
+            self.reload_tx.send(event).ignore_closed();
         }
     }
 }

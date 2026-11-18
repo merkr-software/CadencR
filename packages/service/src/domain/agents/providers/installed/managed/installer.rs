@@ -16,14 +16,16 @@ use crate::domain::agents::providers::installed::lifecycle::{
     descriptor_path, ensure_descriptor_id_available, lifecycle_lock,
 };
 use crate::error::AppError;
-use crate::shared::{atomic_file, fs_durability};
+use crate::shared::fs_durability;
 use axum::http::StatusCode;
 
 mod guard;
 mod handoff;
 pub(crate) use handoff::{session_receipt, verify_admission_owner};
+mod descriptor_sync;
 mod storage;
 mod verification;
+use descriptor_sync::{apply_descriptor_sync, prepare_descriptor_sync};
 pub use guard::is_managed_executable;
 pub(crate) use guard::{is_managed_executable_in, verify_managed_launch_in};
 use storage::create_secure_dir;
@@ -213,7 +215,14 @@ pub fn verify_rollback_candidate(
 
 pub fn reconcile_descriptors(storage: &ManagedStorage, descriptors: &Path) -> HashSet<String> {
     let mut failed = HashSet::new();
-    for provider_id in storage.provider_ids() {
+    // Unreadable root: the descriptors stay as they were and the inventory
+    // endpoint reports the same error.
+    let Ok(provider_ids) = storage.provider_ids().inspect_err(|error| {
+        tracing::error!(%error, "managed provider descriptor reconciliation skipped");
+    }) else {
+        return failed;
+    };
+    for provider_id in provider_ids {
         let result = storage
             .state_path(&provider_id)
             .and_then(|path| read_state(&path, &provider_id))
@@ -225,18 +234,6 @@ pub fn reconcile_descriptors(storage: &ManagedStorage, descriptors: &Path) -> Ha
         }
     }
     failed
-}
-
-enum DescriptorSync {
-    Write {
-        path: PathBuf,
-        json: String,
-    },
-    Retire {
-        storage: ManagedStorage,
-        path: PathBuf,
-        provider_id: String,
-    },
 }
 
 pub(super) struct VerifiedDescriptorProjection {
@@ -325,69 +322,6 @@ fn projection_failure_identity(state: &ManagedProviderState) -> (&str, Option<&s
             .unwrap_or("0.0.0"),
         history.and_then(|entry| entry.previous_digest.as_deref()),
     )
-}
-
-fn prepare_descriptor_sync(
-    storage: &ManagedStorage,
-    descriptors: &Path,
-    state: &ManagedProviderState,
-) -> Result<DescriptorSync, AppError> {
-    let Some(projection) = verify_descriptor_projection(storage, descriptors, state)? else {
-        return Ok(DescriptorSync::Retire {
-            storage: storage.clone(),
-            path: descriptor_path(descriptors, &state.provider_id)?,
-            provider_id: state.provider_id.clone(),
-        });
-    };
-    let mut json = serde_json::to_string_pretty(&projection.descriptor)
-        .map_err(|error| AppError::internal(format!("serialize managed descriptor: {error}")))?;
-    json.push('\n');
-    Ok(DescriptorSync::Write {
-        path: projection.path,
-        json,
-    })
-}
-
-fn apply_descriptor_sync(projection: DescriptorSync) -> Result<(), AppError> {
-    match projection {
-        DescriptorSync::Write { path, json } => atomic_file::write_atomic_private(&path, &json),
-        DescriptorSync::Retire {
-            storage,
-            path,
-            provider_id,
-        } => retire_managed_descriptor(&storage, &path, &provider_id),
-    }
-}
-
-fn retire_managed_descriptor(
-    storage: &ManagedStorage,
-    descriptor: &Path,
-    provider_id: &str,
-) -> Result<(), AppError> {
-    let raw = match std::fs::read(descriptor) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(AppError::internal(format!(
-                "read managed descriptor: {error}"
-            )))
-        }
-    };
-    let existing: ProviderDescriptor = serde_json::from_slice(&raw)
-        .map_err(|error| AppError::internal(format!("parse managed descriptor: {error}")))?;
-    let command = existing
-        .installation
-        .executable
-        .as_ref()
-        .map(|executable| Path::new(&executable.command));
-    if !command.is_some_and(|command| command.starts_with(storage.root())) {
-        return Ok(());
-    }
-    let retired = storage
-        .provider_dir(provider_id)?
-        .join(format!("descriptor-retired-{}.json", uuid::Uuid::new_v4()));
-    std::fs::rename(descriptor, retired)
-        .map_err(|error| AppError::internal(format!("retire managed descriptor: {error}")))
 }
 
 fn not_installed(provider_id: &str) -> AppError {

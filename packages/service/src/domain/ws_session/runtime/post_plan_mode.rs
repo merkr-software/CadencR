@@ -1,11 +1,12 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::domain::ws_session::runtime::output::OutputTarget;
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::{debug, warn};
 
 use super::helpers::{
     parse_permission_mode, post_plan_approval_fallback_mode_wire, post_plan_approval_mode_wire,
-    send_session_error, state_not_saved_message, SESSION_STATE_NOT_SAVED,
+    report_session_write_failure,
 };
 use super::state::{QueryState, SdkHandle, SdkSessions};
 use crate::domain::agents::adapter::{
@@ -16,6 +17,7 @@ use crate::domain::agents::permission_modes::permission_mode_wire;
 use crate::domain::agents::runtime_adapter;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{ModeChangedPayload, WsEnvelope};
+use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
 pub(crate) fn should_transition_after_plan_approval(
     kind: RuntimePermissionResponseKind,
@@ -33,8 +35,9 @@ pub(in crate::domain::ws_session) async fn transition_session_to_post_plan_mode(
     db_session_id: i64,
     write_pool: &sqlx::SqlitePool,
     sender: &impl OutputTarget,
+    feature_senders: &WsFeatureSenderRegistry,
 ) -> Result<Option<String>, RuntimeError> {
-    let (transition, runtime_provider) = {
+    let (transition, runtime_provider, feature_id) = {
         let mut sessions = sdk_sessions.lock().await;
         let Some(handle) = sessions.get_mut(&db_session_id) else {
             warn!(
@@ -46,6 +49,7 @@ pub(in crate::domain::ws_session) async fn transition_session_to_post_plan_mode(
         (
             plan_post_plan_mode_transition(handle),
             handle.runtime_provider.clone(),
+            handle.feature_id,
         )
     };
 
@@ -109,18 +113,24 @@ pub(in crate::domain::ws_session) async fn transition_session_to_post_plan_mode(
     )
     .await
     {
-        warn!(db_session_id, %error, "post-plan-approval: failed to save the permission mode");
-        send_session_error(
-            sender,
-            SESSION_STATE_NOT_SAVED,
-            state_not_saved_message("the permission mode after plan approval", &error),
-        );
+        // A headless sender (HTTP, MCP, a schedule) has nobody to tell; every
+        // viewer of the feature does.
+        report_session_write_failure(
+            feature_senders,
+            feature_id,
+            db_session_id,
+            "the permission mode after plan approval",
+            &error,
+        )
+        .await;
     }
     let envelope = WsEnvelope::session_event(&WsSessionEvent::ModeChanged(ModeChangedPayload {
         mode: applied_wire.clone(),
     }))
     .expect("mode changed payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
+    sender
+        .send(Message::Text(String::from(envelope).into()))
+        .ignore_closed();
 
     Ok(Some(applied_wire))
 }
@@ -476,9 +486,15 @@ mod tests {
         );
         let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
 
-        let changed = transition_session_to_post_plan_mode(&sdk_sessions, 7, &pool, &sender)
-            .await
-            .expect("fallback must succeed silently");
+        let changed = transition_session_to_post_plan_mode(
+            &sdk_sessions,
+            7,
+            &pool,
+            &sender,
+            &crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry::default(),
+        )
+        .await
+        .expect("fallback must succeed silently");
 
         // The orchestrator picked `auto` first, the CLI rejected it, so we
         // ended up in `acceptEdits` — surfaced via the return value, the
@@ -534,9 +550,15 @@ mod tests {
         sdk_sessions.lock().await.insert(7, handle);
         let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
 
-        let changed = transition_session_to_post_plan_mode(&sdk_sessions, 7, &pool, &sender)
-            .await
-            .expect("no mode switch is not an error");
+        let changed = transition_session_to_post_plan_mode(
+            &sdk_sessions,
+            7,
+            &pool,
+            &sender,
+            &crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry::default(),
+        )
+        .await
+        .expect("no mode switch is not an error");
 
         assert!(changed.is_none());
         assert!(modes.lock().await.is_empty());
@@ -560,7 +582,14 @@ mod tests {
             .insert(7, codex_plan_handle(Arc::clone(&modes)));
         let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
 
-        let changed = transition_session_to_post_plan_mode(&sdk_sessions, 7, &pool, &sender).await;
+        let changed = transition_session_to_post_plan_mode(
+            &sdk_sessions,
+            7,
+            &pool,
+            &sender,
+            &crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry::default(),
+        )
+        .await;
 
         assert_eq!(changed.unwrap().as_deref(), Some("default"));
         assert_eq!(*modes.lock().await, vec![RuntimePermissionMode::Default]);

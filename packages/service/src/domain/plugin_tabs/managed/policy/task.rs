@@ -4,6 +4,7 @@ use super::envelope::FEED;
 use super::PolicySnapshot;
 use crate::domain::plugin_tabs::managed::storage;
 use crate::domain::plugin_tabs::watcher::PluginTabChangedEvent;
+use crate::shared::discard::IgnoreClosed;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{broadcast, watch};
@@ -77,7 +78,9 @@ async fn announce(
         };
         for plugin_id in installed.into_iter().filter(|id| named.contains(id)) {
             // No subscriber yet is not a failure: they read the policy on connect.
-            let _ = events.send(PluginTabChangedEvent { plugin_id });
+            events
+                .send(PluginTabChangedEvent { plugin_id })
+                .ignore_closed();
         }
     }
 }

@@ -88,7 +88,7 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
         Err(error) => {
             mark_followup_dispatch_failed(&context, dispatch_claim.as_ref(), &error).await;
             if let Some(message_uuid) = receipt_message_uuid {
-                let _ = clear_pending_prompt_receipt(
+                clear_pending_prompt_receipt(
                     &context.write_pool,
                     &context.ws_feature_senders,
                     &context.sender,
@@ -150,6 +150,10 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
         .await;
     }
     tokio::spawn(async move {
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "every failure path already reported to the requester before returning"
+        )]
         let _ = stream_followup_prompt(
             context,
             turn_guard,
@@ -216,7 +220,9 @@ async fn stream_followup_prompt(
     let prompt_text = match shell_context.append_to_prompt(prompt_text) {
         Ok(prompt) => prompt,
         Err(message) => {
-            let _ = shell_context.release(&context.write_pool).await;
+            shell_context
+                .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+                .await;
             mark_followup_dispatch_failed(&context, dispatch_claim.as_ref(), &message).await;
             persist_pause_and_send_session_error()
                 .pool(&context.write_pool)
@@ -288,9 +294,9 @@ async fn stream_followup_prompt(
             )
             .await;
         }
-        if let Err(release_error) = shell_context.release(&context.write_pool).await {
-            error!(context.db_session_id, error = %release_error, "failed to release user shell context claim");
-        }
+        shell_context
+            .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+            .await;
         return fail_followup_stream(
             &context,
             dispatch_claim.as_ref(),
@@ -300,15 +306,9 @@ async fn stream_followup_prompt(
         )
         .await;
     }
-    if let Err(error) = shell_context.mark_delivered(&context.write_pool).await {
-        error!(context.db_session_id, %error, "failed to mark user shell context delivered");
-        super::super::helpers::send_warning(
-            &context.sender,
-            &context.envelope_id,
-            "USER_SHELL_CONTEXT_STATE_ERROR",
-            &error,
-        );
-    }
+    shell_context
+        .mark_delivered_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+        .await;
     Ok(())
 }
 

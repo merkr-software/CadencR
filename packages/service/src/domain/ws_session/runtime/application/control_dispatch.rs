@@ -287,7 +287,7 @@ async fn require_session_row(
     feature_id: i64,
     session_id: i64,
 ) -> Result<SessionRow, AppError> {
-    let Some(row) = WsSessionPersistence::get_session_row(pool, session_id).await else {
+    let Some(row) = WsSessionPersistence::get_session_row(pool, session_id).await? else {
         return Err(AppError::NotFound(format!(
             "session {session_id} not found"
         )));

@@ -1,5 +1,6 @@
 //! Process-wide settings directory, set once at startup.
 
+use crate::shared::discard::KeepFirst;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -21,7 +22,7 @@ pub fn secure(dir: &Path) -> anyhow::Result<()> {
 /// Set the settings directory. Called once from `main` after the path is
 /// resolved. Subsequent calls are ignored (the first one wins).
 pub fn init(dir: PathBuf) {
-    let _ = SETTINGS_DIR.set(dir);
+    SETTINGS_DIR.keep_first(dir);
 }
 
 /// The active settings directory. In production this is always initialized by

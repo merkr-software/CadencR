@@ -56,7 +56,7 @@ fn encode_hex(bytes: &[u8]) -> String {
     bytes
         .iter()
         .fold(String::with_capacity(64), |mut out, byte| {
-            let _ = write!(out, "{byte:02x}");
+            write!(out, "{byte:02x}").expect("writing to a String cannot fail");
             out
         })
 }
@@ -124,6 +124,16 @@ fn put_in(root: &Path, bytes: &[u8]) -> Result<BlobHash, AppError> {
 #[track_caller]
 fn blob_io(action: &'static str, error: std::io::Error) -> AppError {
     AppError::internal(format!("failed to {action}: {error}"))
+}
+
+/// Only a missing file is "not found": a blob that exists but cannot be read
+/// (permissions, I/O) is a server failure, not a reference to lost bytes.
+fn read_error(hash: &str, error: std::io::Error) -> AppError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        AppError::NotFound(format!("blob {hash} not found"))
+    } else {
+        blob_io("read blob", error)
+    }
 }
 
 /// A false result covers both absence and a corrupt/non-file path.
@@ -237,8 +247,7 @@ pub fn get(hash: &str) -> Result<Vec<u8>, AppError> {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
     let path = path_for(hash);
-    let bytes =
-        std::fs::read(&path).map_err(|_| AppError::NotFound(format!("blob {hash} not found")))?;
+    let bytes = std::fs::read(&path).map_err(|error| read_error(hash, error))?;
     if !path.is_file() || hash_bytes(&bytes) != hash {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
@@ -254,7 +263,7 @@ pub async fn get_async(hash: &str) -> Result<Vec<u8>, AppError> {
     let path = path_for(hash);
     let bytes = tokio::fs::read(&path)
         .await
-        .map_err(|_| AppError::NotFound(format!("blob {hash} not found")))?;
+        .map_err(|error| read_error(hash, error))?;
     if !path.is_file() || hash_bytes(&bytes) != hash {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
@@ -264,6 +273,15 @@ pub async fn get_async(hash: &str) -> Result<Vec<u8>, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every read failure used to answer 404, hiding a broken store.
+    #[test]
+    fn only_a_missing_blob_reads_as_not_found() {
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert!(matches!(read_error("abc", missing), AppError::NotFound(_)));
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(matches!(read_error("abc", denied), AppError::Internal(_)));
+    }
 
     #[test]
     fn round_trips_bytes_and_is_content_addressed() {

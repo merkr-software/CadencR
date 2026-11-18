@@ -73,6 +73,10 @@ async fn wait_for_startup_statuses(
             }
         }
     };
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "bounded wait: the statuses collected before the deadline are the answer"
+    )]
     let _ = tokio::time::timeout(MCP_STARTUP_TIMEOUT, wait).await;
     statuses
 }

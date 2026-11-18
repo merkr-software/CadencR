@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::super::super::persistence::WsSessionPersistence;
@@ -140,7 +141,9 @@ pub(crate) async fn handle_destroy(
         }),
     )
     .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
 }
 
 /// Handle session.delete: hard-delete a session and its messages from the DB.
@@ -198,7 +201,9 @@ pub(crate) async fn handle_delete(
                 }),
             )
             .expect("session event payload should serialize");
-            let _ = sender.send(Message::Text(String::from(reply).into()));
+            sender
+                .send(Message::Text(String::from(reply).into()))
+                .ignore_closed();
         }
         Err(reason) => {
             send_error(sender, &envelope.id, "DELETE_FAILED", &reason);
@@ -342,7 +347,9 @@ pub(crate) async fn handle_clear(
         }),
     )
     .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
@@ -84,7 +85,7 @@ impl GitWatcherRegistry {
         let drained: Vec<_> = inner.handles.drain().collect();
         drop(inner);
         for (_, mut handle) in drained {
-            let _ = handle.ping_tx.send(RecomputePing::Shutdown);
+            handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
             handle.compute_task.abort();
         }

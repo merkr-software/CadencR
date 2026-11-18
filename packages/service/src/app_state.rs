@@ -62,7 +62,12 @@ impl BrowserBridgeConfig {
     pub fn from_env() -> Option<Self> {
         let url = std::env::var(BROWSER_BRIDGE_URL_ENV).ok()?;
         let token = std::env::var(BROWSER_BRIDGE_TOKEN_ENV).ok()?;
-        Self::from_raw(&url, &token).ok()
+        // The messages name the problem, never the token.
+        Self::from_raw(&url, &token)
+            .inspect_err(|error| {
+                tracing::warn!(%error, "ignoring the browser bridge configured in the environment");
+            })
+            .ok()
     }
 
     pub fn as_env(&self) -> [(String, String); 2] {

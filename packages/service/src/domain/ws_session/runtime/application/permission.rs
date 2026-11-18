@@ -1,4 +1,5 @@
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::super::output::{CommandError, CommandOutput, OutputTarget};
@@ -123,9 +124,10 @@ async fn finish_accepted_runtime_permission(
             ..Default::default()
         }))
         .expect("session event payload should serialize");
-        let _ = output
+        output
             .recipient
-            .send(Message::Text(String::from(ended).into()));
+            .send(Message::Text(String::from(ended).into()))
+            .ignore_closed();
     }
     warnings.extend(
         persist_question_answer(
@@ -248,6 +250,7 @@ async fn respond_runtime_permission(
             db_session_id,
             context.write_pool,
             &output.recipient,
+            context.feature_senders,
         )
         .await
         {

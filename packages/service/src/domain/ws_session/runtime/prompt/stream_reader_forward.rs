@@ -14,6 +14,15 @@ use super::prompt_receipt::prompt_received_envelope;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
 impl StreamReaderTask {
+    /// See [`WsFeatureSenderRegistry::publish`].
+    ///
+    /// [`WsFeatureSenderRegistry::publish`]: crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry::publish
+    pub(in crate::domain::ws_session) async fn publish(&self, msg: Message) {
+        self.feature_senders
+            .publish(self.feature_id, &self.sender, msg)
+            .await;
+    }
+
     /// Send `msg` to this turn's owner socket and mirror it to any *other*
     /// devices viewing the same feature. Others are mirrored first so the owner
     /// send can move `msg` without a clone; in the common single-viewer case

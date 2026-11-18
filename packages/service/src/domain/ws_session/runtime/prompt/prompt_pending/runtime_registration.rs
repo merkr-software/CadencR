@@ -20,12 +20,20 @@ pub(in crate::domain::ws_session) async fn register_runtime(
     let provider_context_window = runtime_session.context_window();
     let runtime_control_endpoint = runtime_session.runtime_control_endpoint();
     if let Some(context_window) = provider_context_window {
-        WsSessionPersistence::update_context_window(
+        if let Err(error) = WsSessionPersistence::update_context_window(
             &context.app_state.write_pool,
             context.db_session_id,
             Some(context_window),
         )
-        .await;
+        .await
+        {
+            super::super::super::helpers::send_state_not_saved(
+                &context.sender,
+                &context.envelope_id,
+                "its context window",
+                &error,
+            );
+        }
     }
     if send_mcp_servers_for_runtime(
         &context.sender,

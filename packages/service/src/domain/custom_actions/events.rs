@@ -7,6 +7,7 @@
 //! queries it names. No `seq`/snapshot: a lagged client gets an empty payload
 //! and re-fetches everything.
 
+use crate::shared::discard::IgnoreClosed;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
@@ -39,12 +40,13 @@ pub type CustomActionEventSender = broadcast::Sender<CustomActionEvent>;
 /// Notify clients that the action list changed.
 pub fn notify_changed(tx: &CustomActionEventSender, action_id: Option<i64>) {
     // No subscriber is fine: no client is connected.
-    let _ = tx.send(CustomActionEvent {
+    tx.send(CustomActionEvent {
         kind: CustomActionEventKind::Changed,
         action_id,
         feature_id: None,
         run_id: None,
-    });
+    })
+    .ignore_closed();
 }
 
 /// Notify clients that a run of `action_id` in `feature_id` progressed.
@@ -55,12 +57,13 @@ pub fn notify_run(
     feature_id: i64,
     run_id: i64,
 ) {
-    let _ = tx.send(CustomActionEvent {
+    tx.send(CustomActionEvent {
         kind,
         action_id: Some(action_id),
         feature_id: Some(feature_id),
         run_id: Some(run_id),
-    });
+    })
+    .ignore_closed();
 }
 
 #[cfg(test)]

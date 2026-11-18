@@ -290,7 +290,8 @@ async fn ensure_reuse(
     if attached.was_already_attached {
         // Shared worktree — the donor feature already ran its setup
         // commands. Skip ours and jump straight to ready.
-        let _ = set_setting(write_pool, feature_id, "worktree_setup_step", "ready").await;
+        // Unsaved, the next prompt would rerun setup in the donor's worktree.
+        set_setting(write_pool, feature_id, "worktree_setup_step", "ready").await?;
         send_envelope(
             ws_sender,
             "workflow",

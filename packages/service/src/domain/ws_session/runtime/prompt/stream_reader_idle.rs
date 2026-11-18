@@ -70,7 +70,7 @@ pub(super) async fn retire_unobserved_runtime(task: &StreamReaderTask) -> bool {
 /// Whether the turn may still need this runtime. A status that cannot be read
 /// keeps it: closing needs proof the turn is over, and a later tick retries.
 async fn turn_needs_runtime(task: &StreamReaderTask) -> bool {
-    match WsSessionPersistence::try_get_session_row(&task.write_pool, task.db_session_id).await {
+    match WsSessionPersistence::get_session_row(&task.write_pool, task.db_session_id).await {
         Ok(row) => row.is_some_and(|row| row.status == "running" || row.has_pending_user_input()),
         Err(error) => {
             tracing::warn!(task.db_session_id, %error, "could not read session status; keeping the idle runtime");
@@ -160,6 +160,7 @@ pub(super) mod tests {
             provider_context_window: None,
             app_state: state,
             cleanup_session_on_end: false,
+            row_read_failed: Default::default(),
         };
         (task, query, closed)
     }

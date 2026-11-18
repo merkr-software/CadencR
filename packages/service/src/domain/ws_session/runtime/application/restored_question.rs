@@ -183,6 +183,7 @@ mod tests {
         WsSessionPersistence::get_session_row(&state.read_pool, 1)
             .await
             .unwrap()
+            .unwrap()
             .has_pending_user_input()
     }
 

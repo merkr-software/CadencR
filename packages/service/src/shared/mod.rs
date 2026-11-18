@@ -7,6 +7,7 @@ pub mod capped_read;
 pub mod cli_stderr;
 pub mod data_roots;
 pub mod db;
+pub mod discard;
 pub mod disk_space;
 pub mod document_file;
 pub mod env_file;

@@ -90,7 +90,9 @@ pub async fn copy_from(source: &Path, target: &Path, document: &ThemeDocument) {
     }
     // Best-effort: the theme itself is already written, and a missing asset is
     // surfaced as an issue on the new theme rather than as a failed create.
-    let _ = fs::copy(source.join(&image.asset), target.join(&image.asset)).await;
+    if let Err(error) = fs::copy(source.join(&image.asset), target.join(&image.asset)).await {
+        tracing::warn!(asset = %image.asset, %error, "could not copy the theme texture");
+    }
 }
 
 #[cfg(test)]

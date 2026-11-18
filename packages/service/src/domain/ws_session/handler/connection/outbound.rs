@@ -1,5 +1,6 @@
 //! Bounded WebSocket outbound queue and priority close delivery.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::fmt::Display;
 use std::time::Duration;
 
@@ -69,18 +70,18 @@ fn spawn_outbound_bridge_with_timeout(
                 Ok(()) => continue,
                 Err(mpsc::error::TrySendError::Full(message)) => message,
                 Err(mpsc::error::TrySendError::Closed(_)) => {
-                    let _ = exit_tx.send(OutboundBridgeExit::SocketClosed);
+                    exit_tx.send_ignore_closed(OutboundBridgeExit::SocketClosed);
                     return;
                 }
             };
             match tokio::time::timeout(send_timeout, socket_tx.send(message)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(_)) => {
-                    let _ = exit_tx.send(OutboundBridgeExit::SocketClosed);
+                    exit_tx.send_ignore_closed(OutboundBridgeExit::SocketClosed);
                     return;
                 }
                 Err(_) => {
-                    let _ = exit_tx.send(OutboundBridgeExit::SendTimeout);
+                    exit_tx.send_ignore_closed(OutboundBridgeExit::SendTimeout);
                     return;
                 }
             }

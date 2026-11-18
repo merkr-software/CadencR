@@ -24,7 +24,8 @@ pub(super) async fn ensure_new_branch_name(
         return Ok(b);
     }
     let name = derive_branch_name(read_pool, feature_id, project_id).await?;
-    let _ = set_setting(write_pool, feature_id, "worktree_branch", &name).await;
+    // Unsaved, a retry would derive a new branch and orphan this one.
+    set_setting(write_pool, feature_id, "worktree_branch", &name).await?;
     Ok(name)
 }
 

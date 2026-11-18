@@ -1,6 +1,7 @@
 //! WebSocket upgrade + per-connection loop, dispatch, and disconnect cleanup.
 
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -115,6 +116,10 @@ async fn finish_graceful_close(
         return;
     }
     // Wait for the close echo; dropping immediately produces code 1006.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "bounded wait for the peer's close echo; the socket closes either way"
+    )]
     let _ = tokio::time::timeout(GRACEFUL_CLOSE_ECHO_TIMEOUT, async {
         while let Some(message) = ws_stream.next().await {
             match message {
@@ -160,9 +165,10 @@ async fn handle_remote_connection(socket: WebSocket, state: AppState, device_id:
         // One toast per device-connection: only the device's first live socket
         // emits (the registry deduped the rest). `send` errors only when no host
         // client is subscribed, which is fine — nothing to notify.
-        let _ = state
+        state
             .remote_events_tx
-            .send(crate::domain::remote::models::RemoteConnectedEvent { device_id });
+            .send(crate::domain::remote::models::RemoteConnectedEvent { device_id })
+            .ignore_closed();
     }
     tokio::select! {
         _ = handle_connection(socket, state) => {}
@@ -177,9 +183,16 @@ async fn handle_remote_connection(socket: WebSocket, state: AppState, device_id:
 fn record_remote_connect(state: &AppState, device_id: i64) {
     let pool = state.write_pool.clone();
     tokio::spawn(async move {
-        let _ = crate::domain::remote::repo::touch_last_seen(&pool, device_id).await;
-        let _ = crate::domain::remote::repo::record_audit(&pool, "connect", Some(device_id), None)
-            .await;
+        // Nobody waits on these writes; a failure only leaves the device
+        // list or the audit trail, which the log must still show.
+        if let Err(error) = crate::domain::remote::repo::touch_last_seen(&pool, device_id).await {
+            tracing::warn!(device_id, %error, "failed to record remote device last_seen");
+        }
+        if let Err(error) =
+            crate::domain::remote::repo::record_audit(&pool, "connect", Some(device_id), None).await
+        {
+            tracing::warn!(device_id, %error, "failed to record remote connect audit event");
+        }
     });
 }
 
@@ -291,8 +304,8 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                                         message: format!("Invalid envelope: {e}"),
                                         ..Default::default()
                                     })).expect("session event payload should serialize");
-                                let _ = outbound_tx
-                                    .send(Message::Text(String::from(err_env).into()));
+                                outbound_tx
+                                    .send(Message::Text(String::from(err_env).into())).ignore_closed();
                             }
                         }
                     }

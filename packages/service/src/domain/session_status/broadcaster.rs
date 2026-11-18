@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -287,7 +288,7 @@ impl SessionStatusBroadcaster {
             self.journal.push(JournalEntry::Completed(turn));
         }
         let seq = event.seq;
-        let _ = self.tx.send(event);
+        self.tx.send(event).ignore_closed();
         seq
     }
 

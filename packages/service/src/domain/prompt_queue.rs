@@ -7,6 +7,7 @@
 //! right away. Changes broadcast a bare `{session_id}` ping on
 //! `prompt_queue_events_tx`; clients re-fetch the list.
 
+use crate::shared::discard::IgnoreClosed;
 pub(crate) mod acceptance;
 pub mod delivery;
 pub mod routes;
@@ -21,7 +22,8 @@ pub struct PromptQueueChangedEvent {
 /// Notify every subscribed client that `session_id`'s queue changed.
 pub(crate) fn notify_changed(state: &crate::app_state::AppState, session_id: i64) {
     // No subscriber is fine: nobody is looking at that queue right now.
-    let _ = state
+    state
         .prompt_queue_events_tx
-        .send(PromptQueueChangedEvent { session_id });
+        .send(PromptQueueChangedEvent { session_id })
+        .ignore_closed();
 }

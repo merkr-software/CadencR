@@ -295,8 +295,7 @@ impl StreamReaderTask {
             ..Default::default()
         }))
         .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(err_env).into()))
+        self.publish(Message::Text(String::from(err_env).into()))
             .await;
     }
 
@@ -342,8 +341,7 @@ impl StreamReaderTask {
             .interrupted_result_envelope(state, interrupted_generation)
             .await
         {
-            let _ = self
-                .send_and_mirror(Message::Text(String::from(end_env).into()))
+            self.publish(Message::Text(String::from(end_env).into()))
                 .await;
         }
     }
@@ -358,8 +356,7 @@ impl StreamReaderTask {
             received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
         }))
         .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(end_env).into()))
+        self.publish(Message::Text(String::from(end_env).into()))
             .await;
     }
 }

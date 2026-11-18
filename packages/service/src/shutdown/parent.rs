@@ -16,6 +16,7 @@
 //! stdin read never returns while the shell lives, and a pool task would hold
 //! the runtime's shutdown hostage after a SIGTERM.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::io::Read;
 
 use tokio::sync::oneshot;
@@ -80,7 +81,7 @@ where
             let mut input = input;
             match std::io::copy(&mut input, &mut std::io::sink()) {
                 Ok(_) => {
-                    let _ = tx.send(());
+                    tx.send_ignore_closed(());
                 }
                 Err(error) => tracing::error!(
                     %error,

@@ -6,6 +6,7 @@
 //! sync with the database. Custom actions are scheduled here too (a
 //! `custom_action` target), not on timers of their own.
 
+use crate::shared::discard::IgnoreClosed;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -131,9 +132,12 @@ async fn run_claimed(state: &AppState, claimed: ClaimedSchedule) {
     // Announced only after the row is durable, so a client refetching on this
     // cue can't read back the pre-run state. Every outcome is broadcast, not
     // just `sent`: a failed, skipped or held run still advanced the rule.
-    let _ = state.schedule_events_tx.send(ScheduleRanEvent {
-        schedule_id: schedule.id,
-    });
+    state
+        .schedule_events_tx
+        .send(ScheduleRanEvent {
+            schedule_id: schedule.id,
+        })
+        .ignore_closed();
 }
 
 async fn record(

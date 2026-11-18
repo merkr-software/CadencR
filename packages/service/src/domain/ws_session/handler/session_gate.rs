@@ -1,4 +1,5 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::info;
 
@@ -194,7 +195,7 @@ pub(super) async fn clear_persisted_gate_and_notify(
     ref_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let Some(row) =
-        WsSessionPersistence::try_get_session_row(&app_state.write_pool, db_session_id).await?
+        WsSessionPersistence::get_session_row(&app_state.write_pool, db_session_id).await?
     else {
         return Ok(false);
     };
@@ -208,8 +209,13 @@ pub(super) async fn clear_persisted_gate_and_notify(
         return Ok(true);
     }
 
-    WsSessionPersistence::clear_all_pending_user_input_static(&app_state.write_pool, db_session_id)
-        .await;
+    // Unsaved, the gate would come back on the next open: fail instead of
+    // telling every client it closed.
+    WsSessionPersistence::try_clear_all_pending_user_input_static(
+        &app_state.write_pool,
+        db_session_id,
+    )
+    .await?;
     app_state
         .session_status_tx
         .broadcast(db_session_id, row.feature_id, AgentStatus::Idle, None);
@@ -234,7 +240,9 @@ fn send_gate_closed(
         None => WsEnvelope::session_event(&WsSessionEvent::GateClosed(payload)),
     };
     let envelope = envelope.expect("gate.closed payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
+    sender
+        .send(Message::Text(String::from(envelope).into()))
+        .ignore_closed();
 }
 
 async fn deny_runtime_gate(
@@ -356,8 +364,7 @@ async fn drain_after_gate_close(
     if crate::domain::prompt_queue::delivery::drain_next_after_turn(app_state, session_id).await {
         return Ok(());
     }
-    let Some(row) =
-        WsSessionPersistence::try_get_session_row(&app_state.read_pool, session_id).await?
+    let Some(row) = WsSessionPersistence::get_session_row(&app_state.read_pool, session_id).await?
     else {
         return Ok(());
     };

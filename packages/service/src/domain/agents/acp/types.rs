@@ -1,3 +1,4 @@
+use crate::shared::discard::SendIgnoreClosed;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
@@ -40,7 +41,7 @@ impl AcpEventBarrier {
         let sender = self.0.lock().ok().and_then(|mut slot| slot.take());
         if let Some(sender) = sender {
             // The waiter may have given up (turn cancelled); nothing to signal.
-            let _ = sender.send(());
+            sender.send_ignore_closed(());
         }
     }
 }

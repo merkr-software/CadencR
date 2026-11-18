@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -124,7 +125,7 @@ async fn emit_manual_compact_started(
         RuntimeTurnStartedSource::ManualCompact,
         None,
     );
-    let _ = tx.send(Ok(event)).await;
+    tx.send(Ok(event)).await.ignore_closed();
 }
 
 async fn emit_manual_compact_boundary(
@@ -156,5 +157,5 @@ async fn emit_manual_compact_boundary(
             metadata: Some(compact_metadata),
         },
     );
-    let _ = tx.send(Ok(event)).await;
+    tx.send(Ok(event)).await.ignore_closed();
 }

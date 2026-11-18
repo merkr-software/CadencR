@@ -12,6 +12,7 @@
 //! and grace-period shutdown are step 5; this module deliberately knows
 //! nothing about either, which keeps the wire-protocol logic isolated.
 
+use crate::shared::discard::{cleanup, IgnoreClosed};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -54,7 +55,7 @@ pub async fn run_proxy(
         Ok(pipes) => pipes,
         Err(error) => {
             warn!("lsp child {display_name}: {error}");
-            let _ = child.kill().await;
+            cleanup(child.kill().await, "kill the crashed language server");
             crash_tracker.record_crash(crash_key).await;
             return;
         }
@@ -74,8 +75,13 @@ pub async fn run_proxy(
             warn!("{error}");
             let message = serde_json::json!({"jsonrpc":"2.0","method":"window/showMessage",
                 "params":{"type":1,"message":error}});
-            let _ = sink.send(Message::Text(message.to_string().into())).await;
-            let _ = child.kill().await;
+            sink.send(Message::Text(message.to_string().into()))
+                .await
+                .ignore_closed();
+            cleanup(
+                child.kill().await,
+                "kill the language server without watchers",
+            );
             return;
         }
     };
@@ -132,8 +138,8 @@ pub async fn run_proxy(
         .display_name(display_name)
         .call()
         .await;
-    let _ = child.kill().await;
-    let _ = child.wait().await;
+    cleanup(child.kill().await, "kill the language server");
+    cleanup(child.wait().await, "reap the language server");
 
     if !clean_close && early_exit {
         crash_tracker.record_crash(crash_key).await;
@@ -203,7 +209,7 @@ async fn stdout_to_ws(
         match read_frame(&mut reader).await {
             Ok(Some(bytes)) => match String::from_utf8(bytes) {
                 Ok(text) => {
-                    let _ = activity_tx.send(Instant::now());
+                    activity_tx.send(Instant::now()).ignore_closed();
                     let handled = watchers.server_frame(&text);
                     if let Some(error) = handled.error {
                         warn!("LSP file watcher registration failed: {error}");
@@ -212,7 +218,9 @@ async fn stdout_to_ws(
                         if error.starts_with("Could not ") {
                             let message = serde_json::json!({"jsonrpc":"2.0","method":"window/showMessage",
                                 "params":{"type":1,"message":error}});
-                            let _ = out_tx.send(Message::Text(message.to_string().into()));
+                            out_tx
+                                .send(Message::Text(message.to_string().into()))
+                                .ignore_closed();
                         }
                     }
                     if let Some(response) = handled.response {

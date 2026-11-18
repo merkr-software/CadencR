@@ -89,13 +89,23 @@ pub fn global_read_for_edit() -> (PathBuf, String, Vec<SettingWarning>) {
 
 /// Read a nested object section (e.g. `profiles`) from the global file. Returns
 /// an empty map when the key is absent or its value isn't an object. A present
-/// but unparseable file also degrades to empty, but logs a warning first: that
+/// but unreadable or unparseable file also degrades to empty, but logs a
+/// warning first: that
 /// is the root cause behind otherwise-confusing "section missing" symptoms (a
 /// corrupt `settings.json` silently dropping an active Bedrock/Vertex profile).
 pub fn global_get_object(key: &str) -> serde_json::Map<String, serde_json::Value> {
     let path = global_path();
-    let Ok(Some(text)) = file::read_file(&path) else {
-        return serde_json::Map::new();
+    let text = match file::read_file(&path) {
+        Ok(Some(text)) => text,
+        Ok(None) => return serde_json::Map::new(),
+        Err(error) => {
+            tracing::warn!(
+                file = %path.display(),
+                %error,
+                "settings file is unreadable; ignoring its '{key}' section"
+            );
+            return serde_json::Map::new();
+        }
     };
     let doc = match file::parse_document(&text) {
         Ok(doc) => doc,

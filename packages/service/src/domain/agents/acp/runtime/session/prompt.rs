@@ -1,5 +1,6 @@
 //! Prompt dispatch for [`AcpRuntimeSession`].
 
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::Ordering;
 
 use serde_json::Value;
@@ -66,7 +67,7 @@ impl AcpRuntimeSession {
                 .pending_prompt_receipts
                 .acknowledge_client_message_id(client_message_id)
             {
-                let _ = self.local_tx().send(Ok(event)).await;
+                self.local_tx().send(Ok(event)).await.ignore_closed();
             }
         }
         if agent_was_terminated(&response) {

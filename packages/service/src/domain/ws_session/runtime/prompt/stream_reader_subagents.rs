@@ -128,8 +128,7 @@ impl StreamReaderTask {
     async fn send_subagent_updated(&self, run: SubagentRun) {
         let envelope = WsEnvelope::session_event(&WsSessionEvent::SubagentUpdated(run))
             .expect("sub-agent run serializes");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(envelope).into()))
+        self.publish(Message::Text(String::from(envelope).into()))
             .await;
     }
 }

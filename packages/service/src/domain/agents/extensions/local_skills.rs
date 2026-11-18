@@ -7,20 +7,48 @@ use std::path::Path;
 use super::types::{InstalledSkill, SkillSource};
 use crate::shared::frontmatter;
 
-/// Every skill folder under `root`, sorted by name. A missing root is empty.
+/// Every skill folder under `root`, sorted by name. A missing root is empty;
+/// an unreadable one, or skill, is skipped and logged so a vanished skill has
+/// a trace.
 pub async fn scan(provider_id: &str, root: &Path) -> Vec<InstalledSkill> {
-    let Ok(mut entries) = tokio::fs::read_dir(root).await else {
-        return Vec::new();
+    let mut entries = match tokio::fs::read_dir(root).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(provider_id, root = %root.display(), %error, "cannot list local skills");
+            return Vec::new();
+        }
     };
     let mut skills = Vec::new();
-    while let Ok(Some(entry)) = entries.next_entry().await {
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => break,
+            Err(error) => {
+                tracing::warn!(provider_id, root = %root.display(), %error, "stopped listing local skills");
+                break;
+            }
+        };
         let folder = entry.file_name().to_string_lossy().into_owned();
         if folder.starts_with('.') {
             continue;
         }
         let path = entry.path();
-        let Ok(manifest) = tokio::fs::read_to_string(path.join("SKILL.md")).await else {
-            continue;
+        let manifest = match tokio::fs::read_to_string(path.join("SKILL.md")).await {
+            Ok(manifest) => manifest,
+            // A folder without SKILL.md, or a plain file next to the skills.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                continue
+            }
+            Err(error) => {
+                tracing::warn!(provider_id, path = %path.display(), %error, "cannot read local skill");
+                continue;
+            }
         };
         let mut fields = frontmatter::scalars(&manifest);
         let (name, description) = (fields.remove("name"), fields.remove("description"));

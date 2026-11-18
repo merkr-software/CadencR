@@ -63,12 +63,6 @@ impl WsSessionPersistence {
     /// defensively when the handler doesn't know which kind was stored
     /// (e.g. `session_control::handle_permission_respond` after any
     /// Allow/Deny, and `session_init` reconnect cleanup).
-    pub async fn clear_all_pending_user_input_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(e) = Self::try_clear_all_pending_user_input_static(pool, session_id).await {
-            error!(error = %e, session_db_id = session_id, "failed to clear all pending user input");
-        }
-    }
-
     pub(crate) async fn try_clear_all_pending_user_input_static(
         pool: &SqlitePool,
         session_id: i64,
@@ -232,7 +226,9 @@ mod pending_user_input_tests {
             &PendingUserInput::Question(&question),
         )
         .await;
-        WsSessionPersistence::clear_all_pending_user_input_static(&pool, id).await;
+        WsSessionPersistence::try_clear_all_pending_user_input_static(&pool, id)
+            .await
+            .unwrap();
 
         assert!(column(&pool, id, "pending_permission").await.is_none());
         assert!(column(&pool, id, "pending_questions").await.is_none());

@@ -6,6 +6,7 @@ mod options;
 mod question;
 mod stream;
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -135,7 +136,7 @@ impl CodexSession {
             self.context_window,
             self.mcp_servers.read().await.clone(),
         );
-        let _ = self.local_tx.send(Ok(event));
+        self.local_tx.send(Ok(event)).ignore_closed();
     }
 
     pub(super) async fn start_initial_turn(&self, content: Value) -> Result<(), RuntimeError> {

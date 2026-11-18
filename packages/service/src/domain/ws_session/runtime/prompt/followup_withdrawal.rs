@@ -62,9 +62,9 @@ pub(super) async fn withdraw_followup(
 ) -> Result<(), String> {
     info!(context.db_session_id, "follow-up cancelled by a Stop");
     if let Some(shell_context) = shell_context {
-        if let Err(release_error) = shell_context.release(&context.write_pool).await {
-            error!(context.db_session_id, error = %release_error, "failed to release user shell context claim");
-        }
+        shell_context
+            .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+            .await;
     }
     if let Some(generation) = started_turn {
         end_withdrawn_turn(context, generation).await;

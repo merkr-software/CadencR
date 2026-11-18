@@ -6,6 +6,7 @@
 //! `refs/cadencr/checkpoints/<feature>/<seq>` so it stays reachable (not GC'd)
 //! until the feature is cleaned up.
 
+use crate::shared::discard::cleanup;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -56,8 +57,14 @@ pub(super) async fn snapshot_commit(
     let result = snapshot_inner(cwd, &index_path, ref_name, label, &env).await;
 
     // Best-effort cleanup of the scratch index; a leftover is harmless.
-    let _ = std::fs::remove_file(&index_path);
-    let _ = std::fs::remove_file(index_path.with_extension("lock"));
+    cleanup(
+        std::fs::remove_file(&index_path),
+        "remove the temporary checkpoint index",
+    );
+    cleanup(
+        std::fs::remove_file(index_path.with_extension("lock")),
+        "remove the temporary checkpoint index lock",
+    );
 
     result
 }

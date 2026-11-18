@@ -97,6 +97,7 @@ async fn answer_restored_plan(
             session_id,
             context.write_pool,
             &output.recipient,
+            context.feature_senders,
         )
         .await
         .map_err(|error| {

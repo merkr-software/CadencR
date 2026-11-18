@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -353,6 +354,6 @@ async fn publish_group_error(state: &AppState, group: &RepoGroup, error: &ForgeE
 
 async fn publish(state: &AppState, snapshot: PrStatusSnapshot) {
     if state.forge_status.upsert(snapshot.clone()).await {
-        let _ = state.forge_events_tx.send(snapshot);
+        state.forge_events_tx.send(snapshot).ignore_closed();
     }
 }

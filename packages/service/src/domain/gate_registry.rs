@@ -111,7 +111,7 @@ impl GateRegistry {
         if self.has_open(session_id).await {
             return Ok(());
         }
-        let Some(row) = WsSessionPersistence::try_get_session_row(pool, session_id).await? else {
+        let Some(row) = WsSessionPersistence::get_session_row(pool, session_id).await? else {
             return Ok(());
         };
         let Some((kind, payload)) = row.pending_gate_payload() else {

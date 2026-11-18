@@ -1,6 +1,7 @@
 //! Run a one-shot command with a hard timeout and a bounded output capture, so
 //! a hung or chatty program can neither stall nor flood the service.
 
+use crate::shared::discard::cleanup;
 use std::process::Output;
 use std::time::Duration;
 
@@ -139,7 +140,7 @@ async fn capture(
     }
     // The child may already have exited; the error being reported is the one
     // that matters.
-    let _ = child.kill().await;
+    cleanup(child.kill().await, "kill the timed-out command");
     stdout_task.abort();
     stderr_task.abort();
     Err(error)

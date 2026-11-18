@@ -37,7 +37,7 @@ pub(in crate::domain::ws_session) async fn load(
     pool: &SqlitePool,
     db_session_id: i64,
 ) -> Result<StoredSelection, (&'static str, String)> {
-    let row = WsSessionPersistence::try_get_session_row(pool, db_session_id)
+    let row = WsSessionPersistence::get_session_row(pool, db_session_id)
         .await
         .map_err(|error| ("DB_ERROR", format!("failed to read the session: {error}")))?
         .ok_or_else(|| {

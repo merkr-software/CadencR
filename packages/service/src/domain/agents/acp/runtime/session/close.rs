@@ -1,5 +1,6 @@
 //! Telling the agent that its ACP session closes.
 
+use crate::shared::discard::cleanup;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{CancelNotification, CloseSessionRequest};
@@ -46,9 +47,12 @@ pub(super) async fn tell_agent(session: &AcpRuntimeSession, session_id: String) 
         true
     };
     if should_cancel {
-        let _ = session
-            .client
-            .send_notification_typed(CancelNotification::new(session_id))
-            .await;
+        cleanup(
+            session
+                .client
+                .send_notification_typed(CancelNotification::new(session_id))
+                .await,
+            "cancel the ACP session after its close failed",
+        );
     }
 }

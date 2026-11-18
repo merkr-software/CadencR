@@ -1,5 +1,6 @@
 //! Per-worktree handle and refcount lifecycle helpers.
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -172,7 +173,7 @@ pub(super) fn schedule_grace_drop(
             }
         }
         if let Some(mut handle) = inner.handles.remove(&path_owned) {
-            let _ = handle.ping_tx.send(RecomputePing::Shutdown);
+            handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
             handle.compute_task.abort();
             debug!(path = %path_owned.display(), "git watcher dropped after grace");

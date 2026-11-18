@@ -4,11 +4,11 @@ use tokio::time::Instant;
 
 use crate::domain::agents::adapter::RuntimeEvent;
 use crate::domain::runtime_stream::{RuntimeUsageSnapshot, RuntimeUsageState};
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 use super::stream_reader_turn_state::StreamTurnState;
 use crate::domain::ws_session::protocol::{SessionUsageUpdatePayload, WsEnvelope, WsSessionEvent};
+use crate::domain::ws_session::runtime::helpers::report_session_write_failure;
 use axum::extract::ws::Message;
 
 impl StreamReaderState {
@@ -31,11 +31,58 @@ impl StreamReaderState {
             diagnostics: super::stream_diagnostics::StreamDiagnostics::new(),
             subagents: Default::default(),
             reported_model: None,
+            token_usage_save_failed: false,
+            context_window_save_failed: false,
+        }
+    }
+}
+
+/// The error to report for a write in a failure streak tracked by `failing`:
+/// only the first failure; a write that ran and succeeded ends the streak.
+fn first_failure_of_streak<E: std::fmt::Display>(
+    failing: &mut bool,
+    saved: Result<bool, E>,
+) -> Option<E> {
+    match saved {
+        Ok(true) => {
+            *failing = false;
+            None
+        }
+        Ok(false) => None,
+        Err(error) if *failing => {
+            tracing::debug!(%error, "session usage still not saved");
+            None
+        }
+        Err(error) => {
+            *failing = true;
+            Some(error)
         }
     }
 }
 
 impl StreamReaderTask {
+    /// Surface a failed usage write once per failure streak: usage changes on
+    /// most streamed events, and a broken database must not flood every
+    /// viewer with one error per event. `saved` is `Ok(false)` when there was
+    /// nothing to write, which neither ends nor extends the streak.
+    pub(in crate::domain::ws_session) async fn report_usage_write(
+        &self,
+        failing: &mut bool,
+        what: &str,
+        saved: Result<bool, sqlx::Error>,
+    ) {
+        if let Some(error) = first_failure_of_streak(failing, saved) {
+            report_session_write_failure(
+                &self.feature_senders,
+                self.feature_id,
+                self.db_session_id,
+                what,
+                &error,
+            )
+            .await;
+        }
+    }
+
     /// Capture what this turn's provider token report should be attributed to.
     pub(in crate::domain::ws_session) async fn capture_usage_attribution(
         &self,
@@ -96,7 +143,12 @@ impl StreamReaderTask {
     pub(in crate::domain::ws_session) async fn initial_usage_snapshot(
         &self,
     ) -> RuntimeUsageSnapshot {
-        let row = WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id).await;
+        // A failed read is already reported (alone or as part of a reported
+        // failure streak): seed from zero.
+        let row = self
+            .read_session_row("Its context usage restarts from zero until the next update.")
+            .await
+            .unwrap_or(None);
         let persisted = |value: Option<i64>| value.and_then(|v| u64::try_from(v).ok()).unwrap_or(0);
         let context_window = match self.provider_context_window {
             Some(cw) if cw > 0 => Some(cw),
@@ -128,8 +180,36 @@ impl StreamReaderTask {
                 context_window,
             }))
             .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(usage_env).into()))
+        self.publish(Message::Text(String::from(usage_env).into()))
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_failure_of_streak;
+
+    #[test]
+    fn a_failure_streak_is_reported_once() {
+        let mut failing = false;
+        assert_eq!(
+            first_failure_of_streak(&mut failing, Err("busy")),
+            Some("busy")
+        );
+        // Events without usage write nothing: the streak goes on.
+        assert_eq!(
+            first_failure_of_streak::<&str>(&mut failing, Ok(false)),
+            None
+        );
+        assert_eq!(first_failure_of_streak(&mut failing, Err("busy")), None);
+        // A write that ran and succeeded ends it.
+        assert_eq!(
+            first_failure_of_streak::<&str>(&mut failing, Ok(true)),
+            None
+        );
+        assert_eq!(
+            first_failure_of_streak(&mut failing, Err("full")),
+            Some("full")
+        );
     }
 }

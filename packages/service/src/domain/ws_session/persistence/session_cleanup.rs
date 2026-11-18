@@ -1,6 +1,5 @@
 use super::WsSessionPersistence;
 use sqlx::SqlitePool;
-use tracing::error;
 
 impl WsSessionPersistence {
     pub async fn delete_session_static(
@@ -53,17 +52,15 @@ impl WsSessionPersistence {
         Ok((feature_id, agent_type))
     }
 
-    pub async fn cleanup_stale_sessions(pool: &SqlitePool) {
+    pub async fn cleanup_stale_sessions(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
-        if let Err(error) = sqlx::query(
+        sqlx::query(
             "UPDATE agent_sessions SET status = 'paused', ended_at = ? WHERE status = 'running'",
         )
         .bind(&now)
         .execute(pool)
-        .await
-        {
-            error!(%error, "failed to clean up stale sessions");
-        }
+        .await?;
+        Ok(())
     }
 }
 
@@ -159,7 +156,9 @@ mod session_cleanup_tests {
         let mut p2 = WsSessionPersistence::new(pool.clone(), 2);
         p2.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::cleanup_stale_sessions(&pool).await;
+        WsSessionPersistence::cleanup_stale_sessions(&pool)
+            .await
+            .unwrap();
 
         let rows: Vec<(String,)> = sqlx::query_as("SELECT status FROM agent_sessions ORDER BY id")
             .fetch_all(&pool)

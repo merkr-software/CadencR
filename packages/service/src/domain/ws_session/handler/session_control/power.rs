@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::path::PathBuf;
 
 use axum::extract::ws::Message;
@@ -25,7 +26,9 @@ fn broadcast_lifecycle(sender: &impl OutputTarget, session_id: i64, kind: Sessio
         kind,
     }))
     .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
+    sender
+        .send(Message::Text(String::from(envelope).into()))
+        .ignore_closed();
 }
 
 /// Handle `session.suspend`. Provider-neutral pause driven by the renderer
@@ -75,7 +78,9 @@ fn acknowledge_suspend(sender: &WsSender, envelope_id: &str) {
         }),
     )
     .expect("suspend acknowledgement should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
 }
 
 /// The work behind `session.suspend`, for the socket that holds the
@@ -337,7 +342,9 @@ pub(crate) async fn handle_retry_worktree_setup(
         &WsSessionEvent::RetryWorktreeSetupOk(RetryWorktreeSetupOkPayload { feature_id }),
     )
     .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
     if app_state.worktree_setup_runs.is_owned(feature_id) {
         return;
     }

@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use chrono::Utc;
 
 use super::fire::{self, FireOutcome};
@@ -70,9 +71,10 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
     // A manual run leaves `next_run_at` alone but still writes a history row,
     // so the caller's own refetch isn't enough — every other client (and every
     // other device) is now showing a stale last-run badge.
-    let _ = state
+    state
         .schedule_events_tx
-        .send(ScheduleRanEvent { schedule_id: id });
+        .send(ScheduleRanEvent { schedule_id: id })
+        .ignore_closed();
     Ok(result)
 }
 
@@ -82,8 +84,11 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
 /// can't read back the old rows.
 pub fn announce_changed(state: &AppState, schedule_ids: &[i64]) {
     for schedule_id in schedule_ids {
-        let _ = state.schedule_events_tx.send(ScheduleRanEvent {
-            schedule_id: *schedule_id,
-        });
+        state
+            .schedule_events_tx
+            .send(ScheduleRanEvent {
+                schedule_id: *schedule_id,
+            })
+            .ignore_closed();
     }
 }

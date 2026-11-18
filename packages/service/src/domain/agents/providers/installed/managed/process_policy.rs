@@ -5,6 +5,7 @@
 //! prepares bounded stdio for the caller. Filesystem and network isolation are
 //! a separate release gate.
 
+use crate::shared::discard::cleanup;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt;
@@ -176,8 +177,8 @@ pub async fn capture_managed_command(
         )
     })?;
     if let Err(error) = process_tree.attach(&child) {
-        let _ = child.start_kill();
-        let _ = child.wait().await;
+        cleanup(child.start_kill(), "kill the uncontained managed process");
+        cleanup(child.wait().await, "reap the uncontained managed process");
         return Err(containment_error(
             "could not attach managed process containment",
             error,

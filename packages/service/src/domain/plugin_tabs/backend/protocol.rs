@@ -10,6 +10,7 @@
 //!
 //! Closing stdin asks the backend to exit.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -110,7 +111,7 @@ pub(super) async fn read_stdout(
         match parse_response(&text) {
             Some((id, response)) => {
                 if let Some(waiter) = lock(&pending).remove(&id) {
-                    let _ = waiter.send(Reply::Response(response));
+                    waiter.send_ignore_closed(Reply::Response(response));
                 }
             }
             None => history.push_stderr(format!(

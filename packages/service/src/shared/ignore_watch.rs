@@ -24,6 +24,7 @@
 mod tree;
 mod walk;
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -121,11 +122,11 @@ impl IgnoreAwareWatcher {
                     Ok(event) if event.need_rescan() => {
                         warn!(dir = %label, "file watcher lost events; rescanning");
                         // Fails only once the watch is stopping.
-                        let _ = messages.send(Message::Rescan);
+                        messages.send(Message::Rescan).ignore_closed();
                     }
                     Ok(event) if changes_content(&event.kind) => {
                         // Fails only once the watch is stopping.
-                        let _ = messages.send(Message::Paths(event.paths));
+                        messages.send(Message::Paths(event.paths)).ignore_closed();
                     }
                     Ok(_) => {}
                     Err(error) => warn!(dir = %label, "file watcher error: {error:?}"),
@@ -166,7 +167,7 @@ impl IgnoreAwareWatcher {
 impl Drop for IgnoreAwareWatcher {
     fn drop(&mut self) {
         // Fails only when the maintenance thread already exited.
-        let _ = self.messages.send(Message::Stop);
+        self.messages.send(Message::Stop).ignore_closed();
     }
 }
 

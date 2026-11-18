@@ -105,7 +105,10 @@ static SERVICE: LazyLock<ExtensionsService> = LazyLock::new(|| {
         .timeout(Duration::from_secs(20))
         .user_agent(concat!("Cadencr/", env!("CARGO_PKG_VERSION")))
         .build()
-        .unwrap_or_default();
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "cannot configure the extensions HTTP client; using defaults without its timeout");
+            reqwest::Client::new()
+        });
     ExtensionsService {
         registry: McpRegistry::new(http),
         hosts: Mutex::new(None),

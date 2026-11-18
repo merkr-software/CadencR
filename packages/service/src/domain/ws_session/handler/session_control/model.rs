@@ -150,13 +150,7 @@ async fn persist_switch(
     }
     .map_err(|error| error.to_string())?;
     let seeded_window = seed_context_window(model, &switch.runtime_provider).await;
-    persist_model_selection(
-        app_state,
-        db_session_id,
-        &switch.runtime_provider,
-        seeded_window,
-    )
-    .await;
+    persist_model_selection(app_state, switch, db_session_id, seeded_window).await;
     Ok(seeded_window)
 }
 

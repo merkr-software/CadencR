@@ -21,26 +21,26 @@ const SAFE_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 /// Resolve the cwd for `terminal/create`, defaulting to the session cwd
 /// and rejecting anything that escapes the sandbox. The path may not
 /// exist on disk yet, but it must canonicalize cleanly *and* sit under
-/// `session_cwd`'s canonical form. If canonicalize fails we treat it as
-/// outside-sandbox and reject with `-32602`.
+/// `session_cwd`'s canonical form. A cwd that cannot be canonicalized is
+/// rejected with `-32602` and the reason, so the agent can correct it.
 pub(super) fn resolve_sandboxed_cwd(
     raw: Option<&Value>,
     session_cwd: &Path,
 ) -> Result<PathBuf, (i64, String)> {
-    let session_canonical = std::fs::canonicalize(session_cwd).map_err(|_| {
+    let session_canonical = std::fs::canonicalize(session_cwd).map_err(|error| {
         (
             -32602,
-            "terminal/create: session cwd is not accessible".to_string(),
+            format!("terminal/create: session cwd is not accessible: {error}"),
         )
     })?;
     let Some(raw) = raw.and_then(Value::as_str) else {
         return Ok(session_canonical);
     };
     let candidate = PathBuf::from(raw);
-    let resolved = std::fs::canonicalize(&candidate).map_err(|_| {
+    let resolved = std::fs::canonicalize(&candidate).map_err(|error| {
         (
             -32602,
-            "terminal/create: cwd outside session sandbox".to_string(),
+            format!("terminal/create: cwd {raw} cannot be resolved: {error}"),
         )
     })?;
     if !resolved.starts_with(&session_canonical) {
@@ -241,5 +241,8 @@ mod tests {
         let v = serde_json::Value::String(bogus.to_string_lossy().into_owned());
         let err = resolve_sandboxed_cwd(Some(&v), &session).expect_err("nonexistent rejected");
         assert_eq!(err.0, -32602);
+        // It used to read "outside session sandbox", hiding the real cause.
+        assert!(err.1.contains("cannot be resolved"), "got: {}", err.1);
+        assert!(!err.1.contains("outside session sandbox"), "got: {}", err.1);
     }
 }

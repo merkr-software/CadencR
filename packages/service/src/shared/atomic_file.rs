@@ -6,6 +6,7 @@
 //! directory listings and because the watchers filter dotfiles out, which is
 //! what stops our own writes from broadcasting a partial document.
 
+use crate::shared::discard::cleanup;
 use std::path::Path;
 
 use crate::error::AppError;
@@ -53,12 +54,12 @@ fn write_atomic_with_policy(path: &Path, content: &str, private: bool) -> Result
         .ok_or_else(|| AppError::internal(format!("path has no file name: {}", path.display())))?;
     let tmp = parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
     if let Err(error) = write_temp_file(&tmp, content, private) {
-        let _ = std::fs::remove_file(&tmp);
+        cleanup(std::fs::remove_file(&tmp), "remove the temporary file");
         return Err(error);
     }
     replace_file(&tmp, path).map_err(|e| {
         // Don't leave a stale temp file behind for the next reader to trip over.
-        let _ = std::fs::remove_file(&tmp);
+        cleanup(std::fs::remove_file(&tmp), "remove the temporary file");
         AppError::internal(format!("failed to commit {}: {e}", path.display()))
     })?;
     crate::shared::fs_durability::sync_directory(parent).map_err(|error| {

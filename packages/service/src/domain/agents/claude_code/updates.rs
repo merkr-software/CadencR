@@ -22,10 +22,15 @@ async fn configured_channel() -> &'static str {
     let Some(path) = super::config_dir::for_env(None).map(|dir| dir.join("settings.json")) else {
         return "latest";
     };
-    let Ok(contents) = tokio::fs::read(&path).await else {
-        return "latest";
-    };
-    channel_from_settings(&contents)
+    match tokio::fs::read(&path).await {
+        Ok(contents) => channel_from_settings(&contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "latest",
+        Err(error) => {
+            // An update offer on the wrong channel is the visible symptom.
+            tracing::warn!(path = %path.display(), %error, "cannot read Claude settings; assuming the latest update channel");
+            "latest"
+        }
+    }
 }
 
 fn channel_from_settings(contents: &[u8]) -> &'static str {
@@ -38,7 +43,11 @@ fn channel_from_settings(contents: &[u8]) -> &'static str {
         Ok(Settings {
             channel: Some(channel),
         }) if channel == "stable" => "stable",
-        _ => "latest",
+        Ok(_) => "latest",
+        Err(error) => {
+            tracing::warn!(%error, "Claude settings are not valid JSON; assuming the latest update channel");
+            "latest"
+        }
     }
 }
 

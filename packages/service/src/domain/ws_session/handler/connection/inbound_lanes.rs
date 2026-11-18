@@ -19,6 +19,7 @@
 //!   between the compaction and the Stop, and that record would otherwise
 //!   wait behind the compaction and keep the Stop waiting with it.
 
+use crate::shared::discard::IgnoreClosed;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -44,6 +45,10 @@ tokio::task_local! {
 /// runtime spawn.
 pub(crate) fn let_controls_through() {
     // Off a socket's ordered lane (HTTP, MCP, schedules), no control waits.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "only commands run inside the RUNNING_COMMAND scope have a lane to settle"
+    )]
     let _ = RUNNING_COMMAND.try_with(RunningCommand::settle);
 }
 
@@ -124,9 +129,10 @@ impl InboundLanes {
             let _end = control_end;
             while let Some(control) = control_rx.recv().await {
                 // Errs only once the ordered lane ended: nothing is left to wait for.
-                let _ = settled_rx
+                settled_rx
                     .wait_for(|settled| *settled >= control.commands_before)
-                    .await;
+                    .await
+                    .ignore_closed();
                 control_dispatch(control.envelope).await;
                 handled_tx.send_modify(|handled| *handled += 1);
             }
@@ -136,9 +142,10 @@ impl InboundLanes {
             let _end = ordered_end;
             while let Some(command) = ordered_rx.recv().await {
                 // Errs only once the control lane ended: nothing is left to wait for.
-                let _ = handled_rx
+                handled_rx
                     .wait_for(|handled| *handled >= command.controls_before)
-                    .await;
+                    .await
+                    .ignore_closed();
                 let running = RunningCommand {
                     position: command.position,
                     settled: Arc::clone(&settled_tx),

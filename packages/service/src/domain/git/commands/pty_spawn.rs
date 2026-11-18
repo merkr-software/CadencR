@@ -2,6 +2,7 @@
 //! and streams the merged stdout/stderr chunks. Used by both
 //! `commit_streaming` and `push_streaming`.
 
+use crate::shared::discard::cleanup;
 use std::path::Path;
 
 use crate::error::AppError;
@@ -174,7 +175,7 @@ pub(super) async fn spawn_pty_git(
             )))
         }
     };
-    let _ = read_handle.await;
+    cleanup(read_handle.await, "wait for the PTY reader task");
     // The writer task is on `spawn_blocking` and may be parked in
     // `blocking_recv()` waiting for input the caller will never send (the
     // happy path: child finished without prompting, but the dialog still

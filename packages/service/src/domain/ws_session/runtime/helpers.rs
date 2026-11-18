@@ -1,6 +1,7 @@
 //! Tiny helpers shared across the per-action handlers: permission-mode
 //! parsing, runtime-session ID persistence, error envelope emission.
 use crate::domain::ws_session::runtime::output::OutputTarget;
+use crate::shared::discard::IgnoreClosed;
 
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
@@ -151,12 +152,16 @@ pub(in crate::domain::ws_session) fn saved_or_report<T>(
 }
 
 /// Send an uncorrelated session error: no request is waiting on this failure.
+/// It reaches only `sender`; work that may run headless (HTTP, MCP, a
+/// schedule) uses [`broadcast_session_error`] so a viewer sees it.
 pub(in crate::domain::ws_session) fn send_session_error(
     sender: &impl OutputTarget,
     code: &str,
     message: String,
 ) {
-    let _ = sender.send(session_error_message(code, message));
+    sender
+        .send(session_error_message(code, message))
+        .ignore_closed();
 }
 
 fn session_error_message(code: &str, message: String) -> Message {
@@ -185,6 +190,10 @@ pub(in crate::domain::ws_session) async fn broadcast_session_error(
 /// The code of a session-state write that failed while the change itself
 /// applies; clients show it as a notice, not as a failed turn.
 pub(in crate::domain::ws_session) const SESSION_STATE_NOT_SAVED: &str = "SESSION_STATE_NOT_SAVED";
+
+/// The code of a session-state read that failed while the work carries on on
+/// its safe branch; clients show it as a notice, not as a failed turn.
+pub(in crate::domain::ws_session) const SESSION_STATE_UNREADABLE: &str = "SESSION_STATE_UNREADABLE";
 
 pub(in crate::domain::ws_session) fn state_not_saved_message(
     what: &str,
@@ -293,7 +302,9 @@ pub(in crate::domain::ws_session) fn send_runtime_session_id(
             runtime_session_id: cli_sid.to_string(),
         }))
         .expect("runtime session id payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
+    sender
+        .send(Message::Text(String::from(envelope).into()))
+        .ignore_closed();
 }
 
 #[cfg(test)]

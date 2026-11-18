@@ -198,7 +198,9 @@ mod tests {
         };
 
         // A session without provenance resumes the model's last-used level.
-        let fresh_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id).await;
+        let fresh_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id)
+            .await
+            .unwrap();
         let mut overrides = RuntimeConfigOverrides::default();
         let mut effective = effective_for();
         pin_last_used_effort(
@@ -222,7 +224,9 @@ mod tests {
         assert!(persisted.unwrap().contains("\"high\""));
 
         // Once it has an override document, its own provenance wins.
-        let known_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id).await;
+        let known_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id)
+            .await
+            .unwrap();
         let mut overrides = RuntimeConfigOverrides::default();
         let mut effective = effective_for();
         pin_last_used_effort(

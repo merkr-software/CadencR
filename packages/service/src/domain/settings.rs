@@ -64,10 +64,24 @@ async fn resolve_table_kv_setting(
         .bind(key)
         .fetch_optional(pool)
         .await
+        .inspect_err(|error| warn_fallthrough(table, row_id, key, error))
         .ok()
         .flatten()
         .flatten()
         .filter(|value| !value.is_empty())
+}
+
+/// A level the cascade could not read is skipped like an unset one, so the
+/// next level (or the default) decides. Callers cannot tell the difference
+/// yet; the log can.
+fn warn_fallthrough(table: &str, row_id: i64, key: &str, error: &dyn std::fmt::Display) {
+    tracing::warn!(
+        table,
+        row_id,
+        key,
+        %error,
+        "could not read a setting level; falling back to the next one"
+    );
 }
 
 async fn table_has_column(pool: &SqlitePool, table: &str, key: &str) -> bool {
@@ -76,6 +90,7 @@ async fn table_has_column(pool: &SqlitePool, table: &str, key: &str) -> bool {
         .bind(key)
         .fetch_optional(pool)
         .await
+        .inspect_err(|error| warn_fallthrough(table, 0, key, error))
         .ok()
         .flatten()
         .is_some()
@@ -92,17 +107,18 @@ pub(crate) async fn resolve_table_column_setting(
     }
 
     let sql = format!(r#"SELECT "{key}" as v FROM {table} WHERE id = ?"#);
-    if let Ok(Some((Some(v),))) = sqlx::query_as::<_, (Option<String>,)>(AssertSqlSafe(sql))
+    match sqlx::query_as::<_, (Option<String>,)>(AssertSqlSafe(sql))
         .bind(row_id)
         .fetch_optional(pool)
         .await
     {
-        if !v.is_empty() {
-            return Some(v);
+        Ok(Some((Some(v),))) if !v.is_empty() => Some(v),
+        Ok(_) => None,
+        Err(error) => {
+            warn_fallthrough(table, row_id, key, &error);
+            None
         }
     }
-
-    None
 }
 
 /// Resolve a setting using the cascade: feature (SQLite) → project (JSON) →
@@ -150,13 +166,16 @@ pub(crate) async fn resolve_in_with_origin(
 
     // 2. Project-level (JSON file).
     if let Some(pid) = project_id {
-        if let Ok(path) = paths::project_file(dir, pool, pid).await {
-            let (map, _warnings) = store::load(&path, Scope::Project);
-            if let Some(v) = map.get(key) {
-                if !v.is_empty() {
-                    return Some((v.clone(), SettingOrigin::Project));
+        match paths::project_file(dir, pool, pid).await {
+            Ok(path) => {
+                let (map, _warnings) = store::load(&path, Scope::Project);
+                if let Some(v) = map.get(key) {
+                    if !v.is_empty() {
+                        return Some((v.clone(), SettingOrigin::Project));
+                    }
                 }
             }
+            Err(error) => warn_fallthrough("projects", pid, key, &error),
         }
     }
 

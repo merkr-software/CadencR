@@ -33,6 +33,7 @@ pub mod tool_output_backfill;
 
 pub use scheduler::spawn;
 
+use crate::shared::discard::IgnoreClosed;
 use sqlx::SqlitePool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -132,7 +133,7 @@ impl StorageMaintenanceBroadcaster {
             }
         }
         // No connected desktop is a normal state during startup and shutdown.
-        let _ = self.tx.send(event);
+        self.tx.send(event).ignore_closed();
     }
 
     pub(super) fn try_begin_run(&self) -> Option<StorageMaintenanceRunGuard> {

@@ -1,6 +1,7 @@
 //! Owns detached provider-usage writes until they either commit or are
 //! cancelled and durably reported during shutdown.
 
+use crate::shared::discard::{IgnoreClosed, SendIgnoreClosed};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -45,12 +46,12 @@ where
         // was cancelled. Panicked tasks deliberately remain for shutdown to
         // observe and report through their JoinHandle.
         tasks().remove(&id);
-        let _ = finished_tx.send(());
+        finished_tx.send_ignore_closed(());
     });
     tasks().insert(id, handle);
-    let _ = start_tx.send(());
+    start_tx.send_ignore_closed(());
 
-    let _ = finished_rx.await;
+    finished_rx.await.ignore_closed();
 }
 
 /// Finish every detached write, or cancel it before recording a durable loss.
