@@ -215,6 +215,7 @@ async fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::restart_continuations::gates::tests::seed_pending_question;
     use crate::domain::restart_continuations::store::{
         capture_running, tests::session, Cause, Intent,
     };
@@ -224,14 +225,7 @@ mod tests {
     async fn a_gated_turn_loses_its_dead_gate_and_is_marked() {
         let (pool, _, feature_id) = fixture().await;
         let session_id = session(&pool, feature_id, "running").await;
-        sqlx::query(
-            r#"UPDATE agent_sessions SET pending_questions =
-               '{"request_id":"q-1","tool_name":"AskUserQuestion","tool_input":{}}' WHERE id = ?"#,
-        )
-        .bind(session_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+        seed_pending_question(&pool, session_id).await;
         capture_running(&pool, Cause::Shutdown, Intent::Resume, Some("0.9.0"))
             .await
             .unwrap();

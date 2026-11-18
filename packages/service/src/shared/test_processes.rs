@@ -5,7 +5,15 @@
 //! process or process group, whatever a reused id now points at.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::Duration;
+
+/// A child that stays alive while a test exercises process cleanup.
+pub(crate) fn sleeping_child_command() -> tokio::process::Command {
+    let mut command = tokio::process::Command::new("sleep");
+    command.arg("30").stdin(Stdio::null()).kill_on_drop(true);
+    command
+}
 
 /// SIGKILLs, once dropped, the processes and process groups it was given,
 /// so a test that fails before its own cleanup does not leave a `sleep`

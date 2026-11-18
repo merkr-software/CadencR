@@ -594,6 +594,23 @@ pub(crate) async fn add_claude_custom_model(
     .unwrap();
 }
 
+pub(super) fn message_start(model: &str) -> RuntimeEvent {
+    RuntimeEvent::new(
+        crate::domain::agents::adapter::RuntimeEventMetadata {
+            session_id: Some("cli".into()),
+            raw: serde_json::json!({ "type": "stream_event" }),
+            ..Default::default()
+        },
+        RuntimeEventKind::StreamEvent {
+            event: crate::domain::agents::adapter::RuntimeStreamEvent::MessageStart {
+                model: Some(model.into()),
+                input_tokens: None,
+            },
+            parent_tool_use_id: None,
+        },
+    )
+}
+
 /// A provider `Result` event: the turn ended.
 pub(crate) fn result_event() -> RuntimeEvent {
     RuntimeEvent::new(
