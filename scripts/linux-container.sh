@@ -15,10 +15,23 @@
 #                     copied to packages/desktop/dist-electron/linux-<arch>/
 #   smoke             scripts/smoke-linux-packages.sh on those packages
 #   e2e               headless launch of the packaged DEB and AppImage
+#   volume            print this checkout's source volume
+#   clean             remove this checkout's source volume (tree, node_modules,
+#                     Cargo target); the next run starts from a cold build
+#   prune             remove the source volumes of checkouts that no longer
+#                     exist (a removed worktree cannot `clean` its own)
 #
 # The working tree (tracked + untracked, minus ignored files) is synced into a
 # Docker volume on every run; node_modules and Cargo artifacts stay in that
-# volume, never mixing with the host's macOS builds.
+# volume, never mixing with the host's macOS builds. Like `pnpm rust` keeps a
+# Cargo target per worktree, each checkout gets its own source volume: the main
+# checkout `cadencr-linux-src-<arch>`, a linked worktree
+# `cadencr-linux-src-<arch>-<dir>-<checksum of its path>`, so two branches never
+# overwrite each other's tree or build. Download caches (Cargo registry, pnpm
+# store, Electron) stay in one shared volume. A volume this script creates is
+# labelled with its checkout's path, which is how `prune` finds orphans.
+#   CADENCR_LINUX_SRC_VOLUME=name
+#                                 use that source volume instead
 #   CADENCR_LINUX_ARCH=x64|arm64  defaults to the Docker host arch (x64 on
 #                                 Apple Silicon runs emulated and slowly)
 #   CADENCR_LINUX_JOBS=N          Cargo parallelism (default 3; the service
@@ -31,17 +44,35 @@ fail() {
 }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-command -v docker > /dev/null || fail "docker is required"
 
-host_arch="$(docker info --format '{{.Architecture}}')"
-case "${CADENCR_LINUX_ARCH:-$host_arch}" in
+# A linked worktree has a `.git` file; the main checkout a `.git` directory and
+# the volume name it always had, so its warm build survives.
+source_volume() {
+  if [ -n "${CADENCR_LINUX_SRC_VOLUME:-}" ]; then
+    printf '%s\n' "$CADENCR_LINUX_SRC_VOLUME"
+  elif [ -f "$repo_root/.git" ]; then
+    local dir sum
+    dir="$(basename "$repo_root" | LC_ALL=C tr -c 'A-Za-z0-9_.\n-' '-' | cut -c1-40)"
+    sum="$(printf '%s' "$repo_root" | cksum | cut -d' ' -f1)"
+    printf 'cadencr-linux-src-%s-%s-%s\n' "$1" "$dir" "$sum"
+  else
+    printf 'cadencr-linux-src-%s\n' "$1"
+  fi
+}
+
+host_arch="${CADENCR_LINUX_ARCH:-}"
+if [ -z "$host_arch" ]; then
+  command -v docker > /dev/null || fail "docker is required"
+  host_arch="$(docker info --format '{{.Architecture}}')"
+fi
+case "$host_arch" in
   arm64 | aarch64) arch=arm64 platform=linux/arm64 ;;
   x64 | x86_64 | amd64) arch=x64 platform=linux/amd64 ;;
-  *) fail "unsupported arch: ${CADENCR_LINUX_ARCH:-$host_arch}" ;;
+  *) fail "unsupported arch: $host_arch" ;;
 esac
 
 image="cadencr-linux-dev:$arch"
-src_volume="cadencr-linux-src-$arch"
+src_volume="$(source_volume "$arch")"
 cache_volume="cadencr-linux-cache-$arch"
 dist_dir="$repo_root/packages/desktop/dist-electron/linux-$arch"
 version="$(node -p "require('$repo_root/packages/desktop/package.json').version")"
@@ -60,6 +91,8 @@ ensure_image() {
 # and every directory above them go to `dev` (uid 1000) on each run, whatever
 # the host uid, so pnpm can always write next to them.
 sync_tree() {
+  docker volume inspect "$src_volume" > /dev/null 2>&1 \
+    || docker volume create --label "cadencr.checkout=$repo_root" "$src_volume" > /dev/null
   (
     cd "$repo_root"
     git ls-files -co --exclude-standard -z \
@@ -169,8 +202,34 @@ e2e_script='
 '
 
 subcommand="${1:-}"
-[ -n "$subcommand" ] || fail "usage: $0 shell|rust-test|clippy|vitest|scripts|run|package|smoke|e2e"
+[ -n "$subcommand" ] || fail "usage: $0 shell|rust-test|clippy|vitest|scripts|run|package|smoke|e2e|volume|clean|prune"
 shift || true
+if [ "$subcommand" = volume ]; then
+  printf '%s\n' "$src_volume"
+  exit 0
+fi
+command -v docker > /dev/null || fail "docker is required"
+if [ "$subcommand" = clean ]; then
+  if docker volume inspect "$src_volume" > /dev/null 2>&1; then
+    docker volume rm "$src_volume"
+  else
+    echo "linux-container: no volume $src_volume"
+  fi
+  exit 0
+fi
+if [ "$subcommand" = prune ]; then
+  docker volume ls -q --filter label=cadencr.checkout | while IFS= read -r volume; do
+    checkout="$(docker volume inspect -f '{{ index .Labels "cadencr.checkout" }}' "$volume")"
+    [ -d "$checkout" ] && continue
+    if docker volume rm "$volume" > /dev/null; then
+      echo "linux-container: removed $volume ($checkout is gone)"
+    else
+      echo "linux-container: kept $volume, still in use" >&2
+    fi
+  done
+  exit 0
+fi
+echo "linux-container: source volume $src_volume" >&2
 mkdir -p "$dist_dir"
 ensure_image
 case "$subcommand" in
