@@ -699,6 +699,25 @@ describe("handleEnvelope error handling", () => {
     expect(updated.blocks).toHaveLength(0);
   });
 
+  it("routes SESSION_STATE_UNREADABLE to a toast without failing the running turn", () => {
+    vi.mocked(toast.error).mockClear();
+    const session = createSessionEntry();
+    session.lifecycle = { phase: "active" } as SessionEntry["lifecycle"];
+    const ctx = createTestContext(session);
+    const message = "Cadencr could not read this conversation's saved state (disk I/O error).";
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: { code: "SESSION_STATE_UNREADABLE", message },
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(message);
+    const updated = ctx.getSession("s1");
+    expect(updated.lifecycle).toEqual({ phase: "active" });
+    expect(updated.blocks).toHaveLength(0);
+  });
+
   it("keeps an uncorrelated AGENT_STOP_ESCALATED on the inline turn-error path", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
