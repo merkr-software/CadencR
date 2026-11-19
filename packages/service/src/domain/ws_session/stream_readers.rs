@@ -3,6 +3,7 @@
 //! Readers outlive the WebSocket request that created them, so shutdown must
 //! close their runtimes and join them before it drains provider-usage writes.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -68,7 +69,7 @@ where
             task,
         },
     );
-    let _ = start_tx.send(());
+    start_tx.send_ignore_closed(());
 }
 
 async fn record_agent_process(
@@ -184,7 +185,7 @@ pub(super) fn close_failure_is_benign(turn_was_running: bool, process_alive: Opt
 /// unreadable status is no proof it was idle.
 #[allow(dead_code)] // Reachable through `shutdown` in the service binary.
 async fn turn_was_running(pool: &sqlx::SqlitePool, db_session_id: i64) -> bool {
-    match super::persistence::WsSessionPersistence::try_get_session_row(pool, db_session_id).await {
+    match super::persistence::WsSessionPersistence::get_session_row(pool, db_session_id).await {
         Ok(Some(row)) => row.status == "running" || row.has_pending_user_input(),
         Ok(None) => false,
         Err(error) => {

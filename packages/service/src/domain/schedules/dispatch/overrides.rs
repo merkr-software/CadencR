@@ -134,7 +134,7 @@ async fn merge_runtime_overrides(
     if pins.model.is_none() && pins.thinking_effort.is_none() {
         return Ok(None);
     }
-    let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+    let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("session '{session_id}' not found")))?;
     let mut overrides = runtime_overrides::restore(
@@ -393,7 +393,7 @@ mod tests {
         let overrides: crate::domain::agents::adapter::RuntimeConfigOverrides =
             serde_json::from_str(&json).unwrap();
         assert_eq!(overrides.thinking_effort.as_deref(), Some("max"));
-        let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+        let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
             .await
             .unwrap()
             .unwrap();
@@ -418,7 +418,7 @@ mod tests {
         assert!(error
             .to_string()
             .contains("invalid persisted runtime overrides"));
-        let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+        let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
             .await
             .unwrap()
             .unwrap();

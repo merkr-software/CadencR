@@ -3,6 +3,7 @@
 //! feature, and the synchronous `recompute_and_broadcast` entrypoint used by
 //! the commit/push/target-branch handlers.
 
+use crate::shared::discard::IgnoreClosed;
 use std::path::PathBuf;
 
 use axum::extract::ws::Message;
@@ -25,7 +26,8 @@ pub(super) fn broadcast_envelope(
     }
     let payload = String::from(envelope.clone());
     for tx in senders {
-        let _ = tx.send(Message::Text(payload.clone().into()));
+        tx.send(Message::Text(payload.clone().into()))
+            .ignore_closed();
     }
 }
 

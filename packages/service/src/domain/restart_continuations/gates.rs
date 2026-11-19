@@ -18,15 +18,15 @@ pub(super) async fn clear_dead_gate(
     session_id: i64,
     feature_id: i64,
 ) -> Result<bool, sqlx::Error> {
-    let Some(row) =
-        WsSessionPersistence::try_get_session_row(&state.write_pool, session_id).await?
+    let Some(row) = WsSessionPersistence::get_session_row(&state.write_pool, session_id).await?
     else {
         return Ok(false);
     };
     let Some((_, payload)) = row.pending_gate_payload() else {
         return Ok(false);
     };
-    WsSessionPersistence::clear_all_pending_user_input_static(&state.write_pool, session_id).await;
+    WsSessionPersistence::try_clear_all_pending_user_input_static(&state.write_pool, session_id)
+        .await?;
     state
         .pending_gates
         .complete(session_id, &payload.request_id)

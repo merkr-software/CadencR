@@ -71,15 +71,14 @@ impl WsSessionPersistence {
         session_id: i64,
         input_tokens: u64,
         output_tokens: u64,
-    ) {
-        let _ = sqlx::query(
-            "UPDATE agent_sessions SET input_tokens = ?, output_tokens = ? WHERE id = ?",
-        )
-        .bind(input_tokens as i64)
-        .bind(output_tokens as i64)
-        .bind(session_id)
-        .execute(pool)
-        .await;
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET input_tokens = ?, output_tokens = ? WHERE id = ?")
+            .bind(input_tokens as i64)
+            .bind(output_tokens as i64)
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     /// Write `context_window` to the session row. Pass `None` to clear the
@@ -89,13 +88,14 @@ impl WsSessionPersistence {
         pool: &SqlitePool,
         session_id: i64,
         context_window: Option<u64>,
-    ) {
+    ) -> Result<(), sqlx::Error> {
         let bound = context_window.and_then(|cw| i64::try_from(cw).ok());
-        let _ = sqlx::query("UPDATE agent_sessions SET context_window = ? WHERE id = ?")
+        sqlx::query("UPDATE agent_sessions SET context_window = ? WHERE id = ?")
             .bind(bound)
             .bind(session_id)
             .execute(pool)
-            .await;
+            .await?;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -244,7 +244,9 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::update_token_usage(&pool, id, 1500, 300).await;
+        WsSessionPersistence::update_token_usage(&pool, id, 1500, 300)
+            .await
+            .unwrap();
 
         let row: (i64, i64) =
             sqlx::query_as("SELECT input_tokens, output_tokens FROM agent_sessions WHERE id = ?")
@@ -256,11 +258,30 @@ pub(super) mod session_state_tests {
         assert_eq!(row.1, 300);
     }
 
+    /// A failed usage write used to vanish; callers must now see it.
+    #[tokio::test]
+    async fn usage_writes_report_database_failures() {
+        let pool = setup_test_db().await;
+        sqlx::query("DROP TABLE agent_sessions")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(WsSessionPersistence::update_token_usage(&pool, 1, 10, 2)
+            .await
+            .is_err());
+        assert!(
+            WsSessionPersistence::update_context_window(&pool, 1, Some(5))
+                .await
+                .is_err()
+        );
+    }
+
     #[tokio::test]
     async fn test_mark_completed_instance_delegates_to_static() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        p.find_or_create_session(None, None).await;
+        p.find_or_create_session(None, None).await.unwrap();
 
         p.mark_completed().await;
 
@@ -278,7 +299,9 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::update_context_window(&pool, id, Some(1_000_000)).await;
+        WsSessionPersistence::update_context_window(&pool, id, Some(1_000_000))
+            .await
+            .unwrap();
 
         let row: (Option<i64>,) =
             sqlx::query_as("SELECT context_window FROM agent_sessions WHERE id = ?")
@@ -295,8 +318,12 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::update_context_window(&pool, id, Some(200_000)).await;
-        WsSessionPersistence::update_context_window(&pool, id, None).await;
+        WsSessionPersistence::update_context_window(&pool, id, Some(200_000))
+            .await
+            .unwrap();
+        WsSessionPersistence::update_context_window(&pool, id, None)
+            .await
+            .unwrap();
 
         let row: (Option<i64>,) =
             sqlx::query_as("SELECT context_window FROM agent_sessions WHERE id = ?")

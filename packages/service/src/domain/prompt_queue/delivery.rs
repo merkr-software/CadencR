@@ -34,7 +34,7 @@ pub async fn drain_next_if_idle(state: &AppState, session_id: i64) -> Result<boo
         if !store::has_pending(&state.read_pool, session_id).await? {
             return Ok(delivered);
         }
-        if !session_is_idle(state, session_id).await {
+        if !session_is_idle(state, session_id).await? {
             return Ok(delivered);
         }
         let Some(prompt) = store::claim(&state.write_pool, session_id, None).await? else {
@@ -66,15 +66,17 @@ pub(crate) async fn requires_queue(state: &AppState, session_id: i64) -> bool {
     state.active_turns.requires_prompt_queue(session_id).await
 }
 
-async fn session_is_idle(state: &AppState, session_id: i64) -> bool {
+async fn session_is_idle(state: &AppState, session_id: i64) -> Result<bool, AppError> {
     // A connected idle runtime still has an owner. Ownership routes delivery;
     // the authoritative status determines whether a turn is actually running.
     if state.session_status_tx.is_busy(session_id) || requires_queue(state, session_id).await {
-        return false;
+        return Ok(false);
     }
-    WsSessionPersistence::get_session_row(&state.read_pool, session_id)
-        .await
-        .is_some_and(|row| row.status != "running" && !row.has_pending_user_input())
+    Ok(
+        WsSessionPersistence::get_session_row(&state.read_pool, session_id)
+            .await?
+            .is_some_and(|row| row.status != "running" && !row.has_pending_user_input()),
+    )
 }
 
 async fn deliver(state: &AppState, prompt: QueuedPrompt) -> Result<(), AppError> {

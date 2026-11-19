@@ -1,6 +1,7 @@
 //! `app.subscribe.file_watcher`: point the client's editor file-watcher
 //! subscription at the feature it shows.
 
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::warn;
 
@@ -68,5 +69,7 @@ pub(super) async fn subscribe_file_watcher(
         "file_watcher.subscribed",
         serde_json::json!({}),
     );
-    let _ = sender.send(Message::Text(String::from(ack).into()));
+    sender
+        .send(Message::Text(String::from(ack).into()))
+        .ignore_closed();
 }

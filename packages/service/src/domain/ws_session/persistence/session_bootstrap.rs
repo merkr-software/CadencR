@@ -10,7 +10,7 @@ impl WsSessionPersistence {
         &mut self,
         model: Option<&str>,
         permission_mode: Option<&str>,
-    ) -> Option<i64> {
+    ) -> Result<i64, sqlx::Error> {
         self.find_or_create_session_with_access_mode(model, permission_mode, None)
             .await
     }
@@ -20,7 +20,7 @@ impl WsSessionPersistence {
         model: Option<&str>,
         permission_mode: Option<&str>,
         access_mode: Option<&str>,
-    ) -> Option<i64> {
+    ) -> Result<i64, sqlx::Error> {
         self.ensure_session(model, permission_mode, access_mode, true)
             .await
     }
@@ -32,7 +32,7 @@ impl WsSessionPersistence {
         model: Option<&str>,
         permission_mode: Option<&str>,
         access_mode: Option<&str>,
-    ) -> Option<i64> {
+    ) -> Result<i64, sqlx::Error> {
         self.ensure_session(model, permission_mode, access_mode, false)
             .await
     }
@@ -43,8 +43,8 @@ impl WsSessionPersistence {
         permission_mode: Option<&str>,
         access_mode: Option<&str>,
         reopen_existing: bool,
-    ) -> Option<i64> {
-        if let Some(id) = self.latest_session_id().await.ok()? {
+    ) -> Result<i64, sqlx::Error> {
+        if let Some(id) = self.latest_session_id().await? {
             return self
                 .reuse_session(id, permission_mode, reopen_existing)
                 .await;
@@ -80,16 +80,20 @@ impl WsSessionPersistence {
                     feature_id = self.feature_id,
                     "created agent_sessions row"
                 );
-                Some(id)
+                Ok(id)
             }
             Ok(None) => {
-                let id = self.latest_session_id().await.ok()??;
+                // A concurrent initializer inserted the row this one skipped.
+                let id = self
+                    .latest_session_id()
+                    .await?
+                    .ok_or(sqlx::Error::RowNotFound)?;
                 self.reuse_session(id, permission_mode, reopen_existing)
                     .await
             }
             Err(e) => {
                 error!(error = %e, feature_id = self.feature_id, "failed to create agent_sessions row");
-                None
+                Err(e)
             }
         }
     }
@@ -108,10 +112,12 @@ impl WsSessionPersistence {
         id: i64,
         permission_mode: Option<&str>,
         reopen: bool,
-    ) -> Option<i64> {
+    ) -> Result<i64, sqlx::Error> {
         if reopen {
             if let Err(e) = self.reopen_session(id, permission_mode).await {
+                // The row would keep a stale status and permission mode.
                 error!(error = %e, session_db_id = id, "failed to update existing agent_sessions row");
+                return Err(e);
             }
         }
         self.session_db_id = Some(id);
@@ -120,7 +126,7 @@ impl WsSessionPersistence {
             feature_id = self.feature_id,
             "reusing existing agent_sessions row"
         );
-        Some(id)
+        Ok(id)
     }
 }
 
@@ -269,8 +275,9 @@ pub(super) mod session_bootstrap_tests {
                     Some("bypassPermissions"),
                     None
                 )
-                .await,
-            Some(expected)
+                .await
+                .unwrap(),
+            expected
         );
         let untouched: (String, String, String) = sqlx::query_as(
             "SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?",
@@ -286,8 +293,9 @@ pub(super) mod session_bootstrap_tests {
         assert_eq!(
             persistence
                 .find_or_create_session_with_access_mode(Some("replacement"), Some("plan"), None)
-                .await,
-            Some(expected)
+                .await
+                .unwrap(),
+            expected
         );
         let reopened: (String, String, String) = sqlx::query_as(
             "SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?",
@@ -299,18 +307,38 @@ pub(super) mod session_bootstrap_tests {
         assert_eq!(reopened, ("paused".into(), "latest".into(), "plan".into()));
     }
 
+    /// A failed lookup used to come back as a bare `None`, so the client only
+    /// saw a generic message; the database error now reaches the caller.
+    #[tokio::test]
+    async fn a_failed_lookup_returns_the_database_error() {
+        let pool = setup_test_db().await;
+        sqlx::query("DROP TABLE agent_sessions")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut p = WsSessionPersistence::new(pool, 1);
+
+        let error = p
+            .find_or_create_session_for_binding(None, None, None)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("agent_sessions"), "{error}");
+    }
+
     #[tokio::test]
     async fn test_find_or_create_session_creates_new() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        let id = p.find_or_create_session(Some("opus"), Some("plan")).await;
-        assert!(id.is_some());
-        assert_eq!(p.session_db_id, id);
+        let id = p
+            .find_or_create_session(Some("opus"), Some("plan"))
+            .await
+            .unwrap();
+        assert_eq!(p.session_db_id, Some(id));
 
         let row: (String, String, String) = sqlx::query_as(
             "SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?",
         )
-        .bind(id.unwrap())
+        .bind(id)
         .fetch_one(&pool)
         .await
         .unwrap();

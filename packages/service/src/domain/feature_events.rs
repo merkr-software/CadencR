@@ -11,6 +11,7 @@
 //!
 //! No `seq`/snapshot: the payload is a hint to invalidate, not state to merge.
 
+use crate::shared::discard::IgnoreClosed;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
@@ -105,11 +106,13 @@ impl FeatureEventBroadcaster {
     /// fails when there are no subscribers, the normal no-clients-connected
     /// state.
     pub fn emit(&self, feature_id: i64, project_id: Option<i64>, action: FeatureEventAction) {
-        let _ = self.tx.send(FeatureEvent {
-            feature_id,
-            project_id,
-            action,
-        });
+        self.tx
+            .send(FeatureEvent {
+                feature_id,
+                project_id,
+                action,
+            })
+            .ignore_closed();
     }
 
     pub fn subscribe_agent_archived(&self) -> broadcast::Receiver<AgentArchivedEvent> {
@@ -118,7 +121,7 @@ impl FeatureEventBroadcaster {
 
     /// Same swallowed send error as [`Self::emit`]: no client, no toast.
     pub fn emit_agent_archived(&self, event: AgentArchivedEvent) {
-        let _ = self.agent_archived_tx.send(event);
+        self.agent_archived_tx.send(event).ignore_closed();
     }
 
     pub fn subscribe_archive_cleanup(&self) -> broadcast::Receiver<ArchiveCleanupEvent> {
@@ -127,6 +130,6 @@ impl FeatureEventBroadcaster {
 
     /// Same swallowed send error as [`Self::emit`]: the journal holds the state.
     pub fn emit_archive_cleanup(&self, event: ArchiveCleanupEvent) {
-        let _ = self.archive_cleanup_tx.send(event);
+        self.archive_cleanup_tx.send(event).ignore_closed();
     }
 }

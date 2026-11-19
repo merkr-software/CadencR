@@ -10,6 +10,7 @@
 //! Best-effort by design: a watcher that fails to start costs live refresh, not
 //! the documents themselves, so failures are logged and never fatal.
 
+use crate::shared::discard::IgnoreClosed;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -87,7 +88,7 @@ fn start<T, B>(
             };
             let mut paths = events.iter().map(|event| event.path.as_path());
             for payload in to_events(&mut paths) {
-                let _ = tx.send(payload);
+                tx.send(payload).ignore_closed();
             }
         }
     }) {

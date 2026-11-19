@@ -121,7 +121,7 @@ fn excerpt<S: AsRef<str>>(lines: &[S], secrets: &[String]) -> Option<String> {
     (!kept.is_empty()).then(|| kept.join(LINE_SEPARATOR))
 }
 
-fn mask(line: &str, secrets: &[String]) -> String {
+pub(crate) fn mask(line: &str, secrets: &[String]) -> String {
     secrets.iter().fold(line.to_string(), |line, secret| {
         line.replace(secret.as_str(), MASK)
     })

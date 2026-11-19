@@ -16,6 +16,7 @@ use crate::domain::ws_session::runtime::post_plan_mode::{
 };
 use crate::domain::ws_session::runtime::state::SdkSessions;
 
+use super::gate_clear_ahead::{clear_answered_gate_ahead, restore_after_refusal};
 use super::permission::PermissionResponseOutcome;
 use super::permission_context::PermissionContext;
 use super::restored_gate::{close_and_follow_up, FollowUp, RestoredGate};
@@ -92,11 +93,15 @@ async fn answer_restored_plan(
             .to_runtime_decision(payload.option_id.as_deref()),
     );
     if approved {
-        transition_session_to_post_plan_mode(
+        // Saved before the runtime changes mode: see `gate_clear_ahead`.
+        let cleared =
+            clear_answered_gate_ahead(context.write_pool, session_id, &payload.request_id).await?;
+        let transitioned = transition_session_to_post_plan_mode(
             sdk_sessions,
             session_id,
             context.write_pool,
             &output.recipient,
+            context.feature_senders,
         )
         .await
         .map_err(|error| {
@@ -104,7 +109,8 @@ async fn answer_restored_plan(
                 "SDK_ERROR",
                 format!("Failed to apply post-plan permission mode: {error}"),
             )
-        })?;
+        });
+        restore_after_refusal(context.write_pool, cleared, transitioned).await?;
     }
     let follow_up = FollowUp {
         text: follow_up_prompt(approved, payload.feedback.as_deref()),

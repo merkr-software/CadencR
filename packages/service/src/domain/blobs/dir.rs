@@ -4,6 +4,7 @@
 //! derivation from the database path, same per-test isolation. Production is
 //! `~/.cadencr/blobs`, alongside `database/` and `settings/`.
 
+use crate::shared::discard::KeepFirst;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -11,7 +12,7 @@ static BLOB_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Set the blob directory. Called once from `main`; later calls are ignored.
 pub fn init(dir: PathBuf) {
-    let _ = BLOB_DIR.set(dir);
+    BLOB_DIR.keep_first(dir);
 }
 
 /// The active blob directory. Uninitialized non-test builds fall back to a temp

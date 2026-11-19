@@ -23,7 +23,7 @@ pub(in crate::shared::migrate) fn database_identity(db_path: &Path) -> Option<St
     encoded.push_str("db-");
     for byte in name.as_bytes() {
         use std::fmt::Write as _;
-        let _ = write!(encoded, "{byte:02x}");
+        write!(encoded, "{byte:02x}").expect("writing to a String cannot fail");
     }
     Some(encoded)
 }

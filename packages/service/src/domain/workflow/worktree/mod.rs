@@ -27,6 +27,7 @@ mod setup_events;
 mod setup_finish;
 mod setup_output;
 mod setup_state;
+mod unfinished;
 
 pub use crate::domain::features::run_registry::FeatureRunRegistry as WorktreeSetupRegistry;
 pub use db::{
@@ -36,11 +37,13 @@ pub use db::{
 pub use replay::replay_persisted_state;
 pub use reuse::attach_to_existing_branch;
 pub use setup::{cancel_setups, run_setup_commands};
+pub use unfinished::{finish_provisioning, provisioning_unfinished};
 
 use std::path::PathBuf;
 
 use sqlx::SqlitePool;
 
+use crate::domain::features::repository::upsert_feature_setting;
 use crate::domain::git::{
     commands,
     worktree_context::{build_worktree_context, resolve_source_git_root, WorktreeContext},
@@ -221,9 +224,9 @@ async fn ensure_new(
             .map_err(|error| error.to_string())?
             .filter(|branch| branch != "HEAD"),
     };
-    let source_root_str = source_root.to_string_lossy();
-    new_branch::add_new_worktree(&source_root_str, &branch, &path_str, base_branch.as_deref())
-        .await?;
+    let path_str =
+        new_branch::add_or_adopt_worktree(&source_root, &branch, path_str, base_branch.as_deref())
+            .await?;
     let context = build_worktree_context(
         &source_root,
         std::path::Path::new(&project_dir),
@@ -237,6 +240,7 @@ async fn ensure_new(
         &session_cwd_str,
         &branch,
         target_branch.as_deref(),
+        InitialSetupStep::Created,
         ws_sender,
     )
     .await?;
@@ -277,20 +281,26 @@ async fn ensure_reuse(
     )?;
     let session_cwd_str = context.session_cwd.to_string_lossy().to_string();
 
+    // Shared worktree: the donor feature already ran its setup commands, so
+    // this one starts ready. Recorded with the path, never after it: a path
+    // saved without `ready` would rerun setup in the donor's worktree.
+    let step = if attached.was_already_attached {
+        InitialSetupStep::Ready
+    } else {
+        InitialSetupStep::Created
+    };
     persist_and_announce(
         write_pool,
         feature_id,
         &session_cwd_str,
         &attached.branch,
         None,
+        step,
         ws_sender,
     )
     .await?;
 
     if attached.was_already_attached {
-        // Shared worktree — the donor feature already ran its setup
-        // commands. Skip ours and jump straight to ready.
-        let _ = set_setting(write_pool, feature_id, "worktree_setup_step", "ready").await;
         send_envelope(
             ws_sender,
             "workflow",
@@ -319,20 +329,49 @@ async fn notify_provider_worktree_created(context: &WorktreeContext) -> Result<(
 /// `worktree.created` + `feature.updated` envelopes. New branches also record
 /// their fork point as the compare/merge target; reused branches preserve the
 /// target resolver's existing upstream/default behavior.
+/// The setup step a newly recorded worktree starts at.
+#[derive(Clone, Copy)]
+enum InitialSetupStep {
+    /// Its own worktree: the setup commands run next.
+    Created,
+    /// A worktree shared with the feature that set it up.
+    Ready,
+}
+
+/// Record the worktree and tell the client. Step, path and branch are saved
+/// together or not at all: a recorded path is replayed as is on the next
+/// prompt, so it must never exist without the step it starts at.
 async fn persist_and_announce(
     write_pool: &SqlitePool,
     feature_id: i64,
     path_str: &str,
     branch: &str,
     target_branch: Option<&str>,
+    step: InitialSetupStep,
     ws_sender: &WsSender,
 ) -> Result<(), String> {
-    set_setting(write_pool, feature_id, "worktree_path", path_str).await?;
-    set_setting(write_pool, feature_id, "worktree_branch", branch).await?;
-    if let Some(target) = target_branch {
-        set_setting(write_pool, feature_id, "target_branch", target).await?;
+    let step = match step {
+        InitialSetupStep::Created => "created",
+        InitialSetupStep::Ready => "ready",
+    };
+    let settings = [
+        ("worktree_setup_step", step),
+        ("worktree_path", path_str),
+        ("worktree_branch", branch),
+    ];
+    let target = target_branch.map(|target| ("target_branch", target));
+    let mut tx = write_pool
+        .begin()
+        .await
+        .map_err(|e| format!("DB error recording the worktree: {e}"))?;
+    for (key, value) in settings.into_iter().chain(target) {
+        upsert_feature_setting(&mut *tx, feature_id, key, value)
+            .await
+            .map_err(|e| format!("DB error setting {key}: {e}"))?;
     }
-    set_setting(write_pool, feature_id, "worktree_setup_step", "created").await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("DB error recording the worktree: {e}"))?;
 
     send_envelope(
         ws_sender,
@@ -374,6 +413,37 @@ mod tests {
         .await
         .unwrap();
         pool
+    }
+
+    /// The path used to be saved before the step: with the `ready` write of a
+    /// shared worktree refused, the next prompt replayed the path and reran
+    /// setup in the donor feature's worktree. Now nothing is recorded.
+    #[tokio::test]
+    async fn a_worktree_path_is_never_saved_without_its_setup_step() {
+        let pool = make_pool().await;
+        sqlx::query(
+            "CREATE TRIGGER refuse_step BEFORE INSERT ON feature_settings \
+             WHEN NEW.key = 'worktree_setup_step' \
+             BEGIN SELECT RAISE(FAIL, 'refused'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let saved = persist_and_announce(
+            &pool,
+            1,
+            "/worktrees/shared",
+            "feat/a",
+            None,
+            InitialSetupStep::Ready,
+            &sender,
+        )
+        .await;
+
+        assert!(saved.is_err());
+        assert_eq!(get_setting(&pool, 1, "worktree_path").await, None);
     }
 
     #[tokio::test]

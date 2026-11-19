@@ -6,6 +6,8 @@ pub(crate) use control_dispatch::{
     dispatch_control_prompt, dispatch_control_prompt_with_message_uuid,
 };
 
+mod gate_clear_ahead;
+pub(crate) use gate_clear_ahead::clear_gate_ahead;
 mod permission;
 mod permission_context;
 mod permission_pending;

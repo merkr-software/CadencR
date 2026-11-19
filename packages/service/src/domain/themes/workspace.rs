@@ -21,6 +21,7 @@
 //! typed theme identity. Legacy `kind = 'theme'` rows remain readable without
 //! being reclassified or backfilled.
 
+use crate::shared::discard::IgnoreClosed;
 use std::path::Path;
 
 use sqlx::SqlitePool;
@@ -113,7 +114,7 @@ pub async fn watch_renames(
         match events.recv().await {
             Ok(event) => match sync_project_name(&pool, &event.id).await {
                 Ok(true) => {
-                    let _ = renamed.send(event);
+                    renamed.send(event).ignore_closed();
                 }
                 Ok(false) => {}
                 Err(e) => {

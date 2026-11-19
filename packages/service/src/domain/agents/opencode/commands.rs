@@ -23,6 +23,7 @@
 //! pushes a `commands.updated` envelope when the probe (or a live
 //! session's ACP push) produces fresh data.
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex as StdMutex, OnceLock};
@@ -126,7 +127,7 @@ pub(in crate::domain::agents::opencode) async fn refresh_via_acp(
         .as_ref()
         .map(|commands| commands.clone())
         .map_err(|error| error.to_string());
-    let _ = tx.send(broadcast_payload);
+    tx.send(broadcast_payload).ignore_closed();
     if let Ok(ref commands) = outcome {
         record_snapshot(cwd, commands.clone()).await;
     }

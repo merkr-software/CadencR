@@ -142,8 +142,13 @@ pub async fn registry_match(
     let mut reached = false;
     for query in queries {
         // Search results are already the latest versions, launch templates included.
-        let Ok((entries, _)) = service.registry.search_entries(&query, None, 30).await else {
-            continue;
+        let entries = match service.registry.search_entries(&query, None, 30).await {
+            Ok((entries, _)) => entries,
+            Err(error) => {
+                // Unreached is not "unlisted": nothing is cached below.
+                tracing::warn!(query, %error, "MCP registry search failed");
+                continue;
+            }
         };
         reached = true;
         found = entries.into_iter().find(|entry| {

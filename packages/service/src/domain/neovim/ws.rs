@@ -4,6 +4,7 @@
 //! continuous stream of raw terminal bytes, which does not fit that JSON
 //! envelope. `/api/terminal/ws` sets the same precedent for the same reason.
 
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
@@ -113,15 +114,15 @@ struct AttachedPty {
 }
 
 async fn send_error(sink: &mut WsSink, message: impl Into<String>) {
-    let _ = sink
-        .send(Message::Text(
-            ServerMessage::Error {
-                message: message.into(),
-            }
-            .to_json()
-            .into(),
-        ))
-        .await;
+    sink.send(Message::Text(
+        ServerMessage::Error {
+            message: message.into(),
+        }
+        .to_json()
+        .into(),
+    ))
+    .await
+    .ignore_closed();
 }
 
 async fn attach_pty(

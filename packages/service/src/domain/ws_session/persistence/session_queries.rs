@@ -3,7 +3,9 @@ use super::WsSessionPersistence;
 use sqlx::SqlitePool;
 
 impl WsSessionPersistence {
-    pub async fn try_get_session_row(
+    /// The session's row, `None` when it was deleted. A read failure is an
+    /// error, never "no such session".
+    pub async fn get_session_row(
         pool: &SqlitePool,
         session_id: i64,
     ) -> Result<Option<SessionRow>, sqlx::Error> {
@@ -14,10 +16,6 @@ impl WsSessionPersistence {
         .fetch_optional(pool)
         .await?;
         Ok(row)
-    }
-
-    pub async fn get_session_row(pool: &SqlitePool, session_id: i64) -> Option<SessionRow> {
-        Self::try_get_session_row(pool, session_id).await.ok()?
     }
 
     #[cfg(test)]
@@ -226,6 +224,7 @@ mod session_queries_tests {
 
         let row = WsSessionPersistence::get_session_row(&pool, id)
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(row.id, id);
         assert_eq!(row.feature_id, 42);
@@ -243,6 +242,7 @@ mod session_queries_tests {
         .unwrap();
         let resumed = WsSessionPersistence::get_session_row(&pool, id)
             .await
+            .unwrap()
             .unwrap();
         let restored: crate::domain::agents::adapter::RuntimeConfigOverrides =
             serde_json::from_str(resumed.runtime_overrides.as_deref().unwrap()).unwrap();
@@ -254,6 +254,7 @@ mod session_queries_tests {
         let pool = setup_test_db().await;
         assert!(WsSessionPersistence::get_session_row(&pool, 999)
             .await
+            .unwrap()
             .is_none());
     }
 
@@ -274,6 +275,7 @@ mod session_queries_tests {
 
         let row = WsSessionPersistence::get_session_row(&pool, id)
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(row.permission_mode.as_deref(), Some("plan"));
     }
@@ -295,6 +297,7 @@ mod session_queries_tests {
 
         let row = WsSessionPersistence::get_session_row(&pool, id)
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(row.permission_mode.as_deref(), Some("acceptEdits"));
     }
@@ -303,7 +306,7 @@ mod session_queries_tests {
     async fn test_persist_and_get_runtime_session_id() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        p.find_or_create_session(None, None).await;
+        p.find_or_create_session(None, None).await.unwrap();
 
         p.persist_runtime_session_id("cli-sess-abc").await;
 

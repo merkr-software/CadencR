@@ -1,5 +1,6 @@
 //! Official ACP SDK connection setup for [`AcpClient`].
 
+use crate::shared::discard::{cleanup, IgnoreClosed, SendIgnoreClosed};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,7 +62,10 @@ impl Inner {
         for slot in [&self.connection_task, &self.stderr_task, &self.reaper_task] {
             let task = slot.lock().ok().and_then(|mut task| task.take());
             if let Some(task) = task {
-                let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+                cleanup(
+                    tokio::time::timeout(Duration::from_secs(2), task).await,
+                    "wait for an ACP client task to stop",
+                );
             }
         }
     }
@@ -98,8 +102,8 @@ pub(super) async fn spawn_acp_subprocess(
         .spawn()
         .map_err(|error| AcpError::Spawn(error.to_string()))?;
     if let Err(error) = process_tree.attach(&child) {
-        let _ = child.start_kill();
-        let _ = child.wait().await;
+        cleanup(child.start_kill(), "kill the uncontained ACP agent");
+        cleanup(child.wait().await, "reap the uncontained ACP agent");
         return Err(AcpError::Spawn(format!(
             "process containment unavailable: {error}"
         )));
@@ -246,8 +250,8 @@ where
             .name("cadencr")
             .with_handler(EventDispatchHandler::new(events, server_responders))
             .connect_with(transport, async move |connection| {
-                let _ = connection_tx.send(connection.clone());
-                let _ = shutdown_rx.await;
+                connection_tx.send_ignore_closed(connection.clone());
+                shutdown_rx.await.ignore_closed();
                 Ok(())
             })
             .await;
@@ -352,7 +356,7 @@ fn send_process_exited(
 fn send_once(slot: &StdMutex<Option<oneshot::Sender<()>>>) {
     if let Ok(mut slot) = slot.lock() {
         if let Some(tx) = slot.take() {
-            let _ = tx.send(());
+            tx.send_ignore_closed(());
         }
     }
 }

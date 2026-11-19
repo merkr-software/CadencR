@@ -1,4 +1,5 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -34,7 +35,9 @@ impl SessionPersistenceHealth {
     pub(crate) async fn replay(&self, session_id: i64, sender: &mpsc::UnboundedSender<Message>) {
         let sessions = self.sessions.lock().await;
         if let Some(entry) = sessions.get(&session_id) {
-            let _ = sender.send(status_message(entry.payload.clone()));
+            sender
+                .send(status_message(entry.payload.clone()))
+                .ignore_closed();
         }
     }
 

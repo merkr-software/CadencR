@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -323,7 +324,7 @@ pub fn content_search(
                     };
 
                     match_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let _ = tx.send(cm);
+                    tx.send(cm).ignore_closed();
                 }
             }
 

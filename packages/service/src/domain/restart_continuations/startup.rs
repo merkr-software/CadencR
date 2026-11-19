@@ -37,9 +37,13 @@ async fn run(state: &AppState) -> RestartContinuationReport {
         Ok(pending) => pending,
         Err(error) => {
             tracing::error!(%error, "failed to read interrupted agent turns");
-            report.error = Some(format!(
-                "Cadencr could not read which agents the restart interrupted: {error}"
-            ));
+            let unread =
+                format!("Cadencr could not read which agents the restart interrupted: {error}");
+            // Keep the startup recovery failures: each names agents to check.
+            report.error = Some(match report.error.take() {
+                Some(earlier) => format!("{earlier}\n{unread}"),
+                None => unread,
+            });
             return report;
         }
     };

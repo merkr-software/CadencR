@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::warn;
 
@@ -54,7 +55,9 @@ pub(super) async fn handle_commands_action(envelope: WsEnvelope, sender: &WsSend
                 })
                 .unwrap(),
             );
-            let _ = sender.send(Message::Text(String::from(err).into()));
+            sender
+                .send(Message::Text(String::from(err).into()))
+                .ignore_closed();
         }
     }
 }
@@ -125,7 +128,9 @@ async fn handle_commands_get(envelope: WsEnvelope, sender: &WsSender) {
         })
         .unwrap(),
     );
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
 
     if let Some(adapter) = adapter.filter(|a| a.supports_runtime_slash_command_refresh()) {
         let cwd = payload.cwd.clone();
@@ -160,7 +165,9 @@ async fn handle_commands_get(envelope: WsEnvelope, sender: &WsSender) {
                 })
                 .unwrap(),
             );
-            let _ = sender.send(Message::Text(String::from(env).into()));
+            sender
+                .send(Message::Text(String::from(env).into()))
+                .ignore_closed();
         });
     }
 }

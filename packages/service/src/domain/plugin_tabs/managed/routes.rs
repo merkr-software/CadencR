@@ -1,6 +1,7 @@
 use super::policy::{self, ManagedTabPolicyStatus, PolicySnapshot, PolicySubject};
 use super::{invalid, service, InstallManagedTabRequest, ManagedTabInventoryEntry};
 use crate::domain::plugin_tabs::consent;
+use crate::shared::discard::IgnoreClosed;
 use crate::{
     app_state::AppState,
     domain::marketplace::{
@@ -213,11 +214,12 @@ pub async fn discard_managed_tab_update(
     Ok(Json(true))
 }
 fn notify(state: &AppState, id: &str) {
-    let _ = state
+    state
         .plugin_tab_events_tx
         .send(super::super::PluginTabChangedEvent {
             plugin_id: id.to_string(),
-        });
+        })
+        .ignore_closed();
 }
 
 #[cfg(test)]

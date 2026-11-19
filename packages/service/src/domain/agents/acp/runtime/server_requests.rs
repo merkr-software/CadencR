@@ -15,6 +15,7 @@
 //! prefer the typed payload when present and fall back to raw access for
 //! OpenCode-style provider extensions.
 
+use crate::shared::discard::IgnoreClosed;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -136,7 +137,9 @@ async fn emit_terminal_error(
     if tx.send(Ok(degraded)).await.is_err() {
         return;
     }
-    let _ = tx.send(Err(RuntimeError::new(message))).await;
+    tx.send(Err(RuntimeError::new(message)))
+        .await
+        .ignore_closed();
 }
 
 fn report_deferred_request_join(joined: Result<(), tokio::task::JoinError>) {
@@ -157,7 +160,7 @@ async fn handle_notification(
             let params = notification.params();
             let synced = sync_session_state_from_update(params, config).await;
             if let Some(event) = synced.mode_changed {
-                let _ = tx.send(Ok(event)).await;
+                tx.send(Ok(event)).await.ignore_closed();
             }
             let agent_moved_model = synced.agent_moved_model;
             if config.replay_suppression.load(Ordering::SeqCst)
@@ -200,7 +203,7 @@ async fn handle_notification(
                 }
             }
             if let Some(event) = refreshed_pending_permission_event(payload, config).await {
-                let _ = tx.send(Ok(event)).await;
+                tx.send(Ok(event)).await.ignore_closed();
             }
         }
         AcpNotification::Extension { method, .. } => {

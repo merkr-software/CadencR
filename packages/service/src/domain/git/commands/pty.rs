@@ -8,6 +8,7 @@
 //! pattern as `terminal::service`. The actual `spawn`/IO loop lives in
 //! [`super::pty_spawn`].
 
+use crate::shared::discard::IgnoreClosed;
 use std::path::Path;
 
 use crate::domain::git::models::PushForceMode;
@@ -46,7 +47,7 @@ pub async fn commit_streaming(
     // displays them — never via a separate UI surface.
     let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     if let Err(e) = run_git_capture(&["add"], &[], &path_refs, repo).await {
-        let _ = tx.send(("stderr".into(), format!("{e}\n")));
+        tx.send(("stderr".into(), format!("{e}\n"))).ignore_closed();
         return Err(e);
     }
     // Commits don't need user-typed input on the PTY (gpg-agent + pinentry

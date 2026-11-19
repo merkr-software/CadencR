@@ -89,7 +89,7 @@ impl StreamReaderTask {
             .await;
         // MCP-server snapshots only go to the owner socket; if it is gone, skip
         // and keep streaming the rest of the turn.
-        let _ = self.send_mcp_servers_if_init(&runtime_event).await;
+        self.send_mcp_servers_if_init(&runtime_event).await;
 
         if self.handle_provider_error(&runtime_event).await {
             state
@@ -157,8 +157,7 @@ impl StreamReaderTask {
             .expect("permission request payload should serialize");
         // Mirror the gate to every device viewing this feature so it appears on
         // the host and any remote clients alike, not only the turn owner.
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(envelope).into()))
+        self.publish(Message::Text(String::from(envelope).into()))
             .await;
         true
     }
@@ -219,7 +218,7 @@ impl StreamReaderTask {
         send_runtime_session_id(&self.sender, persisted_sid.as_str());
     }
 
-    async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) -> Result<(), ()> {
+    async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) {
         let result = send_mcp_servers_if_init(
             &self.sender,
             &self.sdk_sessions,
@@ -233,7 +232,6 @@ impl StreamReaderTask {
                 "WebSocket sender closed during mcp_servers forward"
             );
         }
-        result
     }
 
     async fn handle_non_result_signal(
@@ -284,10 +282,16 @@ impl StreamReaderTask {
             .usage_state
             .apply_event(runtime_adapter, runtime_event);
         if usage_update.context_window_changed {
-            WsSessionPersistence::update_context_window(
+            let saved = WsSessionPersistence::update_context_window(
                 &self.write_pool,
                 self.db_session_id,
                 usage_update.snapshot.context_window,
+            )
+            .await;
+            self.report_usage_write(
+                &mut state.context_window_save_failed,
+                "its context window",
+                saved.map(|()| true),
             )
             .await;
         }
@@ -308,7 +312,9 @@ impl StreamReaderTask {
             .stream_event()
             .and_then(|_| persistence.current_model_for_event(runtime_event));
         if !usage_update.is_subagent {
-            let _ = persist_usage(runtime_event, self.db_session_id, &self.write_pool).await;
+            let saved = persist_usage(runtime_event, self.db_session_id, &self.write_pool).await;
+            self.report_usage_write(&mut state.token_usage_save_failed, "its token usage", saved)
+                .await;
         }
         // Any change is worth pushing, including a window that resolved on the
         // `init` event before this turn spent a token — without that the UI
@@ -340,8 +346,7 @@ impl StreamReaderTask {
         // because a background agent is still alive (issue #58) — keep the turn
         // lifecycle in `active` so the header timer doesn't reset on resume.
         if let Some(envelope) = envelope {
-            let _ = self
-                .send_and_mirror(Message::Text(String::from(envelope).into()))
+            self.publish(Message::Text(String::from(envelope).into()))
                 .await;
         }
         if runtime_event.is_result()
@@ -420,6 +425,7 @@ mod tests {
         drop(runtime);
         let row = WsSessionPersistence::get_session_row(&task.write_pool, task.db_session_id)
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(
             row.runtime_session_id.as_deref(),

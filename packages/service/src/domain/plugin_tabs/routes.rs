@@ -1,6 +1,7 @@
 //! Host API for custom tabs (`docs/CUSTOM_TABS.md` §4.2), main token only.
 //! Handler names carry a `plugin_tab_` prefix: they are global operationIds.
 
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::{Json, Path, Query, State};
 use axum::response::Response;
 use axum::routing::{get, post, put};
@@ -190,9 +191,12 @@ pub async fn plugin_tab_consent_handler(
 /// changed, exactly like a folder change does, so open tab views re-read it.
 fn announce_change(state: &AppState, id: &str) {
     // `send` only fails when no client is subscribed — nobody to tell.
-    let _ = state.plugin_tab_events_tx.send(PluginTabChangedEvent {
-        plugin_id: id.to_string(),
-    });
+    state
+        .plugin_tab_events_tx
+        .send(PluginTabChangedEvent {
+            plugin_id: id.to_string(),
+        })
+        .ignore_closed();
 }
 
 #[utoipa::path(

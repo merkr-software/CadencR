@@ -4,8 +4,9 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::access_mode_wire;
 use crate::domain::agents::permission_modes::permission_mode_wire;
 use crate::domain::agents::runtime_adapter;
-use crate::domain::ws_session::persistence::SessionRow;
+use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
 use crate::domain::ws_session::protocol::{SessionInitializedPayload, WsEnvelope, WsSessionEvent};
+use crate::shared::discard::IgnoreClosed;
 
 use super::super::{QueryState, SdkHandle, SessionConfig, WsSender};
 
@@ -60,7 +61,9 @@ pub(super) async fn reply_and_restore(
         .expect("initialized session id is numeric");
     let reply = WsEnvelope::session_reply(ref_id, &WsSessionEvent::Initialized(payload))
         .expect("session event payload should serialize");
-    let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
+    sender
+        .send(axum::extract::ws::Message::Text(String::from(reply).into()))
+        .ignore_closed();
     state.persistence_health.replay(id, sender).await;
     if let Some(resume_id) = resume_id {
         super::super::send_runtime_session_id(sender, resume_id);
@@ -103,4 +106,21 @@ pub(super) fn pending_handle(
         manual_compact_start: Default::default(),
         manual_compact_spawn_pending: std::sync::Arc::default(),
     }
+}
+
+/// The session row `session.init` resumes from. Without it a resumed
+/// conversation would start a fresh agent with no resume id, so a failed read
+/// is answered with `DB_ERROR` and stops the init.
+pub(super) async fn read_row(
+    app_state: &AppState,
+    sender: &WsSender,
+    envelope_id: &str,
+    db_session_id: i64,
+) -> Result<Option<SessionRow>, ()> {
+    WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id)
+        .await
+        .map_err(|error| {
+            let message = format!("Failed to read the session: {error}");
+            super::super::send_error(sender, envelope_id, "DB_ERROR", &message);
+        })
 }

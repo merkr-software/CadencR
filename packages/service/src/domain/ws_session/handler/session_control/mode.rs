@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::{error, info};
 
@@ -343,7 +344,9 @@ fn mode_set_error_payload(
 fn send_mode_set_error(sender: &WsSender, ref_id: &str, payload: SessionErrorPayload) {
     let err = WsEnvelope::session_reply(ref_id, &WsSessionEvent::Error(payload))
         .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(err).into()));
+    sender
+        .send(Message::Text(String::from(err).into()))
+        .ignore_closed();
 }
 
 #[cfg(test)]

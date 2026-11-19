@@ -1,4 +1,5 @@
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::super::output::{CommandError, CommandOutput, OutputTarget};
@@ -9,6 +10,7 @@ use super::super::prompt::{PermissionDeliveryError, PermissionResponse, Permissi
 use super::super::state::{QueryState, SdkSessions};
 use crate::domain::ws_session::protocol::*;
 
+use super::gate_clear_ahead::{clear_answered_gate_ahead, restore_after_refusal};
 use super::permission_context::PermissionContext;
 use super::permission_pending::clear_answered_gate_preserving_replacement;
 use super::permission_user_message::persist_question_answer;
@@ -123,9 +125,10 @@ async fn finish_accepted_runtime_permission(
             ..Default::default()
         }))
         .expect("session event payload should serialize");
-        let _ = output
+        output
             .recipient
-            .send(Message::Text(String::from(ended).into()));
+            .send(Message::Text(String::from(ended).into()))
+            .ignore_closed();
     }
     warnings.extend(
         persist_question_answer(
@@ -248,6 +251,7 @@ async fn respond_runtime_permission(
             db_session_id,
             context.write_pool,
             &output.recipient,
+            context.feature_senders,
         )
         .await
         {
@@ -346,12 +350,17 @@ pub(super) async fn respond_claimed(
     db_session_id: i64,
 ) -> Result<PermissionResponseOutcome, CommandError> {
     let runtime = resolve_permission_runtime(sdk_sessions, context, db_session_id).await?;
+    // Saved before the runtime hears it: see `gate_clear_ahead`.
+    let cleared =
+        clear_answered_gate_ahead(context.write_pool, db_session_id, &payload.request_id).await?;
     let answer = payload.updated_input.clone();
+    // Every refusal puts the gate back before leaving; past acceptance, the
+    // answer stands and nothing is restored.
     match crate::domain::agents::permission_modes::provider_permission_response_route(
         &runtime.active.runtime_provider,
     ) {
         RuntimePermissionResponseRoute::PermissionCallback => {
-            send_permission_channel_response(
+            let delivered = send_permission_channel_response(
                 runtime.active.permission_tx,
                 payload,
                 output,
@@ -360,12 +369,14 @@ pub(super) async fn respond_claimed(
                 db_session_id,
                 answer,
             )
-            .await
+            .await;
+            restore_after_refusal(context.write_pool, cleared, delivered).await
         }
         RuntimePermissionResponseRoute::Session => {
-            let kind =
+            let accepted =
                 respond_runtime_permission(&runtime, &payload, db_session_id, context, output)
-                    .await?;
+                    .await;
+            let kind = restore_after_refusal(context.write_pool, cleared, accepted).await?;
             finish_accepted_runtime_permission(
                 output,
                 context,
@@ -614,8 +625,73 @@ mod tests {
         let other = tokio::spawn(other.recv());
         tokio::task::yield_now().await;
         assert!(!other.is_finished(), "the answer must not resolve q-other");
-        // The failed delivery released the gate claim so a retry can land.
+        // The failed delivery released the gate claim so a retry can land,
+        // and put the cleared gate back in storage.
         let id = payload.session_id.parse::<i64>().unwrap();
+        assert!(state.pending_gates.claim(id, "q-1").await.is_ok());
+        assert!(question_still_stored(&state, id).await);
+    }
+
+    struct RefusingRuntime;
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for RefusingRuntime {
+        fn take_message_rx(&mut self) -> RuntimeMessageRx {
+            mpsc::channel(1).1
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn stream_input(&self, _: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn respond_permission(
+            &self,
+            _: RuntimePermissionResponse,
+        ) -> Result<(), RuntimeError> {
+            Err(RuntimeError::new("the agent no longer holds this request"))
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// The session route used to leave on the refusal before restoring: the
+    /// question was cleared for good while the agent still waited on it.
+    #[tokio::test]
+    async fn a_session_route_refusal_puts_the_question_back() {
+        let (state, sessions, payload, _calls) = fixture(false).await;
+        let id = payload.session_id.parse::<i64>().unwrap();
+        if let Some(handle) = sessions.lock().await.get_mut(&id) {
+            let (permission_tx, _) = permission_response_channel();
+            handle.state = QueryState::Active {
+                query: Arc::new(RwLock::new(Box::new(RefusingRuntime))),
+                permission_tx,
+            };
+        }
+        let output = CommandOutput {
+            recipient: SessionOutput::headless(),
+            correlation_id: String::new(),
+        };
+
+        let error = respond_permission(&context(&state), &sessions, payload, &output)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "RUNTIME_PERMISSION_ERROR");
+        assert!(question_still_stored(&state, id).await);
         assert!(state.pending_gates.claim(id, "q-1").await.is_ok());
     }
 
@@ -648,34 +724,54 @@ mod tests {
         assert_eq!(messages, ["Color?\nAnswer: Blue"]);
     }
 
+    async fn question_still_stored(state: &AppState, id: i64) -> bool {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT pending_questions FROM agent_sessions WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&state.read_pool)
+        .await
+        .unwrap()
+        .is_some()
+    }
+
+    /// The answer used to reach the provider before the gate's clear was
+    /// saved; the gate then came back on reload and answering it again failed
+    /// with "no open request". Now the provider is not touched and the request
+    /// stays answerable.
     #[tokio::test]
-    async fn headless_permission_reports_post_acceptance_storage_warning_without_retrying_provider()
-    {
+    async fn an_unsavable_answer_leaves_the_provider_and_the_request_untouched() {
         let (state, _sessions, payload, calls) = fixture(true).await;
         let id = payload.session_id.parse::<i64>().unwrap();
-        let warnings = crate::domain::mcp::control::gate_respond::dispatch_permission_response(
+        let error = crate::domain::mcp::control::gate_respond::dispatch_permission_response(
             &state,
             id,
             payload.clone(),
         )
         .await
-        .unwrap();
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("Provider accepted"));
-        assert!(warnings[0].contains("after restart"));
-        assert!(
-            crate::domain::mcp::control::gate_respond::dispatch_permission_response(
-                &state, id, payload
-            )
+        .unwrap_err();
+        assert!(error.to_string().contains("stays open"), "{error}");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(question_still_stored(&state, id).await);
+
+        sqlx::query("DROP TRIGGER reject_gate_cleanup")
+            .execute(&state.write_pool)
             .await
-            .is_err()
-        );
+            .unwrap();
+        let warnings = crate::domain::mcp::control::gate_respond::dispatch_permission_response(
+            &state, id, payload,
+        )
+        .await
+        .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!question_still_stored(&state, id).await);
     }
 
     #[tokio::test]
-    async fn websocket_permission_ack_precedes_answer_and_correlated_storage_warning() {
+    async fn websocket_answer_that_cannot_be_saved_is_a_correlated_error() {
         let (state, sessions, payload, calls) = fixture(true).await;
+        let id = payload.session_id.parse::<i64>().unwrap();
         let envelope =
             WsEnvelope::session_command(&WsSessionCommand::PermissionRespond(payload)).unwrap();
         let correlation = envelope.id.clone();
@@ -693,11 +789,11 @@ mod tests {
                 .iter()
                 .map(|event| event.action.as_str())
                 .collect::<Vec<_>>(),
-            ["acknowledged", "user_message", "warning"]
+            ["error"]
         );
         assert_eq!(events[0].r#ref.as_deref(), Some(correlation.as_str()));
-        assert_eq!(events[2].r#ref.as_deref(), Some(correlation.as_str()));
-        assert_eq!(events[2].payload["code"], "DB_ERROR");
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(events[0].payload["code"], "DB_ERROR");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(question_still_stored(&state, id).await);
     }
 }

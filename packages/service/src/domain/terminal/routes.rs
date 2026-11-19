@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -332,11 +333,11 @@ fn spawn_pty_to_ws_forwarder(
                         message: "Terminal output fell behind; reconnect to restore the display"
                             .to_string(),
                     };
-                    let _ = sink
-                        .lock()
+                    sink.lock()
                         .await
                         .send(Message::Text(message.to_json().into()))
-                        .await;
+                        .await
+                        .ignore_closed();
                     break;
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
@@ -402,7 +403,8 @@ fn spawn_exit_watcher(
         let exit_code = alive_rx.borrow().unwrap_or(-1);
         let msg = ServerMessage::Exit { code: exit_code };
         let json = msg.to_json();
-        let _ = sink.lock().await.send(Message::Text(json.into())).await;
+        let frame = Message::Text(json.into());
+        sink.lock().await.send(frame).await.ignore_closed();
         info!(pty_id = %pty_id, "Sent exit message");
     })
 }
@@ -441,7 +443,8 @@ async fn run_pty_ws_loop(
 
     drop(tasks);
 
-    let _ = sink.lock().await.send(Message::Close(None)).await;
+    let close = Message::Close(None);
+    sink.lock().await.send(close).await.ignore_closed();
 }
 
 /// Dropping a revoked remote connection must stop its independently spawned
@@ -469,7 +472,9 @@ async fn send_error(socket: WebSocket, message: &str) {
     let msg = ServerMessage::Error {
         message: message.to_string(),
     };
-    let _ = send_msg(&mut sink, &msg).await;
+    // The socket closes right after: a peer already gone has nothing to show.
+    let frame = Message::Text(msg.to_json().into());
+    sink.send(frame).await.ignore_closed();
 }
 
 #[cfg(test)]

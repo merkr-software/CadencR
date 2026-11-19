@@ -36,18 +36,29 @@ impl SessionRow {
         PendingUserInputKind,
         crate::domain::ws_session::protocol::PermissionRequestPayload,
     )> {
-        if let Some(payload) = self
-            .pending_permission
-            .as_deref()
-            .and_then(parse_permission_payload)
-        {
-            return Some((PendingUserInputKind::Permission, payload));
+        if let Some(stored) = self.pending_permission.as_deref() {
+            match parse_permission_payload(stored) {
+                Some(payload) => return Some((PendingUserInputKind::Permission, payload)),
+                None => warn_unreadable(self.id, PendingUserInputKind::Permission),
+            }
         }
-        self.pending_questions
-            .as_deref()
-            .and_then(parse_question_payload)
-            .map(|payload| (PendingUserInputKind::Question, payload))
+        let stored = self.pending_questions.as_deref()?;
+        let payload = parse_question_payload(stored);
+        if payload.is_none() {
+            warn_unreadable(self.id, PendingUserInputKind::Question);
+        }
+        payload.map(|payload| (PendingUserInputKind::Question, payload))
     }
+}
+
+/// A stored gate that no longer parses cannot be shown again; say so in the
+/// log, since the session then reads as waiting on nothing.
+fn warn_unreadable(session_id: i64, kind: PendingUserInputKind) {
+    tracing::warn!(
+        session_id,
+        column = kind.column(),
+        "stored pending user input is unreadable and cannot be restored"
+    );
 }
 
 impl<'a> PendingUserInput<'a> {

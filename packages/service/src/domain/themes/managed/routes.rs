@@ -1,6 +1,7 @@
 use super::{catalog, models::*, service};
 use crate::domain::marketplace::models::ManagedThemeCatalogResponse;
 use crate::domain::themes::models::UserTheme;
+use crate::shared::discard::IgnoreClosed;
 use crate::{app_state::AppState, error::AppError};
 use axum::{
     extract::{Path, State},
@@ -122,9 +123,10 @@ pub async fn duplicate_managed_theme(
 
 fn notify(state: &AppState, id: &str) {
     // No receivers means no connected renderer, not a failed mutation.
-    let _ = state
+    state
         .theme_events_tx
         .send(crate::domain::themes::ThemesChangeEvent {
             id: format!("managed:{id}"),
-        });
+        })
+        .ignore_closed();
 }

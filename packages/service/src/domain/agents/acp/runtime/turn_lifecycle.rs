@@ -1,5 +1,6 @@
 //! Prompt-turn lifecycle helpers.
 
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -173,9 +174,9 @@ pub async fn start_turn_on_model(
         .expect("EventIndexer poisoned")
         .latch_turn_model(model.clone());
     if model.is_some() {
-        let _ = tx
-            .send(Ok(message_start_for(Some(session_id), model.as_deref())))
-            .await;
+        tx.send(Ok(message_start_for(Some(session_id), model.as_deref())))
+            .await
+            .ignore_closed();
     }
 }
 

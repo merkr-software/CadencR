@@ -4,6 +4,7 @@
 //! opaque option ids and authoritative runtime snapshots.
 
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::super::super::protocol::{
@@ -58,7 +59,9 @@ pub(in crate::domain::ws_session::handler) async fn handle_session_config_get(
         }),
     )
     .expect("session config snapshot should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
 }
 
 pub(in crate::domain::ws_session::handler) async fn handle_session_config_set(

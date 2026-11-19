@@ -95,11 +95,22 @@ pub async fn catalog_entries(marketplaces: &[Marketplace]) -> HashMap<String, Ca
         let path = Path::new(location)
             .join(".claude-plugin")
             .join("marketplace.json");
-        let Ok(text) = tokio::fs::read_to_string(&path).await else {
-            continue;
+        // A marketplace without a manifest simply offers no updates; one
+        // that cannot be read or parsed hides its updates, which the log says.
+        let text = match tokio::fs::read_to_string(&path).await {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "cannot read plugin marketplace manifest");
+                continue;
+            }
         };
-        let Ok(manifest) = serde_json::from_str::<Manifest>(&text) else {
-            continue;
+        let manifest = match serde_json::from_str::<Manifest>(&text) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "invalid plugin marketplace manifest");
+                continue;
+            }
         };
         for plugin in manifest.plugins {
             let sha = plugin.source.get("sha").and_then(|sha| sha.as_str());

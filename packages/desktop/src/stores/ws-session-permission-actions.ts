@@ -1,4 +1,5 @@
 import type { StoreApi } from "zustand";
+import { toast } from "sonner";
 import { createPermissionRespond } from "@/lib/ws-envelope";
 import { advancePendingPermissionQueue } from "@/lib/pending-permission-queue";
 import { buildAskUserQuestionUpdatedInput } from "@/lib/build-ask-user-question-payload";
@@ -32,16 +33,21 @@ function handlePermissionResponse(
   const error = parseErrorPayload(payload);
   if (error?.message || payload === null) {
     const message = error?.message ?? "Permission response timed out.";
-    const errorBlock = makeErrorBlock(session, message, { idPrefix: "ws-permission-error" });
     const isDeadSessionError = isGateClosingErrorCode(error?.code);
+    if (!isDeadSessionError) {
+      // The gate is still open and the agent still waits on it: the response
+      // failed, not the turn. Its message id stays for an idempotent retry.
+      toast.error("Couldn't send your response", { description: message });
+      set(updateSession(get(), sessionId, { submittingPermissionRequestId: null }));
+      return;
+    }
+    const errorBlock = makeErrorBlock(session, message, { idPrefix: "ws-permission-error" });
     const responseUuids = new Map(session.permissionResponseMessageUuids);
-    if (isDeadSessionError) responseUuids.delete(currentRequestId);
-    const gatePatch: Partial<SessionEntry> = isDeadSessionError
-      ? {
-          ...buildClearedGatePatch(session),
-          lifecycle: transitionTurn(session.lifecycle, { type: "turn_errored", message }),
-        }
-      : { submittingPermissionRequestId: null };
+    responseUuids.delete(currentRequestId);
+    const gatePatch: Partial<SessionEntry> = {
+      ...buildClearedGatePatch(session),
+      lifecycle: transitionTurn(session.lifecycle, { type: "turn_errored", message }),
+    };
     set(
       updateSession(get(), sessionId, {
         ...blocksPatchWithDerived(session.streamingState, [...session.blocks, errorBlock]),

@@ -5,20 +5,22 @@ use tracing::{debug, error};
 
 use super::mcp_servers::refresh_mcp_servers_for_active_session;
 use super::stream_reader_task::StreamReaderTask;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 impl StreamReaderTask {
     pub(super) async fn after_turn_result(&self) {
         self.drain_queued_message_after_result().await;
-        let _ = self.refresh_mcp_servers_after_turn().await;
+        self.refresh_mcp_servers_after_turn().await;
     }
 
     async fn drain_queued_message_after_result(&self) {
-        let has_pending_user_input =
-            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
-                .await
-                .is_some_and(|row| row.has_pending_user_input());
-        if has_pending_user_input {
+        // Unknown gate state must not let a queued prompt run over a gate.
+        let Ok(row) = self
+            .read_session_row("Queued messages wait until the next turn ends.")
+            .await
+        else {
+            return;
+        };
+        if row.is_some_and(|row| row.has_pending_user_input()) {
             return;
         }
         // The user's own queued prompts go first: they are what the person
@@ -38,7 +40,7 @@ impl StreamReaderTask {
         }
     }
 
-    async fn refresh_mcp_servers_after_turn(&self) -> Result<(), ()> {
+    async fn refresh_mcp_servers_after_turn(&self) {
         let result = refresh_mcp_servers_for_active_session(
             &self.sender,
             &self.sdk_sessions,
@@ -52,6 +54,5 @@ impl StreamReaderTask {
                 "WebSocket sender closed during post-turn mcp_servers refresh"
             );
         }
-        result
     }
 }

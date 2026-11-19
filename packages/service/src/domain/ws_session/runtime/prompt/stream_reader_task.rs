@@ -1,4 +1,5 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashSet;
 
 use axum::extract::ws::Message;
@@ -47,6 +48,9 @@ pub(super) struct StreamReaderTask {
     pub provider_context_window: Option<u64>,
     pub app_state: AppState,
     pub cleanup_session_on_end: bool,
+    /// A session-row read failed and viewers were told; later failures stay
+    /// in the log until a read succeeds again.
+    pub row_read_failed: std::sync::atomic::AtomicBool,
 }
 
 pub(super) struct StreamReaderState {
@@ -107,6 +111,11 @@ pub(super) struct StreamReaderState {
     pub(super) subagents: crate::domain::subagents::tracker::SubagentTracker,
     /// The model the CLI last reported for the session; `None` until read.
     pub(super) reported_model: Option<Option<String>>,
+    /// A token-usage write failed and viewers were told; later failures stay
+    /// in the log until such a write succeeds again.
+    pub(super) token_usage_save_failed: bool,
+    /// Same for the context-window write, which fails and recovers apart.
+    pub(super) context_window_save_failed: bool,
 }
 
 #[expect(
@@ -224,7 +233,9 @@ impl StreamReaderTask {
     async fn handle_timeout_tick(&self, state: &mut StreamReaderState) -> ReaderAction {
         // Viewer liveness is independent of whichever transport started the
         // runtime. Keep idle processes while any client still observes them.
-        let _ = self.sender.send(Message::Ping(vec![].into()));
+        self.sender
+            .send(Message::Ping(vec![].into()))
+            .ignore_closed();
         let unobserved = self
             .feature_senders
             .get_senders(self.feature_id)
@@ -270,7 +281,7 @@ impl StreamReaderTask {
             return false;
         }
 
-        let session_running = match WsSessionPersistence::try_get_session_row(
+        let session_running = match WsSessionPersistence::get_session_row(
             &self.write_pool,
             self.db_session_id,
         )
@@ -314,8 +325,7 @@ impl StreamReaderTask {
             received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
         }))
         .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(end_env).into()))
+        self.publish(Message::Text(String::from(end_env).into()))
             .await;
     }
 
@@ -331,11 +341,8 @@ impl StreamReaderTask {
         {
             return false;
         }
-        let row = match WsSessionPersistence::try_get_session_row(
-            &self.write_pool,
-            self.db_session_id,
-        )
-        .await
+        let row = match WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
+            .await
         {
             Ok(row) => row,
             // Closing needs proof the turn is over; keep the runtime and retry

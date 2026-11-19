@@ -2,6 +2,7 @@
 //! then end the commands those turns started, which Codex keeps running past
 //! `turn/interrupt` (see `turn_commands`).
 
+use crate::shared::discard::IgnoreClosed;
 use std::future::Future;
 use std::sync::atomic::Ordering;
 
@@ -43,7 +44,7 @@ impl CodexSession {
         if let Some(failure) = stop_commands(&self.client, commands).await {
             let event = provider_error_event(&self.thread_id, failure, CODEX_COMMAND_NOT_STOPPED);
             // A closed stream means the session is gone, its commands with it.
-            let _ = self.local_tx.send(Ok(event));
+            self.local_tx.send(Ok(event)).ignore_closed();
         }
         interrupted?;
         self.async_questions.lock().await.clear();

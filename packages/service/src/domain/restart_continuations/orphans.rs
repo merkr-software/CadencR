@@ -11,6 +11,7 @@
 //! process start time, and a survivor is only stopped when the pid still
 //! reports that same start time.
 
+use crate::shared::discard::KeepFirst;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -28,7 +29,7 @@ const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 const LEGACY_PS_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) fn init(pool: &SqlitePool) {
-    let _ = LEDGER.set(pool.clone());
+    LEDGER.keep_first(pool.clone());
 }
 
 /// Remember a live agent process. Returns the ledger row to [`forget`] once

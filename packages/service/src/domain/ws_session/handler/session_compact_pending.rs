@@ -14,6 +14,7 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::agents::runtime_adapter;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::runtime::helpers::send_state_not_saved;
 
 pub(super) async fn spawn_pending_runtime_for_compact(
     envelope_id: &str,
@@ -23,9 +24,20 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     app_state: &AppState,
 ) -> Option<RuntimeSessionHandle> {
     let _launch = app_state.session_runtimes.claim_spawn(db_session_id).await;
-    let Some(row) =
-        WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await
-    else {
+    let row = match WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await
+    {
+        Ok(row) => row,
+        Err(error) => {
+            send_error(
+                sender,
+                envelope_id,
+                "DB_ERROR",
+                &format!("Failed to read the session before compacting: {error}"),
+            );
+            return None;
+        }
+    };
+    let Some(row) = row else {
         send_error(
             sender,
             envelope_id,
@@ -105,8 +117,15 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     let provider_context_window = runtime_session.context_window();
     let runtime_control_endpoint = runtime_session.runtime_control_endpoint();
     if let Some(cw) = provider_context_window {
-        WsSessionPersistence::update_context_window(&app_state.write_pool, db_session_id, Some(cw))
-            .await;
+        if let Err(error) = WsSessionPersistence::update_context_window(
+            &app_state.write_pool,
+            db_session_id,
+            Some(cw),
+        )
+        .await
+        {
+            send_state_not_saved(sender, envelope_id, "its context window", &error);
+        }
     }
     seed_known_subagents(
         sender,

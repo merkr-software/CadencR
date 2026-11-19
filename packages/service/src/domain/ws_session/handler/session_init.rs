@@ -71,7 +71,7 @@ pub(super) async fn handle_init(
         )
         .await
     {
-        Some(id) => {
+        Ok(id) => {
             info!(
                 feature_id,
                 db_session_id = id,
@@ -79,12 +79,12 @@ pub(super) async fn handle_init(
             );
             id
         }
-        None => {
+        Err(error) => {
             send_error(
                 sender,
                 &envelope.id,
                 "DB_ERROR",
-                "Failed to create/find session in database",
+                &format!("Failed to create or find the session in the database: {error}"),
             );
             return None;
         }
@@ -97,7 +97,11 @@ pub(super) async fn handle_init(
     let mut sessions = sdk_sessions.lock().await;
 
     // Read session row for runtime_session_id (--resume), token usage, and stored model.
-    let row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await;
+    let Ok(row) =
+        session_init_binding::read_row(app_state, sender, &envelope.id, db_session_id).await
+    else {
+        return Some(db_session_id);
+    };
     let spawning = app_state.session_runtimes.is_spawning(db_session_id).await;
     if let Some(payload) = sessions.get(&db_session_id).and_then(|handle| {
         session_init_binding::live_payload(db_session_id, handle, row.as_ref(), spawning)

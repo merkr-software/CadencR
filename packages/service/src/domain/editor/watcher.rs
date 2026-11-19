@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -183,7 +184,7 @@ fn build_debouncer(
                 refresh_gitignore_cache(project_root.clone(), gitignore.clone());
             }
             if has_relevant {
-                let _ = ping_tx.send(());
+                ping_tx.send(()).ignore_closed();
             }
         },
     )
@@ -233,11 +234,12 @@ fn spawn_emit_task(
                 while ping_rx.try_recv().is_ok() {}
             }
             last_emit_ms = now_ms();
-            let _ = tx.send(FileChangeEvent {
+            tx.send(FileChangeEvent {
                 project_path: source.project_path.clone(),
                 feature_id: source.feature_id,
                 documents: source.documents.drain(),
-            });
+            })
+            .ignore_closed();
         }
     })
 }

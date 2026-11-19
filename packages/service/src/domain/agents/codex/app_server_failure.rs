@@ -21,6 +21,16 @@ pub(super) fn secrets(env: Option<&HashMap<String, String>>) -> Vec<String> {
     }))
 }
 
+/// A `config/read` that failed while the app-server kept running. Codex's own
+/// reason names the key it refused (or the timeout), which is what the user
+/// has to fix, so it is kept with the profile's secrets masked.
+pub(super) fn config_unreadable(error: impl std::fmt::Display, secrets: &[String]) -> RuntimeError {
+    RuntimeError::new(format!(
+        "Codex could not read the effective configuration: {}",
+        cli_stderr::mask(&error.to_string(), secrets)
+    ))
+}
+
 /// `error`, or why `client`'s app-server died when it exited on its own.
 /// Call it once `shutdown` has returned: the exit and the stderr are complete
 /// only then.
@@ -53,6 +63,19 @@ fn describe(exit: AppServerExit, stderr_tail: &[String], secrets: &[String]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reason used to be replaced by a fixed sentence.
+    #[test]
+    fn a_config_read_failure_keeps_its_reason_with_secrets_masked() {
+        let env = HashMap::from([("OPENAI_API_KEY".to_string(), "sk-secret-value".to_string())]);
+        let error = config_unreadable(
+            "invalid value for `model_provider` near sk-secret-value",
+            &secrets(Some(&env)),
+        );
+        let message = error.to_string();
+        assert!(message.contains("`model_provider`"), "{message}");
+        assert!(!message.contains("sk-secret-value"), "{message}");
+    }
 
     #[test]
     fn names_the_exit_and_the_reason_with_secrets_masked() {

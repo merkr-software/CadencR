@@ -5,6 +5,7 @@
 //! clients replace rather than merge. Updates run in the background — an
 //! installer can take minutes — and close with an event carrying the outcome.
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -108,14 +109,17 @@ impl ProviderUpdateService {
 
     fn emit(&self, snapshot: ProviderUpdatesResponse, outcome: Option<ProviderUpdateOutcome>) {
         // `send` only fails without subscribers: no client is connected.
-        let _ = self.inner.tx.send(snapshot.into_event(outcome));
+        self.inner
+            .tx
+            .send(snapshot.into_event(outcome))
+            .ignore_closed();
     }
 
     /// Check every idle provider that manages updates, concurrently. A call
     /// arriving while a check runs waits for it and returns its result.
     pub async fn check_all(&self) -> ProviderUpdatesResponse {
         let Ok(guard) = self.inner.check_lock.clone().try_lock_owned() else {
-            let _ = self.inner.check_lock.lock().await;
+            drop(self.inner.check_lock.lock().await);
             return self.snapshot();
         };
         // Spawned so a dropped HTTP request cannot stop the check half-way and

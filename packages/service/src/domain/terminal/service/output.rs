@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
@@ -48,7 +49,7 @@ pub(super) fn publish_output(
     let mut scrollback = scrollback.lock().unwrap_or_else(|e| e.into_inner());
     scrollback.append(data.as_bytes());
     // No receivers is normal while a client is detached.
-    let _ = sender.send(data);
+    sender.send(data).ignore_closed();
 }
 
 /// Decode PTY reads without replacing code points split across read boundaries.

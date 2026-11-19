@@ -3,6 +3,7 @@
 //! [`super::handshake`]. A stopped backend gets its stdin closed; after a
 //! grace period the whole process tree is terminated.
 
+use crate::shared::discard::{cleanup, KeepFirst, SendIgnoreClosed};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -77,7 +78,7 @@ impl Running {
     /// Ask the process to stop. `reason` ends up in its Activity ("why it
     /// last stopped"); the first reason given wins.
     pub fn request_stop(&self, reason: StopReason) {
-        let _ = self.stop_reason.set(reason);
+        self.stop_reason.keep_first(reason);
         self.stop.cancel();
     }
 
@@ -188,7 +189,7 @@ pub(super) fn spawn(
         .spawn()
         .map_err(|error| unavailable(format!("the backend failed to start: {error}")))?;
     if let Err(error) = tree.attach(&child) {
-        let _ = child.start_kill();
+        cleanup(child.start_kill(), "kill the uncontained tab backend");
         return Err(unavailable(format!(
             "the backend cannot be contained: {error}"
         )));
@@ -199,7 +200,7 @@ pub(super) fn spawn(
         child.stdout.take(),
         child.stderr.take(),
     ) else {
-        let _ = child.start_kill();
+        cleanup(child.start_kill(), "kill the tab backend without stdio");
         return Err(unavailable("the backend's stdio was unavailable".into()));
     };
     let minted = grants.mint(
@@ -234,7 +235,10 @@ pub(super) fn spawn(
     let hello = match launch.hello(&minted.token) {
         Ok(hello) => hello,
         Err(error) => {
-            let _ = child.start_kill();
+            cleanup(
+                child.start_kill(),
+                "kill the tab backend that failed to start",
+            );
             grants.revoke_key(&minted.grant.key);
             return Err(error);
         }
@@ -350,7 +354,7 @@ async fn supervise(
     running.exited.cancel();
     grants.revoke_key(&running.grant_key);
     for (_, waiter) in lock(&running.pending).drain() {
-        let _ = waiter.send(Reply::Exited(reason.clone()));
+        waiter.send_ignore_closed(Reply::Exited(reason.clone()));
     }
 }
 

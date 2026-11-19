@@ -4,6 +4,7 @@
 //! sustained-churn cap, runs `compute_status` per registered feature, and
 //! pushes `git.status` envelopes back over the WS senders.
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -70,7 +71,9 @@ pub(super) fn build_watcher(
         }
         if has_relevant_path(&cb_path, &cb_roots, &paths) {
             // Fails only once the compute task is gone.
-            let _ = ping_tx.send(RecomputePing::FsEvent(generation));
+            ping_tx
+                .send(RecomputePing::FsEvent(generation))
+                .ignore_closed();
         }
     };
     let watcher = IgnoreAwareWatcher::start(
@@ -324,7 +327,8 @@ fn generation_changed(expected: &Option<(Arc<AtomicU64>, u64)>) -> bool {
 fn broadcast(senders: &[mpsc::UnboundedSender<Message>], envelope: &WsEnvelope) {
     let payload = String::from(envelope.clone());
     for tx in senders {
-        let _ = tx.send(Message::Text(payload.clone().into()));
+        tx.send(Message::Text(payload.clone().into()))
+            .ignore_closed();
     }
 }
 

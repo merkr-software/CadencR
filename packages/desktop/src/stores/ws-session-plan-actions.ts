@@ -9,6 +9,7 @@
  * agent process ended is answered the same way: the backend tells the agent
  * the decision itself, so the client never writes a prompt for it.
  */
+import { toast } from "sonner";
 import { createPermissionRespond } from "@/lib/ws-envelope";
 import { parseErrorPayload } from "./ws-envelope-payload";
 import type { StoreAccessors } from "./ws-envelope-types";
@@ -69,11 +70,17 @@ function handlePlanResponse(
   if (!waiting) return;
   const message = error?.message ?? "The plan response timed out.";
   const closesGate = isGateClosingErrorCode(error?.code);
-  if (closesGate) permissionResponseMessageUuids.delete(requestId);
+  if (!closesGate) {
+    // The plan still waits for a decision: the response failed, not the turn.
+    toast.error("Couldn't send your plan decision", { description: message });
+    ctx.set(updateSession(ctx.get(), sessionId, { submittingPermissionRequestId: null }));
+    return;
+  }
+  permissionResponseMessageUuids.delete(requestId);
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       ...appendErrorBlockPatch(session, message, { idPrefix: "ws-plan-error" }),
-      ...(closesGate ? buildClearedGatePatch(session) : {}),
+      ...buildClearedGatePatch(session),
       submittingPermissionRequestId: null,
       permissionResponseMessageUuids,
     }),

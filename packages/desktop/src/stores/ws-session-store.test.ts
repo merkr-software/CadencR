@@ -2,6 +2,7 @@ import { installSessionPresentationEffects } from "./ws-session-store";
 import { updateQuestionDraft, useQuestionDraftStore } from "./question-drafts";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { toast } from "sonner";
 import { useWsSessionStore, applyMutations, createStreamingState } from "./ws-session-store";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import { updateSession } from "./ws-session-types";
@@ -1408,6 +1409,7 @@ describe("ws-session-store", () => {
         ...draft,
         freeText: "kept",
       }));
+      const toastError = vi.spyOn(toast, "error");
       store.respondToQuestion("s1", [["Sonnet"]]);
       const first = lastSentEnvelope(ws, "permission.respond");
       store.respondToQuestion("s1", [["Sonnet"]]);
@@ -1423,7 +1425,14 @@ describe("ws-session-store", () => {
       const after = useWsSessionStore.getState().sessions.s1;
       expect(after.pendingQuestions).toHaveLength(1);
       expect(after.submittingPermissionRequestId).toBeNull();
-      expect(after.blocks.at(-1)?.type).toBe("error");
+      // The answer failed, not the turn: a toast names it, and the
+      // conversation gets no "the agent ended its turn" error.
+      expect(after.blocks.some((block) => block.type === "error")).toBe(false);
+      expect(after.lifecycle.phase).not.toBe("error");
+      expect(toastError).toHaveBeenCalledWith("Couldn't send your response", {
+        description: failure === "timeout" ? "Permission response timed out." : "Disk full",
+      });
+      toastError.mockRestore();
       expect(useQuestionDraftStore.getState().drafts.get(7)?.draft.freeText).toBe("kept");
       store.respondToQuestion("s1", [["Sonnet"]]);
       const retry = lastSentEnvelope(ws, "permission.respond");
@@ -3122,8 +3131,10 @@ describe("ws-session-store", () => {
       streamExitPlanMode(ws);
       sendPlanPermissionRequest(ws);
 
+      const toastError = vi.spyOn(toast, "error");
       useWsSessionStore.getState().approvePlan("s1");
       const sent = lastSentEnvelope(ws, "permission.respond");
+      const blocksBefore = useWsSessionStore.getState().sessions["s1"].blocks.length;
       ws.simulateMessage({
         domain: "session",
         action: "error",
@@ -3135,7 +3146,13 @@ describe("ws-session-store", () => {
       const session = useWsSessionStore.getState().sessions["s1"];
       expect(session.pendingPlanApproval).not.toBeNull();
       expect(session.submittingPermissionRequestId).toBeNull();
-      expect(session.blocks.at(-1)?.content).toBe("CLI refused the response");
+      // The decision failed, not the turn: no inline turn error.
+      expect(session.blocks).toHaveLength(blocksBefore);
+      expect(session.lifecycle.phase).not.toBe("error");
+      expect(toastError).toHaveBeenCalledWith("Couldn't send your plan decision", {
+        description: "CLI refused the response",
+      });
+      toastError.mockRestore();
       const planBlock = session.blocks.find((b) => b.toolName === "ExitPlanMode");
       expect(planBlock?.planApprovalStatus).toBeUndefined();
     });

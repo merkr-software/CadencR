@@ -1,6 +1,7 @@
 //! Thin binary entry point. Every module lives in the `cadencr_service` lib so
 //! the crate compiles (and its unit tests run) once; declaring them again here
 //! with `mod` would build a second full copy of the service.
+#![deny(clippy::let_underscore_must_use, clippy::unused_result_ok)] // as in lib.rs
 
 use cadencr_service::{
     api, app_state, config, dev_clone, dev_env, domain, remote, shared, shutdown,

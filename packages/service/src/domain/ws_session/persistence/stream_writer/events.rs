@@ -62,12 +62,22 @@ impl TranscriptWriter {
         self.current_models.get(&scope).map(String::as_str)
     }
 
+    /// Flag the session as having changed files. Only a saved flag counts:
+    /// after a failure the next file-change tool tries again, so the
+    /// indicator is late rather than lost.
     pub(super) async fn mark_has_file_changes(&mut self, session_id: i64) {
-        self.file_change_marked = true;
-        let _ = sqlx::query("UPDATE agent_sessions SET has_file_changes = 1 WHERE id = ?")
+        match sqlx::query("UPDATE agent_sessions SET has_file_changes = 1 WHERE id = ?")
             .bind(session_id)
             .execute(&self.write_pool)
-            .await;
+            .await
+        {
+            Ok(_) => self.file_change_marked = true,
+            Err(error) => tracing::warn!(
+                session_id,
+                %error,
+                "failed to flag file changes; retrying on the next file-change tool"
+            ),
+        }
     }
 }
 
@@ -160,6 +170,36 @@ pub(super) mod session_events_tests {
                 parent_tool_use_id: parent_tool_use_id.map(ToOwned::to_owned),
             },
         )
+    }
+
+    /// A failed flag write used to count as done, so the file-change
+    /// indicator never showed for that session. It now retries.
+    #[tokio::test]
+    async fn file_change_flag_is_retried_after_a_failed_write() {
+        let pool = setup_test_db().await;
+        sqlx::query(
+            "CREATE TRIGGER refuse_flag BEFORE UPDATE OF has_file_changes ON agent_sessions
+             BEGIN SELECT RAISE(FAIL, 'refused'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut writer = super::super::TranscriptWriter::new(pool.clone());
+
+        writer.mark_has_file_changes(1).await;
+        assert!(!writer.file_change_marked);
+
+        sqlx::query("DROP TRIGGER refuse_flag")
+            .execute(&pool)
+            .await
+            .unwrap();
+        writer.mark_has_file_changes(1).await;
+        assert!(writer.file_change_marked);
+        let flagged: i64 = sqlx::query_scalar("SELECT has_file_changes FROM agent_sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(flagged, 1);
     }
 
     #[tokio::test]

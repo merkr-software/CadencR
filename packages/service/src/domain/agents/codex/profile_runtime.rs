@@ -47,17 +47,17 @@ async fn probe_config_and_models(
         Some(cwd.to_path_buf()),
     ))
     .await?;
+    let secrets = app_server_failure::secrets(profile.map(|profile| &profile.env));
     let result = async {
         client.initialize_with_timeout(PROBE_TIMEOUT).await?;
         let config = with_probe_timeout("Codex config/read", client.config_read(cwd))
             .await
-            .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
+            .map_err(|error| app_server_failure::config_unreadable(error, &secrets))?;
         let models = with_timeout(models_timeout, "Codex model/list", client.model_list()).await;
         Ok::<_, RuntimeError>((config, models))
     }
     .await;
     client.shutdown().await;
-    let secrets = app_server_failure::secrets(profile.map(|profile| &profile.env));
     let explain = |error| app_server_failure::explain(&client, error, &secrets);
     let (config, models) = result.map_err(explain)?;
     Ok((config, models.map_err(explain)))

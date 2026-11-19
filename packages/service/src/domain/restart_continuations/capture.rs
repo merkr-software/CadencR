@@ -1,5 +1,6 @@
 //! Recording which turns a restart is about to cut off (or already did).
 
+use crate::shared::discard::KeepFirst;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
@@ -93,8 +94,9 @@ pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) {
 /// happens even when the capture fails — a session stuck `running` would block
 /// the user — and the failure reaches the user through the startup report.
 pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
-    let _ = APP_VERSION.set(app_version.unwrap_or(env!("CARGO_PKG_VERSION")).to_string());
+    APP_VERSION.keep_first(app_version.unwrap_or(env!("CARGO_PKG_VERSION")).to_string());
     super::orphans::init(pool);
+    let mut failures = Vec::new();
     match super::orphans::reap(pool).await {
         Ok(0) => {}
         Ok(count) => tracing::warn!(
@@ -103,7 +105,7 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
         ),
         Err(error) => {
             tracing::error!(%error, "failed to stop agent processes left by the last exit");
-            let _ = STARTUP_CAPTURE_ERROR.set(format!(
+            failures.push(format!(
                 "Cadencr could not stop agents the last exit left running: {error}"
             ));
         }
@@ -113,10 +115,39 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
         Ok(count) => tracing::info!(count, "captured agent turns interrupted by a crash"),
         Err(error) => {
             tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
-            let _ = STARTUP_CAPTURE_ERROR.set(format!(
+            failures.push(format!(
                 "Cadencr could not check which agents the last exit interrupted: {error}"
             ));
         }
     }
-    WsSessionPersistence::cleanup_stale_sessions(pool).await;
+    if let Err(error) = WsSessionPersistence::cleanup_stale_sessions(pool).await {
+        tracing::error!(%error, "failed to reset sessions left running");
+        failures.push(format!(
+            "Cadencr could not reset conversations the last exit left running, so they may look busy: {error}"
+        ));
+    }
+    if let Some(report) = startup_failure_report(&failures) {
+        STARTUP_CAPTURE_ERROR.keep_first(report);
+    }
+}
+
+/// Every startup recovery failure, one per line: each names agents the user
+/// has to check, so none may hide another.
+fn startup_failure_report(failures: &[String]) -> Option<String> {
+    (!failures.is_empty()).then(|| failures.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::startup_failure_report;
+
+    #[test]
+    fn every_startup_failure_reaches_the_report() {
+        assert_eq!(startup_failure_report(&[]), None);
+        let report = startup_failure_report(&["first".into(), "second".into()]).unwrap();
+        assert!(
+            report.contains("first") && report.contains("second"),
+            "{report}"
+        );
+    }
 }

@@ -18,6 +18,7 @@ mod file_watcher;
 mod followup_stop;
 mod gate;
 mod gate_cancellation;
+mod gate_close_durability;
 mod init;
 mod model_effort;
 mod nonblocking_gate;

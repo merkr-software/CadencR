@@ -3,6 +3,7 @@
 //! end-to-end spawn flow: subprocess + handshake + struct assembly + event
 //! loop + initial-prompt detach.
 
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -228,7 +229,7 @@ fn spawn_initial_prompt(
             .call()
             .await
         {
-            let _ = local_tx.send(Err(error)).await;
+            local_tx.send(Err(error)).await.ignore_closed();
         }
     });
 }

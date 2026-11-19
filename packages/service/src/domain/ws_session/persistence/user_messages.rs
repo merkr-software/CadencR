@@ -93,7 +93,7 @@ mod tests {
     async fn test_persist_user_message_uses_user_message_type() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        p.find_or_create_session(None, None).await;
+        p.find_or_create_session(None, None).await.unwrap();
 
         p.persist_user_message("Hello world", uuid::Uuid::new_v4())
             .await

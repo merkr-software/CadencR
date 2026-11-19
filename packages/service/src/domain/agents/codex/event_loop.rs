@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -94,12 +95,12 @@ impl EventLoop {
                         return;
                     }
                     tracing::warn!(%message, "Codex app-server transport failed");
-                    let _ = self
-                        .tx
+                    self.tx
                         .send(Err(RuntimeError::new(format!(
                             "Codex app-server transport failed: {message}"
                         ))))
-                        .await;
+                        .await
+                        .ignore_closed();
                     return;
                 }
                 Some(AppServerEvent::ProcessExited { status, signal }) => {
@@ -107,22 +108,22 @@ impl EventLoop {
                         return;
                     }
                     tracing::warn!(?status, ?signal, "Codex app-server exited");
-                    let _ = self
-                        .tx
+                    self.tx
                         .send(Err(RuntimeError::new("Codex app-server exited")))
-                        .await;
+                        .await
+                        .ignore_closed();
                     return;
                 }
                 None => {
                     if self.closing.load(Ordering::SeqCst) {
                         return;
                     }
-                    let _ = self
-                        .tx
+                    self.tx
                         .send(Err(RuntimeError::new(
                             "Codex app-server event stream closed",
                         )))
-                        .await;
+                        .await
+                        .ignore_closed();
                     return;
                 }
             }

@@ -108,7 +108,7 @@ async fn session_still_exists(
     sender: &WsSender,
     correlation_id: &str,
 ) -> bool {
-    match crate::domain::ws_session::persistence::WsSessionPersistence::try_get_session_row(
+    match crate::domain::ws_session::persistence::WsSessionPersistence::get_session_row(
         &app_state.read_pool,
         db_session_id,
     )

@@ -9,6 +9,9 @@ use std::borrow::Cow;
 use serde::Serialize;
 use sqlx::{Row, SqlitePool};
 
+use crate::domain::ws_session::runtime::helpers::send_warning;
+use crate::domain::ws_session::runtime::output::OutputTarget;
+
 use super::user_shell_payload::{
     ManagedShellPayload, ManagedShellStatus, ManagedShellStrategy, ShellContextState,
 };
@@ -79,6 +82,55 @@ impl PendingUserShellContext {
 
     pub async fn release(&self, pool: &SqlitePool) -> Result<(), String> {
         self.set_state(pool, ShellContextState::Pending).await
+    }
+
+    /// [`Self::mark_delivered`] once the provider accepted the prompt. A
+    /// failed mark leaves the commands claimed, so the requester is warned.
+    pub async fn mark_delivered_or_warn(
+        &self,
+        pool: &SqlitePool,
+        sender: &impl OutputTarget,
+        envelope_id: &str,
+    ) {
+        if let Err(error) = self.mark_delivered(pool).await {
+            tracing::error!(
+                db_session_id = self.session_id,
+                %error,
+                "failed to mark user shell context delivered"
+            );
+            send_warning(
+                sender,
+                envelope_id,
+                "USER_SHELL_CONTEXT_STATE_ERROR",
+                &error,
+            );
+        }
+    }
+
+    /// [`Self::release`] for a prompt that will not be sent. A failed release
+    /// leaves the commands claimed until the service restarts, so the next
+    /// prompts miss their output: the requester is warned.
+    pub async fn release_or_warn(
+        &self,
+        pool: &SqlitePool,
+        sender: &impl OutputTarget,
+        envelope_id: &str,
+    ) {
+        if let Err(error) = self.release(pool).await {
+            tracing::error!(
+                db_session_id = self.session_id,
+                %error,
+                "failed to release user shell context claim"
+            );
+            send_warning(
+                sender,
+                envelope_id,
+                "USER_SHELL_CONTEXT_STATE_ERROR",
+                &format!(
+                    "{error}. The output of your shell commands may be missing from the next prompts until Cadencr restarts."
+                ),
+            );
+        }
     }
 
     async fn set_state(&self, pool: &SqlitePool, state: ShellContextState) -> Result<(), String> {
@@ -300,6 +352,30 @@ mod tests {
             .await
             .unwrap();
         assert!(!second.is_empty());
+    }
+
+    /// A failed release used to be dropped silently on two paths; the
+    /// requester now hears that shell output may be missing.
+    #[tokio::test]
+    async fn a_failed_release_warns_the_requester() {
+        let pool = test_pool().await;
+        insert_completed(&pool).await;
+        let claimed = claim_pending_user_shell_context(&pool, 42, "prompt-1")
+            .await
+            .unwrap();
+        sqlx::query("DROP TABLE agent_messages")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (sender, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+        claimed.release_or_warn(&pool, &sender, "env-1").await;
+
+        let axum::extract::ws::Message::Text(text) = rx.try_recv().expect("a warning") else {
+            panic!("expected a text envelope");
+        };
+        assert!(text.contains("USER_SHELL_CONTEXT_STATE_ERROR"), "{text}");
+        assert!(text.contains("env-1"), "{text}");
     }
 
     #[tokio::test]
