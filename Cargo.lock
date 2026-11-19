@@ -978,7 +978,7 @@ dependencies = [
  "openssl",
  "percent-encoding",
  "portable-pty",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rcgen",
  "regex-lite",
  "reqwest",
@@ -3871,7 +3871,7 @@ dependencies = [
  "bytes 1.11.1",
  "getrandom 0.4.2",
  "lru-slab",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rand_pcg",
  "ring",
  "rustc-hash",
@@ -3895,7 +3895,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.3",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3942,9 +3942,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
+checksum = "8f6fa277c67e6ea590466f04c3fe82cb509f0864fe470643e5570de9514a9b11"
 dependencies = [
  "chacha20",
  "getrandom 0.4.2",
@@ -4181,7 +4181,7 @@ dependencies = [
  "http-body-util",
  "pastey",
  "pin-project-lite",
- "rand 0.10.2",
+ "rand 0.10.4",
  "rmcp-macros",
  "schemars 1.2.1",
  "serde",
@@ -4948,7 +4948,7 @@ dependencies = [
  "log",
  "md-5",
  "memchr",
- "rand 0.10.2",
+ "rand 0.10.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -5637,7 +5637,7 @@ dependencies = [
  "http 1.4.0",
  "httparse",
  "log",
- "rand 0.10.2",
+ "rand 0.10.4",
  "sha1 0.11.0",
  "thiserror 2.0.18",
 ]
