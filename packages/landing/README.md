@@ -64,9 +64,34 @@ Recommended Cloudflare Pages settings:
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Production branch      | `main`                                                                                                                     |
 | Root directory         | `/`                                                                                                                        |
+| Environment variable   | `SKIP_DEPENDENCY_INSTALL=1`                                                                                                |
 | Build command          | `corepack enable && pnpm install --frozen-lockfile --filter "@cadencr/landing..." && pnpm --filter @cadencr/landing build` |
 | Build output directory | `packages/landing/dist`                                                                                                    |
-| Node.js                 | Root `.nvmrc` and `.node-version`. Clear any dashboard `NODE_VERSION` override.                                             |
+
+Corepack selects pnpm from the root `packageManager` field. The filtered install
+provisions the Node.js version declared in landing's `devEngines.runtime` using
+the platform archive and checksum in `pnpm-lock.yaml`. The hoisted install links
+that executable in the shared `node_modules/.bin`. This lets pnpm launch Astro
+for build, dev and preview on an older host Node.js. Other workspace scripts
+run through pnpm can also resolve `node` from that shared directory. When
+updating Node.js, keep the landing runtime aligned with `.nvmrc`, `.node-version`
+and the workspace's `nodeVersion` engine-check setting, then regenerate the
+lockfile.
+
+To verify the Pages build with the older host, run the build command from the
+table in a clean Linux x64 checkout with Node.js `22.19.0` on `PATH` (for example,
+in the `node:22.19.0-bookworm` container) and `SKIP_DEPENDENCY_INSTALL=1`. Check
+that the system runtime stays at `v22.19.0`, pnpm resolves the pinned runtime,
+and the build produces `packages/landing/dist/rss.xml` alongside the HTML pages.
+
+```bash
+node --version
+pnpm --version
+pnpm --filter @cadencr/landing exec node --version
+pnpm --filter @cadencr/landing test
+```
+
+Repeat with the host version in `.nvmrc` to verify the usual development setup.
 
 The site canonical URL is configured in `astro.config.mjs`:
 
