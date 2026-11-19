@@ -66,7 +66,7 @@ Recommended Cloudflare Pages settings:
 | Root directory         | `/`                                                                                                                        |
 | Build command          | `corepack enable && pnpm install --frozen-lockfile --filter "@cadencr/landing..." && pnpm --filter @cadencr/landing build` |
 | Build output directory | `packages/landing/dist`                                                                                                    |
-| Environment variable   | `NODE_VERSION=22`                                                                                                          |
+| Node.js                 | Root `.nvmrc` and `.node-version`. Clear any dashboard `NODE_VERSION` override.                                             |
 
 The site canonical URL is configured in `astro.config.mjs`:
 

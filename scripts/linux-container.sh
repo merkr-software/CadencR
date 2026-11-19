@@ -113,7 +113,8 @@ case "$host_arch" in
   *) fail "unsupported arch: $host_arch" ;;
 esac
 
-image="cadencr-linux-dev:$arch"
+node_version="$(sed 's/^v//; s/[[:space:]]*$//' "$repo_root/.nvmrc")"
+image="cadencr-linux-dev:$arch-node$node_version"
 src_volume="$(source_volume "$arch")"
 cache_volume="cadencr-linux-cache-$arch"
 dist_dir="$repo_root/packages/desktop/dist-electron/linux-$arch"
@@ -121,7 +122,8 @@ version="$(node -p "require('$repo_root/packages/desktop/package.json').version"
 
 ensure_image() {
   if [ -n "${CADENCR_LINUX_REBUILD:-}" ] || ! docker image inspect "$image" > /dev/null 2>&1; then
-    docker build --platform "$platform" -t "$image" "$repo_root/scripts/linux-container"
+    docker build --platform "$platform" --build-arg "NODE_VERSION=$node_version" \
+      -t "$image" "$repo_root/scripts/linux-container"
   fi
 }
 
@@ -343,7 +345,9 @@ if [ "$subcommand" = prune ]; then
 fi
 echo "linux-container: source volume $src_volume" >&2
 mkdir -p "$dist_dir"
-ensure_image
+if [ "$subcommand" != smoke ]; then
+  ensure_image
+fi
 case "$subcommand" in
   shell)
     sync_tree

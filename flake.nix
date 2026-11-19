@@ -3,10 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    # Keep Intel macOS supported and update this lock alongside .nvmrc.
+    nodeNixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
   };
 
-  outputs = { nixpkgs, ... }:
+  outputs = { nixpkgs, nodeNixpkgs, ... }:
     let
+      nodeVersion = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ./.nvmrc);
       systems = [
         "aarch64-darwin"
         "x86_64-darwin"
@@ -19,27 +22,26 @@
       devShells = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          nodePkgs = import nodeNixpkgs { inherit system; };
           darwinPackages = pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
             pkgs.libiconv
           ];
         in
         {
-          default = pkgs.mkShell {
+          default = assert nodePkgs.nodejs_22.version == nodeVersion; pkgs.mkShell {
             # pnpm is not listed: corepack_22's shims run the exact version
             # pinned by package.json `packageManager`. The Rust toolchain and
             # its components come from rust-toolchain.toml through rustup.
             packages = with pkgs; [
-              corepack_22
               git
-              nodejs_22
               openssl
               pkg-config
               python3
               rustup
               sqlite
               watchexec
-            ] ++ darwinPackages;
+            ] ++ darwinPackages ++ [ nodePkgs.nodejs_22 nodePkgs.corepack_22 ];
 
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
             COREPACK_ENABLE_DOWNLOAD_PROMPT = "0";

@@ -37,6 +37,7 @@ function checkouts(t) {
   mkdirSync(join(main, "scripts"), { recursive: true });
   mkdirSync(join(main, "packages/desktop"), { recursive: true });
   copyFileSync(script, join(main, "scripts/linux-container.sh"));
+  writeFileSync(join(main, ".nvmrc"), "22.23.5\n");
   writeFileSync(join(main, "packages/desktop/package.json"), '{"version":"0.0.0"}');
   git(main, "init", "-q");
   git(main, "add", ".");
