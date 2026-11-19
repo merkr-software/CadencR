@@ -1,9 +1,16 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyThemeToDocument, readPersistedTheme, writePersistedThemeSettings } from "./apply";
+import {
+  applyHaloAppearance,
+  applyThemeToDocument,
+  readPersistedTheme,
+  writePersistedThemeSettings,
+} from "./apply";
 import { setUserThemes } from "./user-registry";
 import { chromeOf } from "./chrome";
 import { FROST_DARK_THEME } from "./frost-dark";
+import { getTheme } from "./registry";
+import { DEFAULT_HALO_OVERRIDE } from "./halo-override";
 
 describe("theme paint hint", () => {
   beforeEach(() => {
@@ -12,6 +19,9 @@ describe("theme paint hint", () => {
     document.documentElement.removeAttribute("data-appearance");
     document.documentElement.removeAttribute("data-texture-base");
     document.documentElement.style.removeProperty("--ambient-base");
+    document.documentElement.removeAttribute("data-halo-fallback");
+    document.documentElement.style.removeProperty("--ambient-veil-opacity");
+    document.documentElement.style.removeProperty("--ambient-veil-strength");
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: false,
       media: query,
@@ -74,6 +84,33 @@ describe("theme paint hint", () => {
     expect(document.documentElement.dataset.textureBase).toBeUndefined();
     expect(document.documentElement.style.getPropertyValue("--ambient-base")).toBe("");
     setUserThemes([]);
+  });
+
+  it("publishes the fallback base and its calibrated veil alpha", () => {
+    applyThemeToDocument("one-dark");
+    applyHaloAppearance(getTheme("one-dark"), {
+      ...DEFAULT_HALO_OVERRIDE,
+      enabled: true,
+    });
+
+    const root = document.documentElement;
+    expect(root.hasAttribute("data-halo-fallback")).toBe(true);
+    expect(root.style.getPropertyValue("--ambient-base")).not.toBe("");
+    expect(root.style.getPropertyValue("--ambient-veil-opacity")).toBe("0.55");
+  });
+
+  it("clears the fallback material when the next theme uses its authored texture", () => {
+    applyHaloAppearance(getTheme("one-dark"), {
+      ...DEFAULT_HALO_OVERRIDE,
+      enabled: true,
+    });
+    applyThemeToDocument("frost-dark");
+    applyHaloAppearance(FROST_DARK_THEME, DEFAULT_HALO_OVERRIDE);
+
+    const root = document.documentElement;
+    expect(root.hasAttribute("data-halo-fallback")).toBe(false);
+    expect(root.style.getPropertyValue("--ambient-veil-opacity")).toBe("");
+    expect(root.style.getPropertyValue("--ambient-veil-strength")).toBe("");
   });
 
   it("resolves the cached light system theme before React mounts", () => {

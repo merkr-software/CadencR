@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useSettingWriter } from "@/hooks/useSetting";
 import { useSystemAppearance } from "@/hooks/useSystemAppearance";
+import { useHaloOverride } from "@/hooks/useHaloOverride";
 import { settingsArrayToMap, useGetWorkspaceSettings } from "@/api/settings";
 import {
   applyThemeToDocument,
+  applyHaloAppearance,
   getTheme,
   isFollowSystemThemeEnabled,
   parseThemeId,
@@ -139,6 +141,9 @@ export function useTheme(): UseThemeResult {
  */
 export function useThemeSync(): void {
   const theme = useTheme();
+  const { override } = useHaloOverride(theme.themeId);
+  const halosEnabled = override.enabled;
+  const grainOpacity = override.grainOpacity;
   useUserThemeRegistry();
   const didToastSystemThemeErrorRef = useRef(false);
 
@@ -156,6 +161,20 @@ export function useThemeSync(): void {
   }, [
     theme.themeId,
     theme.theme,
+    theme.followSystemTheme,
+    theme.manualThemeId,
+    theme.systemLightThemeId,
+    theme.systemDarkThemeId,
+  ]);
+
+  useEffect(() => {
+    applyHaloAppearance(theme.theme, { enabled: halosEnabled, grainOpacity });
+  }, [
+    theme.theme,
+    halosEnabled,
+    grainOpacity,
+    // The theme effect also runs when a system-follow preference changes.
+    // Reapply the field after that effect restores the authored texture base.
     theme.followSystemTheme,
     theme.manualThemeId,
     theme.systemLightThemeId,

@@ -13,6 +13,7 @@ import {
   type Project,
 } from "@/api/generated";
 import { useTheme } from "@/hooks/useTheme";
+import { useHaloOverride } from "@/hooks/useHaloOverride";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   commandEntry,
@@ -29,7 +30,15 @@ import type {
   PaletteStep,
 } from "@/lib/command-palette/palette-types";
 import { defaultWorktreeModeFromSettings } from "@/lib/default-worktree-mode";
-import { allThemes, applyThemeToDocument, type ThemeDefinition, type ThemeId } from "@/lib/themes";
+import {
+  allThemes,
+  applyHaloAppearance,
+  applyThemeToDocument,
+  DEFAULT_HALO_OVERRIDE,
+  getTheme,
+  type ThemeDefinition,
+  type ThemeId,
+} from "@/lib/themes";
 import type { PaletteOperations, WorktreePick } from "./usePaletteOperations";
 
 export interface StepView {
@@ -173,8 +182,11 @@ function useThemeStep(
   context: RankContext,
 ): StepView | null {
   const theme = useTheme();
+  const { override } = useHaloOverride(theme.themeId);
   const activeThemeRef = useRef(theme.themeId);
+  const activeOverrideRef = useRef(override);
   activeThemeRef.current = theme.themeId;
+  activeOverrideRef.current = override;
   const themes = useMemo(() => (active ? allThemes() : []), [active]);
   const commands = useMemo<PaletteCommand[]>(
     () =>
@@ -210,10 +222,14 @@ function useThemeStep(
   useEffect(() => {
     if (!active || !previewId) return;
     applyThemeToDocument(previewId);
+    applyHaloAppearance(getTheme(previewId), DEFAULT_HALO_OVERRIDE);
   }, [active, previewId]);
   useEffect(() => {
     if (!active) return undefined;
-    return () => applyThemeToDocument(activeThemeRef.current);
+    return () => {
+      applyThemeToDocument(activeThemeRef.current);
+      applyHaloAppearance(getTheme(activeThemeRef.current), activeOverrideRef.current);
+    };
   }, [active]);
   return useMemo(
     () =>

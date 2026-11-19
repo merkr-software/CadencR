@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor, within } from "@/test-utils";
 import type { ConversationIndexEntry, MessageSearchHit } from "@/api/generated";
 import { registerShortcutAction } from "@/lib/command-palette/shortcut-actions";
+import { DEFAULT_HALO_OVERRIDE } from "@/lib/themes";
 import { CommandPalette } from "./CommandPalette";
 
 const mockNavigate = vi.fn();
@@ -59,6 +60,9 @@ vi.mock("@/components/command-palette/usePaletteData", () => ({
 
 vi.mock("@/hooks/useTheme", () => ({
   useTheme: () => ({ themeId: "cadencr-dark", followSystemTheme: false, setTheme: vi.fn() }),
+}));
+vi.mock("@/hooks/useHaloOverride", () => ({
+  useHaloOverride: () => ({ override: DEFAULT_HALO_OVERRIDE }),
 }));
 vi.mock("@/components/ProjectBadge", () => ({ ProjectBadge: () => null }));
 vi.mock("@/components/SidebarNextActionLine", () => ({
