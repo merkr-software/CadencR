@@ -15,6 +15,8 @@ mod worktrees;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use sqlx::SqlitePool;
+
 use crate::app_state::AppState;
 use crate::domain::agents::providers::provider_registry;
 use crate::domain::agents::relocation::FolderMove;
@@ -55,7 +57,7 @@ pub async fn update_project(
         Some(change) => relocate(state, &project, name.as_deref(), change).await?,
         None => {
             if let Some(name) = name.as_deref() {
-                record(state, project_id, Some(name), None).await?;
+                rename(&state.write_pool, project_id, name).await?;
             }
             (Vec::new(), None)
         }
@@ -100,7 +102,8 @@ async fn relocate(
         ProjectFolderMode::Move => Some(folder_move::move_folder(&plan.from, &plan.to).await?),
         ProjectFolderMode::Locate => None,
     };
-    let inner = match record(state, project.id, name, Some((&spellings, &plan.to))).await {
+    let folder = Some((spellings.as_slice(), plan.to.as_path()));
+    let inner = match record(&state.write_pool, project.id, name, folder).await {
         Ok(inner) => inner,
         Err(error) => return Err(undo_move(&plan, moved, error).await),
     };
@@ -183,28 +186,34 @@ fn spellings(from: &Path) -> Vec<PathBuf> {
     spellings
 }
 
+/// Rename a project's records and its settings without moving its folder.
+pub(crate) async fn rename(pool: &SqlitePool, project_id: i64, name: &str) -> Result<(), AppError> {
+    record(pool, project_id, Some(name), None).await.map(drop)
+}
+
 /// Record the new name and folder. The settings document is named after the
 /// project, so it moves first, while the old name still finds it, and moves
 /// back when the records refuse the change. Returns the conversation folders
 /// that moved along inside the old one.
 async fn record(
-    state: &AppState,
+    pool: &SqlitePool,
     project_id: i64,
     name: Option<&str>,
     folder: Option<(&[&Path], &Path)>,
 ) -> Result<Vec<PathBuf>, AppError> {
-    if let Some(name) = name {
-        settings_store::project_rename(&state.write_pool, project_id, name).await?;
-    }
+    let settings_rename = match name {
+        Some(name) => Some(settings_store::project_rename(pool, project_id, name).await?),
+        None => None,
+    };
     let change = RecordChange { name, folder };
-    let error = match records::apply(&state.write_pool, project_id, &change).await {
+    let error = match records::apply(pool, project_id, &change).await {
         Ok(inner) => return Ok(inner),
         Err(error) => error,
     };
-    let Some(name) = name else {
+    let Some(settings_rename) = settings_rename else {
         return Err(error);
     };
-    match settings_store::project_rename_undo(&state.write_pool, project_id, name).await {
+    match settings_rename.undo() {
         Ok(()) => Err(error),
         Err(undo) => Err(AppError::internal(format!(
             "{error}; the project settings could not be renamed back either ({undo})"
@@ -255,8 +264,6 @@ async fn follow(plan: &FolderPlan, inner: &[PathBuf]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use sqlx::SqlitePool;
-
     use super::*;
     use crate::domain::projects::models::ProjectFolderChange;
     use crate::shared::git_cli::run_git;
@@ -423,5 +430,93 @@ mod tests {
             folder: None,
         };
         assert!(update_project(&state, project_id, blank).await.is_err());
+    }
+
+    async fn assert_rename_rejected(state: &AppState, project: &Project, name: &str) {
+        sqlx::query(
+            "CREATE TRIGGER reject_project_rename BEFORE UPDATE OF name ON projects \
+             BEGIN SELECT RAISE(ABORT, 'test rejects project rename'); END",
+        )
+        .execute(&state.write_pool)
+        .await
+        .unwrap();
+
+        let error = update_project(
+            state,
+            project.id,
+            UpdateProjectRequest {
+                name: Some(name.into()),
+                folder: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, AppError::DatabaseError(_)), "{error}");
+        assert!(error.to_string().contains("test rejects project rename"));
+        let saved = repository::get_project(&state.read_pool, project.id)
+            .await
+            .unwrap();
+        assert_eq!(saved.name, project.name);
+    }
+
+    #[tokio::test]
+    async fn a_rejected_rename_leaves_the_existing_destination_settings_in_place() {
+        let state = state().await;
+        let root = tempfile::tempdir().unwrap();
+        let source = repository::create_project(
+            &state.write_pool,
+            "Source",
+            root.path().join("source").to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+        let destination = repository::create_project(
+            &state.write_pool,
+            "Destination",
+            root.path().join("destination").to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+        settings_store::project_set(&state.write_pool, destination.id, "model_session", "sonnet")
+            .await
+            .unwrap();
+        let source_path = settings_store::project_path(&state.read_pool, source.id)
+            .await
+            .unwrap();
+        let destination_path = settings_store::project_path(&state.read_pool, destination.id)
+            .await
+            .unwrap();
+        let destination_bytes = std::fs::read(&destination_path).unwrap();
+
+        assert_rename_rejected(&state, &source, &destination.name).await;
+
+        assert!(!source_path.exists());
+        assert_eq!(std::fs::read(&destination_path).unwrap(), destination_bytes);
+    }
+
+    #[tokio::test]
+    async fn a_rejected_rename_restores_the_settings_it_moved() {
+        let state = state().await;
+        let root = tempfile::tempdir().unwrap();
+        let source =
+            repository::create_project(&state.write_pool, "Source", root.path().to_str().unwrap())
+                .await
+                .unwrap();
+        settings_store::project_set(&state.write_pool, source.id, "model_session", "opus")
+            .await
+            .unwrap();
+        let source_path = settings_store::project_path(&state.read_pool, source.id)
+            .await
+            .unwrap();
+        let source_bytes = std::fs::read(&source_path).unwrap();
+
+        assert_rename_rejected(&state, &source, "Fresh name").await;
+
+        assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
+        let destination_path = settings_store::paths::project_file_for_name(
+            &settings_store::global_dir(),
+            "Fresh name",
+        );
+        assert!(!destination_path.exists());
     }
 }

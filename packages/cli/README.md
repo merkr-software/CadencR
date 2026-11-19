@@ -41,8 +41,9 @@ AppImage in `<config>/cli.json` (`src/app/install.rs`).
   desktop app's port 5004 so the two never run together on one database (the
   port is not configurable for that reason), with a fresh token and
   `--exit-with-parent`. It enables remote access (`POST /api/remote/enable`) and
-  prints a pairing link; `--no-remote` calls `POST /api/remote/disable`
-  instead, since the service restores the persisted setting at startup. While
+  prints a pairing link. With `--no-remote`, the service starts on loopback
+  without restoring the remote listener, then the CLI persists the disabled
+  setting via `POST /api/remote/disable` before announcing readiness. While
   it runs, `<data>/run/serve.json` (0600) holds its pid, port and token for
   `pair` and `add`; a file whose process is gone or whose port does not answer
   is stale and removed. `add` then dedupes against `GET /api/projects`

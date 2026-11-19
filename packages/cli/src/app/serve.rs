@@ -78,8 +78,8 @@ async fn serve(
 async fn announce(options: &Options, api: &ServiceApi, json: bool) -> Result<(), Diagnostic> {
     let api_url = format!("http://127.0.0.1:{SERVICE_PORT}");
     if !options.remote {
-        // Remote access is a saved setting the service restores at startup,
-        // so leaving it alone could keep it listening on the network.
+        // The child skips startup restoration. Persist the disabled setting
+        // through the loopback API before announcing readiness.
         api.disable_remote().await?;
         if json {
             return emit(&json!({ "ok": true, "code": "SERVE_READY", "api": api_url }));

@@ -383,12 +383,17 @@ fn cert_sans(lan_ips: &[IpAddr]) -> Vec<String> {
     sans
 }
 
-/// Whether remote access should auto-start at launch (persisted setting).
-pub async fn is_enabled(pool: &sqlx::SqlitePool) -> bool {
-    matches!(
-        crate::domain::workspace::repository::get_setting(pool, REMOTE_ENABLED_SETTING).await,
-        Ok(Some(value)) if value == "true"
-    )
+/// Restore persisted remote access before the loopback API starts serving.
+pub async fn restore_at_startup(state: &AppState, skip_remote_restore: bool) {
+    if !skip_remote_restore
+        && crate::domain::settings_store::global_get(REMOTE_ENABLED_SETTING).as_deref()
+            == Some("true")
+    {
+        match state.remote.start(state).await {
+            Ok(info) => tracing::info!("Remote access auto-started on port {}", info.port),
+            Err(err) => tracing::warn!("Remote access auto-start failed: {err}"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -409,6 +414,26 @@ mod tests {
             data_dir: data.path().to_owned(),
         }));
         (state, renderer, data)
+    }
+
+    #[tokio::test]
+    async fn loopback_startup_skips_restoring_saved_remote_access() {
+        use crate::config::Config;
+        use crate::domain::settings_store::global_set;
+        use clap::Parser as _;
+
+        let (state, _renderer, data) = test_state(0).await;
+        global_set(REMOTE_ENABLED_SETTING, "true").await.unwrap();
+
+        let config = Config::try_parse_from(["cadencr-service", "--skip-remote-restore"]).unwrap();
+        restore_at_startup(&state, config.skip_remote_restore).await;
+        assert!(state.remote.status().await.is_none());
+        assert!(!data.path().join("cert.pem").exists());
+
+        let config = Config::try_parse_from(["cadencr-service", "--exit-with-parent"]).unwrap();
+        restore_at_startup(&state, config.skip_remote_restore).await;
+        assert!(state.remote.status().await.is_some());
+        state.remote.stop().await;
     }
 
     #[tokio::test]

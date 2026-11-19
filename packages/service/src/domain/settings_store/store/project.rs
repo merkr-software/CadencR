@@ -5,9 +5,11 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use sqlx::SqlitePool;
+use tokio::sync::MutexGuard;
 
 use crate::domain::projects::models::ProjectSetting;
 use crate::error::AppError;
+use crate::shared::no_replace_rename::rename_no_replace;
 
 use super::super::{dir, lock, paths, Scope, SettingWarning};
 use super::{load, read_for_edit, set_value, set_values, write_content};
@@ -78,6 +80,31 @@ pub async fn project_write_content(
     write_content(&path, Scope::Project, content).await
 }
 
+/// Keep settings writes serialized until the database has accepted the name
+/// or the settings move has been undone.
+#[must_use = "hold the settings lock until the database rename finishes"]
+pub struct ProjectSettingsRename {
+    moved: Option<(PathBuf, PathBuf)>,
+    _guard: MutexGuard<'static, ()>,
+}
+
+impl ProjectSettingsRename {
+    /// Restore only a document that this rename moved. Copies are kept because
+    /// their source is already intact and the destination can be shared.
+    pub fn undo(self) -> Result<(), AppError> {
+        let Some((from, to)) = self.moved else {
+            return Ok(());
+        };
+        rename_no_replace(&to, &from).map_err(|e| {
+            AppError::internal(format!(
+                "failed to move project settings back from {} to {}: {e}",
+                to.display(),
+                from.display()
+            ))
+        })
+    }
+}
+
 /// Carry a project's settings document over to the name it is about to have.
 ///
 /// The file is named after the project, so a rename moves where the app looks
@@ -94,16 +121,21 @@ pub async fn project_rename(
     pool: &SqlitePool,
     project_id: i64,
     new_name: &str,
-) -> Result<(), AppError> {
-    let from = project_path(pool, project_id).await?;
-    let to = paths::project_file_for_name(&dir::global_dir(), new_name);
+) -> Result<ProjectSettingsRename, AppError> {
+    let mut rename = ProjectSettingsRename {
+        moved: None,
+        _guard: lock::write_lock().lock().await,
+    };
+    let dir = dir::global_dir();
+    let old_name = paths::project_name(pool, project_id).await?;
+    let from = paths::project_file_for_name(&dir, &old_name);
+    let to = paths::project_file_for_name(&dir, new_name);
     if from == to {
-        return Ok(());
+        return Ok(rename);
     }
-    let shared = paths::name_is_shared(pool, project_id).await?;
-    let _guard = lock::write_lock().lock().await;
+    let shared = paths::name_is_shared_for(pool, project_id, &old_name).await?;
     if !from.exists() || to.exists() {
-        return Ok(());
+        return Ok(rename);
     }
     let moved = if shared {
         std::fs::copy(&from, &to).map(|_| ())
@@ -116,33 +148,11 @@ pub async fn project_rename(
             from.display(),
             to.display()
         ))
-    })
-}
-
-/// Undo [`project_rename`] to `renamed_to` once the database kept the old
-/// name: the document goes back when that rename moved it, and stays when it
-/// only joined or copied another one.
-pub async fn project_rename_undo(
-    pool: &SqlitePool,
-    project_id: i64,
-    renamed_to: &str,
-) -> Result<(), AppError> {
-    let original = project_path(pool, project_id).await?;
-    let renamed = paths::project_file_for_name(&dir::global_dir(), renamed_to);
-    if original == renamed {
-        return Ok(());
+    })?;
+    if !shared {
+        rename.moved = Some((from, to));
     }
-    let _guard = lock::write_lock().lock().await;
-    if !renamed.exists() || original.exists() {
-        return Ok(());
-    }
-    std::fs::rename(&renamed, &original).map_err(|e| {
-        AppError::internal(format!(
-            "failed to move project settings back from {} to {}: {e}",
-            renamed.display(),
-            original.display()
-        ))
-    })
+    Ok(rename)
 }
 
 pub async fn project_read_for_edit(
@@ -161,7 +171,7 @@ mod tests {
     /// The rename is applied to the row afterwards, exactly as the caller does
     /// it — the document has to move first, while the old name still resolves.
     async fn rename(pool: &SqlitePool, project_id: i64, to: &str) {
-        project_rename(pool, project_id, to).await.expect("renames");
+        let _settings_rename = project_rename(pool, project_id, to).await.expect("renames");
         sqlx::query("UPDATE projects SET name = ? WHERE id = ?")
             .bind(to)
             .bind(project_id)

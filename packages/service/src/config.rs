@@ -55,6 +55,10 @@ pub struct Config {
     #[arg(long, default_value = "5006", env = "CADENCR_REMOTE_PORT")]
     pub remote_port: u16,
 
+    /// Start on loopback without restoring a saved remote-access listener.
+    #[arg(long)]
+    pub skip_remote_restore: bool,
+
     /// Shut down when stdin reaches end-of-file. The desktop shell spawns the
     /// service with a stdin pipe it never writes to, so the pipe closes when
     /// the shell exits however it exits (crash and force-quit included),
