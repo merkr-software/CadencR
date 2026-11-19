@@ -155,16 +155,7 @@ async fn rename_project(pool: &SqlitePool, project_id: i64, name: &str) -> Resul
     if current.as_deref() == Some(name) {
         return Ok(false);
     }
-    // A project's settings live in a file named after the project, so the
-    // document has to travel with the name — otherwise every setting on this
-    // project (its provider, its model, …) is left behind in a file the app
-    // will never read again. Before the rename, so a failure changes nothing.
-    crate::domain::settings_store::project_rename(pool, project_id, name).await?;
-    sqlx::query("UPDATE projects SET name = ? WHERE id = ?")
-        .bind(name)
-        .bind(project_id)
-        .execute(pool)
-        .await?;
+    crate::domain::projects::relocation::rename(pool, project_id, name).await?;
     // The document may have stayed put — it can already belong to a project of
     // the new name. Re-assert what a theme project cannot work without.
     authoring_workspace::apply_project_worktree_skip(pool, project_id).await?;
