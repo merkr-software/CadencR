@@ -324,19 +324,28 @@ pub(crate) async fn handle_retry_worktree_setup(
         }
     };
 
-    let wt_path_str =
-        match worktree::get_setting(&app_state.read_pool, feature_id, "worktree_path").await {
-            Some(p) => p,
-            None => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "NO_WORKTREE",
-                    "No worktree found for this feature",
-                );
+    let ws = app_state
+        .ws_feature_senders
+        .fan_out_sender(feature_id, sender.clone());
+    let recorded = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_path").await;
+    // A worktree whose provisioning failed is provisioned again, in the mode
+    // the feature chose (a reused branch stays reused).
+    let provisioned_now = recorded.is_none();
+    let wt_path_str = match recorded {
+        Some(path) => path,
+        None => match retry_provisioning(app_state, feature_id, &ws).await {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let message = "No worktree found for this feature";
+                send_error(sender, &envelope.id, "NO_WORKTREE", message);
                 return;
             }
-        };
+            Err(error) => {
+                send_error(sender, &envelope.id, "WORKTREE_PROVISIONING_FAILED", &error);
+                return;
+            }
+        },
+    };
 
     let reply = WsEnvelope::session_reply(
         &envelope.id,
@@ -349,17 +358,38 @@ pub(crate) async fn handle_retry_worktree_setup(
     if app_state.worktree_setup_runs.is_owned(feature_id) {
         return;
     }
+    // A worktree shared with the feature that set it up starts ready: its
+    // setup commands are the donor's to run.
+    let step = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_setup_step").await;
+    if provisioned_now && step.as_deref() == Some("ready") {
+        return;
+    }
 
     let rp = app_state.read_pool.clone();
     let wp = app_state.write_pool.clone();
     let setup_runs = app_state.worktree_setup_runs.clone();
-    let ws = app_state
-        .ws_feature_senders
-        .fan_out_sender(feature_id, sender.clone());
     let path = PathBuf::from(wt_path_str);
     tokio::spawn(async move {
         worktree::run_setup_commands(rp, wp, setup_runs, feature_id, path, ws).await;
     });
+}
+
+/// Provision a worktree the feature chose but never got; `None` when the
+/// feature has none to finish.
+async fn retry_provisioning(
+    app_state: &AppState,
+    feature_id: i64,
+    ws: &WsSender,
+) -> Result<Option<String>, String> {
+    let path = worktree::finish_provisioning(
+        &app_state.read_pool,
+        &app_state.write_pool,
+        &app_state.worktree_setup_runs,
+        feature_id,
+        ws,
+    )
+    .await?;
+    Ok(path.map(|path| path.to_string_lossy().into_owned()))
 }
 
 #[cfg(test)]

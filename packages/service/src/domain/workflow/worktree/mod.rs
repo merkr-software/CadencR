@@ -27,6 +27,7 @@ mod setup_events;
 mod setup_finish;
 mod setup_output;
 mod setup_state;
+mod unfinished;
 
 pub use crate::domain::features::run_registry::FeatureRunRegistry as WorktreeSetupRegistry;
 pub use db::{
@@ -36,6 +37,7 @@ pub use db::{
 pub use replay::replay_persisted_state;
 pub use reuse::attach_to_existing_branch;
 pub use setup::{cancel_setups, run_setup_commands};
+pub use unfinished::{finish_provisioning, provisioning_unfinished};
 
 use std::path::PathBuf;
 
@@ -222,9 +224,9 @@ async fn ensure_new(
             .map_err(|error| error.to_string())?
             .filter(|branch| branch != "HEAD"),
     };
-    let source_root_str = source_root.to_string_lossy();
-    new_branch::add_new_worktree(&source_root_str, &branch, &path_str, base_branch.as_deref())
-        .await?;
+    let path_str =
+        new_branch::add_or_adopt_worktree(&source_root, &branch, path_str, base_branch.as_deref())
+            .await?;
     let context = build_worktree_context(
         &source_root,
         std::path::Path::new(&project_dir),
