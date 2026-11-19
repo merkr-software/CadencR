@@ -19,19 +19,22 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::framing::{next_line, Line};
-use crate::protocol::MAX_LINE_BYTES;
+use crate::protocol::{parse_event, EVENT_PROTOCOL_VERSION, MAX_IN_FLIGHT, MAX_LINE_BYTES};
 use crate::server::lock;
 
 /// stderr lines kept for the report.
 const STDERR_TAIL: usize = 50;
 const POLL: Duration = Duration::from_millis(20);
+const MAX_UNCLAIMED: usize = 4 * MAX_IN_FLIGHT;
 
 pub(super) struct Backend {
+    protocol: u32,
     child: Child,
     /// Whether its process group may still have members to kill.
     group_alive: bool,
     stdin: Option<ChildStdin>,
     stdout: Receiver<Line>,
+    stdout_closed: bool,
     /// Messages read but not yet claimed by a check.
     inbox: VecDeque<Value>,
     /// Stdout lines that are not protocol messages.
@@ -39,8 +42,10 @@ pub(super) struct Backend {
     stderr: Arc<Mutex<VecDeque<String>>>,
 }
 
+#[bon::bon]
 impl Backend {
-    pub fn spawn(binary: &Path, args: &[OsString], cwd: &Path) -> io::Result<Self> {
+    #[builder]
+    pub fn spawn(binary: &Path, args: &[OsString], cwd: &Path, protocol: u32) -> io::Result<Self> {
         let mut command = Command::new(binary);
         command
             .args(args)
@@ -63,7 +68,7 @@ impl Backend {
             let _ = child.kill();
             return Err(io::Error::other("the backend's stdio was unavailable"));
         };
-        let (lines, received) = mpsc::channel();
+        let (lines, received) = mpsc::sync_channel(MAX_UNCLAIMED);
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             while let Ok(Some(line)) = next_line(&mut reader, MAX_LINE_BYTES) {
@@ -91,10 +96,12 @@ impl Backend {
             }
         });
         Ok(Self {
+            protocol,
             child,
             group_alive: true,
             stdin: Some(stdin),
             stdout: received,
+            stdout_closed: false,
             inbox: VecDeque::new(),
             stray: Vec::new(),
             stderr: tail,
@@ -121,9 +128,28 @@ impl Backend {
     /// Keep a line some check did not expect: a protocol message stays
     /// claimable, anything else is stray.
     pub fn keep(&mut self, line: &[u8]) {
-        match protocol_message(line) {
-            Some(message) => self.inbox.push_back(message),
-            None => self.stray.push(String::from_utf8_lossy(line).into_owned()),
+        match protocol_message(line, self.protocol) {
+            Some(message) => self.keep_message(message),
+            None => self.note_stray(String::from_utf8_lossy(line).into_owned()),
+        }
+    }
+
+    fn keep_message(&mut self, message: Value) {
+        if message["type"] == "event" {
+            // Validated, but no request can claim it. Do not accumulate a
+            // continuously publishing backend's event stream in the report.
+            return;
+        }
+        if self.inbox.len() < MAX_UNCLAIMED {
+            self.inbox.push_back(message);
+        } else {
+            self.note_stray("too many unclaimed protocol messages".into());
+        }
+    }
+
+    fn note_stray(&mut self, line: String) {
+        if self.stray.len() < STDERR_TAIL {
+            self.stray.push(line.chars().take(200).collect());
         }
     }
 
@@ -140,7 +166,7 @@ impl Backend {
             if is_it(&message) {
                 return Some(message);
             }
-            self.inbox.push_back(message);
+            self.keep_message(message);
         }
     }
 
@@ -150,24 +176,32 @@ impl Backend {
             let line = match self.stdout.recv_timeout(left) {
                 Ok(Line::Text(line)) => line,
                 Ok(Line::TooLong) => {
-                    self.stray
-                        .push(format!("a line over {MAX_LINE_BYTES} bytes"));
+                    self.note_stray(format!("a line over {MAX_LINE_BYTES} bytes"));
                     continue;
                 }
-                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return None,
+                Err(RecvTimeoutError::Timeout) => return None,
+                Err(RecvTimeoutError::Disconnected) => {
+                    self.stdout_closed = true;
+                    return None;
+                }
             };
-            match protocol_message(&line) {
+            match protocol_message(&line, self.protocol) {
+                Some(message) if message["type"] == "event" => continue,
                 Some(message) => return Some(message),
-                None => self.stray.push(String::from_utf8_lossy(&line).into_owned()),
+                None => self.note_stray(String::from_utf8_lossy(&line).into_owned()),
             }
         }
     }
 
-    /// Read whatever stdout still holds (until it closes or stays quiet for
-    /// `quiet`), so [`Backend::stray`] is complete.
-    pub fn drain_stdout(&mut self, quiet: Duration) {
-        while let Some(message) = self.read_message(Instant::now() + quiet) {
-            self.inbox.push_back(message);
+    /// Drain stdout after exit, within `timeout`. A stream still open or
+    /// still publishing at the deadline cannot be certified clean.
+    pub fn drain_stdout(&mut self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while let Some(message) = self.read_message(deadline) {
+            self.keep_message(message);
+        }
+        if !self.stdout_closed {
+            self.note_stray("stdout did not close before the drain deadline".into());
         }
     }
 
@@ -243,11 +277,16 @@ impl Drop for Backend {
     }
 }
 
-/// `line` as a message a check can claim: a `ready` or `response` object.
-fn protocol_message(line: &[u8]) -> Option<Value> {
-    serde_json::from_slice::<Value>(line)
-        .ok()
-        .filter(|message| matches!(message["type"].as_str(), Some("ready" | "response")))
+/// Recognize legacy messages or a valid event in a v2 session.
+fn protocol_message(line: &[u8], protocol: u32) -> Option<Value> {
+    let message: Value = serde_json::from_slice(line).ok()?;
+    match message["type"].as_str() {
+        Some("ready" | "response") => Some(message),
+        Some("event") if protocol == EVENT_PROTOCOL_VERSION && parse_event(line).is_ok() => {
+            Some(message)
+        }
+        _ => None,
+    }
 }
 
 /// An environment variable the host never passes to a backend.
@@ -294,5 +333,28 @@ impl Drop for StateDir {
         // A leftover directory in the system temp folder is harmless, and a
         // finished report has nowhere to say so.
         let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_v2_accepts_well_formed_bounded_events() {
+        let event = br#"{"type":"event","topic":"timer","payload":{"tick":1}}"#;
+        assert!(protocol_message(event, 1).is_none());
+        assert!(protocol_message(event, 2).is_some());
+        for event in [
+            &br#"{"type":"event","topic":"","payload":null}"#[..],
+            br#"{"type":"event","topic":"t"}"#,
+        ] {
+            assert!(protocol_message(event, 2).is_none());
+        }
+        let large = serde_json::json!({
+            "type":"event","topic":"t","payload":"x".repeat(crate::protocol::MAX_EVENT_BYTES)
+        })
+        .to_string();
+        assert!(protocol_message(large.as_bytes(), 2).is_none());
     }
 }

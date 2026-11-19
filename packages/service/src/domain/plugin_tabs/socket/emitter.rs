@@ -150,6 +150,19 @@ impl Emitter {
         }
         !self.out.is_closed()
     }
+
+    pub fn error(&self, code: &str, message: &str) -> bool {
+        for member in lock(&self.members).iter() {
+            self.out.control(WsEnvelope::new(
+                "plugin",
+                "error",
+                json!({
+                    "subscription_id": member.id, "code": code, "message": message,
+                }),
+            ));
+        }
+        !self.out.is_closed()
+    }
 }
 
 #[cfg(test)]

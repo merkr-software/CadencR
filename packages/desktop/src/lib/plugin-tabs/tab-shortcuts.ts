@@ -22,6 +22,7 @@ const SCOPES_OVER_A_TAB: ReadonlySet<ShortcutScopeId> = new Set([
 const MENU_SHORTCUTS: ReadonlySet<string> = new Set(["quit"]);
 /** One of these must be held; a bare key belongs to whatever the tab is typing into. */
 const COMMAND_MODIFIERS: ReadonlySet<string> = new Set(["mod", "ctrl", "alt"]);
+const EDITOR_HOST_SHORTCUTS = new Set(["editor-fuzzy", "editor-toggle-sidebar"]);
 
 /** A Cadencr shortcut a focused tab gives way to. */
 export interface AppShortcutBinding extends PluginTabShortcutBinding {
@@ -39,10 +40,16 @@ function isCommandChord(keys: readonly ShortcutKey[]): boolean {
  */
 export function appShortcutBindings(
   overrides: Readonly<Record<string, ShortcutOverride>>,
+  surface: "tab" | "editor" = "tab",
 ): AppShortcutBinding[] {
   const bindings: AppShortcutBinding[] = [];
   for (const shortcut of SHORTCUTS) {
-    if (!SCOPES_OVER_A_TAB.has(shortcut.scope) || MENU_SHORTCUTS.has(shortcut.id)) continue;
+    const editorOnly = EDITOR_HOST_SHORTCUTS.has(shortcut.id);
+    if (
+      (!SCOPES_OVER_A_TAB.has(shortcut.scope) && !(surface === "editor" && editorOnly)) ||
+      MENU_SHORTCUTS.has(shortcut.id)
+    )
+      continue;
     const bound: ShortcutOverride = findOverride(overrides, shortcut.id) ?? shortcut;
     const combos = [bound.keys, bound.altKeys].filter(
       (keys): keys is ShortcutKey[] =>
@@ -54,6 +61,7 @@ export function appShortcutBindings(
       id: shortcut.id,
       description: shortcut.description,
       keys,
+      ...(editorOnly ? { surface: "editor" as const } : {}),
       ...(altKeys ? { altKeys } : {}),
     });
   }

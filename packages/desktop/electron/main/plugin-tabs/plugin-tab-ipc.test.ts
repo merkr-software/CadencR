@@ -54,6 +54,7 @@ describe("registerPluginTabIpc", () => {
     registerPluginTabIpc({ getMainWindow: () => mainWindow, preloadPath: "/p.js" });
     expect([...ipc.handlers.keys()].sort()).toEqual([
       "plugin-tab:close",
+      "plugin-tab:focus",
       "plugin-tab:open",
       "plugin-tab:open-devtools",
       "plugin-tab:reload",
@@ -69,6 +70,23 @@ describe("registerPluginTabIpc", () => {
   it("rejects calls from anything but the main window", () => {
     registerPluginTabIpc({ getMainWindow: () => mainWindow, preloadPath: "/p.js" });
     expect(() => invoke("plugin-tab:close", untrusted, "i1")).toThrow("untrusted window");
+  });
+
+  it("routes editor focus from the trusted renderer and validates the surface id", () => {
+    const manager = registerPluginTabIpc({
+      getMainWindow: () => mainWindow,
+      preloadPath: "/p.js",
+    });
+    const focus = vi.spyOn(manager, "focus").mockImplementation(() => undefined);
+    invoke("plugin-tab:focus", trusted, "7:editor:graph");
+    expect(focus).toHaveBeenCalledExactlyOnceWith("7:editor:graph");
+    expect(() => invoke("plugin-tab:focus", untrusted, "7:editor:graph")).toThrow(
+      "untrusted window",
+    );
+    expect(() => invoke("plugin-tab:focus", trusted, "bad id")).toThrow(
+      "Expected a custom tab instance id.",
+    );
+    expect(focus).toHaveBeenCalledOnce();
   });
 
   it("validates ids, bounds and theme at the boundary", () => {

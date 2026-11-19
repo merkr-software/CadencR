@@ -7,7 +7,7 @@ This guide documents the setup path for running Cadencr from source on Windows t
 - Windows with WSL2 enabled.
 - Ubuntu in WSL.
 - WSLg enabled so Electron can open a Linux GUI window.
-- Node.js `22.19.0`; the repo enforces `>=22.19.0 <23.0.0`.
+- Node.js `22.23.4`; the repo enforces `>=22.23.4 <23.0.0`.
 
 The commands below should be run inside the WSL shell from the repository root.
 
@@ -31,7 +31,7 @@ Install the missing Ubuntu package, then retry `pnpm dev`.
 
 ## Node and pnpm
 
-Install the Node version pinned in `.nvmrc` (`22.19.0`) inside WSL, for example
+Install the Node version pinned in `.nvmrc` (`22.23.4`) inside WSL, for example
 with [nvm](https://github.com/nvm-sh/nvm) (`nvm install && nvm use` in the repo
 root) or [fnm](https://github.com/Schniz/fnm) (`fnm env --use-on-cd` switches
 automatically when you enter the repo). Then enable Corepack and install

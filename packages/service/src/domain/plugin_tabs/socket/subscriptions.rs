@@ -15,7 +15,7 @@ use axum::extract::ws::Message;
 use futures::future::BoxFuture;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 
 use super::emitter::{lock, Emitter, Member, Members};
 use super::outbound::Outbound;
@@ -63,7 +63,8 @@ pub struct Subscriptions {
     state: AppState,
     grant: Grant,
     out: Outbound,
-    sources: HashMap<Topic, Source>,
+    sources: HashMap<(Topic, String), Source>,
+    calls: JoinSet<()>,
     next_id: u64,
 }
 
@@ -74,6 +75,7 @@ impl Subscriptions {
             grant,
             out,
             sources: HashMap::new(),
+            calls: JoinSet::new(),
             next_id: 0,
         }
     }
@@ -98,6 +100,13 @@ impl Subscriptions {
         match envelope.action.as_str() {
             "subscribe" => self.subscribe(&envelope).await,
             "unsubscribe" => self.unsubscribe(&envelope).await,
+            "backend.request" => super::backend::request(
+                &mut self.calls,
+                &self.state,
+                &self.grant,
+                &self.out,
+                &envelope,
+            ),
             other => {
                 let message = format!("unknown plugin action `{other}`");
                 self.error(Some(&envelope.id), "PLUGIN_ACTION_UNKNOWN", &message);
@@ -106,9 +115,10 @@ impl Subscriptions {
     }
 
     /// Over the inbound budget: one error per window, the frame unread.
-    pub fn rate_limited(&self) {
+    pub fn rate_limited(&self, text: &str) {
+        let envelope = WsEnvelope::try_from(text.to_string()).ok();
         self.error(
-            None,
+            envelope.as_ref().map(|envelope| envelope.id.as_str()),
             "RATE_LIMITED",
             "too many plugin socket messages; slow down",
         );
@@ -121,11 +131,24 @@ impl Subscriptions {
             self.error(Some(&envelope.id), "PLUGIN_TOPIC_UNKNOWN", &message);
             return;
         };
-        if !self.grant.has_scope(topic.scope()) {
-            let message = format!("`{}` requires {}", topic.name(), topic.scope().as_str());
+        if let Some(scope) = topic.scope().filter(|scope| !self.grant.has_scope(*scope)) {
+            let message = format!("`{}` requires {}", topic.name(), scope.as_str());
             self.error(Some(&envelope.id), "PLUGIN_SCOPE_DENIED", &message);
             return;
         }
+        let backend_topic = if topic == Topic::BackendEvents {
+            match super::backend::topic(&envelope.payload["params"]) {
+                Ok(topic) => topic,
+                Err(error) => {
+                    let (code, message) = super::backend::problem(error);
+                    self.error(Some(&envelope.id), code, &message);
+                    return;
+                }
+            }
+        } else {
+            String::new()
+        };
+        let key = (topic, backend_topic.clone());
         let count: usize = self
             .sources
             .values()
@@ -138,7 +161,7 @@ impl Subscriptions {
         }
         self.next_id += 1;
         let subscription_id = format!("s{}", self.next_id);
-        if let Some(source) = self.sources.get(&topic) {
+        if let Some(source) = self.sources.get(&key) {
             // The running source emits under this lock: queue the reply and the
             // owed resync before the new member becomes visible, so none of its
             // events can precede them.
@@ -150,7 +173,7 @@ impl Subscriptions {
         }
         let members: Members = Arc::new(Mutex::new(vec![Member::new(subscription_id.clone())]));
         let emitter = Emitter::new(self.out.clone(), topic.name(), members.clone());
-        match topics::start(topic, &self.state, &self.grant, emitter).await {
+        match topics::start(topic, &self.state, &self.grant, emitter, backend_topic).await {
             Ok(started) => {
                 self.subscribed(&envelope.id, &subscription_id);
                 let source = Source {
@@ -158,7 +181,7 @@ impl Subscriptions {
                     cleanup: started.cleanup,
                     members,
                 };
-                self.sources.insert(topic, source);
+                self.sources.insert(key, source);
             }
             Err((code, message)) => self.error(Some(&envelope.id), code, &message),
         }
@@ -174,7 +197,7 @@ impl Subscriptions {
             let mut members = lock(&source.members);
             let before = members.len();
             members.retain(|member| member.id != id);
-            (members.len() < before).then_some(*topic)
+            (members.len() < before).then_some(topic.clone())
         }) else {
             let message = format!("no subscription `{id}`");
             self.error(Some(&envelope.id), "PLUGIN_SUBSCRIPTION_UNKNOWN", &message);
@@ -198,6 +221,7 @@ impl Subscriptions {
 
     /// Stop every source (socket closing).
     pub async fn close_all(&mut self) {
+        self.calls.abort_all();
         for (_, source) in self.sources.drain() {
             source.stop(&self.state).await;
         }

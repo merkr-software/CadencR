@@ -127,6 +127,7 @@ Cadencr custom tab).
 | `net.fetch(url, { method?, headers?, body?, timeoutMs? })`            | Fetch from an origin in `network.allowed_origins`. `{{secret:<key>}}` in header values is filled in server-side.                                                       |
 | `exec.run(program, args?, { timeoutMs? })`                            | Run a program listed in `tab.json` `commands`, without a shell, in the conversation's folder. Resolves `{exitCode, success, stdout, stderr, durationMs}` for any exit. |
 | `backend.request<T>(method, params?, { timeoutMs? })`                 | Call the tab's native `backend` (started on first use). Resolves its `result`; its `error` rejects with the backend's own `code`.                                      |
+| `await backend.subscribe(topic, handler, { onResync?, onError? })`    | Native protocol-v2 events; resolves `{ unsubscribe() }` after registration. Topics and payloads are plugin-defined.                                                    |
 | `ui.toast({ title, description?, variant? })`                         | Show a Cadencr toast.                                                                                                                                                  |
 | `ui.openExternal(url)`                                                | Open an `https:` URL in the browser, after the user confirms.                                                                                                          |
 | `ui.setBadge(text \| null)`                                           | Up to 4 characters on the tab trigger.                                                                                                                                 |
@@ -141,6 +142,39 @@ Cadencr custom tab).
 Stream topics: `git.status`, `session.stream`, `files.changes`, `forge.status`,
 `feature.events`, `session.status` — each needs the matching manifest
 permission.
+
+### Native events
+
+Declare `backend.protocol: 2`. Check `client.capabilities` for
+`backend.subscribe`; an older host rejects this helper with `CAPABILITY_DENIED`.
+Register before requesting a method that starts a producer:
+
+```ts
+const subscription = await client.backend.subscribe(
+  "clock.tick",
+  (event) => {
+    render(event.payload);
+  },
+  {
+    onResync: () => void readSnapshot().catch(showError),
+    onError: showError,
+  },
+);
+await client.backend.request("start");
+// When the consumer leaves:
+subscription.unsubscribe();
+```
+
+`event` carries `topic`, opaque JSON `payload`, host-owned `runId`, a
+per-subscription `seq` and the process-wide `processSeq`. A changed process,
+gap, queue overflow or reconnect calls `onResync`; read a fresh snapshot.
+Requests are attempted once and never replayed. The subscription follows a
+subsequent explicitly started process; exit errors do not discard it.
+The SDK automatically acknowledges consumed events. The host bounds unread
+events to 32 per guest subscription; a stalled consumer receives `onResync`
+when it resumes.
+The [backend-clock example](../../examples/custom-tabs/backend-clock)
+demonstrates this flow with a native background timer.
 
 ### Errors
 

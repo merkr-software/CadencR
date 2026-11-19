@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { keymap, type EditorView } from "@codemirror/view";
 import { type Extension } from "@codemirror/state";
 import { serverCompletion } from "@codemirror/lsp-client";
-import { useEditorStore } from "@/stores/editor-store";
+import { useOpenEditorFile } from "@/hooks/useOpenEditorFile";
 import { useLspResolution, type LspResolution } from "./useLspResolution";
 import { pathToFileUri } from "./file-uri";
 import { useLspClients, type ReadyLspClient } from "./useLspClients";
@@ -88,6 +88,7 @@ export function useLsp({
     lspIds,
   });
 
+  const openFile = useOpenEditorFile(featureId, { paneId });
   const typeChecker: ReadyLspClient | undefined = clients[0];
 
   // Register the displayFile handler on the type checker's workspace so
@@ -95,14 +96,14 @@ export function useLsp({
   useEffect(() => {
     if (!typeChecker) return;
     const handler = async (absTarget: string): Promise<EditorView | null> => {
-      useEditorStore.getState().openFile(featureId, paneId, absTarget);
+      openFile(absTarget);
       return null;
     };
     typeChecker.workspace.setDisplayFileHandler(handler);
     return () => {
       typeChecker.workspace.setDisplayFileHandler(null);
     };
-  }, [typeChecker, featureId, paneId]);
+  }, [typeChecker, openFile]);
 
   const resolvedRoot = typeChecker?.root ?? null;
 

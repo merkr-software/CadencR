@@ -74,6 +74,7 @@ export const noopPluginTabs: PluginTabsBridge = {
   reload: () => Promise.resolve(),
   close: () => Promise.resolve(),
   openDevTools: () => Promise.resolve(),
+  focus: () => Promise.resolve(),
   setTheme: () => Promise.resolve(),
   setAppShortcuts: () => Promise.resolve(),
   setTabShortcuts: () => Promise.resolve(),

@@ -43,7 +43,37 @@ FIXTURES = {
 }
 
 
-def exercise(connection, workspace, file, fixture, initialization):
+def shutdown_transport(recipe):
+    # This preview's exit handler cancels its dispatch context, which Run returns
+    # as a fatal error. After an acknowledged shutdown, stdin EOF returns success.
+    # https://github.com/microsoft/typescript-go/blob/a7c09f3637dbf3359f7fadf7c7d5d31c76d619e4/internal/lsp/server.go#L423-L444
+    if (recipe["id"], recipe["version"]) == ("tsgo", "7.0.0-dev.20260707.2"):
+        return "stdin-eof"
+    return "exit"
+
+
+def shutdown_result(recipe):
+    # LuaLS acknowledges shutdown with true rather than the LSP-specified null.
+    if (recipe["id"], recipe["version"]) == ("lua-language-server", "3.19.2"):
+        return True
+    return None
+
+
+def shutdown(connection, transport, expected_result=None):
+    if transport not in {"exit", "stdin-eof"}:
+        raise ValueError("unsupported shutdown transport")
+    connection.send({"id": 3, "method": "shutdown"})
+    response = connection.wait(lambda message: message.get("id") == 3 and "method" not in message)
+    if "result" not in response or response["result"] is not expected_result:
+        raise ValueError("shutdown response must contain a " + json.dumps(expected_result) + " result")
+    if transport == "stdin-eof":
+        connection.process.stdin.close()
+    else:
+        connection.send({"method": "exit"})
+    return {"transport": transport, "exit_notification": transport == "exit", "result": response["result"]}
+
+
+def exercise(connection, workspace, file, fixture, initialization, transport="exit", expected_shutdown_result=None):
     connection.send({"id": 1, "method": "initialize", "params": {
         "processId": None, "rootUri": workspace.as_uri(),
         "workspaceFolders": [{"uri": workspace.as_uri(), "name": "smoke"}],
@@ -80,11 +110,10 @@ def exercise(connection, workspace, file, fixture, initialization):
             time.sleep(.2)
         else:
             raise ValueError("semantic result did not match expected content: " + json.dumps(result)[:1000])
-    connection.send({"id": 3, "method": "shutdown"})
-    connection.wait(lambda message: message.get("id") == 3 and "method" not in message)
-    connection.send({"method": "exit"})
+    stopped = shutdown(connection, transport, expected_shutdown_result)
     # The caller gives protocol exit a bounded grace before supplying EOF if needed.
-    return {"initialize": initialized["result"].get("serverInfo"), "feature": fixture["feature"], "result": result}
+    return {"initialize": initialized["result"].get("serverInfo"), "feature": fixture["feature"],
+            "result": result, "shutdown": stopped}
 
 
 def wait_for_exit(process, timeout=10):
@@ -179,7 +208,8 @@ def run(args):
                 return {}
             connection = Connection(process, configuration)
             try:
-                evidence.update(exercise(connection, workspace, file, fixture, initialization))
+                evidence.update(exercise(connection, workspace, file, fixture, initialization,
+                    shutdown_transport(recipe), shutdown_result(recipe)))
                 if wait_for_exit(process):
                     raise ValueError("nonzero server exit")
                 evidence["status"] = "passed"

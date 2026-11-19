@@ -93,6 +93,14 @@ clearing. GraphQL and Astro run on both Linux baselines, including their bundled
 runtime dependencies. These probes complement application/proxy QA; they do not
 replace it.
 
+Native reports declare their shutdown transport. TypeScript native preview
+`7.0.0-dev.20260707.2` requires a successful `shutdown` response followed by stdin
+EOF and exit code zero, working around its fatal cancellation on `exit`.
+Its semantic pass does not establish correct `exit` notification handling.
+All other native versions use the protocol exit path.
+Shutdown responses require `null`, with an explicit compatibility exception for
+LuaLS `3.19.2` returning boolean `true`; the actual result is retained in reports.
+
 ## Local commands
 
 Run the key-free boundary tests on either supported host:

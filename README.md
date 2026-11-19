@@ -120,7 +120,7 @@ Use the latest code or contribute to the product.
 
 | Dependency          | Setup                                                                                                        |
 | ------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Node.js 22.19.0** | Pinned in `.nvmrc`; supported range `>=22.19.0 <23.0.0`. Run `nvm use`, or configure fnm to use the file.    |
+| **Node.js 22.23.4** | Pinned in `.nvmrc`; supported range `>=22.23.4 <23.0.0`. Run `nvm use`, or configure fnm to use the file.    |
 | **pnpm**            | Run `corepack enable`; `package.json` pins the version.                                                      |
 | **Rust**            | Install with [rustup](https://rustup.rs/). `rust-toolchain.toml` selects the toolchain, rustfmt, and clippy. |
 | **watchexec**       | `pnpm dev` uses it to restart the service: `brew install watchexec`. `cargo-watch` is a fallback.            |

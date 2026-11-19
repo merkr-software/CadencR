@@ -1,5 +1,6 @@
 import { createApi, type CadencrApi } from "./api.js";
 import { Connection } from "./connection.js";
+import { BackendStreams } from "./backend-streams.js";
 import { Emitter } from "./emitter.js";
 import { CadencrError } from "./errors.js";
 import { createBackend, createExec, type CadencrBackend, type CadencrExec } from "./execution.js";
@@ -18,17 +19,20 @@ import {
 } from "./namespaces.js";
 import type {
   EventMap,
+  EditorAppearance,
   HelloResult,
   MethodName,
   MethodParams,
   MethodResult,
   TabContext,
   ThemeSnapshot,
+  SurfaceIdentity,
 } from "./protocol.js";
 import type { Requester } from "./requester.js";
 import { StreamRegistry, type CadencrStreams } from "./streams.js";
 import { applyTheme } from "./theme.js";
 import type { PortSource } from "./transport.js";
+import { SurfaceState } from "./surface-state.js";
 
 export interface ClientOptions {
   source: PortSource;
@@ -59,8 +63,10 @@ export class CadencrClient {
 
   private hello: HelloResult | null = null;
   private isVisible = true;
+  private readonly surfaceState = new SurfaceState();
   private readonly connection: Connection;
   private readonly registry: StreamRegistry;
+  private readonly backendStreams: BackendStreams;
   private readonly contextChanges = new Emitter<TabContext>();
   private readonly themeChanges = new Emitter<ThemeSnapshot>();
   private readonly visibilityChanges = new Emitter<boolean>();
@@ -79,7 +85,11 @@ export class CadencrClient {
       {
         onReady: (hello, reconnected) => this.onReady(hello, reconnected),
         onEvent: (event, payload) => this.onEvent(event, payload),
-        onConnectionChange: (connected) => this.connectionChanges.emit(connected),
+        onConnectionChange: (connected) => {
+          if (!connected) this.surfaceState.setFocused(false);
+          this.connectionChanges.emit(connected);
+        },
+        onPortReplaced: () => this.backendStreams.connectionReplaced(),
         onError: (error) => this.reportError(error),
       },
     );
@@ -93,7 +103,12 @@ export class CadencrClient {
     this.config = createConfig(send);
     this.net = createNet(send);
     this.exec = createExec(send);
-    this.backend = createBackend(send);
+    this.backendStreams = new BackendStreams(
+      send,
+      () => this.capabilities.isSupported("backend.subscribe"),
+      (error) => this.reportError(error),
+    );
+    this.backend = createBackend(send, this.backendStreams);
     this.ui = createUi(send);
     const capabilities = (): readonly string[] => this.hello?.capabilities ?? [];
     this.capabilities = {
@@ -137,6 +152,26 @@ export class CadencrClient {
   /** Whether the tab is currently shown. */
   get visible(): boolean {
     return this.isVisible;
+  }
+
+  get surface(): SurfaceIdentity {
+    return this.current.surface ?? { kind: "tab", instanceId: this.instanceId };
+  }
+
+  get focused(): boolean {
+    return this.surfaceState.focused;
+  }
+
+  get editorAppearance(): EditorAppearance | null {
+    return this.surfaceState.appearance;
+  }
+
+  onFocusChange(listener: (focused: boolean) => void): () => void {
+    return this.surfaceState.focusChanges.on(listener);
+  }
+
+  onEditorAppearanceChange(listener: (appearance: EditorAppearance) => void): () => void {
+    return this.surfaceState.appearanceChanges.on(listener);
   }
 
   /** The ids of the manifest's `shortcuts` that can fire (not taken by Cadencr). */
@@ -193,8 +228,10 @@ export class CadencrClient {
   /** Drops every subscription and listener and stops talking to the host.
    *  The port itself stays open: the page may connect again. */
   close(): void {
+    this.surfaceState.clear();
     releaseDefaultClient(this);
     this.registry.closeAll();
+    this.backendStreams.closeAll();
     this.connection.close();
     for (const emitter of [
       this.contextChanges,
@@ -219,6 +256,7 @@ export class CadencrClient {
   }
 
   private onReady(hello: HelloResult, reconnected: boolean): void {
+    this.surfaceState.ready(hello);
     const previous = this.hello;
     const sameContext =
       !!previous && JSON.stringify(previous.context) === JSON.stringify(hello.context);
@@ -240,10 +278,19 @@ export class CadencrClient {
     if (!sameContext) this.contextChanges.emit(hello.context);
     if (!sameTheme) this.themeChanges.emit(hello.theme);
     this.registry.resubscribeAll();
+    this.backendStreams.resubscribeAll();
   }
 
   private onEvent(event: string, payload: unknown): void {
     switch (event) {
+      case "focus.changed":
+        this.surfaceState.setFocused((payload as EventMap["focus.changed"]).focused);
+        return;
+      case "editor.appearance.changed":
+        this.surfaceState.setAppearance(
+          (payload as EventMap["editor.appearance.changed"]).appearance,
+        );
+        return;
       case "context.changed": {
         const { context } = payload as EventMap["context.changed"];
         if (this.hello) this.hello = { ...this.hello, context };
@@ -269,6 +316,11 @@ export class CadencrClient {
       case "stream.resync":
       case "stream.error":
         this.registry.handleEvent(event, payload as EventMap[typeof event]);
+        return;
+      case "backend.event":
+      case "backend.resync":
+      case "backend.error":
+        this.backendStreams.handleEvent(event, payload as EventMap[typeof event]);
         return;
       default:
         // Events from a newer host are ignored: they are additive by design.

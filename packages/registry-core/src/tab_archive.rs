@@ -246,6 +246,24 @@ fn invalid(message: impl Into<String>) -> RegistryError {
 mod tests {
     use super::*;
     #[test]
+    fn distributed_v2_editor_contributions_survive_manifest_validation() {
+        let manifest = serde_json::json!({"schema_version": 2, "kind": "tab", "id": "editor",
+            "name": "Editor", "version": "1.0.0", "api_version": 1, "entry": "dist/index.html",
+            "contributes": {"editor": {"label": "Editor", "open_method": "file.open"}},
+            "backend": {"protocol": 2, "binary": {"linux-x86_64": "bin/editor"}, "reasoning": "Edit files"}
+        });
+        let files = BTreeMap::from([
+            ("tab.json".into(), serde_json::to_vec(&manifest).unwrap()),
+            ("dist/index.html".into(), b"<html></html>".to_vec()),
+        ]);
+        let parsed = validate_tab_files(&files).unwrap();
+        assert_eq!(
+            parsed.contributes.unwrap().editor.unwrap().open_method,
+            "file.open"
+        );
+    }
+
+    #[test]
     fn deterministic_tabs_require_a_built_entry_and_exclude_author_sources() {
         let root = tempfile::tempdir().unwrap();
         let staging = root.path().join("stage");

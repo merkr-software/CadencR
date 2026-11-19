@@ -12,6 +12,7 @@
 //! revocation policy blocks its tab, or from the tab's Activity dialog.
 
 mod ending;
+pub mod events;
 mod first_start;
 mod handshake;
 mod history;
@@ -21,7 +22,9 @@ pub mod models;
 mod process;
 mod protocol;
 mod request;
+mod retry;
 mod stop_reason;
+mod subscription;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,6 +39,7 @@ use self::models::{PluginBackendRequest, PluginBackendResponse, PluginTabBackend
 use self::process::{Prepared, Running};
 use self::request::check_request;
 pub use self::request::RunningBackend;
+use self::retry::SpawnError;
 pub use self::stop_reason::StopReason;
 use super::grants::GrantStore;
 use super::presence::PresenceStore;
@@ -67,6 +71,7 @@ impl Key {
 
 #[derive(Default)]
 struct Slot {
+    events: events::Events,
     running: Option<Arc<Running>>,
     history: Arc<History>,
     orphaned_since: Option<Instant>,
@@ -190,8 +195,12 @@ impl BackendSupervisor {
             Ok(prepared) => prepared,
             Err(error) => return Err(failed_start(&history, error)),
         };
-        self.spawn_unless_stopped(grants, launch, prepared, &history, stops)
+        retry::spawn(|| self.spawn_unless_stopped(grants, launch, &prepared, &history, stops))
             .await
+            .map_err(|error| match error {
+                SpawnError::Stopped(error) => error,
+                error => failed_start(&history, error.into()),
+            })
     }
 
     /// Spawn `prepared` and register it, unless `launch`'s tab was stopped
@@ -200,20 +209,27 @@ impl BackendSupervisor {
         &self,
         grants: &GrantStore,
         launch: &BackendLaunch,
-        prepared: Prepared,
+        prepared: &Prepared,
         history: &Arc<History>,
         stops: u64,
-    ) -> Result<Arc<Running>, AppError> {
+    ) -> Result<Arc<Running>, SpawnError> {
         let mut slots = self.slots.lock().await;
         if slots.closed {
-            return Err(quitting());
+            return Err(SpawnError::Stopped(quitting()));
         }
         let slot = slots.by_key.entry(Key::of(launch)).or_default();
         if slot.stops != stops {
-            return Err(process::exited_error("it was stopped while starting"));
+            return Err(SpawnError::Stopped(process::exited_error(
+                "it was stopped while starting",
+            )));
         }
-        let running = process::spawn(launch, prepared, grants, history.clone())
-            .map_err(|error| failed_start(history, error))?;
+        let running = process::spawn()
+            .launch(launch)
+            .prepared(prepared)
+            .grants(grants)
+            .history(history.clone())
+            .events(slot.events.clone())
+            .call()?;
         slot.running = Some(running.clone());
         slot.orphaned_since = None;
         Ok(running)
@@ -567,6 +583,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn native_events_survive_a_restart_and_stay_in_their_conversation() {
+        let (_root, _dir, mut launch) = fixture_tab("events");
+        launch.backend.protocol = 2;
+        let supervisor = BackendSupervisor::default();
+        let grants = GrantStore::default();
+        let mut rx = supervisor.subscribe(&grants, launch.clone()).await.unwrap();
+        let mut other = launch.clone();
+        other.feature_id = 3;
+        let mut isolated = supervisor.subscribe(&grants, other).await.unwrap();
+        let _ = isolated.try_recv(); // Its own start notification.
+        for n in [1, 2] {
+            supervisor
+                .request(
+                    &grants,
+                    launch.clone(),
+                    request("emit", json!({"n":n}), None),
+                )
+                .await
+                .unwrap();
+            loop {
+                let update = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if let events::Update::Event(event) = update {
+                    assert_eq!(event.payload, json!({"n":n}));
+                    assert_eq!(event.seq, n);
+                    assert_ne!(event.run_id, "forged");
+                    break;
+                }
+            }
+        }
+        assert!(isolated.try_recv().is_err());
+        supervisor.stop("tab", 2).await;
+        supervisor
+            .request(&grants, launch.clone(), request("emit", json!(3), None))
+            .await
+            .unwrap();
+        loop {
+            let update = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if let events::Update::Event(event) = update {
+                assert_eq!(event.seq, 1);
+                break;
+            }
+        }
+        supervisor.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn v1_backends_refuse_event_subscriptions() {
+        let (_root, _dir, launch) = fixture_tab("backend");
+        let supervisor = BackendSupervisor::default();
+        let grants = GrantStore::default();
+        let error = supervisor.subscribe(&grants, launch).await.unwrap_err();
+        assert_eq!(error_code(&error), "PLUGIN_BACKEND_EVENTS_UNSUPPORTED");
+        assert!(supervisor.status("tab", 2).await.is_none());
+    }
+
+    #[tokio::test]
     async fn a_ready_backend_answers_requests() {
         let (_root, _dir, launch) = fixture_tab("backend");
         let (supervisor, grants) = (BackendSupervisor::default(), GrantStore::default());
@@ -886,11 +964,12 @@ mod tests {
         let prepared = launch.prepare().await.unwrap();
         supervisor.stop_plugin("tab", StopReason::TabRemoved).await;
         let Err(error) = supervisor
-            .spawn_unless_stopped(&grants, &launch, prepared, &history, stops)
+            .spawn_unless_stopped(&grants, &launch, &prepared, &history, stops)
             .await
         else {
             panic!("a stopped tab started its backend");
         };
+        let error: AppError = error.into();
         assert_eq!(error_code(&error), "PLUGIN_BACKEND_EXITED", "{error}");
         let status = supervisor.status("tab", 2).await.unwrap();
         assert_eq!((status.starts, status.start_error), (0, None));

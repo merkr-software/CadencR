@@ -234,9 +234,9 @@ mod tests {
         let mut windows = package();
         windows["package"]["tab"]["distribution"]["binary"]["windows-x86_64"] =
             target("windows-x86_64");
-        let mut protocol_two = package();
-        protocol_two["package"]["tab"]["backend"]["protocol"] = json!(2);
-        vec![("windows-x86_64", windows), ("protocol 2", protocol_two)]
+        let mut protocol_three = package();
+        protocol_three["package"]["tab"]["backend"]["protocol"] = json!(3);
+        vec![("windows-x86_64", windows), ("protocol 3", protocol_three)]
     }
 
     #[test]
@@ -258,8 +258,8 @@ mod tests {
                 ) || matches!(
                     (&refusal, what),
                     (
-                        TabBackendRefusal::UnsupportedProtocol { protocol: 2 },
-                        "protocol 2"
+                        TabBackendRefusal::UnsupportedProtocol { protocol: 3 },
+                        "protocol 3"
                     )
                 ),
                 "{what}: {refusal:?}"

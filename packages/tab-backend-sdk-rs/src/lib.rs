@@ -47,15 +47,18 @@ pub mod api;
 #[cfg(feature = "conformance")]
 pub mod conformance;
 mod context;
+mod emitter;
 mod error;
 mod framing;
 mod incoming;
+mod output;
 pub mod protocol;
 mod server;
 mod stdio_guard;
 pub mod testing;
 
 pub use context::{Context, Handler};
+pub use emitter::EventEmitter;
 pub use error::{codes, Error};
-pub use protocol::PROTOCOL_VERSION;
+pub use protocol::{EVENT_PROTOCOL_VERSION, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS};
 pub use server::{serve, serve_with, Config, ServeError, SDK};

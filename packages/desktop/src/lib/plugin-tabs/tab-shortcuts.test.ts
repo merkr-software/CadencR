@@ -10,6 +10,18 @@ import {
 const shortcut = (id: string, keys: string[]) => ({ id, keys, description: id });
 
 describe("appShortcutBindings", () => {
+  it("reserves editor container actions only on editor surfaces, leaving buffer commands to the plugin", () => {
+    const tab = appShortcutBindings({});
+    const editor = appShortcutBindings({}, "editor");
+    expect(tab.map((binding) => binding.id)).not.toContain("editor-fuzzy");
+    expect(editor).toContainEqual(
+      expect.objectContaining({ id: "editor-fuzzy", surface: "editor" }),
+    );
+    expect(editor).toContainEqual(
+      expect.objectContaining({ id: "editor-toggle-sidebar", surface: "editor" }),
+    );
+    expect(editor.map((binding) => binding.id)).not.toContain("editor-save");
+  });
   it("lists the conversation-wide shortcuts that hold a command modifier", () => {
     const ids = appShortcutBindings({}).map((binding) => binding.id);
     expect(ids).toContain("command-palette");

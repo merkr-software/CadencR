@@ -15,6 +15,7 @@ import { registerSave, unregisterSave } from "./editorSaveRegistry";
 import { gitBlameExtension } from "./git-blame-extension";
 import { getLanguageExtension } from "./language-extensions";
 import { useEditorFormat } from "./useEditorFormat";
+import { useEditorTabPosition } from "./useEditorTabPosition";
 import { useEditorSave } from "./useEditorSave";
 import { useLargeFileMode } from "./useLargeFileMode";
 
@@ -152,6 +153,7 @@ interface BufferLifecycleInput {
   save: ReturnType<typeof useEditorSave>["save"];
   clearPendingGoToLine: ReturnType<typeof useEditorStore.getState>["clearPendingGoToLine"];
   pendingGoToLine: number | undefined;
+  pendingGoToColumn: number | undefined;
   setDirty: ReturnType<typeof useEditorStore.getState>["setDirty"];
 }
 
@@ -172,13 +174,14 @@ function useBufferLifecycle(input: BufferLifecycleInput) {
   }, [input.setDirty, props.featureId, props.filePath, props.paneId]);
   useEffect(() => {
     if (!input.editorView || !input.data.fileQuery.data || input.pendingGoToLine == null) return;
-    scrollToEditorLine(input.editorView, input.pendingGoToLine);
+    scrollToEditorLine(input.editorView, input.pendingGoToLine, input.pendingGoToColumn);
     input.clearPendingGoToLine(props.featureId, props.paneId, props.filePath);
   }, [
     input.clearPendingGoToLine,
     input.data.fileQuery.data,
     input.editorView,
     input.pendingGoToLine,
+    input.pendingGoToColumn,
     props.featureId,
     props.filePath,
     props.paneId,
@@ -196,18 +199,7 @@ function useEditorBuffer(props: CodeMirrorEditorProps, data: EditorFileData) {
   const setDirty = useEditorStore((state) => state.setDirty);
   const setCursorPosition = useEditorStore((state) => state.setCursorPosition);
   const clearPendingGoToLine = useEditorStore((state) => state.clearPendingGoToLine);
-  const cursorPosition = useEditorStore(
-    (state) =>
-      state.features[props.featureId]?.panes[props.paneId]?.tabs.find(
-        (candidate) => candidate.filePath === props.filePath,
-      )?.cursorPosition,
-  );
-  const pendingGoToLine = useEditorStore(
-    (state) =>
-      state.features[props.featureId]?.panes[props.paneId]?.tabs.find(
-        (candidate) => candidate.filePath === props.filePath,
-      )?.pendingGoToLine,
-  );
+  const { cursorPosition, pendingGoToLine, pendingGoToColumn } = useEditorTabPosition(props);
   const { beforeWrite, isFormatting } = useEditorFormat({
     projectId: props.projectId,
     featureId: props.featureId,
@@ -264,6 +256,7 @@ function useEditorBuffer(props: CodeMirrorEditorProps, data: EditorFileData) {
     save: saveState.saveForClose,
     clearPendingGoToLine,
     pendingGoToLine,
+    pendingGoToColumn,
     setDirty,
   });
   return {

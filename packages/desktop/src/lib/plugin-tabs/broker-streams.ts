@@ -13,6 +13,8 @@ import { getPluginTabWsUrl } from "@/lib/ws-url";
 
 import { BrokerError, toBrokerError } from "./broker-errors";
 import type { GrantHolder } from "./broker-grant";
+import { asRecord, socketEventPayload, subscriptionPayload } from "./broker-stream-messages";
+import { SocketRequests } from "./broker-socket-requests";
 
 export interface StreamSink {
   event(subscriptionId: string, seq: number, data: StreamEnvelope): void;
@@ -47,16 +49,7 @@ interface Subscription {
   lastSeq: number;
 }
 
-interface PendingReply {
-  resolve: (payload: Record<string, unknown>) => void;
-  reject: (error: BrokerError) => void;
-}
-
 const defaultSocketFactory: SocketFactory = (url, protocol) => new WebSocket(url, [protocol]);
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
 
 /**
  * The instance's plugin socket (§4.4), opened on the first subscription and
@@ -72,8 +65,10 @@ export class PluginStreamSocket {
   private socket: WsConnection | null = null;
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly byServerId = new Map<string, string>();
-  private readonly pending = new Map<string, PendingReply>();
+  private readonly requests = new SocketRequests();
   private nextLocalId = 1;
+  private activeCalls = 0;
+  private generation = 0;
   private opening: Promise<WsConnection> | null = null;
   /**
    * Fails the socket still opening. Its own close is intentional, so the
@@ -96,8 +91,12 @@ export class PluginStreamSocket {
     this.url = options.url ?? getPluginTabWsUrl;
   }
 
-  async subscribe(topic: string, params?: Record<string, unknown>): Promise<string> {
-    const localId = `s${this.nextLocalId++}`;
+  async subscribe(
+    topic: string,
+    params?: Record<string, unknown>,
+    backend = false,
+  ): Promise<string> {
+    const localId = `${backend ? "b" : "s"}${this.nextLocalId++}`;
     const subscription: Subscription = {
       topic,
       params,
@@ -115,6 +114,21 @@ export class PluginStreamSocket {
       throw error;
     } finally {
       subscription.binding = false;
+      this.closeIfIdle();
+    }
+  }
+
+  /** One attempt only. A disconnect or timeout never replays a backend method. */
+  async backendRequest(
+    payload: Record<string, unknown>,
+    timeoutMs: number,
+  ): Promise<Record<string, unknown>> {
+    this.activeCalls++;
+    try {
+      return await this.requests.send(await this.open(), "backend.request", payload, timeoutMs);
+    } finally {
+      this.activeCalls--;
+      this.closeIfIdle();
     }
   }
 
@@ -129,7 +143,7 @@ export class PluginStreamSocket {
       }
     }
     // Nothing left to stream: don't keep an idle authenticated socket open.
-    if (this.subscriptions.size === 0 && this.opening === null) this.closeSocket();
+    this.closeIfIdle();
   }
 
   /**
@@ -138,8 +152,9 @@ export class PluginStreamSocket {
    * subscribe.
    */
   reset(): void {
+    this.generation++;
     clearReconnect(this.reconnectKey);
-    this.rejectPending("The custom tab was reloaded");
+    this.requests.rejectAll("The custom tab was reloaded");
     this.subscriptions.clear();
     this.byServerId.clear();
     this.closeSocket();
@@ -168,40 +183,54 @@ export class PluginStreamSocket {
   }
 
   private async connect(): Promise<WsConnection> {
+    const generation = this.generation;
     const token = await this.grant.token();
-    if (this.disposed) throw new BrokerError("DISCONNECTED", "The custom tab was closed");
+    if (this.disposed || generation !== this.generation)
+      throw new BrokerError("DISCONNECTED", "The custom tab was closed or reloaded");
     return new Promise<WsConnection>((resolve, reject) => {
-      this.abortOpening = reject;
-      const socket = openLifecycleSocket({
-        key: this.reconnectKey,
-        url: this.url(),
-        protocols: [`cadencr-plugin.${token}`],
-        createSocket: (url, protocols) => this.createSocket(url, protocols?.[0] ?? ""),
-        isCurrent: (connection) => this.socket === connection,
-        onConnected: (connection) => {
-          this.abortOpening = null;
-          resolve(connection);
-        },
-        // Subscriptions a drop left unbound come back with this socket; each
-        // rebind tells the guest to resync (`rebind`).
-        replay: () => void this.resubscribeAll(),
-        onMessage: (data) => this.handleMessage(data),
-        onDrop: (drop) => {
-          this.abortOpening = null;
-          reject(new BrokerError("DISCONNECTED", "The plugin socket closed"));
-          this.handleDrop(drop, token);
-        },
-        shouldRetry: () => this.canRetry(),
-        reconnect: this.retry,
-      });
-      this.socket = socket;
+      const timer = setTimeout(() => {
+        reject(new BrokerError("TIMEOUT", "The plugin socket did not open"));
+        this.closeSocket();
+        this.retryLater();
+      }, 10_000);
+      const fail = (error: BrokerError): void => {
+        clearTimeout(timer);
+        this.abortOpening = null;
+        reject(error);
+      };
+      this.abortOpening = fail;
+      try {
+        this.socket = openLifecycleSocket({
+          key: this.reconnectKey,
+          url: this.url(),
+          protocols: [`cadencr-plugin.${token}`],
+          createSocket: (url, protocols) => this.createSocket(url, protocols?.[0] ?? ""),
+          isCurrent: (connection) => this.socket === connection,
+          onConnected: (connection) => {
+            clearTimeout(timer);
+            this.abortOpening = null;
+            resolve(connection);
+          },
+          // Rebinds tell the guest to resync after the shared lifecycle reconnects.
+          replay: () => void this.resubscribeAll(),
+          onMessage: (data) => this.handleMessage(data),
+          onDrop: (drop) => {
+            fail(new BrokerError("DISCONNECTED", "The plugin socket closed"));
+            this.handleDrop(drop, token);
+          },
+          shouldRetry: () => this.canRetry(),
+          reconnect: this.retry,
+        });
+      } catch (error) {
+        fail(toBrokerError(error));
+      }
     });
   }
 
   private async bind(localId: string, subscription: Subscription, socket: WsConnection) {
     subscription.binding = true;
     try {
-      const reply = await this.request(socket, "subscribe", {
+      const reply = await this.requests.send(socket, "subscribe", {
         topic: subscription.topic,
         params: subscription.params ?? {},
       });
@@ -222,15 +251,6 @@ export class PluginStreamSocket {
     }
   }
 
-  private request(
-    socket: WsConnection,
-    action: string,
-    payload: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    const id = this.send(socket, action, payload);
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-  }
-
   private send(socket: WsConnection, action: string, payload: Record<string, unknown>): string {
     const envelope = createEnvelope("plugin", action, payload);
     socket.sendJson(envelope);
@@ -246,6 +266,7 @@ export class PluginStreamSocket {
       return;
     }
     const payload = asRecord(message.payload);
+    if (message.domain !== "plugin") return;
     if (message.action === "event") {
       this.forwardEvent(payload);
       return;
@@ -256,19 +277,22 @@ export class PluginStreamSocket {
       if (localId !== undefined) this.sink.resync(localId);
       return;
     }
-    const reply = message.ref === undefined ? undefined : this.pending.get(message.ref);
-    if (!reply || message.ref === undefined) return;
-    this.pending.delete(message.ref);
-    if (message.action === "subscribed") {
-      reply.resolve(payload);
-      return;
+    if (this.requests.handle(message)) return;
+    if (message.action === "error") {
+      const parsed = subscriptionPayload.safeParse(payload);
+      const localId = parsed.success ? this.byServerId.get(parsed.data.subscription_id) : undefined;
+      if (localId !== undefined)
+        this.sink.error(localId, {
+          code: String(payload.code ?? "HOST_ERROR"),
+          message: String(payload.message ?? "Stream failed"),
+        });
     }
-    const code = typeof payload.code === "string" ? payload.code : "HOST_ERROR";
-    const text = typeof payload.message === "string" ? payload.message : "Subscription refused";
-    reply.reject(new BrokerError(code, text));
   }
 
   private forwardEvent(payload: Record<string, unknown>): void {
+    const parsed = socketEventPayload.safeParse(payload);
+    if (!parsed.success) return;
+    payload = parsed.data;
     const localId = this.byServerId.get(String(payload.subscription_id));
     const subscription = localId === undefined ? undefined : this.subscriptions.get(localId);
     if (localId === undefined || !subscription) return;
@@ -284,7 +308,7 @@ export class PluginStreamSocket {
 
   private handleDrop(drop: SocketDrop, token: string): void {
     this.socket = null;
-    this.rejectPending("The plugin socket closed");
+    this.requests.rejectAll("The plugin socket closed");
     this.byServerId.clear();
     for (const subscription of this.subscriptions.values()) subscription.serverId = null;
     // A revoked or expired grant: the service closes an open socket with
@@ -346,9 +370,8 @@ export class PluginStreamSocket {
     }
   }
 
-  private rejectPending(message: string): void {
-    for (const reply of this.pending.values())
-      reply.reject(new BrokerError("DISCONNECTED", message));
-    this.pending.clear();
+  private closeIfIdle(): void {
+    if (this.subscriptions.size === 0 && this.activeCalls === 0 && this.opening === null)
+      this.closeSocket();
   }
 }

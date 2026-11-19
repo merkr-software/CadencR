@@ -33,7 +33,8 @@ export function installPluginTabPortRelay(): void {
 export function pluginTabsHostBridge(onIpc: OnIpc): { pluginTabs: PluginTabsBridge } {
   return {
     pluginTabs: {
-      open: (instanceId, pluginId) => ipcRenderer.invoke("plugin-tab:open", instanceId, pluginId),
+      open: (instanceId, pluginId, surface) =>
+        ipcRenderer.invoke("plugin-tab:open", instanceId, pluginId, surface),
       // Zoomed CSS px from getBoundingClientRect: read the zoom factor here so
       // it matches the layout just measured (same reasoning as setBrowserBounds).
       setBounds: (instanceId, bounds) =>
@@ -43,6 +44,7 @@ export function pluginTabsHostBridge(onIpc: OnIpc): { pluginTabs: PluginTabsBrid
       reload: (instanceId) => ipcRenderer.invoke("plugin-tab:reload", instanceId),
       close: (instanceId) => ipcRenderer.invoke("plugin-tab:close", instanceId),
       openDevTools: (instanceId) => ipcRenderer.invoke("plugin-tab:open-devtools", instanceId),
+      focus: (instanceId) => ipcRenderer.invoke("plugin-tab:focus", instanceId),
       setTheme: (theme) => ipcRenderer.invoke("plugin-tab:set-theme", theme),
       setAppShortcuts: (bindings) => ipcRenderer.invoke("plugin-tab:set-app-shortcuts", bindings),
       setTabShortcuts: (instanceId, shortcuts) =>

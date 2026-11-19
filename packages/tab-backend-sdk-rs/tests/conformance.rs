@@ -14,8 +14,17 @@ use serde_json::{json, Value};
 
 #[path = "../examples/echo.rs"]
 mod echo;
+#[path = "fixtures/event_backend.rs"]
+mod faulty_events;
+#[path = "fixtures/v1_backend.rs"]
+mod legacy;
 
 const BACKEND_FLAG: &str = "--backend";
+const LEGACY_FLAG: &str = "--legacy";
+const EVENTS_FLAG: &str = "--events";
+const INVALID_EVENT_FLAG: &str = "--invalid-event";
+const LARGE_EVENT_FLAG: &str = "--large-event";
+const V1_EVENT_FLAG: &str = "--v1-event";
 /// The echo backend after a line of chatter on stdout.
 const CHATTY_FLAG: &str = "--chatty";
 /// The echo backend after a stderr line over the protocol's line limit.
@@ -30,6 +39,16 @@ fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().collect();
     match args.get(1).and_then(|flag| flag.to_str()) {
         Some(BACKEND_FLAG) => return echo::main(),
+        Some(LEGACY_FLAG) => return legacy::run(),
+        Some(EVENTS_FLAG) => return streaming_backend(),
+        Some(INVALID_EVENT_FLAG) => return faulty_events::run("", Value::Null),
+        Some(LARGE_EVENT_FLAG) => {
+            return faulty_events::run(
+                "t",
+                json!("x".repeat(cadencr_tab_backend::protocol::MAX_EVENT_BYTES)),
+            )
+        }
+        Some(V1_EVENT_FLAG) => return faulty_events::run("t", Value::Null),
         Some(CHATTY_FLAG) => {
             println!("starting up...");
             return echo::main();
@@ -49,6 +68,9 @@ fn main() -> ExitCode {
     }
     let me = std::env::current_exe().expect("the test binary has a path");
     echo_backend_conforms(&me);
+    legacy_backend_still_conforms(&me);
+    events_do_not_hide_responses_or_prevent_exit(&me);
+    bad_events_fail_conformance(&me);
     stray_stdout_goes_to_the_log(&me);
     ready_must_be_the_first_line(&me);
     the_declared_protocol_is_used(&me);
@@ -150,15 +172,91 @@ fn ready_must_be_the_first_line(me: &Path) {
 }
 
 fn the_declared_protocol_is_used(me: &Path) {
-    // The echo backend speaks protocol 1 and refuses a protocol-2 hello.
+    // The upgraded SDK still refuses an unsupported protocol.
     let options = Options::builder()
         .args(vec![BACKEND_FLAG.into()])
-        .protocol(2)
+        .protocol(3)
         .build();
     let report = conformance::run(me, &options);
     assert_eq!(status(&report, "ready"), CheckStatus::Failed, "{report}");
     let refusal = report.stderr_tail.join("\n");
-    assert!(refusal.contains("protocol 2"), "{refusal}");
+    assert!(refusal.contains("protocol 3"), "{refusal}");
+}
+
+fn legacy_backend_still_conforms(me: &Path) {
+    let options = Options::builder().args(vec![LEGACY_FLAG.into()]).build();
+    let report = conformance::run(me, &options);
+    assert!(report.passed(), "{report}");
+    let options = Options::builder()
+        .args(vec![LEGACY_FLAG.into()])
+        .protocol(2)
+        .build();
+    let report = conformance::run(me, &options);
+    assert_eq!(status(&report, "ready"), CheckStatus::Failed, "{report}");
+}
+
+fn streaming_backend() -> ExitCode {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let started = Arc::new(AtomicBool::new(false));
+    cadencr_tab_backend::serve(move |cx: &cadencr_tab_backend::Context| {
+        if !started.swap(true, Ordering::SeqCst) {
+            let emitter = cx.emitter();
+            std::thread::spawn(move || {
+                let mut tick = 0;
+                loop {
+                    if let Err(error) = emitter.emit("timer.tick", json!({"tick": tick})) {
+                        eprintln!("timer stopped: {error}");
+                        break;
+                    }
+                    tick += 1;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            });
+        }
+        Err(cadencr_tab_backend::Error::unknown_method(cx.method()))
+    })
+}
+
+fn events_do_not_hide_responses_or_prevent_exit(me: &Path) {
+    let options = Options::builder()
+        .args(vec![EVENTS_FLAG.into()])
+        .protocol(2)
+        .build();
+    let report = conformance::run(me, &options);
+    assert!(report.passed(), "{report}\n{:?}", report.stderr_tail);
+    assert_eq!(status(&report, "exit_on_stdin_close"), CheckStatus::Passed);
+}
+
+fn bad_events_fail_conformance(me: &Path) {
+    for (flag, protocol) in [
+        (INVALID_EVENT_FLAG, 2),
+        (LARGE_EVENT_FLAG, 2),
+        (V1_EVENT_FLAG, 1),
+    ] {
+        let options = Options::builder()
+            .args(vec![flag.into()])
+            .protocol(protocol)
+            .build();
+        let report = conformance::run(me, &options);
+        assert_eq!(
+            status(&report, "stdout_clean"),
+            CheckStatus::Failed,
+            "{report}"
+        );
+        assert_eq!(
+            status(&report, "concurrent_requests"),
+            CheckStatus::Passed,
+            "{report}"
+        );
+    }
+    let options = Options::builder()
+        .args(vec![EVENTS_FLAG.into()])
+        .protocol(1)
+        .build();
+    let report = conformance::run(me, &options);
+    // The producer gets an explicit unsupported-version error, so v1 stays valid.
+    assert!(report.passed(), "{report}");
 }
 
 fn stderr_is_drained_past_long_lines(me: &Path) {

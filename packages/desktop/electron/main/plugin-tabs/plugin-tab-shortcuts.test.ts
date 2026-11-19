@@ -17,6 +17,22 @@ const key = (overrides: Partial<Parameters<PluginTabShortcuts["match"]>[1]>) => 
 });
 
 describe("PluginTabShortcuts", () => {
+  it("routes editor-only shortcuts on QWERTY and AZERTY without claiming them in ordinary tabs", () => {
+    const shortcuts = new PluginTabShortcuts("mac");
+    shortcuts.setApp([{ keys: ["mod", "a"], surface: "editor" }]);
+    expect(shortcuts.match("editor", key({ key: "a", code: "KeyA" }), "editor")).toEqual({
+      kind: "app",
+    });
+    expect(shortcuts.match("editor", key({ key: "a", code: "KeyQ" }), "editor")).toEqual({
+      kind: "app",
+    });
+    expect(shortcuts.match("tab", key({ key: "a", code: "KeyQ" }), "tab")).toBeNull();
+    expect(shortcuts.match("editor", key({ key: "q", code: "KeyA" }), "editor")).toBeNull();
+    expect(parseAppShortcutBindings([{ keys: ["mod", "a"], surface: "editor" }])).toEqual([
+      { keys: ["mod", "a"], surface: "editor" },
+    ]);
+    expect(() => parseAppShortcutBindings([{ keys: ["mod", "a"], surface: "unknown" }])).toThrow();
+  });
   it("matches Cadencr's shortcuts before the instance's, and only its own instance's", () => {
     const shortcuts = new PluginTabShortcuts("mac");
     shortcuts.setApp([{ keys: ["mod", "k"] }]);

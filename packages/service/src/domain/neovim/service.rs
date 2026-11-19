@@ -171,6 +171,14 @@ impl NeovimManager {
         self.processes.lock().await.contains_key(&feature_id)
     }
 
+    /// Feature ids with a Neovim process registered right now, sorted. The
+    /// plugin-migration guard refuses to switch editors while this is non-empty.
+    pub(crate) async fn running_features(&self) -> Vec<i64> {
+        let mut ids: Vec<i64> = self.processes.lock().await.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
     /// PTY id backing this feature's Neovim, so the WS layer can attach to the
     /// existing broadcast channel rather than opening a second stream.
     #[allow(dead_code)]
@@ -412,6 +420,20 @@ pub(crate) mod tests {
             .unwrap();
             assert_eq!(manager.pty_id(1).await.as_deref(), Some(first.as_str()));
         }
+    }
+
+    #[tokio::test]
+    async fn running_features_lists_started_sessions_until_stopped() {
+        if !nvim_available_test().await {
+            eprintln!("SKIP: nvim binary not found in test environment");
+            return;
+        }
+        let manager = test_manager().await;
+        assert!(manager.running_features().await.is_empty());
+        manager.ensure_started(14).await.unwrap();
+        assert_eq!(manager.running_features().await, vec![14]);
+        manager.stop(14).await.unwrap();
+        assert!(manager.running_features().await.is_empty());
     }
 
     #[tokio::test]

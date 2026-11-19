@@ -15,7 +15,9 @@ import { shortcutBindingSchema, shortcutPlatform } from "../browser-guest-shortc
 const MAX_APP_BINDINGS = 512;
 const MAX_TAB_SHORTCUTS = 16;
 
-const appBindingsSchema = z.array(shortcutBindingSchema).max(MAX_APP_BINDINGS);
+const appBindingsSchema = z
+  .array(shortcutBindingSchema.extend({ surface: z.literal("editor").optional() }))
+  .max(MAX_APP_BINDINGS);
 
 const tabShortcutsSchema = z
   .array(
@@ -40,13 +42,16 @@ export type PluginTabShortcutMatch = { kind: "app" } | { kind: "tab"; id: string
  * renderer's first push: every key then reaches the page.
  */
 export class PluginTabShortcuts {
-  private app: BrowserShortcutInputMatcher[] = [];
+  private app: { matches: BrowserShortcutInputMatcher; surface?: "editor" }[] = [];
   private readonly own = new Map<string, { id: string; matches: BrowserShortcutInputMatcher }[]>();
 
   constructor(private readonly platform = shortcutPlatform()) {}
 
   setApp(bindings: readonly PluginTabShortcutBinding[]): void {
-    this.app = bindings.map((binding) => compileBrowserShortcutBinding(binding, this.platform));
+    this.app = bindings.map((binding) => ({
+      matches: compileBrowserShortcutBinding(binding, this.platform),
+      surface: binding.surface,
+    }));
   }
 
   setOwn(instanceId: string, shortcuts: readonly PluginTabOwnShortcut[]): void {
@@ -71,11 +76,20 @@ export class PluginTabShortcuts {
     this.own.clear();
   }
 
-  match(instanceId: string, input: BrowserShortcutInput): PluginTabShortcutMatch | null {
+  match(
+    instanceId: string,
+    input: BrowserShortcutInput,
+    surface: "tab" | "editor" = "tab",
+  ): PluginTabShortcutMatch | null {
     // Both sides hold Cmd/Ctrl or Alt (`appShortcutBindings`, the manifest):
     // plain typing never matches, so it skips the scan.
     if (!input.meta && !input.control && !input.alt) return null;
-    if (this.app.some((matches) => matches(input))) return { kind: "app" };
+    if (
+      this.app.some(
+        (binding) => (!binding.surface || binding.surface === surface) && binding.matches(input),
+      )
+    )
+      return { kind: "app" };
     const own = this.own.get(instanceId)?.find(({ matches }) => matches(input));
     return own ? { kind: "tab", id: own.id } : null;
   }

@@ -135,11 +135,14 @@ mod tests {
             .call();
         let package = catalog::resolve_kind(&tab.receipt.index, "graph", "1.0.0", "tab").unwrap();
         assert!(signed_backend("graph", &package).unwrap().is_some());
+        let mut v2 = package.clone();
+        v2["tab"]["backend"]["protocol"] = serde_json::json!(2);
+        assert_eq!(signed_backend("graph", &v2).unwrap().unwrap().protocol, 2);
         let mut future = package.clone();
-        future["tab"]["backend"]["protocol"] = serde_json::json!(2);
+        future["tab"]["backend"]["protocol"] = serde_json::json!(3);
         let refused = signed_backend("graph", &future).unwrap_err();
         assert_eq!(error_code(&refused), "MANAGED_TAB_NEEDS_NEWER_APP");
-        assert!(refused.to_string().contains("protocol 2"), "{refused}");
+        assert!(refused.to_string().contains("protocol 3"), "{refused}");
         let mut elsewhere = package.clone();
         let binary = &mut elsewhere["tab"]["distribution"]["binary"];
         let entry = binary.as_object().unwrap().values().next().unwrap().clone();

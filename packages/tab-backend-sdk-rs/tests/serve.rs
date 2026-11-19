@@ -32,6 +32,22 @@ fn answers_ready_then_requests() {
 }
 
 #[test]
+fn a_v2_hello_preserves_the_requested_protocol() {
+    let mut hello = sample_hello();
+    hello.protocol = 2;
+    let transcript =
+        host()
+            .with_hello(hello)
+            .session([TestHost::request("v2", "echo", json!("v2 result"))]);
+    transcript.outcome.as_ref().unwrap();
+    assert_eq!(transcript.ready().unwrap().protocol, 2);
+    assert_eq!(
+        transcript.response("v2").unwrap().outcome(),
+        Ok(&json!("v2 result"))
+    );
+}
+
+#[test]
 fn hands_the_hello_to_handlers() {
     let mut hello = sample_hello();
     hello.plugin.id = "acme.tab".into();
@@ -128,10 +144,10 @@ fn refuses_a_missing_wrong_or_foreign_hello() {
         sample_hello(),
     ))
     .unwrap();
-    hello["protocol"] = json!(2);
+    hello["protocol"] = json!(3);
     let error = refuse(&format!("{hello}\n"));
-    assert!(matches!(&error, ServeError::ProtocolMismatch { host } if *host == json!(2)));
-    assert!(error.to_string().contains("protocol 2"));
+    assert!(matches!(&error, ServeError::ProtocolMismatch { host } if *host == json!(3)));
+    assert!(error.to_string().contains("protocol 3"));
 }
 
 fn huge(cx: &Context) -> Result<Value, Error> {

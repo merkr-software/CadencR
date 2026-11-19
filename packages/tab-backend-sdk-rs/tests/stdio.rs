@@ -19,6 +19,7 @@ fn main() -> ExitCode {
         let me = std::env::current_exe().expect("the test binary has a path");
         unix::children_never_read_the_protocol(&me);
         unix::buffered_stdout_goes_to_the_log(&me);
+        unix::a_blocked_publisher_does_not_prevent_stdin_close(&me);
         println!("stdio: all tests passed");
     }
     #[cfg(not(unix))]
@@ -40,9 +41,9 @@ mod unix {
     use std::process::{Child, ChildStdin, Command, ExitCode, Stdio};
     use std::sync::mpsc::{self, Receiver};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    use cadencr_tab_backend::protocol::HostMessage;
+    use cadencr_tab_backend::protocol::{HostMessage, MAX_EVENT_BYTES};
     use cadencr_tab_backend::testing::{sample_hello, TestHost};
     use cadencr_tab_backend::{serve, Context, Error};
     use serde_json::{json, Value};
@@ -64,6 +65,19 @@ mod unix {
                 Ok(json!(String::from_utf8_lossy(&output.stdout)))
             }
             "echo" => Ok(cx.raw_params().clone()),
+            "stream" => {
+                let emitter = cx.emitter();
+                thread::spawn(move || {
+                    let payload = json!("x".repeat(MAX_EVENT_BYTES - 100));
+                    loop {
+                        if let Err(error) = emitter.emit("stream", payload.clone()) {
+                            eprintln!("publisher stopped: {error}");
+                            break;
+                        }
+                    }
+                });
+                Ok(Value::Null)
+            }
             other => Err(Error::unknown_method(other)),
         }
     }
@@ -166,5 +180,57 @@ mod unix {
         assert_eq!(ready["type"], "ready", "{ready}");
         let stderr = backend.finish();
         assert!(stderr.contains(BUFFERED), "{stderr}");
+    }
+
+    /// Leave the protocol pipe unread while a background producer fills it.
+    /// Closing stdin must exit, without joining or locking that producer.
+    pub fn a_blocked_publisher_does_not_prevent_stdin_close(me: &Path) {
+        let mut child = Command::new(me)
+            .arg(BACKEND_FLAG)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut hello = sample_hello();
+        hello.protocol = 2;
+        writeln!(
+            stdin,
+            "{}",
+            serde_json::to_string(&HostMessage::Hello(hello)).unwrap()
+        )
+        .unwrap();
+        stdin.flush().unwrap();
+        let mut ready = String::new();
+        stdout.read_line(&mut ready).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&ready).unwrap()["protocol"],
+            2
+        );
+        writeln!(
+            stdin,
+            "{}",
+            TestHost::request("stream", "stream", Value::Null)
+        )
+        .unwrap();
+        stdin.flush().unwrap();
+        // No stdout reads: a 64 KiB event soon fills the kernel pipe.
+        thread::sleep(Duration::from_millis(100));
+        drop(stdin);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "{status}");
+                return;
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("backend stayed alive with a blocked event publisher");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }

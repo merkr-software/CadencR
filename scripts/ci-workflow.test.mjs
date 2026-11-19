@@ -26,11 +26,31 @@ test("PR runs cancel superseded runs; branch pushes never do", () => {
   assert.equal(ci.concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}");
 });
 
-test("every Node setup uses the repo's pinned Node version", () => {
+test("the pinned pnpm includes the hoisted-copy fix and an integrity hash", () => {
+  const { packageManager } = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  const pin = /^pnpm@(\d+)\.(\d+)\.\d+\+sha512\.[a-f0-9]{128}$/.exec(packageManager);
+  assert.ok(pin, "Corepack must use an exact pnpm version with its SHA-512 integrity");
+  const major = Number(pin[1]);
+  const minor = Number(pin[2]);
+  // pnpm/pnpm#12880: hoisted backfill deleted nested dependencies and staged copies.
+  assert.ok(
+    major > 11 || (major === 11 && minor >= 25),
+    "pnpm >= 11.25.0 preserves nested dependencies during hoisted build backfill",
+  );
+});
+
+test("Node setups use the repo pin except the frozen LSP runtime baseline", () => {
   for (const name of readdirSync(workflowsDir).filter((file) => file.endsWith(".yml"))) {
     for (const [jobId, job] of Object.entries(read(name).jobs)) {
       for (const step of job.steps ?? []) {
         if (!step.uses?.startsWith("actions/setup-node@")) continue;
+        if (name === "lsp-catalog-qualification.yml" && jobId === "runtime") {
+          assert.equal(step.with?.["node-version"], "22.19.0", `${name}#${jobId}`);
+          assert.equal(step.with?.["node-version-file"], undefined, `${name}#${jobId}`);
+          continue;
+        }
         assert.equal(step.with?.["node-version"], undefined, `${name}#${jobId} pins node-version`);
         assert.equal(step.with?.["node-version-file"], ".nvmrc", `${name}#${jobId}`);
       }

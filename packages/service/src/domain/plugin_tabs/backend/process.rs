@@ -3,7 +3,6 @@
 //! [`super::handshake`]. A stopped backend gets its stdin closed; after a
 //! grace period the whole process tree is terminated.
 
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -16,20 +15,20 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::ending;
+use super::events::Events;
 use super::handshake::{self, FailureKind, Handshake, HandshakeFailure, HandshakeState};
 use super::history::{ExitRecord, History};
-use super::launch::unavailable;
 use super::models::PluginBackendResponse;
-use super::protocol::{lock, read_stderr, read_stdout, write_stdin, Pending, Reply, Stdout};
+use super::protocol::{lock, Pending, Reply};
 use super::request::Budget;
-use super::{BackendLaunch, StopReason};
+use super::StopReason;
 use crate::domain::agents::acp::process_tree::ProcessTreeControl;
-use crate::domain::agents::providers::installed::managed::process_policy::{
-    long_lived_managed_command, managed_process_tree_policy,
-};
-use crate::domain::plugin_tabs::grants::{GrantRequest, GrantStore, Lifetime};
+use crate::domain::plugin_tabs::grants::GrantStore;
 use crate::domain::plugin_tabs::managed::storage::{ManagedFacts, RevisionLease};
 use crate::error::AppError;
+
+mod spawn;
+pub(super) use spawn::spawn;
 
 const TERMINATE_GRACE: Duration = Duration::from_secs(3);
 /// Upper bound on one stop: both graces, plus the tree cleanup.
@@ -44,6 +43,8 @@ pub(super) struct Prepared {
 
 /// A live backend process.
 pub(super) struct Running {
+    pub run_id: String,
+    pub events: Events,
     pub pid: u32,
     /// Which start of this backend it is (see [`History::record_start`]).
     run: u32,
@@ -172,96 +173,6 @@ pub(super) fn exited_error(reason: &str) -> AppError {
     )
 }
 
-/// Start `launch`'s `prepared` backend; its tasks report into `history`.
-pub(super) fn spawn(
-    launch: &BackendLaunch,
-    prepared: Prepared,
-    grants: &GrantStore,
-    history: Arc<History>,
-) -> Result<Arc<Running>, AppError> {
-    let mut command = long_lived_managed_command(&prepared.executable, &launch.plugin_dir)
-        .map_err(|error| unavailable(format!("the backend cannot start: {error}")))?;
-    command.stdin(Stdio::piped());
-    let tree = ProcessTreeControl::prepare(&mut command, managed_process_tree_policy())
-        .map_err(|error| unavailable(format!("the backend cannot be contained: {error}")))?;
-    let mut child = command
-        .spawn()
-        .map_err(|error| unavailable(format!("the backend failed to start: {error}")))?;
-    if let Err(error) = tree.attach(&child) {
-        let _ = child.start_kill();
-        return Err(unavailable(format!(
-            "the backend cannot be contained: {error}"
-        )));
-    }
-    let (Some(pid), Some(stdin), Some(stdout), Some(stderr)) = (
-        child.id(),
-        child.stdin.take(),
-        child.stdout.take(),
-        child.stderr.take(),
-    ) else {
-        let _ = child.start_kill();
-        return Err(unavailable("the backend's stdio was unavailable".into()));
-    };
-    let minted = grants.mint(
-        GrantRequest::builder()
-            .plugin_id(launch.plugin_id.clone())
-            .project_id(launch.project_id)
-            .feature_id(launch.feature_id)
-            .scopes(launch.scopes.clone())
-            .permissions_hash(launch.permissions_hash.clone())
-            .lifetime(Lifetime::UntilRevoked)
-            .build(),
-    );
-    let run = history.record_start();
-    let (stdin_tx, stdin_rx) = mpsc::channel(MAX_IN_FLIGHT);
-    let running = Arc::new(Running {
-        pid,
-        run,
-        grant_key: minted.grant.key.clone(),
-        permissions_hash: launch.permissions_hash.clone(),
-        plugin_dir: launch.plugin_dir.clone(),
-        plugin_version: launch.plugin_version.clone(),
-        managed: launch.managed.clone(),
-        stop: CancellationToken::new(),
-        stop_reason: OnceLock::new(),
-        exited: CancellationToken::new(),
-        stdin: stdin_tx,
-        pending: Pending::default(),
-        next_id: AtomicU64::new(1),
-        handshake: handshake::new_state(),
-        ready_budget: prepared.ready_budget,
-    });
-    let hello = match launch.hello(&minted.token) {
-        Ok(hello) => hello,
-        Err(error) => {
-            let _ = child.start_kill();
-            grants.revoke_key(&minted.grant.key);
-            return Err(error);
-        }
-    };
-    tokio::spawn(write_stdin(stdin, hello, stdin_rx, running.stop.clone()));
-    tokio::spawn(read_stdout(Stdout {
-        stdout,
-        pending: running.pending.clone(),
-        history: history.clone(),
-        handshake: running.handshake.clone(),
-        protocol: launch.backend.protocol,
-    }));
-    tokio::spawn(read_stderr(stderr, history.clone()));
-    tokio::spawn(supervise(
-        Process {
-            child,
-            tree,
-            lease: launch.lease.clone(),
-        },
-        running.clone(),
-        minted.grant.revoked.clone(),
-        grants.clone(),
-        history,
-    ));
-    Ok(running)
-}
-
 /// What [`supervise`] owns of one run.
 struct Process {
     child: Child,
@@ -341,6 +252,7 @@ async fn supervise(
     // Recorded before `exited` fires, so a status read as "not running"
     // already says why.
     history.record_exit(running.run, exit);
+    running.events.end(&running.run_id, &reason);
     // Its revision may be reclaimed now.
     if let Some(lease) = lease {
         ending::release(lease, &history).await;

@@ -59,10 +59,21 @@ function registerRendererIpc(
   manager: PluginTabManager,
   getMainWindow: PluginTabIpcOptions["getMainWindow"],
 ): void {
-  ipcMain.handle("plugin-tab:open", (event, instanceId: unknown, pluginId: unknown) => {
-    assertTrustedSender(event, getMainWindow);
-    manager.open(parseInstanceId(instanceId), parsePluginId(pluginId));
-  });
+  ipcMain.handle(
+    "plugin-tab:open",
+    (event, instanceId: unknown, pluginId: unknown, surface: unknown) => {
+      assertTrustedSender(event, getMainWindow);
+      manager.open(
+        parseInstanceId(instanceId),
+        parsePluginId(pluginId),
+        z
+          .object({ kind: z.enum(["tab", "editor"]) })
+          .strict()
+          .optional()
+          .parse(surface),
+      );
+    },
+  );
   ipcMain.handle(
     "plugin-tab:set-bounds",
     (event, instanceId: unknown, bounds: unknown, zoomFactor: unknown) => {
@@ -89,6 +100,10 @@ function registerRendererIpc(
   ipcMain.handle("plugin-tab:open-devtools", (event, instanceId: unknown) => {
     assertTrustedSender(event, getMainWindow);
     manager.openDevTools(parseInstanceId(instanceId));
+  });
+  ipcMain.handle("plugin-tab:focus", (event, instanceId: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    manager.focus(parseInstanceId(instanceId));
   });
   ipcMain.handle("plugin-tab:set-theme", (event, theme: unknown) => {
     assertTrustedSender(event, getMainWindow);

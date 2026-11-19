@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Backend clock</title>
+  </head>
+  <body>
+    <main>
+      <h1>Backend clock</h1>
+      <p id="status" role="status">Connecting…</p>
+      <p id="error" role="alert"></p>
+      <p>Tick: <output id="tick">—</output></p>
+      <p>Process: <output id="process">—</output></p>
+      <p>Resynchronizations: <output id="resyncs">0</output></p>
+      <button id="snapshot" disabled>Read snapshot</button>
+      <button id="unsubscribe" disabled>Unsubscribe</button>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

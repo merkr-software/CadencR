@@ -3,6 +3,11 @@ export type { CadencrClient, CadencrCapabilities } from "./client.js";
 export type { ApiCallOptions, ApiRequest, CadencrApi, QueryValue } from "./api.js";
 export type { ApiResponse } from "./response.js";
 export type {
+  BackendEvent,
+  BackendSubscribeOptions,
+  BackendSubscription,
+} from "./backend-streams.js";
+export type {
   CadencrStreams,
   StreamEvent,
   StreamSubscription,
