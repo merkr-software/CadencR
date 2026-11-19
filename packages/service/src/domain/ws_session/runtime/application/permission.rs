@@ -354,11 +354,13 @@ pub(super) async fn respond_claimed(
     let cleared =
         clear_answered_gate_ahead(context.write_pool, db_session_id, &payload.request_id).await?;
     let answer = payload.updated_input.clone();
-    let result = match crate::domain::agents::permission_modes::provider_permission_response_route(
+    // Every refusal puts the gate back before leaving; past acceptance, the
+    // answer stands and nothing is restored.
+    match crate::domain::agents::permission_modes::provider_permission_response_route(
         &runtime.active.runtime_provider,
     ) {
         RuntimePermissionResponseRoute::PermissionCallback => {
-            send_permission_channel_response(
+            let delivered = send_permission_channel_response(
                 runtime.active.permission_tx,
                 payload,
                 output,
@@ -367,12 +369,14 @@ pub(super) async fn respond_claimed(
                 db_session_id,
                 answer,
             )
-            .await
+            .await;
+            restore_after_refusal(context.write_pool, cleared, delivered).await
         }
         RuntimePermissionResponseRoute::Session => {
-            let kind =
+            let accepted =
                 respond_runtime_permission(&runtime, &payload, db_session_id, context, output)
-                    .await?;
+                    .await;
+            let kind = restore_after_refusal(context.write_pool, cleared, accepted).await?;
             finish_accepted_runtime_permission(
                 output,
                 context,
@@ -384,8 +388,7 @@ pub(super) async fn respond_claimed(
             )
             .await
         }
-    };
-    restore_after_refusal(context.write_pool, cleared, result).await
+    }
 }
 
 #[cfg(test)]
@@ -622,8 +625,73 @@ mod tests {
         let other = tokio::spawn(other.recv());
         tokio::task::yield_now().await;
         assert!(!other.is_finished(), "the answer must not resolve q-other");
-        // The failed delivery released the gate claim so a retry can land.
+        // The failed delivery released the gate claim so a retry can land,
+        // and put the cleared gate back in storage.
         let id = payload.session_id.parse::<i64>().unwrap();
+        assert!(state.pending_gates.claim(id, "q-1").await.is_ok());
+        assert!(question_still_stored(&state, id).await);
+    }
+
+    struct RefusingRuntime;
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for RefusingRuntime {
+        fn take_message_rx(&mut self) -> RuntimeMessageRx {
+            mpsc::channel(1).1
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn stream_input(&self, _: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn respond_permission(
+            &self,
+            _: RuntimePermissionResponse,
+        ) -> Result<(), RuntimeError> {
+            Err(RuntimeError::new("the agent no longer holds this request"))
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// The session route used to leave on the refusal before restoring: the
+    /// question was cleared for good while the agent still waited on it.
+    #[tokio::test]
+    async fn a_session_route_refusal_puts_the_question_back() {
+        let (state, sessions, payload, _calls) = fixture(false).await;
+        let id = payload.session_id.parse::<i64>().unwrap();
+        if let Some(handle) = sessions.lock().await.get_mut(&id) {
+            let (permission_tx, _) = permission_response_channel();
+            handle.state = QueryState::Active {
+                query: Arc::new(RwLock::new(Box::new(RefusingRuntime))),
+                permission_tx,
+            };
+        }
+        let output = CommandOutput {
+            recipient: SessionOutput::headless(),
+            correlation_id: String::new(),
+        };
+
+        let error = respond_permission(&context(&state), &sessions, payload, &output)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "RUNTIME_PERMISSION_ERROR");
+        assert!(question_still_stored(&state, id).await);
         assert!(state.pending_gates.claim(id, "q-1").await.is_ok());
     }
 
