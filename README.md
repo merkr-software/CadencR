@@ -120,14 +120,14 @@ Use the latest code or contribute to the product.
 
 | Dependency          | Setup                                                                                                        |
 | ------------------- | ------------------------------------------------------------------------------------------------------------ |
-| **Node.js 22.19.0** | Pinned in `.nvmrc`; supported range `>=22.19.0 <23.0.0`. Run `nvm use`, or configure fnm to use the file.    |
+| **Node.js 22.23.5** | Pinned in `.nvmrc`; supported range `>=22.23.5 <23.0.0`. Run `nvm use`, or configure fnm to use the file.    |
 | **pnpm**            | Run `corepack enable`; `package.json` pins the version.                                                      |
 | **Rust**            | Install with [rustup](https://rustup.rs/). `rust-toolchain.toml` selects the toolchain, rustfmt, and clippy. |
 | **watchexec**       | `pnpm dev` uses it to restart the service: `brew install watchexec`. `cargo-watch` is a fallback.            |
 | **Python 3.11+**    | The root script tests need it. The hooks find it on PATH or in Homebrew, pyenv, uv or `/usr` themselves.     |
 | **An agent CLI**    | Install and authenticate at least one supported agent.                                                       |
 
-Using Nix? `nix develop` supplies Node 22, Python 3, rustup, watchexec, and native libraries; Corepack supplies pnpm.
+Using Nix? `nix develop` supplies the Node.js version pinned in `.nvmrc`, Python 3, rustup, watchexec, and native libraries. Corepack supplies pnpm.
 
 #### Setup
 

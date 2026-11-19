@@ -5,7 +5,7 @@ This guide documents the setup path for running Cadencr from source on a native 
 ## Environment
 
 - Ubuntu Linux. The commands below were validated on Ubuntu 26.04 LTS.
-- Node.js `22.19.0`; the repo enforces `>=22.19.0 <23.0.0`.
+- Node.js `22.23.5`; the repo enforces `>=22.23.5 <23.0.0`.
 - pnpm through Corepack. The exact pnpm version is pinned by the root `package.json`.
 - Rust through rustup.
 - At least one local agent CLI you want to use: Claude Code, OpenCode, or Codex.
@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bas
 Restart your shell, then install the Node version pinned by the repo:
 
 ```bash
-nvm install 22.19.0
+nvm install
 nvm use
 corepack enable
 ```
