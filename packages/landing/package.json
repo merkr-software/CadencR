@@ -5,6 +5,13 @@
   "description": "Cadencr marketing site, docs and news.",
   "license": "Apache-2.0",
   "type": "module",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "22.23.5",
+      "onFail": "download"
+    }
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",

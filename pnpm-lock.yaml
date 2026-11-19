@@ -486,6 +486,9 @@ importers:
       knip:
         specifier: ^6.41.0
         version: 6.41.0
+      node:
+        specifier: runtime:22.23.5
+        version: runtime:22.23.5
       oxfmt:
         specifier: ^0.72.0
         version: 0.72.0
@@ -7037,6 +7040,159 @@ packages:
   node-releases@2.0.58:
     resolution: {integrity: sha512-BdiKAgbfRlvfMq/XzO/AF9NPmaA8a+YpLAyAFTVFBj3gARrAIfWvNq7Q7NE4se3KgFu0KkrvQMxTS0XVnsGzHg==}
     engines: {node: '>=18'}
+
+  node@runtime:22.23.5:
+    resolution:
+      type: variations
+      variants:
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-8N2guueWeKtus8oCF59P5TRGPOb2irlC0rSbBX5HhDM=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-aix-ppc64.tar.gz
+          targets:
+            - cpu: ppc64
+              os: aix
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-5xMZlXWbYaAXC2RgENKtNaXTe0yw1HHz6DF+rG90Lz0=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-darwin-arm64.tar.gz
+          targets:
+            - cpu: arm64
+              os: darwin
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-xTODI4IGua5NsjxdimNkXi51O+yKtRpJzIGTmqZOlCI=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-darwin-x64.tar.gz
+          targets:
+            - cpu: x64
+              os: darwin
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-i9Pcae7o8/ImMVqA19HU+szyF6TI+uUAForC448726M=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-arm64.tar.gz
+          targets:
+            - cpu: arm64
+              os: linux
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-As0iGAhyFIG6Pt2LUWJKORtFNXVDuBROb/eqw14VAKw=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-armv7l.tar.gz
+          targets:
+            - cpu: armv7l
+              os: linux
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-3kagJ+6zlC1YnaY/LFc05z1cU6rIJF51CIoawTvaLgQ=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-ppc64le.tar.gz
+          targets:
+            - cpu: ppc64le
+              os: linux
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-UPjhE79mOLudWuZiCIP9kLmOjh968Q74fMqdyXnNs5s=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-s390x.tar.gz
+          targets:
+            - cpu: s390x
+              os: linux
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-g7i6kW6yLom6gnRCakD3qgARxuTF/3elsDeT94GpB4Y=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-x64-musl.tar.gz
+          targets:
+            - cpu: x64
+              os: linux
+              libc: musl
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-xUEYEErMUkYztavhBrv0SlMSbsi05foQXLkrXX3ooaE=
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-x64.tar.gz
+          targets:
+            - cpu: x64
+              os: linux
+        - resolution:
+            archive: zip
+            bin:
+              node: node.exe
+            integrity: sha256-wYVoF/YRc4x3U077/4paF5kFk+qyQEa8jSwjp3oWDRM=
+            prefix: node-v22.23.5-win-arm64
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-win-arm64.zip
+          targets:
+            - cpu: arm64
+              os: win32
+        - resolution:
+            archive: zip
+            bin:
+              node: node.exe
+            integrity: sha256-ShkQgulwaGaDA3nVd9LMilDHdvzZQ2qNBhsGPtDZoOM=
+            prefix: node-v22.23.5-win-x64
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-win-x64.zip
+          targets:
+            - cpu: x64
+              os: win32
+        - resolution:
+            archive: zip
+            bin:
+              node: node.exe
+            integrity: sha256-nAEkVoPIfj+B7t+62CwWZWEXSWJ80bC1pCkh25NhtKY=
+            prefix: node-v22.23.5-win-x86
+            type: binary
+            url: https://nodejs.org/download/release/v22.23.5/node-v22.23.5-win-x86.zip
+          targets:
+            - cpu: x86
+              os: win32
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-UccuOhOFsQ1MhipAyEX8e+pbGeMMfhCdvcwgd8VeObs=
+            type: binary
+            url: https://unofficial-builds.nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-arm64-musl.tar.gz
+          targets:
+            - cpu: arm64
+              os: linux
+              libc: musl
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-WRb60QoF5H8ty9cPmToDln/9UTMPQEFeyK/dmSjcEL4=
+            type: binary
+            url: https://unofficial-builds.nodejs.org/download/release/v22.23.5/node-v22.23.5-linux-x64-musl.tar.gz
+          targets:
+            - cpu: x64
+              os: linux
+              libc: musl
+    version: 22.23.5
+    hasBin: true
 
   nopt@9.0.0:
     resolution: {integrity: sha512-Zhq3a+yFKrYwSBluL4H9XP3m3y5uvQkB/09CwDruCiRmR/UJYnn9W4R48ry0uGC70aeTPKLynBtscP9efFFcPw==}
@@ -15608,6 +15764,8 @@ snapshots:
   node-releases@2.0.53: {}
 
   node-releases@2.0.58: {}
+
+  node@runtime:22.23.5: {}
 
   nopt@9.0.0:
     dependencies:
