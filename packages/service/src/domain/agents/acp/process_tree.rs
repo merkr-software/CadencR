@@ -28,8 +28,17 @@ pub enum AcpProcessTreePolicy {
     /// Preserve the established built-in provider behavior.
     #[default]
     Inherit,
-    /// Own the provider's process tree and terminate descendants on shutdown.
+    /// Own the provider's process tree and terminate descendants on shutdown,
+    /// with the resource ceilings of a managed package.
     Isolated(AcpProcessTreeLimits),
+    /// Own the provider's process tree and terminate descendants on shutdown,
+    /// without resource ceilings.
+    ///
+    /// A provider installed outside the managed package store is still a
+    /// process the host starts and stops, so it must not outlive its session.
+    /// It must not inherit the managed ceilings either: those bound a package
+    /// the host did not build, and would kill a long interactive session.
+    Grouped,
 }
 
 pub(crate) struct ProcessTreeControl {
@@ -54,7 +63,9 @@ impl ProcessTreeControl {
     pub(crate) fn attach(&self, child: &Child) -> io::Result<()> {
         match self.policy {
             AcpProcessTreePolicy::Inherit => Ok(()),
-            AcpProcessTreePolicy::Isolated(_) => self.attach_isolated(child),
+            AcpProcessTreePolicy::Isolated(_) | AcpProcessTreePolicy::Grouped => {
+                self.attach_isolated(child)
+            }
         }
     }
 
@@ -68,14 +79,16 @@ impl ProcessTreeControl {
                 child.start_kill()?;
                 child.wait().await
             }
-            AcpProcessTreePolicy::Isolated(_) => self.terminate_isolated(child, grace).await,
+            AcpProcessTreePolicy::Isolated(_) | AcpProcessTreePolicy::Grouped => {
+                self.terminate_isolated(child, grace).await
+            }
         }
     }
 
     pub(crate) async fn cleanup_after_exit(&self, pid: Option<u32>) -> io::Result<()> {
         match self.policy {
             AcpProcessTreePolicy::Inherit => Ok(()),
-            AcpProcessTreePolicy::Isolated(_) => {
+            AcpProcessTreePolicy::Isolated(_) | AcpProcessTreePolicy::Grouped => {
                 #[cfg(unix)]
                 {
                     match pid {
@@ -160,7 +173,7 @@ fn validate_policy(policy: AcpProcessTreePolicy) -> io::Result<()> {
 }
 
 fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::Result<()> {
-    if !matches!(policy, AcpProcessTreePolicy::Isolated(_)) {
+    if matches!(policy, AcpProcessTreePolicy::Inherit) {
         return Ok(());
     }
     #[cfg(unix)]
@@ -199,6 +212,7 @@ fn prepare_windows_job(
     match policy {
         AcpProcessTreePolicy::Inherit => Ok(None),
         AcpProcessTreePolicy::Isolated(limits) => windows_job::prepare(limits).map(Some),
+        AcpProcessTreePolicy::Grouped => windows_job::prepare_unlimited().map(Some),
     }
 }
 
@@ -220,11 +234,6 @@ mod windows_job {
     use super::AcpProcessTreeLimits;
 
     pub(super) fn prepare(limits: AcpProcessTreeLimits) -> io::Result<OwnedHandle> {
-        let raw = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if raw.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let job = unsafe { OwnedHandle::from_raw_handle(raw.cast()) };
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             | JOB_OBJECT_LIMIT_JOB_TIME
@@ -240,6 +249,22 @@ mod windows_job {
         info.BasicLimitInformation.ActiveProcessLimit = limits.max_processes;
         info.JobMemoryLimit = usize::try_from(limits.memory_bytes)
             .map_err(|_| io::Error::other("Windows memory limit overflow"))?;
+        create_job(info)
+    }
+
+    /// A Job that only guarantees descendants die with their owner.
+    pub(super) fn prepare_unlimited() -> io::Result<OwnedHandle> {
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        create_job(info)
+    }
+
+    fn create_job(info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION) -> io::Result<OwnedHandle> {
+        let raw = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if raw.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let job = unsafe { OwnedHandle::from_raw_handle(raw.cast()) };
         let result = unsafe {
             SetInformationJobObject(
                 job.as_raw_handle().cast(),
@@ -301,5 +326,132 @@ mod windows_tests {
         )
         .expect("Job Object controls should be available");
         assert!(control.job.is_some());
+    }
+
+    #[test]
+    fn grouped_policy_prepares_a_kill_on_close_job_without_ceilings() {
+        let mut command = Command::new("cmd.exe");
+        let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
+            .expect("Job Object controls should be available");
+        assert!(control.job.is_some());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use super::{AcpProcessTreePolicy, ProcessTreeControl};
+    use std::path::Path;
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    use tokio::process::Command;
+
+    /// Spawns a descendant, publishes its pid, then waits for it.
+    #[test]
+    fn grouped_descendant_helper() {
+        let Some(pid_file) = std::env::var_os("PROCESS_TREE_TEST_PID_FILE") else {
+            return;
+        };
+        let mut descendant = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn descendant");
+        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        let _ = descendant.wait();
+    }
+
+    fn helper_command(pid_file: &Path) -> Command {
+        let executable = std::env::current_exe().expect("current test executable");
+        let test_module = module_path!()
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .unwrap_or(module_path!());
+        let mut command = Command::new(executable);
+        command
+            .args([
+                "--exact",
+                &format!("{test_module}::grouped_descendant_helper"),
+                "--nocapture",
+            ])
+            .env("PROCESS_TREE_TEST_PID_FILE", pid_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        command
+    }
+
+    #[tokio::test]
+    async fn grouped_policy_leads_a_new_process_group() {
+        let directory = tempfile::tempdir().expect("test directory");
+        let mut command = helper_command(&directory.path().join("descendant.pid"));
+        let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
+            .expect("prepare grouped command");
+        let mut child = command.spawn().expect("spawn helper");
+        let pid = child.id().expect("helper pid");
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid);
+        control.attach(&child).expect("attach grouped control");
+
+        let mut group = -1;
+        for _ in 0..50 {
+            // SAFETY: getpgid only reads the process table.
+            group = unsafe { libc::getpgid(pid as libc::pid_t) };
+            if group == pid as libc::pid_t {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            group, pid as libc::pid_t,
+            "a grouped provider must lead its own process group"
+        );
+
+        control
+            .terminate(&mut child, Duration::from_secs(1))
+            .await
+            .expect("terminate helper");
+    }
+
+    #[tokio::test]
+    async fn grouped_policy_terminates_descendants() {
+        let directory = tempfile::tempdir().expect("test directory");
+        let pid_file = directory.path().join("descendant.pid");
+        let mut command = helper_command(&pid_file);
+        let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
+            .expect("prepare grouped command");
+        let mut child = command.spawn().expect("spawn helper");
+        let pid = child.id().expect("helper pid");
+        // Keep a failing regression from leaving its own helper behind.
+        let _cleanup = crate::shared::test_processes::KillOnDrop::default()
+            .process(pid)
+            .group_of_pid_in(&pid_file);
+        control.attach(&child).expect("attach grouped control");
+
+        let descendant = wait_for_pid(&pid_file).await;
+        control
+            .terminate(&mut child, Duration::from_secs(1))
+            .await
+            .expect("terminate helper");
+
+        for _ in 0..50 {
+            // SAFETY: kill with signal 0 only probes the process table.
+            if unsafe { libc::kill(descendant, 0) } != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("grouped descendant {descendant} survived tree termination");
+    }
+
+    async fn wait_for_pid(path: &Path) -> libc::pid_t {
+        for _ in 0..100 {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                if let Ok(pid) = text.trim().parse() {
+                    return pid;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("helper never published its descendant pid");
     }
 }
