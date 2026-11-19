@@ -329,15 +329,7 @@ async fn main() -> anyhow::Result<()> {
             domain::git::forge::spawn(state.clone());
             domain::git::linked_branches::spawn(state.clone());
 
-            // Auto-start remote access if the user left it enabled (persisted
-            // setting). Failures are non-fatal — the loopback server must come
-            // up regardless, and the UI surfaces the error on next toggle.
-            if remote::is_enabled(&state.read_pool).await {
-                match state.remote.start(&state).await {
-                    Ok(info) => info!("Remote access auto-started on port {}", info.port),
-                    Err(err) => tracing::warn!("Remote access auto-start failed: {err}"),
-                }
-            }
+            remote::restore_at_startup(&state, config.skip_remote_restore).await;
 
             let pty_manager = state.pty_manager.clone();
             let remote_for_shutdown = state.remote.clone();
