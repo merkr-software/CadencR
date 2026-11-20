@@ -1,13 +1,19 @@
 // @vitest-environment happy-dom
 import { renderHook, act } from "@testing-library/react";
+import { AxiosError, AxiosHeaders } from "axios";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useOnboardingStatus } from "./useOnboardingStatus";
 
 const mockSetValue = vi.fn<(value: string) => Promise<boolean>>();
 const mockUseQuery = vi.fn(() => ({ data: { value: "discover_cli" }, isLoading: false }));
 
+const mockQueryOptions = vi.fn();
+
 vi.mock("@/api/generated", () => ({
-  useGetWorkspaceSetting: () => mockUseQuery(),
+  useGetWorkspaceSetting: (_key: string, options: unknown) => {
+    mockQueryOptions(options);
+    return mockUseQuery();
+  },
 }));
 
 vi.mock("@/hooks/useSetting", () => ({
@@ -64,4 +70,28 @@ describe("useOnboardingStatus", () => {
       );
     });
   });
+
+  // An unreadable settings file stays unreadable: retrying it only delays the
+  // explanation behind a setup screen.
+  it("reports an unreadable settings file without retrying it", () => {
+    renderHook(() => useOnboardingStatus());
+    const options: unknown = mockQueryOptions.mock.calls[0]?.[0];
+    const retry = (options as { query?: { retry?: unknown } } | undefined)?.query?.retry;
+    if (typeof retry !== "function") throw new Error("expected a retry policy");
+
+    expect(retry(0, errorWithCode("SETTINGS_READ_FAILED"))).toBe(false);
+    expect(retry(0, errorWithCode("DATABASE_BUSY"))).toBe(true);
+    expect(retry(1, errorWithCode("DATABASE_BUSY"))).toBe(false);
+  });
 });
+
+function errorWithCode(code: string): AxiosError {
+  const headers = new AxiosHeaders();
+  return new AxiosError("failed", "ERR_BAD_REQUEST", undefined, null, {
+    status: 422,
+    statusText: "",
+    headers,
+    config: { headers },
+    data: { code, error: "failed" },
+  });
+}

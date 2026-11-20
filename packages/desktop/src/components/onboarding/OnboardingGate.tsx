@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorCode, apiErrorMessage, SETTINGS_READ_FAILED } from "@/lib/api-errors";
 import { useQuery } from "@tanstack/react-query";
 import { readTelemetry, needsTelemetryDecision, TELEMETRY_QUERY_KEY } from "@/api/telemetry";
 import { useOnboardingStatus } from "@/hooks/useOnboardingStatus";
@@ -7,6 +8,7 @@ import { useTelemetryActivity } from "@/hooks/useTelemetryActivity";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { TelemetryDecisionDialog } from "@/components/telemetry/TelemetryDecisionDialog";
 import { OnboardingOverlay } from "./OnboardingOverlay";
+import { SettingsUnreadableDialog } from "./SettingsUnreadableDialog";
 
 /** Remote browsers never read or change the host's local privacy decision. */
 export function OnboardingGate({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -35,8 +37,26 @@ function LocalOnboardingGate({ children }: { children: React.ReactNode }): React
     void telemetry.refetch();
     onboarding.retry();
   };
+  // Settings the service cannot read must not look like a fresh workspace:
+  // say why, and let the user reach Settings rather than redo onboarding.
+  const [settingsOpened, setSettingsOpened] = useState(false);
+  const unreadable = apiErrorCode(onboarding.error) === SETTINGS_READ_FAILED;
+  if (settingsOpened) return <>{children}</>;
   let content: React.ReactNode;
-  if (!workspaceReady && (telemetry.isPending || onboarding.isLoading || preferencesError)) {
+  if (unreadable) {
+    content = (
+      <SettingsUnreadableDialog
+        error={onboarding.error}
+        retry={retry}
+        busy={onboarding.isFetching}
+        openSettings={() => {
+          // The router mounts once the gate lets it through: point it at Settings first.
+          window.location.hash = "#/settings";
+          setSettingsOpened(true);
+        }}
+      />
+    );
+  } else if (!workspaceReady && (telemetry.isPending || onboarding.isLoading || preferencesError)) {
     content = (
       <TelemetryDecisionDialog
         error={telemetry.error ?? onboarding.error}

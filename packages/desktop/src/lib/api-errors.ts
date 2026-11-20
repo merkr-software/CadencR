@@ -30,6 +30,9 @@ function backendErrorMessage(err: unknown): string | null {
   return typeof error === "string" && error.trim().length > 0 ? error : null;
 }
 
+/** A settings file the service could not read; the message names it and the cause. */
+export const SETTINGS_READ_FAILED = "SETTINGS_READ_FAILED";
+
 /** The stable `code` of a service error body (`{error, code}`), if there is one. */
 export function apiErrorCode(err: unknown): string | null {
   if (!isAxiosError(err)) return null;

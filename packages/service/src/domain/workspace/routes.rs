@@ -101,7 +101,7 @@ pub async fn set_workspace_settings_batch_handler(
         )));
     }
     settings_store::global_set_many(&body.values).await?;
-    Ok(Json(settings_store::global_list()))
+    Ok(Json(settings_store::global_list()?))
 }
 
 #[utoipa::path(get, path = "/api/workspace/model-settings", responses((status = 200, body = ModelSettings)))]

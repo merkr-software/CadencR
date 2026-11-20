@@ -66,7 +66,9 @@ impl SelectionError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::NoModelAvailable { .. } => "NO_MODEL_AVAILABLE",
-            Self::SettingsUnreadable(_) => "SETTINGS_READ_FAILED",
+            Self::SettingsUnreadable(_) => {
+                crate::domain::settings_store::file::SETTINGS_READ_FAILED
+            }
         }
     }
 }

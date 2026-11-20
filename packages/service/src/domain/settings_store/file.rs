@@ -41,18 +41,29 @@ pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
         {
             return Ok(None)
         }
-        // `{:#}` keeps the cause ("Is a directory", "Permission denied"), not
-        // just the outer "open private file" context.
-        Err(error) => return Err(AppError::internal(format!("{error:#}"))),
+        Err(error) => return Err(read_failed(path, error.root_cause())),
     };
     let mut text = String::new();
-    file.read_to_string(&mut text).map_err(|error| {
-        AppError::internal(format!(
-            "failed to read settings file {}: {error}",
-            path.display()
-        ))
-    })?;
+    file.read_to_string(&mut text)
+        .map_err(|error| read_failed(path, error))?;
     Ok(Some(text))
+}
+
+/// Stable code of a settings file (or settings row) that exists but cannot be
+/// read. Requests that need the value fail with it instead of using a default.
+pub const SETTINGS_READ_FAILED: &str = "SETTINGS_READ_FAILED";
+
+/// A settings file that exists but cannot be read. A 4xx with its own code, so
+/// the path and the cause reach the user, who is the one able to fix the file.
+fn read_failed(path: &Path, cause: impl std::fmt::Display) -> AppError {
+    AppError::coded(
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+        SETTINGS_READ_FAILED,
+        format!(
+            "Cadencr could not read the settings file {}: {cause}",
+            path.display()
+        ),
+    )
 }
 
 /// Parse a settings document into a flat `key -> string` map.
