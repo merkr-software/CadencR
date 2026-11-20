@@ -28,7 +28,8 @@ use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
 use super::responses::response_value;
 use super::session_permissions::{
-    is_plan_approval_request_id, permission_kind_for_request_id, take_pending,
+    is_plan_approval_request_id, permission_kind_for_request_id, take_pending, unanswered_close,
+    UnansweredClose,
 };
 use super::timeouts::with_probe_timeout;
 use super::turn_commands::SharedTurnCommands;
@@ -366,11 +367,14 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn dismiss_nonblocking_request(&self, request_id: &str) -> Result<bool, RuntimeError> {
-        if !super::async_questions::is_async_question(request_id) {
-            return Ok(false);
+        match unanswered_close(request_id) {
+            UnansweredClose::DropPlan => Ok(true),
+            UnansweredClose::WithdrawQuestion => {
+                self.dismiss_async_question(request_id).await?;
+                Ok(true)
+            }
+            UnansweredClose::Blocking => Ok(false),
         }
-        self.dismiss_async_question(request_id).await?;
-        Ok(true)
     }
 
     fn pid(&self) -> Option<u32> {
