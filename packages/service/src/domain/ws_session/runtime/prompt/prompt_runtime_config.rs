@@ -5,6 +5,7 @@ use crate::domain::agents::adapter::RuntimeSpawnConfig;
 
 use super::super::control_policy::arm_bypass_for_respawn;
 use super::super::detached_runtime::{resume_session_id, DetachedRuntime};
+use super::super::helpers::{broadcast_session_error, SESSION_STATE_UNREADABLE};
 use super::super::{QueryState, SdkHandle, WsSender};
 use super::respawn_deferral::{notify_change_deferred, respawn_deferral, RespawnDeferral};
 
@@ -50,7 +51,19 @@ pub(in crate::domain::ws_session) async fn apply_respawn_if_needed(
         return (changes, None);
     }
     log_respawn(handle, db_session_id);
-    arm_bypass_for_respawn(handle, &app_state.read_pool).await;
+    if let Err(error) = arm_bypass_for_respawn(handle, &app_state.read_pool).await {
+        // The respawn goes ahead with bypass off: the safe branch, reported.
+        let message = format!(
+            "Cadencr could not read the bypass permissions setting ({error}). Bypass stays off."
+        );
+        broadcast_session_error(
+            &app_state.ws_feature_senders,
+            handle.feature_id,
+            SESSION_STATE_UNREADABLE,
+            message,
+        )
+        .await;
+    }
     let runtime_session_id = resume_session_id(&query, &handle.runtime_provider).await;
     reset_handle_to_pending(handle, runtime_session_id);
     let retired = DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes);

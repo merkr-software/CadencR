@@ -43,7 +43,9 @@ pub async fn replay_persisted_state(
     let Some(path) = resolve_live_worktree(read_pool, feature_id, &project_path).await? else {
         return Ok(None);
     };
-    let branch = get_setting(read_pool, feature_id, "worktree_branch").await;
+    let branch = get_setting(read_pool, feature_id, "worktree_branch")
+        .await
+        .map_err(|e| e.to_string())?;
     send_envelope(
         sender,
         "workflow",
@@ -53,10 +55,11 @@ pub async fn replay_persisted_state(
 
     let step = get_setting(read_pool, feature_id, "worktree_setup_step")
         .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "created".to_string());
     match step.as_str() {
-        "ready" => replay_ready(read_pool, feature_id, sender).await,
-        "setup_error" => replay_setup_error(read_pool, feature_id, sender).await,
+        "ready" => replay_ready(read_pool, feature_id, sender).await?,
+        "setup_error" => replay_setup_error(read_pool, feature_id, sender).await?,
         "setup_running" => {
             reconcile::replay_or_reconcile_setup(
                 read_pool, write_pool, setup_runs, feature_id, sender,
@@ -68,23 +71,35 @@ pub async fn replay_persisted_state(
     Ok(Some(PathBuf::from(path)))
 }
 
-async fn replay_ready(read_pool: &SqlitePool, feature_id: i64, sender: &WsSender) {
-    let log = setup_log(read_pool, feature_id).await;
+async fn replay_ready(
+    read_pool: &SqlitePool,
+    feature_id: i64,
+    sender: &WsSender,
+) -> Result<(), String> {
+    let log = setup_log(read_pool, feature_id).await?;
     send_ready(feature_id, sender, &log);
+    Ok(())
 }
 
-async fn replay_setup_error(read_pool: &SqlitePool, feature_id: i64, sender: &WsSender) {
+async fn replay_setup_error(
+    read_pool: &SqlitePool,
+    feature_id: i64,
+    sender: &WsSender,
+) -> Result<(), String> {
     let error = get_setting(read_pool, feature_id, "worktree_setup_error")
         .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_default();
-    let log = setup_log(read_pool, feature_id).await;
+    let log = setup_log(read_pool, feature_id).await?;
     send_error(feature_id, sender, &error, &log);
+    Ok(())
 }
 
-async fn setup_log(read_pool: &SqlitePool, feature_id: i64) -> String {
-    get_setting(read_pool, feature_id, "worktree_setup_log")
+async fn setup_log(read_pool: &SqlitePool, feature_id: i64) -> Result<String, String> {
+    Ok(get_setting(read_pool, feature_id, "worktree_setup_log")
         .await
-        .unwrap_or_default()
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default())
 }
 
 #[cfg(test)]

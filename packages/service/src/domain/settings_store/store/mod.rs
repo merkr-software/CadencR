@@ -20,14 +20,26 @@ pub use project::*;
 /// empty map, and a malformed file degrades to an empty map plus a warning so a
 /// corrupt file can't brick the app on a hot read path.
 pub fn load(path: &Path, scope: Scope) -> (BTreeMap<String, String>, Vec<SettingWarning>) {
-    match file::read_file(path) {
-        Ok(Some(text)) => load_text(scope, &text),
-        Ok(None) => (BTreeMap::new(), Vec::new()),
-        Err(e) => (
+    read(path, scope).unwrap_or_else(|e| {
+        (
             BTreeMap::new(),
             vec![SettingWarning::new("", e.to_string())],
-        ),
-    }
+        )
+    })
+}
+
+/// Like [`load`], but a file that exists and cannot be read is an error rather
+/// than an empty map. Invalid content still degrades to warnings. The settings
+/// cascade uses this so an unreadable level never silently hands the decision
+/// to the next one.
+pub fn read(
+    path: &Path,
+    scope: Scope,
+) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
+    Ok(match file::read_file(path)? {
+        Some(text) => load_text(scope, &text),
+        None => (BTreeMap::new(), Vec::new()),
+    })
 }
 
 /// Parse + validate already-read document text. Split out so `read_for_edit`
@@ -259,6 +271,22 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{ corrupt").unwrap();
         let (map, warnings) = load(&path, Scope::Workspace);
+        assert!(map.is_empty());
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn read_fails_on_an_unreadable_file_but_degrades_on_corrupt_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let unreadable = dir.path().join("unreadable.json");
+        std::fs::create_dir(&unreadable).unwrap();
+        let error = read(&unreadable, Scope::Workspace).unwrap_err().to_string();
+        // The cause reaches the user, not only "open private file <path>".
+        assert!(error.to_lowercase().contains("directory"), "{error}");
+
+        let corrupt = dir.path().join("corrupt.json");
+        std::fs::write(&corrupt, "{ corrupt").unwrap();
+        let (map, warnings) = read(&corrupt, Scope::Workspace).unwrap();
         assert!(map.is_empty());
         assert_eq!(warnings.len(), 1);
     }

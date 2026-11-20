@@ -80,7 +80,7 @@ async fn dispatch_control_prompt_inner(
         return Ok(());
     }
 
-    payload.use_worktree = control_use_worktree(&app_state.read_pool, feature_id).await;
+    payload.use_worktree = control_use_worktree(&app_state.read_pool, feature_id).await?;
     let sessions = ensure_control_pending_handle(app_state, feature_id, session_id).await?;
     dispatch_control_pending(app_state, sender, &sessions, session_id, payload, replay).await?;
     Ok(())
@@ -300,15 +300,20 @@ async fn require_session_row(
     Ok(row)
 }
 
-async fn control_use_worktree(pool: &sqlx::SqlitePool, feature_id: i64) -> Option<bool> {
-    match worktree::get_setting(pool, feature_id, "worktree_mode")
-        .await
-        .as_deref()
-    {
-        Some("new" | "reuse") => Some(true),
-        Some("skip") => Some(false),
-        _ => None,
-    }
+async fn control_use_worktree(
+    pool: &sqlx::SqlitePool,
+    feature_id: i64,
+) -> Result<Option<bool>, AppError> {
+    Ok(
+        match worktree::get_setting(pool, feature_id, "worktree_mode")
+            .await?
+            .as_deref()
+        {
+            Some("new" | "reuse") => Some(true),
+            Some("skip") => Some(false),
+            _ => None,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -343,14 +348,14 @@ mod tests {
             .await
             .expect("set worktree mode");
 
-        assert_eq!(control_use_worktree(&pool, 42).await, Some(true));
+        assert_eq!(control_use_worktree(&pool, 42).await.unwrap(), Some(true));
     }
 
     #[tokio::test]
     async fn control_use_worktree_does_not_default_missing_mode_to_worktree() {
         let pool = pool_with_feature_settings().await;
 
-        assert_eq!(control_use_worktree(&pool, 42).await, None);
+        assert_eq!(control_use_worktree(&pool, 42).await.unwrap(), None);
     }
     #[tokio::test]
     async fn cancelled_pending_context_preserves_config_for_retry() {

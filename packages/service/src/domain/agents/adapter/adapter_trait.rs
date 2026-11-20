@@ -68,8 +68,8 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         _pool: &sqlx::SqlitePool,
         _feature_id: i64,
         _project_id: Option<i64>,
-    ) -> Option<bool> {
-        None
+    ) -> Result<Option<bool>, crate::error::AppError> {
+        Ok(None)
     }
     /// Compatibility mirror for the original access-mode field.
     fn legacy_access_mode_wire(&self, _access_mode: Option<&str>) -> Option<String> {
@@ -341,9 +341,13 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     async fn configured_access_mode(
         &self,
         read_pool: &sqlx::SqlitePool,
-    ) -> Option<RuntimeAccessMode> {
-        let setting_key = self.access_mode_setting_key()?;
-        Some(super::adapter_defaults::configured_access_mode(read_pool, setting_key.as_ref()).await)
+    ) -> Result<Option<RuntimeAccessMode>, crate::error::AppError> {
+        let Some(setting_key) = self.access_mode_setting_key() else {
+            return Ok(None);
+        };
+        super::adapter_defaults::configured_access_mode(read_pool, setting_key.as_ref())
+            .await
+            .map(Some)
     }
 
     /// Initial mode after `provider.set`; matches the frontend catalog fallback.
@@ -452,7 +456,13 @@ mod tests {
         );
         assert_eq!(adapter.legacy_access_mode_wire(Some("fullAccess")), None);
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        assert_eq!(adapter.bypass_permission_opt_in(&pool, 1, None).await, None);
+        assert_eq!(
+            adapter
+                .bypass_permission_opt_in(&pool, 1, None)
+                .await
+                .unwrap(),
+            None
+        );
         assert_eq!(adapter.profile_name_for_new_session(), None);
         assert_eq!(adapter.environment_for_new_session(), None);
         assert_eq!(

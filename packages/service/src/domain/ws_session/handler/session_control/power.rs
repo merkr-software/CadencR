@@ -14,7 +14,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
 use crate::domain::workflow::worktree;
 use crate::domain::ws_session::protocol::GateCloseReason;
-use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
+use crate::domain::ws_session::runtime::helpers::{report_if_unsaved, setting_or_report};
 use crate::domain::ws_session::runtime::output::{CommandError, OutputTarget};
 
 /// Broadcast a `session.lifecycle` envelope so the frontend turn-lifecycle
@@ -327,7 +327,10 @@ pub(crate) async fn handle_retry_worktree_setup(
     let ws = app_state
         .ws_feature_senders
         .fan_out_sender(feature_id, sender.clone());
-    let recorded = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_path").await;
+    let read = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_path").await;
+    let Some(recorded) = setting_or_report(sender, &envelope.id, "worktree path", read) else {
+        return;
+    };
     // A worktree whose provisioning failed is provisioned again, in the mode
     // the feature chose (a reused branch stays reused).
     let provisioned_now = recorded.is_none();
@@ -347,6 +350,10 @@ pub(crate) async fn handle_retry_worktree_setup(
         },
     };
 
+    let read = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_setup_step").await;
+    let Some(step) = setting_or_report(sender, &envelope.id, "worktree setup step", read) else {
+        return;
+    };
     let reply = WsEnvelope::session_reply(
         &envelope.id,
         &WsSessionEvent::RetryWorktreeSetupOk(RetryWorktreeSetupOkPayload { feature_id }),
@@ -360,7 +367,6 @@ pub(crate) async fn handle_retry_worktree_setup(
     }
     // A worktree shared with the feature that set it up starts ready: its
     // setup commands are the donor's to run.
-    let step = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_setup_step").await;
     if provisioned_now && step.as_deref() == Some("ready") {
         return;
     }

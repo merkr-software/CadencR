@@ -24,8 +24,10 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         pool: &SqlitePool,
         feature_id: i64,
         project_id: Option<i64>,
-    ) -> Option<bool> {
-        Some(super::bypass_permissions::enabled(pool, Some(feature_id), project_id).await)
+    ) -> Result<Option<bool>, crate::error::AppError> {
+        super::bypass_permissions::enabled(pool, Some(feature_id), project_id)
+            .await
+            .map(Some)
     }
 
     async fn profile_catalog(

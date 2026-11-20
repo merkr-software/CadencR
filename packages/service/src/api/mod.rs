@@ -176,7 +176,8 @@ fn agent_types_for_scope(feature_id: Option<i64>) -> Vec<String> {
     ),
     responses(
         (status = 200, body = AgentSelectionResponse),
-        (status = 400, description = "No model is available for the resolved provider")
+        (status = 400, description = "No model is available for the resolved provider"),
+        (status = 422, description = "A settings level could not be read (code SETTINGS_READ_FAILED)")
     )
 )]
 pub async fn get_agent_selection(
@@ -192,8 +193,7 @@ pub async fn get_agent_selection(
             query.feature_id,
             query.profile.as_deref(),
         )
-        .await
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+        .await?;
         selections.insert(agent_type, selection);
     }
     Ok(Json(AgentSelectionResponse { selections }))

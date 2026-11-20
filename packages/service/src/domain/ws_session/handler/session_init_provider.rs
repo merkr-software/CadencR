@@ -2,30 +2,50 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeAccessMode;
 use crate::domain::agents::{default_provider_id, runtime::runtime_setting_key};
 use crate::domain::settings;
+use crate::error::AppError;
 
 pub(super) async fn resolve(
     app_state: &AppState,
     feature_id: i64,
     requested_provider: Option<&str>,
-) -> (String, Option<RuntimeAccessMode>) {
+) -> Result<(String, Option<RuntimeAccessMode>), AppError> {
     // Match resolve_selection: feature override -> workspace last-used provider.
     // Legacy project settings must not seed permissions for a different provider.
-    let configured = settings::resolve_setting(
-        &app_state.read_pool,
-        &runtime_setting_key("session"),
-        Some(feature_id),
-        None,
-        Some(default_provider_id()),
-    )
-    .await
-    .unwrap_or_else(|| default_provider_id().to_string());
-    let provider = requested_provider.map(str::to_string).unwrap_or(configured);
+    let provider = match requested_provider {
+        Some(requested) => requested.to_string(),
+        None => settings::resolve_setting(
+            &app_state.read_pool,
+            &runtime_setting_key("session"),
+            Some(feature_id),
+            None,
+            Some(default_provider_id()),
+        )
+        .await?
+        .unwrap_or_else(|| default_provider_id().to_string()),
+    };
     let access_mode = crate::domain::ws_session::handler::access::configured_access_mode(
         &provider,
         &app_state.read_pool,
     )
-    .await;
-    (provider, access_mode)
+    .await?;
+    Ok((provider, access_mode))
+}
+
+/// The configured access mode for the provider the session finally runs: the
+/// one already read for the initial provider, or a fresh read for another.
+pub(super) async fn access_mode_for(
+    app_state: &AppState,
+    (initial_provider, initial_mode): (&str, Option<RuntimeAccessMode>),
+    effective_provider: &str,
+) -> Result<Option<RuntimeAccessMode>, AppError> {
+    if effective_provider == initial_provider {
+        return Ok(initial_mode);
+    }
+    crate::domain::ws_session::handler::access::configured_access_mode(
+        effective_provider,
+        &app_state.read_pool,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -48,7 +68,7 @@ mod tests {
         settings_store::project_set(&state.write_pool, 1, "agent_runtime_session", "claude_code")
             .await
             .unwrap();
-        let (provider, access_mode) = resolve(&state, 1, None).await;
+        let (provider, access_mode) = resolve(&state, 1, None).await.unwrap();
         assert_eq!(provider, "codex_cli");
         assert_eq!(access_mode, Some(RuntimeAccessMode::AutoReview));
         let mut persistence = WsSessionPersistence::new(state.write_pool.clone(), 1);
@@ -67,5 +87,20 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(stored, "autoReview");
+    }
+
+    /// A conversation-level provider that cannot be read fails session.init;
+    /// a provider the client names needs no such read.
+    #[tokio::test]
+    async fn an_unreadable_provider_setting_fails_unless_the_client_names_one() {
+        let state = make_test_app_state().await;
+        sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+            .execute(&state.write_pool)
+            .await
+            .unwrap();
+
+        assert!(resolve(&state, 1, None).await.is_err());
+        let (provider, _) = resolve(&state, 1, Some("claude_code")).await.unwrap();
+        assert_eq!(provider, "claude_code");
     }
 }

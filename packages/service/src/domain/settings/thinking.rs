@@ -3,6 +3,7 @@ use sqlx::SqlitePool;
 use super::thinking_effort_model_default;
 use crate::domain::agents::providers::{model_supports_thinking_level, runtime_adapter};
 use crate::domain::agents::runtime::ModelCatalogEntry;
+use crate::error::AppError;
 
 /// Thinking level a provider/model pair should run at when nothing explicit
 /// was requested: the user's last selection for that pair, else the level the
@@ -18,19 +19,19 @@ pub async fn target_thinking_effort(
     pool: &SqlitePool,
     provider_id: &str,
     model: &ModelCatalogEntry,
-) -> Option<String> {
+) -> Result<Option<String>, AppError> {
     if model.supports_effort == Some(false)
         || model
             .supported_effort_levels
             .as_ref()
             .is_some_and(Vec::is_empty)
     {
-        return None;
+        return Ok(None);
     }
-    let last_used = thinking_effort_model_default(pool, provider_id, &model.id).await;
+    let last_used = thinking_effort_model_default(pool, provider_id, &model.id).await?;
     let inherits_profile = runtime_adapter(provider_id)
         .is_some_and(|adapter| adapter.supports_profile_config_inheritance());
-    select_omitted_level(model, last_used, inherits_profile)
+    Ok(select_omitted_level(model, last_used, inherits_profile))
 }
 
 fn select_omitted_level(
@@ -127,7 +128,9 @@ mod tests {
         model.supports_effort = Some(false);
 
         assert_eq!(
-            target_thinking_effort(&pool, "target-provider", &model).await,
+            target_thinking_effort(&pool, "target-provider", &model)
+                .await
+                .unwrap(),
             None
         );
     }

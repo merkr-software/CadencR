@@ -43,7 +43,7 @@ pub(super) async fn copy_worktree_config(
 pub(super) async fn configured_access_mode(
     read_pool: &sqlx::SqlitePool,
     setting_key: &str,
-) -> RuntimeAccessMode {
+) -> Result<RuntimeAccessMode, crate::error::AppError> {
     let configured = crate::domain::settings::resolve_setting(
         read_pool,
         setting_key,
@@ -51,9 +51,9 @@ pub(super) async fn configured_access_mode(
         None,
         Some(super::access_mode_wire(&RuntimeAccessMode::Default)),
     )
-    .await;
-    configured
+    .await?;
+    Ok(configured
         .as_deref()
         .and_then(super::parse_access_mode_wire)
-        .unwrap_or(RuntimeAccessMode::Default)
+        .unwrap_or(RuntimeAccessMode::Default))
 }

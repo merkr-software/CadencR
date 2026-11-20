@@ -2,6 +2,9 @@
 
 use sqlx::SqlitePool;
 
+use super::WorktreeMode;
+use crate::error::AppError;
+
 /// Look up the project_id for a given feature.
 pub async fn get_project_id_for_feature(pool: &SqlitePool, feature_id: i64) -> Result<i64, String> {
     sqlx::query_scalar("SELECT project_id FROM features WHERE id = ?")
@@ -59,17 +62,15 @@ pub async fn resolve_live_worktree(
         .map_err(|error| format!("Failed to verify feature worktree: {error}"))
 }
 
-pub async fn get_setting(pool: &SqlitePool, feature_id: i64, key: &str) -> Option<String> {
-    sqlx::query_as::<_, (String,)>(
-        "SELECT value FROM feature_settings WHERE feature_id = ? AND key = ?",
-    )
-    .bind(feature_id)
-    .bind(key)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()
-    .map(|r| r.0)
+/// Read one feature-level setting. A database failure is returned, not read
+/// as "unset": callers branch on these values (worktree mode, setup step) and
+/// must not take the unset path because a read failed.
+pub async fn get_setting(
+    pool: &SqlitePool,
+    feature_id: i64,
+    key: &str,
+) -> Result<Option<String>, AppError> {
+    crate::domain::git::repository::get_feature_setting(pool, feature_id, key).await
 }
 
 pub async fn set_setting(
@@ -106,9 +107,12 @@ pub(super) async fn lookup_project(
 
 /// Read the optional `worktree_base_branch` setting. Empty/whitespace values
 /// are treated as unset so the caller falls back to project HEAD.
-pub(super) async fn read_base_branch(read_pool: &SqlitePool, feature_id: i64) -> Option<String> {
-    get_setting(read_pool, feature_id, "worktree_base_branch")
-        .await
+pub(super) async fn read_base_branch(
+    read_pool: &SqlitePool,
+    feature_id: i64,
+) -> Result<Option<String>, AppError> {
+    Ok(get_setting(read_pool, feature_id, "worktree_base_branch")
+        .await?
         .and_then(|v| {
             let trimmed = v.trim();
             if trimmed.is_empty() {
@@ -116,7 +120,34 @@ pub(super) async fn read_base_branch(read_pool: &SqlitePool, feature_id: i64) ->
             } else {
                 Some(trimmed.to_string())
             }
-        })
+        }))
+}
+
+/// Read the user-selected worktree mode from feature settings, falling back
+/// to legacy `skip_worktree=true` for older rows.
+pub async fn read_worktree_mode(
+    read_pool: &SqlitePool,
+    feature_id: i64,
+) -> Result<WorktreeMode, AppError> {
+    if get_setting(read_pool, feature_id, "skip_worktree")
+        .await?
+        .as_deref()
+        == Some("true")
+    {
+        return Ok(WorktreeMode::Skip);
+    }
+    let mode = get_setting(read_pool, feature_id, "worktree_mode").await?;
+    Ok(match mode.as_deref() {
+        Some("skip") => WorktreeMode::Skip,
+        Some("reuse") => match get_setting(read_pool, feature_id, "worktree_reuse_branch").await? {
+            Some(b) if !b.trim().is_empty() => WorktreeMode::Reuse(b),
+            // Misconfigured reuse without a branch — fall back to New so we
+            // don't hang the feature on a NotFound. The handler validates
+            // this at create time; this is just defense in depth.
+            _ => WorktreeMode::New,
+        },
+        _ => WorktreeMode::New,
+    })
 }
 
 #[cfg(test)]
@@ -155,9 +186,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_setting_reports_a_database_failure_instead_of_unset() {
+        let pool = make_pool().await;
+        sqlx::query("DROP TABLE feature_settings")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(get_setting(&pool, 1, "worktree_mode").await.is_err());
+        assert!(read_base_branch(&pool, 1).await.is_err());
+    }
+
+    #[tokio::test]
     async fn read_base_branch_returns_none_when_unset() {
         let pool = make_pool().await;
-        assert_eq!(read_base_branch(&pool, 1).await, None);
+        assert_eq!(read_base_branch(&pool, 1).await.unwrap(), None);
     }
 
     #[tokio::test]
@@ -167,7 +209,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            read_base_branch(&pool, 1).await,
+            read_base_branch(&pool, 1).await.unwrap(),
             Some("develop".to_string())
         );
     }
@@ -178,7 +220,7 @@ mod tests {
         set_setting(&pool, 1, "worktree_base_branch", "   ")
             .await
             .unwrap();
-        assert_eq!(read_base_branch(&pool, 1).await, None);
+        assert_eq!(read_base_branch(&pool, 1).await.unwrap(), None);
     }
 
     /// Pool with the tables `resolve_feature_cwd` touches: a feature in a

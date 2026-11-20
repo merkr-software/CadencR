@@ -24,16 +24,18 @@ pub fn access_mode_wire(mode: &RuntimeAccessMode) -> &'static str {
     }
 }
 
-pub async fn configured_access_mode(read_pool: &sqlx::SqlitePool) -> String {
-    settings::resolve_setting(
+pub async fn configured_access_mode(
+    read_pool: &sqlx::SqlitePool,
+) -> Result<String, crate::error::AppError> {
+    Ok(settings::resolve_setting(
         read_pool,
         ACCESS_MODE_SETTING_KEY,
         None,
         None,
         Some(DEFAULT_ACCESS_MODE_WIRE),
     )
-    .await
-    .unwrap_or_else(|| DEFAULT_ACCESS_MODE_WIRE.to_string())
+    .await?
+    .unwrap_or_else(|| DEFAULT_ACCESS_MODE_WIRE.to_string()))
 }
 
 pub fn canonical_access_mode_wire(raw_mode: &str) -> Option<String> {

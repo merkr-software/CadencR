@@ -7,6 +7,7 @@ use crate::domain::agents::runtime_overrides::{self, RestoreOptions};
 use crate::domain::settings;
 use crate::domain::ws_session::handler::session_runtime_config;
 use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 use crate::domain::ws_session::runtime::session_runtime_config::RuntimeSettingsContext;
 
 pub(super) struct ResolvedProfileConfig {
@@ -80,13 +81,12 @@ pub(super) async fn resolve(
     )
     .await
     .map_err(|error| ("PROFILE_ERROR", error))?;
+    let context = RuntimeSettingsContext::builder()
+        .read_pool(&app_state.read_pool)
+        .write_pool(&app_state.write_pool)
+        .build();
     let profile = session_runtime_config::apply_provider_settings(
-        &RuntimeSettingsContext::builder()
-            .read_pool(&app_state.read_pool)
-            .write_pool(&app_state.write_pool)
-            .build(),
-        project_id,
-        feature_id,
+        &context,
         db_session_id,
         provider,
         selected_profile.as_deref(),
@@ -94,6 +94,21 @@ pub(super) async fn resolve(
     )
     .await
     .map_err(|error| ("PROFILE_ERROR", error))?;
+    session_runtime_config::apply_bypass_opt_in(
+        &context,
+        project_id,
+        feature_id,
+        db_session_id,
+        provider,
+        runtime_config,
+    )
+    .await
+    .map_err(|error| {
+        (
+            SETTINGS_READ_FAILED,
+            format!("Failed to read the bypass permissions setting: {error}"),
+        )
+    })?;
     let mut effective_fast_mode = None;
     if let Some(adapter) =
         runtime_adapter(provider).filter(|adapter| adapter.supports_profile_config_inheritance())
@@ -154,7 +169,9 @@ async fn pin_last_used_effort(
         return Ok(());
     };
     let Some(level) =
-        settings::thinking_effort_model_default(&app_state.read_pool, provider, model).await
+        settings::thinking_effort_model_default(&app_state.read_pool, provider, model)
+            .await
+            .map_err(|error| (SETTINGS_READ_FAILED, error.to_string()))?
     else {
         return Ok(());
     };

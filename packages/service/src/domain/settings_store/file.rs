@@ -41,7 +41,9 @@ pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
         {
             return Ok(None)
         }
-        Err(error) => return Err(AppError::internal(error.to_string())),
+        // `{:#}` keeps the cause ("Is a directory", "Permission denied"), not
+        // just the outer "open private file" context.
+        Err(error) => return Err(AppError::internal(format!("{error:#}"))),
     };
     let mut text = String::new();
     file.read_to_string(&mut text).map_err(|error| {

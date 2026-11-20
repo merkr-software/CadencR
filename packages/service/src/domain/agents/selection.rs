@@ -55,6 +55,41 @@ pub enum SelectionError {
     /// session start with an opaque runtime error.
     #[error("provider '{provider_id}' exposes no models; check that its CLI is installed and authenticated")]
     NoModelAvailable { provider_id: String },
+    /// A settings level could not be read. Starting on a fallback would run an
+    /// agent the user did not pick, so the read failure is the answer.
+    #[error("could not read the saved agent selection: {0}")]
+    SettingsUnreadable(String),
+}
+
+impl SelectionError {
+    /// Stable wire code for the WebSocket error reply.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NoModelAvailable { .. } => "NO_MODEL_AVAILABLE",
+            Self::SettingsUnreadable(_) => "SETTINGS_READ_FAILED",
+        }
+    }
+}
+
+/// A settings level that cannot be read is not a malformed request: it gets its
+/// own code, and a 4xx status so the cause reaches the user, who can fix it.
+impl From<SelectionError> for crate::error::AppError {
+    fn from(error: SelectionError) -> Self {
+        match error {
+            SelectionError::SettingsUnreadable(_) => Self::coded(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                error.code(),
+                error.to_string(),
+            ),
+            SelectionError::NoModelAvailable { .. } => Self::BadRequest(error.to_string()),
+        }
+    }
+}
+
+impl From<crate::error::AppError> for SelectionError {
+    fn from(error: crate::error::AppError) -> Self {
+        Self::SettingsUnreadable(error.to_string())
+    }
 }
 
 /// Cascade: feature override → workspace (the pair the user last prompted
@@ -68,7 +103,7 @@ pub async fn resolve_selection(
     profile: Option<&str>,
 ) -> Result<ResolvedSelection, SelectionError> {
     let (provider_id, provider_origin) =
-        resolve_provider(read_pool, agent_type, feature_id, cwd, profile).await;
+        resolve_provider(read_pool, agent_type, feature_id, cwd, profile).await?;
     let (model_id, model_origin) = resolve_model(
         read_pool,
         cwd,
@@ -95,11 +130,11 @@ async fn resolve_provider(
     feature_id: Option<i64>,
     cwd: Option<&Path>,
     profile: Option<&str>,
-) -> (String, SelectionOrigin) {
+) -> Result<(String, SelectionOrigin), SelectionError> {
     let key = runtime_setting_key(agent_type);
-    let stored = settings::resolve_setting_with_origin(read_pool, &key, feature_id, None).await;
+    let stored = settings::resolve_setting_with_origin(read_pool, &key, feature_id, None).await?;
 
-    match stored {
+    Ok(match stored {
         Some((raw, origin)) => match canonical_provider_or_error(&raw) {
             Ok(provider_id) => {
                 if provider_is_available(read_pool, cwd, profile, &provider_id).await {
@@ -134,7 +169,7 @@ async fn resolve_provider(
             available_default_provider(read_pool, cwd, profile).await,
             SelectionOrigin::ProviderDefault,
         ),
-    }
+    })
 }
 
 /// The default provider as the frontend sees it: the live catalog's default,
@@ -187,7 +222,7 @@ async fn resolve_model(
     profile: Option<&str>,
 ) -> Result<(String, SelectionOrigin), SelectionError> {
     let key = model_setting_key(agent_type);
-    let stored = settings::resolve_setting_with_origin(read_pool, &key, feature_id, None).await;
+    let stored = settings::resolve_setting_with_origin(read_pool, &key, feature_id, None).await?;
 
     if let Some((model_id, origin)) = stored {
         if provider_model_catalog_entry(read_pool, cwd, provider_id, Some(&model_id), profile)
@@ -305,7 +340,9 @@ mod tests {
     async fn stored_provider_is_honored_only_when_its_cli_is_available() {
         let pool = pool_with_feature(None, Some("claude_code")).await;
 
-        let (provider_id, origin) = resolve_provider(&pool, "session", Some(7), None, None).await;
+        let (provider_id, origin) = resolve_provider(&pool, "session", Some(7), None, None)
+            .await
+            .unwrap();
 
         let catalog =
             crate::domain::agents::providers::provider_catalog_live_for_cwd(&pool, None, None)
@@ -341,7 +378,9 @@ mod tests {
     async fn unset_provider_falls_back_to_an_available_provider() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 
-        let (provider_id, origin) = resolve_provider(&pool, "session", None, None, None).await;
+        let (provider_id, origin) = resolve_provider(&pool, "session", None, None, None)
+            .await
+            .unwrap();
 
         let catalog =
             crate::domain::agents::providers::provider_catalog_live_for_cwd(&pool, None, None)
@@ -376,5 +415,17 @@ mod tests {
             .expect("resolvable");
 
         assert_eq!(selection.provider_id, DEFAULT_PROVIDER);
+    }
+
+    #[test]
+    fn an_unreadable_selection_answers_422_with_the_cause() {
+        use axum::response::IntoResponse;
+        let error =
+            crate::error::AppError::from(super::SelectionError::SettingsUnreadable("boom".into()));
+        assert!(error.to_string().contains("boom"), "{error}");
+        assert_eq!(
+            error.into_response().status(),
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }
