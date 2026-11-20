@@ -64,12 +64,17 @@ fn validate_decision_kind(decision: &GateDecision, kind: GateKind) -> Result<(),
             | (GateDecision::Question { .. }, GateKind::Question)
     );
     if matches {
-        Ok(())
-    } else {
-        Err(AppError::BadRequest(
-            "decision type does not match pending gate kind".into(),
-        ))
+        return Ok(());
     }
+    let accepted = match kind {
+        GateKind::Permission => "a `permission` decision: allow_once, allow_always or deny",
+        GateKind::Plan => "a `plan` decision: approve, request_changes or reject",
+        GateKind::Question => "a `question` decision with its answers",
+    };
+    Err(AppError::BadRequest(format!(
+        "decision type does not match pending gate kind: this {} gate takes {accepted}",
+        kind.as_str()
+    )))
 }
 
 fn permission_payload(
@@ -94,17 +99,9 @@ fn permission_payload(
             ),
             PermissionAction::Deny => (PermissionDecision::Deny, "deny", message.clone(), None),
         },
-        GateDecision::Plan { action, message } => match action {
-            PlanAction::Approve => (
-                PermissionDecision::AllowOnce,
-                "allow_once",
-                message.clone(),
-                None,
-            ),
-            PlanAction::RequestChanges | PlanAction::Reject => {
-                (PermissionDecision::Deny, "deny", message.clone(), None)
-            }
-        },
+        GateDecision::Plan { action, message } => {
+            return Ok(plan_payload(session_id, request_id, action, message, gate));
+        }
         GateDecision::Question { answers } => {
             if answers.is_null() {
                 return Err(AppError::BadRequest(
@@ -136,6 +133,32 @@ fn permission_payload(
         feedback,
         updated_input,
     })
+}
+
+/// A plan gate's decisions come from its kind, as in the desktop's plan bar:
+/// approving allows the plan, asking for changes or rejecting denies it with
+/// the feedback. Claude and Codex advertise no options on a plan; a provider
+/// that does gets the matching option, and otherwise its adapter picks one.
+fn plan_payload(
+    session_id: i64,
+    request_id: &str,
+    action: &PlanAction,
+    message: &Option<String>,
+    gate: &PendingGate,
+) -> PermissionRespondPayload {
+    let (decision, advertised) = match action {
+        PlanAction::Approve => (PermissionDecision::AllowOnce, "allow_once"),
+        PlanAction::RequestChanges | PlanAction::Reject => (PermissionDecision::Deny, "deny"),
+    };
+    PermissionRespondPayload {
+        session_id: session_id.to_string(),
+        request_id: request_id.to_string(),
+        message_uuid: None,
+        decision,
+        option_id: advertised_option(&gate.payload, advertised).flatten(),
+        feedback: message.clone(),
+        updated_input: None,
+    }
 }
 
 fn advertised_option(payload: &serde_json::Value, decision: &str) -> Option<Option<String>> {
@@ -192,6 +215,84 @@ mod tests {
         };
         let error = validate_decision_kind(&decision, GateKind::Permission).unwrap_err();
         assert!(error.to_string().contains("does not match"));
+    }
+
+    /// A Claude or Codex plan gate, as stored: no options.
+    fn bare_plan_gate() -> PendingGate {
+        PendingGate {
+            request_id: "plan-1".into(),
+            kind: GateKind::Plan,
+            payload: serde_json::json!({
+                "request_id": "plan-1",
+                "tool_name": "ExitPlanMode",
+                "tool_input": {"plan": "Create hello.txt"},
+                "description": "Plan is ready for approval",
+                "options": []
+            }),
+        }
+    }
+
+    fn plan(action: PlanAction, message: Option<&str>) -> GateDecision {
+        GateDecision::Plan {
+            action,
+            message: message.map(str::to_string),
+        }
+    }
+
+    /// The desktop approves a plan with `allow_once` and no option, and asks
+    /// for changes with `deny` and the feedback; the API and MCP do the same.
+    #[tokio::test]
+    async fn a_plan_without_options_takes_every_plan_decision() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let state = AppState::with_pool(pool);
+        state.pending_gates.register(2, bare_plan_gate()).await;
+
+        let approve = plan(PlanAction::Approve, None);
+        let payload = authorize_decision(&state, 2, "plan-1", &approve)
+            .await
+            .unwrap();
+        assert_eq!(payload.decision, PermissionDecision::AllowOnce);
+        assert_eq!(payload.option_id, None);
+
+        let gate = bare_plan_gate();
+        let changes = plan(PlanAction::RequestChanges, Some("Add a test"));
+        let payload = permission_payload(2, "plan-1", &changes, &gate).unwrap();
+        assert_eq!(payload.decision, PermissionDecision::Deny);
+        assert_eq!(payload.feedback.as_deref(), Some("Add a test"));
+
+        let reject = plan(PlanAction::Reject, None);
+        let payload = permission_payload(2, "plan-1", &reject, &gate).unwrap();
+        assert_eq!(payload.decision, PermissionDecision::Deny);
+        assert_eq!(payload.option_id, None);
+    }
+
+    /// A provider that advertises its plan options gets the matching one.
+    #[test]
+    fn a_plan_with_options_answers_with_the_matching_option() {
+        let mut gate = gate(GateKind::Plan, "ExitPlanMode");
+        gate.payload["options"] = serde_json::json!([
+            {"decision": "allow_once", "option_id": "acp-approve"},
+            {"decision": "deny", "option_id": "acp-reject"}
+        ]);
+        let approve = permission_payload(2, "r1", &plan(PlanAction::Approve, None), &gate);
+        assert_eq!(approve.unwrap().option_id.as_deref(), Some("acp-approve"));
+        let reject = permission_payload(2, "r1", &plan(PlanAction::Reject, None), &gate);
+        assert_eq!(reject.unwrap().option_id.as_deref(), Some("acp-reject"));
+    }
+
+    #[test]
+    fn a_permission_decision_on_a_plan_lists_the_plan_decisions() {
+        let allow_once = GateDecision::Permission {
+            action: PermissionAction::AllowOnce,
+            message: None,
+        };
+        let error = validate_decision_kind(&allow_once, GateKind::Plan)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("approve, request_changes or reject"),
+            "{error}"
+        );
     }
 
     #[test]
