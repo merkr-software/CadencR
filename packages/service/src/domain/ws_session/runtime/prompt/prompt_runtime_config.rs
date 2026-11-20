@@ -458,6 +458,50 @@ mod tests {
             );
         }
 
+        /// Found in QA: a command cancelled while it closed the retired
+        /// runtime (a remote device revoked mid-wait) dropped the notice.
+        #[tokio::test]
+        async fn the_notice_survives_a_cancelled_close() {
+            let app_state = make_test_app_state().await;
+            sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+                .execute(&app_state.write_pool)
+                .await
+                .unwrap();
+            let (viewer, mut inbox) = tokio::sync::mpsc::unbounded_channel();
+            app_state.ws_feature_senders.register(1, viewer).await;
+            let (mut handle, _registration) = effort_changed_handle(9206, 0);
+            handle.desired_thinking_effort = None;
+            handle.desired_permission_mode = Some(RuntimePermissionMode::BypassPermissions);
+            let QueryState::Active { query, .. } = &handle.state else {
+                unreachable!("effort_changed_handle is active");
+            };
+            let query = query.clone();
+            let (_changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9206).await;
+
+            // Hold the runtime so the close waits, then drop the command.
+            let busy = query.read().await;
+            let close = retired.expect("respawned").close_in(&app_state);
+            let cancelled = tokio::time::timeout(std::time::Duration::from_millis(50), close).await;
+            assert!(cancelled.is_err(), "the command is dropped mid-close");
+            drop(busy);
+
+            let notice = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    match inbox.recv().await {
+                        Some(message)
+                            if format!("{message:?}").contains("SESSION_STATE_UNREADABLE") =>
+                        {
+                            return message;
+                        }
+                        Some(_) => continue,
+                        None => panic!("viewer channel closed"),
+                    }
+                }
+            })
+            .await;
+            assert!(notice.is_ok(), "the notice is still delivered");
+        }
+
         #[test]
         fn a_deferred_model_change_needs_no_notice() {
             // model.set already switched the live runtime's model.

@@ -85,8 +85,23 @@ impl DetachedRuntime {
         self.lease
     }
 
+    /// Close in a task that owns the runtime and its notice, and wait for it.
+    /// The caller still resumes only once the close is done, but a caller
+    /// dropped meanwhile (a cancelled command, a revoked remote device) no
+    /// longer leaves the runtime open or its notice unsent.
     pub(in crate::domain::ws_session) async fn close_in(self, app_state: &AppState) {
-        let _lease = self.close(&close_context(app_state)).await;
+        let app_state = app_state.clone();
+        let close = tokio::spawn(async move {
+            let _lease = self.close(&close_context(&app_state)).await;
+        });
+        if let Err(error) = close.await {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic());
+            }
+            // Only a runtime shutdown cancels a spawned task: the service is
+            // stopping and no viewer is left to tell.
+            tracing::error!(%error, "detached runtime close task was cancelled");
+        }
     }
 }
 
