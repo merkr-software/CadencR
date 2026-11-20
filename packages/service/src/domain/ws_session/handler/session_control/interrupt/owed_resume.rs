@@ -7,7 +7,7 @@
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
-use crate::domain::restart_continuations::{record_background_work, record_user_stop};
+use crate::domain::restart_continuations::{record_user_stop, undo_user_stop};
 use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 use crate::domain::ws_session::runtime::output::CommandError;
 use crate::domain::ws_session::runtime::prompt::runtime_hold_registry;
@@ -38,28 +38,28 @@ pub(super) async fn forget(
         })
 }
 
-/// The runtime did not stop: what it owed before [`forget`] still stands.
-/// Its reader believes the record is written, so it is written back here.
+/// The runtime did not stop: the turn goes on, and what it owed before
+/// [`forget`] still stands. The recorded Stop is forgotten (a crash must still
+/// resume the turn) and, as its reader believes the record is written, the
+/// owed resume is written back, in one write.
 pub(super) async fn restore(
     app_state: &AppState,
     runtime: &RuntimeSessionHandle,
     db_session_id: i64,
     feature_id: i64,
 ) {
-    if !runtime_hold_registry::cancel_stop_by_user(db_session_id, runtime) {
-        return;
-    }
+    let owed = runtime_hold_registry::cancel_stop_by_user(db_session_id, runtime);
     // The Stop itself already failed and is reported; a failure here only
-    // loses the resume a restart would have brought, and viewers are told.
+    // loses a resume a restart would have brought, and viewers are told.
     report_if_unsaved(
         &app_state.ws_feature_senders,
         feature_id,
         db_session_id,
         "background work state",
-        record_background_work(
+        undo_user_stop(
             &app_state.write_pool,
             db_session_id,
-            Some(chrono::Utc::now()),
+            owed.then(chrono::Utc::now),
         )
         .await,
     )
@@ -72,6 +72,7 @@ mod tests {
 
     use super::*;
     use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata};
+    use crate::domain::restart_continuations::record_background_work;
     use crate::domain::ws_session::handler::tests::support::{
         make_active_handle, make_test_app_state,
     };
@@ -121,6 +122,24 @@ mod tests {
         restore(&app_state, &runtime, SESSION, 1).await;
 
         assert_eq!(count(&app_state, OWED).await, 1);
+        assert_eq!(count(&app_state, STOPS).await, 0, "the turn goes on");
         assert!(hold.owes_resume());
+    }
+
+    /// A refused Stop forgets the recorded Stop even when the runtime owed no
+    /// resume: a crash during the turn that goes on must still resume it.
+    #[tokio::test]
+    async fn a_refused_stop_never_leaves_a_stale_stop_behind() {
+        let app_state = make_test_app_state().await;
+        let QueryState::Active { query: runtime, .. } = make_active_handle(1, None).state else {
+            unreachable!("make_active_handle is active");
+        };
+        forget(&app_state, &runtime, SESSION).await.unwrap();
+        assert_eq!(count(&app_state, STOPS).await, 1);
+
+        restore(&app_state, &runtime, SESSION, 1).await;
+
+        assert_eq!(count(&app_state, STOPS).await, 0);
+        assert_eq!(count(&app_state, OWED).await, 0);
     }
 }

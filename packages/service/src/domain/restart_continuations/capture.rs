@@ -107,9 +107,9 @@ pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) -> bool {
 /// reset them.
 ///
 /// Must run before anything else touches session status at startup. The
-/// status reset happens even when the capture fails — a session stuck
-/// `running` would block the user — and the failure reaches the user through
-/// the startup report.
+/// status reset is part of the capture: when that fails, the sessions stay
+/// `running` (they may look busy, which the startup report explains) so the
+/// next start still captures their turns.
 pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
     APP_VERSION.keep_first(app_version.unwrap_or(env!("CARGO_PKG_VERSION")).to_string());
     super::orphans::init(pool);
@@ -128,12 +128,6 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
         }
     }
     capture_left_behind(pool, &mut failures).await;
-    if let Err(error) = WsSessionPersistence::cleanup_stale_sessions(pool).await {
-        tracing::error!(%error, "failed to reset sessions left running");
-        failures.push(format!(
-            "Cadencr could not reset conversations the last exit left running, so they may look busy: {error}"
-        ));
-    }
     if let Some(report) = startup_failure_report(&failures) {
         STARTUP_CAPTURE_ERROR.keep_first(report);
     }
@@ -143,8 +137,9 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
 /// whose own capture failed left its intent behind: those turns follow it.
 /// Anything else (a crash, a kill, an update) resumes.
 ///
-/// The intent and the background-work records are consumed in the capture's
-/// transaction: when it fails, all of it stays for the next start to retry.
+/// The intent and the background-work records are consumed, and the sessions
+/// left `running` paused, in the capture's transaction: when it fails, all of
+/// it stays for the next start to retry, and no turn or work is lost.
 async fn capture_left_behind(pool: &SqlitePool, failures: &mut Vec<String>) {
     match capture_left_behind_once(pool).await {
         Ok(0) => {}
@@ -153,7 +148,7 @@ async fn capture_left_behind(pool: &SqlitePool, failures: &mut Vec<String>) {
             tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
             failures.push(format!(
                 "Cadencr could not check which agents the last exit interrupted, and will try \
-                 again on its next start: {error}"
+                 again on its next start; until then they may look busy: {error}"
             ));
         }
     }
@@ -166,6 +161,7 @@ async fn capture_left_behind_once(pool: &SqlitePool) -> Result<u64, sqlx::Error>
         .unwrap_or(Intent::Resume.into());
     let count = store::capture_crashed(&mut tx, intents).await?;
     super::background_work::clear(&mut tx).await?;
+    WsSessionPersistence::cleanup_stale_sessions(&mut *tx).await?;
     tx.commit().await?;
     Ok(count)
 }
@@ -210,6 +206,7 @@ mod tests {
     async fn a_failed_startup_capture_leaves_everything_for_the_next_start() {
         let (pool, _, feature_id) = fixture().await;
         let waiting = session(&pool, feature_id, "completed").await;
+        let mid_turn = session(&pool, feature_id, "running").await;
         super::super::record_background_work(&pool, waiting, Some(chrono::Utc::now()))
             .await
             .unwrap();
@@ -233,6 +230,31 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(left, (1, 1));
+        let status: String = sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id = ?")
+            .bind(mid_turn)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "running", "the next start still captures its turn");
+    }
+
+    /// A capture that goes through pauses what it captured.
+    #[tokio::test]
+    async fn a_startup_capture_pauses_the_turns_it_captured() {
+        let (pool, _, feature_id) = fixture().await;
+        let mid_turn = session(&pool, feature_id, "running").await;
+        let mut failures = Vec::new();
+
+        capture_left_behind(&pool, &mut failures).await;
+
+        assert!(failures.is_empty(), "{failures:?}");
+        let status: String = sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id = ?")
+            .bind(mid_turn)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "paused");
+        assert_eq!(list_pending(&pool).await.unwrap().len(), 1);
     }
 
     /// A real crash records no intent: it resumes.

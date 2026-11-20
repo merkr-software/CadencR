@@ -71,6 +71,32 @@ pub async fn record_user_stop(
     tx.commit().await
 }
 
+/// The runtime refused the user's Stop: the turn goes on. Undo
+/// [`record_user_stop`] in one write: forget the Stop (a crash must still
+/// resume the turn) and, when the runtime still owes it (`owed_since`), the
+/// resume of its background work.
+pub async fn undo_user_stop(
+    pool: &SqlitePool,
+    session_id: i64,
+    owed_since: Option<DateTime<Utc>>,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM agent_user_stops WHERE session_id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    if let Some(since) = owed_since {
+        sqlx::query(
+            "INSERT OR IGNORE INTO agent_background_work (session_id, since) VALUES (?, ?)",
+        )
+        .bind(session_id)
+        .bind(stamp(since))
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
 /// A new turn starts in `session_id`: the user's last Stop no longer applies
 /// to it. Called before the turn is marked `running`, so a restart in between
 /// finds no running turn rather than this one marked stopped.

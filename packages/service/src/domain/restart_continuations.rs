@@ -41,7 +41,9 @@ mod startup;
 mod store;
 mod transcript;
 
-pub use background_work::{forget_user_stop, record_background_work, record_user_stop};
+pub use background_work::{
+    forget_user_stop, record_background_work, record_user_stop, undo_user_stop,
+};
 pub use capture::{begin_shutdown, capture_cut_off_turn, is_shutting_down, recover_at_startup};
 #[cfg(unix)]
 pub(crate) use orphans::is_alive as process_is_alive;
