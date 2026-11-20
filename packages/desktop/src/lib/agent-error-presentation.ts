@@ -8,12 +8,16 @@
  * request's message can quote anything (Codex lists every method it knows,
  * `account/rateLimits/read` included), so it must never read as an overload.
  */
-export type AgentErrorAction = "continue" | "switchModel";
+import { SETTINGS_READ_FAILED } from "@/lib/api-errors";
+
+export type AgentErrorAction = "continue" | "switchModel" | "openSettings";
 
 export interface AgentErrorPresentation {
   title: string;
   hint: string;
   actions: AgentErrorAction[];
+  /** Show the raw message up front: it is the cause the user acts on. */
+  showCause?: boolean;
 }
 
 interface Rule {
@@ -23,6 +27,17 @@ interface Rule {
 
 /** Failures the backend classified; their message is never matched. */
 const CLASSIFIED_RULES: Rule[] = [
+  {
+    // Not an agent failure: nothing reached the agent, so there is no turn to
+    // continue. The message names the setting or file and why it failed.
+    test: (code) => code === SETTINGS_READ_FAILED,
+    presentation: {
+      title: "Cadencr couldn't read a setting this conversation needs",
+      hint: "Nothing was sent to the agent. Fix the setting or file below, then try again.",
+      actions: ["openSettings"],
+      showCause: true,
+    },
+  },
   {
     test: (code) => code === "PROVIDER_REQUEST_REJECTED",
     presentation: {

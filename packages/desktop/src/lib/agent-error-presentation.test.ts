@@ -16,6 +16,11 @@ describe("presentAgentError", () => {
     ],
     ["AGENT_STOPPED", "stream closed", "The agent process stopped unexpectedly"],
     ["UNKNOWN_MESSAGE", "raw", "Cadencr received an event it doesn't recognize"],
+    [
+      "SETTINGS_READ_FAILED",
+      "Failed to read the agent provider setting: rate limit",
+      "Cadencr couldn't read a setting this conversation needs",
+    ],
     ["ERROR_DURING_EXECUTION", "something else", "The agent hit an error and ended its turn"],
   ])("frames %s / %s", (code, content, title) => {
     expect(presentAgentError(code, content).title).toBe(title);
@@ -39,6 +44,19 @@ describe("presentAgentError", () => {
     const presentation = presentAgentError(code, content);
     expect(presentation.title).toBe(title);
     expect(presentation.actions).not.toContain("switchModel");
+  });
+
+  // Found in QA: an unreadable project settings file showed "ended its turn"
+  // and a Continue button on a conversation that never had a turn.
+  it("frames an unreadable setting as a settings error, not a turn to continue", () => {
+    const presentation = presentAgentError(
+      "SETTINGS_READ_FAILED",
+      "Cadencr could not read the settings file /p/qa.settings.json: Is a directory",
+    );
+    expect(presentation.title).not.toMatch(/turn/i);
+    expect(presentation.hint).not.toMatch(/turn/i);
+    expect(presentation.actions).toEqual(["openSettings"]);
+    expect(presentation.showCause).toBe(true);
   });
 
   it("offers a model switch only where it helps", () => {
