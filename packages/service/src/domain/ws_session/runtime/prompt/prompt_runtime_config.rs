@@ -5,7 +5,7 @@ use crate::domain::agents::adapter::RuntimeSpawnConfig;
 
 use super::super::control_policy::arm_bypass_for_respawn;
 use super::super::detached_runtime::{resume_session_id, DetachedRuntime};
-use super::super::helpers::{broadcast_session_error, SESSION_STATE_UNREADABLE};
+use super::super::helpers::SESSION_STATE_UNREADABLE;
 use super::super::{QueryState, SdkHandle, WsSender};
 use super::respawn_deferral::{notify_change_deferred, respawn_deferral, RespawnDeferral};
 
@@ -51,22 +51,21 @@ pub(in crate::domain::ws_session) async fn apply_respawn_if_needed(
         return (changes, None);
     }
     log_respawn(handle, db_session_id);
-    if let Err(error) = arm_bypass_for_respawn(handle, &app_state.read_pool).await {
-        // The respawn goes ahead with bypass off: the safe branch, reported.
-        let message = format!(
-            "Cadencr could not read the bypass permissions setting ({error}). Bypass stays off."
-        );
-        broadcast_session_error(
-            &app_state.ws_feature_senders,
-            handle.feature_id,
-            SESSION_STATE_UNREADABLE,
-            message,
-        )
-        .await;
-    }
+    // The respawn goes ahead with bypass off (the safe branch); the read
+    // failure is reported once the caller has released the session lock.
+    let notice = arm_bypass_for_respawn(handle, &app_state.read_pool)
+        .await
+        .err()
+        .map(|error| {
+            let message = format!(
+                "Cadencr could not read the bypass permissions setting ({error}). Bypass stays off."
+            );
+            (SESSION_STATE_UNREADABLE, message)
+        });
     let runtime_session_id = resume_session_id(&query, &handle.runtime_provider).await;
     reset_handle_to_pending(handle, runtime_session_id);
-    let retired = DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes);
+    let retired = DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes)
+        .with_notice(notice);
     (changes, Some(retired))
 }
 
@@ -421,6 +420,41 @@ mod tests {
             assert_eq!(
                 options.permission_mode,
                 Some(RuntimePermissionMode::BypassPermissions)
+            );
+        }
+
+        /// Found in QA: the unreadable-bypass notice was broadcast while the
+        /// caller still held the session lock. It now leaves with the close.
+        #[tokio::test]
+        async fn an_unreadable_bypass_setting_is_reported_after_the_lock() {
+            let app_state = make_test_app_state().await;
+            sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+                .execute(&app_state.write_pool)
+                .await
+                .unwrap();
+            let (viewer, mut inbox) = tokio::sync::mpsc::unbounded_channel();
+            app_state.ws_feature_senders.register(1, viewer).await;
+            let (mut handle, _registration) = effort_changed_handle(9205, 0);
+            handle.desired_thinking_effort = None;
+            handle.desired_permission_mode = Some(RuntimePermissionMode::BypassPermissions);
+
+            let (_changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9205).await;
+
+            let QueryState::Pending(options) = &handle.state else {
+                panic!("the respawn goes ahead");
+            };
+            assert!(!options.allow_bypass_permissions, "bypass stays off");
+            assert!(inbox.try_recv().is_err(), "nothing is sent under the lock");
+            retired.expect("respawned").close_in(&app_state).await;
+            let mut delivered = Vec::new();
+            while let Ok(message) = inbox.try_recv() {
+                delivered.push(format!("{message:?}"));
+            }
+            assert!(
+                delivered
+                    .iter()
+                    .any(|m| m.contains("SESSION_STATE_UNREADABLE")),
+                "{delivered:?}"
             );
         }
 

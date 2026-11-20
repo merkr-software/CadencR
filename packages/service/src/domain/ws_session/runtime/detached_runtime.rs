@@ -29,6 +29,9 @@ pub(in crate::domain::ws_session) struct DetachedRuntime {
     runtime_provider: String,
     feature_id: i64,
     lease: DetachedCloseLease,
+    /// A notice (`code`, message) found under the lock, delivered with the
+    /// close so no viewer send is awaited while the session cell is held.
+    notice: Option<(&'static str, String)>,
 }
 
 impl DetachedRuntime {
@@ -46,7 +49,17 @@ impl DetachedRuntime {
             runtime_provider: handle.runtime_provider.clone(),
             feature_id: handle.feature_id,
             lease: runtimes.begin_detached_close(db_session_id),
+            notice: None,
         }
+    }
+
+    /// Deliver `notice` to the session's viewers when this runtime is closed.
+    pub(in crate::domain::ws_session) fn with_notice(
+        mut self,
+        notice: Option<(&'static str, String)>,
+    ) -> Self {
+        self.notice = notice;
+        self
     }
 
     /// Persist the resume id and close the runtime, once the session lock is
@@ -64,6 +77,11 @@ impl DetachedRuntime {
             self.feature_id,
         )
         .await;
+        if let Some((code, message)) = self.notice {
+            context
+                .broadcast_error(self.feature_id, code, message)
+                .await;
+        }
         self.lease
     }
 
