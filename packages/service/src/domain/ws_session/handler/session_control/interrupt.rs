@@ -6,6 +6,8 @@ use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeS
 use crate::domain::ws_session::runtime::output::CommandError;
 use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
 
+mod owed_resume;
+
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
 pub(crate) const NOTHING_TO_STOP: &str = "NOTHING_TO_STOP";
@@ -87,6 +89,9 @@ pub(crate) async fn stop_session(
     let _barrier = q.turn_control_guard().await;
     // Under the barrier: no follow-up is handed over between these steps.
     let withdrawn = withdraw_followups(app_state, &**q, db_session_id, feature_id).await;
+    // Before the runtime stops (and its reader writes the stop marker): a
+    // restart in between must not resume what the user is stopping.
+    let recorded = owed_resume::forget(app_state, &query, db_session_id).await;
     let interrupted = interrupt_as_intended(
         app_state,
         &query,
@@ -96,8 +101,11 @@ pub(crate) async fn stop_session(
         StopReason::User,
     )
     .await;
+    if interrupted.is_err() {
+        owed_resume::restore(app_state, &query, db_session_id, feature_id).await;
+    }
     match interrupted {
-        Ok(()) => withdrawn,
+        Ok(()) => withdrawn.and(recorded),
         // The status said busy, but the runtime had no turn to stop (it
         // ended a moment ago): its mark is cleared, nothing will end.
         Err(error) if error.is_nothing_to_interrupt() => {

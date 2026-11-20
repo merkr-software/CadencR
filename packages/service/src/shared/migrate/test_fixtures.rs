@@ -134,6 +134,17 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     }
 }
 
+/// The restart background-work migration (20261120143700) adds a column to
+/// `restart_continuations`, which fixtures baselined after its creating
+/// migration (20261026230000) omit. Never call it from a fixture baselined
+/// earlier: that migration must create the real table.
+pub(crate) async fn ensure_restart_continuations_prerequisites(pool: &SqlitePool) {
+    sqlx::raw_sql("CREATE TABLE IF NOT EXISTS restart_continuations (id INTEGER PRIMARY KEY)")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
 /// The unified custom-action schedules migration (20261029100000) copies
 /// `custom_action_schedules` rows into `schedules` and drops the table, so it
 /// needs both tables with the columns the copy reads and writes. Fixtures

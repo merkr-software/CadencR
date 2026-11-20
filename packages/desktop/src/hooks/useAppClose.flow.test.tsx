@@ -80,7 +80,11 @@ describe("useAppClose", () => {
 
     ask({ quitting: true });
 
-    expect(mock.confirmClose).toHaveBeenCalledWith();
+    // Nothing was asked: background work the quit stops stays stopped.
+    expect(mock.confirmClose).toHaveBeenCalledWith({
+      resumeAgents: true,
+      resumeBackgroundWork: false,
+    });
     expect(mock.acknowledgeCloseRequest).not.toHaveBeenCalled();
     expect(result.current.request).toBeNull();
   });

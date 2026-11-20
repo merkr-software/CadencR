@@ -12,7 +12,7 @@ import { isReplacementShown } from "@/lib/plugin-tabs/builtin-fallback";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { getListFeaturesQueryKey } from "@/api/generated";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
+import { QUIT_WITHOUT_ASKING, type AppCloseChoice, type AppCloseRequest } from "@/shared/app-close";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 const CLOSE_ERROR_TOAST_ID = "app-close:error";
@@ -115,7 +115,9 @@ export function useAppClose(queryClient: QueryClient, activeFeatureId: number | 
     (next: AppCloseRequest) => {
       const working = getWorkingAgents(queryClient);
       if (working.length === 0) {
-        desktopBridge.confirmClose().catch(reportCloseFailure);
+        // Nothing was asked, so nothing comes back on its own: background
+        // work the quit stops stays stopped, with a Resume button.
+        desktopBridge.confirmClose(QUIT_WITHOUT_ASKING).catch(reportCloseFailure);
         return;
       }
       setAgents(working);

@@ -39,6 +39,10 @@ impl SharedRuntimeHold {
     pub(in crate::domain::ws_session) fn holds_runtime(&self) -> bool {
         self.lock().holds_runtime()
     }
+
+    pub(in crate::domain::ws_session) fn owes_resume(&self) -> bool {
+        self.lock().owes_resume()
+    }
 }
 
 struct Entry {
@@ -98,11 +102,40 @@ pub(in crate::domain::ws_session) fn runtime_is_held(
     db_session_id: i64,
     runtime: &RuntimeSessionHandle,
 ) -> bool {
-    let hold = holds()
+    hold_of(db_session_id, runtime).is_some_and(|hold| hold.holds_runtime())
+}
+
+/// The hold registered for exactly this runtime instance.
+fn hold_of(db_session_id: i64, runtime: &RuntimeSessionHandle) -> Option<SharedRuntimeHold> {
+    holds()
         .get(&db_session_id)
         .filter(|entry| std::ptr::eq(entry.runtime.as_ptr(), Arc::as_ptr(runtime)))
-        .map(|entry| entry.hold.clone());
-    hold.is_some_and(|hold| hold.holds_runtime())
+        .map(|entry| entry.hold.clone())
+}
+
+/// The user stopped `runtime`'s agent: whatever the runtime still runs, a
+/// restart must not resume it. Its reader forgets the conversation's record
+/// on its next event or idle tick.
+pub(in crate::domain::ws_session) fn stop_by_user(
+    db_session_id: i64,
+    runtime: &RuntimeSessionHandle,
+) {
+    if let Some(hold) = hold_of(db_session_id, runtime) {
+        hold.lock().stop_by_user();
+    }
+}
+
+/// The user's Stop did not go through: undo [`stop_by_user`]. Returns
+/// whether `runtime` still owes the agent a resume.
+pub(in crate::domain::ws_session) fn cancel_stop_by_user(
+    db_session_id: i64,
+    runtime: &RuntimeSessionHandle,
+) -> bool {
+    hold_of(db_session_id, runtime).is_some_and(|hold| {
+        let mut hold = hold.lock();
+        hold.cancel_stop_by_user();
+        hold.owes_resume()
+    })
 }
 
 #[cfg(test)]

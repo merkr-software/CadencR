@@ -4,6 +4,13 @@ use super::WsSessionPersistence;
 use sqlx::SqlitePool;
 
 impl WsSessionPersistence {
+    /// Bind a client to an existing session row, applying the permission mode
+    /// it asked for.
+    ///
+    /// The status is left alone: it records how the last turn ended, and the
+    /// desktop shows a `paused` session as a turn the user paused. Opening a
+    /// `completed` conversation used to turn it `paused` that way. A runtime
+    /// that starts a turn marks it `running` itself.
     pub async fn reopen_session(
         &self,
         id: i64,
@@ -11,8 +18,7 @@ impl WsSessionPersistence {
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             "UPDATE agent_sessions
-             SET status = CASE WHEN status = 'running' THEN status ELSE 'paused' END,
-                 permission_mode = COALESCE(?, permission_mode)
+             SET permission_mode = COALESCE(?, permission_mode)
              WHERE id = ?",
         )
         .bind(permission_mode)
@@ -236,6 +242,44 @@ pub(super) mod session_state_tests {
             .await
             .unwrap();
         assert_eq!(row.0, "completed");
+    }
+
+    /// Opening a conversation reopens its row; a `completed` one used to come
+    /// back `paused`, which the desktop shows as a turn the user paused.
+    #[tokio::test]
+    async fn reopening_keeps_the_status_the_last_turn_left() {
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::new(pool.clone(), 1);
+        let id = p.find_or_create_session(None, None).await.unwrap();
+
+        for status in ["completed", "paused", "running", "error"] {
+            sqlx::query("UPDATE agent_sessions SET status = ? WHERE id = ?")
+                .bind(status)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            p.reopen_session(id, Some("plan")).await.unwrap();
+
+            let row: (String, Option<String>) =
+                sqlx::query_as("SELECT status, permission_mode FROM agent_sessions WHERE id = ?")
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(row, (status.to_string(), Some("plan".to_string())));
+        }
+    }
+
+    #[tokio::test]
+    async fn reopening_a_missing_session_is_an_error() {
+        let pool = setup_test_db().await;
+        let p = WsSessionPersistence::new(pool, 1);
+        assert!(matches!(
+            p.reopen_session(42, None).await,
+            Err(sqlx::Error::RowNotFound)
+        ));
     }
 
     #[tokio::test]

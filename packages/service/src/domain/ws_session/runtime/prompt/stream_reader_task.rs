@@ -94,6 +94,12 @@ pub(super) struct StreamReaderState {
     /// [`super::runtime_hold`]). Unlike `live_background_agents` it doesn't
     /// keep the session `running`.
     pub(super) runtime_hold: runtime_hold_registry::SharedRuntimeHold,
+    /// The conversation is recorded as owed a resume for background work
+    /// (see [`super::stream_reader_background_work`]).
+    pub(super) background_work_recorded: bool,
+    /// A background-work record failed and viewers were told; retries stay
+    /// in the log until one succeeds.
+    pub(super) background_work_save_failed: bool,
     /// Monotonic counter stamped onto every `session.message` envelope this
     /// reader emits, so clients can detect a dropped envelope (gap) and
     /// resync. Restarts at 1 with each reader; clients treat a lower-than-
@@ -192,12 +198,15 @@ impl StreamReaderTask {
                         runtime_event,
                     )
                     .await;
+                    // After the event wrote what it writes (`running`, first).
+                    self.sync_background_work(&mut state).await;
                 }
             }
         }
 
         self.stop_running_subagents(&mut state).await;
         self.publish_transcript_status(&mut persistence, true).await;
+        self.forget_background_work(&mut state).await;
         drop(hold_registration);
         transition_active_to_pending_on_stream_end(
             &self.sdk_sessions,
@@ -231,6 +240,7 @@ impl StreamReaderTask {
     }
 
     async fn handle_timeout_tick(&self, state: &mut StreamReaderState) -> ReaderAction {
+        self.sync_background_work(state).await;
         // Viewer liveness is independent of whichever transport started the
         // runtime. Keep idle processes while any client still observes them.
         self.sender

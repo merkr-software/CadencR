@@ -25,6 +25,7 @@ mod stream_diagnostics;
 mod stream_reader;
 mod stream_reader_after_turn;
 mod stream_reader_background_agents;
+mod stream_reader_background_work;
 mod stream_reader_forward;
 mod stream_reader_idle;
 mod stream_reader_mode_change;

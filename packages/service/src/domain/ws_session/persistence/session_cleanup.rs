@@ -52,13 +52,17 @@ impl WsSessionPersistence {
         Ok((feature_id, agent_type))
     }
 
-    pub async fn cleanup_stale_sessions(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    /// Pause the sessions a dead process left `running`. Takes any executor
+    /// so the startup capture can run it in its own transaction.
+    pub async fn cleanup_stale_sessions<'e>(
+        executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         sqlx::query(
             "UPDATE agent_sessions SET status = 'paused', ended_at = ? WHERE status = 'running'",
         )
         .bind(&now)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }

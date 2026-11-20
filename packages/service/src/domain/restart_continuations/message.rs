@@ -13,15 +13,36 @@ use crate::domain::sessions::user_messages::{
 use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
 use crate::error::AppError;
 
-/// What the agent is told. It names what was lost (the running command,
-/// background work, a pending question) so the agent re-checks or re-asks
-/// instead of assuming it finished. One text for every case: the message
-/// identity is stable per continuation, so its content must be too.
+use super::store::PendingContinuation;
+
+/// What the agent is told when a turn was cut off. It names what was lost
+/// (the running command, background work, a pending question) so the agent
+/// re-checks or re-asks instead of assuming it finished. The message identity
+/// is stable per continuation, so each continuation's text must be too.
 pub(super) const CONTINUE_PROMPT: &str = "Cadencr restarted while you were working (an app \
 update or restart), which interrupted your previous turn. Any command, background task, or \
 sub-agent that was still running was stopped, and any question or permission request you were \
 waiting on the user for was lost. Continue where you left off: re-run anything that was \
 interrupted if it is still needed, and ask again anything you were waiting on the user for.";
+
+/// What the agent is told when its turn had ended but the work it left
+/// running between turns was stopped: its runtime would have started the
+/// next turn once that work settled, and now never will.
+pub(super) const BACKGROUND_WORK_PROMPT: &str = "Cadencr restarted (an app update or \
+restart) after your previous turn ended, while work you had left running was still \
+pending: every background command, agent, or monitor was stopped before it finished, and any \
+wake-up you had scheduled was cancelled, so you will not be notified about them. Check what \
+that work managed to do, re-run what is still needed, and continue where you left off.";
+
+/// The prompt for one captured continuation. Stable per continuation, like
+/// its message identity.
+pub(super) fn prompt_for(continuation: &PendingContinuation) -> &'static str {
+    if continuation.background_work() {
+        BACKGROUND_WORK_PROMPT
+    } else {
+        CONTINUE_PROMPT
+    }
+}
 
 /// `agent_message_origins.note` of the prompt; the frontend renders a message
 /// with this note as an automatic resume rather than as the user's words.
@@ -44,12 +65,12 @@ pub(super) fn message_uuid(continuation_id: i64) -> Uuid {
 /// clients, then start the turn that resumes the provider session.
 pub(super) async fn deliver(
     state: &AppState,
-    feature_id: i64,
-    session_id: i64,
-    continuation_id: i64,
+    continuation: &PendingContinuation,
 ) -> Result<(), AppError> {
-    let message_uuid = message_uuid(continuation_id);
-    let message = persist(state, session_id, message_uuid).await?;
+    let (feature_id, session_id) = (continuation.feature_id, continuation.session_id);
+    let prompt = prompt_for(continuation);
+    let message_uuid = message_uuid(continuation.id);
+    let message = persist(state, session_id, message_uuid, prompt).await?;
     let origin =
         crate::domain::sessions::repository::get_message_origin(&state.write_pool, message.id)
             .await?;
@@ -72,7 +93,7 @@ pub(super) async fn deliver(
         state,
         feature_id,
         session_id,
-        CONTINUE_PROMPT,
+        prompt,
         true,
         Some(message_uuid),
     );
@@ -104,13 +125,14 @@ async fn persist(
     state: &AppState,
     session_id: i64,
     message_uuid: Uuid,
+    content: &str,
 ) -> Result<PersistedUserMessage, AppError> {
     let mut tx = state.write_pool.begin().await?;
     let message = persist_user_message(
         &mut tx,
         NewUserMessage {
             session_id,
-            content: CONTINUE_PROMPT,
+            content,
             message_uuid,
             delivery_state: Some("pending_agent"),
         },
@@ -147,8 +169,12 @@ mod tests {
         let session_id = super::super::store::tests::session(&pool, feature_id, "paused").await;
         let state = AppState::with_pool(pool.clone());
 
-        let first = persist(&state, session_id, message_uuid(1)).await.unwrap();
-        let second = persist(&state, session_id, message_uuid(1)).await.unwrap();
+        let first = persist(&state, session_id, message_uuid(1), CONTINUE_PROMPT)
+            .await
+            .unwrap();
+        let second = persist(&state, session_id, message_uuid(1), CONTINUE_PROMPT)
+            .await
+            .unwrap();
 
         assert!(first.inserted);
         assert!(!second.inserted);

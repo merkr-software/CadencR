@@ -136,13 +136,7 @@ async fn resume(
             Some(format!("its resume could not be recorded: {error}")),
         );
     }
-    let delivered = message::deliver(
-        state,
-        continuation.feature_id,
-        continuation.session_id,
-        continuation.id,
-    )
-    .await;
+    let delivered = message::deliver(state, continuation).await;
     let Err(error) = delivered else {
         return (RestartContinuationOutcome::Resumed, reason);
     };
@@ -190,7 +184,7 @@ async fn prepare(
     let status = store::session_status(&state.write_pool, continuation.session_id)
         .await
         .map_err(|error| format!("could not read the conversation's status: {error}"))?;
-    if let Some(skip) = live_skip(&status) {
+    if let Some(skip) = live_skip(&status, continuation.background_work()) {
         return Ok((Decision::Skip(skip), false));
     }
     store::write_marker(&state.write_pool, continuation)
@@ -221,7 +215,7 @@ mod tests {
     use super::*;
     use crate::domain::restart_continuations::gates::tests::seed_pending_question;
     use crate::domain::restart_continuations::store::{
-        capture_running, tests::session, Cause, Intent,
+        capture_running, tests::session, Cause, Intent, Intents,
     };
     use crate::domain::schedules::repository::test_support::fixture;
 
@@ -356,6 +350,101 @@ mod tests {
         assert_eq!(markers, 0);
     }
 
+    /// A quit with no agent working leaves background work stopped: marked,
+    /// with its Resume button, but no prompt and nothing in the report toast.
+    #[tokio::test]
+    async fn background_work_stopped_by_a_quit_is_marked_but_not_resumed() {
+        let (pool, _, feature_id) = fixture().await;
+        let session_id = session(&pool, feature_id, "completed").await;
+        crate::domain::restart_continuations::record_background_work(
+            &pool,
+            session_id,
+            Some(chrono::Utc::now()),
+        )
+        .await
+        .unwrap();
+        let intents = Intents {
+            turn: Intent::Resume,
+            background: Intent::Stop,
+        };
+        capture_running(&pool, Cause::Shutdown, intents, Some("1.0.0"))
+            .await
+            .unwrap();
+
+        let report = run(&AppState::with_pool(pool.clone())).await;
+
+        assert_eq!(
+            report.entries[0].outcome,
+            RestartContinuationOutcome::Skipped
+        );
+        assert_eq!(report.entries[0].reason.as_deref(), Some("stopped_on_quit"));
+        let transcript: Vec<(String, String)> = sqlx::query_as(
+            "SELECT message_type, content FROM agent_messages
+             WHERE session_id = ? AND message_type IN ('turn_interrupted', 'user_message')",
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            transcript,
+            vec![(
+                "turn_interrupted".into(),
+                crate::domain::restart_continuations::RESTART_BACKGROUND_MARKER_CONTENT.into()
+            )]
+        );
+    }
+
+    /// Its turn had completed before the kill, so the session is not
+    /// `running`; the background work it left running is what was lost.
+    #[tokio::test]
+    async fn stopped_background_work_is_marked_and_resumed() {
+        let (pool, _, feature_id) = fixture().await;
+        let session_id = session(&pool, feature_id, "completed").await;
+        crate::domain::restart_continuations::record_background_work(
+            &pool,
+            session_id,
+            Some(chrono::Utc::now()),
+        )
+        .await
+        .unwrap();
+        capture_running(&pool, Cause::Crash, Intent::Resume, None)
+            .await
+            .unwrap();
+
+        let report = run(&AppState::with_pool(pool.clone())).await;
+
+        assert_eq!(report.entries.len(), 1);
+        // Resumed, not skipped as `finished`: no provider in tests, so the
+        // prompt is written and its delivery fails.
+        assert_eq!(
+            report.entries[0].outcome,
+            RestartContinuationOutcome::Failed
+        );
+        let transcript: Vec<(String, String)> = sqlx::query_as(
+            "SELECT message_type, content FROM agent_messages
+             WHERE session_id = ? AND message_type IN ('turn_interrupted', 'user_message')
+             ORDER BY id",
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            transcript,
+            vec![
+                (
+                    "turn_interrupted".into(),
+                    crate::domain::restart_continuations::RESTART_BACKGROUND_MARKER_CONTENT.into()
+                ),
+                (
+                    "user_message".into(),
+                    message::BACKGROUND_WORK_PROMPT.into()
+                ),
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn nothing_interrupted_means_an_empty_report() {
         let (pool, _, _) = fixture().await;
@@ -370,6 +459,7 @@ mod tests {
             session_id: 1,
             app_version: version.map(str::to_string),
             intent: "resume".into(),
+            kind: "turn".into(),
             marker_message_id: None,
             feature_id: 1,
             project_id: 1,
