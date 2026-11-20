@@ -26,22 +26,39 @@ pub async fn get_blame(
         .map_err(|_| AppError::BadRequest("file outside project root".into()))?
         .to_string_lossy()
         .into_owned();
+    blame_file(&project_root, &relative).await
+}
+
+/// Blame `relative` inside `project_root`, which contains it.
+async fn blame_file(project_root: &Path, relative: &str) -> Result<BlameResponse, AppError> {
     // Files outside the index (node_modules, build artefacts, dotfiles in a
     // non-git directory) have no blame to report. Running `git blame` on them
     // fails with "no such path in HEAD" and spams the user with toast errors
     // on every editor open. Cheaper to ask up front.
-    if !crate::shared::git_context::has_git_metadata(&project_root).await?
-        || !is_path_tracked(&project_root, &relative).await?
+    if !crate::shared::git_context::has_git_metadata(project_root).await?
+        || !is_path_tracked(project_root, relative).await?
     {
         return Ok(BlameResponse { lines: vec![] });
     }
-    let output = crate::shared::git_cli::run_git_safe_background(
+    let output = match crate::shared::git_cli::run_git_safe_background(
         &["blame"],
         &["--porcelain"],
-        &[&relative],
-        &project_root,
+        &[relative],
+        project_root,
     )
-    .await?;
+    .await
+    {
+        Ok(output) => output,
+        // A file staged on a branch with no commit yet is tracked but has no
+        // history to blame: an empty blame, not "no such ref: HEAD".
+        Err(error) => {
+            return match crate::shared::git_cli::head_is_unborn(project_root).await {
+                Ok(true) => Ok(BlameResponse { lines: vec![] }),
+                // Git's own message says best why blame failed.
+                Ok(false) | Err(_) => Err(error),
+            };
+        }
+    };
     let lines = parse_blame_porcelain(&output);
     Ok(BlameResponse { lines })
 }
@@ -300,5 +317,25 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 3 3
         assert_eq!(lines[2].summary, "first commit");
         assert_eq!(lines[2].line, 3);
         assert_eq!(lines[2].date, lines[0].date);
+    }
+
+    /// A file staged on a branch with no commit yet is tracked but has no
+    /// history: an empty blame, where `git blame` says "no such ref: HEAD".
+    #[tokio::test]
+    async fn a_file_staged_before_the_first_commit_blames_to_nothing() {
+        let (_dir, repo) = init_test_repo("repo").await;
+        std::fs::write(repo.join("draft.txt"), "hi").unwrap();
+        let status = Command::new("git")
+            .args(["add", "draft.txt"])
+            .current_dir(&repo)
+            .status()
+            .await
+            .unwrap();
+        assert!(status.success());
+        assert!(blame_file(&repo, "draft.txt")
+            .await
+            .unwrap()
+            .lines
+            .is_empty());
     }
 }

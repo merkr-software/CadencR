@@ -118,7 +118,9 @@ pub async fn get_commit_graph(
     }
     let mut tip_refs: Vec<&str> = tips.iter().map(String::as_str).collect();
     guard_positionals(&tip_refs)?;
-    let walk = [args.as_slice(), &tip_refs].concat();
+    // `--`: a branch named like a tracked folder (`main/`) is otherwise
+    // ambiguous between a revision and a path, and Git refuses.
+    let walk = [args.as_slice(), &tip_refs, &["--"]].concat();
     let stdout = match run_git_background(&walk, repo_path).await {
         Ok(stdout) => stdout,
         Err(error) => {
@@ -128,7 +130,7 @@ pub async fn get_commit_graph(
             if tip_refs.is_empty() {
                 return Ok(Vec::new());
             }
-            run_git_background(&[args.as_slice(), &tip_refs].concat(), repo_path).await?
+            run_git_background(&[args.as_slice(), &tip_refs, &["--"]].concat(), repo_path).await?
         }
     };
     let mut commits = parse_graph_log(&stdout);
@@ -357,5 +359,38 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::BadRequest(_)));
+    }
+
+    /// `git log HEAD main` refuses when `main/` is also a tracked folder.
+    #[tokio::test]
+    async fn a_branch_named_like_a_folder_draws_its_graph() {
+        use crate::shared::git_cli::run_git;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        run_git(&["init", "-q"], path).await.unwrap();
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/main"], path)
+            .await
+            .unwrap();
+        std::fs::create_dir(path.join("main")).unwrap();
+        std::fs::write(path.join("main/f.txt"), "x").unwrap();
+        run_git(&["add", "-A"], path).await.unwrap();
+        run_git(
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "i",
+            ],
+            path,
+        )
+        .await
+        .unwrap();
+        let tips = ["HEAD".to_string(), "main".to_string()];
+        assert_eq!(get_commit_graph(path, &tips, 0, 50).await.unwrap().len(), 1);
     }
 }

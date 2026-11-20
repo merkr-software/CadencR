@@ -7,7 +7,8 @@ use std::path::Path;
 
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    git_ref_resolves_background, guard_positionals, run_git_background, run_git_probe_background,
+    git_ref_resolves_background, guard_positionals, head_is_unborn, run_git_background,
+    run_git_probe_background,
 };
 
 /// Get the current branch name: `HEAD` when detached, `None` outside a
@@ -19,8 +20,13 @@ pub async fn get_current_branch(repo_path: &Path) -> Result<Option<String>, AppE
     }
     let stdout = match run_git_background(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path).await {
         Ok(stdout) => stdout,
-        Err(_) if !git_ref_resolves_background("HEAD", repo_path).await? => return Ok(None),
-        Err(error) => return Err(error),
+        Err(error) => {
+            return match head_is_unborn(repo_path).await {
+                Ok(true) => Ok(None),
+                // Git's own message says best why the lookup failed.
+                Ok(false) | Err(_) => Err(error),
+            };
+        }
     };
     let branch = stdout.trim();
     Ok((!branch.is_empty()).then(|| branch.to_string()))

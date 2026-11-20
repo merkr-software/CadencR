@@ -1,73 +1,28 @@
 //! File-content fetchers used by the diff viewer (single + batch) and
 //! `ls-files` listing.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::domain::git::file_size::classify_content_bytes;
 use crate::domain::git::models::FileContentBatchItem;
 use crate::error::AppError;
-use crate::shared::git_cli::{
-    git_ref_resolves_background, run_git_background, run_git_safe_refs, run_git_safe_refs_bytes,
-};
+use crate::shared::git_cli::run_git_background;
 use crate::shared::git_z;
 
-fn resolve_worktree_file(
-    worktree_path: &Path,
-    file_path: &str,
-) -> Result<Option<PathBuf>, AppError> {
-    let canonical_worktree = worktree_path
-        .canonicalize()
-        .map_err(|e| AppError::BadRequest(format!("Invalid worktree path: {e}")))?;
-    let canonical_file = match worktree_path.join(file_path).canonicalize() {
-        Ok(canonical_file) => canonical_file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(AppError::internal(format!(
-                "cannot resolve {file_path}: {error}"
-            )))
-        }
-    };
-    if !canonical_file.starts_with(&canonical_worktree) {
-        return Err(AppError::BadRequest("Path traversal not allowed".into()));
-    }
-    Ok(Some(canonical_file))
-}
+use super::diff_side::read_side;
 
 /// Get exact file bytes at a ref, or from the working tree when `ref_spec` is
-/// `None`. This never applies UTF-8 conversion.
+/// `None`. This never applies UTF-8 conversion. A path the side does not hold
+/// is `NotFound`.
 pub async fn get_file_bytes(
     worktree_path: &Path,
     file_path: &str,
     ref_spec: Option<&str>,
     max_bytes: usize,
 ) -> Result<Vec<u8>, AppError> {
-    match ref_spec {
-        None => {
-            let canonical_file = resolve_worktree_file(worktree_path, file_path)?
-                .ok_or_else(|| AppError::NotFound("File not found".into()))?;
-            let len = tokio::fs::metadata(&canonical_file)
-                .await
-                .map_err(|e| AppError::internal(e.to_string()))?
-                .len();
-            ensure_file_size(len, max_bytes)?;
-            tokio::fs::read(canonical_file)
-                .await
-                .map_err(|e| AppError::internal(e.to_string()))
-        }
-        Some(reference) => {
-            let show_arg = format!("{reference}:{file_path}");
-            // Unbounded reads skip the size probe: it could never refuse them.
-            if max_bytes != usize::MAX {
-                let len = run_git_safe_refs(&["cat-file"], &["-s"], &[&show_arg], worktree_path)
-                    .await?
-                    .trim()
-                    .parse::<u64>()
-                    .map_err(|_| AppError::git_command("git returned an invalid blob size"))?;
-                ensure_file_size(len, max_bytes)?;
-            }
-            run_git_safe_refs_bytes(&["show"], &[], &[&show_arg], worktree_path).await
-        }
-    }
+    read_side(worktree_path, file_path, ref_spec, max_bytes)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("{file_path} not found")))
 }
 
 /// One side of a file diff: the bytes at `ref_spec` (the working tree when
@@ -79,53 +34,7 @@ pub async fn get_diff_side_bytes(
     file_path: &str,
     ref_spec: Option<&str>,
 ) -> Result<Option<Vec<u8>>, AppError> {
-    let error = match get_file_bytes(worktree_path, file_path, ref_spec, usize::MAX).await {
-        Ok(bytes) => return Ok(Some(bytes)),
-        Err(error) => error,
-    };
-    let absent = match ref_spec {
-        None => matches!(error, AppError::NotFound(_)),
-        Some(reference) => path_absent_from_tree(worktree_path, reference, file_path).await?,
-    };
-    if absent {
-        Ok(None)
-    } else {
-        Err(error)
-    }
-}
-
-/// True only when `reference` stands for a tree that lacks `file_path`: a
-/// tree without that entry, the `HEAD` of an unborn branch, or the parent
-/// (`<commit>^`) of a root commit — both of which stand for the empty tree,
-/// so every file is an addition. Any other reference that names no tree is a
-/// failed read, not an absence.
-async fn path_absent_from_tree(
-    worktree_path: &Path,
-    reference: &str,
-    file_path: &str,
-) -> Result<bool, AppError> {
-    let resolves =
-        |rev: String| async move { git_ref_resolves_background(&rev, worktree_path).await };
-    if !resolves(format!("{reference}^{{tree}}")).await? {
-        if reference == "HEAD" {
-            return Ok(true);
-        }
-        return match reference.strip_suffix('^') {
-            Some(commit) => resolves(commit.to_string()).await,
-            None => Ok(false),
-        };
-    }
-    Ok(!resolves(format!("{reference}:{file_path}")).await?)
-}
-
-fn ensure_file_size(len: u64, max_bytes: usize) -> Result<(), AppError> {
-    if len > max_bytes as u64 {
-        return Err(AppError::BadRequest(format!(
-            "File exceeds {} MB size limit",
-            max_bytes / (1024 * 1024)
-        )));
-    }
-    Ok(())
+    read_side(worktree_path, file_path, ref_spec, usize::MAX).await
 }
 
 /// Get file content for multiple files (batch). A side that cannot be read

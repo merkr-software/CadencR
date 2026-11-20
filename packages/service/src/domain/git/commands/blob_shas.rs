@@ -7,10 +7,12 @@ use std::path::Path;
 
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    git_ref_resolves_background, run_git_background, run_git_output_with_env,
+    git_ref_resolves_background, head_commit_exists, run_git_background, run_git_output_with_env,
     run_git_probe_background, run_git_safe,
 };
 use crate::shared::git_z;
+
+use super::util::missing_target_branch;
 
 /// The paths of a `--name-only -z` style listing.
 fn name_set(output: &str) -> HashSet<String> {
@@ -31,9 +33,7 @@ async fn branch_changed_files(
     // A base that cannot be resolved would make every committed file look
     // gone; refuse instead so the viewer pauses comment retirement.
     if !git_ref_resolves_background(base_branch, worktree_path).await? {
-        return Err(AppError::Conflict(format!(
-            "Base branch '{base_branch}' does not exist; set the feature's target branch"
-        )));
+        return Err(missing_target_branch(base_branch));
     }
     let output =
         run_git_output_with_env(&["merge-base", "HEAD", base_branch], worktree_path, &[]).await?;
@@ -51,7 +51,7 @@ async fn branch_changed_files(
     }
     Ok(name_set(
         &run_git_background(
-            &["diff", &merge_base, "HEAD", "--name-only", "-z"],
+            &["diff", &merge_base, "HEAD", "--name-only", "-z", "--"],
             worktree_path,
         )
         .await?,
@@ -77,9 +77,9 @@ pub async fn get_file_blob_shas(
     let worktree_path = repo_root.as_path();
     // An unborn branch has no HEAD to diff against; its tracked changes are
     // exactly what is staged.
-    let has_head = git_ref_resolves_background("HEAD", worktree_path).await?;
+    let has_head = head_commit_exists(worktree_path).await?;
     let changed_args: &[&str] = if has_head {
-        &["diff", "HEAD", "--name-only", "-z"]
+        &["diff", "HEAD", "--name-only", "-z", "--"]
     } else {
         &["diff", "--cached", "--name-only", "-z"]
     };

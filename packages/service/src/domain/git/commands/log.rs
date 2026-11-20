@@ -73,7 +73,9 @@ pub(super) async fn get_unpushed_shas(
     guard_positionals(revs)?;
     let mut args = vec!["rev-list"];
     args.extend_from_slice(revs);
-    args.extend_from_slice(&["--not", "--remotes"]);
+    // `--`: a branch named like a tracked folder (`main/`) is otherwise
+    // ambiguous between a revision and a path, and Git refuses.
+    args.extend_from_slice(&["--not", "--remotes", "--"]);
     let stdout = run_git_background(&args, repo_path).await?;
     Ok(stdout
         .lines()
@@ -99,7 +101,7 @@ pub async fn get_commit_log(
     guard_positionals(&[base_branch, head_rev])?;
     let range = format!("{base_branch}..{head_rev}");
     let format_arg = format!("--format={LOG_FORMAT}");
-    let args = ["log", &range, &format_arg, "--reverse"];
+    let args = ["log", &range, &format_arg, "--reverse", "--"];
     let stdout = match run_git_background(&args, worktree_path).await {
         Ok(stdout) => stdout,
         Err(error) => {
@@ -127,7 +129,7 @@ pub async fn get_recent_commits(
     guard_positionals(&[rev])?;
     let format_arg = format!("--format={LOG_FORMAT}");
     let limit_arg = format!("-{limit}");
-    let args = ["log", rev, &format_arg, &limit_arg];
+    let args = ["log", rev, &format_arg, &limit_arg, "--"];
     let stdout = match run_git_background(&args, repo_path).await {
         Ok(stdout) => stdout,
         Err(error) => {
@@ -239,6 +241,74 @@ mod tests {
             !unpushed.contains(&head),
             "after a remote-tracking ref reaches HEAD, the commit must be \
              reported as pushed regardless of local/remote name mapping"
+        );
+    }
+
+    /// A branch ref holding garbage fails `HEAD`'s lookup silently, exactly
+    /// like an unborn branch: it must fail the log, not list nothing.
+    #[tokio::test]
+    async fn a_corrupt_branch_ref_fails_the_log_instead_of_reading_as_unborn() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        run_git(&["init", "-q"], path).await.unwrap();
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/main"], path)
+            .await
+            .unwrap();
+        run_git(
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "i",
+            ],
+            path,
+        )
+        .await
+        .unwrap();
+        std::fs::write(path.join(".git/refs/heads/main"), "invalid\n").unwrap();
+        assert!(get_recent_commits(path, 5, "HEAD").await.is_err());
+        assert!(get_commit_log(path, "develop", "HEAD").await.is_err());
+    }
+
+    /// A branch named like a tracked folder is not ambiguous to these walks.
+    #[tokio::test]
+    async fn a_branch_named_like_a_folder_still_lists_its_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        run_git(&["init", "-q"], path).await.unwrap();
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/main"], path)
+            .await
+            .unwrap();
+        std::fs::create_dir(path.join("main")).unwrap();
+        std::fs::write(path.join("main/f.txt"), "x").unwrap();
+        run_git(&["add", "-A"], path).await.unwrap();
+        run_git(
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "i",
+            ],
+            path,
+        )
+        .await
+        .unwrap();
+        assert_eq!(get_recent_commits(path, 5, "main").await.unwrap().len(), 1);
+        assert_eq!(
+            get_unpushed_shas(path, &["HEAD", "main"])
+                .await
+                .unwrap()
+                .len(),
+            1
         );
     }
 }

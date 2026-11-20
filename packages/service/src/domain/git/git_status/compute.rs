@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::error::AppError;
-use crate::shared::git_cli::{git_ref_resolves_background, run_git_background};
+use crate::shared::git_cli::{git_ref_resolves_background, head_is_unborn, run_git_background};
 
 use super::parsing::{self, parse_porcelain_v2};
 use super::{GitStatusSnapshot, SharedFeatureRef};
@@ -163,7 +163,8 @@ async fn resolve_target_divergence(
     }
 
     let range = format!("HEAD...{target_branch}");
-    let counts = run_git_background(&["rev-list", "--left-right", "--count", &range], repo).await?;
+    let args = ["rev-list", "--left-right", "--count", &range, "--"];
+    let counts = run_git_background(&args, repo).await?;
     let mut counts = counts.split_whitespace();
     Ok(TargetDivergence {
         ahead: counts
@@ -194,11 +195,16 @@ async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> Resul
     if parsed.upstream.is_some() {
         return Ok(parsed.ahead);
     }
-    let args = ["rev-list", "--count", "HEAD", "--not", "--remotes"];
+    let args = ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"];
     let count = match run_git_background(&args, repo).await {
         Ok(count) => count,
-        Err(_) if !git_ref_resolves_background("HEAD", repo).await? => return Ok(0),
-        Err(error) => return Err(error),
+        Err(error) => {
+            return match head_is_unborn(repo).await {
+                Ok(true) => Ok(0),
+                // Git's own message says best why the count failed.
+                Ok(false) | Err(_) => Err(error),
+            };
+        }
     };
     count
         .trim()

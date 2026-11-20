@@ -220,17 +220,15 @@ pub async fn get_file_content(
 
 /// A directory, symlink, socket or other special file has no text to diff,
 /// refused with its own code so the editor's change markers can tell "no text
-/// baseline" from a failure. A path that does not exist is left to the read,
-/// which reports it as deleted.
+/// baseline" from a failure. A submodule checkout reads as the commit it has
+/// checked out. A path that is gone — missing, or under a folder replaced by a
+/// file — is left to the read, which reports it as deleted.
 async fn ensure_worktree_side_is_a_file(path: &Path) -> Result<(), AppError> {
     match tokio::fs::symlink_metadata(path).await {
-        Ok(metadata) if !metadata.file_type().is_file() => Err(AppError::coded(
-            axum::http::StatusCode::BAD_REQUEST,
-            "UNSUPPORTED_FILE_TYPE",
-            "Unsupported worktree file type cannot be opened as text",
-        )),
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(metadata) if metadata.is_dir() && commands::is_submodule_checkout(path).await? => Ok(()),
+        Ok(_) => Err(commands::unsupported_file_type()),
+        Err(error) if commands::is_missing(&error) => Ok(()),
         Err(error) => Err(AppError::internal(format!(
             "cannot inspect {}: {error}",
             path.display()
@@ -550,5 +548,8 @@ mod tests {
         assert!(ensure_worktree_side_is_a_file(&dir.path().join("gone.md"))
             .await
             .is_ok());
+        // Under a folder replaced by a file: deleted, left to the read.
+        let replaced = dir.path().join("target.md/nested.md");
+        assert!(ensure_worktree_side_is_a_file(&replaced).await.is_ok());
     }
 }

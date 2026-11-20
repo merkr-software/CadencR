@@ -7,13 +7,14 @@ use std::path::Path;
 use crate::domain::git::models::GitStats;
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    guard_positionals, run_git_background, run_git_safe_background, run_git_safe_refs_background,
+    guard_positionals, head_is_unborn, run_git_background, run_git_safe_background,
+    run_git_safe_refs_background,
 };
 use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::{count_untracked_lines, synthesize_untracked_new_file_diff};
-use super::util::FirstParentDiff;
+use super::util::{branch_read_error, empty_tree, FirstParentDiff};
 
 /// Parse git diff --stat summary line.
 pub(super) fn parse_stat_line(output: &str) -> GitStats {
@@ -49,7 +50,12 @@ async fn branch_diff(
     let branch = target_branch.unwrap_or("main");
     guard_positionals(&[branch])?;
     let range = format!("{branch}...HEAD");
-    run_git_safe_refs_background(&["diff"], flags, &[&range], worktree_path).await
+    // The path list is empty: `run_git_safe_background` still ends the
+    // revisions with `--`, so a file named like the range stays a revision.
+    match run_git_safe_background(&["diff", &range], flags, &[], worktree_path).await {
+        Ok(diff) => Ok(diff),
+        Err(error) => Err(branch_read_error(worktree_path, branch, error).await),
+    }
 }
 
 async fn list_untracked(worktree_path: &Path) -> Result<String, AppError> {
@@ -205,7 +211,10 @@ pub async fn get_file_diff(
         let branch = target_branch.unwrap_or("main");
         guard_positionals(&[branch])?;
         let range = format!("{branch}...HEAD");
-        return run_git_safe_background(&["diff", &range], &[], &paths, worktree_path).await;
+        return match run_git_safe_background(&["diff", &range], &[], &paths, worktree_path).await {
+            Ok(diff) => Ok(diff),
+            Err(error) => Err(branch_read_error(worktree_path, branch, error).await),
+        };
     }
 
     // Worktree / uncommitted mode: `diff HEAD` folds staged + unstaged changes
@@ -215,7 +224,7 @@ pub async fn get_file_diff(
     // A tracked file always appears here; only an empty diff can be an untracked
     // file (absent from HEAD), so we pay the extra `ls-files` probe + synthesis
     // in that case alone rather than for every tracked file.
-    let tracked = run_git_safe_background(&["diff", "HEAD"], &[], &paths, worktree_path).await?;
+    let tracked = worktree_file_diff(worktree_path, &paths).await?;
     if !tracked.is_empty() {
         return Ok(tracked);
     }
@@ -248,6 +257,23 @@ pub async fn get_file_diff(
     }
 
     Ok(tracked)
+}
+
+/// `git diff HEAD -- <paths>`: staged and unstaged changes in one block. On a
+/// branch with no commit yet there is no `HEAD` to compare with, so the
+/// changes are read against the empty tree — the file a first `git add`
+/// staged is an addition, not a "bad revision".
+async fn worktree_file_diff(worktree_path: &Path, paths: &[&str]) -> Result<String, AppError> {
+    let error = match run_git_safe_background(&["diff", "HEAD"], &[], paths, worktree_path).await {
+        Ok(diff) => return Ok(diff),
+        Err(error) => error,
+    };
+    if !matches!(head_is_unborn(worktree_path).await, Ok(true)) {
+        // Git's own message says best why the diff failed.
+        return Err(error);
+    }
+    let tree = empty_tree(worktree_path).await?;
+    run_git_safe_background(&["diff", &tree], &[], paths, worktree_path).await
 }
 
 /// Get the diff for a specific commit.
@@ -551,13 +577,41 @@ mod tests {
 
         let stats = get_stats(root, "worktree", None).await.unwrap();
         assert_eq!(stats.files_changed, 1);
-        assert!(get_stats(root, "branch", Some("missing")).await.is_err());
-        assert!(get_diff(root, "branch", Some("missing")).await.is_err());
+        // A target that does not exist says so, not "bad revision".
+        for result in [
+            get_stats(root, "branch", Some("missing")).await.map(|_| ()),
+            get_diff(root, "branch", Some("missing")).await.map(|_| ()),
+            get_file_diff(root, "branch", Some("missing"), None, "a.txt", None)
+                .await
+                .map(|_| ()),
+            super::super::get_changed_files(root, "branch", Some("missing"), None)
+                .await
+                .map(|_| ()),
+        ] {
+            assert!(matches!(result, Err(AppError::Conflict(_))), "{result:?}");
+        }
         assert!(get_stats(root, "branch", Some("--output=x")).await.is_err());
 
         let not_repo = tempfile::tempdir().expect("tempdir");
         assert!(get_stats(not_repo.path(), "worktree", None).await.is_err());
         assert!(get_diff(not_repo.path(), "worktree", None).await.is_err());
+    }
+
+    /// The first file staged on a branch with no commit yet diffs as an
+    /// addition; there is no `HEAD` to compare with, and that is normal.
+    #[tokio::test]
+    async fn get_file_diff_reads_a_first_staged_file_as_an_addition() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        init_repo(root);
+        std::fs::write(root.join("draft.txt"), "hello\n").unwrap();
+        git(&["add", "draft.txt"], root);
+
+        let diff = get_file_diff(root, "uncommitted", None, None, "draft.txt", None)
+            .await
+            .unwrap();
+        assert!(diff.contains("new file mode"), "{diff}");
+        assert!(diff.contains("+hello"), "{diff}");
     }
 
     #[test]

@@ -8,8 +8,8 @@ mod spawn;
 pub mod version;
 
 pub use background::{
-    git_ref_resolves_background, run_git_background, run_git_probe_background,
-    run_git_safe_background, run_git_safe_refs_background,
+    git_ref_resolves_background, head_commit_exists, head_is_unborn, run_git_background,
+    run_git_probe_background, run_git_safe_background, run_git_safe_refs_background,
 };
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};
 pub use spawn::{git_command, git_std_command};
@@ -326,11 +326,20 @@ fn scrub_home_prefix(s: &str) -> String {
 }
 
 /// Replace absolute paths with `<path>`.
+///
+/// A path starts with `/` at the start of the text or after a space, a quote,
+/// a bracket, `=`, `:` or `,`, and keeps going across spaces until a quote or
+/// the end of the line: Git prints paths unquoted (`bad config line 1 in file
+/// /Users/me/Client Project/config`), and a folder name with a space must not
+/// leave its tail behind. Past the first segment, that can take in the words
+/// after an unquoted path too; hiding a few words more is the safe failure.
+/// A URL (`https://host/…`) has no such boundary before its slashes and stays.
 fn redact_paths(text: &str) -> String {
     use regex_lite::Regex;
-    static PATH_RE: std::sync::LazyLock<Regex> =
-        std::sync::LazyLock::new(|| Regex::new(r"(/[a-zA-Z0-9_.~\-]+){2,}").unwrap());
-    PATH_RE.replace_all(text, "<path>").into_owned()
+    static PATH_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r#"(^|[\s'"`(\[=:,])/[^/\s'"`]+(?:/[^/\n'"`]+)+"#).unwrap()
+    });
+    PATH_RE.replace_all(text, "${1}<path>").into_owned()
 }
 
 const GIT_STDERR_MAX_CHARS: usize = 200;
@@ -366,6 +375,37 @@ mod tests {
             message.contains("git worktree remove <path> failed"),
             "{message}"
         );
+    }
+
+    /// Folder names with spaces must not leave their tail visible, and the
+    /// rest of the message keeps its words.
+    #[test]
+    fn redaction_covers_paths_with_spaces() {
+        let cases = [
+            (
+                "fatal: bad config line 1 in file /Users/someone/Customer Project/Hidden Folder/config",
+                "fatal: bad config line 1 in file <path>",
+            ),
+            (
+                "fatal: not a git repository: /tmp/Client Work/repo/.git/worktrees/feature x",
+                "fatal: not a git repository: <path>",
+            ),
+            (
+                "fatal: '/Users/someone/My Repo/wt' is not a working tree",
+                "fatal: '<path>' is not a working tree",
+            ),
+            (
+                "fatal: unable to access 'https://github.com/acme/widgets.git/': denied",
+                "fatal: unable to access 'https://github.com/acme/widgets.git/': denied",
+            ),
+            (
+                "error: pathspec 'src/main.rs' did not match any file(s) known to git",
+                "error: pathspec 'src/main.rs' did not match any file(s) known to git",
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(redact_paths(input), expected);
+        }
     }
 
     #[tokio::test]
