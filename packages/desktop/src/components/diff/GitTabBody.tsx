@@ -10,6 +10,7 @@ import { StashesView } from "./StashesView";
 import type { GitViewMode } from "./GitTabToggle";
 import type { DiffMode } from "./useDiffData";
 import type { GitNavigationAdapterRegistrar } from "./gitNavigation";
+import { selectGitMissingTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
 
 export interface GitTabBodyProps {
   viewMode: GitViewMode;
@@ -56,6 +57,7 @@ export const GitTabBody = memo(function GitTabBody({
   onViewReviewThread,
   onSendReviewThread,
 }: GitTabBodyProps): ReactElement {
+  const missingTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
   if (viewMode === "pr") {
     return (
       <FeaturePrView
@@ -94,6 +96,9 @@ export const GitTabBody = memo(function GitTabBody({
       />
     );
   }
+  if (viewMode === "vs-target" && missingTargetBranch !== undefined) {
+    return <MissingTargetBranch branch={missingTargetBranch} />;
+  }
   const reviewDiff = viewMode === "vs-target";
   return (
     <DiffViewer
@@ -112,3 +117,20 @@ export const GitTabBody = memo(function GitTabBody({
     />
   );
 });
+
+/** The "vs target" view when its target branch does not exist (an implicit
+ *  `main` in a repository without one): said once, rather than one failed read
+ *  per pane. */
+function MissingTargetBranch({ branch }: { branch: string }): ReactElement {
+  return (
+    <div
+      className="flex h-full items-center justify-center bg-background px-4 text-center text-muted-foreground"
+      role="status"
+    >
+      <p>
+        Target branch “{branch}” does not exist in this repository. Pick a target from the branch
+        menu in the header to compare against.
+      </p>
+    </div>
+  );
+}

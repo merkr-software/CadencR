@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useGetStats } from "@/api/generated";
+import { selectGitMissingTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
 import type { GitViewMode } from "./GitTabToggle";
 import type { DiffMode } from "./useDiffData";
 
@@ -21,6 +22,7 @@ export function useGitTabPanes(
   viewMode: GitViewMode,
   targetBranch: string | undefined,
 ): GitTabPanes {
+  const unresolvedTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
   const isPr = viewMode === "pr";
   const isListView =
     isPr || viewMode === "graph" || viewMode === "branches" || viewMode === "stashes";
@@ -28,6 +30,9 @@ export function useGitTabPanes(
   // legacy "worktree" mode); "vs-target" pins the diff to the resolved branch.
   const diffMode: DiffMode = viewMode === "vs-target" ? "branch" : "uncommitted";
   const diffTargetBranch = viewMode === "vs-target" ? targetBranch : undefined;
+  // Every read against a target that does not exist would fail the same way:
+  // the view states it once (see `GitTabBody`) instead of asking.
+  const missingTargetBranch = viewMode === "vs-target" ? unresolvedTargetBranch : undefined;
   // Stats are byte-identical for "worktree" and "uncommitted" on the backend,
   // so label the working-tree query "worktree" — the value ProjectFeatureRow and
   // the prefetch use — to share one cache entry instead of firing a duplicate
@@ -39,7 +44,7 @@ export function useGitTabPanes(
       target_branch: diffTargetBranch,
     },
     // The list views carry their own per-row stats, so skip the request.
-    { query: { enabled: !isListView } },
+    { query: { enabled: !isListView && missingTargetBranch === undefined } },
   );
 
   return useMemo(
@@ -50,7 +55,8 @@ export function useGitTabPanes(
       diffTargetBranch,
       stats: {
         isLoading: statsQuery.isLoading,
-        isError: statsQuery.isError,
+        // No target to diff against: no figures, rather than a made-up "+0 −0".
+        isError: statsQuery.isError || missingTargetBranch !== undefined,
         additions: statsQuery.data?.insertions,
         deletions: statsQuery.data?.deletions,
       },
@@ -64,6 +70,7 @@ export function useGitTabPanes(
       statsQuery.data?.insertions,
       statsQuery.isError,
       statsQuery.isLoading,
+      missingTargetBranch,
     ],
   );
 }

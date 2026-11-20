@@ -156,6 +156,18 @@ export function selectGitTargetBranch(
   return (state) => (featureId == null ? undefined : state.byFeature[featureId]?.target_branch);
 }
 
+/** The target branch when the snapshot reports it resolves to no commit — an
+ *  implicit `main` in a repository without one — else `undefined`. The service
+ *  omits `target_resolved` when it is false, so only `true` means resolved. */
+export function selectGitMissingTargetBranch(
+  featureId: number | null | undefined,
+): (state: GitStatusState) => string | undefined {
+  return (state) => {
+    const snapshot = featureId == null ? undefined : state.byFeature[featureId];
+    return snapshot && snapshot.target_resolved !== true ? snapshot.target_branch : undefined;
+  };
+}
+
 /**
  * Narrow selectors for the two counts the Git sub-tab strip badges. Both return
  * a number, so a watcher snapshot that only moved `computed_at` re-renders
