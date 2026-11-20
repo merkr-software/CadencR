@@ -4,7 +4,8 @@
 //! is its pid, so a signal sent to that group reaches every descendant: a
 //! shell's pipeline or the `sleep 60 &` it left behind, which would otherwise
 //! keep the output pipes open after the shell itself dies. macOS needs one
-//! workaround, for groups whose leader has exited (see `macos_signal`).
+//! workaround, for groups that are gone or hold only zombies (see
+//! `macos_signal`).
 //! Other platforms have no process groups and keep their single-process kill.
 
 use std::io;
@@ -28,10 +29,34 @@ pub(crate) fn lead_new_process_group(command: &mut Command) {
 /// Signal every process of the group `pid` leads; a vanished group is fine.
 #[cfg(unix)]
 pub(crate) fn signal_process_group(pid: u32, signal: libc::c_int) -> io::Result<()> {
-    match try_signal_process_group(pid, signal) {
+    signal_group_with(pid, || try_signal_process_group(pid, signal))
+}
+
+/// What `send` (a signal to the group `pid` leads) answered, with a group
+/// that is gone counted as signaled.
+#[cfg(unix)]
+fn signal_group_with(pid: u32, send: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+    let sent = match send() {
         Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
         result => result,
-    }
+    };
+    reconcile_vanished(pid, sent)
+}
+
+/// macOS also answers EPERM for a group that is gone or holds only zombies;
+/// the group's members tell that apart from a live process this one may not
+/// signal.
+#[cfg(target_os = "macos")]
+fn reconcile_vanished(pid: u32, sent: io::Result<()>) -> io::Result<()> {
+    macos_signal::reconcile_permission_denied(|| sent, || macos_signal::only_exited_members(pid))
+}
+
+/// Linux signals zombies and drops a reaped process from its group before
+/// `wait` returns, so a gone group is always ESRCH and an EPERM always means
+/// a live member this process may not signal.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn reconcile_vanished(_pid: u32, sent: io::Result<()>) -> io::Result<()> {
+    sent
 }
 
 /// Signal every process of the group `pid` leads, reporting every failure
@@ -55,17 +80,11 @@ pub(crate) fn process_group_alive(pid: u32) -> bool {
 }
 
 /// SIGKILL what is left of a process group whose leader has exited (macOS
-/// excludes the zombie leader from group signals; see `macos_signal`).
+/// excludes the zombie leader from group signals; [`signal_process_group`]
+/// reconciles that).
 #[cfg(unix)]
 pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        macos_signal::kill_after_leader_exit(pid)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        signal_process_group(pid, libc::SIGKILL)
-    }
+    signal_process_group(pid, libc::SIGKILL)
 }
 
 /// Stop the group `child` leads: SIGTERM, then `grace` for the leader to
@@ -135,14 +154,8 @@ pub(crate) async fn stop_process_group(pgid: u32, grace: Duration) -> io::Result
         return Ok(());
     }
     let deadline = tokio::time::Instant::now() + grace;
-    match signal_process_group(pgid, libc::SIGTERM) {
-        // Only zombies left (macOS); the SIGKILL below reconciles that.
-        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {}
-        result => {
-            result?;
-            wait_group_gone(pgid, deadline).await;
-        }
-    }
+    signal_process_group(pgid, libc::SIGTERM)?;
+    wait_group_gone(pgid, deadline).await;
     kill_group_after_leader_exit(pgid).await
 }
 
@@ -249,7 +262,54 @@ mod tests {
 
         signal_process_group(leader, libc::SIGTERM).expect("ESRCH is not a failure");
         let error = try_signal_process_group(leader, libc::SIGTERM).unwrap_err();
-        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+        // XNU may still answer EPERM for a moment after the reap.
+        let vanished: &[i32] = if cfg!(target_os = "macos") {
+            &[libc::ESRCH, libc::EPERM]
+        } else {
+            &[libc::ESRCH]
+        };
+        assert!(
+            vanished.contains(&error.raw_os_error().unwrap_or_default()),
+            "{error}"
+        );
+    }
+
+    fn eperm() -> io::Result<()> {
+        Err(io::Error::from_raw_os_error(libc::EPERM))
+    }
+
+    /// Found under load: XNU answered EPERM, not ESRCH, for a few milliseconds
+    /// after the group's only member was reaped, and the vanished group was
+    /// reported as a failure. The EPERM is simulated, so the answer no longer
+    /// depends on the machine's load.
+    #[tokio::test]
+    async fn an_eperm_from_a_group_that_is_gone_is_not_a_failure() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let leader = child.id().unwrap();
+        child.wait().await.unwrap();
+
+        let result = signal_group_with(leader, eperm);
+        if cfg!(target_os = "macos") {
+            result.expect("no member is left: the group is gone");
+        } else {
+            // Linux never answers EPERM for a gone group: one is a live member.
+            assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EPERM));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_eperm_from_a_group_with_a_live_member_stays_a_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut child = group_leader(&directory.path().join("unused.pid"), "exec sleep 30");
+        let leader = child.id().unwrap();
+
+        let result = signal_group_with(leader, eperm);
+        child.kill().await.unwrap();
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EPERM));
     }
 
     #[tokio::test]

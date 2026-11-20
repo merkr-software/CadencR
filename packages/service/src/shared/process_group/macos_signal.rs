@@ -1,28 +1,27 @@
-//! SIGKILL what is left of a process group once its leader has exited.
+//! Tell a process group that is gone from one this process may not signal.
 //!
 //! XNU excludes zombies while signaling a process group, so a group whose
 //! remaining members all exited (and await their parent, often launchd, to
 //! reap them) answers `kill` with EPERM, as does a group holding a live
-//! process this one may not signal. Only the second is a failure, and the
-//! group's members tell them apart at once: waiting for launchd to reap
-//! would make the answer depend on how loaded the machine is.
+//! process this one may not signal. A group whose last member was just
+//! reaped can also answer EPERM, not ESRCH, for a few milliseconds on a
+//! loaded machine. Only a live member makes it a failure, and the group's
+//! members tell that at once: waiting for the reap or for ESRCH would make
+//! the answer depend on how loaded the machine is.
 //! https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c
 
 use std::io;
 
-pub(super) fn kill_after_leader_exit(pid: u32) -> io::Result<()> {
-    reconcile_permission_denied(
-        || super::signal_process_group(pid, libc::SIGKILL),
-        || {
-            let pgid = libc::pid_t::try_from(pid).map_err(io::Error::other)?;
-            Ok(!crate::shared::process_table::group_has_live_member(pgid)?)
-        },
-    )
+/// Whether every process left in the group `pid` leads has exited (none at
+/// all included).
+pub(super) fn only_exited_members(pid: u32) -> io::Result<bool> {
+    let pgid = libc::pid_t::try_from(pid).map_err(io::Error::other)?;
+    Ok(!crate::shared::process_table::group_has_live_member(pgid)?)
 }
 
 /// Never repeats the destructive signal: a group reported as EPERM is
 /// reconciled by reading its members, not by signaling it again.
-fn reconcile_permission_denied(
+pub(super) fn reconcile_permission_denied(
     kill: impl FnOnce() -> io::Result<()>,
     only_exited_members: impl FnOnce() -> io::Result<bool>,
 ) -> io::Result<()> {
@@ -107,9 +106,10 @@ mod tests {
         }
         assert!(!group_has_live_member(pgid as i32).unwrap());
 
-        kill_after_leader_exit(pgid).expect("a zombie-only group is already dead");
+        let kill = |pgid| super::super::kill_group_after_leader_exit(pgid);
+        futures::executor::block_on(kill(pgid)).expect("a zombie-only group is already dead");
         child.wait().unwrap();
-        kill_after_leader_exit(pgid).expect("a vanished group is fine");
+        futures::executor::block_on(kill(pgid)).expect("a vanished group is fine");
     }
 
     #[test]
