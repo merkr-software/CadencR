@@ -141,26 +141,55 @@ pub(crate) fn mask_config_values(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find(['"', '`']) {
-        let (before, quoted) = rest.split_at(start);
+        let (before, from_quote) = rest.split_at(start);
         out.push_str(before);
-        let quote = quoted.chars().next().unwrap_or('"');
-        let Some(len) = quoted[1..].find(quote) else {
-            out.push_str(quoted);
-            return out;
+        let quote = if from_quote.starts_with('"') {
+            '"'
+        } else {
+            '`'
         };
-        let inner = &quoted[1..=len];
+        let body = &from_quote[1..];
         let masks = quote == '"'
             || before
                 .split_whitespace()
                 .next_back()
                 .is_some_and(|word| BACKTICKED_VALUE_KINDS.contains(&word));
         out.push(quote);
-        out.push_str(if masks { MASK } else { inner });
-        out.push(quote);
-        rest = &quoted[len + 2..];
+        match closing_quote(body, quote) {
+            Some(end) => {
+                out.push_str(if masks { MASK } else { &body[..end] });
+                out.push(quote);
+                rest = &body[end + 1..];
+            }
+            // Never closed on its line: the rest of the line may be the value.
+            None => {
+                let line_end = body.find('\n').unwrap_or(body.len());
+                out.push_str(if masks { MASK } else { &body[..line_end] });
+                rest = &body[line_end..];
+            }
+        }
     }
     out.push_str(rest);
     out
+}
+
+/// Where `body` closes: the first `quote` on its line that no backslash
+/// escapes. A double-quoted string escapes as in Rust and JSON (`\"`, `\\`);
+/// `None` when the line ends first.
+fn closing_quote(body: &str, quote: char) -> Option<usize> {
+    let mut escaped = false;
+    for (index, ch) in body.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' && quote == '"' {
+            escaped = true;
+        } else if ch == '\n' {
+            return None;
+        } else if ch == quote {
+            return Some(index);
+        }
+    }
+    None
 }
 
 /// `line` without ANSI escape sequences (colors, cursor moves).
@@ -216,9 +245,26 @@ mod tests {
             field,
             "unknown field `http_header`, expected `http_headers`"
         );
+    }
+
+    /// An escaped quote inside the value used to end the masked part early,
+    /// and what followed it was shown.
+    #[test]
+    fn config_values_are_masked_up_to_their_unescaped_closing_quote() {
+        let escaped = mask_config_values(
+            r#"invalid type: string "Bearer \"SYNTH-MARKER\" tail", expected a map"#,
+        );
+        assert_eq!(escaped, r#"invalid type: string "•••", expected a map"#);
+
+        let backslash = mask_config_values(r#"invalid type: string "C:\\", expected `SYNTH`"#);
+        assert_eq!(backslash, r#"invalid type: string "•••", expected `SYNTH`"#);
+
+        let unterminated = mask_config_values(
+            "invalid type: string \"Bearer SYNTH-MARKER\nin `model_providers.x.http_headers`",
+        );
         assert_eq!(
-            mask_config_values("unterminated \"tail"),
-            "unterminated \"tail"
+            unterminated,
+            "invalid type: string \"•••\nin `model_providers.x.http_headers`"
         );
     }
 
