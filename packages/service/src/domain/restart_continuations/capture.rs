@@ -90,12 +90,15 @@ pub async fn begin_shutdown(pool: &SqlitePool) {
 /// [`begin_shutdown`] already did. Called by its stream reader before it
 /// pauses the session or forgets the work. There is no
 /// client left to tell about a failure: that turn is then left paused, not
-/// resumed.
-pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) {
-    if let Err(error) =
-        store::capture_session(pool, session_id, shutdown_intent(), Some(app_version())).await
-    {
-        tracing::error!(session_id, %error, "failed to capture an agent turn cut off by shutdown");
+/// resumed. Returns whether the capture was written, so a reader keeps its
+/// background-work record for the next start when it was not.
+pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) -> bool {
+    match store::capture_session(pool, session_id, shutdown_intent(), Some(app_version())).await {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(session_id, %error, "failed to capture an agent turn cut off by shutdown");
+            false
+        }
     }
 }
 

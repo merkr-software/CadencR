@@ -4,9 +4,9 @@
 //! background work and start the next turn on its own once it settles (see
 //! [`super::runtime_hold`]). A restart kills that work with the runtime, so
 //! the reader records the conversation for the restart capture
-//! ([`crate::domain::restart_continuations`]) for as long as the hold keeps
-//! the runtime: its grace covers the gap between the work settling and the
-//! resume turn marking the session `running`.
+//! ([`crate::domain::restart_continuations`]) for as long as the hold owes
+//! that resume: until the resume turn starts (it is then the turn a restart
+//! cuts off), or the user stops the agent.
 
 use crate::domain::restart_continuations::{
     capture_cut_off_turn, is_shutting_down, record_background_work,
@@ -20,11 +20,12 @@ const WHAT: &str = "background work state";
 impl StreamReaderTask {
     /// Record the conversation when the hold starts or stops owing a resume.
     /// Runs after every event and on every idle tick, so the record clears
-    /// once the grace runs out and a failed write is retried.
+    /// once the grace runs out (or a user stop lands) and a failed write is
+    /// retried.
     pub(super) async fn sync_background_work(&self, state: &mut StreamReaderState) {
-        let held = state.runtime_hold.holds_runtime();
-        if held != state.background_work_recorded {
-            self.record(state, held).await;
+        let owed = state.runtime_hold.owes_resume();
+        if owed != state.background_work_recorded {
+            self.record(state, owed).await;
         }
     }
 
@@ -32,12 +33,23 @@ impl StreamReaderTask {
     /// shutdown captured the conversation before closing the runtime; this
     /// covers one it missed (its capture failed, or the work started during
     /// the drain), the way a stream reader captures a turn shutdown cut off.
+    /// When that capture fails too, the record stays: it is the only trace
+    /// left, and the next start captures it as a crash.
     pub(super) async fn forget_background_work(&self, state: &mut StreamReaderState) {
+        self.forget_background_work_when(state, is_shutting_down())
+            .await;
+    }
+
+    async fn forget_background_work_when(
+        &self,
+        state: &mut StreamReaderState,
+        shutting_down: bool,
+    ) {
         if !state.background_work_recorded {
             return;
         }
-        if is_shutting_down() {
-            capture_cut_off_turn(&self.write_pool, self.db_session_id).await;
+        if shutting_down && !capture_cut_off_turn(&self.write_pool, self.db_session_id).await {
+            return;
         }
         self.record(state, false).await;
     }
@@ -113,6 +125,45 @@ mod tests {
 
         task.forget_background_work(&mut state).await;
         assert!(!recorded(&task).await, "an ended reader forgets it");
+    }
+
+    /// A user Stop ends any resume the conversation was owed, even though
+    /// the background task keeps running.
+    #[tokio::test]
+    async fn a_user_stop_forgets_the_record() {
+        let (task, runtime) = reader_task().await;
+        let mut state = fresh_state();
+        let _registration = super::super::runtime_hold_registry::register(
+            task.db_session_id,
+            &std::sync::Arc::downgrade(&runtime),
+            &state.runtime_hold,
+        );
+        state.runtime_hold.observe(&tasks(1), true);
+        task.sync_background_work(&mut state).await;
+        assert!(recorded(&task).await);
+
+        super::super::runtime_hold_registry::stop_by_user(task.db_session_id, &runtime);
+        task.sync_background_work(&mut state).await;
+
+        assert!(!recorded(&task).await);
+    }
+
+    /// When shutdown could not capture the conversation, its record is the
+    /// only trace left: the next start captures it as a crash.
+    #[tokio::test]
+    async fn a_failed_shutdown_capture_keeps_the_record() {
+        let (task, _runtime) = reader_task().await;
+        let mut state = fresh_state();
+        state.runtime_hold.observe(&tasks(1), false);
+        task.sync_background_work(&mut state).await;
+        sqlx::query("DROP TABLE IF EXISTS restart_continuations")
+            .execute(&task.write_pool)
+            .await
+            .unwrap();
+
+        task.forget_background_work_when(&mut state, true).await;
+
+        assert!(recorded(&task).await);
     }
 
     #[tokio::test]

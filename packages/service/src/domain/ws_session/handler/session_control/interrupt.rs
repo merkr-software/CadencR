@@ -5,6 +5,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
 use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
+use crate::domain::ws_session::runtime::prompt::runtime_hold_registry::stop_by_user;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
@@ -200,6 +201,11 @@ pub(in super::super) async fn interrupt_as_intended(
         StopReason::User => runtime.interrupt().await,
         StopReason::Sleep => runtime.interrupt_before_sleep().await,
     };
+    if result.is_ok() && matches!(reason, StopReason::User) {
+        // Background work the agent left running would otherwise make a
+        // restart resume the conversation the user just stopped.
+        stop_by_user(db_session_id, query);
+    }
     finish_interruption(
         result,
         query,
