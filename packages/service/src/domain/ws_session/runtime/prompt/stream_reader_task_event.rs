@@ -65,7 +65,6 @@ impl StreamReaderTask {
         state
             .runtime_hold
             .observe(&runtime_event, !state.turn_state.is_between_turns());
-        self.sync_background_work(state).await;
 
         match forward_immediate_event(self, state, &runtime_event).await {
             // `prompt_received` / `commands.updated` / `stream_status` are

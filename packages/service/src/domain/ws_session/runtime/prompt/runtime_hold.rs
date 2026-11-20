@@ -128,6 +128,11 @@ impl RuntimeHold {
         self.stopped_by_user = true;
     }
 
+    /// The Stop did not go through.
+    pub(in crate::domain::ws_session) fn cancel_stop_by_user(&mut self) {
+        self.stopped_by_user = false;
+    }
+
     /// Whether a restart now would cut off a resume the runtime owes the
     /// agent: background work still running, a wake-up whose turn has not
     /// started, or settled work whose resume turn has not started yet (within

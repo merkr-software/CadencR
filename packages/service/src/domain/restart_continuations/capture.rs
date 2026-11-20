@@ -126,16 +126,7 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
             ));
         }
     }
-    match store::capture_running(pool, Cause::Crash, Intent::Resume, None).await {
-        Ok(0) => {}
-        Ok(count) => tracing::info!(count, "captured agent turns interrupted by a crash"),
-        Err(error) => {
-            tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
-            failures.push(format!(
-                "Cadencr could not check which agents the last exit interrupted: {error}"
-            ));
-        }
-    }
+    capture_left_behind(pool, &mut failures).await;
     // Like the status reset below, this happens even when the capture failed:
     // the runtimes those records describe are gone.
     if let Err(error) = super::background_work::clear(pool).await {
@@ -155,6 +146,32 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
     }
 }
 
+/// Capture what the last process left `running` or owed a resume for. A quit
+/// whose own capture failed left its intent behind: those turns follow it.
+/// Anything else (a crash, a kill, an update) resumes.
+async fn capture_left_behind(pool: &SqlitePool, failures: &mut Vec<String>) {
+    let intents = match super::quit_intent::take(pool).await {
+        Ok(intents) => intents.unwrap_or(Intent::Resume.into()),
+        Err(error) => {
+            tracing::error!(%error, "failed to read what the last quit asked for");
+            failures.push(format!(
+                "Cadencr could not read whether your last quit stopped its agents, so it resumes them: {error}"
+            ));
+            Intent::Resume.into()
+        }
+    };
+    match store::capture_running(pool, Cause::Crash, intents, None).await {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(count, "captured agent turns interrupted by a crash"),
+        Err(error) => {
+            tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
+            failures.push(format!(
+                "Cadencr could not check which agents the last exit interrupted: {error}"
+            ));
+        }
+    }
+}
+
 /// Every startup recovery failure, one per line: each names agents the user
 /// has to check, so none may hide another.
 fn startup_failure_report(failures: &[String]) -> Option<String> {
@@ -163,7 +180,43 @@ fn startup_failure_report(failures: &[String]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::startup_failure_report;
+    use super::{capture_left_behind, startup_failure_report};
+    use crate::domain::restart_continuations::store::{list_pending, tests::session};
+    use crate::domain::schedules::repository::test_support::fixture;
+
+    /// Both captures of a quit that stopped its agents failed; the start
+    /// after it finds the work its reader kept, and still keeps it stopped.
+    #[tokio::test]
+    async fn a_quit_whose_capture_failed_keeps_its_intent() {
+        let (pool, _, feature_id) = fixture().await;
+        let waiting = session(&pool, feature_id, "completed").await;
+        super::super::record_background_work(&pool, waiting, Some(chrono::Utc::now()))
+            .await
+            .unwrap();
+        super::super::quit_intent::record(&pool, true, false)
+            .await
+            .unwrap();
+        let mut failures = Vec::new();
+
+        capture_left_behind(&pool, &mut failures).await;
+
+        assert!(failures.is_empty(), "{failures:?}");
+        let pending = list_pending(&pool).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert!(pending[0].stop_requested());
+    }
+
+    /// A real crash records no intent: it resumes.
+    #[tokio::test]
+    async fn a_crash_resumes_what_it_cut_off() {
+        let (pool, _, feature_id) = fixture().await;
+        session(&pool, feature_id, "running").await;
+        let mut failures = Vec::new();
+
+        capture_left_behind(&pool, &mut failures).await;
+
+        assert!(!list_pending(&pool).await.unwrap()[0].stop_requested());
+    }
 
     #[test]
     fn every_startup_failure_reaches_the_report() {

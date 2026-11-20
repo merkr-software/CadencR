@@ -8,6 +8,8 @@
 //! that resume: until the resume turn starts (it is then the turn a restart
 //! cuts off), or the user stops the agent.
 
+use chrono::{DateTime, Utc};
+
 use crate::domain::restart_continuations::{
     capture_cut_off_turn, is_shutting_down, record_background_work,
 };
@@ -19,14 +21,46 @@ const WHAT: &str = "background work state";
 
 impl StreamReaderTask {
     /// Record the conversation when the hold starts or stops owing a resume.
-    /// Runs after every event and on every idle tick, so the record clears
-    /// once the grace runs out (or a user stop lands) and a failed write is
-    /// retried.
+    /// Runs once each event is fully handled and on every idle tick, so the
+    /// record clears once the grace runs out (or a user stop lands) and a
+    /// failed write is retried.
+    ///
+    /// At every moment a restart must find either this record or a `running`
+    /// session it captures as a turn: once the resume turn has started, the
+    /// record is only dropped after `running` reached the database.
     pub(super) async fn sync_background_work(&self, state: &mut StreamReaderState) {
         let owed = state.runtime_hold.owes_resume();
-        if owed != state.background_work_recorded {
-            self.record(state, owed).await;
+        if owed == state.background_work_recorded {
+            return;
         }
+        if owed {
+            // Dated now, before the write: a Stop that lands in between is
+            // later than this record, so the capture skips it.
+            self.record(state, Some(chrono::Utc::now())).await;
+            if !state.runtime_hold.owes_resume() {
+                self.record(state, None).await;
+            }
+        } else if state.turn_state.is_between_turns() || self.running_persisted(state).await {
+            self.record(state, None).await;
+        }
+    }
+
+    /// Whether the session row says `running`. A failed read keeps the record
+    /// (the next event or tick retries) and is reported like a failed write.
+    async fn running_persisted(&self, state: &mut StreamReaderState) -> bool {
+        let status =
+            sqlx::query_scalar::<_, String>("SELECT status FROM agent_sessions WHERE id = ?")
+                .bind(self.db_session_id)
+                .fetch_one(&self.write_pool)
+                .await;
+        let running = status.as_ref().is_ok_and(|status| status == "running");
+        self.report_usage_write(
+            &mut state.background_work_save_failed,
+            WHAT,
+            status.map(|_| false),
+        )
+        .await;
+        running
     }
 
     /// The runtime is gone, and the work it owed a resume for with it. A
@@ -51,15 +85,15 @@ impl StreamReaderTask {
         if shutting_down && !capture_cut_off_turn(&self.write_pool, self.db_session_id).await {
             return;
         }
-        self.record(state, false).await;
+        self.record(state, None).await;
     }
 
-    async fn record(&self, state: &mut StreamReaderState, owed: bool) {
-        let written = record_background_work(&self.write_pool, self.db_session_id, owed)
+    async fn record(&self, state: &mut StreamReaderState, owed_since: Option<DateTime<Utc>>) {
+        let written = record_background_work(&self.write_pool, self.db_session_id, owed_since)
             .await
             .map(|()| true);
         if written.is_ok() {
-            state.background_work_recorded = owed;
+            state.background_work_recorded = owed_since.is_some();
         }
         self.report_usage_write(&mut state.background_work_save_failed, WHAT, written)
             .await;
@@ -87,13 +121,8 @@ mod tests {
         })
     }
 
-    /// The idle-reader fixture's hand-made schema predates the table.
     async fn reader_task() -> (StreamReaderTask, RuntimeSessionHandle) {
         let (task, runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
-        sqlx::query("CREATE TABLE agent_background_work (session_id INTEGER PRIMARY KEY)")
-            .execute(&task.write_pool)
-            .await
-            .unwrap();
         (task, runtime)
     }
 
@@ -125,6 +154,37 @@ mod tests {
 
         task.forget_background_work(&mut state).await;
         assert!(!recorded(&task).await, "an ended reader forgets it");
+    }
+
+    /// Once the resume turn starts the record is no longer owed, but it stays
+    /// until `running` is saved: a restart must always find one or the other.
+    #[tokio::test]
+    async fn the_record_outlives_the_resume_turn_start_until_running_is_saved() {
+        let (task, _runtime) = reader_task().await;
+        let mut state = fresh_state();
+        state.runtime_hold.observe(&tasks(1), false);
+        state.runtime_hold.observe(&tasks(0), false);
+        task.sync_background_work(&mut state).await;
+        assert!(recorded(&task).await);
+
+        let turn_started = RuntimeEvent::new(
+            RuntimeEventMetadata::default(),
+            RuntimeEventKind::TurnStarted {
+                source: crate::domain::agents::adapter::RuntimeTurnStartedSource::ProviderActivity,
+            },
+        );
+        state.runtime_hold.observe(&turn_started, false);
+        state.turn_state.mark_fresh_turn_started();
+        task.sync_background_work(&mut state).await;
+        assert!(recorded(&task).await, "the session is not `running` yet");
+
+        sqlx::query("UPDATE agent_sessions SET status = 'running' WHERE id = ?")
+            .bind(task.db_session_id)
+            .execute(&task.write_pool)
+            .await
+            .unwrap();
+        task.sync_background_work(&mut state).await;
+        assert!(!recorded(&task).await);
     }
 
     /// A user Stop ends any resume the conversation was owed, even though

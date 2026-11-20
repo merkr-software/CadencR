@@ -5,7 +5,8 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
 use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
-use crate::domain::ws_session::runtime::prompt::runtime_hold_registry::stop_by_user;
+
+mod owed_resume;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
@@ -88,6 +89,9 @@ pub(crate) async fn stop_session(
     let _barrier = q.turn_control_guard().await;
     // Under the barrier: no follow-up is handed over between these steps.
     let withdrawn = withdraw_followups(app_state, &**q, db_session_id, feature_id).await;
+    // Before the runtime stops (and its reader writes the stop marker): a
+    // restart in between must not resume what the user is stopping.
+    let recorded = owed_resume::forget(app_state, &query, db_session_id).await;
     let interrupted = interrupt_as_intended(
         app_state,
         &query,
@@ -97,8 +101,11 @@ pub(crate) async fn stop_session(
         StopReason::User,
     )
     .await;
+    if interrupted.is_err() {
+        owed_resume::restore(app_state, &query, db_session_id, feature_id).await;
+    }
     match interrupted {
-        Ok(()) => withdrawn,
+        Ok(()) => withdrawn.and(recorded),
         // The status said busy, but the runtime had no turn to stop (it
         // ended a moment ago): its mark is cleared, nothing will end.
         Err(error) if error.is_nothing_to_interrupt() => {
@@ -201,11 +208,6 @@ pub(in super::super) async fn interrupt_as_intended(
         StopReason::User => runtime.interrupt().await,
         StopReason::Sleep => runtime.interrupt_before_sleep().await,
     };
-    if result.is_ok() && matches!(reason, StopReason::User) {
-        // Background work the agent left running would otherwise make a
-        // restart resume the conversation the user just stopped.
-        stop_by_user(db_session_id, query);
-    }
     finish_interruption(
         result,
         query,

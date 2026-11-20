@@ -356,9 +356,13 @@ mod tests {
     async fn background_work_stopped_by_a_quit_is_marked_but_not_resumed() {
         let (pool, _, feature_id) = fixture().await;
         let session_id = session(&pool, feature_id, "completed").await;
-        crate::domain::restart_continuations::record_background_work(&pool, session_id, true)
-            .await
-            .unwrap();
+        crate::domain::restart_continuations::record_background_work(
+            &pool,
+            session_id,
+            Some(chrono::Utc::now()),
+        )
+        .await
+        .unwrap();
         let intents = Intents {
             turn: Intent::Resume,
             background: Intent::Stop,
@@ -397,9 +401,13 @@ mod tests {
     async fn stopped_background_work_is_marked_and_resumed() {
         let (pool, _, feature_id) = fixture().await;
         let session_id = session(&pool, feature_id, "completed").await;
-        crate::domain::restart_continuations::record_background_work(&pool, session_id, true)
-            .await
-            .unwrap();
+        crate::domain::restart_continuations::record_background_work(
+            &pool,
+            session_id,
+            Some(chrono::Utc::now()),
+        )
+        .await
+        .unwrap();
         capture_running(&pool, Cause::Crash, Intent::Resume, None)
             .await
             .unwrap();

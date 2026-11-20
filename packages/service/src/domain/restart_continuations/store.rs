@@ -180,7 +180,12 @@ async fn capture(
                           AND json_extract(m.content, '$.status') = 'running'
                     ) AS mid_turn,
                     EXISTS (
-                        SELECT 1 FROM agent_background_work w WHERE w.session_id = s.id
+                        SELECT 1 FROM agent_background_work w
+                        WHERE w.session_id = s.id
+                          AND NOT EXISTS (
+                              SELECT 1 FROM agent_user_stops u
+                              WHERE u.session_id = s.id AND u.stopped_at >= w.since
+                          )
                     ) AS owes_resume
              FROM agent_sessions s
              WHERE s.agent_type = 'session' AND (? IS NULL OR s.id = ?)
@@ -457,7 +462,7 @@ pub(super) mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        super::super::record_background_work(&pool, shell, true)
+        super::super::record_background_work(&pool, shell, Some(chrono::Utc::now()))
             .await
             .unwrap();
 
@@ -488,6 +493,42 @@ pub(super) mod tests {
         assert!(pending[0].stop_requested());
     }
 
+    /// A record from before the user's Stop (a reader that decided just
+    /// before it) is never resumed; one from a turn after it is.
+    #[tokio::test]
+    async fn background_work_recorded_before_a_user_stop_is_not_captured() {
+        let (pool, _, feature_id) = fixture().await;
+        let stopped = session(&pool, feature_id, "completed").await;
+        let later = session(&pool, feature_id, "completed").await;
+        let before_stop = chrono::Utc::now();
+        super::super::record_user_stop(&pool, stopped, before_stop)
+            .await
+            .unwrap();
+        super::super::record_user_stop(&pool, later, before_stop)
+            .await
+            .unwrap();
+        // The racing reader's write lands after the Stop, dated before it.
+        super::super::record_background_work(&pool, stopped, Some(before_stop))
+            .await
+            .unwrap();
+        let after_stop = before_stop + chrono::Duration::milliseconds(5);
+        super::super::record_background_work(&pool, later, Some(after_stop))
+            .await
+            .unwrap();
+
+        capture_running(&pool, Cause::Crash, Intent::Resume, None)
+            .await
+            .unwrap();
+
+        let captured: Vec<i64> = list_pending(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.session_id)
+            .collect();
+        assert_eq!(captured, vec![later]);
+    }
+
     /// A quit with no agent working asks nothing: turns still resume, but
     /// background work stays stopped.
     #[tokio::test]
@@ -495,7 +536,7 @@ pub(super) mod tests {
         let (pool, _, feature_id) = fixture().await;
         let mid_turn = session(&pool, feature_id, "running").await;
         let waiting = session(&pool, feature_id, "completed").await;
-        super::super::record_background_work(&pool, waiting, true)
+        super::super::record_background_work(&pool, waiting, Some(chrono::Utc::now()))
             .await
             .unwrap();
         let intents = Intents {
@@ -536,7 +577,7 @@ pub(super) mod tests {
         let waiting = session(&pool, feature_id, "completed").await;
         let mid_turn = session(&pool, feature_id, "running").await;
         for owed in [waiting, mid_turn] {
-            super::super::record_background_work(&pool, owed, true)
+            super::super::record_background_work(&pool, owed, Some(chrono::Utc::now()))
                 .await
                 .unwrap();
         }

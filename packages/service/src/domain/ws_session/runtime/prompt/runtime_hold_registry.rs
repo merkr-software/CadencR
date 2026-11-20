@@ -125,6 +125,19 @@ pub(in crate::domain::ws_session) fn stop_by_user(
     }
 }
 
+/// The user's Stop did not go through: undo [`stop_by_user`]. Returns
+/// whether `runtime` still owes the agent a resume.
+pub(in crate::domain::ws_session) fn cancel_stop_by_user(
+    db_session_id: i64,
+    runtime: &RuntimeSessionHandle,
+) -> bool {
+    hold_of(db_session_id, runtime).is_some_and(|hold| {
+        let mut hold = hold.lock();
+        hold.cancel_stop_by_user();
+        hold.owes_resume()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::super::QueryState;

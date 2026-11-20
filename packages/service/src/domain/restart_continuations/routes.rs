@@ -1,11 +1,13 @@
 //! The desktop's say in what the next start does with the agents a quit stops.
 
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::put;
 use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::app_state::AppState;
+use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
 pub struct ShutdownIntentRequest {
@@ -26,11 +28,17 @@ impl ShutdownIntentRequest {
 
 /// Sent by the desktop right before it stops the service, when the user quits
 /// and chooses to stop their agents instead of resuming them next time, or
-/// quits with no agent working (background work then stays stopped).
-async fn set_shutdown_intent(Json(body): Json<ShutdownIntentRequest>) -> StatusCode {
+/// quits with no agent working (background work then stays stopped). Kept in
+/// the database first, so the next start follows it even when this shutdown
+/// cannot capture what it cuts off.
+async fn set_shutdown_intent(
+    State(state): State<AppState>,
+    Json(body): Json<ShutdownIntentRequest>,
+) -> Result<StatusCode, AppError> {
     let (turns, background_work) = body.resumes();
+    super::quit_intent::record(&state.write_pool, turns, background_work).await?;
     super::capture::set_resume_on_shutdown(turns, background_work);
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Loopback only: quitting the desktop app is never a remote device's call.

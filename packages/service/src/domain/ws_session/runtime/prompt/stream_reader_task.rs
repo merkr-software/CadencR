@@ -198,6 +198,8 @@ impl StreamReaderTask {
                         runtime_event,
                     )
                     .await;
+                    // After the event wrote what it writes (`running`, first).
+                    self.sync_background_work(&mut state).await;
                 }
             }
         }

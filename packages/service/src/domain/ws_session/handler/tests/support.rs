@@ -334,6 +334,15 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .await
     .unwrap();
 
+    // Written by a reader whose runtime owes a resume, and by a user Stop.
+    sqlx::raw_sql(
+        "CREATE TABLE agent_background_work (session_id INTEGER PRIMARY KEY, since TEXT NOT NULL);
+         CREATE TABLE agent_user_stops (session_id INTEGER PRIMARY KEY, stopped_at TEXT NOT NULL);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     sqlx::query(
         r#"CREATE TABLE projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

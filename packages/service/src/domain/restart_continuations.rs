@@ -15,7 +15,9 @@
 //!    (`orphans`), so a resume never runs next to the turn it replaces.
 //!    When the user quits and chooses to stop their agents, the desktop says
 //!    so first (`routes`): the turns are still captured, to close their
-//!    transcripts, but marked to stay stopped.
+//!    transcripts, but marked to stay stopped. That intent is kept until the
+//!    next start (`quit_intent`), which applies it to whatever the quit failed
+//!    to capture. A user's Stop ends any resume the conversation was owed.
 //! 2. **Resume.** Once the listener is up, a startup pass marks each captured
 //!    transcript as interrupted by a restart, clears the question or
 //!    permission request the dead process can no longer receive an answer for
@@ -32,13 +34,14 @@ mod eligibility;
 mod gates;
 mod message;
 mod orphans;
+mod quit_intent;
 mod report;
 mod routes;
 mod startup;
 mod store;
 mod transcript;
 
-pub use background_work::record_background_work;
+pub use background_work::{record_background_work, record_user_stop};
 pub use capture::{begin_shutdown, capture_cut_off_turn, is_shutting_down, recover_at_startup};
 #[cfg(unix)]
 pub(crate) use orphans::is_alive as process_is_alive;
