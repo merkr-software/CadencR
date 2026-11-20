@@ -181,7 +181,7 @@ pub async fn get_file_diff(
         // diffing to nothing.
         let target = FirstParentDiff::of(worktree_path, sha).await?;
         let args = [
-            &["diff-tree", "--root", "-M", "-p"],
+            &["diff-tree", "--no-commit-id", "--root", "-M", "-p"],
             target.flags,
             &target.revs(),
         ]
@@ -538,6 +538,25 @@ mod tests {
         assert!(diff.contains("diff --git a/tracked.txt"), "{diff}");
         assert!(diff.contains("+two"), "{diff}");
         assert!(diff.contains("diff --git a/sub/fresh.txt"), "{diff}");
+        assert!(diff.contains("+hello"), "{diff}");
+    }
+
+    /// The per-file commit diff is a pure patch, like every other per-file
+    /// diff: `diff-tree` given one commit otherwise prints its id first.
+    #[tokio::test]
+    async fn get_file_diff_of_a_root_commit_is_a_pure_patch() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        init_repo(root);
+        std::fs::write(root.join("first.txt"), "hello\n").unwrap();
+        git(&["add", "."], root);
+        git(&["commit", "-q", "-m", "root"], root);
+        let sha = rev_parse(root, "HEAD").await;
+
+        let diff = get_file_diff(root, "commit", None, Some(&sha), "first.txt", None)
+            .await
+            .unwrap();
+        assert!(diff.starts_with("diff --git"), "{diff}");
         assert!(diff.contains("+hello"), "{diff}");
     }
 
