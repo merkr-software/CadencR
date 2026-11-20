@@ -40,21 +40,67 @@ impl StderrLevel {
     }
 }
 
-/// The level of a `tracing` formatted line (`<timestamp> LEVEL target: …`,
-/// colored or not).
+/// The level of a line in Codex's `tracing` format, colored or not: an RFC
+/// 3339 timestamp, then the level (`2026-11-20T13:48:25.266317Z ERROR …`).
+/// Anything else (`fatal INFO logger failed`, a panic) is not trusted to be
+/// routine.
 pub(crate) fn classify(line: &str) -> StderrLevel {
-    plain_prefix(line)
-        .split_whitespace()
-        .take(2)
-        .find_map(|token| match token {
-            "ERROR" => Some(StderrLevel::Error),
-            "WARN" => Some(StderrLevel::Warn),
-            "INFO" => Some(StderrLevel::Info),
-            "DEBUG" => Some(StderrLevel::Debug),
-            "TRACE" => Some(StderrLevel::Trace),
-            _ => None,
-        })
-        .unwrap_or(StderrLevel::Unknown)
+    let prefix = plain_prefix(line);
+    let mut tokens = prefix.split_whitespace();
+    if !tokens.next().is_some_and(is_timestamp) {
+        return StderrLevel::Unknown;
+    }
+    match tokens.next() {
+        Some("ERROR") => StderrLevel::Error,
+        Some("WARN") => StderrLevel::Warn,
+        Some("INFO") => StderrLevel::Info,
+        Some("DEBUG") => StderrLevel::Debug,
+        Some("TRACE") => StderrLevel::Trace,
+        _ => StderrLevel::Unknown,
+    }
+}
+
+/// `YYYY-MM-DDTHH:MM:SS`, optional fraction, then `Z` or a `±HH:MM` offset.
+fn is_timestamp(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    let digits = |range: std::ops::Range<usize>| {
+        bytes
+            .get(range)
+            .is_some_and(|part| part.iter().all(u8::is_ascii_digit))
+    };
+    let at = |index: usize, byte: u8| bytes.get(index) == Some(&byte);
+    let date_time = digits(0..4)
+        && at(4, b'-')
+        && digits(5..7)
+        && at(7, b'-')
+        && digits(8..10)
+        && at(10, b'T')
+        && digits(11..13)
+        && at(13, b':')
+        && digits(14..16)
+        && at(16, b':')
+        && digits(17..19);
+    if !date_time {
+        return false;
+    }
+    let mut rest = &token[19..];
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let end = fraction
+            .find(|ch: char| !ch.is_ascii_digit())
+            .unwrap_or(fraction.len());
+        if end == 0 {
+            return false;
+        }
+        rest = &fraction[end..];
+    }
+    rest == "Z"
+        || (rest.len() == 6
+            && (rest.starts_with('+') || rest.starts_with('-'))
+            && rest.as_bytes()[3] == b':'
+            && rest[1..3]
+                .bytes()
+                .chain(rest[4..].bytes())
+                .all(|byte| byte.is_ascii_digit()))
 }
 
 /// The start of `line` without its ANSI SGR sequences (`ESC [ … m`).
@@ -139,11 +185,8 @@ impl StderrLog {
                     "codex app-server stderr diagnostics of this level are now counted, not logged"
                 );
             }
-            Outcome::Counted => tracing::debug!(
-                target: "codex_app_server",
-                stderr_level = level.as_str(),
-                "codex app-server emitted a stderr diagnostic past the limit (content redacted)"
-            ),
+            // Past the cap a line is only counted; `finish` reports the count.
+            Outcome::Counted => {}
         }
     }
 
@@ -203,7 +246,10 @@ mod tests {
             classify("2026-11-20T10:00:00Z  WARN x: y"),
             StderrLevel::Warn
         );
-        assert_eq!(classify("DEBUG x: y"), StderrLevel::Debug);
+        assert_eq!(
+            classify("2026-11-20T10:00:00.5+02:00 DEBUG x: y"),
+            StderrLevel::Debug
+        );
         assert_eq!(
             classify("2026-11-20T10:00:00Z TRACE x: y"),
             StderrLevel::Trace
@@ -221,6 +267,17 @@ mod tests {
         // A level word later in the message is not the line's level.
         assert_eq!(
             classify("2026-11-20T10:00:00Z something INFO later"),
+            StderrLevel::Unknown
+        );
+        // A level word with no timestamp before it is not Codex's log format:
+        // this one is an error that would have passed as routine.
+        assert_eq!(
+            classify("fatal INFO logger initialization failed"),
+            StderrLevel::Unknown
+        );
+        assert_eq!(classify("DEBUG x: y"), StderrLevel::Unknown);
+        assert_eq!(
+            classify("2026-11-20 10:00:00 INFO x: y"),
             StderrLevel::Unknown
         );
     }
@@ -265,6 +322,43 @@ mod tests {
             .iter()
             .all(|outcome| *outcome == Outcome::Counted));
         assert_eq!(log.errors.counted, 5);
+    }
+
+    /// Counts the events logged while it is the default subscriber.
+    struct CountingSubscriber(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl tracing::Subscriber for CountingSubscriber {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, _: &tracing::Event<'_>) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    /// Past the cap, each line was still logged (at debug): only counted now.
+    #[test]
+    fn lines_past_the_cap_are_counted_not_logged() {
+        let events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut log = StderrLog::default();
+        tracing::subscriber::with_default(CountingSubscriber(events.clone()), || {
+            for _ in 0..MAX_REPORTED + 50 {
+                log.record("2026-11-20T10:00:00Z ERROR codex_core: failed");
+            }
+        });
+        // Each reported line, plus the notice that the cap is reached.
+        assert_eq!(
+            events.load(std::sync::atomic::Ordering::SeqCst),
+            MAX_REPORTED + 1
+        );
+        assert_eq!(log.errors.counted, 50);
     }
 
     /// A burst of warnings at startup must not hide a later crash.
