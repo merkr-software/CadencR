@@ -45,6 +45,20 @@ describe("agentStreamDisplay", () => {
     expect(countRenderableDisplayRows([marker, resume])).toBe(1);
   });
 
+  it("keeps the stopped-background-work marker above the resume", () => {
+    const marker = block("marker", "restart_background", { type: "turn_interrupted" });
+    const resume = block("resume", "Cadencr restarted after your previous turn ended", {
+      type: "user_message",
+      origin: {
+        originKind: "system_generated",
+        note: "restart_continuation",
+      } as AgentBlockData["origin"],
+    });
+
+    // The resume divider says the agent resumed, not what was lost.
+    expect(filterRenderableBlocks([marker, resume])).toEqual([marker, resume]);
+  });
+
   it("keeps only Agent and Task tool results that render standalone", () => {
     const bashResult = block("bash", "bash output", {
       type: "tool_result",

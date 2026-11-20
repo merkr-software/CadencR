@@ -32,6 +32,8 @@ impl StreamReaderState {
             subagents: Default::default(),
             reported_model: None,
             token_usage_save_failed: false,
+            background_work_recorded: false,
+            background_work_save_failed: false,
             context_window_save_failed: false,
         }
     }
@@ -61,9 +63,10 @@ fn first_failure_of_streak<E: std::fmt::Display>(
 }
 
 impl StreamReaderTask {
-    /// Surface a failed usage write once per failure streak: usage changes on
-    /// most streamed events, and a broken database must not flood every
-    /// viewer with one error per event. `saved` is `Ok(false)` when there was
+    /// Surface a failed usage (or background-work) write once per failure
+    /// streak: usage changes on most streamed events, and the background-work
+    /// record is retried every idle tick, so a broken database must not flood
+    /// every viewer with one error per attempt. `saved` is `Ok(false)` when there was
     /// nothing to write, which neither ends nor extends the streak.
     pub(in crate::domain::ws_session) async fn report_usage_write(
         &self,

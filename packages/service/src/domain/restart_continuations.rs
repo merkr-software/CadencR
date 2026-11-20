@@ -8,7 +8,9 @@
 //! 1. **Capture.** When the service stops, every session still mid-turn gets a
 //!    `pending` row. After a crash nothing ran at stop time, so the next start
 //!    captures the sessions the dead process left `running` before resetting
-//!    them.
+//!    them. A conversation whose turn had ended but whose runtime still owed
+//!    it a resume (background work, a scheduled wake-up: `background_work`)
+//!    is captured the same way, since the restart kills that work too.
 //!    Agent processes a hard kill left running are stopped first
 //!    (`orphans`), so a resume never runs next to the turn it replaces.
 //!    When the user quits and chooses to stop their agents, the desktop says
@@ -24,6 +26,7 @@
 //!
 //! Nothing here is provider-specific: it consumes the ordinary prompt path.
 
+mod background_work;
 mod capture;
 mod eligibility;
 mod gates;
@@ -35,6 +38,7 @@ mod startup;
 mod store;
 mod transcript;
 
+pub use background_work::record_background_work;
 pub use capture::{begin_shutdown, capture_cut_off_turn, is_shutting_down, recover_at_startup};
 #[cfg(unix)]
 pub(crate) use orphans::is_alive as process_is_alive;
@@ -52,6 +56,10 @@ pub const ENABLED_SETTING_KEY: &str = "agent_restart_resume_enabled";
 /// Content of the transcript marker that says a restart, not the user, ended
 /// the turn. The frontend renders `turn_interrupted` rows by this content.
 pub const RESTART_MARKER_CONTENT: &str = "restart";
+
+/// Content of the marker for a conversation whose turn had ended, but whose
+/// background work (or scheduled wake-up) a restart stopped.
+pub const RESTART_BACKGROUND_MARKER_CONTENT: &str = "restart_background";
 
 /// Content of the marker for a turn the user stopped by quitting Cadencr.
 pub const QUIT_MARKER_CONTENT: &str = "quit";

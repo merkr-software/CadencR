@@ -75,8 +75,9 @@ pub async fn begin_shutdown(pool: &SqlitePool) {
     }
 }
 
-/// Capture one turn shutdown just cut off, unless [`begin_shutdown`] already
-/// did. Called by its stream reader before it pauses the session. There is no
+/// Capture one turn (or background work) shutdown just cut off, unless
+/// [`begin_shutdown`] already did. Called by its stream reader before it
+/// pauses the session or forgets the work. There is no
 /// client left to tell about a failure: that turn is then left paused, not
 /// resumed.
 pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) {
@@ -88,7 +89,8 @@ pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) {
 }
 
 /// Stop the agents a killed process left running, capture the turns it left
-/// `running`, then reset them.
+/// `running` and the background work it was running between turns, then
+/// reset both.
 ///
 /// Must run before anything else touches session status at startup. The reset
 /// happens even when the capture fails — a session stuck `running` would block
@@ -119,6 +121,14 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
                 "Cadencr could not check which agents the last exit interrupted: {error}"
             ));
         }
+    }
+    // Like the status reset below, this happens even when the capture failed:
+    // the runtimes those records describe are gone.
+    if let Err(error) = super::background_work::clear(pool).await {
+        tracing::error!(%error, "failed to forget background work the last exit stopped");
+        failures.push(format!(
+            "Cadencr could not reset which agents had background work running: {error}"
+        ));
     }
     if let Err(error) = WsSessionPersistence::cleanup_stale_sessions(pool).await {
         tracing::error!(%error, "failed to reset sessions left running");
