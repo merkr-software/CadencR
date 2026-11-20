@@ -54,6 +54,8 @@ pub async fn start_time(pid: u32) -> Option<String> {
 /// (macOS). `proc_listpgrppids` still lists a member that exited and awaits
 /// reaping, which `proc_pidinfo` then reports as gone: such a member is
 /// dead, as is one a reused pid moved out of the group since the listing.
+/// A process that joins the group (`setpgid`) after the listing is missed;
+/// Cadencr never moves a process into an existing group.
 #[cfg(target_os = "macos")]
 pub(crate) fn group_has_live_member(pgid: i32) -> io::Result<bool> {
     platform::group_has_live_member(pgid)
@@ -113,15 +115,28 @@ mod platform {
             let mut pids = vec![0 as libc::pid_t; capacity];
             let bytes = libc::c_int::try_from(capacity * size_of::<libc::pid_t>())
                 .map_err(io::Error::other)?;
+            // SAFETY: errno is this thread's own.
+            unsafe { *libc::__error() = 0 };
             // SAFETY: the buffer holds `bytes` bytes of pids.
             let count = unsafe { libc::proc_listpgrppids(pgid, pids.as_mut_ptr().cast(), bytes) };
-            let count = usize::try_from(count).map_err(|_| io::Error::last_os_error())?;
+            let count = listed_count(count, io::Error::last_os_error())?;
             // A full buffer may have missed members: read again, larger.
             if count < capacity {
                 pids.truncate(count);
                 return Ok(pids);
             }
             capacity *= 2;
+        }
+    }
+
+    /// libproc answers 0 both for an empty group and for a call that failed
+    /// (ENOMEM, an enumeration the kernel refused): only `errno`, cleared
+    /// before the call, tells them apart.
+    pub(super) fn listed_count(count: libc::c_int, errno: io::Error) -> io::Result<usize> {
+        match usize::try_from(count) {
+            Ok(0) if errno.raw_os_error().is_some_and(|code| code != 0) => Err(errno),
+            Ok(count) => Ok(count),
+            Err(_) => Err(errno),
         }
     }
 
@@ -268,6 +283,24 @@ mod tests {
         );
         assert_eq!(stat_fields(stat).unwrap().nth(22 - 3), Some("987654"));
         assert_eq!(stat_links("garbage"), None);
+    }
+
+    /// A failed listing used to read as an empty group, so a group that
+    /// refused a signal was taken for one that is gone.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_failed_group_listing_is_an_error_not_an_empty_group() {
+        use std::io::Error;
+        let failed = platform::listed_count(0, Error::from_raw_os_error(libc::ENOMEM));
+        assert_eq!(failed.unwrap_err().raw_os_error(), Some(libc::ENOMEM));
+        assert_eq!(
+            platform::listed_count(0, Error::from_raw_os_error(0)).unwrap(),
+            0
+        );
+        assert_eq!(
+            platform::listed_count(3, Error::from_raw_os_error(0)).unwrap(),
+            3
+        );
     }
 
     #[cfg(unix)]

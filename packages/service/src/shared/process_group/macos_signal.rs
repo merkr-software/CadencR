@@ -20,7 +20,8 @@ pub(super) fn only_exited_members(pid: u32) -> io::Result<bool> {
 }
 
 /// Never repeats the destructive signal: a group reported as EPERM is
-/// reconciled by reading its members, not by signaling it again.
+/// reconciled by reading its members, not by signaling it again. Members
+/// that cannot be read leave the EPERM standing.
 pub(super) fn reconcile_permission_denied(
     kill: impl FnOnce() -> io::Result<()>,
     only_exited_members: impl FnOnce() -> io::Result<bool>,
@@ -30,10 +31,13 @@ pub(super) fn reconcile_permission_denied(
         Err(error) if error.raw_os_error() == Some(libc::EPERM) => error,
         Err(error) => return Err(error),
     };
-    if only_exited_members()? {
-        Ok(())
-    } else {
-        Err(kill_error)
+    match only_exited_members() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(kill_error),
+        Err(read_error) => {
+            tracing::warn!(%read_error, "could not read a process group that refused a signal");
+            Err(kill_error)
+        }
     }
 }
 
@@ -82,7 +86,7 @@ mod tests {
         assert_eq!(reads.get(), 0);
         let unreadable =
             reconcile_permission_denied(|| Err(error(libc::EPERM)), || Err(error(libc::EACCES)));
-        assert_eq!(unreadable.unwrap_err().raw_os_error(), Some(libc::EACCES));
+        assert_eq!(unreadable.unwrap_err().raw_os_error(), Some(libc::EPERM));
     }
 
     #[test]
