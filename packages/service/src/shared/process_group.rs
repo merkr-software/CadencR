@@ -150,13 +150,30 @@ pub(crate) async fn interrupt_process_group(
 /// already gone is fine.
 #[cfg(unix)]
 pub(crate) async fn stop_process_group(pgid: u32, grace: Duration) -> io::Result<()> {
+    stop_group_with(pgid, grace, signal_process_group).await
+}
+
+/// [`stop_process_group`], sending each signal through `signal`.
+#[cfg(unix)]
+async fn stop_group_with(
+    pgid: u32,
+    grace: Duration,
+    signal: impl Fn(u32, libc::c_int) -> io::Result<()>,
+) -> io::Result<()> {
     if !process_group_alive(pgid) {
         return Ok(());
     }
     let deadline = tokio::time::Instant::now() + grace;
-    signal_process_group(pgid, libc::SIGTERM)?;
-    wait_group_gone(pgid, deadline).await;
-    kill_group_after_leader_exit(pgid).await
+    match signal(pgid, libc::SIGTERM) {
+        // A member refused SIGTERM; SIGKILL may still be allowed (a sandbox
+        // or seccomp filter can let one through and not the other).
+        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {}
+        result => {
+            result?;
+            wait_group_gone(pgid, deadline).await;
+        }
+    }
+    signal(pgid, libc::SIGKILL)
 }
 
 /// Wait until no live process is left in the group `pid` leads, or `deadline`.
@@ -299,6 +316,33 @@ mod tests {
             // Linux never answers EPERM for a gone group: one is a live member.
             assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EPERM));
         }
+    }
+
+    /// Found in QA under a seccomp filter that refused SIGTERM but not
+    /// SIGKILL: the stop gave up at the refused SIGTERM.
+    #[tokio::test]
+    async fn stop_still_kills_a_group_that_refuses_sigterm() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut child = group_leader(&directory.path().join("unused.pid"), "exec sleep 30");
+        let leader = child.id().unwrap();
+        let sent = std::sync::Mutex::new(Vec::new());
+        let refuse_term = |pgid, signal| {
+            sent.lock().unwrap().push(signal);
+            if signal == libc::SIGTERM {
+                return eperm();
+            }
+            signal_process_group(pgid, signal)
+        };
+
+        stop_group_with(leader, Duration::from_secs(5), refuse_term)
+            .await
+            .expect("SIGKILL stops the group");
+        use std::os::unix::process::ExitStatusExt;
+        let status = wait_bounded(&mut child, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
+        assert_eq!(*sent.lock().unwrap(), [libc::SIGTERM, libc::SIGKILL]);
     }
 
     #[tokio::test]
