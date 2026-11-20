@@ -12,6 +12,7 @@ use cadencr_service::domain::agents::adapter::RuntimeSpawnConfig;
 use cadencr_service::domain::agents::codex::profiles::{self, ProfileDraft};
 use cadencr_service::domain::agents::providers::provider_registry;
 use cadencr_service::domain::agents::runtime::ProviderStatus;
+use cadencr_service::domain::mcp::tools::project_providers::agent_providers_doc;
 use serde_json::json;
 
 const SECRET: &str = "sk-cadencr-config-read-secret";
@@ -83,4 +84,16 @@ async fn a_refused_config_read_reaches_the_user_with_the_profile_secret_masked()
         .await;
     assert_eq!(catalog.status, ProviderStatus::Unavailable);
     assert_masked(catalog.status_message.as_deref().unwrap_or_default());
+
+    // What `project_list_agent_providers` publishes for the active profile.
+    profiles::set_active(Some(&profile.id)).await.unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let doc = agent_providers_doc(&pool, &elsewhere.path().canonicalize().unwrap()).await;
+    let providers = doc["providers"].as_array().unwrap();
+    let codex = providers
+        .iter()
+        .find(|provider| provider["id"] == "codex_cli")
+        .unwrap();
+    assert_eq!(codex["status"], "unavailable");
+    assert_masked(codex["status_message"].as_str().unwrap_or_default());
 }
