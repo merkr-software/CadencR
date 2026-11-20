@@ -304,7 +304,10 @@ pub(super) mod session_bootstrap_tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(reopened, ("paused".into(), "latest".into(), "plan".into()));
+        assert_eq!(
+            reopened,
+            ("completed".into(), "latest".into(), "plan".into())
+        );
     }
 
     /// A failed lookup used to come back as a bare `None`, so the client only
@@ -373,7 +376,7 @@ pub(super) mod session_bootstrap_tests {
         .unwrap();
         assert_eq!(row.0, "sonnet");
         assert_eq!(row.1, "plan");
-        assert_eq!(row.2, "paused");
+        assert_eq!(row.2, "completed", "reusing a row keeps its last status");
     }
 
     #[tokio::test]
