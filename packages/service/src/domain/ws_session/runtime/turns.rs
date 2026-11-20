@@ -30,6 +30,10 @@ struct ActiveTurn {
     /// the end, and saw no turn start since). A stop mark of an ended turn is
     /// never carried into the next one: no result would answer it there.
     ended: bool,
+    /// Generation whose stop should let the queue go on once it ends: a gate
+    /// closed with "Reject & Stop" ends the turn the gate held, and the next
+    /// queued prompt runs, as after a turn that ended by itself.
+    queue_after_stop: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -77,6 +81,7 @@ impl ActiveTurnRegistry {
                 generation,
                 interrupted_turn,
                 ended: false,
+                queue_after_stop: None,
             },
         );
     }
@@ -119,6 +124,29 @@ impl ActiveTurnRegistry {
             runtime: Arc::downgrade(runtime),
         });
         Some(turn.generation)
+    }
+
+    /// Once the stopped turn `generation` ends, its stream reader delivers the
+    /// next queued prompt (see [`Self::take_queue_after_stop`]).
+    pub(crate) async fn queue_after_stop(&self, db_session_id: i64, generation: u64) {
+        if let Some(turn) = self.turns.lock().await.get_mut(&db_session_id) {
+            if turn.generation == generation {
+                turn.queue_after_stop = Some(generation);
+            }
+        }
+    }
+
+    /// Whether the stop that ended `generation` asked for the queue to go on.
+    pub(crate) async fn take_queue_after_stop(&self, db_session_id: i64, generation: u64) -> bool {
+        let mut turns = self.turns.lock().await;
+        let Some(turn) = turns.get_mut(&db_session_id) else {
+            return false;
+        };
+        if turn.queue_after_stop != Some(generation) {
+            return false;
+        }
+        turn.queue_after_stop = None;
+        true
     }
 
     /// Consume the one-shot interruption marker only from the stream reader

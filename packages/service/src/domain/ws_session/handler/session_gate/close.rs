@@ -65,6 +65,9 @@ pub(crate) async fn close_gate(
                 cleared_ahead,
             )
             .await
+            // A turn this close stopped may still be ending here, and the
+            // queue then waits: its stream reader runs the next queued
+            // prompt once the turn has ended.
             .map(|found| found.then_some(matches!(closed, RuntimeGateClose::Stopped { .. })))
         }
     };

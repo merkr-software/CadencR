@@ -196,3 +196,20 @@ async fn a_stale_close_never_stops_the_running_turn() {
     assert_eq!(reply.payload["code"], "STALE_GATE");
     assert_eq!(touches.total(), 0, "the running turn is left alone");
 }
+
+/// The close that stops the turn asks for the queue to go on once that turn
+/// ends; delivering then, while the turn still ran, never delivered anything.
+#[tokio::test]
+async fn a_close_that_stops_the_turn_lets_the_queue_go_on_after_it() {
+    let (app_state, sessions, _touches) = question_session(false).await;
+
+    close_gate(&app_state, &sessions).await;
+
+    assert!(
+        app_state
+            .active_turns
+            .take_queue_after_stop(SESSION, 1)
+            .await,
+        "the stopped turn's end delivers the next queued prompt"
+    );
+}

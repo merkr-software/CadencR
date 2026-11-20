@@ -344,6 +344,7 @@ impl StreamReaderTask {
             self.publish(Message::Text(String::from(end_env).into()))
                 .await;
         }
+        self.after_stopped_turn(interrupted_generation).await;
     }
 
     pub(in crate::domain::ws_session) async fn send_stream_closed(

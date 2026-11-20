@@ -356,6 +356,9 @@ impl StreamReaderTask {
             }
             self.after_turn_result().await;
         }
+        if let (true, Some(generation)) = (runtime_event.is_result(), interrupted_generation) {
+            self.after_stopped_turn(generation).await;
+        }
     }
 }
 

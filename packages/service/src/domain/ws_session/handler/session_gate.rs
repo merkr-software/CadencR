@@ -206,6 +206,14 @@ async fn deny_runtime_gate(
         .active_turns
         .request_interruption(db_session_id, &target.query)
         .await;
+    // Once the stopped turn ends, its stream reader runs the next queued
+    // prompt; draining here would find the turn still running.
+    if let Some(generation) = generation {
+        app_state
+            .active_turns
+            .queue_after_stop(db_session_id, generation)
+            .await;
+    }
     let runtime_response = RuntimePermissionResponse {
         request_id: request_id.to_string(),
         decision: RuntimePermissionDecision::Deny,

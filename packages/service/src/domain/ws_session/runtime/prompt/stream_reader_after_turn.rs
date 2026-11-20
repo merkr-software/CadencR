@@ -12,6 +12,19 @@ impl StreamReaderTask {
         self.refresh_mcp_servers_after_turn().await;
     }
 
+    /// A stop that closed the turn's gate lets the queue go on once the
+    /// stopped turn `generation` has ended, as a turn that ended by itself.
+    pub(super) async fn after_stopped_turn(&self, generation: u64) {
+        if self
+            .app_state
+            .active_turns
+            .take_queue_after_stop(self.db_session_id, generation)
+            .await
+        {
+            self.drain_queued_message_after_result().await;
+        }
+    }
+
     async fn drain_queued_message_after_result(&self) {
         // Unknown gate state must not let a queued prompt run over a gate.
         let Ok(row) = self
