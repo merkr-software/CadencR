@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { build, type DepOptimizationOptions } from "vite";
+import { build, optimizeDeps, resolveConfig, type DepOptimizationOptions } from "vite";
 import { describe, expect, it } from "vitest";
 import {
   excalidrawFontFallbackEsbuildPlugin,
@@ -137,5 +137,65 @@ describe("excalidrawFontFallbackEsbuildPlugin", () => {
     );
     expect(await onLoad({ path: path.join(path.dirname(file), other!) })).toBeUndefined();
     expect(() => onEnd({ errors: [] })).toThrow(STALE);
+  });
+});
+
+describe("dependency pre-bundle cache", () => {
+  const fallback = "    urls.push(new URL(assetUrl, _ExcalidrawFontFace.ASSETS_FALLBACK_URL));";
+
+  /** A project whose `@excalidraw/excalidraw` dev build adds the fallback. */
+  function fakeProject(): string {
+    const root = mkdtempSync(path.join(os.tmpdir(), "cadencr-excalidraw-prebundle-"));
+    const pkg = path.join(root, "node_modules/@excalidraw/excalidraw");
+    mkdirSync(path.join(pkg, "dist/dev"), { recursive: true });
+    writeFileSync(
+      path.join(pkg, "package.json"),
+      JSON.stringify({
+        name: "@excalidraw/excalidraw",
+        version: "0.0.0",
+        type: "module",
+        module: "dist/dev/index.js",
+      }),
+    );
+    writeFileSync(
+      path.join(pkg, "dist/dev/index.js"),
+      "const _ExcalidrawFontFace = { ASSETS_FALLBACK_URL: 'https://esm.sh/x/' };\n" +
+        `export function urlsOf(assetUrl) {\n  const urls = [];\n${fallback}\n  return urls;\n}\n`,
+    );
+    return root;
+  }
+
+  /** Pre-bundles the fake Excalidraw as Vite dev does, reusing `.vite` when its key matches. */
+  async function preBundle(root: string, marker: string): Promise<string> {
+    const plugin = excalidrawFontFallbackEsbuildPlugin([
+      { from: fallback, to: `    if (urls.length === 0) urls.push("${marker}");` },
+    ]);
+    const config = await resolveConfig(
+      {
+        root,
+        // Vite would otherwise cache under the nearest `package.json` above `root`.
+        cacheDir: path.join(root, ".vite"),
+        configFile: false,
+        logLevel: "silent",
+        optimizeDeps: {
+          noDiscovery: true,
+          include: ["@excalidraw/excalidraw"],
+          esbuildOptions: { plugins: [plugin] },
+        },
+      },
+      "serve",
+    );
+    await optimizeDeps(config);
+    return readFileSync(path.join(config.cacheDir, "deps/@excalidraw_excalidraw.js"), "utf8");
+  }
+
+  it("rebuilds the pre-bundle when the rewrites change", async () => {
+    const root = fakeProject();
+    try {
+      expect(await preBundle(root, "first rewrites")).toContain('"first rewrites"');
+      expect(await preBundle(root, "second rewrites")).toContain('"second rewrites"');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

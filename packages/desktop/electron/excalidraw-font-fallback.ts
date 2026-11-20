@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { DepOptimizationOptions, Plugin } from "vite";
 
 type EsbuildPlugin = NonNullable<
   NonNullable<DepOptimizationOptions["esbuildOptions"]>["plugins"]
 >[number];
+type FallbackRewrites = ReadonlyArray<{ from: string; to: string }>;
 
 /**
  * Excalidraw lists an esm.sh URL after `window.EXCALIDRAW_ASSET_PATH` in every
@@ -15,7 +17,7 @@ type EsbuildPlugin = NonNullable<
  * dev, through the esbuild dependency pre-bundle) and `dist/prod` (production
  * build, through Rollup).
  */
-const FALLBACK_REWRITES: ReadonlyArray<{ from: string; to: string }> = [
+const FALLBACK_REWRITES: FallbackRewrites = [
   {
     from: "    urls.push(new URL(assetUrl, _ExcalidrawFontFace.ASSETS_FALLBACK_URL));",
     to: "    if (urls.length === 0) urls.push(new URL(assetUrl, _ExcalidrawFontFace.ASSETS_FALLBACK_URL));",
@@ -44,11 +46,15 @@ function staleError(detail: string): Error {
  * or `null` for any other file. Throws when the file adds it in a form no
  * rewrite matches exactly once.
  */
-export function rewriteExcalidrawFontFallback(code: string, id: string): string | null {
+export function rewriteExcalidrawFontFallback(
+  code: string,
+  id: string,
+  rewrites: FallbackRewrites = FALLBACK_REWRITES,
+): string | null {
   if (!EXCALIDRAW_DIST_FILE.test(id) || !FALLBACK_MARKERS.some((m) => code.includes(m))) {
     return null;
   }
-  for (const { from, to } of FALLBACK_REWRITES) {
+  for (const { from, to } of rewrites) {
     const occurrences = code.split(from).length - 1;
     if (occurrences === 1) return code.replace(from, to);
     if (occurrences > 1)
@@ -95,17 +101,37 @@ export function excalidrawFontFallbackVitePlugin(): Plugin {
   };
 }
 
-/** Vite dev: esbuild dependency pre-bundle over Excalidraw's `dist/dev`. */
-export function excalidrawFontFallbackEsbuildPlugin(): EsbuildPlugin {
+/**
+ * The rewrites and the code applying them, as a short hash. Vite keys its
+ * dependency pre-bundle cache (`.vite/deps`) on the optimizer's esbuild plugin
+ * names, not on their code, so a pre-bundle made with other rewrites would
+ * otherwise be served again until the lockfile changed.
+ */
+function rewritesFingerprint(rewrites: FallbackRewrites): string {
+  const applied = [EXCALIDRAW_DIST_FILE.source, FALLBACK_MARKERS, rewrites];
+  return createHash("sha256")
+    .update(JSON.stringify([...applied, rewriteExcalidrawFontFallback.toString()]))
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/**
+ * Vite dev: esbuild dependency pre-bundle over Excalidraw's `dist/dev`. Its
+ * name carries the rewrites' fingerprint, which keys the pre-bundle cache.
+ */
+export function excalidrawFontFallbackEsbuildPlugin(
+  rewrites: FallbackRewrites = FALLBACK_REWRITES,
+): EsbuildPlugin {
   return {
-    name: PLUGIN_NAME,
+    name: `${PLUGIN_NAME}-${rewritesFingerprint(rewrites)}`,
     setup(build) {
       let tally = new RewriteTally();
       build.onStart(() => {
         tally = new RewriteTally();
       });
       build.onLoad({ filter: EXCALIDRAW_DIST_FILE }, async ({ path }) => {
-        const rewritten = rewriteExcalidrawFontFallback(await readFile(path, "utf8"), path);
+        const code = await readFile(path, "utf8");
+        const rewritten = rewriteExcalidrawFontFallback(code, path, rewrites);
         tally.record(path, rewritten !== null);
         return rewritten === null ? undefined : { contents: rewritten, loader: "js" };
       });
