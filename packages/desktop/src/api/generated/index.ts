@@ -19754,7 +19754,7 @@ export const respondGate = (
 export const getRespondGateMutationKey = () => ["respondGate"] as const;
 
 export const getRespondGateMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -19790,10 +19790,10 @@ export const getRespondGateMutationOptions = <
 
 export type RespondGateMutationResult = NonNullable<Awaited<ReturnType<typeof respondGate>>>;
 export type RespondGateMutationBody = FeatureRespondGateRequest;
-export type RespondGateMutationError = ErrorType<unknown>;
+export type RespondGateMutationError = ErrorType<void>;
 export type RespondGateMutationVariables = { id: number; data: FeatureRespondGateRequest };
 
-export const useRespondGate = <TError = ErrorType<unknown>, TContext = unknown>(
+export const useRespondGate = <TError = ErrorType<void>, TContext = unknown>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof respondGate>>,

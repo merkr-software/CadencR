@@ -51,9 +51,19 @@ pub(crate) async fn authorize_decision(
         .pending_gates
         .find_pending(session_id, request_id)
         .await
-        .ok_or_else(|| AppError::Conflict("gate is no longer pending".into()))?;
+        .ok_or_else(|| stale_gate(request_id))?;
     validate_decision_kind(decision, gate.kind)?;
     permission_payload(session_id, request_id, decision, &gate)
+}
+
+/// No gate with this id waits on an answer: it was answered or closed
+/// already (a replay, or a reply that raced another).
+pub(crate) fn stale_gate(request_id: &str) -> AppError {
+    AppError::coded(
+        axum::http::StatusCode::CONFLICT,
+        "STALE_GATE",
+        format!("gate {request_id} is no longer pending: it was answered or closed already"),
+    )
 }
 
 fn validate_decision_kind(decision: &GateDecision, kind: GateKind) -> Result<(), AppError> {
@@ -215,6 +225,30 @@ mod tests {
         };
         let error = validate_decision_kind(&decision, GateKind::Permission).unwrap_err();
         assert!(error.to_string().contains("does not match"));
+    }
+
+    /// The MCP tool and the route share this check: a gate already answered
+    /// is stale (409), not an unexplained conflict.
+    #[tokio::test]
+    async fn a_gate_no_longer_pending_is_stale() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+        let state = AppState::with_pool(pool);
+        let decision = plan(PlanAction::Approve, None);
+
+        let error = authorize_decision(&state, 2, "plan-1", &decision)
+            .await
+            .unwrap_err();
+
+        let AppError::Coded { status, code, .. } = error else {
+            panic!("a coded error");
+        };
+        assert_eq!(status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(code, "STALE_GATE");
     }
 
     /// A Claude or Codex plan gate, as stored: no options.

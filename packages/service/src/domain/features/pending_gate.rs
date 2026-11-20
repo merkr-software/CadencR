@@ -115,19 +115,18 @@ pub async fn get_pending_gate_handler(
     path = "/api/features/{id}/respond-gate",
     params(("id" = i64, Path, description = "Feature id")),
     request_body = FeatureRespondGateRequest,
-    responses((status = 200, body = FeatureRespondGateResponse))
+    responses(
+        (status = 200, body = FeatureRespondGateResponse),
+        (status = 404, description = "The feature has no session"),
+        (status = 409, description = "STALE_GATE: no pending gate has this request id"),
+    )
 )]
 pub async fn respond_gate_handler(
     State(state): State<AppState>,
     Path(feature_id): Path<i64>,
     Json(body): Json<FeatureRespondGateRequest>,
 ) -> Result<Json<FeatureRespondGateResponse>, AppError> {
-    let (session_id, gate) = load_feature_gate(&state, feature_id).await?;
-    if gate.request_id != body.request_id {
-        return Err(AppError::Conflict(
-            "pending gate request_id does not match".into(),
-        ));
-    }
+    let session_id = respond_target(&state, feature_id).await?;
     let decision = to_internal_decision(body.decision);
     let warnings = answer_gate(&state, session_id, &body.request_id, &decision).await?;
     Ok(Json(FeatureRespondGateResponse {
@@ -137,20 +136,41 @@ pub async fn respond_gate_handler(
     }))
 }
 
-async fn load_feature_gate(
+/// The session a gate answer for `feature_id` goes to: the one with a gate
+/// pending, else the feature's latest, whose answer is then refused as stale
+/// (409). Not found (404) only when the feature has no session at all.
+async fn respond_target(state: &AppState, feature_id: i64) -> Result<i64, AppError> {
+    if let Some(session_id) = session_with_pending_gate(state, feature_id).await? {
+        return Ok(session_id);
+    }
+    sqlx::query_scalar(
+        "SELECT id FROM agent_sessions WHERE feature_id = ? ORDER BY id DESC LIMIT 1",
+    )
+    .bind(feature_id)
+    .fetch_optional(&state.read_pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no session")))
+}
+
+async fn session_with_pending_gate(
     state: &AppState,
     feature_id: i64,
-) -> Result<(i64, PendingGate), AppError> {
-    let session_id: Option<i64> = sqlx::query_scalar(
+) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar(
         "SELECT id FROM agent_sessions \
          WHERE feature_id = ? AND (pending_permission IS NOT NULL OR pending_questions IS NOT NULL) \
          ORDER BY id DESC LIMIT 1",
     )
     .bind(feature_id)
     .fetch_optional(&state.read_pool)
-    .await?;
+    .await
+}
 
-    let Some(session_id) = session_id else {
+async fn load_feature_gate(
+    state: &AppState,
+    feature_id: i64,
+) -> Result<(i64, PendingGate), AppError> {
+    let Some(session_id) = session_with_pending_gate(state, feature_id).await? else {
         return Err(AppError::NotFound(format!(
             "feature {feature_id} has no pending gate"
         )));
@@ -244,6 +264,53 @@ mod tests {
         let out = truncate_for_sidebar(&long);
         assert!(out.ends_with('…'));
         assert_eq!(out.chars().count(), 281);
+    }
+
+    async fn migrated_state() -> AppState {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+        sqlx::raw_sql(
+            "INSERT INTO projects (id, name, path) VALUES (7, 'P', '/tmp/p');
+             INSERT INTO features (id, project_id, title, status, type)
+             VALUES (5, 7, 'Answered', 'active', 'ws-session');
+             INSERT INTO agent_sessions (id, feature_id, agent_type, status)
+             VALUES (9, 5, 'session', 'idle');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        AppState::with_pool(pool)
+    }
+
+    async fn respond(state: &AppState, feature_id: i64) -> AppError {
+        let body = FeatureRespondGateRequest {
+            request_id: "plan-9".into(),
+            decision: FeatureGateDecision::Plan {
+                action: FeaturePlanAction::Approve,
+                message: None,
+            },
+        };
+        respond_gate_handler(State(state.clone()), Path(feature_id), Json(body))
+            .await
+            .expect_err("nothing to answer")
+    }
+
+    /// Replaying the answer to a gate that already closed used to read as a
+    /// missing feature (404).
+    #[tokio::test]
+    async fn answering_a_gate_already_closed_is_stale_not_missing() {
+        let state = migrated_state().await;
+        let AppError::Coded { status, code, .. } = respond(&state, 5).await else {
+            panic!("a coded error");
+        };
+        assert_eq!(status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(code, "STALE_GATE");
+
+        assert!(matches!(respond(&state, 404).await, AppError::NotFound(_)));
     }
 
     #[test]
