@@ -131,7 +131,8 @@ pub(super) async fn capture_running(
     intents: impl Into<Intents>,
     app_version: Option<&str>,
 ) -> Result<u64, sqlx::Error> {
-    capture(pool, cause, intents.into(), app_version, None).await
+    let mut conn = pool.acquire().await?;
+    capture(&mut conn, cause, intents.into(), app_version, None).await
 }
 
 /// [`capture_running`] for one session: a turn shutdown cut off that the
@@ -142,8 +143,9 @@ pub(super) async fn capture_session(
     intents: impl Into<Intents>,
     app_version: Option<&str>,
 ) -> Result<u64, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
     capture(
-        pool,
+        &mut conn,
         Cause::Shutdown,
         intents.into(),
         app_version,
@@ -152,8 +154,17 @@ pub(super) async fn capture_session(
     .await
 }
 
+/// [`capture_running`] for the crash capture at startup, inside the
+/// transaction that also consumes what the last process left to read.
+pub(super) async fn capture_crashed(
+    conn: &mut sqlx::SqliteConnection,
+    intents: Intents,
+) -> Result<u64, sqlx::Error> {
+    capture(conn, Cause::Crash, intents, None, None).await
+}
+
 async fn capture(
-    pool: &SqlitePool,
+    conn: &mut sqlx::SqliteConnection,
     cause: Cause,
     intents: Intents,
     app_version: Option<&str>,
@@ -162,7 +173,9 @@ async fn capture(
     // Top-level sessions mid-turn or owed a resume for background work,
     // optionally just one. A `!` command the user runs through Cadencr marks
     // its session `running` too, but there is no agent turn to resume: its
-    // transcript row, still `running`, tells it apart.
+    // transcript row, still `running`, tells it apart. Nor is a turn the user
+    // stopped: their Stop is recorded before the runtime is told, and the next
+    // turn forgets it before it is marked `running`.
     let result = sqlx::query(
         "INSERT OR IGNORE INTO restart_continuations
              (session_id, cause, intent, app_version, kind)
@@ -178,6 +191,8 @@ async fn capture(
                           AND json_extract(m.content, '$.__cadencr_user_shell.strategy')
                               = 'cadencr_managed'
                           AND json_extract(m.content, '$.status') = 'running'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM agent_user_stops u WHERE u.session_id = s.id
                     ) AS mid_turn,
                     EXISTS (
                         SELECT 1 FROM agent_background_work w
@@ -200,7 +215,7 @@ async fn capture(
     .bind(Kind::Background.as_str())
     .bind(session_id)
     .bind(session_id)
-    .execute(pool)
+    .execute(conn)
     .await?;
     Ok(result.rows_affected())
 }
@@ -491,6 +506,37 @@ pub(super) mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].session_id, late);
         assert!(pending[0].stop_requested());
+    }
+
+    /// A crash after the Stop was recorded but before the turn ended leaves
+    /// it `running`: it is not resumed. A turn started after the Stop (which
+    /// forgets it) is, and so is one stopped by the machine going to sleep.
+    #[tokio::test]
+    async fn a_turn_the_user_stopped_is_not_captured_but_a_later_one_is() {
+        let (pool, _, feature_id) = fixture().await;
+        let stopped = session(&pool, feature_id, "running").await;
+        let restarted = session(&pool, feature_id, "running").await;
+        let slept = session(&pool, feature_id, "running").await;
+        for id in [stopped, restarted] {
+            super::super::record_user_stop(&pool, id, chrono::Utc::now())
+                .await
+                .unwrap();
+        }
+        super::super::forget_user_stop(&pool, restarted)
+            .await
+            .unwrap();
+
+        capture_running(&pool, Cause::Crash, Intent::Resume, None)
+            .await
+            .unwrap();
+
+        let captured: Vec<i64> = list_pending(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.session_id)
+            .collect();
+        assert_eq!(captured, vec![restarted, slept]);
     }
 
     /// A record from before the user's Stop (a reader that decided just

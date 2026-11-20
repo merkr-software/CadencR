@@ -104,11 +104,12 @@ pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) -> bool {
 
 /// Stop the agents a killed process left running, capture the turns it left
 /// `running` and the background work it was running between turns, then
-/// reset both.
+/// reset them.
 ///
-/// Must run before anything else touches session status at startup. The reset
-/// happens even when the capture fails — a session stuck `running` would block
-/// the user — and the failure reaches the user through the startup report.
+/// Must run before anything else touches session status at startup. The
+/// status reset happens even when the capture fails — a session stuck
+/// `running` would block the user — and the failure reaches the user through
+/// the startup report.
 pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
     APP_VERSION.keep_first(app_version.unwrap_or(env!("CARGO_PKG_VERSION")).to_string());
     super::orphans::init(pool);
@@ -127,14 +128,6 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
         }
     }
     capture_left_behind(pool, &mut failures).await;
-    // Like the status reset below, this happens even when the capture failed:
-    // the runtimes those records describe are gone.
-    if let Err(error) = super::background_work::clear(pool).await {
-        tracing::error!(%error, "failed to forget background work the last exit stopped");
-        failures.push(format!(
-            "Cadencr could not reset which agents had background work running: {error}"
-        ));
-    }
     if let Err(error) = WsSessionPersistence::cleanup_stale_sessions(pool).await {
         tracing::error!(%error, "failed to reset sessions left running");
         failures.push(format!(
@@ -149,27 +142,32 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
 /// Capture what the last process left `running` or owed a resume for. A quit
 /// whose own capture failed left its intent behind: those turns follow it.
 /// Anything else (a crash, a kill, an update) resumes.
+///
+/// The intent and the background-work records are consumed in the capture's
+/// transaction: when it fails, all of it stays for the next start to retry.
 async fn capture_left_behind(pool: &SqlitePool, failures: &mut Vec<String>) {
-    let intents = match super::quit_intent::take(pool).await {
-        Ok(intents) => intents.unwrap_or(Intent::Resume.into()),
-        Err(error) => {
-            tracing::error!(%error, "failed to read what the last quit asked for");
-            failures.push(format!(
-                "Cadencr could not read whether your last quit stopped its agents, so it resumes them: {error}"
-            ));
-            Intent::Resume.into()
-        }
-    };
-    match store::capture_running(pool, Cause::Crash, intents, None).await {
+    match capture_left_behind_once(pool).await {
         Ok(0) => {}
         Ok(count) => tracing::info!(count, "captured agent turns interrupted by a crash"),
         Err(error) => {
             tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
             failures.push(format!(
-                "Cadencr could not check which agents the last exit interrupted: {error}"
+                "Cadencr could not check which agents the last exit interrupted, and will try \
+                 again on its next start: {error}"
             ));
         }
     }
+}
+
+async fn capture_left_behind_once(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let intents = super::quit_intent::take(&mut tx)
+        .await?
+        .unwrap_or(Intent::Resume.into());
+    let count = store::capture_crashed(&mut tx, intents).await?;
+    super::background_work::clear(&mut tx).await?;
+    tx.commit().await?;
+    Ok(count)
 }
 
 /// Every startup recovery failure, one per line: each names agents the user
@@ -204,6 +202,37 @@ mod tests {
         let pending = list_pending(&pool).await.unwrap();
         assert_eq!(pending.len(), 1);
         assert!(pending[0].stop_requested());
+    }
+
+    /// A capture that fails at startup consumes nothing: the next start
+    /// still finds the quit's intent and the work it was owed.
+    #[tokio::test]
+    async fn a_failed_startup_capture_leaves_everything_for_the_next_start() {
+        let (pool, _, feature_id) = fixture().await;
+        let waiting = session(&pool, feature_id, "completed").await;
+        super::super::record_background_work(&pool, waiting, Some(chrono::Utc::now()))
+            .await
+            .unwrap();
+        super::super::quit_intent::record(&pool, true, false)
+            .await
+            .unwrap();
+        sqlx::query("ALTER TABLE restart_continuations RENAME TO unavailable")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut failures = Vec::new();
+
+        capture_left_behind(&pool, &mut failures).await;
+
+        assert_eq!(failures.len(), 1, "the failure is reported");
+        let left: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM restart_quit_intent),
+                    (SELECT COUNT(*) FROM agent_background_work)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(left, (1, 1));
     }
 
     /// A real crash records no intent: it resumes.

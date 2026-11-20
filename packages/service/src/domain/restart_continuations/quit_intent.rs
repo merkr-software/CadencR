@@ -46,18 +46,19 @@ pub(super) async fn record(
 }
 
 /// Consume the last process's quit intent: what this start does with the
-/// turns that process left behind. None after a crash or an update.
-pub(super) async fn take(pool: &SqlitePool) -> Result<Option<Intents>, sqlx::Error> {
-    let mut tx = pool.begin().await?;
+/// turns that process left behind. None after a crash or an update. Runs in
+/// the capture's transaction, so a failed capture keeps it for the next start.
+pub(super) async fn take(
+    conn: &mut sqlx::SqliteConnection,
+) -> Result<Option<Intents>, sqlx::Error> {
     let row: Option<(bool, bool)> = sqlx::query_as(
         "SELECT resume_turns, resume_background_work FROM restart_quit_intent WHERE id = 1",
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut *conn)
     .await?;
     sqlx::query("DELETE FROM restart_quit_intent")
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
-    tx.commit().await?;
     Ok(row.map(|(turns, background)| Intents {
         turn: intent(turns),
         background: intent(background),
@@ -72,7 +73,11 @@ mod tests {
     #[tokio::test]
     async fn the_next_start_consumes_the_last_quit_intent_once() {
         let (pool, _, _) = fixture().await;
-        assert_eq!(take(&pool).await.unwrap(), None, "a crash leaves none");
+        assert_eq!(
+            take(&mut pool.acquire().await.unwrap()).await.unwrap(),
+            None,
+            "a crash leaves none"
+        );
 
         record(&pool, false, false).await.unwrap();
         record(&pool, true, false).await.unwrap();
@@ -81,8 +86,14 @@ mod tests {
             turn: Intent::Resume,
             background: Intent::Stop,
         };
-        assert_eq!(take(&pool).await.unwrap(), Some(expected));
-        assert_eq!(take(&pool).await.unwrap(), None);
+        assert_eq!(
+            take(&mut pool.acquire().await.unwrap()).await.unwrap(),
+            Some(expected)
+        );
+        assert_eq!(
+            take(&mut pool.acquire().await.unwrap()).await.unwrap(),
+            None
+        );
     }
 
     /// A quit that failed sets the intent back to resuming everything.
@@ -91,6 +102,9 @@ mod tests {
         let (pool, _, _) = fixture().await;
         record(&pool, false, false).await.unwrap();
         record(&pool, true, true).await.unwrap();
-        assert_eq!(take(&pool).await.unwrap(), None);
+        assert_eq!(
+            take(&mut pool.acquire().await.unwrap()).await.unwrap(),
+            None
+        );
     }
 }

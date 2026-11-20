@@ -1,6 +1,7 @@
 use tracing::{error, info};
 
 use crate::domain::agents::adapter::RuntimeError;
+use crate::domain::restart_continuations::forget_user_stop;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
@@ -136,9 +137,13 @@ impl StreamReaderTask {
     }
 
     pub(in crate::domain::ws_session) async fn record_running(&self) {
+        // A turn the runtime started: the user's last Stop is over, and
+        // forgotten before `running` is written (see `forget_user_stop`).
+        let unstopped = forget_user_stop(&self.write_pool, self.db_session_id).await;
         let written =
             WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
-        self.check_write(written, "that the agent is working").await;
+        self.check_write(written.and(unstopped), "that the agent is working")
+            .await;
         self.app_state
             .active_turns
             .resume_turn(self.db_session_id)

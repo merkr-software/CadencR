@@ -71,11 +71,22 @@ pub async fn record_user_stop(
     tx.commit().await
 }
 
-/// Forget every record once the restart capture has read them: the runtimes
-/// that owed those resumes are gone.
-pub(super) async fn clear(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM agent_background_work")
+/// A new turn starts in `session_id`: the user's last Stop no longer applies
+/// to it. Called before the turn is marked `running`, so a restart in between
+/// finds no running turn rather than this one marked stopped.
+pub async fn forget_user_stop(pool: &SqlitePool, session_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM agent_user_stops WHERE session_id = ?")
+        .bind(session_id)
         .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Forget every record once the restart capture has read them: the runtimes
+/// that owed those resumes are gone. Runs in the capture's transaction.
+pub(super) async fn clear(conn: &mut sqlx::SqliteConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM agent_background_work")
+        .execute(conn)
         .await?;
     Ok(())
 }
@@ -108,7 +119,7 @@ mod tests {
         record_background_work(&pool, first, None).await.unwrap();
         assert_eq!(recorded(&pool).await, vec![second]);
 
-        clear(&pool).await.unwrap();
+        clear(&mut pool.acquire().await.unwrap()).await.unwrap();
         assert!(recorded(&pool).await.is_empty());
     }
 
