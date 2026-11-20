@@ -40,7 +40,7 @@ pub use branch_name::build_branch_name;
 pub use changed_files::get_changed_files;
 pub(crate) use changed_files::get_uncommitted_entries;
 pub use diff::{get_commit_diff, get_diff, get_file_diff, get_stats};
-pub(crate) use diff_side::{is_missing, is_submodule_checkout, unsupported_file_type};
+pub(crate) use diff_side::ensure_worktree_side_is_a_file;
 pub use files::{get_diff_side_bytes, get_file_bytes, get_file_content_batch, list_files};
 pub use graph::get_commit_graph;
 pub use index::{reset_file, stage_file};
@@ -52,6 +52,7 @@ pub use pty::{commit_streaming, push_args, push_streaming};
 pub use pty_input::SensitiveInput;
 pub(crate) use stash::commit_diff::untracked_parent as stash_untracked_parent;
 pub use stash::{apply_stash, drop_stash, list_stashes, pop_stash, push_stash};
+pub(crate) use util::content_read_error;
 pub use worktree_health::{
     canonical_dir, get_worktree_info, is_live_worktree, live_worktree_root,
     registered_worktree_for_feature_path, WorktreeRoots,

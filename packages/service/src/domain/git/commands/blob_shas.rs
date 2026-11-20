@@ -123,7 +123,8 @@ pub async fn get_file_blob_shas(
 async fn blob_sha(worktree_path: &Path, file_path: &str) -> Result<Option<String>, AppError> {
     let on_disk = match tokio::fs::metadata(worktree_path.join(file_path)).await {
         Ok(metadata) => metadata.is_file(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        // Gone, or under a folder replaced by a file (`ENOTDIR`): deleted.
+        Err(error) if super::diff_side::is_missing(&error) => false,
         Err(error) => {
             return Err(AppError::internal(format!(
                 "cannot inspect {file_path}: {error}"
@@ -257,5 +258,22 @@ mod tests {
         let result = get_file_blob_shas(path, "develop").await;
         std::fs::set_permissions(&feature, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(result.is_err(), "{result:?}");
+    }
+
+    /// A folder replaced by a file of the same name leaves its files deleted:
+    /// they keep their `HEAD` blob instead of failing the whole map.
+    #[tokio::test]
+    async fn a_folder_replaced_by_a_file_keeps_its_files_head_blobs() {
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        std::fs::create_dir(path.join("folder")).unwrap();
+        std::fs::write(path.join("folder/nested.txt"), "n").unwrap();
+        git(&["add", "folder/nested.txt"], path).await;
+        git(&["commit", "-qm", "folder"], path).await;
+        std::fs::remove_dir_all(path.join("folder")).unwrap();
+        std::fs::write(path.join("folder"), "now a file").unwrap();
+
+        let shas = get_file_blob_shas(path, "develop").await.unwrap();
+        assert!(shas.contains_key("folder/nested.txt"), "{shas:?}");
     }
 }

@@ -71,6 +71,21 @@ pub(super) async fn branch_read_error(cwd: &Path, target: &str, error: AppError)
     }
 }
 
+/// The error for a failed file-content read. In branch mode the old side is the target branch: one that does not exist
+/// is refused by name (409), as the diff, stats and changed files are.
+pub(crate) async fn content_read_error(
+    path: &Path,
+    old_ref: &str,
+    new_ref: &Option<String>,
+    commit_sha: &Option<String>,
+    error: AppError,
+) -> AppError {
+    if commit_sha.is_none() && new_ref.is_some() {
+        return branch_read_error(path, old_ref, error).await;
+    }
+    error
+}
+
 /// After a history walk over `revs` failed with `error`: the revisions that
 /// do resolve, when some do not. A revision that names nothing yet — the
 /// `HEAD` of an unborn branch, a target branch never created — has no history,
@@ -156,5 +171,52 @@ mod tests {
             assert!(!modern.is_empty(), "{rev}");
         }
         assert!(diff("stash@{0}", true).await.contains("+two"));
+    }
+
+    /// A content read against a target branch that does not exist is refused
+    /// by name (409), like the diff and stats; a commit read keeps its error.
+    #[tokio::test]
+    async fn a_missing_target_refuses_content_reads_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec!["symbolic-ref", "HEAD", "refs/heads/topic"],
+            vec![
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "i",
+            ],
+        ] {
+            assert!(std::process::Command::new("git")
+                .args(&args)
+                .current_dir(dir.path())
+                .status()
+                .unwrap()
+                .success());
+        }
+        let files = ["a.txt".to_string()];
+        let read =
+            || super::super::get_file_content_batch(dir.path(), &files, "main", Some("HEAD"));
+        let head = Some("HEAD".to_string());
+
+        let error =
+            content_read_error(dir.path(), "main", &head, &None, read().await.unwrap_err()).await;
+        assert!(matches!(error, AppError::Conflict(_)), "{error:?}");
+        let commit = Some("abc".to_string());
+        let error = content_read_error(
+            dir.path(),
+            "main",
+            &head,
+            &commit,
+            read().await.unwrap_err(),
+        )
+        .await;
+        assert!(!matches!(error, AppError::Conflict(_)), "{error:?}");
     }
 }

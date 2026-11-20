@@ -66,9 +66,10 @@ async fn read_tree_side(
         Ok(entry) => entry,
         // Git's own message says best why the read failed; a probe that fails
         // as well only confirms the reference is unreadable.
-        Err(error) => match stands_for_empty_tree(worktree_path, reference).await {
-            Ok(true) => return Ok(None),
-            Ok(false) | Err(_) => return Err(error),
+        Err(error) => match base_without_tree(worktree_path, reference).await {
+            Ok(BaseWithoutTree::Empty) => return Ok(None),
+            Ok(BaseWithoutTree::Truncated(commit)) => return Err(history_truncated(&commit)),
+            Ok(BaseWithoutTree::Unreadable) | Err(_) => return Err(error),
         },
     };
     let Some(entry) = entry else {
@@ -115,9 +116,16 @@ async fn tree_entry(
     else {
         return Err(bad_listing(record));
     };
-    // `-` for a tree or a gitlink, which have no blob size.
+    // `-` for a tree or a gitlink, which have no blob size; `BAD` for an
+    // entry whose object the repository does not have.
     let size = match size {
         "-" => None,
+        "BAD" => {
+            return Err(AppError::git_rejected(format!(
+                "fatal: bad object {oid}: the repository is missing the object {file_path} \
+                 points to in {reference}"
+            )))
+        }
         size => Some(size.parse().map_err(|_| bad_listing(record))?),
     };
     Ok(Some(TreeEntry {
@@ -131,18 +139,76 @@ fn bad_listing(record: &str) -> AppError {
     AppError::git_command(format!("unexpected git ls-tree output: {record:?}"))
 }
 
-/// Whether a reference that names no tree still stands for the empty one: the
-/// `HEAD` of a branch with no commit yet (proven, see [`head_is_unborn`]) or
-/// the parent (`<commit>^`) of a root commit. Every file is an addition there.
-async fn stands_for_empty_tree(worktree_path: &Path, reference: &str) -> Result<bool, AppError> {
+/// What a reference that names no tree stands for.
+enum BaseWithoutTree {
+    /// The empty tree: the `HEAD` of a branch with no commit yet (proven, see
+    /// [`head_is_unborn`]) or the parent (`<commit>^`) of a root commit. Every
+    /// file is an addition there.
+    Empty,
+    /// The parent of the commit at the boundary of a shallow clone: it exists,
+    /// but not in this repository.
+    Truncated(String),
+    Unreadable,
+}
+
+async fn base_without_tree(
+    worktree_path: &Path,
+    reference: &str,
+) -> Result<BaseWithoutTree, AppError> {
     if reference == "HEAD" {
-        return head_is_unborn(worktree_path).await;
+        return Ok(if head_is_unborn(worktree_path).await? {
+            BaseWithoutTree::Empty
+        } else {
+            BaseWithoutTree::Unreadable
+        });
     }
     let Some(commit) = reference.strip_suffix('^') else {
-        return Ok(false);
+        return Ok(BaseWithoutTree::Unreadable);
     };
-    Ok(git_ref_resolves_background(commit, worktree_path).await?
-        && !git_ref_resolves_background(reference, worktree_path).await?)
+    if !git_ref_resolves_background(commit, worktree_path).await?
+        || git_ref_resolves_background(reference, worktree_path).await?
+    {
+        return Ok(BaseWithoutTree::Unreadable);
+    }
+    // A shallow clone cuts history with grafts that read exactly like a root
+    // commit; `shallow` lists the commits whose parents were cut off.
+    let sha = run_git_background(&["rev-parse", "--verify", commit], worktree_path).await?;
+    let sha = sha.trim();
+    Ok(
+        if shallow_boundaries(worktree_path)
+            .await?
+            .iter()
+            .any(|b| b == sha)
+        {
+            BaseWithoutTree::Truncated(sha.to_string())
+        } else {
+            BaseWithoutTree::Empty
+        },
+    )
+}
+
+/// The commits listed in `$GIT_DIR/shallow`; none outside a shallow clone.
+async fn shallow_boundaries(worktree_path: &Path) -> Result<Vec<String>, AppError> {
+    let path = run_git_background(&["rev-parse", "--git-path", "shallow"], worktree_path).await?;
+    let path = worktree_path.join(path.trim());
+    match tokio::fs::read_to_string(&path).await {
+        Ok(list) => Ok(list.lines().map(str::trim).map(str::to_string).collect()),
+        Err(error) if is_missing(&error) => Ok(Vec::new()),
+        Err(error) => Err(read_error(&path, &error)),
+    }
+}
+
+/// Refusal for the earlier side of a commit whose parent a shallow clone left
+/// out: showing it empty would turn every file into an addition.
+fn history_truncated(commit: &str) -> AppError {
+    AppError::coded(
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+        "HISTORY_TRUNCATED",
+        format!(
+            "History is truncated: {commit} is the boundary of a shallow clone and its parent \
+             is not in this repository"
+        ),
+    )
 }
 
 async fn read_worktree_side(
@@ -186,6 +252,24 @@ pub(crate) async fn is_submodule_checkout(directory: &Path) -> Result<bool, AppE
         Ok(_) => Ok(true),
         Err(error) if is_missing(&error) => Ok(false),
         Err(error) => Err(read_error(directory, &error)),
+    }
+}
+
+/// A directory, symlink, socket or other special file has no text to diff,
+/// refused with its own code so the editor's change markers can tell "no text
+/// baseline" from a failure. A submodule checkout reads as the commit it has
+/// checked out. A path that is gone — missing, or under a folder replaced by a
+/// file — is left to the read, which reports it as deleted.
+pub(crate) async fn ensure_worktree_side_is_a_file(path: &Path) -> Result<(), AppError> {
+    match tokio::fs::symlink_metadata(path).await {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(metadata) if metadata.is_dir() && is_submodule_checkout(path).await? => Ok(()),
+        Ok(_) => Err(unsupported_file_type()),
+        Err(error) if is_missing(&error) => Ok(()),
+        Err(error) => Err(AppError::internal(format!(
+            "cannot inspect {}: {error}",
+            path.display()
+        ))),
     }
 }
 
@@ -336,5 +420,101 @@ mod tests {
             Some(b"m".to_vec())
         );
         assert_eq!(side(root, "a*", Some("HEAD")).await.unwrap(), None);
+    }
+
+    /// A symlink has no text baseline: refused with its own code, which the
+    /// editor's change markers read as "nothing to mark" rather than an error.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_worktree_symlink_is_refused_with_its_own_code() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("target.md"), "x").unwrap();
+        std::os::unix::fs::symlink("target.md", dir.path().join("link.md")).unwrap();
+        let error = ensure_worktree_side_is_a_file(&dir.path().join("link.md"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                AppError::Coded {
+                    code: "UNSUPPORTED_FILE_TYPE",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(
+            ensure_worktree_side_is_a_file(&dir.path().join("target.md"))
+                .await
+                .is_ok()
+        );
+        assert!(ensure_worktree_side_is_a_file(&dir.path().join("gone.md"))
+            .await
+            .is_ok());
+        // Under a folder replaced by a file: deleted, left to the read.
+        let replaced = dir.path().join("target.md/nested.md");
+        assert!(ensure_worktree_side_is_a_file(&replaced).await.is_ok());
+    }
+
+    /// A blob the repository no longer has is a 422 naming the bad object,
+    /// not an unparsable listing (`ls-tree -l` prints `BAD` for its size).
+    #[tokio::test]
+    async fn a_missing_blob_is_a_named_bad_object() {
+        let tmp = repo();
+        let root = tmp.path();
+        std::fs::write(root.join("a.txt"), "hello\n").unwrap();
+        git(&["add", "a.txt"], root);
+        git(&["commit", "-qm", "init"], root);
+        let oid = String::from_utf8(
+            std::process::Command::new("git")
+                .args(["rev-parse", "HEAD:a.txt"])
+                .current_dir(root)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        let oid = oid.trim();
+        std::fs::remove_file(root.join(".git/objects").join(&oid[..2]).join(&oid[2..])).unwrap();
+
+        let error = side(root, "a.txt", Some("HEAD")).await.unwrap_err();
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
+        assert!(error.to_string().contains("bad object"), "{error}");
+    }
+
+    /// At the boundary of a shallow clone the parent exists but is not here:
+    /// the earlier side is refused as truncated history, not read as empty.
+    #[tokio::test]
+    async fn the_parent_of_a_shallow_boundary_is_truncated_history() {
+        let source = repo();
+        std::fs::write(source.path().join("f.txt"), "1\n").unwrap();
+        git(&["add", "f.txt"], source.path());
+        git(&["commit", "-qm", "one"], source.path());
+        std::fs::write(source.path().join("f.txt"), "2\n").unwrap();
+        git(&["commit", "-qam", "two"], source.path());
+        let clones = tempfile::tempdir().unwrap();
+        let url = format!("file://{}", source.path().display());
+        git(
+            &["clone", "-q", "--depth=1", &url, "shallow"],
+            clones.path(),
+        );
+        let clone = clones.path().join("shallow");
+
+        let error = side(&clone, "f.txt", Some("HEAD^")).await.unwrap_err();
+        assert!(
+            matches!(
+                error,
+                AppError::Coded {
+                    code: "HISTORY_TRUNCATED",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        // A real root commit still reads as an empty base.
+        assert_eq!(
+            side(source.path(), "f.txt", Some("HEAD~1^")).await.unwrap(),
+            None
+        );
     }
 }

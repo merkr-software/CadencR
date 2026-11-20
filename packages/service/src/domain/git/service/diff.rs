@@ -192,15 +192,28 @@ pub async fn get_file_content(
     .await?;
 
     if new_ref.is_none() {
-        ensure_worktree_side_is_a_file(&path.join(&params.file_path)).await?;
+        commands::ensure_worktree_side_is_a_file(&path.join(&params.file_path)).await?;
     }
 
     // A side absent from its tree is an addition or deletion; any other read
     // failure is an error rather than that false diff.
-    let (old_content, new_content) = tokio::try_join!(
+    let sides = tokio::try_join!(
         commands::get_diff_side_bytes(path, &params.file_path, Some(&old_ref)),
         commands::get_diff_side_bytes(path, &params.file_path, new_ref.as_deref()),
-    )?;
+    );
+    let (old_content, new_content) = match sides {
+        Ok(sides) => sides,
+        Err(error) => {
+            return Err(commands::content_read_error(
+                path,
+                &old_ref,
+                &new_ref,
+                &params.commit_sha,
+                error,
+            )
+            .await)
+        }
+    };
     // A file deleted from the working tree keeps `new_content: None` so the UI
     // can offer deletion guidance.
     let worktree_missing = new_ref.is_none() && new_content.is_none();
@@ -216,24 +229,6 @@ pub async fn get_file_content(
         content.new_content = None;
     }
     Ok(content)
-}
-
-/// A directory, symlink, socket or other special file has no text to diff,
-/// refused with its own code so the editor's change markers can tell "no text
-/// baseline" from a failure. A submodule checkout reads as the commit it has
-/// checked out. A path that is gone — missing, or under a folder replaced by a
-/// file — is left to the read, which reports it as deleted.
-async fn ensure_worktree_side_is_a_file(path: &Path) -> Result<(), AppError> {
-    match tokio::fs::symlink_metadata(path).await {
-        Ok(metadata) if metadata.is_file() => Ok(()),
-        Ok(metadata) if metadata.is_dir() && commands::is_submodule_checkout(path).await? => Ok(()),
-        Ok(_) => Err(commands::unsupported_file_type()),
-        Err(error) if commands::is_missing(&error) => Ok(()),
-        Err(error) => Err(AppError::internal(format!(
-            "cannot inspect {}: {error}",
-            path.display()
-        ))),
-    }
 }
 
 pub async fn get_file_content_batch(
@@ -259,7 +254,18 @@ pub async fn get_file_content_batch(
     )
     .await?;
 
-    commands::get_file_content_batch(path, &body.file_paths, &old_ref, new_ref.as_deref()).await
+    let batch =
+        commands::get_file_content_batch(path, &body.file_paths, &old_ref, new_ref.as_deref())
+            .await;
+    match batch {
+        Ok(items) => Ok(items),
+        Err(error) => {
+            Err(
+                commands::content_read_error(path, &old_ref, &new_ref, &body.commit_sha, error)
+                    .await,
+            )
+        }
+    }
 }
 
 pub async fn get_commit_log(
@@ -517,39 +523,5 @@ mod tests {
                 "feature {feature_id}: {result:?}"
             );
         }
-    }
-
-    /// A symlink has no text baseline: refused with its own code, which the
-    /// editor's change markers read as "nothing to mark" rather than an error.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_worktree_symlink_is_refused_with_its_own_code() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("target.md"), "x").unwrap();
-        std::os::unix::fs::symlink("target.md", dir.path().join("link.md")).unwrap();
-        let error = ensure_worktree_side_is_a_file(&dir.path().join("link.md"))
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(
-                error,
-                AppError::Coded {
-                    code: "UNSUPPORTED_FILE_TYPE",
-                    ..
-                }
-            ),
-            "{error:?}"
-        );
-        assert!(
-            ensure_worktree_side_is_a_file(&dir.path().join("target.md"))
-                .await
-                .is_ok()
-        );
-        assert!(ensure_worktree_side_is_a_file(&dir.path().join("gone.md"))
-            .await
-            .is_ok());
-        // Under a folder replaced by a file: deleted, left to the read.
-        let replaced = dir.path().join("target.md/nested.md");
-        assert!(ensure_worktree_side_is_a_file(&replaced).await.is_ok());
     }
 }
