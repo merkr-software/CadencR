@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QUIT_WITHOUT_ASKING, RESUME_AGENTS } from "../../src/shared/app-close";
-import { recordQuitIntent, sendShutdownIntent } from "./shutdown-intent";
+import { beforeQuitStep, recordQuitIntent, sendShutdownIntent } from "./shutdown-intent";
 
 const STOP_AGENTS = { resumeAgents: false, resumeBackgroundWork: false };
 
@@ -108,5 +108,24 @@ describe("recordQuitIntent", () => {
     );
     expect(await recordQuitIntent(failure(), quitting, QUIT_WITHOUT_ASKING, report)).toBe(false);
     expect(report).toHaveBeenCalledWith("ECONNREFUSED");
+  });
+});
+
+describe("beforeQuitStep", () => {
+  const step = (allowClose: boolean, hasWindow: boolean, shutdownReady = false) =>
+    beforeQuitStep({ allowClose, hasWindow, shutdownReady });
+
+  it("lets the window ask the user first", () => {
+    expect(step(false, true)).toBe("ask-window");
+  });
+
+  it("records a quit nobody could be asked about, then stops the service", () => {
+    // The window was closed on macOS, then Cadencr quit from the Dock.
+    expect(step(false, false)).toBe("stop-unasked");
+  });
+
+  it("stops a settled quit as it is, then lets it through", () => {
+    expect(step(true, false)).toBe("stop");
+    expect(step(true, true, true)).toBe("quit");
   });
 });

@@ -28,7 +28,7 @@ import { registerAppLifecycleIpc } from "./app-lifecycle-ipc";
 import { registerCliIpc, type CliController } from "./cli-ipc";
 import { focusForCliRequest, registerSecondInstance } from "./second-instance";
 import { createCloseCoordinator, windowCloseQuits } from "./close-coordinator";
-import { recordQuitIntent } from "./shutdown-intent";
+import { beforeQuitStep, recordQuitIntent } from "./shutdown-intent";
 import { createPackagedService } from "./packaged-service";
 import { RendererHealth } from "./renderer-health";
 import { registerBrowserIpc } from "./browser-ipc";
@@ -46,6 +46,7 @@ import { registerPluginTabIpc } from "./plugin-tabs/plugin-tab-ipc";
 import type { PluginTabManager } from "./plugin-tabs/plugin-tab-manager";
 import { windowIconOption } from "./app-icon";
 import {
+  QUIT_WITHOUT_ASKING,
   RESUME_AGENTS,
   type AppCloseChoice,
   type AppCloseRequest,
@@ -359,15 +360,15 @@ app
   });
 
 app.on("before-quit", (event) => {
-  if (!allowClose && mainWindow) {
-    event.preventDefault();
-    requestQuit();
-    return;
-  }
-  if (!shutdownReady) {
-    event.preventDefault();
-    void stopSidecarThenQuit().catch(handleShutdownFailure);
-  }
+  const step = beforeQuitStep({ allowClose, hasWindow: mainWindow !== null, shutdownReady });
+  if (step === "quit") return;
+  event.preventDefault();
+  if (step === "ask-window") return requestQuit();
+  // No window left to ask (closed on macOS, then quit from the Dock): main
+  // answers for the user, and a failure to record that never blocks the quit.
+  if (step === "stop-unasked") closeChoice = QUIT_WITHOUT_ASKING;
+  const recorded = step === "stop-unasked" ? recordCloseChoice({ quitting: true }) : undefined;
+  void Promise.resolve(recorded).then(stopSidecarThenQuit).catch(handleShutdownFailure);
 });
 
 async function prepareForUpdateInstall(): Promise<void> {
