@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QUIT_WITHOUT_ASKING, RESUME_AGENTS } from "../../src/shared/app-close";
-import { beforeQuitStep, recordQuitIntent, sendShutdownIntent } from "./shutdown-intent";
+import {
+  beforeQuitStep,
+  QuitIntentRecording,
+  recordQuitIntent,
+  sendShutdownIntent,
+} from "./shutdown-intent";
 
 const STOP_AGENTS = { resumeAgents: false, resumeBackgroundWork: false };
 
@@ -147,5 +152,64 @@ describe("beforeQuitStep", () => {
         shutdownReady: false,
       }),
     ).toBe("stop-unasked");
+  });
+});
+
+describe("QuitIntentRecording", () => {
+  const recorder = (outcome: Promise<void>) => ({ setShutdownIntent: vi.fn(() => outcome) });
+  function held() {
+    let release: () => void = () => undefined;
+    let fail: (error: Error) => void = () => undefined;
+    const promise = new Promise<void>((resolve, reject) => {
+      release = resolve;
+      fail = reject;
+    });
+    return { promise, release, fail };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("makes a second quit wait for the PUT still in flight before stopping", async () => {
+    const recording = new QuitIntentRecording();
+    const put = held();
+    const service = recorder(put.promise);
+    void recording.track(
+      recordQuitIntent(service, { quitting: true }, STOP_AGENTS, vi.fn()).then(),
+    );
+    const stop = vi.fn(() => Promise.resolve());
+
+    const second = recording.stopWhenReady("stop", vi.fn(), stop);
+    await settle();
+    expect(service.setShutdownIntent).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+
+    put.release();
+    await second;
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops nothing after a recording that failed: the first quit reports it", async () => {
+    const recording = new QuitIntentRecording();
+    const put = held();
+    const first = recording.track(
+      recordQuitIntent(recorder(put.promise), { quitting: true }, STOP_AGENTS, vi.fn()).then(),
+    );
+    const stop = vi.fn(() => Promise.resolve());
+    const second = recording.stopWhenReady("stop", vi.fn(), stop);
+
+    put.fail(new Error("ECONNREFUSED"));
+    await expect(first).rejects.toThrow("ECONNREFUSED");
+    await second;
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("records a quit nobody answered before stopping", async () => {
+    const recording = new QuitIntentRecording();
+    const order: string[] = [];
+    await recording.stopWhenReady(
+      "stop-unasked",
+      async () => void order.push("record"),
+      async () => void order.push("stop"),
+    );
+    expect(order).toEqual(["record", "stop"]);
   });
 });

@@ -22,6 +22,43 @@ export function beforeQuitStep(state: {
   return state.quitAnswered ? "stop" : "stop-unasked";
 }
 
+/**
+ * The quit intent being recorded. A quit that arrives meanwhile (a second
+ * Cmd+Q, the Dock) waits for that same recording before stopping the
+ * service, and stops nothing when it failed: the first quit reports that.
+ */
+export class QuitIntentRecording {
+  private pending: Promise<void> = Promise.resolve();
+
+  track(recording: Promise<void>): Promise<void> {
+    this.pending = recording;
+    return recording;
+  }
+
+  /** Whether the recording in progress (or the last one) went through. */
+  succeeded(): Promise<boolean> {
+    return this.pending.then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /**
+   * Stop the service for a quit at `step`, once what it waits for settled:
+   * its own recording when nobody was asked, else the one in progress (which
+   * stops nothing when it failed).
+   */
+  async stopWhenReady(
+    step: BeforeQuitStep,
+    recordUnasked: () => Promise<void>,
+    stop: () => Promise<void>,
+  ): Promise<void> {
+    if (step === "stop-unasked") await recordUnasked();
+    else if (!(await this.succeeded())) return;
+    await stop();
+  }
+}
+
 interface IntentRecorder {
   setShutdownIntent: (choice: AppCloseChoice) => Promise<void>;
 }
