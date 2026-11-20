@@ -59,6 +59,8 @@ let allowClose = false;
 let closeChoice: AppCloseChoice = RESUME_AGENTS;
 /** The service was told to keep the agents stopped when it stops. */
 let stopIntentRecorded = false;
+/** The quit underway has its intent (dialog, update, or recorded unasked). */
+let quitAnswered = false;
 let ipcRegistered = false;
 let themeEventsRegistered = false;
 let powerRegistered = false;
@@ -206,8 +208,12 @@ function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
     .catch(handleShutdownFailure);
 }
 
-/** Tell the service to keep the agents (or their background work) stopped. */
+/**
+ * Tell the service to keep the agents (or their background work) stopped.
+ * A quit is answered from here on (a window that only closes answers none).
+ */
 async function recordCloseChoice(request: AppCloseRequest): Promise<void> {
+  if (request.quitting) quitAnswered = true;
   const recorded = await recordQuitIntent(sidecar, request, closeChoice, (message) =>
     dialog.showErrorBox("Cadencr may resume background work on its next start", message),
   );
@@ -360,18 +366,20 @@ app
   });
 
 app.on("before-quit", (event) => {
-  const step = beforeQuitStep({ allowClose, hasWindow: mainWindow !== null, shutdownReady });
+  const hasWindow = mainWindow !== null;
+  const step = beforeQuitStep({ allowClose, hasWindow, quitAnswered, shutdownReady });
   if (step === "quit") return;
   event.preventDefault();
   if (step === "ask-window") return requestQuit();
-  // No window left to ask (closed on macOS, then quit from the Dock): main
-  // answers for the user, and a failure to record that never blocks the quit.
+  // Nobody was asked: main answers for the user (failing to record that
+  // never blocks the quit), once; a second Cmd+Q just joins this stop.
   if (step === "stop-unasked") closeChoice = QUIT_WITHOUT_ASKING;
   const recorded = step === "stop-unasked" ? recordCloseChoice({ quitting: true }) : undefined;
   void Promise.resolve(recorded).then(stopSidecarThenQuit).catch(handleShutdownFailure);
 });
 
 async function prepareForUpdateInstall(): Promise<void> {
+  quitAnswered = true;
   await prepareBrowserShutdown();
   allowClose = true;
   closeCoordinator.cancel();
@@ -406,6 +414,7 @@ async function prepareBrowserWindowClose(): Promise<void> {
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
+  quitAnswered = false;
   closeChoice = RESUME_AGENTS;
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Could not complete shutdown safely: ${message}`);

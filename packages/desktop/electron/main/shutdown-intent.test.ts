@@ -112,20 +112,40 @@ describe("recordQuitIntent", () => {
 });
 
 describe("beforeQuitStep", () => {
-  const step = (allowClose: boolean, hasWindow: boolean, shutdownReady = false) =>
-    beforeQuitStep({ allowClose, hasWindow, shutdownReady });
+  type Flags = Parameters<typeof beforeQuitStep>[0];
+  const flags = ["allowClose", "hasWindow", "quitAnswered", "shutdownReady"] as const;
+  const every: Flags[] = Array.from({ length: 16 }, (_, bits) => ({
+    allowClose: Boolean(bits & 1),
+    hasWindow: Boolean(bits & 2),
+    quitAnswered: Boolean(bits & 4),
+    shutdownReady: Boolean(bits & 8),
+  }));
+  const label = (state: Flags) => flags.filter((flag) => state[flag]).join("+") || "none";
 
-  it("lets the window ask the user first", () => {
-    expect(step(false, true)).toBe("ask-window");
+  it.each(every.map((state) => [label(state), state] as const))("%s", (_, state) => {
+    const step = beforeQuitStep(state);
+    if (!state.allowClose && state.hasWindow) {
+      // The window asks the user first.
+      expect(step).toBe("ask-window");
+    } else if (state.shutdownReady) {
+      expect(step).toBe("quit");
+    } else if (state.quitAnswered) {
+      // The dialog's (or an update's) intent is already recorded.
+      expect(step).toBe("stop");
+    } else {
+      // Nobody was asked, whatever allowClose and the window say.
+      expect(step).toBe("stop-unasked");
+    }
   });
 
-  it("records a quit nobody could be asked about, then stops the service", () => {
-    // The window was closed on macOS, then Cadencr quit from the Dock.
-    expect(step(false, false)).toBe("stop-unasked");
-  });
-
-  it("stops a settled quit as it is, then lets it through", () => {
-    expect(step(true, false)).toBe("stop");
-    expect(step(true, true, true)).toBe("quit");
+  it("records the Dock quit after a window closed normally on macOS", () => {
+    expect(
+      beforeQuitStep({
+        allowClose: true,
+        hasWindow: false,
+        quitAnswered: false,
+        shutdownReady: false,
+      }),
+    ).toBe("stop-unasked");
   });
 });

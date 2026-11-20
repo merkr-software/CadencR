@@ -4,20 +4,22 @@ const INTENT_TIMEOUT_MS = 2_000;
 
 /**
  * What `before-quit` does: a quit the window has not settled is handed to it
- * so it can ask the user; once settled, the service is stopped. With no
- * window left to ask (closed on macOS, then quit from the Dock), nobody was
- * asked: main records that quit itself before stopping the service.
+ * so it can ask the user. A quit already answered (the quit dialog's, an
+ * update's) has recorded its own intent: the service is just stopped. Every
+ * other quit asked nobody (the window closed on macOS, then a Dock quit; a
+ * quit from the splash): main records it as such before stopping the service.
  */
 export type BeforeQuitStep = "ask-window" | "stop" | "stop-unasked" | "quit";
 
 export function beforeQuitStep(state: {
   allowClose: boolean;
   hasWindow: boolean;
+  quitAnswered: boolean;
   shutdownReady: boolean;
 }): BeforeQuitStep {
   if (!state.allowClose && state.hasWindow) return "ask-window";
   if (state.shutdownReady) return "quit";
-  return state.allowClose ? "stop" : "stop-unasked";
+  return state.quitAnswered ? "stop" : "stop-unasked";
 }
 
 interface IntentRecorder {
