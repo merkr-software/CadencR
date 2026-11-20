@@ -107,6 +107,10 @@ async fn settle_gate_close(
     Err(error)
 }
 
+/// Claim the open gate the close names (the latest open one when it names
+/// none). A close only ever applies to an open gate: with none, or another
+/// one, open, it is stale, and stopping the runtime would end whatever runs
+/// now (a queued prompt that started since).
 async fn claim_gate_close(
     state: &AppState,
     session_id: i64,
@@ -118,7 +122,7 @@ async fn claim_gate_close(
         .await
         .map_err(|error| error.to_string())?;
     let Some(gate) = state.pending_gates.latest_open(session_id).await else {
-        return Ok(requested_id.unwrap_or_default().to_string());
+        return Err("no gate is open: it was answered or closed already".to_string());
     };
     let request_id = requested_id.unwrap_or(&gate.request_id).to_string();
     state

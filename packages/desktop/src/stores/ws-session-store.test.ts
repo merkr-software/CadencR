@@ -1284,6 +1284,27 @@ describe("ws-session-store", () => {
     expect(session.lifecycle).toEqual({ phase: "terminal", reason: "denied" });
   });
 
+  it("drops a gate the backend reports already closed (STALE_GATE) without an error", async () => {
+    const { ws, store } = await connectInitializedSession();
+    simulatePermissionRequest(ws, "perm-1");
+    const blocksBefore = useWsSessionStore.getState().sessions["s1"].blocks.length;
+
+    store.closeGate("s1", "escape");
+    const closeEnvelope = JSON.parse(ws.sent[ws.sent.length - 1]);
+    // Answered over the API meanwhile: the backend has no open gate left.
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: closeEnvelope.id,
+      payload: { code: "STALE_GATE", message: "no gate is open" },
+    });
+
+    const session = useWsSessionStore.getState().sessions["s1"];
+    expect(session.pendingPermission).toBeNull();
+    expect(session.pendingRequestId).toBe("");
+    expect(session.blocks).toHaveLength(blocksBefore);
+  });
+
   it("drops stale gate state when the backend reports SESSION_NOT_FOUND", async () => {
     const { ws } = await connectInitializedSession();
     simulatePermissionRequest(ws, "perm-1");

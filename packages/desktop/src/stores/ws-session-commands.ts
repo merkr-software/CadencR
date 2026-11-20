@@ -25,6 +25,8 @@ import type { WsEnvelope } from "@/lib/ws-envelope";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { handleCommandError } from "./ws-envelope-error-handler";
 import { parseErrorPayload } from "./ws-envelope-payload";
+import { asRecord } from "./ws-envelope-payload-primitives";
+import { buildClearedGatePatch } from "./ws-gate-state";
 import { WS_REPLY_TIMEOUT_MS, type PendingSessionCommand } from "./ws-session-transport";
 import { updateSession } from "./ws-session-types";
 import { SESSION_ACTION } from "./ws-session-action-names";
@@ -38,6 +40,20 @@ export interface SessionCommandSpec {
   ackWindowMs?: number;
   /** Error codes meaning the command's goal already holds: settled, no toast. */
   satisfiedBy?: ReadonlySet<string>;
+  /** Brings local state in line when a `satisfiedBy` code answers the command. */
+  onSatisfied?: (ctx: StoreAccessors, sessionId: string, envelope: WsEnvelope) => void;
+}
+
+/**
+ * The backend has no open gate under the id this close named: it was answered
+ * or closed elsewhere. A renderer still showing that gate drops it.
+ */
+function dropClosedGate(ctx: StoreAccessors, sessionId: string, envelope: WsEnvelope): void {
+  const requestId = asRecord(envelope.payload)?.request_id;
+  const session = ctx.getSession(sessionId);
+  if (typeof requestId !== "string" || session.pendingRequestId !== requestId) return;
+  const patch = buildClearedGatePatch(session);
+  if (patch) ctx.set(updateSession(ctx.get(), sessionId, patch));
 }
 
 /**
@@ -66,7 +82,12 @@ export const SESSION_COMMANDS = {
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
   },
   clear: { failure: "Couldn't clear the conversation", replay: false },
-  gateClose: { failure: "Couldn't dismiss the request", replay: false },
+  gateClose: {
+    failure: "Couldn't dismiss the request",
+    replay: false,
+    satisfiedBy: new Set(["STALE_GATE"]),
+    onSatisfied: dropClosedGate,
+  },
   provider: { failure: "Couldn't switch provider", replay: true },
   model: { failure: "Couldn't switch model", replay: true },
   effort: { failure: "Couldn't change thinking effort", replay: true },
@@ -266,7 +287,10 @@ export function settleCommandReply(
   if (!command) return false;
   if (envelope.domain !== "session" || envelope.action !== SESSION_ACTION.error) return false;
   const code = parseErrorPayload(envelope.payload)?.code;
-  if (code && command.spec.satisfiedBy?.has(code)) return true;
+  if (code && command.spec.satisfiedBy?.has(code)) {
+    command.spec.onSatisfied?.(ctx, sessionId, command.envelope);
+    return true;
+  }
   handleCommandError(ctx, sessionId, command.spec.failure, envelope.payload);
   return true;
 }

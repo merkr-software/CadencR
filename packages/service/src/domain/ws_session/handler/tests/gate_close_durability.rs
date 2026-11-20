@@ -178,3 +178,21 @@ async fn a_saved_close_stops_the_turn_and_clears_the_gate() {
     assert_eq!(touches.interrupted.load(Ordering::SeqCst), 1);
     assert!(!question_stored(&app_state).await);
 }
+
+/// A close sent for a gate that is gone (answered over the API while a
+/// queued prompt then started) used to stop the turn that runs now.
+#[tokio::test]
+async fn a_stale_close_never_stops_the_running_turn() {
+    let (app_state, sessions, touches) = question_session(false).await;
+    sqlx::query("UPDATE agent_sessions SET pending_questions = NULL WHERE id = ?")
+        .bind(SESSION)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+
+    let reply = close_gate(&app_state, &sessions).await;
+
+    assert_eq!(reply.action, "error");
+    assert_eq!(reply.payload["code"], "STALE_GATE");
+    assert_eq!(touches.total(), 0, "the running turn is left alone");
+}
