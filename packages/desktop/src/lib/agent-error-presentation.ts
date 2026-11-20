@@ -30,10 +30,12 @@ const CLASSIFIED_RULES: Rule[] = [
   {
     // Not an agent failure: nothing reached the agent, so there is no turn to
     // continue. The message names the setting or file and why it failed.
+    // Settings has no page per project (they open from the project's menu),
+    // so the link goes to the global page and the hint points at the menu.
     test: (code) => code === SETTINGS_READ_FAILED,
     presentation: {
       title: "Cadencr couldn't read a setting this conversation needs",
-      hint: "Nothing was sent to the agent. Fix the setting or file below, then try again.",
+      hint: "Nothing was sent to the agent. Fix the setting or file below, then try again. A project's own settings are under Project Settings in its sidebar menu.",
       actions: ["openSettings"],
       showCause: true,
     },

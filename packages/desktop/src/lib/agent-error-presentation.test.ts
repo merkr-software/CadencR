@@ -57,6 +57,8 @@ describe("presentAgentError", () => {
     expect(presentation.hint).not.toMatch(/turn/i);
     expect(presentation.actions).toEqual(["openSettings"]);
     expect(presentation.showCause).toBe(true);
+    // The link opens global Settings; a project's settings live in its menu.
+    expect(presentation.hint).toMatch(/Project Settings in its sidebar menu/);
   });
 
   it("offers a model switch only where it helps", () => {
