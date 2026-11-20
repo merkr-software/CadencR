@@ -103,7 +103,10 @@ async fn ensure_worktree_new_with_base_branch_forks_from_base() {
     let head_sha = rev_parse_head(&wt_path);
     assert_eq!(head_sha, develop_sha, "new worktree must fork from develop");
     assert_eq!(
-        get_setting(&pool, 1, "target_branch").await.as_deref(),
+        get_setting(&pool, 1, "target_branch")
+            .await
+            .unwrap()
+            .as_deref(),
         Some("develop"),
         "fork base must become the Git target",
     );
@@ -129,7 +132,10 @@ async fn ensure_worktree_new_without_base_targets_current_branch() {
         .await
         .unwrap();
     assert_eq!(
-        get_setting(&pool, 1, "target_branch").await.as_deref(),
+        get_setting(&pool, 1, "target_branch")
+            .await
+            .unwrap()
+            .as_deref(),
         Some("develop"),
     );
 
@@ -198,7 +204,9 @@ async fn ensure_worktree_skip_does_not_set_worktree_path_setting() {
     insert_project_and_feature(&pool, "p", project.path()).await;
     set_feature_setting(&pool, 1, "skip_worktree", "true").await;
 
-    let mode = cadencr_service::domain::workflow::worktree::read_worktree_mode(&pool, 1).await;
+    let mode = cadencr_service::domain::workflow::worktree::read_worktree_mode(&pool, 1)
+        .await
+        .unwrap();
     assert_eq!(mode, WorktreeMode::Skip);
 
     let (sender, _rx) = fresh_ws_sender();

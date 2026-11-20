@@ -88,7 +88,7 @@ async fn resolve_provider(
         Some(project_id),
         Some(default_provider_id()),
     )
-    .await
+    .await?
     .unwrap_or_else(|| default_provider_id().to_string());
     let effective = resolve_effective_provider(
         &state.read_pool,
@@ -120,6 +120,6 @@ async fn access_mode(
     };
     Ok(adapter
         .configured_access_mode(&state.read_pool)
-        .await
+        .await?
         .map(|mode| crate::domain::agents::adapter::access_mode_wire(&mode).to_string()))
 }

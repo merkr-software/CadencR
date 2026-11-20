@@ -29,6 +29,9 @@ pub(in crate::domain::ws_session) struct DetachedRuntime {
     runtime_provider: String,
     feature_id: i64,
     lease: DetachedCloseLease,
+    /// A notice (`code`, message) found under the lock, delivered with the
+    /// close so no viewer send is awaited while the session cell is held.
+    notice: Option<(&'static str, String)>,
 }
 
 impl DetachedRuntime {
@@ -46,7 +49,17 @@ impl DetachedRuntime {
             runtime_provider: handle.runtime_provider.clone(),
             feature_id: handle.feature_id,
             lease: runtimes.begin_detached_close(db_session_id),
+            notice: None,
         }
+    }
+
+    /// Deliver `notice` to the session's viewers when this runtime is closed.
+    pub(in crate::domain::ws_session) fn with_notice(
+        mut self,
+        notice: Option<(&'static str, String)>,
+    ) -> Self {
+        self.notice = notice;
+        self
     }
 
     /// Persist the resume id and close the runtime, once the session lock is
@@ -64,11 +77,31 @@ impl DetachedRuntime {
             self.feature_id,
         )
         .await;
+        if let Some((code, message)) = self.notice {
+            context
+                .broadcast_error(self.feature_id, code, message)
+                .await;
+        }
         self.lease
     }
 
+    /// Close in a task that owns the runtime and its notice, and wait for it.
+    /// The caller still resumes only once the close is done, but a caller
+    /// dropped meanwhile (a cancelled command, a revoked remote device) no
+    /// longer leaves the runtime open or its notice unsent.
     pub(in crate::domain::ws_session) async fn close_in(self, app_state: &AppState) {
-        let _lease = self.close(&close_context(app_state)).await;
+        let app_state = app_state.clone();
+        let close = tokio::spawn(async move {
+            let _lease = self.close(&close_context(&app_state)).await;
+        });
+        if let Err(error) = close.await {
+            if error.is_panic() {
+                std::panic::resume_unwind(error.into_panic());
+            }
+            // Only a runtime shutdown cancels a spawned task: the service is
+            // stopping and no viewer is left to tell.
+            tracing::error!(%error, "detached runtime close task was cancelled");
+        }
     }
 }
 

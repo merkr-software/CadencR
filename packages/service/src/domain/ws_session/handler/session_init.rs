@@ -1,6 +1,6 @@
 use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::*;
-use super::helpers::saved_or_report;
+use super::helpers::{saved_or_report, setting_or_report};
 use super::{send_error, thinking_effort, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
@@ -50,8 +50,10 @@ pub(super) async fn handle_init(
     )
     .await?;
 
+    let provider =
+        session_init_provider::resolve(app_state, feature_id, payload.provider.as_deref());
     let (initial_provider, configured_initial_access_mode) =
-        session_init_provider::resolve(app_state, feature_id, payload.provider.as_deref()).await;
+        setting_or_report(sender, &envelope.id, "agent provider", provider.await)?;
     let configured_initial_access_wire = configured_initial_access_mode
         .as_ref()
         .map(crate::domain::agents::adapter::access_mode_wire);
@@ -164,12 +166,7 @@ pub(super) async fn handle_init(
         {
             Ok(selection) => (selection.provider_id, Some(selection.model_id)),
             Err(error) => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "NO_MODEL_AVAILABLE",
-                    &error.to_string(),
-                );
+                send_error(sender, &envelope.id, error.code(), &error.to_string());
                 return Some(db_session_id);
             }
         },
@@ -185,7 +182,7 @@ pub(super) async fn handle_init(
     )
     .await;
     let Some((mut effective_thinking_effort, cleared_unsupported_effort)) =
-        saved_or_report(sender, &envelope.id, "reasoning effort", resolved_effort)
+        session_init_effort::reported(sender, &envelope.id, resolved_effort)
     else {
         return Some(db_session_id);
     };
@@ -280,10 +277,12 @@ pub(super) async fn handle_init(
         return Some(db_session_id);
     };
     runtime_config.permission_mode = permission_mode;
-    let configured_access_mode = if effective_provider == initial_provider {
-        configured_initial_access_mode
-    } else {
-        super::access::configured_access_mode(&effective_provider, &app_state.read_pool).await
+    let initial = (initial_provider.as_str(), configured_initial_access_mode);
+    let read = session_init_provider::access_mode_for(app_state, initial, &effective_provider);
+    let Some(configured_access_mode) =
+        setting_or_report(sender, &envelope.id, "access mode", read.await)
+    else {
+        return Some(db_session_id);
     };
     runtime_config.access_mode = super::access::runtime_access_mode(
         &effective_provider,

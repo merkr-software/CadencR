@@ -25,6 +25,4 @@ pub use providers::{
     default_provider_id, resolve_effective_provider, runtime_adapter, runtime_session_finished,
     shutdown_runtime_servers, spawn_runtime_startup_warmups,
 };
-// `SelectionError` is only ever used via `.to_string()`, never named directly.
-#[allow(unused_imports)]
 pub use selection::{resolve_selection, ResolvedSelection, SelectionError, SelectionOrigin};

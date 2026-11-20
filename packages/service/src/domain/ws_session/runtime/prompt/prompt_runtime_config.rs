@@ -5,6 +5,7 @@ use crate::domain::agents::adapter::RuntimeSpawnConfig;
 
 use super::super::control_policy::arm_bypass_for_respawn;
 use super::super::detached_runtime::{resume_session_id, DetachedRuntime};
+use super::super::helpers::SESSION_STATE_UNREADABLE;
 use super::super::{QueryState, SdkHandle, WsSender};
 use super::respawn_deferral::{notify_change_deferred, respawn_deferral, RespawnDeferral};
 
@@ -50,10 +51,21 @@ pub(in crate::domain::ws_session) async fn apply_respawn_if_needed(
         return (changes, None);
     }
     log_respawn(handle, db_session_id);
-    arm_bypass_for_respawn(handle, &app_state.read_pool).await;
+    // The respawn goes ahead with bypass off (the safe branch); the read
+    // failure is reported once the caller has released the session lock.
+    let notice = arm_bypass_for_respawn(handle, &app_state.read_pool)
+        .await
+        .err()
+        .map(|error| {
+            let message = format!(
+                "Cadencr could not read the bypass permissions setting ({error}). Bypass stays off."
+            );
+            (SESSION_STATE_UNREADABLE, message)
+        });
     let runtime_session_id = resume_session_id(&query, &handle.runtime_provider).await;
     reset_handle_to_pending(handle, runtime_session_id);
-    let retired = DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes);
+    let retired = DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes)
+        .with_notice(notice);
     (changes, Some(retired))
 }
 
@@ -409,6 +421,85 @@ mod tests {
                 options.permission_mode,
                 Some(RuntimePermissionMode::BypassPermissions)
             );
+        }
+
+        /// Found in QA: the unreadable-bypass notice was broadcast while the
+        /// caller still held the session lock. It now leaves with the close.
+        #[tokio::test]
+        async fn an_unreadable_bypass_setting_is_reported_after_the_lock() {
+            let app_state = make_test_app_state().await;
+            sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+                .execute(&app_state.write_pool)
+                .await
+                .unwrap();
+            let (viewer, mut inbox) = tokio::sync::mpsc::unbounded_channel();
+            app_state.ws_feature_senders.register(1, viewer).await;
+            let (mut handle, _registration) = effort_changed_handle(9205, 0);
+            handle.desired_thinking_effort = None;
+            handle.desired_permission_mode = Some(RuntimePermissionMode::BypassPermissions);
+
+            let (_changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9205).await;
+
+            let QueryState::Pending(options) = &handle.state else {
+                panic!("the respawn goes ahead");
+            };
+            assert!(!options.allow_bypass_permissions, "bypass stays off");
+            assert!(inbox.try_recv().is_err(), "nothing is sent under the lock");
+            retired.expect("respawned").close_in(&app_state).await;
+            let mut delivered = Vec::new();
+            while let Ok(message) = inbox.try_recv() {
+                delivered.push(format!("{message:?}"));
+            }
+            assert!(
+                delivered
+                    .iter()
+                    .any(|m| m.contains("SESSION_STATE_UNREADABLE")),
+                "{delivered:?}"
+            );
+        }
+
+        /// Found in QA: a command cancelled while it closed the retired
+        /// runtime (a remote device revoked mid-wait) dropped the notice.
+        #[tokio::test]
+        async fn the_notice_survives_a_cancelled_close() {
+            let app_state = make_test_app_state().await;
+            sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+                .execute(&app_state.write_pool)
+                .await
+                .unwrap();
+            let (viewer, mut inbox) = tokio::sync::mpsc::unbounded_channel();
+            app_state.ws_feature_senders.register(1, viewer).await;
+            let (mut handle, _registration) = effort_changed_handle(9206, 0);
+            handle.desired_thinking_effort = None;
+            handle.desired_permission_mode = Some(RuntimePermissionMode::BypassPermissions);
+            let QueryState::Active { query, .. } = &handle.state else {
+                unreachable!("effort_changed_handle is active");
+            };
+            let query = query.clone();
+            let (_changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9206).await;
+
+            // Hold the runtime so the close waits, then drop the command.
+            let busy = query.read().await;
+            let close = retired.expect("respawned").close_in(&app_state);
+            let cancelled = tokio::time::timeout(std::time::Duration::from_millis(50), close).await;
+            assert!(cancelled.is_err(), "the command is dropped mid-close");
+            drop(busy);
+
+            let notice = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    match inbox.recv().await {
+                        Some(message)
+                            if format!("{message:?}").contains("SESSION_STATE_UNREADABLE") =>
+                        {
+                            return message;
+                        }
+                        Some(_) => continue,
+                        None => panic!("viewer channel closed"),
+                    }
+                }
+            })
+            .await;
+            assert!(notice.is_ok(), "the notice is still delivered");
         }
 
         #[test]

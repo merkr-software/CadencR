@@ -33,6 +33,19 @@ pub(in crate::domain::ws_session) struct RuntimeCloseContext<'a> {
     idle: bool,
 }
 
+impl RuntimeCloseContext<'_> {
+    /// Tell every viewer of `feature_id` about a session error once the
+    /// session lock is released.
+    pub(in crate::domain::ws_session) async fn broadcast_error(
+        &self,
+        feature_id: i64,
+        code: &str,
+        message: String,
+    ) {
+        broadcast_session_error(self.feature_senders, feature_id, code, message).await;
+    }
+}
+
 /// Parse a session_id string from client payload into i64 DB key.
 pub(in crate::domain::ws_session) fn parse_session_id(s: &str) -> Option<i64> {
     s.parse::<i64>().ok()
@@ -151,6 +164,22 @@ pub(in crate::domain::ws_session) fn saved_or_report<T>(
         .ok()
 }
 
+/// The setting that was read, or `None` once the read failure was reported to
+/// the requester. A setting that cannot be read never falls back to a default:
+/// the session would start with a value the user did not choose.
+pub(in crate::domain::ws_session) fn setting_or_report<T>(
+    sender: &impl OutputTarget,
+    envelope_id: &str,
+    what: &str,
+    read: Result<T, crate::error::AppError>,
+) -> Option<T> {
+    read.map_err(|error| {
+        let message = format!("Failed to read the {what} setting: {error}");
+        send_error(sender, envelope_id, SETTINGS_READ_FAILED, &message);
+    })
+    .ok()
+}
+
 /// Send an uncorrelated session error: no request is waiting on this failure.
 /// It reaches only `sender`; work that may run headless (HTTP, MCP, a
 /// schedule) uses [`broadcast_session_error`] so a viewer sees it.
@@ -190,6 +219,10 @@ pub(in crate::domain::ws_session) async fn broadcast_session_error(
 /// The code of a session-state write that failed while the change itself
 /// applies; clients show it as a notice, not as a failed turn.
 pub(in crate::domain::ws_session) const SESSION_STATE_NOT_SAVED: &str = "SESSION_STATE_NOT_SAVED";
+
+/// The code of a setting the request needed but could not read. The request
+/// fails instead of running with a value the user did not choose.
+pub(in crate::domain::ws_session) use crate::domain::settings_store::file::SETTINGS_READ_FAILED;
 
 /// The code of a session-state read that failed while the work carries on on
 /// its safe branch; clients show it as a notice, not as a failed turn.

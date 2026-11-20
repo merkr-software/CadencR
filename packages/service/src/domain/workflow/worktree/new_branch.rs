@@ -20,7 +20,10 @@ pub(super) async fn ensure_new_branch_name(
     feature_id: i64,
     project_id: i64,
 ) -> Result<String, String> {
-    if let Some(b) = get_setting(read_pool, feature_id, "worktree_branch").await {
+    if let Some(b) = get_setting(read_pool, feature_id, "worktree_branch")
+        .await
+        .map_err(|e| e.to_string())?
+    {
         return Ok(b);
     }
     let name = derive_branch_name(read_pool, feature_id, project_id).await?;

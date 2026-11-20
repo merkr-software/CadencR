@@ -8,7 +8,9 @@ use crate::domain::workspace::models::Setting;
 use crate::error::AppError;
 
 use super::super::{dir, file, lock, paths, Scope, SettingWarning};
-use super::{load, load_document_for_write, read_for_edit, set_value, set_values, write_content};
+use super::{
+    load, load_document_for_write, read, read_for_edit, set_value, set_values, write_content,
+};
 
 fn global_path() -> PathBuf {
     paths::global_file(&dir::global_dir())
@@ -16,6 +18,13 @@ fn global_path() -> PathBuf {
 
 pub fn global_get(key: &str) -> Option<String> {
     load(&global_path(), Scope::Workspace).0.remove(key)
+}
+
+/// Like [`global_get`], but a settings file that exists and cannot be read is
+/// an error (`SETTINGS_READ_FAILED`) instead of "unset". A missing file is
+/// still a workspace with no overrides.
+pub fn global_read(key: &str) -> Result<Option<String>, AppError> {
+    Ok(read(&global_path(), Scope::Workspace)?.0.remove(key))
 }
 
 /// Like `global_get` but treats empty/whitespace-only as unset.
@@ -38,15 +47,16 @@ pub fn global_snapshot() -> Option<BTreeMap<String, String>> {
     }
 }
 
-pub fn global_list() -> Vec<Setting> {
-    load(&global_path(), Scope::Workspace)
+/// Every global scalar setting, failing like [`global_read`].
+pub fn global_list() -> Result<Vec<Setting>, AppError> {
+    Ok(read(&global_path(), Scope::Workspace)?
         .0
         .into_iter()
         .map(|(key, value)| Setting {
             key,
             value: Some(value),
         })
-        .collect()
+        .collect())
 }
 
 pub async fn global_set(key: &str, value: &str) -> Result<(), AppError> {

@@ -7,6 +7,7 @@ use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::domain::ws_session::protocol::{
     RuntimeOverridesChangedPayload, RuntimeOverridesSetPayload, WsEnvelope,
 };
+use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 use crate::error::AppError;
 use serde_json::Value;
 
@@ -170,8 +171,9 @@ async fn resolve_switched_model(
     )
     .await
     .map_err(|error| ("INVALID_OVERRIDES", error.to_string()))?;
-    overrides.thinking_effort =
-        target_thinking_effort(&app_state.read_pool, provider, &entry).await;
+    overrides.thinking_effort = target_thinking_effort(&app_state.read_pool, provider, &entry)
+        .await
+        .map_err(|error| (SETTINGS_READ_FAILED, error.to_string()))?;
     overrides.model = Some(model);
     Ok(())
 }

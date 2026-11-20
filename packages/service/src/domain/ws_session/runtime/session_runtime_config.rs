@@ -1,5 +1,6 @@
 use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimeSpawnConfig};
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::error::AppError;
 
 use super::default_permission_mode;
 
@@ -12,8 +13,6 @@ pub(in crate::domain::ws_session) struct RuntimeSettingsContext<'a> {
 
 pub(in crate::domain::ws_session) async fn apply_provider_settings(
     context: &RuntimeSettingsContext<'_>,
-    project_id: i64,
-    feature_id: i64,
     db_session_id: i64,
     provider: &str,
     stored_profile: Option<&str>,
@@ -42,11 +41,27 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
         }
     }
 
+    Ok(runtime_config.profile.clone())
+}
+
+/// Apply the provider's scoped bypass opt-in. Kept apart from the profile work
+/// so a failed read reaches the caller as a settings error, not a profile one.
+pub(in crate::domain::ws_session) async fn apply_bypass_opt_in(
+    context: &RuntimeSettingsContext<'_>,
+    project_id: i64,
+    feature_id: i64,
+    db_session_id: i64,
+    provider: &str,
+    runtime_config: &mut RuntimeSpawnConfig,
+) -> Result<(), AppError> {
+    let Some(adapter) = crate::domain::agents::providers::runtime_adapter(provider) else {
+        return Ok(());
+    };
     let Some(allow_bypass_permissions) = adapter
         .bypass_permission_opt_in(context.read_pool, feature_id, Some(project_id))
-        .await
+        .await?
     else {
-        return Ok(runtime_config.profile.clone());
+        return Ok(());
     };
 
     runtime_config.allow_bypass_permissions = allow_bypass_permissions;
@@ -62,8 +77,7 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
         );
         runtime_config.permission_mode = Some(default_permission_mode(provider));
     }
-
-    Ok(runtime_config.profile.clone())
+    Ok(())
 }
 
 pub(in crate::domain::ws_session) async fn persisted_profile_selection(

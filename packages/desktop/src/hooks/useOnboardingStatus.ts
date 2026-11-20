@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { useSettingWriter } from "@/hooks/useSetting";
+import { apiErrorCode, SETTINGS_READ_FAILED } from "@/lib/api-errors";
 import {
   COMPLETED_ONBOARDING_STEP,
   ONBOARDING_STEP_SETTING_KEY,
@@ -11,6 +12,8 @@ import {
 interface UseOnboardingStatusResult {
   step: OnboardingStep;
   isLoading: boolean;
+  /** A read (first load or retry) is in flight. */
+  isFetching: boolean;
   isPersisting: boolean;
   error: unknown;
   retry: () => void;
@@ -28,7 +31,11 @@ interface UseOnboardingStatusResult {
  * can say so in place.
  */
 export function useOnboardingStatus(): UseOnboardingStatusResult {
-  const query = useGetWorkspaceSetting(ONBOARDING_STEP_SETTING_KEY);
+  const query = useGetWorkspaceSetting(ONBOARDING_STEP_SETTING_KEY, {
+    // An unreadable settings file stays unreadable until the user fixes it:
+    // report it at once instead of showing setup while a retry waits.
+    query: { retry: (failures, error) => failures < 1 && !isUnreadableSettings(error) },
+  });
   const { setValue, isSaving: isPending } = useSettingWriter(ONBOARDING_STEP_SETTING_KEY);
 
   const step = parseOnboardingStep(query.data?.value);
@@ -46,10 +53,12 @@ export function useOnboardingStatus(): UseOnboardingStatusResult {
     void query.refetch();
   }, [query.refetch]);
   const isLoading = query.isLoading;
+  const isFetching = query.isFetching;
   return useMemo(
     () => ({
       step,
       isLoading,
+      isFetching,
       isPersisting: isPending,
       error: query.error,
       retry,
@@ -57,6 +66,10 @@ export function useOnboardingStatus(): UseOnboardingStatusResult {
       setStep,
       complete,
     }),
-    [step, isLoading, isPending, setStep, complete, query.error, retry],
+    [step, isLoading, isFetching, isPending, setStep, complete, query.error, retry],
   );
+}
+
+function isUnreadableSettings(error: unknown): boolean {
+  return apiErrorCode(error) === SETTINGS_READ_FAILED;
 }

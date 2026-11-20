@@ -31,8 +31,8 @@ mod unfinished;
 
 pub use crate::domain::features::run_registry::FeatureRunRegistry as WorktreeSetupRegistry;
 pub use db::{
-    get_project_directory, get_project_id_for_feature, get_setting, resolve_feature_cwd,
-    resolve_live_worktree, set_setting,
+    get_project_directory, get_project_id_for_feature, get_setting, read_worktree_mode,
+    resolve_feature_cwd, resolve_live_worktree, set_setting,
 };
 pub use replay::replay_persisted_state;
 pub use reuse::attach_to_existing_branch;
@@ -74,7 +74,9 @@ pub async fn ensure_worktree(
     project_id: i64,
     ws_sender: &WsSender,
 ) -> Result<PathBuf, String> {
-    let mode = read_worktree_mode(read_pool, feature_id).await;
+    let mode = read_worktree_mode(read_pool, feature_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     if matches!(mode, WorktreeMode::Skip) {
         return ensure_skip(read_pool, feature_id, project_id, ws_sender).await;
@@ -147,30 +149,6 @@ pub async fn create_project_branch(
     Ok(branch)
 }
 
-/// Read the user-selected worktree mode from feature settings, falling back
-/// to legacy `skip_worktree=true` for older rows.
-pub async fn read_worktree_mode(read_pool: &SqlitePool, feature_id: i64) -> WorktreeMode {
-    if get_setting(read_pool, feature_id, "skip_worktree")
-        .await
-        .as_deref()
-        == Some("true")
-    {
-        return WorktreeMode::Skip;
-    }
-    let mode = get_setting(read_pool, feature_id, "worktree_mode").await;
-    match mode.as_deref() {
-        Some("skip") => WorktreeMode::Skip,
-        Some("reuse") => match get_setting(read_pool, feature_id, "worktree_reuse_branch").await {
-            Some(b) if !b.trim().is_empty() => WorktreeMode::Reuse(b),
-            // Misconfigured reuse without a branch — fall back to New so we
-            // don't hang the feature on a NotFound. The handler validates
-            // this at create time; this is just defense in depth.
-            _ => WorktreeMode::New,
-        },
-        _ => WorktreeMode::New,
-    }
-}
-
 /// `worktree_mode == "skip"` path: return the project dir as the worktree.
 async fn ensure_skip(
     read_pool: &SqlitePool,
@@ -203,7 +181,9 @@ async fn ensure_new(
     let branch =
         new_branch::ensure_new_branch_name(read_pool, write_pool, feature_id, project_id).await?;
     let path_str = compute_worktree_path(&project_name, &branch).await?;
-    let base_branch = read_base_branch(read_pool, feature_id).await;
+    let base_branch = read_base_branch(read_pool, feature_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     send_envelope(
         ws_sender,
@@ -443,13 +423,16 @@ mod tests {
         .await;
 
         assert!(saved.is_err());
-        assert_eq!(get_setting(&pool, 1, "worktree_path").await, None);
+        assert_eq!(get_setting(&pool, 1, "worktree_path").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn read_worktree_mode_defaults_to_new() {
         let pool = make_pool().await;
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::New);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::New
+        );
     }
 
     #[tokio::test]
@@ -458,7 +441,10 @@ mod tests {
         set_setting(&pool, 1, "skip_worktree", "true")
             .await
             .unwrap();
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::Skip);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::Skip
+        );
     }
 
     #[tokio::test]
@@ -467,7 +453,10 @@ mod tests {
         set_setting(&pool, 1, "worktree_mode", "skip")
             .await
             .unwrap();
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::Skip);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::Skip
+        );
     }
 
     #[tokio::test]
@@ -477,14 +466,29 @@ mod tests {
             .await
             .unwrap();
         // No reuse_branch → falls back to New (defense in depth).
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::New);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::New
+        );
 
         set_setting(&pool, 1, "worktree_reuse_branch", "feat/x")
             .await
             .unwrap();
         assert_eq!(
-            read_worktree_mode(&pool, 1).await,
+            read_worktree_mode(&pool, 1).await.unwrap(),
             WorktreeMode::Reuse("feat/x".into())
         );
+    }
+
+    /// An unreadable mode used to read as unset, i.e. `New`: a feature that
+    /// chose to skip the worktree would have had one provisioned.
+    #[tokio::test]
+    async fn read_worktree_mode_fails_when_settings_are_unreadable() {
+        let pool = make_pool().await;
+        sqlx::query("DROP TABLE feature_settings")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(read_worktree_mode(&pool, 1).await.is_err());
     }
 }
