@@ -6725,6 +6725,12 @@ export interface SessionLifecyclePayload {
 }
 
 export interface SessionMcpServersPayload {
+  /**
+   * Why the servers could not be read; `mcp_servers` is then empty and
+   * says nothing about what the agent has.
+   * @nullable
+   */
+  error?: string | null;
   mcp_servers: McpServerStatusPayload[];
 }
 

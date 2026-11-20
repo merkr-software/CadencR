@@ -1,5 +1,5 @@
 use super::super::send_runtime_session_id;
-use super::mcp_servers::send_mcp_servers_if_init;
+use super::mcp_servers::mcp_servers_message_if_init;
 use super::stream_reader_background_agents::track_background_agents;
 use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
 use super::stream_reader_resume::runtime_allows_resume_persistence;
@@ -14,7 +14,7 @@ use crate::domain::ws_session::persistence::{
 use crate::domain::ws_session::protocol::{permission_request_envelope, PermissionRequestPayload};
 use crate::domain::ws_session::runtime::application::mark_awaiting_user;
 use axum::extract::ws::Message;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 impl StreamReaderTask {
     /// Process one runtime event. A closed owner socket is no longer fatal:
     /// every send becomes best-effort because the agent must keep running on
@@ -219,18 +219,11 @@ impl StreamReaderTask {
     }
 
     async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) {
-        let result = send_mcp_servers_if_init(
-            &self.sender,
-            &self.sdk_sessions,
-            self.db_session_id,
-            runtime_event,
-        )
-        .await;
-        if result.is_err() {
-            debug!(
-                self.db_session_id,
-                "WebSocket sender closed during mcp_servers forward"
-            );
+        let message =
+            mcp_servers_message_if_init(&self.sdk_sessions, self.db_session_id, runtime_event)
+                .await;
+        if let Some(message) = message {
+            self.publish(message).await;
         }
     }
 

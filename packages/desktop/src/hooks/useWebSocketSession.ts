@@ -98,6 +98,7 @@ export interface UseWebSocketSessionReturn {
   requestSessionConfig: () => Promise<void>;
   setSessionConfigOption: (configId: string, value: RuntimeSessionConfigValue) => Promise<void>;
   mcpServers: McpServerStatus[] | null;
+  mcpServersError: string | null;
   hasFileChanges: boolean;
   setModel: (modelId: string, providerId: string) => void;
   setThinkingEffort: (thinkingEffort?: string) => void;
@@ -289,6 +290,7 @@ function useSessionSnapshot(
       sessionConfigError: session?.sessionConfigError ?? null,
       pendingSessionConfigId: session?.pendingSessionConfigId ?? null,
       mcpServers: session?.mcpServers ?? null,
+      mcpServersError: session?.mcpServersError ?? null,
       hasFileChanges: session?.hasFileChanges ?? false,
       ...actions,
     };

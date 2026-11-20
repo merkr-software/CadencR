@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { CheckIcon, CopyIcon, InfoIcon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -19,7 +11,7 @@ import { DEFAULT_CLAUDE_PROFILE_NAME, formatClaudeProfileLabel } from "@/lib/cla
 import { cn } from "@/lib/utils";
 import type { McpServerStatus } from "@/stores/ws-session-types";
 import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
-import { McpServersRow } from "./McpServersRow";
+import { McpServersRow, useMcpServersReport } from "./McpServersRow";
 import { SyncFromCliRow } from "./SyncFromCliRow";
 
 /** Everything the session details panel shows (the Info chip and the composer menu). */
@@ -47,17 +39,6 @@ interface SessionInfoChipProps extends SessionInfoPanelProps {
 }
 
 const COPY_FEEDBACK_MS = 1500;
-const McpServersContext = createContext<McpServerStatus[] | null>(null);
-
-export function SessionInfoMcpServersProvider({
-  mcpServers,
-  children,
-}: {
-  mcpServers: McpServerStatus[] | null;
-  children: ReactNode;
-}): ReactElement {
-  return <McpServersContext.Provider value={mcpServers}>{children}</McpServersContext.Provider>;
-}
 
 type CopiedField = "id" | "command" | null;
 
@@ -112,7 +93,7 @@ function useSessionInfoCopy({
 
 /** The session details: provider, MCP servers, profile, ids, resume and sync. */
 export function SessionInfoPanel(props: SessionInfoPanelProps): ReactElement {
-  const mcpServers = useContext(McpServersContext);
+  const mcpServers = useMcpServersReport();
   const copy = useSessionInfoCopy(props);
   return (
     <SessionInfoContent
@@ -120,7 +101,8 @@ export function SessionInfoPanel(props: SessionInfoPanelProps): ReactElement {
       runtimeSessionId={props.runtimeSessionId}
       featureId={props.featureId}
       wsSessionId={props.wsSessionId}
-      mcpServers={mcpServers}
+      mcpServers={mcpServers.servers}
+      mcpServersError={mcpServers.error}
       copiedField={copy.copiedField}
       resumeSupported={copy.resumeSupported}
       isRunning={props.isRunning}
@@ -167,6 +149,7 @@ interface SessionInfoContentProps {
   featureId?: number;
   wsSessionId?: string;
   mcpServers: McpServerStatus[] | null;
+  mcpServersError: string | null;
   copiedField: CopiedField;
   resumeSupported: boolean;
   isRunning: boolean;
@@ -187,6 +170,7 @@ function SessionInfoContent({
   featureId,
   wsSessionId,
   mcpServers,
+  mcpServersError,
   copiedField,
   resumeSupported,
   isRunning,
@@ -204,7 +188,7 @@ function SessionInfoContent({
   return (
     <>
       <ProviderRow providerId={runtimeProvider} providerLabel={providerMeta?.label} />
-      {runtimeSessionId && <McpServersRow servers={mcpServers} />}
+      {runtimeSessionId && <McpServersRow servers={mcpServers} error={mcpServersError} />}
       <div className="shrink-0 space-y-3">
         {showProfileSelector && (
           <ProfileRow

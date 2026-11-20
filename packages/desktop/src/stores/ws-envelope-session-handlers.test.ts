@@ -61,5 +61,22 @@ describe("handleMcpServers", () => {
       { name: "filesystem", status: "unavailable" },
       { name: "browser", status: "unknown" },
     ]);
+    expect(ctx.getSession("s1").mcpServersError).toBeNull();
+  });
+
+  it("keeps a failed read apart from an empty list, and clears it once read", () => {
+    const ctx = createTestContext(createSessionEntry());
+
+    handleMcpServers(ctx, "s1", {
+      mcp_servers: [],
+      error: "The agent's MCP servers could not be read: timed out",
+    });
+    expect(ctx.getSession("s1").mcpServers).toEqual([]);
+    expect(ctx.getSession("s1").mcpServersError).toBe(
+      "The agent's MCP servers could not be read: timed out",
+    );
+
+    handleMcpServers(ctx, "s1", { mcp_servers: [] });
+    expect(ctx.getSession("s1").mcpServersError).toBeNull();
   });
 });
