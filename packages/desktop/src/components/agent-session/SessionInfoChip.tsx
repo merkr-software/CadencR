@@ -188,7 +188,10 @@ function SessionInfoContent({
   return (
     <>
       <ProviderRow providerId={runtimeProvider} providerLabel={providerMeta?.label} />
-      {runtimeSessionId && <McpServersRow servers={mcpServers} error={mcpServersError} />}
+      {/* A failed read shows even before the runtime has an id. */}
+      {(runtimeSessionId || mcpServersError !== null) && (
+        <McpServersRow servers={mcpServers} error={mcpServersError} />
+      )}
       <div className="shrink-0 space-y-3">
         {showProfileSelector && (
           <ProfileRow

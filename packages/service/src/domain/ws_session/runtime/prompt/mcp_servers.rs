@@ -29,26 +29,13 @@ pub(in crate::domain::ws_session) async fn mcp_servers_message_if_init(
     let payload = choose_mcp_servers_payload(
         mcp_servers_payload_from_event(runtime_event),
         mcp_servers_payload_from_active_session(sdk_sessions, db_session_id).await,
-    );
+    )?;
     log_payload(
         db_session_id,
         &payload,
         "session mcp: sending MCP server payload from init",
     );
     Some(message(payload))
-}
-
-pub(in crate::domain::ws_session) async fn mcp_servers_message_for_runtime(
-    db_session_id: i64,
-    runtime_session: &dyn AgentRuntimeSession,
-) -> Message {
-    let payload = mcp_servers_payload_from_runtime(runtime_session, db_session_id).await;
-    log_payload(
-        db_session_id,
-        &payload,
-        "session mcp: sending MCP server payload after spawn",
-    );
-    message(payload)
 }
 
 pub(in crate::domain::ws_session) async fn refreshed_mcp_servers_message(
@@ -76,20 +63,17 @@ fn message(payload: SessionMcpServersPayload) -> Message {
     Message::Text(String::from(envelope).into())
 }
 
+/// What the init tells: the servers it lists, else what reading the runtime
+/// gave, its failure included. An empty init with no runtime to read says
+/// nothing, so nothing is published: an empty list would hide an earlier
+/// failure.
 fn choose_mcp_servers_payload(
     event: Option<SessionMcpServersPayload>,
     active: Option<SessionMcpServersPayload>,
-) -> SessionMcpServersPayload {
+) -> Option<SessionMcpServersPayload> {
     match (event, active) {
-        (Some(event), _) if !event.mcp_servers.is_empty() => event,
-        // The init's own (empty) list stands when the runtime cannot be read.
-        (Some(event), Some(active)) if active.error.is_some() => event,
-        (_, Some(active)) => active,
-        (Some(event), None) => event,
-        (None, None) => SessionMcpServersPayload {
-            mcp_servers: Vec::new(),
-            error: None,
-        },
+        (Some(event), _) if !event.mcp_servers.is_empty() => Some(event),
+        (_, active) => active,
     }
 }
 
@@ -327,17 +311,17 @@ mod tests {
             error: None,
         };
 
-        let payload = choose_mcp_servers_payload(Some(from_event), Some(active));
+        let payload = choose_mcp_servers_payload(Some(from_event), Some(active)).unwrap();
 
         assert_eq!(payload.mcp_servers.len(), 1);
         assert_eq!(payload.mcp_servers[0].name, "cadencr-browser");
     }
 
-    /// An init that reports no servers is the answer; a runtime that then
-    /// cannot be read does not turn it into an error.
+    /// An init listing no servers used to replace a failed runtime read, and
+    /// the panel said "No MCP servers reported" instead of the failure.
     #[test]
-    fn an_empty_init_stands_over_an_unreadable_runtime() {
-        let from_event = SessionMcpServersPayload {
+    fn an_empty_init_never_hides_an_unreadable_runtime() {
+        let empty_init = || SessionMcpServersPayload {
             mcp_servers: Vec::new(),
             error: None,
         };
@@ -346,13 +330,12 @@ mod tests {
             error: Some("mcp_status timed out".into()),
         };
 
-        let payload = choose_mcp_servers_payload(Some(from_event), Some(unreadable.clone()));
-        assert!(payload.error.is_none());
+        let payload = choose_mcp_servers_payload(Some(empty_init()), Some(unreadable)).unwrap();
+        assert!(payload.error.is_some());
 
-        let payload = choose_mcp_servers_payload(None, Some(unreadable));
         assert!(
-            payload.error.is_some(),
-            "without an init, the failure shows"
+            choose_mcp_servers_payload(Some(empty_init()), None).is_none(),
+            "an empty init with no runtime to read publishes nothing"
         );
     }
 

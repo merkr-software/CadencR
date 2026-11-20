@@ -96,6 +96,29 @@ describe("SessionInfoChip", () => {
     expect(screen.queryByText("No MCP servers reported")).not.toBeInTheDocument();
   });
 
+  it("shows an MCP read failure before the runtime has an id", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SessionInfoMcpServersProvider
+        mcpServers={[]}
+        error="The agent's MCP servers could not be read"
+      >
+        <SessionInfoChip
+          runtimeProvider={PROVIDER_IDS.CODEX_CLI}
+          projectPath="/tmp/project"
+          isRunning={false}
+          onPause={vi.fn()}
+          chipClass="chip"
+        />
+      </SessionInfoMcpServersProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /session info/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("could not be read");
+  });
+
   it("bounds the popover and virtualizes a long MCP server list", async () => {
     const user = userEvent.setup();
     const mcpServers = Array.from({ length: 30 }, (_, index) => ({

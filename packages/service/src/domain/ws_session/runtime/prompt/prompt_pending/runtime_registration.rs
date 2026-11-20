@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use super::super::mcp_servers::mcp_servers_message_for_runtime;
 use super::super::prompt_worktree::spawn_auto_name_if_needed;
 use super::super::stream_reader::spawn_stream_reader;
 use super::{active_session, PendingPromptContext};
@@ -35,14 +34,6 @@ pub(in crate::domain::ws_session) async fn register_runtime(
             );
         }
     }
-    let mcp_servers =
-        mcp_servers_message_for_runtime(context.db_session_id, runtime_session.as_ref()).await;
-    context
-        .app_state
-        .ws_feature_senders
-        .publish(context.feature_id, &context.sender, mcp_servers)
-        .await;
-
     super::super::super::helpers::seed_known_subagents(
         &context.sender,
         &context.envelope_id,
