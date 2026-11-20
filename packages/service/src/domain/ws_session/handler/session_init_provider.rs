@@ -9,10 +9,17 @@ pub(super) async fn resolve(
     feature_id: i64,
     requested_provider: Option<&str>,
 ) -> Result<(String, Option<RuntimeAccessMode>), AppError> {
-    // Match resolve_selection: feature override -> workspace last-used provider.
-    // Legacy project settings must not seed permissions for a different provider.
-    let provider = match requested_provider {
-        Some(requested) => requested.to_string(),
+    // A conversation keeps the provider it already ran with, so its setting is
+    // only read (and can only fail init) when nothing pins one yet.
+    let pinned = match requested_provider {
+        Some(requested) => Some(requested.to_string()),
+        None => recorded_provider(app_state, feature_id).await?,
+    };
+    let provider = match pinned {
+        Some(provider) => provider,
+        // Match resolve_selection: feature override -> workspace last-used
+        // provider. Legacy project settings must not seed permissions for a
+        // different provider.
         None => settings::resolve_setting(
             &app_state.read_pool,
             &runtime_setting_key("session"),
@@ -29,6 +36,22 @@ pub(super) async fn resolve(
     )
     .await?;
     Ok((provider, access_mode))
+}
+
+/// The provider the feature's conversation already ran with, if any. Same row
+/// `find_or_create_session_for_binding` reuses.
+async fn recorded_provider(
+    app_state: &AppState,
+    feature_id: i64,
+) -> Result<Option<String>, AppError> {
+    let provider: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT runtime_provider FROM agent_sessions
+         WHERE feature_id = ? AND agent_type = 'session' ORDER BY id DESC LIMIT 1",
+    )
+    .bind(feature_id)
+    .fetch_optional(&app_state.read_pool)
+    .await?;
+    Ok(provider.flatten())
 }
 
 /// The configured access mode for the provider the session finally runs: the
@@ -101,6 +124,31 @@ mod tests {
 
         assert!(resolve(&state, 1, None).await.is_err());
         let (provider, _) = resolve(&state, 1, Some("claude_code")).await.unwrap();
+        assert_eq!(provider, "claude_code");
+    }
+
+    /// Found in QA: a conversation that already ran on Claude could not
+    /// reconnect once its own provider setting became unreadable, although
+    /// the provider it runs is recorded on its session.
+    #[tokio::test]
+    async fn a_recorded_provider_needs_no_setting_read() {
+        let state = make_test_app_state().await;
+        let mut persistence = WsSessionPersistence::new(state.write_pool.clone(), 1);
+        let session_id = persistence
+            .find_or_create_session_with_access_mode(None, None, None)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agent_sessions SET runtime_provider = 'claude_code' WHERE id = ?")
+            .bind(session_id)
+            .execute(&state.write_pool)
+            .await
+            .unwrap();
+        sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+            .execute(&state.write_pool)
+            .await
+            .unwrap();
+
+        let (provider, _) = resolve(&state, 1, None).await.unwrap();
         assert_eq!(provider, "claude_code");
     }
 }
