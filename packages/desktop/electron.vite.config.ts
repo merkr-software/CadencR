@@ -256,7 +256,8 @@ export default defineConfig(({ mode }) => {
       optimizeDeps: {
         exclude: ["@silurus/ooxml"],
         // Dev serves Excalidraw from this pre-bundle, which Rollup plugins skip.
-        // Vite 6's optimizer runs esbuild; a Rolldown-based Vite needs this moved.
+        // Vite 6's optimizer runs esbuild; a Rolldown-based Vite needs this moved,
+        // along with the fingerprinted plugin name that keys the pre-bundle cache.
         esbuildOptions: { plugins: [excalidrawFontFallbackEsbuildPlugin()] },
       },
       plugins: [
