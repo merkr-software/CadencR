@@ -21,6 +21,8 @@ mod close;
 mod dismissed;
 mod durable_close;
 
+pub(crate) use close::{close_gate, GateCloseRequest};
+
 struct GateRuntimeGuard {
     _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
@@ -104,7 +106,14 @@ pub(super) async fn clear_persisted_gate_and_notify(
         // answer or the row was cleared on another path). Send the
         // `gate.closed` envelope anyway so the FE drops its prompt UI
         // instead of staying stuck on a gate the backend will not honor.
-        send_gate_closed(sender, db_session_id, request_id, reason, ref_id);
+        let closed = GateClosed {
+            db_session_id,
+            feature_id: row.feature_id,
+            request_id,
+            reason,
+            ref_id,
+        };
+        send_gate_closed(sender, app_state, closed).await;
         return Ok(true);
     }
 
@@ -118,30 +127,53 @@ pub(super) async fn clear_persisted_gate_and_notify(
     app_state
         .session_status_tx
         .broadcast(db_session_id, row.feature_id, AgentStatus::Idle, None);
-    send_gate_closed(sender, db_session_id, request_id, reason, ref_id);
+    let closed = GateClosed {
+        db_session_id,
+        feature_id: row.feature_id,
+        request_id,
+        reason,
+        ref_id,
+    };
+    send_gate_closed(sender, app_state, closed).await;
     Ok(true)
 }
 
-fn send_gate_closed(
-    sender: &impl OutputTarget,
+/// A closed gate, as `gate.closed` reports it.
+struct GateClosed<'a> {
     db_session_id: i64,
-    request_id: Option<&str>,
+    feature_id: i64,
+    request_id: Option<&'a str>,
     reason: GateCloseReason,
-    ref_id: Option<&str>,
+    ref_id: Option<&'a str>,
+}
+
+/// Answer the socket that closed the gate. Closed headless (HTTP, MCP, a
+/// sleep), every viewer of the feature hears of it instead.
+async fn send_gate_closed(
+    sender: &impl OutputTarget,
+    app_state: &AppState,
+    closed: GateClosed<'_>,
 ) {
     let payload = GateClosedPayload {
-        session_id: db_session_id.to_string(),
-        request_id: request_id.map(str::to_string),
-        reason,
+        session_id: closed.db_session_id.to_string(),
+        request_id: closed.request_id.map(str::to_string),
+        reason: closed.reason,
     };
-    let envelope = match ref_id {
+    let envelope = match closed.ref_id {
         Some(id) => WsEnvelope::session_reply(id, &WsSessionEvent::GateClosed(payload)),
         None => WsEnvelope::session_event(&WsSessionEvent::GateClosed(payload)),
     };
-    let envelope = envelope.expect("gate.closed payload should serialize");
-    sender
-        .send(Message::Text(String::from(envelope).into()))
-        .ignore_closed();
+    let message =
+        Message::Text(String::from(envelope.expect("gate.closed payload should serialize")).into());
+    match sender.recipient() {
+        Some(recipient) => recipient.send(message).ignore_closed(),
+        None => {
+            app_state
+                .ws_feature_senders
+                .publish(closed.feature_id, sender, message)
+                .await;
+        }
+    }
 }
 
 async fn deny_runtime_gate(

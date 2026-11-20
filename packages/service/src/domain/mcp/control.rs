@@ -12,6 +12,7 @@ mod agent_providers;
 mod archive_session;
 pub(crate) mod audit;
 mod create_schedule;
+pub(crate) mod gate_answer;
 mod gate_envelope;
 pub(crate) mod gate_notify;
 pub(crate) mod gate_policy;

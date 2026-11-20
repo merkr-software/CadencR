@@ -48,6 +48,7 @@ pub use connection::ws_handler;
 pub(crate) use session_control::{
     owner_sessions, stop_session, suspend_session, AGENT_STARTING, NOTHING_TO_STOP,
 };
+pub(crate) use session_gate::{close_gate, GateCloseRequest};
 pub use session_prompt::user_shell_recovery::recover_user_shell_context;
 
 #[cfg(test)]
@@ -55,7 +56,7 @@ pub(crate) use session_control::handle_permission_respond;
 
 // Public type for crate-wide use (referenced via `handler::SdkHandle`).
 pub use types::SdkHandle;
-pub(crate) use types::SdkSessions;
+pub(crate) use types::{new_sdk_sessions, SdkSessions};
 
 // Process-global registry of which connection owns each session's live turn.
 // Held on `AppState` so cross-device permission/question/plan answers and the

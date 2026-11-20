@@ -9,8 +9,8 @@ use utoipa::ToSchema;
 
 use crate::app_state::AppState;
 use crate::domain::gate_registry::PendingGate;
-use crate::domain::mcp::control::gate_policy::{authorize_decision, GateDecision};
-use crate::domain::mcp::control::gate_respond::dispatch_permission_response;
+use crate::domain::mcp::control::gate_answer::answer_gate;
+use crate::domain::mcp::control::gate_policy::GateDecision;
 use crate::error::AppError;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -129,8 +129,7 @@ pub async fn respond_gate_handler(
         ));
     }
     let decision = to_internal_decision(body.decision);
-    let payload = authorize_decision(&state, session_id, &body.request_id, &decision).await?;
-    let warnings = dispatch_permission_response(&state, session_id, payload).await?;
+    let warnings = answer_gate(&state, session_id, &body.request_id, &decision).await?;
     Ok(Json(FeatureRespondGateResponse {
         resolved: true,
         request_id: body.request_id,

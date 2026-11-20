@@ -7,7 +7,7 @@ use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::protocol::GateCloseReason;
 use crate::domain::ws_session::runtime::application::clear_answered_gate;
 
-use super::send_gate_closed;
+use super::{send_gate_closed, GateClosed};
 use crate::domain::ws_session::runtime::output::OutputTarget;
 
 /// Clear the dismissed gate, keeping one the runtime raised meanwhile (the
@@ -38,7 +38,14 @@ pub(super) async fn clear_dismissed_gate(
         status,
         cleared.remaining,
     );
-    send_gate_closed(sender, db_session_id, Some(request_id), reason, ref_id);
+    let closed = GateClosed {
+        db_session_id,
+        feature_id: cleared.feature_id,
+        request_id: Some(request_id),
+        reason,
+        ref_id,
+    };
+    send_gate_closed(sender, app_state, closed).await;
     // A turn that already ended let nothing queued run while the gate was
     // open. The drain checks again that the session is free to take a prompt.
     Ok(Some(nothing_pending && status == AgentStatus::Idle))
