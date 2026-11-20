@@ -2,6 +2,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeAccessMode;
 use crate::domain::agents::{default_provider_id, runtime::runtime_setting_key};
 use crate::domain::settings;
+use crate::domain::ws_session::persistence::SessionRow;
 
 pub(super) async fn resolve(
     app_state: &AppState,
@@ -26,6 +27,40 @@ pub(super) async fn resolve(
     )
     .await;
     (provider, access_mode)
+}
+
+/// The provider and model this session runs with. A session that already
+/// ran keeps the provider it ran with (and its last model); the resolver only
+/// decides for sessions that have not pinned one yet. Errs with the message
+/// to show when no model is available.
+#[bon::builder]
+pub(super) async fn effective_selection(
+    app_state: &AppState,
+    cwd: &str,
+    feature_id: i64,
+    row: Option<&SessionRow>,
+    requested_provider: Option<String>,
+    requested_model: Option<String>,
+) -> Result<(String, Option<String>), String> {
+    let pinned_provider = row
+        .and_then(|row| row.runtime_provider.clone())
+        .or(requested_provider);
+    if let Some(provider) = pinned_provider {
+        let model = row.and_then(|row| row.model.clone()).or(requested_model);
+        return Ok((provider, model));
+    }
+    // `session.init` carries no profile: it lives on the persisted session
+    // row, the same source the profile resolution reads later.
+    crate::domain::agents::resolve_selection(
+        &app_state.read_pool,
+        Some(std::path::Path::new(cwd)),
+        "session",
+        Some(feature_id),
+        row.and_then(|row| row.profile.as_deref()),
+    )
+    .await
+    .map(|selection| (selection.provider_id, Some(selection.model_id)))
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

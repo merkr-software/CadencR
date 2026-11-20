@@ -7,24 +7,15 @@ use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::agents::runtime_adapter;
 use crate::domain::workflow::worktree;
 use tracing::{debug, info, warn};
-#[path = "session_init_binding.rs"]
-mod session_init_binding;
-#[path = "session_init_effort.rs"]
-mod session_init_effort;
-#[path = "session_init_fast_mode.rs"]
-mod session_init_fast_mode;
-#[path = "session_init_feature.rs"]
-mod session_init_feature;
-#[path = "session_init_input.rs"]
-mod session_init_input;
-#[path = "session_init_mode.rs"]
-mod session_init_mode;
-#[path = "session_init_profile.rs"]
-mod session_init_profile;
-#[path = "session_init_provider.rs"]
-mod session_init_provider;
-#[path = "session_init_restore.rs"]
-mod session_init_restore;
+mod binding;
+mod effort;
+mod fast_mode;
+mod feature;
+mod input;
+mod mode;
+mod profile;
+mod provider;
+mod restore;
 
 /// Handle session.init: DB-driven session creation.
 pub(super) async fn handle_init(
@@ -33,7 +24,7 @@ pub(super) async fn handle_init(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
 ) -> Option<i64> {
-    let (payload, feature_id, cwd) = session_init_input::parse(&envelope, sender)?;
+    let (payload, feature_id, cwd) = input::parse(&envelope, sender)?;
 
     // Register the WS sender so HTTP handlers (e.g. auto-rename) can push
     // envelopes to this connection later.
@@ -42,16 +33,11 @@ pub(super) async fn handle_init(
         .register(feature_id, sender.clone())
         .await;
 
-    let project_id = session_init_feature::require_feature_project_id(
-        app_state,
-        sender,
-        &envelope.id,
-        feature_id,
-    )
-    .await?;
+    let project_id =
+        feature::require_feature_project_id(app_state, sender, &envelope.id, feature_id).await?;
 
     let (initial_provider, configured_initial_access_mode) =
-        session_init_provider::resolve(app_state, feature_id, payload.provider.as_deref()).await;
+        provider::resolve(app_state, feature_id, payload.provider.as_deref()).await;
     let configured_initial_access_wire = configured_initial_access_mode
         .as_ref()
         .map(crate::domain::agents::adapter::access_mode_wire);
@@ -97,17 +83,16 @@ pub(super) async fn handle_init(
     let mut sessions = sdk_sessions.lock().await;
 
     // Read session row for runtime_session_id (--resume), token usage, and stored model.
-    let Ok(row) =
-        session_init_binding::read_row(app_state, sender, &envelope.id, db_session_id).await
-    else {
+    let Ok(row) = binding::read_row(app_state, sender, &envelope.id, db_session_id).await else {
         return Some(db_session_id);
     };
     let spawning = app_state.session_runtimes.is_spawning(db_session_id).await;
-    if let Some(payload) = sessions.get(&db_session_id).and_then(|handle| {
-        session_init_binding::live_payload(db_session_id, handle, row.as_ref(), spawning)
-    }) {
+    if let Some(payload) = sessions
+        .get(&db_session_id)
+        .and_then(|handle| binding::live_payload(db_session_id, handle, row.as_ref(), spawning))
+    {
         drop(sessions);
-        session_init_binding::reply_and_restore(
+        binding::reply_and_restore(
             app_state,
             sender,
             &envelope.id,
@@ -128,7 +113,6 @@ pub(super) async fn handle_init(
         );
         return Some(db_session_id);
     }
-    let runtime_provider = row.as_ref().and_then(|r| r.runtime_provider.clone());
     if let Some(ref r) = row {
         debug!(
             db_session_id,
@@ -144,38 +128,24 @@ pub(super) async fn handle_init(
     let stored_model = row.as_ref().and_then(|r| r.model.clone());
     let stored_thinking_effort = row.as_ref().and_then(|r| r.thinking_effort.clone());
     let stored_fast_mode = row.as_ref().is_some_and(|r| r.fast_mode);
-    // `payload` has no `profile` field for session.init — the profile lives on
-    // the persisted session row, same source `effective_profile` reads below.
-    let profile_for_resolver = row.as_ref().and_then(|r| r.profile.clone());
-
-    // A session that already ran keeps the provider it ran with. The resolver
-    // only decides for sessions that have not pinned one yet.
-    let pinned_provider = runtime_provider.or(payload.provider.clone());
-    let (effective_provider, mut effective_model) = match pinned_provider {
-        Some(provider) => (provider, stored_model.clone().or(payload.model.clone())),
-        None => match crate::domain::agents::resolve_selection(
-            &app_state.read_pool,
-            Some(std::path::Path::new(&cwd)),
-            "session",
-            Some(feature_id),
-            profile_for_resolver.as_deref(),
-        )
-        .await
-        {
-            Ok(selection) => (selection.provider_id, Some(selection.model_id)),
-            Err(error) => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "NO_MODEL_AVAILABLE",
-                    &error.to_string(),
-                );
-                return Some(db_session_id);
-            }
-        },
+    let selection = provider::effective_selection()
+        .app_state(app_state)
+        .cwd(&cwd)
+        .feature_id(feature_id)
+        .maybe_row(row.as_ref())
+        .maybe_requested_provider(payload.provider.clone())
+        .maybe_requested_model(payload.model.clone())
+        .call()
+        .await;
+    let (effective_provider, mut effective_model) = match selection {
+        Ok(selection) => selection,
+        Err(error) => {
+            send_error(sender, &envelope.id, "NO_MODEL_AVAILABLE", &error);
+            return Some(db_session_id);
+        }
     };
 
-    let resolved_effort = session_init_effort::resolve(
+    let resolved_effort = effort::resolve(
         app_state,
         db_session_id,
         &effective_provider,
@@ -267,7 +237,7 @@ pub(super) async fn handle_init(
     runtime_config.thinking_effort = effective_thinking_effort.clone();
     // Honor the client's choice when the provider supports it; otherwise fall
     // back to the active provider's default, and report the result.
-    let resolved_mode = session_init_mode::resolve(
+    let resolved_mode = mode::resolve(
         app_state,
         db_session_id,
         &effective_provider,
@@ -297,8 +267,8 @@ pub(super) async fn handle_init(
         .map(crate::domain::agents::adapter::access_mode_wire)
         .map(ToOwned::to_owned);
     runtime_config.system_prompt = payload.system_prompt.clone();
-    let profile_config = match session_init_profile::resolve(
-        session_init_profile::ResolveOptions::builder()
+    let profile_config = match profile::resolve(
+        profile::ResolveOptions::builder()
             .app_state(app_state)
             .project_id(project_id)
             .feature_id(feature_id)
@@ -321,7 +291,7 @@ pub(super) async fn handle_init(
             return Some(db_session_id);
         }
     };
-    let session_init_profile::ResolvedProfileConfig {
+    let profile::ResolvedProfileConfig {
         effective_profile,
         effective_model: resolved_model,
         effective_thinking_effort: resolved_effort,
@@ -330,9 +300,9 @@ pub(super) async fn handle_init(
     } = profile_config;
     effective_model = resolved_model;
     effective_thinking_effort = resolved_effort;
-    let mut effective_fast_mode = match session_init_fast_mode::resolve(
+    let mut effective_fast_mode = match fast_mode::resolve(
         app_state,
-        session_init_fast_mode::RestoreFastModeOptions {
+        fast_mode::RestoreFastModeOptions {
             db_session_id,
             provider: &effective_provider,
             model: effective_model.as_deref(),
@@ -355,7 +325,7 @@ pub(super) async fn handle_init(
             return Some(db_session_id);
         }
     };
-    effective_fast_mode = session_init_fast_mode::profile_effective_or_legacy(
+    effective_fast_mode = fast_mode::profile_effective_or_legacy(
         inherits_profile_config,
         profile_effective_fast_mode,
         effective_fast_mode,
@@ -368,7 +338,7 @@ pub(super) async fn handle_init(
     );
 
     let runtime_overrides = runtime_config.overrides.clone();
-    let handle = session_init_binding::pending_handle()
+    let handle = binding::pending_handle()
         .runtime_config(runtime_config)
         .feature_id(feature_id)
         .runtime_provider(effective_provider.clone())
@@ -379,7 +349,7 @@ pub(super) async fn handle_init(
     sessions.insert(db_session_id, handle);
     drop(sessions);
 
-    session_init_binding::reply_and_restore(
+    binding::reply_and_restore(
         app_state,
         sender,
         &envelope.id,

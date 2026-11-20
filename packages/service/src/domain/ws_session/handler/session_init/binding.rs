@@ -68,7 +68,7 @@ pub(super) async fn reply_and_restore(
     if let Some(resume_id) = resume_id {
         super::super::send_runtime_session_id(sender, resume_id);
     }
-    super::session_init_restore::restore_pending_or_idle(state, sender, id, feature_id).await;
+    super::restore::restore_pending_or_idle(state, sender, id, feature_id).await;
     if let Err(error) =
         super::super::session_init_worktree::restore_worktree_state(state, sender, feature_id).await
     {
