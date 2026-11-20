@@ -39,9 +39,11 @@ function LocalOnboardingGate({ children }: { children: React.ReactNode }): React
   };
   // Settings the service cannot read must not look like a fresh workspace:
   // say why, and let the user reach Settings rather than redo onboarding.
+  // That pass lasts only while the read fails: once the file is readable
+  // again (a settings change refetches it), onboarding is checked as usual.
   const [settingsOpened, setSettingsOpened] = useState(false);
   const unreadable = apiErrorCode(onboarding.error) === SETTINGS_READ_FAILED;
-  if (settingsOpened) return <>{children}</>;
+  if (settingsOpened && unreadable) return <>{children}</>;
   let content: React.ReactNode;
   if (unreadable) {
     content = (

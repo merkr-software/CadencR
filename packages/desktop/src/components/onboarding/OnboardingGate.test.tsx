@@ -44,15 +44,17 @@ function unreadableSettingsError(): AxiosError {
   });
 }
 
-function renderGate(): void {
+function renderGate(): () => void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const tree = (): React.JSX.Element => (
     <QueryClientProvider client={client}>
       <OnboardingGate>
         <p>App content</p>
       </OnboardingGate>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const { rerender } = render(tree());
+  return () => rerender(tree());
 }
 
 describe("OnboardingGate with an unreadable settings file", () => {
@@ -86,5 +88,19 @@ describe("OnboardingGate with an unreadable settings file", () => {
     await user.click(screen.getByRole("button", { name: "Open Settings" }));
     expect(window.location.hash).toBe("#/settings");
     expect(await screen.findByText("App content")).toBeVisible();
+  });
+
+  // Found in QA: after "Open Settings", repairing the file left the app open
+  // with onboarding skipped until the next reload.
+  it("checks onboarding again once the settings are readable", async () => {
+    const user = userEvent.setup();
+    const refresh = renderGate();
+    await user.click(await screen.findByRole("button", { name: "Open Settings" }));
+    expect(await screen.findByText("App content")).toBeVisible();
+
+    context.error = null;
+    refresh();
+
+    expect(screen.queryByText("App content")).toBeNull();
   });
 });
