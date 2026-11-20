@@ -127,6 +127,42 @@ pub(crate) fn mask(line: &str, secrets: &[String]) -> String {
     })
 }
 
+/// Words serde puts before a backticked value it refuses (`integer `5``,
+/// `unknown variant `x``). Other backticked text (`in `a.b``, `unknown field
+/// `x``) names a key and stays readable.
+const BACKTICKED_VALUE_KINDS: [&str; 5] = ["boolean", "integer", "point", "character", "variant"];
+
+/// `text`, a configuration diagnostic (TOML/serde, as Codex reports a config it
+/// refuses), with the values it quotes masked: every double-quoted string and
+/// the backticked values serde names by kind. The kind and the key path stay,
+/// so the user still sees what to fix: `invalid type: string "•••", expected a
+/// map in `model_providers.x.http_headers``.
+pub(crate) fn mask_config_values(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(['"', '`']) {
+        let (before, quoted) = rest.split_at(start);
+        out.push_str(before);
+        let quote = quoted.chars().next().unwrap_or('"');
+        let Some(len) = quoted[1..].find(quote) else {
+            out.push_str(quoted);
+            return out;
+        };
+        let inner = &quoted[1..=len];
+        let masks = quote == '"'
+            || before
+                .split_whitespace()
+                .next_back()
+                .is_some_and(|word| BACKTICKED_VALUE_KINDS.contains(&word));
+        out.push(quote);
+        out.push_str(if masks { MASK } else { inner });
+        out.push(quote);
+        rest = &quoted[len + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// `line` without ANSI escape sequences (colors, cursor moves).
 fn strip_terminal_escapes(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
@@ -152,6 +188,39 @@ fn strip_terminal_escapes(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The words Codex 0.170 used when a profile's `http_headers` was a
+    /// string: the whole value, a credential, was shown back.
+    #[test]
+    fn config_diagnostics_keep_the_key_but_not_the_value() {
+        let codex = "invalid configuration: invalid type: string \"Bearer SYNTH-MARKER-7f3a\", \
+                     expected a map\nin `model_providers.synth.http_headers`";
+        let masked = mask_config_values(codex);
+        assert!(!masked.contains("SYNTH-MARKER"), "{masked}");
+        assert!(
+            masked.contains("invalid type: string \"•••\", expected a map"),
+            "{masked}"
+        );
+        assert!(
+            masked.contains("`model_providers.synth.http_headers`"),
+            "{masked}"
+        );
+
+        let typed = mask_config_values("invalid type: integer `4242`, expected a string");
+        assert_eq!(typed, "invalid type: integer `•••`, expected a string");
+        let variant = mask_config_values("unknown variant `SYNTH-MARKER`, expected `on` or `off`");
+        assert!(!variant.contains("SYNTH-MARKER"), "{variant}");
+        assert!(variant.contains("expected `on` or `off`"), "{variant}");
+        let field = mask_config_values("unknown field `http_header`, expected `http_headers`");
+        assert_eq!(
+            field,
+            "unknown field `http_header`, expected `http_headers`"
+        );
+        assert_eq!(
+            mask_config_values("unterminated \"tail"),
+            "unterminated \"tail"
+        );
+    }
 
     #[test]
     fn says_how_the_process_ended_and_why() {
