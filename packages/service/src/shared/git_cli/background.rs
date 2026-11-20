@@ -2,9 +2,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
-use super::{
-    run_raw_observer, safe_path_args, safe_ref_args, sanitize_git_stderr, validate_positionals,
-};
+use super::{git_failure, run_raw_observer, safe_path_args, safe_ref_args, validate_positionals};
 
 /// Run a **periodic / read-style** git command with `--no-optional-locks`
 /// so it can't race a concurrent user-initiated mutation (`git rebase`,
@@ -26,7 +24,21 @@ pub async fn run_git_background(args: &[&str], cwd: &Path) -> Result<String, App
 /// from an actual repository or spawn failure.
 pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<bool, AppError> {
     validate_positionals(&[reference])?;
-    let args = prepend_no_optional_locks(&["rev-parse", "--verify", "--quiet", reference]);
+    let args = ["rev-parse", "--verify", "--quiet", reference];
+    Ok(run_git_probe_background(&args, cwd).await?.is_some())
+}
+
+/// Run a background Git query whose "nothing there" answer is exit status 1
+/// with an empty stderr: `config --get`, `symbolic-ref --quiet`,
+/// `show-ref --verify --quiet`, `rev-parse --verify --quiet`. That answer is
+/// `Ok(None)`; every other failure is an error, so a broken repository or a
+/// missing `git` never reads as an absent value. Callers guard any
+/// user-controlled positional first.
+pub async fn run_git_probe_background(
+    args: &[&str],
+    cwd: &Path,
+) -> Result<Option<String>, AppError> {
+    let args = prepend_no_optional_locks(args);
     let output = super::git_command()
         .kill_on_drop(true)
         .args(&args)
@@ -35,19 +47,15 @@ pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<
         .await
         .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))?;
     if output.status.success() {
-        return Ok(true);
+        return Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned()));
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     if output.status.code() == Some(1) && stderr.trim().is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
-    // A background probe failing is plumbing, not a refusal the user asked
-    // for: it stays an internal (masked, reported) error.
-    Err(AppError::git_command(format!(
-        "git {} failed: {}",
-        args.join(" "),
-        sanitize_git_stderr(stderr.trim())
-    )))
+    // The same user-facing (path-redacted) error any other Git read reports:
+    // the view that asked shows why, instead of an opaque internal error.
+    Err(git_failure(&args, &stderr))
 }
 
 /// Read-only counterpart to `run_git_safe`. It preserves pathspec validation
@@ -110,6 +118,40 @@ mod tests {
         );
     }
 
+    /// Exit 1 without a message is the probes' "absent"; the same probe in a
+    /// directory that is no repository must fail instead of reading as absent.
+    #[tokio::test]
+    async fn probe_separates_an_absent_value_from_a_failure() {
+        let repo = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let symref = ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"];
+        assert_eq!(
+            run_git_probe_background(&symref, repo.path())
+                .await
+                .unwrap(),
+            None
+        );
+        let config = ["config", "--get", "core.bare"];
+        assert_eq!(
+            run_git_probe_background(&config, repo.path())
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("false\n")
+        );
+
+        let not_repo = tempfile::tempdir().unwrap();
+        let error = run_git_probe_background(&symref, not_repo.path())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
+    }
+
     #[tokio::test]
     async fn ref_probe_distinguishes_missing_ref_from_repository_error() {
         let repo = tempfile::tempdir().unwrap();
@@ -127,6 +169,6 @@ mod tests {
         let error = git_ref_resolves_background("HEAD", not_repo.path())
             .await
             .unwrap_err();
-        assert!(matches!(error, AppError::GitCommandError(_)), "{error:?}");
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
     }
 }

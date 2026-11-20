@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use crate::error::AppError;
+use crate::shared::git_cli::git_ref_resolves_background;
 use crate::shared::git_cli::version::{self, GitFeature};
-use crate::shared::git_cli::{git_ref_resolves_background, run_git_background};
 
 /// Makes `diff-tree` and `log` describe a merge commit by its first-parent
 /// diff instead of their default (no output whatsoever). Without it a merge —
@@ -46,9 +46,27 @@ impl FirstParentDiff {
     }
 }
 
-/// Run a git command, returning Ok("") instead of Err on failure.
-pub(super) async fn run_git_quiet(args: &[&str], cwd: &Path) -> String {
-    run_git_background(args, cwd).await.unwrap_or_default()
+/// After a history walk over `revs` failed with `error`: the revisions that
+/// do resolve, when some do not. A revision that names nothing yet — the
+/// `HEAD` of an unborn branch, a target branch never created — has no history,
+/// which is an answer rather than a failure. When every revision resolves, the
+/// walk failed for another reason and `error` is returned. Probing only once a
+/// walk has failed keeps the common case to the walk itself.
+pub(super) async fn revs_after_failed_walk<'a>(
+    cwd: &Path,
+    revs: &[&'a str],
+    error: AppError,
+) -> Result<Vec<&'a str>, AppError> {
+    let mut existing = Vec::with_capacity(revs.len());
+    for rev in revs {
+        if git_ref_resolves_background(rev, cwd).await? {
+            existing.push(*rev);
+        }
+    }
+    if existing.len() == revs.len() {
+        return Err(error);
+    }
+    Ok(existing)
 }
 
 #[cfg(test)]

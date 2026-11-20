@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use crate::domain::git::file_size::LARGE_FILE_BYTES;
+use crate::error::AppError;
 
 /// Number of leading bytes sniffed for git's binary heuristic.
 const BINARY_SNIFF_BYTES: usize = 8192;
@@ -22,45 +23,84 @@ fn head_looks_binary(head: &[u8]) -> bool {
 /// Read up to `max` bytes from the start of a file without pulling the whole
 /// thing into memory — used to classify a large untracked file as binary before
 /// emitting its placeholder.
-async fn read_head(path: &Path, max: usize) -> Option<Vec<u8>> {
+async fn read_head(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
 
-    let mut file = tokio::fs::File::open(path).await.ok()?;
+    let mut file = tokio::fs::File::open(path).await?;
     let mut buf = vec![0u8; max];
     let mut filled = 0;
     while filled < max {
-        let n = file.read(&mut buf[filled..]).await.ok()?;
+        let n = file.read(&mut buf[filled..]).await?;
         if n == 0 {
             break;
         }
         filled += n;
     }
     buf.truncate(filled);
-    Some(buf)
+    Ok(buf)
+}
+
+/// An untracked file deleted between the listing and the read has nothing left
+/// to show (`None`); any other read failure is an error, never a file silently
+/// left out of the diff or drawn as a binary.
+fn unless_gone<T>(result: std::io::Result<T>, path: &Path) -> Result<Option<T>, AppError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(AppError::internal(format!(
+            "cannot read untracked file {}: {error}",
+            path.display()
+        ))),
+    }
 }
 
 /// Count the added lines of an untracked file for the stat total without
 /// holding it all in memory: reads in bounded chunks, sniffs the first 8 KB for
 /// a NUL byte to skip binaries ([`head_looks_binary`]), and counts newlines plus
-/// a trailing unterminated line. `None` skips the file (unreadable or binary),
-/// matching exactly how [`synthesize_untracked_new_file_diff`] treats it.
+/// a trailing unterminated line. `None` skips the file (binary, not a regular
+/// file, or deleted since it was listed), matching exactly how
+/// [`synthesize_untracked_new_file_diff`] treats it.
+///
+/// A file that cannot be read gets no count either. The count only decorates a
+/// changed-file row or a stat total, and failing it would take the whole list
+/// down for one file; opening that file's diff reports the read error instead
+/// (see [`synthesize_untracked_new_file_diff`]).
 pub(super) async fn count_untracked_lines(path: &Path) -> Option<u32> {
+    // Deliberately no error here: the file's own diff reports it.
+    counted_lines(path).await.unwrap_or_default()
+}
+
+async fn counted_lines(path: &Path) -> Result<Option<u32>, AppError> {
+    if regular_file_metadata(path).await?.is_none() {
+        return Ok(None);
+    }
+    Ok(unless_gone(count_lines(path).await, path)?.flatten())
+}
+
+/// Untracked entries that are not regular files once symlinks are followed —
+/// a link to a directory, a dangling link — have no lines to show, like a
+/// binary: `None` for them, and for a file deleted since it was listed.
+async fn regular_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, AppError> {
+    Ok(unless_gone(tokio::fs::metadata(path).await, path)?.filter(|m| m.is_file()))
+}
+
+async fn count_lines(path: &Path) -> std::io::Result<Option<u32>> {
     use tokio::io::AsyncReadExt;
 
-    let mut file = tokio::fs::File::open(path).await.ok()?;
+    let mut file = tokio::fs::File::open(path).await?;
     let mut buf = [0u8; 64 * 1024];
     let mut lines: u32 = 0;
     let mut last_byte: Option<u8> = None;
     let mut sniffed = false;
     loop {
-        let n = file.read(&mut buf).await.ok()?;
+        let n = file.read(&mut buf).await?;
         if n == 0 {
             break;
         }
         let chunk = &buf[..n];
         if !sniffed {
             if head_looks_binary(chunk) {
-                return None; // binary — skip, like the diff endpoint
+                return Ok(None); // binary — skip, like the diff endpoint
             }
             sniffed = true;
         }
@@ -71,7 +111,7 @@ pub(super) async fn count_untracked_lines(path: &Path) -> Option<u32> {
     if last_byte.is_some_and(|b| b != b'\n') {
         lines += 1;
     }
-    Some(lines)
+    Ok(Some(lines))
 }
 
 /// Build the synthetic "new file" unified diff for a single untracked file,
@@ -83,28 +123,35 @@ pub(super) async fn count_untracked_lines(path: &Path) -> Option<u32> {
 /// ([`head_looks_binary`]) — the same rule [`count_untracked_lines`] uses, so a
 /// file is absent from the diff iff it's absent from the stat count. Non-UTF-8
 /// *text* (no NUL) is decoded lossily and still shown, matching `git diff`.
-/// Returns `None` when nothing should be emitted (unreadable or binary).
+/// Returns `None` when nothing should be emitted (binary, or deleted since it
+/// was listed); an unreadable file is an error.
 pub(super) async fn synthesize_untracked_new_file_diff(
     worktree_path: &Path,
     file: &str,
-) -> Option<String> {
+) -> Result<Option<String>, AppError> {
     let full_path = worktree_path.join(file);
-    let metadata = tokio::fs::metadata(&full_path).await.ok()?;
+    let Some(metadata) = regular_file_metadata(&full_path).await? else {
+        return Ok(None);
+    };
     if metadata.len() >= LARGE_FILE_BYTES {
         // Sniff the head so a large *binary* file is skipped (as the stats path
         // does) rather than mislabeled as text "too large to display".
-        if head_looks_binary(&read_head(&full_path, BINARY_SNIFF_BYTES).await?) {
-            return None;
+        let head = read_head(&full_path, BINARY_SNIFF_BYTES).await;
+        match unless_gone(head, &full_path)? {
+            Some(head) if !head_looks_binary(&head) => {}
+            _ => return Ok(None),
         }
         let size = format_bytes(metadata.len());
-        return Some(format!(
+        return Ok(Some(format!(
             "diff --git a/{file} b/{file}\nnew file mode 100644\n--- /dev/null\n+++ b/{file}\n@@ -0,0 +1,1 @@\n+(untracked file too large to display inline: {size} — open it from the editor)\n"
-        ));
+        )));
     }
 
-    let bytes = tokio::fs::read(&full_path).await.ok()?;
+    let Some(bytes) = unless_gone(tokio::fs::read(&full_path).await, &full_path)? else {
+        return Ok(None);
+    };
     if head_looks_binary(&bytes) {
-        return None;
+        return Ok(None);
     }
     let content = String::from_utf8_lossy(&bytes);
     let mut lines: Vec<&str> = content.split('\n').collect();
@@ -117,9 +164,9 @@ pub(super) async fn synthesize_untracked_new_file_diff(
         .map(|l| format!("+{l}"))
         .collect::<Vec<_>>()
         .join("\n");
-    Some(format!(
+    Ok(Some(format!(
         "diff --git a/{file} b/{file}\nnew file mode 100644\n--- /dev/null\n+++ b/{file}\n@@ -0,0 +1,{line_count} @@\n{added_lines}\n"
-    ))
+    )))
 }
 
 /// Human-readable byte count for placeholder messages. Mirrors the frontend's
@@ -145,6 +192,7 @@ mod tests {
 
         let block = synthesize_untracked_new_file_diff(dir.path(), "hello.txt")
             .await
+            .unwrap()
             .expect("small file is synthesized");
         assert!(block.contains("diff --git a/hello.txt b/hello.txt"));
         assert!(block.contains("@@ -0,0 +1,2 @@"));
@@ -161,6 +209,7 @@ mod tests {
 
         let block = synthesize_untracked_new_file_diff(dir.path(), "big.log")
             .await
+            .unwrap()
             .expect("large file still appears in the diff");
         // The file is present in the list…
         assert!(block.contains("diff --git a/big.log b/big.log"));
@@ -185,7 +234,9 @@ mod tests {
         // stats path does (binary untracked files aren't inlined or counted).
         std::fs::write(dir.path().join("blob.bin"), [0u8, 159, 146, 150]).unwrap();
 
-        let block = synthesize_untracked_new_file_diff(dir.path(), "blob.bin").await;
+        let block = synthesize_untracked_new_file_diff(dir.path(), "blob.bin")
+            .await
+            .unwrap();
         assert!(block.is_none());
     }
 
@@ -204,6 +255,7 @@ mod tests {
 
         let block = synthesize_untracked_new_file_diff(dir.path(), "latin.txt")
             .await
+            .unwrap()
             .expect("non-UTF-8 text file is still synthesized, not skipped");
         assert!(block.contains("diff --git a/latin.txt b/latin.txt"));
         assert!(block.contains("@@ -0,0 +1,2 @@"));
@@ -225,6 +277,7 @@ mod tests {
 
         assert!(synthesize_untracked_new_file_diff(dir.path(), "big.bin")
             .await
+            .unwrap()
             .is_none());
     }
 
@@ -274,5 +327,51 @@ mod tests {
             count_untracked_lines(&dir.path().join("many.txt")).await,
             Some(100_000)
         );
+    }
+
+    /// A file deleted since it was listed, or a link to a directory, has
+    /// nothing to show. One that cannot be read fails its diff, where it used
+    /// to vanish from it or show as a binary file; its line count is left out
+    /// so one such file does not take the whole changed-file list down.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unreadable_untracked_file_is_an_error_not_a_skip() {
+        if !crate::shared::test_dirs::permissions_bind() {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            synthesize_untracked_new_file_diff(dir.path(), "gone.txt")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            count_untracked_lines(&dir.path().join("gone.txt")).await,
+            None
+        );
+
+        std::os::unix::fs::symlink(dir.path(), dir.path().join("dir-link")).unwrap();
+        assert_eq!(
+            synthesize_untracked_new_file_diff(dir.path(), "dir-link")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            count_untracked_lines(&dir.path().join("dir-link")).await,
+            None
+        );
+
+        let locked = dir.path().join("locked.txt");
+        std::fs::write(&locked, "secret\n").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let synthesized = synthesize_untracked_new_file_diff(dir.path(), "locked.txt").await;
+        let counted = count_untracked_lines(&locked).await;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(synthesized.is_err(), "{synthesized:?}");
+        assert_eq!(counted, None);
     }
 }

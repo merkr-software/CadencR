@@ -127,11 +127,11 @@ async fn prepare(
 }
 
 pub(crate) async fn resolve_ref(repo: &Path, branch: &str) -> Result<String, AppError> {
-    if local_branch_exists(repo, branch).await {
+    if local_branch_exists(repo, branch).await? {
         return Ok(branch.to_string());
     }
     if let Some((_remote, suffix)) = branch.split_once('/') {
-        if !suffix.is_empty() && remote_branch_exists(repo, branch).await {
+        if !suffix.is_empty() && remote_branch_exists(repo, branch).await? {
             return Ok(suffix.to_string());
         }
     }

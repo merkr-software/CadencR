@@ -269,14 +269,17 @@ pub(super) async fn recompute_for_path(
         let expected_write_generation = expected_write_generation.clone();
         async move {
             // Re-resolve target_branch every time so PATCHes on the
-            // feature setting are reflected without registry mutation.
-            // Falls back to "main" so a transient DB error still yields
-            // a determinate snapshot rather than a blank one.
-            let target =
-                crate::domain::git::workflow_service::resolve_target_branch(&state, fid, &path)
-                    .await
-                    .unwrap_or_else(|_| "main".to_string());
-            match git_status::compute_status_or_empty(&path, fid, &target).await {
+            // feature setting are reflected without registry mutation. A
+            // failure to resolve it is reported like any other status
+            // failure: comparing against a guessed "main" would publish a
+            // snapshot the HTTP status of the same feature contradicts.
+            let snapshot = async {
+                let target =
+                    crate::domain::git::workflow_service::resolve_target_branch(&state, fid, &path)
+                        .await?;
+                git_status::compute_status_or_empty(&path, fid, &target).await
+            };
+            match snapshot.await {
                 Ok(mut snap) => {
                     crate::domain::git::workflow_service::enrich_snapshot(
                         &state,

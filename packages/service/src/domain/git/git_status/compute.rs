@@ -90,7 +90,7 @@ async fn compute_status(
         count_unpushed(repo, &parsed),
         resolve_target_divergence(repo, target_branch),
         update_target,
-        resolve_remote_info(repo),
+        host::detect_origin_remote(repo),
         detect_active_git_operation(repo),
     );
     let target_divergence = target_divergence?;
@@ -107,6 +107,8 @@ async fn compute_status(
         resolve_target_divergence(repo, &update_target).await?
     };
     let operation = operation?;
+    let ahead_of_remote = ahead_of_remote?;
+    let remote_info = remote_info?;
     let has_remote = remote_info.is_some();
     let (host, compare_url, action_label) =
         derive_provider_fields(remote_info.as_ref(), target_branch, &parsed.current_branch);
@@ -185,21 +187,23 @@ async fn resolve_target_divergence(
 /// --remotes`. That's the count of commits reachable from `HEAD` but
 /// not from any remote-tracking ref, i.e. exactly what a first
 /// `git push -u origin HEAD` would publish.
-async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> u32 {
+///
+/// An unborn branch has nothing to publish; any other failure is an error,
+/// never a "0 to push" that would hide unpublished work.
+async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> Result<u32, AppError> {
     if parsed.upstream.is_some() {
-        return parsed.ahead;
+        return Ok(parsed.ahead);
     }
-    run_git_background(&["rev-list", "--count", "HEAD", "--not", "--remotes"], repo)
-        .await
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0)
-}
-
-/// Read `remote.origin.url` and feed it to `host::detect_remote`. Returns
-/// `None` when there's no `origin` remote (fresh repo, detached clone, etc).
-async fn resolve_remote_info(repo: &Path) -> Option<RemoteInfo> {
-    host::detect_origin_remote(repo).await
+    let args = ["rev-list", "--count", "HEAD", "--not", "--remotes"];
+    let count = match run_git_background(&args, repo).await {
+        Ok(count) => count,
+        Err(_) if !git_ref_resolves_background("HEAD", repo).await? => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    count
+        .trim()
+        .parse()
+        .map_err(|_| AppError::git_command(format!("git rev-list --count printed {count:?}")))
 }
 
 /// Bundle the provider-derived fields. `compare_url` is `None` when:
@@ -669,5 +673,20 @@ mod tests {
         assert_eq!(snap.host, Some(GitHost::Other));
         assert!(snap.compare_url.is_none());
         assert_eq!(snap.action_label.as_deref(), Some("Open compare"));
+    }
+
+    /// An unborn branch has nothing to publish; a repository Git cannot read
+    /// is an error rather than "0 to push".
+    #[tokio::test]
+    async fn unpushed_count_tells_an_unborn_branch_from_a_failure() {
+        let parsed = parse_porcelain_v2("");
+        let repo = tempfile::tempdir().unwrap();
+        crate::shared::git_cli::run_git(&["init", "-q"], repo.path())
+            .await
+            .unwrap();
+        assert_eq!(count_unpushed(repo.path(), &parsed).await.unwrap(), 0);
+
+        let not_repo = tempfile::tempdir().unwrap();
+        assert!(count_unpushed(not_repo.path(), &parsed).await.is_err());
     }
 }

@@ -14,7 +14,7 @@ use crate::domain::git::service::{
     branch_identity, recorded_feature_branch, resolve_feature_branch, resolve_feature_git_path,
 };
 use crate::error::AppError;
-use crate::shared::git_cli::run_git;
+use crate::shared::git_cli::git_ref_resolves_background;
 
 use super::broadcast_after_write;
 
@@ -36,8 +36,9 @@ pub(crate) use reference::branch_exists;
 ///   5. local `master`,
 ///   6. literal `"main"` as a last-resort label.
 ///
-/// We never error: if every probe fails we hand back `"main"` and let
-/// `compute_status` set `ahead_of_target = 0` when the ref doesn't resolve.
+/// When no candidate exists we hand back `"main"` and let `compute_status`
+/// set `ahead_of_target = 0` when the ref doesn't resolve. A probe Git fails
+/// to run is an error: it must not silently pick a different target.
 ///
 /// Once the user picks a target for a branch — local `main` *or* remote
 /// `origin/main` — that pick is stored verbatim and step 1 short-circuits
@@ -69,35 +70,24 @@ pub async fn resolve_target_branch(
     // signal — beats every heuristic below.
     // `None` is a detached HEAD: nothing tracks anything.
     if let Some(head) = branch {
-        if let Ok(branch) = commands::get_original_branch(repo, &head).await {
-            return Ok(branch);
-        }
+        // `get_original_branch` already probes everything below — `origin/HEAD`,
+        // `main`, `master` — so finding nothing there leaves only the label.
+        let original = commands::get_original_branch(repo, &head).await?;
+        return Ok(original.unwrap_or_else(|| "main".to_string()));
     }
 
     // Remote default branch — `git symbolic-ref refs/remotes/origin/HEAD`
     // gives `refs/remotes/origin/<name>`. We keep the `origin/` prefix so
     // the snapshot's `ahead_of_target` reflects the remote's tip, not a
     // potentially stale local copy of the same branch.
-    if let Ok(out) = run_git(&["symbolic-ref", "refs/remotes/origin/HEAD"], repo).await {
-        let trimmed = out.trim();
-        if let Some(short) = trimmed.strip_prefix("refs/remotes/") {
-            if !short.is_empty() {
-                return Ok(short.to_string());
-            }
-        }
+    if let Some(remote_head) = commands::origin_head(repo).await? {
+        return Ok(remote_head);
     }
 
-    if run_git(&["rev-parse", "--verify", "main"], repo)
-        .await
-        .is_ok()
-    {
-        return Ok("main".to_string());
-    }
-    if run_git(&["rev-parse", "--verify", "master"], repo)
-        .await
-        .is_ok()
-    {
-        return Ok("master".to_string());
+    for candidate in ["main", "master"] {
+        if git_ref_resolves_background(candidate, repo).await? {
+            return Ok(candidate.to_string());
+        }
     }
     Ok("main".to_string())
 }

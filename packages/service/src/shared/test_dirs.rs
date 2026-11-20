@@ -73,6 +73,16 @@ pub(crate) fn per_thread_dir(prefix: &'static str) -> PathBuf {
     .unwrap_or_else(|_| std::env::temp_dir().join(format!("{prefix}thread-exited")))
 }
 
+/// Whether file permissions bind this process. Root reads and writes through
+/// any mode, so tests that make a file unreadable to provoke a failure have
+/// nothing to observe there (`scripts/linux-container.sh` can run as root).
+#[cfg(unix)]
+pub(crate) fn permissions_bind() -> bool {
+    // SAFETY: `geteuid` has no preconditions and only reads the process's
+    // effective user id.
+    unsafe { libc::geteuid() != 0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::per_thread_dir;

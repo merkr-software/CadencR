@@ -18,8 +18,13 @@ pub async fn get_original_branch(
 ) -> Result<OriginalBranchResponse, AppError> {
     let (project_path, worktree_branch) =
         get_project_and_branch(state, params.project_id, params.feature_id).await?;
-    let original_branch =
-        commands::get_original_branch(Path::new(&project_path), &worktree_branch).await?;
+    let original_branch = commands::get_original_branch(Path::new(&project_path), &worktree_branch)
+        .await?
+        .ok_or_else(|| {
+            AppError::git_command(format!(
+                "Cannot determine original branch for worktree branch: {worktree_branch}"
+            ))
+        })?;
     Ok(OriginalBranchResponse {
         original_branch,
         worktree_branch,

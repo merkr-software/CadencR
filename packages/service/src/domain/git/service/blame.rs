@@ -31,7 +31,7 @@ pub async fn get_blame(
     // fails with "no such path in HEAD" and spams the user with toast errors
     // on every editor open. Cheaper to ask up front.
     if !crate::shared::git_context::has_git_metadata(&project_root).await?
-        || !is_path_tracked(&project_root, &relative).await
+        || !is_path_tracked(&project_root, &relative).await?
     {
         return Ok(BlameResponse { lines: vec![] });
     }
@@ -50,15 +50,14 @@ pub async fn get_blame(
 ///
 /// Uses `git ls-files -- <relative>`: when the path is tracked git prints
 /// it on stdout; for untracked files (including paths outside any repo)
-/// stdout is empty and the exit code is 0. Any spawn / non-repo failure is
-/// treated as "not tracked" — we'd rather skip blame than surface a noisy
-/// error to the user.
-async fn is_path_tracked(cwd: &Path, relative: &str) -> bool {
+/// stdout is empty and the exit code is 0. The caller has already checked
+/// that `cwd` is a repository, so a failure here is a real error, not an
+/// untracked file.
+async fn is_path_tracked(cwd: &Path, relative: &str) -> Result<bool, AppError> {
     let out =
         crate::shared::git_cli::run_git_safe_background(&["ls-files", "-z"], &[], &[relative], cwd)
-            .await
-            .unwrap_or_default();
-    !out.trim().is_empty()
+            .await?;
+    Ok(!out.trim().is_empty())
 }
 
 #[derive(Default)]
@@ -169,7 +168,7 @@ mod tests {
                 .unwrap();
             assert!(s.success());
         }
-        assert!(is_path_tracked(&repo, "a.txt").await);
+        assert!(is_path_tracked(&repo, "a.txt").await.unwrap());
     }
 
     #[tokio::test]
@@ -178,17 +177,17 @@ mod tests {
         std::fs::write(repo.join("ignored.txt"), "hi").unwrap();
         // Untracked on disk but never `git add`ed — this is the node_modules
         // case in production.
-        assert!(!is_path_tracked(&repo, "ignored.txt").await);
+        assert!(!is_path_tracked(&repo, "ignored.txt").await.unwrap());
     }
 
     #[tokio::test]
-    async fn is_path_tracked_returns_false_outside_repo() {
+    async fn is_path_tracked_fails_outside_repo() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = std::fs::canonicalize(dir.path()).unwrap();
-        // No `git init`. `git ls-files` errors out; we map that to "not
-        // tracked" so the renderer just gets an empty blame instead of a
-        // toast.
-        assert!(!is_path_tracked(&cwd, "whatever.txt").await);
+        // No `git init`. `get_blame` answers an empty blame for a folder
+        // without Git metadata before asking; past that check, `ls-files`
+        // failing is a real error, not an untracked file.
+        assert!(is_path_tracked(&cwd, "whatever.txt").await.is_err());
     }
 
     #[test]

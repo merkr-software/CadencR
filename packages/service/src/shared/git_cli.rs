@@ -8,8 +8,8 @@ mod spawn;
 pub mod version;
 
 pub use background::{
-    git_ref_resolves_background, run_git_background, run_git_safe_background,
-    run_git_safe_refs_background,
+    git_ref_resolves_background, run_git_background, run_git_probe_background,
+    run_git_safe_background, run_git_safe_refs_background,
 };
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};
 pub use spawn::{git_command, git_std_command};

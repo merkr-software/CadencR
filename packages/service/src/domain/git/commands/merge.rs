@@ -6,27 +6,29 @@
 use std::path::Path;
 
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_safe_refs};
+use crate::shared::git_cli::{
+    git_ref_resolves_background, guard_positionals, run_git_background, run_git_probe_background,
+};
 
-/// Get the current branch name. Returns None on error (detached HEAD, not a repo).
+/// Get the current branch name: `HEAD` when detached, `None` outside a
+/// repository or on an unborn branch, which has no commit to name yet. Any
+/// other Git failure is an error.
 pub async fn get_current_branch(repo_path: &Path) -> Result<Option<String>, AppError> {
     if !crate::shared::git_context::has_git_metadata(repo_path).await? {
         return Ok(None);
     }
-    match run_git(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path).await {
-        Ok(stdout) => {
-            let branch = stdout.trim().to_string();
-            Ok(if branch.is_empty() {
-                None
-            } else {
-                Some(branch)
-            })
-        }
-        Err(_) => Ok(None),
-    }
+    let stdout = match run_git_background(&["rev-parse", "--abbrev-ref", "HEAD"], repo_path).await {
+        Ok(stdout) => stdout,
+        Err(_) if !git_ref_resolves_background("HEAD", repo_path).await? => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let branch = stdout.trim();
+    Ok((!branch.is_empty()).then(|| branch.to_string()))
 }
 
-/// Detect the original branch from which a worktree branch was created.
+/// Detect the original branch from which a worktree branch was created, or
+/// `None` when no candidate exists. A failing probe is an error, never a
+/// reason to move on to the next candidate.
 ///
 /// Always prefers a remote-tracking ref (e.g. `origin/main`) over the local
 /// branch name so callers comparing against this base see the shared remote
@@ -41,94 +43,84 @@ pub async fn get_current_branch(repo_path: &Path) -> Result<Option<String>, AppE
 pub async fn get_original_branch(
     repo_path: &Path,
     worktree_branch: &str,
-) -> Result<String, AppError> {
+) -> Result<Option<String>, AppError> {
     crate::shared::git_context::require_git_metadata(repo_path).await?;
     // 1. Tracking config — only honor when the remote is `origin`. A merge
     //    target whose remote is anything else (or unset) doesn't tell us the
     //    correct `origin/...` ref, so fall through to the symbolic-ref probe
     //    below rather than guessing.
-    if let Some(remote_ref) = tracking_remote_ref(repo_path, worktree_branch).await {
-        return Ok(remote_ref);
+    if let Some(remote_ref) = tracking_remote_ref(repo_path, worktree_branch).await? {
+        return Ok(Some(remote_ref));
     }
 
     // 2. Remote HEAD — keep the `origin/` prefix so callers compare against
     //    the remote tip, not a (possibly stale) local branch with the same
     //    short name.
-    if let Ok(stdout) = run_git_safe_refs(
-        &["symbolic-ref"],
-        &[],
-        &["refs/remotes/origin/HEAD"],
-        repo_path,
-    )
-    .await
-    {
-        let remote_head = stdout.trim();
-        if let Some(short) = remote_head.strip_prefix("refs/remotes/") {
-            if !short.is_empty() {
-                return Ok(short.to_string());
-            }
-        }
+    if let Some(remote_head) = origin_head(repo_path).await? {
+        return Ok(Some(remote_head));
     }
 
     // 3. Remote `main` / `master` before any local fallback.
-    for candidate in &["origin/main", "origin/master"] {
-        if run_git_safe_refs(&["rev-parse"], &["--verify"], &[candidate], repo_path)
-            .await
-            .is_ok()
-        {
-            return Ok((*candidate).to_string());
-        }
-    }
-
     // 4. Local-branch last resort. We only land here when there is no remote
     //    at all (e.g. a brand-new repo without an `origin`).
-    for candidate in &["main", "master", "develop", "trunk"] {
-        if run_git_safe_refs(&["rev-parse"], &["--verify"], &[candidate], repo_path)
-            .await
-            .is_ok()
-        {
-            return Ok((*candidate).to_string());
+    for candidate in [
+        "origin/main",
+        "origin/master",
+        "main",
+        "master",
+        "develop",
+        "trunk",
+    ] {
+        if git_ref_resolves_background(candidate, repo_path).await? {
+            return Ok(Some(candidate.to_string()));
         }
     }
+    Ok(None)
+}
 
-    Err(AppError::git_command(format!(
-        "Cannot determine original branch for worktree branch: {worktree_branch}"
-    )))
+/// `origin/<name>` from the `refs/remotes/origin/HEAD` symbolic ref, or `None`
+/// when the repository has none.
+pub(crate) async fn origin_head(repo_path: &Path) -> Result<Option<String>, AppError> {
+    let args = ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"];
+    let Some(stdout) = run_git_probe_background(&args, repo_path).await? else {
+        return Ok(None);
+    };
+    Ok(stdout
+        .trim()
+        .strip_prefix("refs/remotes/")
+        .filter(|short| !short.is_empty())
+        .map(str::to_string))
 }
 
 /// If `branch.<branch>.remote == origin` and `branch.<branch>.merge` resolves
 /// to a different `refs/heads/<name>`, return `origin/<name>`. Returns `None`
 /// for any other configuration (including a non-origin remote, where we don't
 /// know what ref to compare against).
-async fn tracking_remote_ref(repo_path: &Path, branch: &str) -> Option<String> {
+async fn tracking_remote_ref(repo_path: &Path, branch: &str) -> Result<Option<String>, AppError> {
     let remote_key = format!("branch.{branch}.remote");
     let merge_key = format!("branch.{branch}.merge");
+    guard_positionals(&[&remote_key, &merge_key])?;
 
-    let remote = run_git_safe_refs(&["config"], &["--get"], &[&remote_key], repo_path)
-        .await
-        .ok()
-        .map(|s| s.trim().to_string())?;
-    if remote != "origin" {
-        return None;
+    let remote = run_git_probe_background(&["config", "--get", &remote_key], repo_path).await?;
+    if remote.as_deref().map(str::trim) != Some("origin") {
+        return Ok(None);
     }
-
-    let merge = run_git_safe_refs(&["config"], &["--get"], &[&merge_key], repo_path)
-        .await
-        .ok()
-        .map(|s| s.trim().to_string())?;
-    let short = merge.strip_prefix("refs/heads/").unwrap_or(&merge);
-    if short.is_empty() {
-        return None;
+    let Some(merge) = run_git_probe_background(&["config", "--get", &merge_key], repo_path).await?
+    else {
+        return Ok(None);
+    };
+    let merge = merge.trim();
+    let short = merge.strip_prefix("refs/heads/").unwrap_or(merge);
+    if short.is_empty() || short == branch {
+        return Ok(None);
     }
-    if short == branch {
-        return None;
-    }
-    Some(format!("origin/{short}"))
+    Ok(Some(format!("origin/{short}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::git_cli::run_git;
 
     async fn init_test_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
@@ -248,7 +240,10 @@ mod tests {
             .await
             .unwrap();
 
-        let resolved = get_original_branch(path, "feature/anything").await.unwrap();
+        let resolved = get_original_branch(path, "feature/anything")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             resolved, "origin/main",
             "fallback must keep the `origin/` prefix so a stale local main \
@@ -280,7 +275,10 @@ mod tests {
         .await
         .unwrap();
 
-        let resolved = get_original_branch(path, "feature/x").await.unwrap();
+        let resolved = get_original_branch(path, "feature/x")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(resolved, "origin/main");
     }
 
@@ -316,7 +314,29 @@ mod tests {
         .await
         .unwrap();
 
-        let resolved = get_original_branch(path, "feature/x").await.unwrap();
+        let resolved = get_original_branch(path, "feature/x")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(resolved, "origin/main");
+    }
+
+    /// No candidate is an answer (`None`); an unborn branch has no current
+    /// branch to name; a `HEAD` Git cannot read is an error, where both used
+    /// to read as "nothing found".
+    #[tokio::test]
+    async fn branch_probes_tell_absence_from_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        run_git(&["init", "-q"], path).await.unwrap();
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/topic"], path)
+            .await
+            .unwrap();
+        assert_eq!(get_current_branch(path).await.unwrap(), None);
+        assert_eq!(get_original_branch(path, "topic").await.unwrap(), None);
+
+        std::fs::write(path.join(".git/HEAD"), "ref: refs/heads/topic\n").unwrap();
+        std::fs::write(path.join(".git/packed-refs"), "not a packed-refs file\n").unwrap();
+        assert!(get_original_branch(path, "topic").await.is_err());
     }
 }

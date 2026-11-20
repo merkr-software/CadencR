@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use crate::domain::git::file_size::classify_content_bytes;
 use crate::domain::git::models::FileContentBatchItem;
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git_safe_refs, run_git_safe_refs_bytes};
+use crate::shared::git_cli::{
+    git_ref_resolves_background, run_git_background, run_git_safe_refs, run_git_safe_refs_bytes,
+};
 use crate::shared::git_z;
-
-use super::util::run_git_quiet;
 
 fn resolve_worktree_file(
     worktree_path: &Path,
@@ -18,9 +18,14 @@ fn resolve_worktree_file(
     let canonical_worktree = worktree_path
         .canonicalize()
         .map_err(|e| AppError::BadRequest(format!("Invalid worktree path: {e}")))?;
-    let canonical_file = worktree_path.join(file_path).canonicalize().ok();
-    let Some(canonical_file) = canonical_file else {
-        return Ok(None);
+    let canonical_file = match worktree_path.join(file_path).canonicalize() {
+        Ok(canonical_file) => canonical_file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(AppError::internal(format!(
+                "cannot resolve {file_path}: {error}"
+            )))
+        }
     };
     if !canonical_file.starts_with(&canonical_worktree) {
         return Err(AppError::BadRequest("Path traversal not allowed".into()));
@@ -51,15 +56,66 @@ pub async fn get_file_bytes(
         }
         Some(reference) => {
             let show_arg = format!("{reference}:{file_path}");
-            let len = run_git_safe_refs(&["cat-file"], &["-s"], &[&show_arg], worktree_path)
-                .await?
-                .trim()
-                .parse::<u64>()
-                .map_err(|_| AppError::git_command("git returned an invalid blob size"))?;
-            ensure_file_size(len, max_bytes)?;
+            // Unbounded reads skip the size probe: it could never refuse them.
+            if max_bytes != usize::MAX {
+                let len = run_git_safe_refs(&["cat-file"], &["-s"], &[&show_arg], worktree_path)
+                    .await?
+                    .trim()
+                    .parse::<u64>()
+                    .map_err(|_| AppError::git_command("git returned an invalid blob size"))?;
+                ensure_file_size(len, max_bytes)?;
+            }
             run_git_safe_refs_bytes(&["show"], &[], &[&show_arg], worktree_path).await
         }
     }
+}
+
+/// One side of a file diff: the bytes at `ref_spec` (the working tree when
+/// `None`), or `None` when that side has no such file — the file was added or
+/// deleted. Every other failure is an error: a ref that does not resolve or a
+/// Git read that fails must never pass for an added or deleted file.
+pub async fn get_diff_side_bytes(
+    worktree_path: &Path,
+    file_path: &str,
+    ref_spec: Option<&str>,
+) -> Result<Option<Vec<u8>>, AppError> {
+    let error = match get_file_bytes(worktree_path, file_path, ref_spec, usize::MAX).await {
+        Ok(bytes) => return Ok(Some(bytes)),
+        Err(error) => error,
+    };
+    let absent = match ref_spec {
+        None => matches!(error, AppError::NotFound(_)),
+        Some(reference) => path_absent_from_tree(worktree_path, reference, file_path).await?,
+    };
+    if absent {
+        Ok(None)
+    } else {
+        Err(error)
+    }
+}
+
+/// True only when `reference` stands for a tree that lacks `file_path`: a
+/// tree without that entry, the `HEAD` of an unborn branch, or the parent
+/// (`<commit>^`) of a root commit — both of which stand for the empty tree,
+/// so every file is an addition. Any other reference that names no tree is a
+/// failed read, not an absence.
+async fn path_absent_from_tree(
+    worktree_path: &Path,
+    reference: &str,
+    file_path: &str,
+) -> Result<bool, AppError> {
+    let resolves =
+        |rev: String| async move { git_ref_resolves_background(&rev, worktree_path).await };
+    if !resolves(format!("{reference}^{{tree}}")).await? {
+        if reference == "HEAD" {
+            return Ok(true);
+        }
+        return match reference.strip_suffix('^') {
+            Some(commit) => resolves(commit.to_string()).await,
+            None => Ok(false),
+        };
+    }
+    Ok(!resolves(format!("{reference}:{file_path}")).await?)
 }
 
 fn ensure_file_size(len: u64, max_bytes: usize) -> Result<(), AppError> {
@@ -72,7 +128,8 @@ fn ensure_file_size(len: u64, max_bytes: usize) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Get file content for multiple files (batch).
+/// Get file content for multiple files (batch). A side that cannot be read
+/// fails the whole batch rather than rendering as an added or deleted file.
 ///
 /// We fetch both sides of every file (same per-file cost as the original
 /// implementation) and then derive size + binary + large flags from the
@@ -98,29 +155,29 @@ pub async fn get_file_content_batch(
     let old_ref = old_ref.to_string();
     let new_ref = new_ref.map(|s| s.to_string());
 
-    let items: Vec<FileContentBatchItem> = stream::iter(file_paths.to_vec())
+    let items: Vec<Result<FileContentBatchItem, AppError>> = stream::iter(file_paths.to_vec())
         .map(|file_path| {
             let git_path = git_path.clone();
             let old_ref = old_ref.clone();
             let new_ref = new_ref.clone();
             async move {
-                let (old, new) = tokio::join!(
-                    get_file_bytes(&git_path, &file_path, Some(&old_ref), usize::MAX),
-                    get_file_bytes(&git_path, &file_path, new_ref.as_deref(), usize::MAX),
-                );
-                classify_content_bytes(
+                let (old, new) = tokio::try_join!(
+                    get_diff_side_bytes(&git_path, &file_path, Some(&old_ref)),
+                    get_diff_side_bytes(&git_path, &file_path, new_ref.as_deref()),
+                )?;
+                Ok(classify_content_bytes(
                     file_path,
                     old.unwrap_or_default(),
                     new.unwrap_or_default(),
                     /* keep_large_content */ false,
-                )
+                ))
             }
         })
         .buffer_unordered(20)
         .collect()
         .await;
 
-    Ok(items)
+    items.into_iter().collect()
 }
 
 /// List files in the worktree the user might want to open from Cmd+P:
@@ -130,7 +187,7 @@ pub async fn get_file_content_batch(
 /// hand, so this endpoint deliberately steps around `.gitignore` for the
 /// env-file allowlist while leaving every other untracked path alone.
 pub async fn list_files(worktree_path: &Path) -> Result<Vec<String>, AppError> {
-    let stdout = run_git_quiet(&["ls-files", "-z"], worktree_path).await;
+    let stdout = run_git_background(&["ls-files", "-z"], worktree_path).await?;
     let mut files = git_z::paths(&stdout);
 
     // The env-file scan touches the filesystem; do it off the runtime
@@ -259,5 +316,93 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
         }
+    }
+
+    fn committed_repo() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        git(&["init", "-q", "-b", "main"], root);
+        git(&["config", "user.email", "test@example.com"], root);
+        git(&["config", "user.name", "Test"], root);
+        git(&["config", "commit.gpgsign", "false"], root);
+        std::fs::write(root.join("kept.txt"), "kept\n").unwrap();
+        git(&["add", "kept.txt"], root);
+        git(&["commit", "-q", "-m", "root"], root);
+        tmp
+    }
+
+    /// Only a side whose tree (or working tree) lacks the file reads as an
+    /// addition or deletion. A ref that does not resolve used to read the
+    /// same way, turning a Git failure into a whole-file add/delete diff.
+    #[tokio::test]
+    async fn diff_sides_tell_an_absent_file_from_a_failed_read() {
+        let tmp = committed_repo();
+        let root = tmp.path();
+
+        let kept = get_diff_side_bytes(root, "kept.txt", Some("HEAD")).await;
+        assert_eq!(kept.unwrap().as_deref(), Some(&b"kept\n"[..]));
+        assert_eq!(
+            get_diff_side_bytes(root, "new.txt", Some("HEAD"))
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            get_diff_side_bytes(root, "gone.txt", None).await.unwrap(),
+            None
+        );
+
+        assert!(get_diff_side_bytes(root, "kept.txt", Some("missing"))
+            .await
+            .is_err());
+        let batch = get_file_content_batch(root, &["kept.txt".into()], "missing", None).await;
+        assert!(batch.is_err());
+    }
+
+    /// An unreadable working-tree file is a failure, not a deleted file.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unreadable_worktree_file_is_not_a_deletion() {
+        if !crate::shared::test_dirs::permissions_bind() {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let tmp = committed_repo();
+        let root = tmp.path();
+        let locked = root.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("secret.txt"), "x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let result = get_diff_side_bytes(root, "locked/secret.txt", None).await;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err(), "{result:?}");
+    }
+
+    /// The parent of a root commit and the `HEAD` of an unborn branch stand
+    /// for the empty tree: every file is an addition there, not a failed read.
+    #[tokio::test]
+    async fn a_root_commit_and_an_unborn_branch_read_as_empty_bases() {
+        let tmp = committed_repo();
+        let root = tmp.path();
+        assert_eq!(
+            get_diff_side_bytes(root, "kept.txt", Some("HEAD^"))
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(get_diff_side_bytes(root, "kept.txt", Some("missing^"))
+            .await
+            .is_err());
+
+        let unborn = tempfile::tempdir().expect("tempdir");
+        git(&["init", "-q"], unborn.path());
+        std::fs::write(unborn.path().join("draft.txt"), "x").unwrap();
+        assert_eq!(
+            get_diff_side_bytes(unborn.path(), "draft.txt", Some("HEAD"))
+                .await
+                .unwrap(),
+            None
+        );
     }
 }

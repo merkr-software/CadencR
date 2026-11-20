@@ -7,13 +7,13 @@ use std::path::Path;
 use crate::domain::git::models::GitStats;
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    guard_positionals, run_git_safe_background, run_git_safe_refs_background,
+    guard_positionals, run_git_background, run_git_safe_background, run_git_safe_refs_background,
 };
 use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::{count_untracked_lines, synthesize_untracked_new_file_diff};
-use super::util::{run_git_quiet, FirstParentDiff};
+use super::util::FirstParentDiff;
 
 /// Parse git diff --stat summary line.
 pub(super) fn parse_stat_line(output: &str) -> GitStats {
@@ -38,6 +38,28 @@ pub(super) fn parse_stat_line(output: &str) -> GitStats {
     }
 }
 
+/// `git diff <target>...HEAD <flags>`, the branch-mode comparison. A target
+/// that does not resolve is an error here, as it is for the changed-file list
+/// and the per-file diff of the same view — never a silent "no changes".
+async fn branch_diff(
+    worktree_path: &Path,
+    target_branch: Option<&str>,
+    flags: &[&str],
+) -> Result<String, AppError> {
+    let branch = target_branch.unwrap_or("main");
+    guard_positionals(&[branch])?;
+    let range = format!("{branch}...HEAD");
+    run_git_safe_refs_background(&["diff"], flags, &[&range], worktree_path).await
+}
+
+async fn list_untracked(worktree_path: &Path) -> Result<String, AppError> {
+    run_git_background(
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+        worktree_path,
+    )
+    .await
+}
+
 /// Get git diff stats.
 pub async fn get_stats(
     worktree_path: &Path,
@@ -45,21 +67,16 @@ pub async fn get_stats(
     target_branch: Option<&str>,
 ) -> Result<GitStats, AppError> {
     if mode == "branch" {
-        let branch = target_branch.unwrap_or("main");
-        let diff_arg = format!("{branch}...HEAD");
-        let stdout = run_git_quiet(&["diff", &diff_arg, "--stat"], worktree_path).await;
+        let stdout = branch_diff(worktree_path, target_branch, &["--stat"]).await?;
         return Ok(parse_stat_line(&stdout));
     }
 
     // Worktree mode: unstaged + staged + untracked
-    let (unstaged, staged, untracked) = tokio::join!(
-        run_git_quiet(&["diff", "--stat"], worktree_path),
-        run_git_quiet(&["diff", "--cached", "--stat"], worktree_path),
-        run_git_quiet(
-            &["ls-files", "--others", "--exclude-standard", "-z"],
-            worktree_path
-        ),
-    );
+    let (unstaged, staged, untracked) = tokio::try_join!(
+        run_git_background(&["diff", "--stat"], worktree_path),
+        run_git_background(&["diff", "--cached", "--stat"], worktree_path),
+        list_untracked(worktree_path),
+    )?;
 
     let mut stats_unstaged = parse_stat_line(&unstaged);
     let stats_staged = parse_stat_line(&staged);
@@ -89,20 +106,15 @@ pub async fn get_diff(
     target_branch: Option<&str>,
 ) -> Result<String, AppError> {
     if mode == "branch" {
-        let branch = target_branch.unwrap_or("main");
-        let diff_arg = format!("{branch}...HEAD");
-        return Ok(run_git_quiet(&["diff", &diff_arg], worktree_path).await);
+        return branch_diff(worktree_path, target_branch, &[]).await;
     }
 
     // Worktree mode
-    let (unstaged, staged, untracked_list) = tokio::join!(
-        run_git_quiet(&["diff"], worktree_path),
-        run_git_quiet(&["diff", "--cached"], worktree_path),
-        run_git_quiet(
-            &["ls-files", "--others", "--exclude-standard", "-z"],
-            worktree_path
-        ),
-    );
+    let (unstaged, staged, untracked_list) = tokio::try_join!(
+        run_git_background(&["diff"], worktree_path),
+        run_git_background(&["diff", "--cached"], worktree_path),
+        list_untracked(worktree_path),
+    )?;
 
     let mut result = unstaged;
     result.push_str(&staged);
@@ -112,7 +124,7 @@ pub async fn get_diff(
     // untracked file is bounded per-file (see `untracked`) so a giant generated
     // file can't blow up the aggregate response.
     for file in git_z::paths(&untracked_list) {
-        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await {
+        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await? {
             result.push_str(&block);
         }
     }
@@ -221,7 +233,7 @@ pub async fn get_file_diff(
         .any(|path| path == file_path)
     {
         return Ok(
-            match synthesize_untracked_new_file_diff(worktree_path, file_path).await {
+            match synthesize_untracked_new_file_diff(worktree_path, file_path).await? {
                 Some(block) => block,
                 // Synthesis skips binary (and too-large-binary) untracked files.
                 // The aggregate diff just omits them, but a per-file request
@@ -523,6 +535,29 @@ mod tests {
         assert!(diff.contains("+hello"), "{diff}");
 
         assert!(get_commit_diff(root, "deadbeef").await.is_err());
+    }
+
+    /// A missing target branch or an unreadable repository must fail the
+    /// aggregate diff and its stats, not report a clean "0 files changed".
+    #[tokio::test]
+    async fn aggregate_diff_and_stats_surface_git_failures() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        init_repo(root);
+        std::fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&["add", "."], root);
+        git(&["commit", "-q", "-m", "init"], root);
+        std::fs::write(root.join("a.txt"), "two\n").unwrap();
+
+        let stats = get_stats(root, "worktree", None).await.unwrap();
+        assert_eq!(stats.files_changed, 1);
+        assert!(get_stats(root, "branch", Some("missing")).await.is_err());
+        assert!(get_diff(root, "branch", Some("missing")).await.is_err());
+        assert!(get_stats(root, "branch", Some("--output=x")).await.is_err());
+
+        let not_repo = tempfile::tempdir().expect("tempdir");
+        assert!(get_stats(not_repo.path(), "worktree", None).await.is_err());
+        assert!(get_diff(not_repo.path(), "worktree", None).await.is_err());
     }
 
     #[test]
