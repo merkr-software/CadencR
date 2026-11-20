@@ -19,7 +19,8 @@ import {
   getListDiffCommentsQueryKey,
 } from "@/api/generated";
 import { findStalePendingCommentIds } from "@/lib/diff-comment-validity";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
+import { selectGitMissingTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
 
 // Module-scoped dedupe state for the auto-invalidation effect below. Multiple
 // `DiffViewer`s can mount simultaneously; using
@@ -93,6 +94,22 @@ export function seedBatchFileContentCache(
  */
 export type DiffMode = "worktree" | "branch" | "uncommitted";
 
+/**
+ * Why review-comment checks are paused, or `null`. A target branch that does
+ * not exist pauses them by design — without it, committed files cannot be
+ * told from deleted ones — and the "vs target" view already says so: no
+ * second message for that.
+ */
+export function blobShasErrorMessage(
+  isError: boolean,
+  error: unknown,
+  targetMissing: boolean,
+): string | null {
+  if (!isError) return null;
+  if (targetMissing && apiErrorCode(error) === "CONFLICT") return null;
+  return apiErrorMessage(error, "Failed to read file versions");
+}
+
 export function changedFilesErrorMessage(isError: boolean, error: unknown): string | null {
   return isError ? apiErrorMessage(error, "Failed to load changed files") : null;
 }
@@ -132,9 +149,12 @@ function useViewedFiles(featureId: number, queryClient: QueryClient) {
     }
     return map;
   }, [blobShasQuery.data]);
-  const blobShasError = blobShasQuery.isError
-    ? apiErrorMessage(blobShasQuery.error, "Failed to read file versions")
-    : null;
+  const missingTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
+  const blobShasError = blobShasErrorMessage(
+    blobShasQuery.isError,
+    blobShasQuery.error,
+    missingTargetBranch !== undefined,
+  );
   useEffect(() => {
     if (!blobShasError) return;
     toast.error(`Review comment checks paused: ${blobShasError}`, {

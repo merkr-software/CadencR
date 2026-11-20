@@ -1,6 +1,11 @@
+import { AxiosError, AxiosHeaders } from "axios";
 import { describe, it, expect, vi } from "vitest";
 import type { QueryClient } from "@tanstack/react-query";
-import { changedFilesErrorMessage, seedBatchFileContentCache } from "./useDiffData";
+import {
+  blobShasErrorMessage,
+  changedFilesErrorMessage,
+  seedBatchFileContentCache,
+} from "./useDiffData";
 import type { FileContent, FileContentBatchItem, GetFileContentBatchBody } from "@/api/generated";
 
 function makeBatchItem(file_path: string, suffix: string): FileContentBatchItem {
@@ -144,5 +149,25 @@ describe("changedFilesErrorMessage", () => {
 
   it("does not synthesize an error for a successful empty list", () => {
     expect(changedFilesErrorMessage(false, undefined)).toBeNull();
+  });
+});
+
+describe("blobShasErrorMessage", () => {
+  const conflict = new AxiosError("Request failed", "ERR_BAD_REQUEST", undefined, undefined, {
+    status: 409,
+    statusText: "Conflict",
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+    data: { error: "Target branch 'main' does not exist", code: "CONFLICT" },
+  });
+
+  it("stays quiet about a target branch the status already reports missing", () => {
+    expect(blobShasErrorMessage(true, conflict, true)).toBeNull();
+  });
+
+  it("reports the pause otherwise", () => {
+    expect(blobShasErrorMessage(true, conflict, false)).toBe("Target branch 'main' does not exist");
+    expect(blobShasErrorMessage(true, new Error("disk"), true)).toBe("disk");
+    expect(blobShasErrorMessage(false, null, false)).toBeNull();
   });
 });

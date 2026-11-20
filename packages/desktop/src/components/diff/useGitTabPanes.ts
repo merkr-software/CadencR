@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useGetStats } from "@/api/generated";
 import { selectGitMissingTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
+import type { GitTabToolbarProps } from "./GitTabToolbar";
 import type { GitViewMode } from "./GitTabToggle";
 import type { DiffMode } from "./useDiffData";
 
@@ -10,7 +11,7 @@ export interface GitTabPanes {
   isPr: boolean;
   diffMode: DiffMode;
   diffTargetBranch: string | undefined;
-  stats: { isLoading: boolean; isError: boolean; additions?: number; deletions?: number };
+  stats: GitTabToolbarProps["stats"];
 }
 
 /**
@@ -55,8 +56,10 @@ export function useGitTabPanes(
       diffTargetBranch,
       stats: {
         isLoading: statsQuery.isLoading,
-        // No target to diff against: no figures, rather than a made-up "+0 −0".
-        isError: statsQuery.isError || missingTargetBranch !== undefined,
+        isError: statsQuery.isError,
+        // No target to diff against: no figures, rather than a made-up "+0 −0"
+        // or a second, red message beside the view's own.
+        hidden: missingTargetBranch !== undefined,
         additions: statsQuery.data?.insertions,
         deletions: statsQuery.data?.deletions,
       },
