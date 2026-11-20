@@ -168,7 +168,7 @@ impl AgentRuntimeAdapter for CodexAdapter {
         config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
         let client =
-            CodexAppServerClient::spawn_with_options(profile_runtime::app_server_spawn_options(
+            CodexAppServerClient::spawn_with_options(spawn_options::app_server_spawn_options(
                 config.env.clone(),
                 config.env_unset.clone(),
                 Some(config.cwd.clone()),

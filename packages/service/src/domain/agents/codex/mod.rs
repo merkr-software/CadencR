@@ -60,6 +60,7 @@ mod runtime_error;
 mod server_request_method;
 mod session;
 mod session_permissions;
+mod spawn_options;
 mod thread_params;
 mod timeouts;
 mod trusted_mcp;
@@ -193,7 +194,7 @@ include!("adapter_impl.rs");
 
 #[cfg(test)]
 mod tests {
-    use super::{catalog_from_models, model_entry, profile_runtime, CodexAdapter};
+    use super::{catalog_from_models, model_entry, CodexAdapter};
     use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeUserShellStrategy};
     use codex_app_server_sdk_rs::{CodexModel, CodexServiceTier};
     use serde_json::Value;
@@ -325,20 +326,6 @@ mod tests {
             adapter.canonicalize_model_id("gpt-5.6-sol", &catalog.models),
             "gpt-5.6-sol"
         );
-    }
-
-    #[test]
-    fn enables_request_user_input_in_default_mode() {
-        let options = profile_runtime::app_server_spawn_options(None, Vec::new(), None);
-        assert!(options
-            .enable_features
-            .contains(&"default_mode_request_user_input".to_string()));
-    }
-
-    #[test]
-    fn leaves_live_request_timeout_to_sdk_default() {
-        let options = profile_runtime::app_server_spawn_options(None, Vec::new(), None);
-        assert!(options.request_timeout.is_none());
     }
 
     #[test]

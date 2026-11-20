@@ -1,7 +1,7 @@
 use codex_app_server_sdk_rs::{CodexAppServerClient, CodexCommandKind};
 
 use super::timeouts::{with_probe_timeout, PROBE_TIMEOUT};
-use super::{profile_runtime::app_server_spawn_options, CodexAdapter};
+use super::{spawn_options::app_server_spawn_options, CodexAdapter};
 use crate::domain::agents::adapter::{
     AgentRuntimeAdapter, RuntimeError, RuntimeSlashCommand, RuntimeSlashCommandKind,
 };
