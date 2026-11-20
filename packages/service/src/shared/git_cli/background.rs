@@ -2,9 +2,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
-use super::{
-    run_raw_observer, safe_path_args, safe_ref_args, sanitize_git_stderr, validate_positionals,
-};
+use super::{git_failure, run_raw_observer, safe_path_args, safe_ref_args, validate_positionals};
 
 /// Run a **periodic / read-style** git command with `--no-optional-locks`
 /// so it can't race a concurrent user-initiated mutation (`git rebase`,
@@ -26,28 +24,32 @@ pub async fn run_git_background(args: &[&str], cwd: &Path) -> Result<String, App
 /// from an actual repository or spawn failure.
 pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<bool, AppError> {
     validate_positionals(&[reference])?;
-    let args = prepend_no_optional_locks(&["rev-parse", "--verify", "--quiet", reference]);
-    let output = super::git_command()
-        .kill_on_drop(true)
-        .args(&args)
-        .current_dir(cwd)
-        .output()
-        .await
-        .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))?;
+    let args = ["rev-parse", "--verify", "--quiet", reference];
+    Ok(run_git_probe_background(&args, cwd).await?.is_some())
+}
+
+/// Run a background Git query whose "nothing there" answer is exit status 1
+/// with an empty stderr: `config --get`, `symbolic-ref --quiet`,
+/// `show-ref --verify --quiet`, `rev-parse --verify --quiet`. That answer is
+/// `Ok(None)`; every other failure is an error, so a broken repository or a
+/// missing `git` never reads as an absent value. Callers guard any
+/// user-controlled positional first.
+pub async fn run_git_probe_background(
+    args: &[&str],
+    cwd: &Path,
+) -> Result<Option<String>, AppError> {
+    let args = prepend_no_optional_locks(args);
+    let output = output_background(&args, cwd).await?;
     if output.status.success() {
-        return Ok(true);
+        return Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned()));
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     if output.status.code() == Some(1) && stderr.trim().is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
-    // A background probe failing is plumbing, not a refusal the user asked
-    // for: it stays an internal (masked, reported) error.
-    Err(AppError::git_command(format!(
-        "git {} failed: {}",
-        args.join(" "),
-        sanitize_git_stderr(stderr.trim())
-    )))
+    // The same user-facing (path-redacted) error any other Git read reports:
+    // the view that asked shows why, instead of an opaque internal error.
+    Err(git_failure(&args, &stderr))
 }
 
 /// Read-only counterpart to `run_git_safe`. It preserves pathspec validation
@@ -76,6 +78,54 @@ pub async fn run_git_safe_refs_background(
     let safe_args = safe_ref_args(subcommand_args, flags, positionals);
     let args = prepend_no_optional_locks(&safe_args);
     run_raw_observer(&args, cwd).await
+}
+
+/// Whether `HEAD` is the unborn branch of a repository with no commit yet,
+/// proven rather than inferred from a failed lookup: `rev-parse --verify
+/// --quiet HEAD` exits 1 without a word both for an unborn branch and for a
+/// branch whose ref file holds garbage. Unborn means `HEAD` is a symbolic ref
+/// to a branch that does not exist at all; a branch ref that exists but cannot
+/// be read is reported by `for-each-ref` ("ignoring broken ref") and is not.
+/// Callers ask only once `HEAD` failed to resolve.
+pub async fn head_is_unborn(cwd: &Path) -> Result<bool, AppError> {
+    let Some(target) = run_git_probe_background(&["symbolic-ref", "--quiet", "HEAD"], cwd).await?
+    else {
+        // A detached `HEAD` always names an object, broken or not.
+        return Ok(false);
+    };
+    let target = target.trim();
+    validate_positionals(&[target])?;
+    let args = prepend_no_optional_locks(&["for-each-ref", "--format=%(refname)", target]);
+    let output = output_background(&args, cwd).await?;
+    if !output.status.success() {
+        return Err(git_failure(&args, &String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(output.stdout.trim_ascii().is_empty() && output.stderr.trim_ascii().is_empty())
+}
+
+/// Whether `HEAD` names a commit: `false` only for a proven unborn branch (see
+/// [`head_is_unborn`]); a `HEAD` that resolves to nothing for any other reason
+/// is an error.
+pub async fn head_commit_exists(cwd: &Path) -> Result<bool, AppError> {
+    if git_ref_resolves_background("HEAD", cwd).await? {
+        return Ok(true);
+    }
+    if head_is_unborn(cwd).await? {
+        return Ok(false);
+    }
+    Err(AppError::git_rejected(
+        "HEAD does not name a commit: the branch it points to cannot be read",
+    ))
+}
+
+async fn output_background(args: &[&str], cwd: &Path) -> Result<std::process::Output, AppError> {
+    super::git_command()
+        .kill_on_drop(true)
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await
+        .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))
 }
 
 fn prepend_no_optional_locks<'a>(args: &[&'a str]) -> Vec<&'a str> {
@@ -110,6 +160,83 @@ mod tests {
         );
     }
 
+    /// Exit 1 without a message is the probes' "absent"; the same probe in a
+    /// directory that is no repository must fail instead of reading as absent.
+    #[tokio::test]
+    async fn probe_separates_an_absent_value_from_a_failure() {
+        let repo = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let symref = ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"];
+        assert_eq!(
+            run_git_probe_background(&symref, repo.path())
+                .await
+                .unwrap(),
+            None
+        );
+        let config = ["config", "--get", "core.bare"];
+        assert_eq!(
+            run_git_probe_background(&config, repo.path())
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("false\n")
+        );
+
+        let not_repo = tempfile::tempdir().unwrap();
+        let error = run_git_probe_background(&symref, not_repo.path())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
+    }
+
+    fn git(args: &[&str], cwd: &Path) {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+
+    /// An unborn branch is proven; a branch ref holding garbage reads exactly
+    /// like one to `rev-parse --verify --quiet HEAD` and must not pass for it.
+    #[tokio::test]
+    async fn an_unborn_branch_is_proven_not_inferred_from_a_failed_lookup() {
+        let repo = tempfile::tempdir().unwrap();
+        git(&["init", "-q"], repo.path());
+        git(&["symbolic-ref", "HEAD", "refs/heads/topic"], repo.path());
+        assert!(head_is_unborn(repo.path()).await.unwrap());
+        assert!(!head_commit_exists(repo.path()).await.unwrap());
+
+        git(
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "i",
+            ],
+            repo.path(),
+        );
+        assert!(head_commit_exists(repo.path()).await.unwrap());
+
+        std::fs::write(repo.path().join(".git/refs/heads/topic"), "invalid\n").unwrap();
+        assert!(!git_ref_resolves_background("HEAD", repo.path())
+            .await
+            .unwrap());
+        assert!(!matches!(head_is_unborn(repo.path()).await, Ok(true)));
+        assert!(head_commit_exists(repo.path()).await.is_err());
+    }
+
     #[tokio::test]
     async fn ref_probe_distinguishes_missing_ref_from_repository_error() {
         let repo = tempfile::tempdir().unwrap();
@@ -127,6 +254,6 @@ mod tests {
         let error = git_ref_resolves_background("HEAD", not_repo.path())
             .await
             .unwrap_err();
-        assert!(matches!(error, AppError::GitCommandError(_)), "{error:?}");
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
     }
 }

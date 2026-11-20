@@ -4,14 +4,16 @@ use crate::error::AppError;
 
 mod background;
 mod read_only;
+mod redact;
 mod spawn;
 pub mod version;
 
 pub use background::{
-    git_ref_resolves_background, run_git_background, run_git_safe_background,
-    run_git_safe_refs_background,
+    git_ref_resolves_background, head_commit_exists, head_is_unborn, run_git_background,
+    run_git_probe_background, run_git_safe_background, run_git_safe_refs_background,
 };
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};
+use redact::redact_paths;
 pub use spawn::{git_command, git_std_command};
 
 /// Run a git command with the given arguments in the specified working directory.
@@ -323,14 +325,6 @@ fn scrub_home_prefix(s: &str) -> String {
         return s.to_string();
     }
     s.replace(home_str.as_ref(), "~")
-}
-
-/// Replace absolute paths with `<path>`.
-fn redact_paths(text: &str) -> String {
-    use regex_lite::Regex;
-    static PATH_RE: std::sync::LazyLock<Regex> =
-        std::sync::LazyLock::new(|| Regex::new(r"(/[a-zA-Z0-9_.~\-]+){2,}").unwrap());
-    PATH_RE.replace_all(text, "<path>").into_owned()
 }
 
 const GIT_STDERR_MAX_CHARS: usize = 200;

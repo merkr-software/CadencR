@@ -28,6 +28,12 @@ function renderToolbar(overrides: Partial<GitTabToolbarProps> = {}) {
 }
 
 describe("GitTabToolbar", () => {
+  it("shows no stat at all when there is no diff to measure", () => {
+    renderToolbar({ stats: { isLoading: false, isError: false, hidden: true } });
+    expect(screen.queryByText("Stats unavailable")).toBeNull();
+    expect(screen.queryByText("+0")).toBeNull();
+  });
+
   it("puts the file-list toggle before the tabs and the numstat last", () => {
     renderToolbar();
 

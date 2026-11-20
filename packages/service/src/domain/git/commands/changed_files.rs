@@ -13,7 +13,7 @@ use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::count_untracked_lines;
-use super::util::FirstParentDiff;
+use super::util::{branch_read_error, FirstParentDiff};
 
 /// Get list of changed files with per-file stats.
 ///
@@ -40,12 +40,16 @@ pub async fn get_changed_files(
     crate::shared::git_cli::guard_positionals(&[branch])?;
     let diff_arg = format!("{branch}...HEAD");
 
-    let name_status_args = ["diff", "--name-status", "-z", diff_arg.as_str()];
-    let numstat_args = ["diff", "--numstat", "-z", diff_arg.as_str()];
-    let (name_status, numstat) = tokio::try_join!(
+    let name_status_args = ["diff", "--name-status", "-z", diff_arg.as_str(), "--"];
+    let numstat_args = ["diff", "--numstat", "-z", diff_arg.as_str(), "--"];
+    let listings = tokio::try_join!(
         run_git_background(&name_status_args, worktree_path),
         run_git_background(&numstat_args, worktree_path),
-    )?;
+    );
+    let (name_status, numstat) = match listings {
+        Ok(listings) => listings,
+        Err(error) => return Err(branch_read_error(worktree_path, branch, error).await),
+    };
     Ok(changed_files_with_stats(
         &name_status,
         &parse_numstat(&numstat),

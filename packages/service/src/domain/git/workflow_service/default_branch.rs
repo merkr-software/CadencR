@@ -7,9 +7,9 @@
 
 use std::path::Path;
 
+use crate::domain::git::commands;
 use crate::domain::git::refs::normalize_branch_identity;
 use crate::error::AppError;
-use crate::shared::git_cli::run_git_safe_refs;
 
 use super::{local_branch_exists, remote_branch_exists};
 
@@ -22,18 +22,18 @@ pub async fn resolve_default_branch(repo: &Path) -> Result<String, AppError> {
     if !crate::shared::git_context::has_git_metadata(repo).await? {
         return Ok("main".to_string());
     }
-    if let Some(branch) = resolve_origin_head(repo).await {
+    if let Some(branch) = resolve_origin_head(repo).await? {
         return Ok(branch);
     }
 
     for candidate in &["origin/main", "origin/master"] {
-        if remote_branch_exists(repo, candidate).await {
+        if remote_branch_exists(repo, candidate).await? {
             return Ok(normalize_branch_identity(candidate).to_string());
         }
     }
 
     for candidate in &["main", "master"] {
-        if local_branch_exists(repo, candidate).await {
+        if local_branch_exists(repo, candidate).await? {
             return Ok((*candidate).to_string());
         }
     }
@@ -46,16 +46,13 @@ pub fn same_branch_identity(left: &str, right: &str) -> bool {
     normalize_branch_identity(left) == normalize_branch_identity(right)
 }
 
-async fn resolve_origin_head(repo: &Path) -> Option<String> {
-    let stdout = run_git_safe_refs(&["symbolic-ref"], &[], &["refs/remotes/origin/HEAD"], repo)
-        .await
-        .ok()?;
-    let branch = normalize_branch_identity(stdout.trim()).to_string();
-    if branch.is_empty() {
-        None
-    } else {
-        Some(branch)
-    }
+/// The branch `origin/HEAD` points at, or `None` when the repository has no
+/// such symbolic ref (no `origin`, or a clone that never recorded it).
+async fn resolve_origin_head(repo: &Path) -> Result<Option<String>, AppError> {
+    let remote_head = commands::origin_head(repo).await?;
+    Ok(remote_head
+        .map(|head| normalize_branch_identity(&head).to_string())
+        .filter(|branch| !branch.is_empty()))
 }
 
 #[cfg(test)]

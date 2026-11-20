@@ -207,7 +207,7 @@ async fn try_resolve_feature_target(
     // branch. Matching PRs against that would report the wrong proposal.
     let branch =
         service::resolve_feature_branch(&state.read_pool, feature_id, Path::new(&path)).await?;
-    let remote = detect_origin_remote(Path::new(&path)).await;
+    let remote = detect_origin_remote(Path::new(&path)).await?;
     Ok((branch, remote))
 }
 
@@ -215,5 +215,5 @@ async fn remote_for_path(path: &Path) -> Result<Option<RemoteInfo>, AppError> {
     if !crate::shared::git_context::has_git_metadata(path).await? {
         return Ok(None);
     }
-    Ok(detect_origin_remote(path).await)
+    detect_origin_remote(path).await
 }

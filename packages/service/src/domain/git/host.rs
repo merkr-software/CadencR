@@ -10,7 +10,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::shared::git_cli::run_git_background;
+use crate::error::AppError;
+use crate::shared::git_cli::run_git_probe_background;
 
 /// Known git hosting providers. `Other` is the fallback for self-hosted
 /// installations whose URL we cannot confidently classify.
@@ -76,12 +77,13 @@ pub fn detect_remote(url: &str) -> Option<RemoteInfo> {
     })
 }
 
-/// Read and classify the repository's `origin` remote.
-pub async fn detect_origin_remote(repo: &Path) -> Option<RemoteInfo> {
-    let url = run_git_background(&["config", "--get", "remote.origin.url"], repo)
-        .await
-        .ok()?;
-    detect_remote(url.trim())
+/// Read and classify the repository's `origin` remote: `None` when there is
+/// no `origin` or its URL names no known host. A configuration Git cannot read
+/// is an error, never a missing remote.
+pub async fn detect_origin_remote(repo: &Path) -> Result<Option<RemoteInfo>, AppError> {
+    let args = ["config", "--get", "remote.origin.url"];
+    let url = run_git_probe_background(&args, repo).await?;
+    Ok(url.and_then(|url| detect_remote(url.trim())))
 }
 
 /// Build the provider-specific compare/PR URL.
@@ -408,5 +410,31 @@ mod tests {
         assert_eq!(pr_label(&GitHost::GitLab), "Open merge request");
         assert_eq!(pr_label(&GitHost::Bitbucket), "Open pull request");
         assert_eq!(pr_label(&GitHost::Other), "Open compare");
+    }
+
+    /// No `origin` is `None`; a configuration Git cannot parse is an error.
+    #[tokio::test]
+    async fn origin_remote_tells_a_missing_origin_from_a_failure() {
+        let repo = tempfile::tempdir().unwrap();
+        crate::shared::git_cli::run_git(&["init", "-q"], repo.path())
+            .await
+            .unwrap();
+        assert_eq!(detect_origin_remote(repo.path()).await.unwrap(), None);
+        crate::shared::git_cli::run_git(
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/widgets.git",
+            ],
+            repo.path(),
+        )
+        .await
+        .unwrap();
+        let info = detect_origin_remote(repo.path()).await.unwrap().unwrap();
+        assert_eq!(info.repo, "widgets");
+
+        std::fs::write(repo.path().join(".git/config"), "[broken\n").unwrap();
+        assert!(detect_origin_remote(repo.path()).await.is_err());
     }
 }

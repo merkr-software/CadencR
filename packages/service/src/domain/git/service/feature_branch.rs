@@ -196,7 +196,7 @@ pub async fn resolve_feature_scope(
         return Ok(head_scope);
     };
     if checked_out.as_deref() == Some(bound.as_str())
-        || !workflow_service::local_branch_exists(path, &bound).await
+        || !workflow_service::local_branch_exists(path, &bound).await?
     {
         return Ok(head_scope);
     }

@@ -7,9 +7,12 @@ use std::path::Path;
 
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    git_ref_resolves_background, run_git, run_git_background, run_git_output_with_env, run_git_safe,
+    git_ref_resolves_background, head_commit_exists, run_git_background, run_git_output_with_env,
+    run_git_probe_background, run_git_safe,
 };
 use crate::shared::git_z;
+
+use super::util::missing_target_branch;
 
 /// The paths of a `--name-only -z` style listing.
 fn name_set(output: &str) -> HashSet<String> {
@@ -30,9 +33,7 @@ async fn branch_changed_files(
     // A base that cannot be resolved would make every committed file look
     // gone; refuse instead so the viewer pauses comment retirement.
     if !git_ref_resolves_background(base_branch, worktree_path).await? {
-        return Err(AppError::Conflict(format!(
-            "Base branch '{base_branch}' does not exist; set the feature's target branch"
-        )));
+        return Err(missing_target_branch(base_branch));
     }
     let output =
         run_git_output_with_env(&["merge-base", "HEAD", base_branch], worktree_path, &[]).await?;
@@ -50,7 +51,7 @@ async fn branch_changed_files(
     }
     Ok(name_set(
         &run_git_background(
-            &["diff", &merge_base, "HEAD", "--name-only", "-z"],
+            &["diff", &merge_base, "HEAD", "--name-only", "-z", "--"],
             worktree_path,
         )
         .await?,
@@ -76,9 +77,9 @@ pub async fn get_file_blob_shas(
     let worktree_path = repo_root.as_path();
     // An unborn branch has no HEAD to diff against; its tracked changes are
     // exactly what is staged.
-    let has_head = git_ref_resolves_background("HEAD", worktree_path).await?;
+    let has_head = head_commit_exists(worktree_path).await?;
     let changed_args: &[&str] = if has_head {
-        &["diff", "HEAD", "--name-only", "-z"]
+        &["diff", "HEAD", "--name-only", "-z", "--"]
     } else {
         &["diff", "--cached", "--name-only", "-z"]
     };
@@ -107,18 +108,7 @@ pub async fn get_file_blob_shas(
         if crate::shared::git_cli::guard_positionals(&[file_path.as_str()]).is_err() {
             continue;
         }
-        // Try hash-object first, then rev-parse HEAD:path
-        let sha = match run_git_safe(&["hash-object"], &[], &[&file_path], worktree_path).await {
-            Ok(stdout) => stdout.trim().to_string(),
-            Err(_) => {
-                let rev_arg = format!("HEAD:{file_path}");
-                match run_git(&["rev-parse", &rev_arg], worktree_path).await {
-                    Ok(stdout) => stdout.trim().to_string(),
-                    Err(_) => continue,
-                }
-            }
-        };
-        if !sha.is_empty() {
+        if let Some(sha) = blob_sha(worktree_path, &file_path).await? {
             result.insert(file_path, sha);
         }
     }
@@ -126,9 +116,37 @@ pub async fn get_file_blob_shas(
     Ok(result)
 }
 
+/// The working-tree file's blob SHA, or `HEAD`'s entry when the working tree
+/// holds no regular file there (a deletion, a submodule directory, a link to a
+/// directory). `None` only when neither exists; a hash or lookup Git fails is
+/// an error, because a file missing from the map retires its review comments.
+async fn blob_sha(worktree_path: &Path, file_path: &str) -> Result<Option<String>, AppError> {
+    let on_disk = match tokio::fs::metadata(worktree_path.join(file_path)).await {
+        Ok(metadata) => metadata.is_file(),
+        // Gone, or under a folder replaced by a file (`ENOTDIR`): deleted.
+        Err(error) if super::diff_side::is_missing(&error) => false,
+        Err(error) => {
+            return Err(AppError::internal(format!(
+                "cannot inspect {file_path}: {error}"
+            )))
+        }
+    };
+    let sha = if on_disk {
+        Some(run_git_safe(&["hash-object"], &[], &[file_path], worktree_path).await?)
+    } else {
+        let entry = format!("HEAD:{file_path}");
+        let args = ["rev-parse", "--verify", "--quiet", &entry];
+        run_git_probe_background(&args, worktree_path).await?
+    };
+    Ok(sha
+        .map(|sha| sha.trim().to_string())
+        .filter(|sha| !sha.is_empty()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::git_cli::run_git;
 
     async fn git(args: &[&str], cwd: &Path) {
         run_git(args, cwd).await.unwrap();
@@ -216,5 +234,46 @@ mod tests {
     async fn listing_failures_are_errors_not_an_empty_map() {
         let not_a_repo = tempfile::tempdir().unwrap();
         assert!(get_file_blob_shas(not_a_repo.path(), "main").await.is_err());
+    }
+
+    /// A deleted file keeps its `HEAD` blob; a file Git cannot hash is an
+    /// error. It used to fall back to the `HEAD` blob, reading as unchanged.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unhashable_file_is_an_error_not_its_head_blob() {
+        if !crate::shared::test_dirs::permissions_bind() {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        std::fs::remove_file(path.join("base.txt")).unwrap();
+        let shas = get_file_blob_shas(path, "develop").await.unwrap();
+        assert!(shas.contains_key("base.txt"), "{shas:?}");
+
+        let feature = path.join("feature.txt");
+        std::fs::write(&feature, "edited").unwrap();
+        std::fs::set_permissions(&feature, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let result = get_file_blob_shas(path, "develop").await;
+        std::fs::set_permissions(&feature, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(result.is_err(), "{result:?}");
+    }
+
+    /// A folder replaced by a file of the same name leaves its files deleted:
+    /// they keep their `HEAD` blob instead of failing the whole map.
+    #[tokio::test]
+    async fn a_folder_replaced_by_a_file_keeps_its_files_head_blobs() {
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        std::fs::create_dir(path.join("folder")).unwrap();
+        std::fs::write(path.join("folder/nested.txt"), "n").unwrap();
+        git(&["add", "folder/nested.txt"], path).await;
+        git(&["commit", "-qm", "folder"], path).await;
+        std::fs::remove_dir_all(path.join("folder")).unwrap();
+        std::fs::write(path.join("folder"), "now a file").unwrap();
+
+        let shas = get_file_blob_shas(path, "develop").await.unwrap();
+        assert!(shas.contains_key("folder/nested.txt"), "{shas:?}");
     }
 }
