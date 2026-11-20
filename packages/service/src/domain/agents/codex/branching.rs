@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use codex_app_server_sdk_rs::{CodexAppServerClient, SdkError, ThreadSnapshot};
 
-use super::{app_server_failure, profile_runtime::app_server_spawn_options, CodexAdapter};
+use super::{app_server_failure, spawn_options::app_server_spawn_options, CodexAdapter};
 use crate::domain::agents::adapter::{
     AgentRuntimeAdapter, BranchContext, BranchError, BranchResult, SessionBranching,
 };

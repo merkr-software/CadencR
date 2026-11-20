@@ -210,6 +210,8 @@ export interface SessionEntry extends SessionConfigState {
   currentSelection: RuntimeSelection | null;
   runtimeSessionId: string;
   mcpServers: McpServerStatus[] | null;
+  /** Why the runtime could not report its MCP servers; `mcpServers` is then empty. */
+  mcpServersError: string | null;
   supportsPromptReceipts: boolean;
   persistedLoaded: boolean;
   /**
@@ -300,6 +302,7 @@ export function createSessionEntry(): SessionEntry {
     ...createSessionConfigState(),
     currentProfile: undefined,
     mcpServers: null,
+    mcpServersError: null,
     supportsPromptReceipts: false,
     persistedLoaded: false,
     historyLoadFailure: null,

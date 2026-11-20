@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 
-use codex_app_server_sdk_rs::{AppServerSpawnOptions, CodexAppServerClient, CodexModel};
+use codex_app_server_sdk_rs::{CodexAppServerClient, CodexModel};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -17,7 +17,8 @@ pub(super) use super::native_config::{
     catalog_with_effective_config, enrich_resume_config, native_effective_config,
 };
 
-use super::{profiles, unavailable_catalog, DEFAULT_MODE_REQUEST_USER_INPUT_FEATURE, PROVIDER_ID};
+use super::spawn_options::app_server_spawn_options;
+use super::{profiles, unavailable_catalog, PROVIDER_ID};
 use crate::domain::agents::adapter::{ResolvedRuntimeProfile, RuntimeError};
 use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimeEffectiveConfig};
 use crate::domain::agents::runtime::ProviderCatalogEntry;
@@ -199,19 +200,6 @@ fn fingerprint_effective_config(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect())
-}
-
-pub(super) fn app_server_spawn_options(
-    env: Option<HashMap<String, String>>,
-    env_unset: Vec<String>,
-    cwd: Option<PathBuf>,
-) -> AppServerSpawnOptions {
-    AppServerSpawnOptions::builder()
-        .maybe_env(env)
-        .env_unset(env_unset)
-        .maybe_cwd(cwd)
-        .enable_features(vec![DEFAULT_MODE_REQUEST_USER_INPUT_FEATURE.to_string()])
-        .build()
 }
 
 pub(super) fn profile_catalog() -> ProviderProfilesResponse {

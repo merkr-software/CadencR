@@ -1,4 +1,12 @@
-import { memo, useMemo, useState, type ReactElement } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { SearchIcon } from "lucide-react";
 import { Virtuoso } from "react-virtuoso";
 import { Badge } from "@/components/ui/badge";
@@ -8,12 +16,39 @@ import type { McpServerStatus } from "@/stores/ws-session-types";
 
 interface McpServersRowProps {
   servers: McpServerStatus[] | null;
+  /** Why the runtime could not report its servers; the list is then unknown. */
+  error?: string | null;
+}
+
+interface McpServersReport {
+  servers: McpServerStatus[] | null;
+  error: string | null;
+}
+const McpServersContext = createContext<McpServersReport>({ servers: null, error: null });
+
+/** The session's MCP servers, for the session info panel rendered deep below. */
+export function SessionInfoMcpServersProvider({
+  mcpServers,
+  error = null,
+  children,
+}: {
+  mcpServers: McpServerStatus[] | null;
+  /** Why the runtime could not report its MCP servers. */
+  error?: string | null;
+  children: ReactNode;
+}): ReactElement {
+  const report = useMemo(() => ({ servers: mcpServers, error }), [mcpServers, error]);
+  return <McpServersContext.Provider value={report}>{children}</McpServersContext.Provider>;
+}
+
+export function useMcpServersReport(): McpServersReport {
+  return useContext(McpServersContext);
 }
 
 const MCP_SERVER_ROW_HEIGHT = 32;
 const MCP_SERVER_LIST_MAX_HEIGHT = 160;
 
-export function McpServersRow({ servers }: McpServersRowProps): ReactElement {
+export function McpServersRow({ servers, error = null }: McpServersRowProps): ReactElement {
   const [query, setQuery] = useState("");
   const filteredServers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -25,10 +60,15 @@ export function McpServersRow({ servers }: McpServersRowProps): ReactElement {
   return (
     <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden">
       <div className="shrink-0 text-[11px] font-medium text-muted-foreground">MCP servers</div>
-      {servers === null && (
+      {error !== null && (
+        <p role="alert" className="text-[11px] text-destructive">
+          {error}
+        </p>
+      )}
+      {error === null && servers === null && (
         <p className="text-[11px] text-muted-foreground">MCPs not reported yet</p>
       )}
-      {servers !== null && servers.length === 0 && (
+      {error === null && servers !== null && servers.length === 0 && (
         <p className="text-[11px] text-muted-foreground">No MCP servers reported</p>
       )}
       {servers !== null && servers.length > 0 && (

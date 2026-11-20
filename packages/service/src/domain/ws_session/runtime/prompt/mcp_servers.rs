@@ -1,5 +1,9 @@
+//! The `mcp_servers` session event: what the agent's MCP servers report, or
+//! why they could not be read. Each function returns the message; the caller
+//! publishes it to the turn's owner and every other viewer of the feature, so
+//! a headless turn (HTTP, MCP, a schedule) still reaches them.
+
 use crate::domain::ws_session::protocol::WsSessionEvent;
-use crate::domain::ws_session::runtime::output::OutputTarget;
 
 use axum::extract::ws::Message;
 use tracing::{info, warn};
@@ -11,90 +15,65 @@ use crate::domain::ws_session::protocol::{
 
 use super::super::{QueryState, SdkSessions};
 
-pub(in crate::domain::ws_session) async fn send_mcp_servers_if_init(
-    sender: &impl OutputTarget,
+pub(in crate::domain::ws_session) async fn mcp_servers_message_if_init(
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
     runtime_event: &RuntimeEvent,
-) -> Result<(), ()> {
-    if runtime_event.init().is_none() {
-        return Ok(());
-    };
+) -> Option<Message> {
+    let init = runtime_event.init()?;
     info!(
         db_session_id,
-        event_mcp_count = runtime_event
-            .init()
-            .map_or(0, |init| init.mcp_servers.len()),
+        event_mcp_count = init.mcp_servers.len(),
         "session mcp: init event received, collecting MCP server payload"
     );
     let payload = choose_mcp_servers_payload(
         mcp_servers_payload_from_event(runtime_event),
         mcp_servers_payload_from_active_session(sdk_sessions, db_session_id).await,
-    );
+    )?;
     log_payload(
         db_session_id,
         &payload,
         "session mcp: sending MCP server payload from init",
     );
-    send_payload(sender, payload)
+    Some(message(payload))
 }
 
-pub(in crate::domain::ws_session) async fn send_mcp_servers_for_runtime(
-    sender: &impl OutputTarget,
-    db_session_id: i64,
-    runtime_session: &dyn AgentRuntimeSession,
-) -> Result<(), ()> {
-    let payload = mcp_servers_payload_from_runtime(runtime_session, db_session_id).await;
-    log_payload(
-        db_session_id,
-        &payload,
-        "session mcp: sending MCP server payload after spawn",
-    );
-    send_payload(sender, payload)
-}
-
-pub(in crate::domain::ws_session) async fn refresh_mcp_servers_for_active_session(
-    sender: &impl OutputTarget,
+pub(in crate::domain::ws_session) async fn refreshed_mcp_servers_message(
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
     closing: impl std::future::Future<Output = ()>,
-) -> Result<(), ()> {
+) -> Option<Message> {
     // The refresh holds the runtime, which shutdown must close in time: once
     // `closing` resolves it is given up, releasing the runtime.
-    let refreshed = tokio::select! {
+    let payload = tokio::select! {
         () = closing => None,
         payload = refreshed_mcp_servers_payload_from_active_session(sdk_sessions, db_session_id) => payload,
-    };
-    let Some(payload) = refreshed else {
-        return Ok(());
-    };
+    }?;
     log_payload(
         db_session_id,
         &payload,
         "session mcp: sending refreshed MCP server payload after turn",
     );
-    send_payload(sender, payload)
+    Some(message(payload))
 }
 
-fn send_payload(sender: &impl OutputTarget, payload: SessionMcpServersPayload) -> Result<(), ()> {
+fn message(payload: SessionMcpServersPayload) -> Message {
     let envelope = WsEnvelope::session_event(&WsSessionEvent::McpServers(payload))
         .expect("session event payload should serialize");
-    sender
-        .send(Message::Text(String::from(envelope).into()))
-        .map_err(|_| ())
+    Message::Text(String::from(envelope).into())
 }
 
+/// What the init tells: the servers it lists, else what reading the runtime
+/// gave, its failure included. An empty init with no runtime to read says
+/// nothing, so nothing is published: an empty list would hide an earlier
+/// failure.
 fn choose_mcp_servers_payload(
     event: Option<SessionMcpServersPayload>,
     active: Option<SessionMcpServersPayload>,
-) -> SessionMcpServersPayload {
+) -> Option<SessionMcpServersPayload> {
     match (event, active) {
-        (Some(event), _) if !event.mcp_servers.is_empty() => event,
-        (_, Some(active)) => active,
-        (Some(event), None) => event,
-        (None, None) => SessionMcpServersPayload {
-            mcp_servers: Vec::new(),
-        },
+        (Some(event), _) if !event.mcp_servers.is_empty() => Some(event),
+        (_, active) => active,
     }
 }
 
@@ -145,6 +124,9 @@ async fn mcp_servers_payload_from_runtime(
             );
             SessionMcpServersPayload {
                 mcp_servers: Vec::new(),
+                error: Some(format!(
+                    "The agent's MCP servers could not be read: {error}"
+                )),
             }
         }
     }
@@ -179,6 +161,7 @@ fn payload_from_servers(servers: Vec<RuntimeMcpServerStatus>) -> SessionMcpServe
                 status: server.status,
             })
             .collect(),
+        error: None,
     }
 }
 
@@ -206,6 +189,7 @@ fn log_payload(db_session_id: i64, payload: &SessionMcpServersPayload, message: 
         source = message,
         mcp_count = names.len(),
         mcp_servers = ?names,
+        unreadable = payload.error.is_some(),
         "session mcp: sending MCP server payload over websocket"
     );
 }
@@ -320,15 +304,39 @@ mod tests {
                 name: "cadencr-browser".into(),
                 status: "connected".into(),
             }],
+            error: None,
         };
         let active = SessionMcpServersPayload {
             mcp_servers: Vec::new(),
+            error: None,
         };
 
-        let payload = choose_mcp_servers_payload(Some(from_event), Some(active));
+        let payload = choose_mcp_servers_payload(Some(from_event), Some(active)).unwrap();
 
         assert_eq!(payload.mcp_servers.len(), 1);
         assert_eq!(payload.mcp_servers[0].name, "cadencr-browser");
+    }
+
+    /// An init listing no servers used to replace a failed runtime read, and
+    /// the panel said "No MCP servers reported" instead of the failure.
+    #[test]
+    fn an_empty_init_never_hides_an_unreadable_runtime() {
+        let empty_init = || SessionMcpServersPayload {
+            mcp_servers: Vec::new(),
+            error: None,
+        };
+        let unreadable = SessionMcpServersPayload {
+            mcp_servers: Vec::new(),
+            error: Some("mcp_status timed out".into()),
+        };
+
+        let payload = choose_mcp_servers_payload(Some(empty_init()), Some(unreadable)).unwrap();
+        assert!(payload.error.is_some());
+
+        assert!(
+            choose_mcp_servers_payload(Some(empty_init()), None).is_none(),
+            "an empty init with no runtime to read publishes nothing"
+        );
     }
 
     #[tokio::test]
@@ -340,6 +348,65 @@ mod tests {
         assert_eq!(payload.mcp_servers.len(), 1);
         assert_eq!(payload.mcp_servers[0].name, "chrome-devtools");
         assert_eq!(payload.mcp_servers[0].status, "pending");
+    }
+
+    /// A runtime that cannot report its MCP servers, live or known.
+    struct UnreadableMcpSession;
+
+    #[async_trait]
+    impl AgentRuntimeSession for UnreadableMcpSession {
+        fn take_message_rx(&mut self) -> crate::domain::agents::adapter::RuntimeMessageRx {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            rx
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn available_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
+            Err(RuntimeError::new("mcp_status timed out"))
+        }
+        async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
+            Err(RuntimeError::new("refresh refused"))
+        }
+        async fn stream_input(&self, _content: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(
+            &self,
+            _mode: RuntimePermissionMode,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// An empty list would read as "no MCP servers": a failed read says why.
+    #[tokio::test]
+    async fn an_unreadable_mcp_list_carries_its_error() {
+        let payload = mcp_servers_payload_from_runtime(&UnreadableMcpSession, 42).await;
+        assert!(payload.mcp_servers.is_empty());
+        let error = payload.error.expect("the failure is reported");
+        assert!(error.contains("mcp_status timed out"), "{error}");
+
+        let refreshed =
+            super::mcp_servers_payload_from_runtime_refresh(&UnreadableMcpSession, 42).await;
+        assert!(refreshed.error.is_some());
+
+        let read = mcp_servers_payload_from_runtime(&TestMcpSession, 42).await;
+        assert!(read.error.is_none());
+        let wire = serde_json::to_value(&read).unwrap();
+        assert!(wire.get("error").is_none(), "{wire}");
     }
 
     /// A runtime whose live MCP refresh takes as long as a slow CLI answer.
@@ -397,18 +464,11 @@ mod tests {
             permission_tx,
         };
         sessions.lock().await.insert(7, handle);
-        let (sender, mut sent) = tokio::sync::mpsc::unbounded_channel();
         let closing = tokio_util::sync::CancellationToken::new();
         let refresh = tokio::spawn({
             let (sessions, closing) = (sessions.clone(), closing.clone());
             async move {
-                super::refresh_mcp_servers_for_active_session(
-                    &sender,
-                    &sessions,
-                    7,
-                    closing.cancelled_owned(),
-                )
-                .await
+                super::refreshed_mcp_servers_message(&sessions, 7, closing.cancelled_owned()).await
             }
         });
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -416,7 +476,9 @@ mod tests {
         closing.cancel();
         let close = tokio::time::timeout(std::time::Duration::from_millis(500), runtime.write());
         assert!(close.await.is_ok(), "the close waited on the refresh");
-        assert!(refresh.await.unwrap().is_ok());
-        assert!(sent.try_recv().is_err(), "a given-up refresh sends nothing");
+        assert!(
+            refresh.await.unwrap().is_none(),
+            "a given-up refresh sends nothing"
+        );
     }
 }

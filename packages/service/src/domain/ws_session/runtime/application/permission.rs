@@ -1,8 +1,7 @@
 use crate::domain::ws_session::persistence::WsSessionPersistence;
-use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
-use super::super::output::{CommandError, CommandOutput, OutputTarget};
+use super::super::output::{CommandError, CommandOutput};
 use super::super::post_plan_mode::{
     should_transition_after_plan_approval, transition_session_to_post_plan_mode,
 };
@@ -125,10 +124,15 @@ async fn finish_accepted_runtime_permission(
             ..Default::default()
         }))
         .expect("session event payload should serialize");
-        output
-            .recipient
-            .send(Message::Text(String::from(ended).into()))
-            .ignore_closed();
+        // Answered over HTTP or MCP, the feature's viewers still learn it.
+        context
+            .feature_senders
+            .publish(
+                feature_id,
+                &output.recipient,
+                Message::Text(String::from(ended).into()),
+            )
+            .await;
     }
     warnings.extend(
         persist_question_answer(
@@ -630,6 +634,33 @@ mod tests {
         let id = payload.session_id.parse::<i64>().unwrap();
         assert!(state.pending_gates.claim(id, "q-1").await.is_ok());
         assert!(question_still_stored(&state, id).await);
+    }
+
+    /// A denial that ends the session, answered over HTTP or MCP: the
+    /// feature's viewers still learn the session ended.
+    #[tokio::test]
+    async fn a_headless_denial_tells_the_features_viewers_the_session_ended() {
+        let (state, sessions, mut payload, _calls) = fixture(false).await;
+        payload.decision = crate::domain::ws_session::protocol::PermissionDecision::Deny;
+        payload.updated_input = None;
+        let (viewer, mut viewer_rx) = mpsc::unbounded_channel();
+        state.ws_feature_senders.register(1, viewer).await;
+        let output = CommandOutput {
+            recipient: SessionOutput::headless(),
+            correlation_id: String::new(),
+        };
+
+        respond_permission(&context(&state), &sessions, payload, &output)
+            .await
+            .unwrap();
+
+        let mut actions = Vec::new();
+        while let Ok(axum::extract::ws::Message::Text(text)) = viewer_rx.try_recv() {
+            let envelope: serde_json::Value = serde_json::from_str(&text).unwrap();
+            actions.push(envelope["action"].as_str().unwrap().to_string());
+        }
+        let ended = actions.iter().filter(|action| *action == "ended").count();
+        assert_eq!(ended, 1, "{actions:?}");
     }
 
     struct RefusingRuntime;

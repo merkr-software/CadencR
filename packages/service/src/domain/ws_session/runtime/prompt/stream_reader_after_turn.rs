@@ -1,15 +1,28 @@
 //! What follows a turn's result: the next queued prompt, if any, and a
 //! refreshed MCP server list.
 
-use tracing::{debug, error};
+use tracing::error;
 
-use super::mcp_servers::refresh_mcp_servers_for_active_session;
+use super::mcp_servers::refreshed_mcp_servers_message;
 use super::stream_reader_task::StreamReaderTask;
 
 impl StreamReaderTask {
     pub(super) async fn after_turn_result(&self) {
         self.drain_queued_message_after_result().await;
         self.refresh_mcp_servers_after_turn().await;
+    }
+
+    /// A stop that closed the turn's gate lets the queue go on once the
+    /// stopped turn `generation` has ended, as a turn that ended by itself.
+    pub(super) async fn after_stopped_turn(&self, generation: u64) {
+        if self
+            .app_state
+            .active_turns
+            .take_queue_after_stop(self.db_session_id, generation)
+            .await
+        {
+            self.drain_queued_message_after_result().await;
+        }
     }
 
     async fn drain_queued_message_after_result(&self) {
@@ -41,18 +54,14 @@ impl StreamReaderTask {
     }
 
     async fn refresh_mcp_servers_after_turn(&self) {
-        let result = refresh_mcp_servers_for_active_session(
-            &self.sender,
+        let message = refreshed_mcp_servers_message(
             &self.sdk_sessions,
             self.db_session_id,
             crate::domain::ws_session::stream_readers::closing(),
         )
         .await;
-        if result.is_err() {
-            debug!(
-                self.db_session_id,
-                "WebSocket sender closed during post-turn mcp_servers refresh"
-            );
+        if let Some(message) = message {
+            self.publish(message).await;
         }
     }
 }

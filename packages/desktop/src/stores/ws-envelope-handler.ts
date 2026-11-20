@@ -290,6 +290,7 @@ function handleProviderSetOk(ctx: StoreAccessors, sessionId: string, payload: un
         : {}),
       fastMode: p.fast_mode ?? (providerChanged ? false : session.fastMode),
       mcpServers: null,
+      mcpServersError: null,
       ...createSessionConfigState(),
       supportsPromptReceipts: p.supports_prompt_receipts ?? false,
       ...(accessMode

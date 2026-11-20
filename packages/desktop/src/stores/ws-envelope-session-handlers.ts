@@ -121,6 +121,7 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     serverSessionId: p.session_id ?? "",
     lifecycle: transitionTurn(session.lifecycle, { type: "initialized" }),
     mcpServers: null,
+    mcpServersError: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
     initRequestId: null,
     // `pendingInitPermissionMode` stays until the init replay
@@ -165,11 +166,14 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
 export function handleMcpServers(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const p = parseMcpServersPayload(payload);
   if (!p) return;
-  const current = ctx.getSession(sessionId).mcpServers;
-  if (mcpServersEqual(current, p.mcpServers)) return;
+  const session = ctx.getSession(sessionId);
+  if (session.mcpServersError === p.error && mcpServersEqual(session.mcpServers, p.mcpServers)) {
+    return;
+  }
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       mcpServers: p.mcpServers,
+      mcpServersError: p.error,
     }),
   );
 }
@@ -338,6 +342,7 @@ export function handleCleared(ctx: StoreAccessors, sessionId: string, payload: u
       hasFileChanges: false,
       runtimeSessionId: "",
       mcpServers: null,
+      mcpServersError: null,
     }),
   );
 }

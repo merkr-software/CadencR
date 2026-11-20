@@ -76,13 +76,14 @@ async fn test_gate_close_acks_existing_session_without_pending_gate() {
     );
     dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
 
+    // No gate is open: the close is stale. It used to be acknowledged as
+    // closed and to stop whatever ran; the renderer now drops its own stale
+    // gate on this answer.
     let msg = rx.recv().await.unwrap();
     if let Message::Text(text) = msg {
         let env: WsEnvelope = serde_json::from_str(&text).unwrap();
-        assert_eq!(env.action, "gate.closed");
-        assert_eq!(env.payload["session_id"], "90");
-        assert_eq!(env.payload["request_id"], "stale-renderer-gate");
-        assert_eq!(env.payload["reason"], "escape");
+        assert_eq!(env.action, "error");
+        assert_eq!(env.payload["code"], "STALE_GATE");
     } else {
         panic!("expected text message");
     }

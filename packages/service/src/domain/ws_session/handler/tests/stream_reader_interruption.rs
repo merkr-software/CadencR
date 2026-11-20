@@ -513,3 +513,76 @@ async fn a_stop_marked_after_its_turn_ended_does_not_swallow_the_next_turns_resu
     );
     assert_eq!(db_status(&app_state, session_id).await, "completed");
 }
+
+async fn queue_one_prompt(app_state: &AppState, session_id: i64) {
+    sqlx::query("INSERT INTO agent_session_prompt_queue (session_id, content) VALUES (?, 'next')")
+        .bind(session_id)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+}
+
+async fn queued_prompt_status(app_state: &AppState, session_id: i64) -> String {
+    sqlx::query_scalar("SELECT status FROM agent_session_prompt_queue WHERE session_id = ?")
+        .bind(session_id)
+        .fetch_one(&app_state.read_pool)
+        .await
+        .unwrap()
+}
+
+async fn end_interrupted_turn(app_state: &AppState, sdk_sessions: SdkSessions, session_id: i64) {
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let (msg_tx, msg_rx) = mpsc::channel(1);
+    msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
+    drop(msg_tx);
+    spawn_test_stream_reader(
+        app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        DEFAULT_PROVIDER,
+    );
+    let actions = drain_actions(&mut ws_rx).await;
+    assert!(actions
+        .iter()
+        .any(|(action, payload)| { action == "ended" && payload["reason"] == "turn_interrupted" }));
+}
+
+/// A gate closed with "Reject & Stop" (or a plan reject over the API) stops
+/// the turn it held; the queued prompt used to stay pending once that turn
+/// ended, because the close tried to deliver it while the turn still ran.
+#[tokio::test]
+async fn a_turn_stopped_by_closing_its_gate_lets_the_queue_go_on() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let session_id = 616;
+    setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
+    app_state.active_turns.queue_after_stop(session_id, 1).await;
+    queue_one_prompt(&app_state, session_id).await;
+
+    end_interrupted_turn(&app_state, sdk_sessions, session_id).await;
+
+    assert_ne!(
+        queued_prompt_status(&app_state, session_id).await,
+        "pending"
+    );
+}
+
+/// A plain Stop keeps the queue waiting, as before: the user stopped the agent.
+#[tokio::test]
+async fn a_plain_stop_keeps_the_queue_waiting() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let session_id = 617;
+    setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
+    queue_one_prompt(&app_state, session_id).await;
+
+    end_interrupted_turn(&app_state, sdk_sessions, session_id).await;
+
+    assert_eq!(
+        queued_prompt_status(&app_state, session_id).await,
+        "pending"
+    );
+}

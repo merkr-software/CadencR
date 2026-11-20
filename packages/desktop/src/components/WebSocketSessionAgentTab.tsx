@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from
 import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
-import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
+import { SessionInfoMcpServersProvider } from "@/components/agent-session/McpServersRow";
 import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
@@ -106,7 +106,10 @@ function AgentTabContent({
   const sessionConfigControls = useSessionConfigControls(controls);
   const callbacks = useStableSessionCallbacks(controls);
   return (
-    <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
+    <SessionInfoMcpServersProvider
+      mcpServers={controls.ws.mcpServers}
+      error={controls.ws.mcpServersError}
+    >
       <AgentSession
         ref={refs.agent}
         agentType="session"

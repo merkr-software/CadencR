@@ -17,8 +17,11 @@ use crate::domain::ws_session::protocol::{
 };
 use crate::domain::ws_session::runtime::output::OutputTarget;
 
+mod close;
 mod dismissed;
 mod durable_close;
+
+pub(crate) use close::{close_gate, GateCloseRequest};
 
 struct GateRuntimeGuard {
     _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
@@ -62,127 +65,15 @@ pub(super) async fn handle_gate_close(
         );
         return;
     };
-    let request_id =
-        match claim_gate_close(app_state, db_session_id, payload.request_id.as_deref()).await {
-            Ok(request_id) => request_id,
-            Err(message) => {
-                send_error(sender, &envelope.id, "STALE_GATE", &message);
-                return;
-            }
-        };
-
-    let Some((closed, cleared_ahead)) = durable_close::close_runtime_side(
-        sender,
-        sdk_sessions,
-        app_state,
+    let request = close::GateCloseRequest {
         db_session_id,
-        &request_id,
-        &envelope.id,
-    )
-    .await
-    else {
-        return;
+        request_id: payload.request_id.as_deref(),
+        reason: payload.reason,
+        ref_id: Some(&envelope.id),
     };
-
-    let cleared = match &closed {
-        RuntimeGateClose::Dismissed => {
-            dismissed::clear_dismissed_gate(
-                sender,
-                app_state,
-                db_session_id,
-                &request_id,
-                payload.reason,
-                &envelope.id,
-            )
-            .await
-        }
-        RuntimeGateClose::NoRuntime | RuntimeGateClose::Stopped { .. } => {
-            clear_persisted_gate_and_notify(
-                sender,
-                app_state,
-                db_session_id,
-                Some(&request_id),
-                payload.reason,
-                Some(&envelope.id),
-                cleared_ahead,
-            )
-            .await
-            .map(|found| found.then_some(matches!(closed, RuntimeGateClose::Stopped { .. })))
-        }
-    };
-    settle_gate_close(
-        sender,
-        app_state,
-        db_session_id,
-        &request_id,
-        &envelope.id,
-        cleared,
-        closed,
-    )
-    .await;
-}
-
-/// Settle the claim once the persisted gate is cleared. `cleared` is `None`
-/// for a missing session, else whether queued prompts may run now.
-async fn settle_gate_close(
-    sender: &WsSender,
-    app_state: &AppState,
-    db_session_id: i64,
-    request_id: &str,
-    envelope_id: &str,
-    cleared: Result<Option<bool>, sqlx::Error>,
-    closed: RuntimeGateClose,
-) {
-    let (code, message) = match cleared {
-        Ok(Some(drain)) => {
-            app_state
-                .pending_gates
-                .complete(db_session_id, request_id)
-                .await;
-            // Prompt writers waited behind the cancellation until gate.closed.
-            drop(closed);
-            if drain {
-                if let Err(error) = drain_after_gate_close(app_state, db_session_id).await {
-                    send_error(
-                        sender,
-                        envelope_id,
-                        "QUEUE_DELIVERY_FAILED",
-                        &error.to_string(),
-                    );
-                }
-            }
-            return;
-        }
-        Ok(None) => ("SESSION_NOT_FOUND", "Session not found".to_string()),
-        Err(error) => ("DB_ERROR", format!("Failed to close gate: {error}")),
-    };
-    app_state
-        .pending_gates
-        .release(db_session_id, request_id)
-        .await;
-    send_error(sender, envelope_id, code, &message);
-}
-
-async fn claim_gate_close(
-    state: &AppState,
-    session_id: i64,
-    requested_id: Option<&str>,
-) -> Result<String, String> {
-    state
-        .pending_gates
-        .ensure_loaded(&state.read_pool, session_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    let Some(gate) = state.pending_gates.latest_open(session_id).await else {
-        return Ok(requested_id.unwrap_or_default().to_string());
-    };
-    let request_id = requested_id.unwrap_or(&gate.request_id).to_string();
-    state
-        .pending_gates
-        .claim(session_id, &request_id)
-        .await
-        .map_err(|error| format!("gate is stale, mismatched, or already answered: {error:?}"))?;
-    Ok(request_id)
+    if let Err(error) = close::close_gate(app_state, sdk_sessions, sender, request).await {
+        send_error(sender, &envelope.id, error.code, &error.message);
+    }
 }
 
 pub(super) async fn clear_persisted_gate_and_notify(
@@ -215,7 +106,14 @@ pub(super) async fn clear_persisted_gate_and_notify(
         // answer or the row was cleared on another path). Send the
         // `gate.closed` envelope anyway so the FE drops its prompt UI
         // instead of staying stuck on a gate the backend will not honor.
-        send_gate_closed(sender, db_session_id, request_id, reason, ref_id);
+        let closed = GateClosed {
+            db_session_id,
+            feature_id: row.feature_id,
+            request_id,
+            reason,
+            ref_id,
+        };
+        send_gate_closed(sender, app_state, closed).await;
         return Ok(true);
     }
 
@@ -229,30 +127,53 @@ pub(super) async fn clear_persisted_gate_and_notify(
     app_state
         .session_status_tx
         .broadcast(db_session_id, row.feature_id, AgentStatus::Idle, None);
-    send_gate_closed(sender, db_session_id, request_id, reason, ref_id);
+    let closed = GateClosed {
+        db_session_id,
+        feature_id: row.feature_id,
+        request_id,
+        reason,
+        ref_id,
+    };
+    send_gate_closed(sender, app_state, closed).await;
     Ok(true)
 }
 
-fn send_gate_closed(
-    sender: &impl OutputTarget,
+/// A closed gate, as `gate.closed` reports it.
+struct GateClosed<'a> {
     db_session_id: i64,
-    request_id: Option<&str>,
+    feature_id: i64,
+    request_id: Option<&'a str>,
     reason: GateCloseReason,
-    ref_id: Option<&str>,
+    ref_id: Option<&'a str>,
+}
+
+/// Answer the socket that closed the gate. Closed headless (HTTP, MCP, a
+/// sleep), every viewer of the feature hears of it instead.
+async fn send_gate_closed(
+    sender: &impl OutputTarget,
+    app_state: &AppState,
+    closed: GateClosed<'_>,
 ) {
     let payload = GateClosedPayload {
-        session_id: db_session_id.to_string(),
-        request_id: request_id.map(str::to_string),
-        reason,
+        session_id: closed.db_session_id.to_string(),
+        request_id: closed.request_id.map(str::to_string),
+        reason: closed.reason,
     };
-    let envelope = match ref_id {
+    let envelope = match closed.ref_id {
         Some(id) => WsEnvelope::session_reply(id, &WsSessionEvent::GateClosed(payload)),
         None => WsEnvelope::session_event(&WsSessionEvent::GateClosed(payload)),
     };
-    let envelope = envelope.expect("gate.closed payload should serialize");
-    sender
-        .send(Message::Text(String::from(envelope).into()))
-        .ignore_closed();
+    let message =
+        Message::Text(String::from(envelope.expect("gate.closed payload should serialize")).into());
+    match sender.recipient() {
+        Some(recipient) => recipient.send(message).ignore_closed(),
+        None => {
+            app_state
+                .ws_feature_senders
+                .publish(closed.feature_id, sender, message)
+                .await;
+        }
+    }
 }
 
 async fn deny_runtime_gate(
@@ -285,6 +206,14 @@ async fn deny_runtime_gate(
         .active_turns
         .request_interruption(db_session_id, &target.query)
         .await;
+    // Once the stopped turn ends, its stream reader runs the next queued
+    // prompt; draining here would find the turn still running.
+    if let Some(generation) = generation {
+        app_state
+            .active_turns
+            .queue_after_stop(db_session_id, generation)
+            .await;
+    }
     let runtime_response = RuntimePermissionResponse {
         request_id: request_id.to_string(),
         decision: RuntimePermissionDecision::Deny,
@@ -365,26 +294,6 @@ async fn active_runtime(
         }),
         QueryState::Pending(_) => None,
     }
-}
-
-async fn drain_after_gate_close(
-    app_state: &AppState,
-    session_id: i64,
-) -> Result<(), crate::error::AppError> {
-    if crate::domain::prompt_queue::delivery::drain_next_after_turn(app_state, session_id).await {
-        return Ok(());
-    }
-    let Some(row) = WsSessionPersistence::get_session_row(&app_state.read_pool, session_id).await?
-    else {
-        return Ok(());
-    };
-    crate::domain::mcp::control::message_queue::drain_next_queued_message(
-        app_state,
-        row.feature_id,
-        session_id,
-    )
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]

@@ -1049,3 +1049,71 @@ async fn test_stream_reader_marks_a_dropped_prompt_not_delivered() {
     .unwrap();
     assert_eq!(state.as_deref(), Some("delivery_failed"));
 }
+
+/// The MCP server list is session state: another device viewing the feature
+/// (or every viewer, for a headless turn) needs it as much as the owner.
+#[tokio::test]
+async fn stream_reader_mirrors_the_mcp_server_list_to_other_viewers() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel();
+    app_state
+        .ws_feature_senders
+        .register(1, ws_tx.clone())
+        .await;
+    app_state.ws_feature_senders.register(1, viewer_tx).await;
+    let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
+    msg_tx
+        .send(Ok(RuntimeEvent::new(
+            crate::domain::agents::adapter::RuntimeEventMetadata {
+                session_id: Some("runtime-init".to_string()),
+                raw: serde_json::json!({ "type": "session.init" }),
+                ..Default::default()
+            },
+            RuntimeEventKind::Init(crate::domain::agents::adapter::RuntimeInitEvent {
+                model: None,
+                mcp_servers: vec![RuntimeMcpServerStatus {
+                    name: "test-mcp".to_string(),
+                    status: "connected".to_string(),
+                }],
+                context_window: None,
+            }),
+        )))
+        .await
+        .unwrap();
+    drop(msg_tx);
+
+    spawn_test_stream_reader(
+        &app_state,
+        143,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
+    );
+
+    async fn mcp_payloads(rx: &mut mpsc::UnboundedReceiver<Message>) -> usize {
+        let mut count = 0;
+        while let Ok(Some(Message::Text(text))) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await
+        {
+            let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+            if envelope.action == "mcp_servers" {
+                assert_eq!(envelope.payload["mcp_servers"][0]["name"], "test-mcp");
+                count += 1;
+            }
+            if envelope.action == "ended" {
+                break;
+            }
+        }
+        count
+    }
+    assert_eq!(mcp_payloads(&mut ws_rx).await, 1, "the owner gets it once");
+    assert_eq!(
+        mcp_payloads(&mut viewer_rx).await,
+        1,
+        "the viewer gets it once"
+    );
+}
