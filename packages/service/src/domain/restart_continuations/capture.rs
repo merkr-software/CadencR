@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 
 use sqlx::SqlitePool;
 
-use super::store::{self, Cause, Intent};
+use super::store::{self, Cause, Intent, Intents};
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
@@ -14,6 +14,10 @@ static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 /// The desktop turns it off right before it stops the service when the user
 /// quits and chooses to stop their agents; every other stop resumes them.
 static RESUME_ON_SHUTDOWN: AtomicBool = AtomicBool::new(true);
+/// The same for background work between turns. The desktop also turns it off
+/// when the user quits with no agent working: nothing asked them, so nothing
+/// comes back on its own.
+static RESUME_BACKGROUND_ON_SHUTDOWN: AtomicBool = AtomicBool::new(true);
 static APP_VERSION: OnceLock<String> = OnceLock::new();
 static STARTUP_CAPTURE_ERROR: OnceLock<String> = OnceLock::new();
 
@@ -38,15 +42,22 @@ pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
 }
 
-pub(super) fn set_resume_on_shutdown(resume: bool) {
-    RESUME_ON_SHUTDOWN.store(resume, Ordering::SeqCst);
+pub(super) fn set_resume_on_shutdown(turns: bool, background_work: bool) {
+    RESUME_ON_SHUTDOWN.store(turns, Ordering::SeqCst);
+    RESUME_BACKGROUND_ON_SHUTDOWN.store(background_work, Ordering::SeqCst);
 }
 
-fn shutdown_intent() -> Intent {
-    if RESUME_ON_SHUTDOWN.load(Ordering::SeqCst) {
-        Intent::Resume
-    } else {
-        Intent::Stop
+fn shutdown_intent() -> Intents {
+    let intent = |resume: &AtomicBool| {
+        if resume.load(Ordering::SeqCst) {
+            Intent::Resume
+        } else {
+            Intent::Stop
+        }
+    };
+    Intents {
+        turn: intent(&RESUME_ON_SHUTDOWN),
+        background: intent(&RESUME_BACKGROUND_ON_SHUTDOWN),
     }
 }
 

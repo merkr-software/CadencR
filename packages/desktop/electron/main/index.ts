@@ -28,6 +28,7 @@ import { registerAppLifecycleIpc } from "./app-lifecycle-ipc";
 import { registerCliIpc, type CliController } from "./cli-ipc";
 import { focusForCliRequest, registerSecondInstance } from "./second-instance";
 import { createCloseCoordinator, windowCloseQuits } from "./close-coordinator";
+import { recordQuitIntent } from "./shutdown-intent";
 import { createPackagedService } from "./packaged-service";
 import { RendererHealth } from "./renderer-health";
 import { registerBrowserIpc } from "./browser-ipc";
@@ -195,7 +196,7 @@ function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
   const closingWindow = mainWindow;
   // The choice goes first, while the window is still up to show a failure:
   // closing the last window quits on Linux.
-  void recordCloseChoice()
+  void recordCloseChoice(request)
     .then(() =>
       request.quitting
         ? stopSidecarThenQuit()
@@ -204,11 +205,12 @@ function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
     .catch(handleShutdownFailure);
 }
 
-/** Tell the service to keep the agents stopped, when that is the choice. */
-async function recordCloseChoice(): Promise<void> {
-  if (closeChoice.resumeAgents || !sidecar) return;
-  await sidecar.setShutdownIntent(closeChoice);
-  stopIntentRecorded = true;
+/** Tell the service to keep the agents (or their background work) stopped. */
+async function recordCloseChoice(request: AppCloseRequest): Promise<void> {
+  const recorded = await recordQuitIntent(sidecar, request, closeChoice, (message) =>
+    dialog.showErrorBox("Cadencr may resume background work on its next start", message),
+  );
+  if (recorded) stopIntentRecorded = true;
 }
 
 function wireMainProcess(): void {

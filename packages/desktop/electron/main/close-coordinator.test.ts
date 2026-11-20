@@ -32,20 +32,26 @@ describe("close coordinator", () => {
     coordinator.acknowledge();
     coordinator.cancel();
     coordinator.request(windowCloseQuits("darwin"));
-    coordinator.confirm({ resumeAgents: true });
+    coordinator.confirm({ resumeAgents: true, resumeBackgroundWork: true });
 
     expect(ask).toHaveBeenLastCalledWith({ quitting: false });
     expect(finish).toHaveBeenCalledTimes(1);
-    expect(finish).toHaveBeenCalledWith({ quitting: false }, { resumeAgents: true });
+    expect(finish).toHaveBeenCalledWith(
+      { quitting: false },
+      { resumeAgents: true, resumeBackgroundWork: true },
+    );
   });
 
   it("quits on Linux when the confirmed close is the last window", () => {
     const { coordinator, finish } = harness();
 
     coordinator.request(windowCloseQuits("linux"));
-    coordinator.confirm({ resumeAgents: false });
+    coordinator.confirm({ resumeAgents: false, resumeBackgroundWork: false });
 
-    expect(finish).toHaveBeenCalledWith({ quitting: true }, { resumeAgents: false });
+    expect(finish).toHaveBeenCalledWith(
+      { quitting: true },
+      { resumeAgents: false, resumeBackgroundWork: false },
+    );
   });
 
   it("lets the latest request decide what a confirmation does", () => {
@@ -53,9 +59,12 @@ describe("close coordinator", () => {
 
     coordinator.request(false);
     coordinator.request(true);
-    coordinator.confirm({ resumeAgents: true });
+    coordinator.confirm({ resumeAgents: true, resumeBackgroundWork: true });
 
-    expect(finish).toHaveBeenCalledWith({ quitting: true }, { resumeAgents: true });
+    expect(finish).toHaveBeenCalledWith(
+      { quitting: true },
+      { resumeAgents: true, resumeBackgroundWork: true },
+    );
   });
 
   it("rejects a confirmation nothing is waiting for", () => {
@@ -64,7 +73,7 @@ describe("close coordinator", () => {
     coordinator.request(true);
     coordinator.cancel();
 
-    expect(() => coordinator.confirm({ resumeAgents: true })).toThrow(
+    expect(() => coordinator.confirm({ resumeAgents: true, resumeBackgroundWork: true })).toThrow(
       "No close is waiting for confirmation.",
     );
     expect(finish).not.toHaveBeenCalled();
@@ -76,7 +85,10 @@ describe("close coordinator", () => {
     coordinator.request(true);
 
     expect(ask).not.toHaveBeenCalled();
-    expect(finish).toHaveBeenCalledWith({ quitting: true }, { resumeAgents: true });
+    expect(finish).toHaveBeenCalledWith(
+      { quitting: true },
+      { resumeAgents: true, resumeBackgroundWork: true },
+    );
     expect(reportUnanswered).toHaveBeenCalledWith(
       { quitting: true },
       "the window is not available",
@@ -89,7 +101,10 @@ describe("close coordinator", () => {
 
     coordinator.request(true);
 
-    expect(finish).toHaveBeenCalledWith({ quitting: true }, { resumeAgents: true });
+    expect(finish).toHaveBeenCalledWith(
+      { quitting: true },
+      { resumeAgents: true, resumeBackgroundWork: true },
+    );
   });
 
   it("closes with the default choice when the window never answers", () => {
@@ -102,7 +117,10 @@ describe("close coordinator", () => {
       expect(finish).not.toHaveBeenCalled();
       vi.advanceTimersByTime(1);
 
-      expect(finish).toHaveBeenCalledWith({ quitting: true }, { resumeAgents: true });
+      expect(finish).toHaveBeenCalledWith(
+        { quitting: true },
+        { resumeAgents: true, resumeBackgroundWork: true },
+      );
       expect(reportUnanswered).toHaveBeenCalledWith(
         { quitting: true },
         "the window did not answer within 1000 ms",
@@ -135,7 +153,10 @@ describe("close coordinator", () => {
     coordinator.acknowledge();
     coordinator.rendererLost();
 
-    expect(finish).toHaveBeenCalledWith({ quitting: true }, { resumeAgents: true });
+    expect(finish).toHaveBeenCalledWith(
+      { quitting: true },
+      { resumeAgents: true, resumeBackgroundWork: true },
+    );
   });
 
   it("ignores a lost renderer when nothing is waiting", () => {

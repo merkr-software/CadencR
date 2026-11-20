@@ -25,7 +25,8 @@ impl Cause {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Intent {
     Resume,
-    /// They quit Cadencr and chose to stop their agents.
+    /// They quit Cadencr and chose to stop their agents (or, for background
+    /// work, quit with no agent working).
     Stop,
 }
 
@@ -34,6 +35,23 @@ impl Intent {
         match self {
             Self::Resume => "resume",
             Self::Stop => "stop",
+        }
+    }
+}
+
+/// The [`Intent`] for each [`Kind`] a capture opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Intents {
+    pub turn: Intent,
+    pub background: Intent,
+}
+
+/// The same intent for turns and background work.
+impl From<Intent> for Intents {
+    fn from(intent: Intent) -> Self {
+        Self {
+            turn: intent,
+            background: intent,
         }
     }
 }
@@ -110,10 +128,10 @@ impl PendingContinuation {
 pub(super) async fn capture_running(
     pool: &SqlitePool,
     cause: Cause,
-    intent: Intent,
+    intents: impl Into<Intents>,
     app_version: Option<&str>,
 ) -> Result<u64, sqlx::Error> {
-    capture(pool, cause, intent, app_version, None).await
+    capture(pool, cause, intents.into(), app_version, None).await
 }
 
 /// [`capture_running`] for one session: a turn shutdown cut off that the
@@ -121,16 +139,23 @@ pub(super) async fn capture_running(
 pub(super) async fn capture_session(
     pool: &SqlitePool,
     session_id: i64,
-    intent: Intent,
+    intents: impl Into<Intents>,
     app_version: Option<&str>,
 ) -> Result<u64, sqlx::Error> {
-    capture(pool, Cause::Shutdown, intent, app_version, Some(session_id)).await
+    capture(
+        pool,
+        Cause::Shutdown,
+        intents.into(),
+        app_version,
+        Some(session_id),
+    )
+    .await
 }
 
 async fn capture(
     pool: &SqlitePool,
     cause: Cause,
-    intent: Intent,
+    intents: Intents,
     app_version: Option<&str>,
     session_id: Option<i64>,
 ) -> Result<u64, sqlx::Error> {
@@ -141,7 +166,8 @@ async fn capture(
     let result = sqlx::query(
         "INSERT OR IGNORE INTO restart_continuations
              (session_id, cause, intent, app_version, kind)
-         SELECT id, ?, ?, ?, CASE WHEN mid_turn THEN ? ELSE ? END
+         SELECT id, ?, CASE WHEN mid_turn THEN ? ELSE ? END, ?,
+                CASE WHEN mid_turn THEN ? ELSE ? END
          FROM (
              SELECT id,
                     status = 'running' AND NOT EXISTS (
@@ -162,7 +188,8 @@ async fn capture(
          WHERE mid_turn OR owes_resume",
     )
     .bind(cause.as_str())
-    .bind(intent.as_str())
+    .bind(intents.turn.as_str())
+    .bind(intents.background.as_str())
     .bind(app_version)
     .bind(Kind::Turn.as_str())
     .bind(Kind::Background.as_str())
@@ -270,15 +297,19 @@ pub(super) async fn write_marker(
     if continuation.marker_message_id.is_some() {
         return Ok(());
     }
-    let (marker, tool_result) = if continuation.stop_requested() {
-        (QUIT_MARKER_CONTENT, transcript::QUIT_TOOL_RESULT)
-    } else if continuation.background_work() {
-        (
-            RESTART_BACKGROUND_MARKER_CONTENT,
-            transcript::INTERRUPTED_TOOL_RESULT,
-        )
+    // Stopped background work keeps its own marker even on a quit: its
+    // Resume button is how the user brings that work back.
+    let marker = if continuation.background_work() {
+        RESTART_BACKGROUND_MARKER_CONTENT
+    } else if continuation.stop_requested() {
+        QUIT_MARKER_CONTENT
     } else {
-        (RESTART_MARKER_CONTENT, transcript::INTERRUPTED_TOOL_RESULT)
+        RESTART_MARKER_CONTENT
+    };
+    let tool_result = if continuation.stop_requested() {
+        transcript::QUIT_TOOL_RESULT
+    } else {
+        transcript::INTERRUPTED_TOOL_RESULT
     };
     let mut tx = pool.begin().await?;
     transcript::close_running_tool_calls(&mut tx, continuation.session_id, tool_result).await?;
@@ -455,6 +486,44 @@ pub(super) mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].session_id, late);
         assert!(pending[0].stop_requested());
+    }
+
+    /// A quit with no agent working asks nothing: turns still resume, but
+    /// background work stays stopped.
+    #[tokio::test]
+    async fn a_quit_nobody_was_asked_about_keeps_only_background_work_stopped() {
+        let (pool, _, feature_id) = fixture().await;
+        let mid_turn = session(&pool, feature_id, "running").await;
+        let waiting = session(&pool, feature_id, "completed").await;
+        super::super::record_background_work(&pool, waiting, true)
+            .await
+            .unwrap();
+        let intents = Intents {
+            turn: Intent::Resume,
+            background: Intent::Stop,
+        };
+
+        capture_running(&pool, Cause::Shutdown, intents, None)
+            .await
+            .unwrap();
+
+        let pending = list_pending(&pool).await.unwrap();
+        let stops: Vec<(i64, bool)> = pending
+            .iter()
+            .map(|row| (row.session_id, row.stop_requested()))
+            .collect();
+        assert_eq!(stops, vec![(mid_turn, false), (waiting, true)]);
+        // Its marker stays the background one, with its Resume button.
+        write_marker(&pool, &pending[1]).await.unwrap();
+        let marker: String = sqlx::query_scalar(
+            "SELECT content FROM agent_messages
+             WHERE session_id = ? AND message_type = 'turn_interrupted'",
+        )
+        .bind(waiting)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(marker, RESTART_BACKGROUND_MARKER_CONTENT);
     }
 
     /// A conversation whose turn had ended but whose runtime still ran its

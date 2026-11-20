@@ -215,7 +215,7 @@ mod tests {
     use super::*;
     use crate::domain::restart_continuations::gates::tests::seed_pending_question;
     use crate::domain::restart_continuations::store::{
-        capture_running, tests::session, Cause, Intent,
+        capture_running, tests::session, Cause, Intent, Intents,
     };
     use crate::domain::schedules::repository::test_support::fixture;
 
@@ -348,6 +348,47 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(markers, 0);
+    }
+
+    /// A quit with no agent working leaves background work stopped: marked,
+    /// with its Resume button, but no prompt and nothing in the report toast.
+    #[tokio::test]
+    async fn background_work_stopped_by_a_quit_is_marked_but_not_resumed() {
+        let (pool, _, feature_id) = fixture().await;
+        let session_id = session(&pool, feature_id, "completed").await;
+        crate::domain::restart_continuations::record_background_work(&pool, session_id, true)
+            .await
+            .unwrap();
+        let intents = Intents {
+            turn: Intent::Resume,
+            background: Intent::Stop,
+        };
+        capture_running(&pool, Cause::Shutdown, intents, Some("1.0.0"))
+            .await
+            .unwrap();
+
+        let report = run(&AppState::with_pool(pool.clone())).await;
+
+        assert_eq!(
+            report.entries[0].outcome,
+            RestartContinuationOutcome::Skipped
+        );
+        assert_eq!(report.entries[0].reason.as_deref(), Some("stopped_on_quit"));
+        let transcript: Vec<(String, String)> = sqlx::query_as(
+            "SELECT message_type, content FROM agent_messages
+             WHERE session_id = ? AND message_type IN ('turn_interrupted', 'user_message')",
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            transcript,
+            vec![(
+                "turn_interrupted".into(),
+                crate::domain::restart_continuations::RESTART_BACKGROUND_MARKER_CONTENT.into()
+            )]
+        );
     }
 
     /// Its turn had completed before the kill, so the session is not
