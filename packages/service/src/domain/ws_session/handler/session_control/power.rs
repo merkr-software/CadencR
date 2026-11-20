@@ -17,19 +17,8 @@ use crate::domain::ws_session::protocol::GateCloseReason;
 use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 use crate::domain::ws_session::runtime::output::{CommandError, OutputTarget};
 
-/// Broadcast a `session.lifecycle` envelope so the frontend turn-lifecycle
-/// state machine flips only on backend-confirmed transitions (per
-/// `no-optimistic-updates.md`). Used by both suspend and resume paths.
-fn broadcast_lifecycle(sender: &impl OutputTarget, session_id: i64, kind: SessionLifecycleKind) {
-    let envelope = WsEnvelope::session_event(&WsSessionEvent::Lifecycle(SessionLifecyclePayload {
-        session_id: session_id.to_string(),
-        kind,
-    }))
-    .expect("session event payload should serialize");
-    sender
-        .send(Message::Text(String::from(envelope).into()))
-        .ignore_closed();
-}
+mod sleep_lifecycle;
+use sleep_lifecycle::{announce_suspend, lifecycle_message};
 
 /// Handle `session.suspend`. Provider-neutral pause driven by the renderer
 /// when the OS reports a pending suspend. For an active runtime we capture the
@@ -86,8 +75,9 @@ fn acknowledge_suspend(sender: &WsSender, envelope_id: &str) {
 /// The work behind `session.suspend`, for the socket that holds the
 /// conversation (`sdk_sessions` is its map) and for the HTTP suspend used for
 /// conversations no client has open (the service registry's cell). `output`
-/// receives the gate and lifecycle events; headless, every other client
-/// still learns the outcome from the status book.
+/// receives the gate and lifecycle events; headless, every viewer of the
+/// feature receives the lifecycle event, and the status book tells every
+/// client the outcome.
 pub(crate) async fn suspend_session(
     app_state: &AppState,
     sdk_sessions: &SdkSessions,
@@ -152,11 +142,7 @@ pub(crate) async fn suspend_session(
         gates_closed,
     )
     .await;
-    broadcast_lifecycle(
-        output,
-        db_session_id,
-        SessionLifecycleKind::SuspendRequested,
-    );
+    announce_suspend(output, app_state, feature_id, db_session_id).await;
     Ok(())
 }
 
@@ -296,7 +282,12 @@ pub(crate) async fn handle_resume(envelope: WsEnvelope, sender: &WsSender) {
         return;
     };
 
-    broadcast_lifecycle(sender, db_session_id, SessionLifecycleKind::Resumed);
+    sender
+        .send(lifecycle_message(
+            db_session_id,
+            SessionLifecycleKind::Resumed,
+        ))
+        .ignore_closed();
 }
 
 /// Handle session.retry_worktree_setup: re-run setup commands for an existing worktree.
@@ -513,6 +504,34 @@ mod tests {
         // `ERROR_DURING_EXECUTION`. Like a Stop, the pause is marked as
         // intended, for the stream reader to end the turn as stopped.
         assert!(marked(&app_state, 51, &query).await);
+    }
+
+    /// A pause over HTTP has no socket to tell: the feature's viewers hear of
+    /// it. One a socket asked for goes to that socket alone, which resumes it.
+    #[tokio::test]
+    async fn a_headless_suspend_tells_the_features_viewers() {
+        let app_state = make_test_app_state().await;
+        let (viewer, mut viewer_rx) = mpsc::unbounded_channel();
+        app_state.ws_feature_senders.register(1, viewer).await;
+
+        let (sessions, _query, _) = slow_stop_session(56).await;
+        suspend_session(
+            &app_state,
+            &sessions,
+            56,
+            &crate::domain::ws_session::runtime::output::SessionOutput::headless(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(lifecycle_kinds(&mut viewer_rx), ["suspend_requested"]);
+
+        let (sessions, _query, _) = slow_stop_session(57).await;
+        let (owner, mut owner_rx) = mpsc::unbounded_channel();
+        suspend_session(&app_state, &sessions, 57, &owner)
+            .await
+            .unwrap();
+        assert_eq!(lifecycle_kinds(&mut owner_rx), ["suspend_requested"]);
+        assert!(lifecycle_kinds(&mut viewer_rx).is_empty());
     }
 
     /// Between turns (the turn ended, perhaps just before the pause) there is
