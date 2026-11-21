@@ -1,0 +1,33 @@
+[package]
+name = "cadencr-plugin-provider-antigravity"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Cadencr provider connector for the Google Antigravity CLI"
+publish = false
+
+[[bin]]
+name = "cadencr-antigravity-provider"
+path = "src/main.rs"
+
+[dependencies]
+agent-client-protocol = "3.4.0"
+bon.workspace = true
+cadencr-provider-sdk = { path = "../../../packages/provider-plugin-sdk-rs", version = "0.3" }
+cli-discovery = { path = "../../../packages/cli-discovery" }
+serde_json = "1"
+tokio = { version = "1", features = [
+  "io-std",
+  "io-util",
+  "macros",
+  "process",
+  "rt",
+  "signal",
+  "time",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
