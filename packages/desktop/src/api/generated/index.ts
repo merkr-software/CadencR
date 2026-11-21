@@ -1429,6 +1429,7 @@ export interface ConversationReferenceCandidate {
   feature_id: number;
   feature_status: FeatureStatus;
   feature_title: string;
+  project_id: number;
   project_name: string;
 }
 

@@ -36,6 +36,7 @@ import { KeyboardShortcutsPlugin } from "./plugins/KeyboardShortcutsPlugin";
 import { ImagePastePlugin } from "./plugins/ImagePastePlugin";
 import { LongPastePlugin } from "./plugins/LongPastePlugin";
 import { ConversationReferencePlugin } from "./plugins/ConversationReferencePlugin";
+import { ConversationReferenceBadgesPlugin } from "./plugins/ConversationReferenceBadgesPlugin";
 import { ConversationReferenceNode } from "./nodes/ConversationReferenceNode";
 import { $isShellCommandPrefixNode, ShellCommandPrefixNode } from "./nodes/ShellCommandPrefixNode";
 import { ShellCommandPlugin, type ShellCommandEditorState } from "./plugins/ShellCommandPlugin";
@@ -294,6 +295,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
           onStateChange={setShellCommandState}
         />
         <OnChangePlugin onChange={handleChange} ignoreSelectionChange />
+        <ConversationReferenceBadgesPlugin />
         {!shellCommandState.active && (
           <>
             <MentionPlugin projectId={mentionProjectId} featureId={mentionFeatureId} />

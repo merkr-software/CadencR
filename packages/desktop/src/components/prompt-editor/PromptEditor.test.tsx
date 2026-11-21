@@ -1,6 +1,12 @@
 import { createRef } from "react";
 import { describe, it, expect, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import { render, screen, act, fireEvent } from "@/test-utils";
+import {
+  getGetFeatureQueryKey,
+  getGetProjectSettingsQueryKey,
+  type Feature,
+} from "@/api/generated";
 import { PromptEditor, type PromptEditorHandle } from "./PromptEditor";
 import type { PromptCommandPolicy } from "@/lib/prompt-command-policy";
 
@@ -33,6 +39,7 @@ vi.mock("@/api/generated", async (importOriginal) => {
         {
           feature_id: 42,
           feature_title: "Authentication work",
+          project_id: 3,
           project_name: "Cadencr",
           feature_status: "active",
         },
@@ -44,6 +51,27 @@ vi.mock("@/api/generated", async (importOriginal) => {
     })),
   };
 });
+
+const REFERENCE_PROMPT = "Read [@@Cadencr / Authentication work](cadencr-conversation:feature/42)";
+
+/**
+ * Seeded entries must outlive their observers: the test client's `gcTime: 0`
+ * would drop them while a cleared chip waits for undo to bring it back.
+ */
+function clientWithReferencedProject(): QueryClient {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  client.setQueryData(getGetFeatureQueryKey(42), { id: 42, project_id: 3 } as Feature);
+  client.setQueryData(getGetProjectSettingsQueryKey(3), [{ key: "color", value: "e11d48" }]);
+  return client;
+}
+
+function referenceChip(): HTMLElement | null {
+  return screen
+    .getByRole("textbox")
+    .querySelector<HTMLElement>('[data-conversation-feature-id="42"]');
+}
 
 describe("PromptEditor", () => {
   it("renders with placeholder text", () => {
@@ -482,7 +510,9 @@ describe("PromptEditor", () => {
 
   it("selects a conversation with @@ and serializes its stable feature reference", async () => {
     const ref = createRef<PromptEditorHandle>();
-    render(<PromptEditor ref={ref} mentionFeatureId={7} />);
+    render(<PromptEditor ref={ref} mentionFeatureId={7} />, {
+      queryClient: clientWithReferencedProject(),
+    });
 
     await act(async () => {
       ref.current!.setText("Compare @@auth");
@@ -510,5 +540,41 @@ describe("PromptEditor", () => {
     expect(
       screen.getByRole("textbox").querySelector('[data-conversation-feature-id="42"]'),
     ).not.toBeNull();
+  });
+
+  it("marks a conversation reference with its project's badge", async () => {
+    const ref = createRef<PromptEditorHandle>();
+    render(<PromptEditor ref={ref} />, { queryClient: clientWithReferencedProject() });
+    await act(async () => {
+      ref.current!.setText(REFERENCE_PROMPT);
+    });
+    const chip = referenceChip();
+    expect(chip).toHaveAttribute("data-project-badge", "dot");
+    expect(chip?.style.getPropertyValue("--conversation-project-color")).toBe("#e11d48");
+    expect(ref.current!.getText()).toBe(REFERENCE_PROMPT);
+  });
+
+  it("paints the badge again when undo restores a chip within one render batch", async () => {
+    const ref = createRef<PromptEditorHandle>();
+    render(<PromptEditor ref={ref} />, { queryClient: clientWithReferencedProject() });
+    await act(async () => {
+      ref.current!.setText(REFERENCE_PROMPT);
+    });
+    const original = referenceChip();
+    expect(original).toHaveAttribute("data-project-badge", "dot");
+    // Same node key, new element, and no render in between: only the revision
+    // counter tells the badge to repaint.
+    await act(async () => {
+      ref.current!.clear();
+      // Lexical commits the clear in a microtask; React renders only after `act`.
+      await Promise.resolve();
+      expect(referenceChip()).toBeNull();
+      // Lexical reads the platform: Cmd+Z where jsdom reports a Mac, else Ctrl+Z.
+      const modifier = /Mac/.test(navigator.platform) ? "metaKey" : "ctrlKey";
+      fireEvent.keyDown(screen.getByRole("textbox"), { key: "z", code: "KeyZ", [modifier]: true });
+    });
+    const restored = referenceChip();
+    expect(restored).not.toBe(original);
+    expect(restored).toHaveAttribute("data-project-badge", "dot");
   });
 });

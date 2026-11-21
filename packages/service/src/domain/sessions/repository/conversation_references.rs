@@ -40,6 +40,7 @@ pub async fn list_conversation_references(
         r#"SELECT
                f.id AS feature_id,
                f.title AS feature_title,
+               p.id AS project_id,
                p.name AS project_name,
                f.status AS feature_status,
                COALESCE(
@@ -165,6 +166,7 @@ mod tests {
             rows.iter().map(|row| row.feature_id).collect::<Vec<_>>(),
             vec![2, 3]
         );
+        assert_eq!(rows[1].project_id, 2);
         assert_eq!(
             rows[1].feature_status,
             crate::domain::features::models::FeatureStatus::Archived

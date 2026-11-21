@@ -1,6 +1,12 @@
 import { StrictMode } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@/test-utils";
+import { render, screen, fireEvent, createTestQueryClient } from "@/test-utils";
+import {
+  getGetFeatureQueryKey,
+  getGetProjectSettingsQueryKey,
+  type Feature,
+} from "@/api/generated";
+import { fragmentToMarkdown } from "@/lib/selection-to-markdown";
 import { LinkRoutingContext, type LinkRouting } from "./links/LinkRoutingContext";
 import { Markdown } from "./Markdown";
 import { MarkdownImageProvider } from "./markdown-image";
@@ -62,6 +68,25 @@ describe("Markdown", () => {
     expect(link).toHaveAttribute("href", "cadencr-conversation:feature/42");
     await user.click(link);
     expect(activateConversation).toHaveBeenCalledWith(42);
+  });
+
+  it("leads a conversation reference with its project's badge, outside the copied label", () => {
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(getGetFeatureQueryKey(42), { id: 42, project_id: 3 } as Feature);
+    queryClient.setQueryData(getGetProjectSettingsQueryKey(3), [{ key: "color", value: "e11d48" }]);
+    render(<Markdown content="Read [@@Cadencr / Work](cadencr-conversation:feature/42)" />, {
+      queryClient,
+    });
+
+    const link = screen.getByRole("link", { name: "@@Cadencr / Work" });
+    const badge = link.previousElementSibling?.firstElementChild;
+    expect(badge).toHaveStyle({ backgroundColor: "#e11d48" });
+
+    const range = document.createRange();
+    range.selectNodeContents(link.parentElement!);
+    expect(fragmentToMarkdown(range.cloneContents())).toBe(
+      "Read [@@Cadencr / Work](cadencr-conversation:feature/42)",
+    );
   });
 
   it("keeps serialized conversation references literal inside code", () => {
