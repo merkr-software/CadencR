@@ -12,9 +12,10 @@
   },
   "artwork": {
     "file": "icon.svg",
-    "sha256": "e87d8b60a21b1732da869acd785a88e1d1a097fd770672912fea3ef1a4bb9b44",
-    "declared_spdx": "Apache-2.0",
-    "creation_record": "README.md#connector-artwork"
+    "sha256": "8636cf655887c48507b2c07f04afbfbeb3ec7889c2b19f891a0bb03224a79e6e",
+    "declared_spdx": "NOASSERTION",
+    "creation_record": "README.md#connector-artwork",
+    "source": "https://antigravity.google/favicon.svg"
   },
   "runtime": {
     "kind": "native-rust-connector-external-antigravity-cli",
