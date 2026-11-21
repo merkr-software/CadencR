@@ -118,6 +118,10 @@ pub enum RuntimeEventKind {
         data: Value,
     },
     Result,
+    /// An unsolicited reply reached a terminal boundary after its prompt had
+    /// already completed. Close the stream and queue normally without settling
+    /// delivery or accounting for a user prompt a second time.
+    DetachedReplyEnded,
     /// Provider surfaced a non-fatal, user-facing error mid-stream — e.g. an
     /// API 5xx the CLI reports as a synthetic assistant message. Unlike
     /// [`RuntimeError`](super::RuntimeError) (a dead transport, which tears the

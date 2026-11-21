@@ -96,8 +96,11 @@ impl AcpClient {
     /// Queue a fence behind every event received so far. The receiver
     /// resolves once the event loop reaches it, or errors if the loop's
     /// queue is gone — it never waits on a fence that was skipped.
-    pub(crate) fn enqueue_event_barrier(&self) -> Result<oneshot::Receiver<()>, AcpError> {
-        let (barrier, released) = AcpEventBarrier::new();
+    pub(crate) fn enqueue_event_barrier(
+        &self,
+        resume: Option<oneshot::Receiver<()>>,
+    ) -> Result<oneshot::Receiver<()>, AcpError> {
+        let (barrier, released) = AcpEventBarrier::new(resume);
         if !self
             .inner
             .events

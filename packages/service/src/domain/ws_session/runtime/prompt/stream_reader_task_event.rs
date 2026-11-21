@@ -30,6 +30,29 @@ impl StreamReaderTask {
     ) {
         state.last_runtime_activity = tokio::time::Instant::now();
         state.diagnostics.record(runtime_event.raw_json());
+        let detached_generation = if runtime_event.is_detached_reply_end() {
+            Some(
+                self.app_state
+                    .active_turns
+                    .lock_turn_generation(self.db_session_id)
+                    .await,
+            )
+        } else {
+            None
+        };
+        if runtime_event.is_result() {
+            let generation = self
+                .app_state
+                .active_turns
+                .current_generation(self.db_session_id)
+                .await;
+            if !state
+                .turn_state
+                .accepts_result_generation(runtime_event.is_detached_reply_end(), generation)
+            {
+                return;
+            }
+        }
         // Provider-native token reports are recorded before any early return
         // below. Context-window usage remains on the separate `usage_state`
         // path and is never mistaken for consumption, except for a provider's
@@ -133,6 +156,12 @@ impl StreamReaderTask {
             interrupted_generation,
         )
         .await;
+        // Queue delivery can begin a new generation in this same session.
+        drop(detached_generation);
+        if runtime_event.is_result() {
+            self.continue_after_result(state, interrupted_generation)
+                .await;
+        }
     }
 
     async fn handle_permission_request(
@@ -342,10 +371,16 @@ impl StreamReaderTask {
             self.publish(Message::Text(String::from(envelope).into()))
                 .await;
         }
-        if runtime_event.is_result()
-            && state.live_background_agents.is_empty()
-            && interrupted_generation.is_none()
-        {
+    }
+
+    async fn continue_after_result(
+        &self,
+        state: &StreamReaderState,
+        interrupted_generation: Option<u64>,
+    ) {
+        if let Some(generation) = interrupted_generation {
+            self.after_stopped_turn(generation).await;
+        } else if state.live_background_agents.is_empty() {
             if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_completed(
                 &self.app_state,
                 self.db_session_id,
@@ -355,9 +390,6 @@ impl StreamReaderTask {
                 error!(self.db_session_id, error = %error, "failed to deliver MCP session reply");
             }
             self.after_turn_result().await;
-        }
-        if let (true, Some(generation)) = (runtime_event.is_result(), interrupted_generation) {
-            self.after_stopped_turn(generation).await;
         }
     }
 }
@@ -370,6 +402,87 @@ mod tests {
         RuntimeSpawnConfig,
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn detached_completion_preserves_prompt_delivery_and_an_open_gate() {
+        use crate::domain::runtime_stream::RuntimeUsageSnapshot;
+        use crate::domain::ws_session::persistence::PendingUserInput;
+
+        let (task, _runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        let mut state = StreamReaderState::new(RuntimeUsageSnapshot {
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: None,
+        });
+        let id = task.db_session_id;
+        let pool = &task.write_pool;
+        let turns = &task.app_state.active_turns;
+        let mut persistence =
+            WsSessionPersistence::with_session_id(pool.clone(), task.feature_id, Some(id));
+        let message_uuid = uuid::Uuid::new_v4();
+        persistence
+            .persist_user_message_with_delivery(
+                "Still preparing to send",
+                message_uuid,
+                Some("pending_agent"),
+            )
+            .await
+            .unwrap();
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        assert!(state
+            .turn_state
+            .accepts_result_generation(false, turns.current_generation(id).await));
+        state.turn_state.mark_fresh_turn_started();
+
+        // The newer foreground prompt is preparing, before its ACP request
+        // has even taken the session's prompt lock.
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        WsSessionPersistence::mark_running_static(pool, id)
+            .await
+            .unwrap();
+        let end = RuntimeEvent::new(
+            RuntimeEventMetadata::default(),
+            RuntimeEventKind::DetachedReplyEnded,
+        );
+        task.handle_runtime_event(&mut state, None, &mut persistence, end.clone())
+            .await;
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "running");
+        assert!(!state.turn_state.is_between_turns());
+
+        // When the detached reply belongs to the current generation, its
+        // boundary closes the stream without deciding the pending question.
+        assert!(state
+            .turn_state
+            .accepts_result_generation(false, turns.current_generation(id).await));
+        let gate = json!({"request_id":"detached-gate", "tool_name":"AskUserQuestion"});
+        WsSessionPersistence::set_pending_user_input_static(
+            pool,
+            id,
+            &PendingUserInput::Question(&gate),
+        )
+        .await;
+        task.handle_runtime_event(&mut state, None, &mut persistence, end)
+            .await;
+        assert!(state.turn_state.is_between_turns());
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "completed");
+        let (_, payload) = row.pending_gate_payload().unwrap();
+        assert_eq!(payload.request_id, "detached-gate");
+        let delivery: String =
+            sqlx::query_scalar("SELECT delivery_state FROM agent_messages WHERE message_uuid = ?")
+                .bind(message_uuid.to_string())
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(delivery, "pending_agent");
+    }
 
     struct BoundOwnerAdapter;
     #[async_trait::async_trait]

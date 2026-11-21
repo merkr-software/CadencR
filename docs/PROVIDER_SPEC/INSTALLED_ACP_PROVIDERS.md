@@ -483,3 +483,19 @@ prompt-free conformance, sanitized environments, process-tree termination,
 platform resource controls, redacted quarantine, and a cached signed blocklist.
 They still do not claim filesystem/network sandboxing; that release gate remains
 explicit in `BOUNDARIES.md` Phase 8.
+
+## Detached replies
+
+A connector that receives an unsolicited reply after a successful
+`session/prompt` can mark its last `session/update` usage notification with
+`update._meta.cadencr.detachedReplyEnded: true`. Send the marker on the
+original `usage_update` after forwarding the reply's text or thought chunks,
+with the same `sessionId` and while no prompt is in flight.
+
+Cadencr accepts the marker only after seeing a successful prompt result and
+subsequent streamed reply content for that session outside a host prompt.
+It closes the reply's streaming blocks and completes the visible activity.
+The usage notification keeps its normal context-budget meaning. The marker
+adds no token accounting and does not complete an outstanding
+`session/prompt` request. Notifications without the marker keep their usual
+ACP behavior.

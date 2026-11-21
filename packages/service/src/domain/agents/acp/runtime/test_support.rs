@@ -22,7 +22,7 @@ pub(crate) fn spawn_event_barrier_acker(client: &AcpClient) {
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
             if let AcpEvent::EventBarrier(barrier) = event {
-                barrier.release();
+                barrier.reach().await;
             }
         }
     });

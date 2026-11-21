@@ -152,7 +152,14 @@ impl RuntimeEvent {
     }
 
     pub fn is_result(&self) -> bool {
-        matches!(self.kind, RuntimeEventKind::Result)
+        matches!(
+            self.kind,
+            RuntimeEventKind::Result | RuntimeEventKind::DetachedReplyEnded
+        )
+    }
+
+    pub fn is_detached_reply_end(&self) -> bool {
+        matches!(self.kind, RuntimeEventKind::DetachedReplyEnded)
     }
 
     pub fn raw_json(&self) -> &Value {

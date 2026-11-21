@@ -30,6 +30,7 @@ use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
+use super::detached_replies::{DetachedReply, DetachedUpdate};
 use super::event_loop_state::{latched_turn_model, sync_session_state_from_update};
 use super::events::session_update_to_events;
 use super::events_stream_blocks::EventIndexer;
@@ -49,6 +50,7 @@ use super::session_config::AcpSessionConfigState;
 use super::session_permissions::SessionPermissions;
 use super::terminal_enrich::enrich_session_update;
 use super::terminal_registry::TerminalRegistry;
+use super::turn_lifecycle::PromptTurnLock;
 
 #[derive(Clone)]
 pub struct EventLoopConfig {
@@ -67,6 +69,7 @@ pub struct EventLoopConfig {
     /// mutates it on every `session/update`) and the prompt-turn path (which
     /// drains open blocks at `stop_reason` time — see W4).
     pub indexer: Arc<Mutex<EventIndexer>>,
+    pub prompt_turn_lock: PromptTurnLock,
     /// Suppresses durable transcript replay from `session/load` until the
     /// first new prompt is dispatched.
     pub replay_suppression: Arc<AtomicBool>,
@@ -102,7 +105,7 @@ pub fn spawn_event_loop(
                 AcpEvent::ServerRequest(request) => {
                     handle_server_request(&client, request, &tx, &config, &mut deferred).await;
                 }
-                AcpEvent::EventBarrier(barrier) => barrier.release(),
+                AcpEvent::EventBarrier(barrier) => barrier.reach().await,
                 AcpEvent::ProcessExited { status, signal } => {
                     if !config.closing.load(Ordering::SeqCst) {
                         let message =
@@ -183,25 +186,38 @@ async fn handle_notification(
             // the FE with both `toolInput.command` and an inline text result.
             let enriched = enrich_session_update(params, &config.terminals).await;
             let payload = enriched.as_ref().unwrap_or(params);
-            let mapped = {
+            let (mapped, detached) = {
                 // Hold the mutex only across the (synchronous) mapping call;
                 // never across `await`. The prompt-turn path competes for
                 // this lock at turn end (see drain_open_blocks).
                 let mut indexer = config.indexer.lock().expect("EventIndexer poisoned");
                 let turn_model = latched_turn_model(&mut indexer, agent_moved_model, model);
-                session_update_to_events(
+                let detached = session_id.as_deref().and_then(|session_id| {
+                    if indexer.detached_reply == DetachedReply::Inactive {
+                        return None;
+                    }
+                    let update = DetachedUpdate::classify(payload, session_id)?;
+                    let turn_guard = config.prompt_turn_lock.try_lock().ok()?;
+                    Some((session_id, update, turn_guard))
+                });
+                let mut mapped = session_update_to_events(
                     payload,
                     &mut indexer,
                     turn_model.as_deref(),
                     session_id.as_deref(),
                     config.hooks.as_ref(),
-                )
+                );
+                if let Some((session_id, update, _)) = &detached {
+                    update.apply(&mut indexer, &mut mapped, session_id);
+                }
+                (mapped, detached)
             };
             for event in mapped.events {
                 if tx.send(Ok(event)).await.is_err() {
                     return;
                 }
             }
+            drop(detached);
             if let Some(event) = refreshed_pending_permission_event(payload, config).await {
                 tx.send(Ok(event)).await.ignore_closed();
             }

@@ -19,8 +19,17 @@ impl AcpRuntimeSession {
         &self,
         content: Value,
         client_message_id: Option<String>,
-        finalize_response: bool,
     ) -> Result<(), RuntimeError> {
+        // ACP v1 has no portable steering request. Serialize prompts so each
+        // accepted input gets an authoritative result. A Stop withdraws inputs
+        // that were waiting behind the turn it interrupted.
+        let cancels = self.prompt_cancel.cancels();
+        let turn_guard = self.prompt_turn_lock.lock().await;
+        if self.prompt_cancel.cancelled_since(cancels) {
+            return Err(RuntimeError::input_withdrawn(
+                "the turn was stopped before this follow-up reached the agent",
+            ));
+        }
         let session_id = self.require_session_id().await?;
         let prompt = acp_prompt_blocks_from_content(content);
         self.hooks.validate_prompt_blocks(&prompt)?;
@@ -73,22 +82,22 @@ impl AcpRuntimeSession {
         if agent_was_terminated(&response) {
             return Ok(());
         }
-        await_event_loop_barrier(&self.client).await?;
-        if finalize_response {
-            if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
-                tracing::debug!(stop_reason = reason, "session/prompt completed");
-                finalize_turn(
-                    self.local_tx(),
-                    &self.indexer,
-                    self.current_session_id().await,
-                    self.context_window,
-                    self.hooks.prompt_response_usage(&response),
-                    reason,
-                    &response,
-                )
-                .await;
-            }
+        let resume_updates = await_event_loop_barrier(&self.client).await?;
+        if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
+            tracing::debug!(stop_reason = reason, "session/prompt completed");
+            finalize_turn(
+                self.local_tx(),
+                &self.indexer,
+                Some(session_id),
+                self.context_window,
+                self.hooks.prompt_response_usage(&response),
+                reason,
+                &response,
+            )
+            .await;
         }
+        drop(turn_guard);
+        drop(resume_updates);
         Ok(())
     }
 }

@@ -7,6 +7,7 @@
 mod apply_model_config;
 pub mod capability_probe;
 pub mod config_options;
+mod detached_replies;
 pub mod event_loop_state;
 pub mod events;
 pub mod events_config_option;

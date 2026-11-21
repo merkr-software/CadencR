@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::domain::agents::adapter::{RuntimeSessionHandle, RuntimeSessionWeakHandle};
+use crate::shared::keyed_locks::KeyedLocks;
 
 use super::followup_stops::FollowupStops;
 use super::state::{QueryState, SdkHandle, SdkSessions};
@@ -46,6 +47,7 @@ struct InterruptedTurn {
 #[derive(Default)]
 pub struct ActiveTurnRegistry {
     turns: Mutex<HashMap<i64, ActiveTurn>>,
+    generation_changes: KeyedLocks<i64>,
     followups: FollowupStops,
 }
 
@@ -63,6 +65,7 @@ impl ActiveTurnRegistry {
     /// Called at every turn start (`mark_agent_running`); a mid-turn respawn
     /// keeps the same owner map, so it does not need to touch the registry.
     pub(crate) async fn begin_turn(&self, db_session_id: i64, owner: &SdkSessions) {
+        let _generation = self.lock_turn_generation(db_session_id).await;
         let mut turns = self.turns.lock().await;
         // A stop of a turn still ending is carried, so that turn's late result
         // is not taken for this one's; the mark of a turn that already ended
@@ -84,6 +87,16 @@ impl ActiveTurnRegistry {
                 queue_after_stop: None,
             },
         );
+    }
+
+    /// Keep the generation stable across a detached completion's status and
+    /// transcript writes. Other sessions can still begin their own turns.
+    pub(super) async fn lock_turn_generation(&self, db_session_id: i64) -> OwnedMutexGuard<()> {
+        self.generation_changes
+            .lock_for(&db_session_id)
+            .await
+            .lock_owned()
+            .await
     }
 
     /// The current turn ended (completed, stopped, failed or paused). A stop
@@ -326,6 +339,25 @@ mod tests {
         reg.begin_turn(42, &owner).await;
 
         assert!(reg.owner_sessions(42).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_detached_completion_only_blocks_a_new_turn_in_its_own_session() {
+        let reg = ActiveTurnRegistry::new();
+        let owner = empty_sessions();
+        reg.begin_turn(42, &owner).await;
+        let completing = reg.lock_turn_generation(42).await;
+        let new_turn = reg.begin_turn(42, &owner);
+        tokio::pin!(new_turn);
+        assert!(futures::poll!(new_turn.as_mut()).is_pending());
+
+        reg.begin_turn(43, &owner).await;
+        assert_eq!(reg.current_generation(42).await, Some(1));
+        assert_eq!(reg.current_generation(43).await, Some(1));
+        drop(completing);
+
+        new_turn.await;
+        assert_eq!(reg.current_generation(42).await, Some(2));
     }
 
     #[tokio::test]

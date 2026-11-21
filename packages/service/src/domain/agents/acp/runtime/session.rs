@@ -307,6 +307,7 @@ mod tests {
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             browser_trust: Default::default(),
             indexer: Arc::clone(&indexer),
+            prompt_turn_lock: Arc::clone(&lock),
         };
         let _loop_task = spawn_event_loop(client.clone(), event_rx, tx.clone(), cfg);
 

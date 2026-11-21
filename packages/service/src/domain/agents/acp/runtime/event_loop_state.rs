@@ -251,6 +251,7 @@ mod tests {
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             browser_trust: Default::default(),
             indexer: Arc::new(Mutex::new(EventIndexer::default())),
+            prompt_turn_lock: Default::default(),
         }
     }
 
