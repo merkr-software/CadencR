@@ -318,6 +318,15 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     fn supports_permission_mode(&self, _mode: &RuntimePermissionMode) -> bool {
         false
     }
+    /// Resolve the initial mode before starting the runtime. Connectors with
+    /// workspace-specific modes resolve against that workspace's catalog.
+    async fn resolve_initial_permission_mode(
+        &self,
+        _cwd: &Path,
+        requested: Option<&str>,
+    ) -> Result<Option<RuntimePermissionMode>, RuntimeError> {
+        Ok(super::super::permission_modes::supported_or_default_permission_mode(self, requested))
+    }
 
     /// Whether this provider supports the provider-neutral access/autonomy
     /// axis (Default, Full Access, Auto Review). Providers own the concrete

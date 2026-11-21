@@ -233,6 +233,24 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         self.modes().mode_for(mode).is_some()
     }
 
+    async fn resolve_initial_permission_mode(
+        &self,
+        cwd: &Path,
+        requested: Option<&str>,
+    ) -> Result<Option<RuntimePermissionMode>, RuntimeError> {
+        use crate::domain::agents::permission_modes::parse_permission_mode;
+        let discovered = self.discover_for_cwd(cwd).await?;
+        let modes = &discovered.modes;
+        Ok(requested
+            .map(parse_permission_mode)
+            .filter(|mode| modes.mode_for(mode).is_some())
+            .or_else(|| {
+                modes
+                    .primary_mode()
+                    .map(|mode| parse_permission_mode(&mode.host_id))
+            }))
+    }
+
     /// The provider's primary edit mode (its first mapped mode value).
     fn default_permission_mode_wire(&self) -> Cow<'static, str> {
         capabilities::default_permission_mode_wire(&self.modes())
@@ -513,6 +531,42 @@ exit 1
         for cwd in [first_cwd.path(), second_cwd.path()] {
             let cached = adapter.catalog_cache.fresh(&cwd.to_path_buf()).await;
             assert!(cached.is_some(), "{}", cwd.display());
+        }
+    }
+
+    #[tokio::test]
+    async fn initial_permission_mode_uses_the_requested_workspace() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        std::fs::write(first.path().join("allow-auto"), "").unwrap();
+        let script = super::super::test_fixtures::write_script(
+            first.path(),
+            "workspace-modes",
+            r#"#!/bin/sh
+cat <<'JSON'
+[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]},
+ {"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"default","options":[
+   {"value":"default","name":"Default","_meta":{"cadencr":{"permissionMode":"default"}}}
+JSON
+if [ -f ./allow-auto ]; then
+  echo ',{"value":"auto","name":"Auto","_meta":{"cadencr":{"permissionMode":"auto"}}}'
+fi
+echo ']}]'
+"#,
+        );
+        let adapter = adapter(script.to_str().unwrap());
+        for (cwd, expected) in [
+            (first.path(), RuntimePermissionMode::Auto),
+            (second.path(), RuntimePermissionMode::Default),
+            (first.path(), RuntimePermissionMode::Auto),
+        ] {
+            assert_eq!(
+                adapter
+                    .resolve_initial_permission_mode(cwd, Some("auto"))
+                    .await
+                    .unwrap(),
+                Some(expected)
+            );
         }
     }
 

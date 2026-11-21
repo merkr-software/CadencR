@@ -8,6 +8,7 @@ import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-
 import { updateSession } from "./ws-session-types";
 import { invalidateWorktreeQueries } from "@/lib/worktreeQueries";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
+import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 
 vi.mock("@/lib/worktreeQueries", () => ({
   invalidateWorktreeQueries: vi.fn(),
@@ -783,6 +784,25 @@ describe("ws-session-store", () => {
     expect(useWsSessionStore.getState().sessions["s1"].pendingInitPermissionMode).toBeNull();
   });
 
+  it("does not replay a permission mode already acknowledged by initialization", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPermissionMode("s1", "plan");
+    store.sendPrompt("s1", "hello");
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", permission_mode: "plan" },
+    });
+    expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["prompt.send"]);
+    expect(useWsSessionStore.getState().sessions.s1).toMatchObject({
+      permissionMode: "plan",
+      pendingInitPermissionMode: null,
+    });
+  });
+
   it.each(["autoReview", "default", "fullAccess"] as const)(
     "replays a pre-init %s access choice before the first queued prompt",
     async (mode) => {
@@ -1007,6 +1027,37 @@ describe("ws-session-store", () => {
 
     expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("default");
     expect(ws.sent).toHaveLength(0);
+  });
+
+  it("adopts the confirmed provider default even when the provider also supports the UI seed", async () => {
+    const provider = "example-acp";
+    setProviderCatalogMetadata([
+      {
+        id: provider,
+        label: "Example ACP",
+        modes: [
+          { id: "default", label: "Default" },
+          { id: "auto", label: "Auto" },
+        ],
+      },
+    ]);
+    try {
+      useWsSessionStore.getState().connect("s1");
+      await tick();
+      const ws = getWs();
+      expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("auto");
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-1", provider, permission_mode: "default" },
+      });
+
+      expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("default");
+      expect(ws.sent).toHaveLength(0);
+    } finally {
+      setProviderCatalogMetadata([]);
+    }
   });
 
   it("keeps a valid mode picked while session.init was in flight", async () => {
@@ -1967,49 +2018,58 @@ describe("ws-session-store", () => {
     expect(usage?.contextWindow).toBe(1_000_000);
   });
 
-  it("model.set.ok invalidates an active negotiated session configuration", async () => {
-    const { ws } = await connectInitializedSession();
-    ws.simulateMessage({
-      domain: "session",
-      action: "runtime_session_id",
-      payload: { runtime_session_id: "runtime-1" },
-    });
-    ws.simulateMessage({
-      domain: "session",
-      action: "config.snapshot",
-      payload: {
-        session_id: "srv-1",
-        config: {
-          options: [
-            {
-              id: "model",
-              name: "Model",
-              type: "select",
-              current_value: "opus",
-              choices: {
-                layout: "ungrouped",
-                options: [{ name: "Opus", value: "opus" }],
+  it.each(["model.set.ok", "initialized"] as const)(
+    "%s invalidates the old configuration after a model switch or a provider switch on reconnect",
+    async (action) => {
+      const { ws } = await connectInitializedSession();
+      ws.simulateMessage({
+        domain: "session",
+        action: "runtime_session_id",
+        payload: { runtime_session_id: "runtime-1" },
+      });
+      ws.simulateMessage({
+        domain: "session",
+        action: "config.snapshot",
+        payload: {
+          session_id: "srv-1",
+          config: {
+            options: [
+              {
+                id: "model",
+                name: "Model",
+                type: "select",
+                current_value: "opus",
+                choices: {
+                  layout: "ungrouped",
+                  options: [{ name: "Opus", value: "opus" }],
+                },
               },
-            },
-          ],
+            ],
+          },
         },
-      },
-    });
+      });
 
-    expect(useWsSessionStore.getState().sessions.s1.sessionConfigSupported).toBe(true);
-    ws.simulateMessage({
-      domain: "session",
-      action: "model.set.ok",
-      payload: { provider: "claude_code", model: "sonnet" },
-    });
+      expect(useWsSessionStore.getState().sessions.s1.sessionConfigSupported).toBe(true);
+      ws.simulateMessage({
+        domain: "session",
+        action,
+        payload: {
+          session_id: "srv-1",
+          provider: action === "initialized" ? "codex_cli" : "claude_code",
+          model: action === "initialized" ? "gpt-5.4" : "sonnet",
+        },
+      });
 
-    const session = useWsSessionStore.getState().sessions.s1;
-    expect(session.currentSelection?.modelId).toBe("sonnet");
-    expect(session.sessionConfig).toBeNull();
-    expect(session.sessionConfigSupported).toBeNull();
-    expect(session.sessionConfigLoading).toBe(false);
-    expect(session.sessionConfigError).toBeNull();
-  });
+      const session = useWsSessionStore.getState().sessions.s1;
+      expect(session.currentSelection?.modelId).toBe(
+        action === "initialized" ? "gpt-5.4" : "sonnet",
+      );
+      expect(session.sessionConfig).toBeNull();
+      expect(session.sessionConfigSupported).toBeNull();
+      expect(session.sessionConfigLoading).toBe(false);
+      expect(session.sessionConfigError).toBeNull();
+    },
+  );
 
   it("clears optimistic thinking effort when initialized payload omits it", async () => {
     const store = useWsSessionStore.getState();

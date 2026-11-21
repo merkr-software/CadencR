@@ -46,6 +46,15 @@ appear without individually attributed results. CadencR retains activity it
 recorded during the launch. A child whose outcome is unavailable stays
 running until its runtime closes.
 
+**Auto** uses Antigravity’s native execution policy. Antigravity approves
+workspace edits, runs terminal commands in its sandbox by default, and checks
+commands that need to run outside the sandbox. Risky or irreversible actions
+can still require approval. Auto requires a personal account and a supported
+terminal sandbox. Choose it before the first turn or during an eligible
+session. When the CLI declines Auto at startup, choose **Default** or another
+available mode and resend. CadencR applies the selected mode again when it
+restores a session. See [Antigravity execution modes](https://antigravity.google/docs/cli/modes/).
+
 ## Build and test
 
 From the repository root, with the pinned Node.js and Rust toolchains and

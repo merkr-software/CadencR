@@ -189,12 +189,15 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     assert_eq!(neon_effort["supportsEffort"], true);
     assert_eq!(neon_effort["supportedEffortLevels"], json!(["low", "high"]));
     assert!(cold_models["options"][1].get("_meta").is_none());
+    let cold_modes = option(&catalog, "mode");
+    assert_eq!(cold_modes["currentValue"], "default");
     assert_eq!(
-        option(&catalog, "mode")["options"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
+        values(cold_modes),
+        ["default", "accept-edits", "auto", "plan"]
+    );
+    assert_eq!(
+        cold_modes["options"][2]["_meta"]["cadencr"]["permissionMode"],
+        "auto"
     );
 
     let mut original = Host::open(&fixture);
@@ -235,6 +238,7 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     for (id, value) in [
         ("model", "mock-neon"),
         ("thought_level", "low"),
+        ("mode", "auto"),
         ("mode", "plan"),
     ] {
         let request_id = original
@@ -321,6 +325,33 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
         creates[0]["params"]["_meta"]["antigravity"]["systemPrompt"]["append"],
         "Name the thread."
     );
+}
+
+#[tokio::test]
+async fn a_native_session_can_decline_auto_mode() {
+    let fixture = Fixture::new("no-auto-mode");
+    let mut host = Host::open(&fixture);
+    host.initialize().await;
+    let created = host
+        .request(
+            "session/new",
+            json!({"cwd": fixture.cwd(), "mcpServers": []}),
+        )
+        .await;
+    let session_id = &created["result"]["sessionId"];
+    let mode = option(&created["result"]["configOptions"], "mode");
+    assert_eq!(mode["currentValue"], "default");
+    assert_eq!(values(mode), ["default", "accept-edits", "plan"]);
+
+    let response = host
+        .request(
+            "session/set_config_option",
+            json!({"sessionId": session_id, "configId": "mode", "value": "auto"}),
+        )
+        .await;
+    assert_eq!(response["error"]["message"], "Value unavailable");
+    assert!(response.get("result").is_none());
+    host.close().await;
 }
 
 #[tokio::test]

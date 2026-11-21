@@ -1,36 +1,72 @@
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimePermissionMode;
-use crate::domain::agents::permission_modes::{
-    permission_mode_wire, supported_or_default_permission_mode,
-};
+use crate::domain::agents::permission_modes::permission_mode_wire;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 
-/// The permission mode a session starts with, plus its wire form for the
-/// `initialized` reply.
-///
-/// The frontend seeds every new conversation with the default provider's mode
-/// (Claude's `auto`), even one that starts on Codex or OpenCode. A mode the
-/// provider can't run becomes the provider default, and that correction is
-/// persisted and reported: otherwise the client replays its stale mode right
-/// after init and the provider rejects it with a `MODE_NOT_SUPPORTED` toast.
-pub(super) async fn resolve(
+/// Persist the provider's resolved initial mode for the initialized reply.
+pub(super) async fn persist(
     app_state: &AppState,
     db_session_id: i64,
-    provider: &str,
     requested: Option<&str>,
-) -> Result<(Option<RuntimePermissionMode>, Option<String>), sqlx::Error> {
-    let mode = supported_or_default_permission_mode(provider, requested);
-    let wire = mode.as_ref().map(permission_mode_wire);
-    if let (Some(requested), Some(wire)) = (requested, wire.as_deref()) {
-        if requested != wire {
-            // `find_or_create_session` already stored the requested mode.
-            WsSessionPersistence::update_permission_mode_static(
-                &app_state.write_pool,
-                db_session_id,
-                wire,
-            )
-            .await?;
+    mode: Option<&RuntimePermissionMode>,
+) -> Result<Option<String>, sqlx::Error> {
+    let wire = mode.map(permission_mode_wire);
+    if let Some(wire) = wire.as_deref().filter(|wire| Some(*wire) != requested) {
+        WsSessionPersistence::update_permission_mode_static(
+            &app_state.write_pool,
+            db_session_id,
+            wire,
+        )
+        .await?;
+    }
+    Ok(wire)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agents::runtime_adapter;
+    use crate::domain::ws_session::handler::tests::support::make_test_app_state;
+
+    #[tokio::test]
+    async fn a_fresh_row_uses_the_provider_mode_even_with_the_legacy_sql_default() {
+        let state = make_test_app_state().await;
+        sqlx::raw_sql(
+            "ALTER TABLE agent_sessions RENAME COLUMN permission_mode TO test_old_permission_mode;
+             ALTER TABLE agent_sessions ADD COLUMN permission_mode TEXT DEFAULT 'bypassPermissions';",
+        )
+        .execute(&state.write_pool)
+        .await
+        .unwrap();
+        for (feature_id, provider, expected_mode) in [
+            (1, "claude_code", "auto"),
+            (2, "codex_cli", "default"),
+            (3, "opencode", "acceptEdits"),
+        ] {
+            let session_id = WsSessionPersistence::new(state.write_pool.clone(), feature_id)
+                .find_or_create_session_for_binding(None, None, None)
+                .await
+                .unwrap();
+            let row = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(row.permission_mode.is_none(), "{provider}");
+            let requested_mode = row.permission_mode.as_deref();
+            let adapter = runtime_adapter(provider).unwrap();
+            let mode = adapter
+                .resolve_initial_permission_mode(&std::env::temp_dir(), requested_mode)
+                .await
+                .unwrap();
+            let wire = persist(&state, session_id, requested_mode, mode.as_ref())
+                .await
+                .unwrap();
+            assert_eq!(wire.as_deref(), Some(expected_mode), "{provider}");
+            let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored.permission_mode.as_deref(), Some(expected_mode));
         }
     }
-    Ok((mode, wire))
 }

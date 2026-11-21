@@ -1,5 +1,10 @@
 import { z } from "zod";
-import type { RuntimeSessionConfigOption, RuntimeSessionConfigSelectOption } from "@/api/generated";
+import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
+import type {
+  RuntimeSessionConfigOption,
+  RuntimeSessionConfigSelectOption,
+  RuntimeSessionConfigSnapshot,
+} from "@/api/generated";
 
 /**
  * Session config options the host already renders as its own controls, per the
@@ -41,4 +46,22 @@ export function isHostRenderedConfigOption(option: RuntimeSessionConfigOption): 
     option.type === "select" &&
     flattenChoices(option).some(({ option: value }) => !!cadencrMeta(value._meta)?.permissionMode)
   );
+}
+
+/** A connector can negotiate a subset of its declared modes in a live session. */
+export function restrictPermissionModesToSession(
+  catalog: readonly RuntimeProviderModeOption[] | undefined,
+  sessionConfig: RuntimeSessionConfigSnapshot | null,
+): readonly RuntimeProviderModeOption[] | undefined {
+  if (!catalog?.length) return catalog;
+  const mode = sessionConfig?.options.find((option) => option.category === "mode");
+  if (mode?.type !== "select") return catalog;
+
+  const live = new Set(
+    flattenChoices(mode).map(({ option }) => cadencrMeta(option._meta)?.permissionMode),
+  );
+  // Legacy connectors can expose a mode selector without host metadata.
+  live.delete(undefined);
+  if (live.size === 0 || catalog.every(({ id }) => live.has(id))) return catalog;
+  return catalog.filter(({ id }) => live.has(id));
 }

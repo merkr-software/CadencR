@@ -24,7 +24,7 @@ use cadencr_service::domain::agents::runtime::ProviderStatus;
 use cadencr_service::domain::ws_session::protocol::{
     PromptSendPayload, SessionInitPayload, SessionInitializedPayload, WsEnvelope,
 };
-use common::{start_migrated_test_server, TEST_AUTH_TOKEN};
+use common::{start_migrated_test_server, TestServer, TEST_AUTH_TOKEN};
 use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -36,6 +36,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const HOST_PROVIDER_ID: &str = "fake-host-acp-agent";
+const AUTO_PROVIDER_ID: &str = "fake-host-auto-acp-agent";
+const MANUAL_PROVIDER_ID: &str = "fake-host-manual-acp-agent";
 const INVALID_PROVIDER_ID: &str = "fake-invalid-host-acp-agent";
 const PLAIN_PROVIDER_ID: &str = "fake-plain-acp-agent";
 const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -358,6 +360,75 @@ fn prompt_payload(session_id: &str, text: &str) -> PromptSendPayload {
     }
 }
 
+async fn connect(server: &TestServer) -> TestWebSocket {
+    let ws_url = format!("{}/ws", server.base_url.replacen("http://", "ws://", 1));
+    let mut request = ws_url.into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("cadencr-token.{TEST_AUTH_TOKEN}")).unwrap(),
+    );
+    tokio_tungstenite::connect_async(request)
+        .await
+        .expect("WebSocket connects")
+        .0
+}
+
+async fn exercise_cold_permission_mode_restore() {
+    let server = start_migrated_test_server().await;
+    sqlx::query(
+        "INSERT INTO features (id, project_id, title, status, type)
+         VALUES (2, 1, 'Another Feature', 'active', 'ws-session')",
+    )
+    .execute(&server.pool)
+    .await
+    .unwrap();
+    for (feature_id, provider, expected, native) in [
+        (1, AUTO_PROVIDER_ID, "auto", "auto"),
+        (2, MANUAL_PROVIDER_ID, "default", "agent"),
+    ] {
+        let adapter = provider_registry().adapter(provider).unwrap();
+        assert!(!adapter.supports_permission_mode(&RuntimePermissionMode::Auto));
+        sqlx::query(
+            "INSERT INTO agent_sessions
+             (feature_id, agent_type, status, runtime_provider, runtime_session_id, model, permission_mode)
+             VALUES (?, 'session', 'paused', ?, 'fake-acp-session-1', 'fake-small', 'auto')",
+        )
+        .bind(feature_id)
+        .bind(provider)
+        .execute(&server.pool)
+        .await
+        .unwrap();
+        let mut socket = connect(&server).await;
+        send(
+            &mut socket,
+            "init",
+            SessionInitPayload {
+                provider: None,
+                model: None,
+                thinking_effort: None,
+                permission_mode: None,
+                system_prompt: None,
+                cwd: Some(server.repo_path().to_string_lossy().into_owned()),
+                feature_id: Some(feature_id),
+            },
+        )
+        .await;
+        let initialized: SessionInitializedPayload =
+            serde_json::from_value(next_action(&mut socket, &["initialized"]).await.payload)
+                .unwrap();
+        assert_eq!(initialized.permission_mode.as_deref(), Some(expected));
+        let text = report_state(&mut socket, &initialized.session_id).await;
+        assert!(text.contains(&format!("mode={native} ")), "{text}");
+        let stored: String =
+            sqlx::query_scalar("SELECT permission_mode FROM agent_sessions WHERE feature_id = ?")
+                .bind(feature_id)
+                .fetch_one(&server.pool)
+                .await
+                .unwrap();
+        assert_eq!(stored, expected);
+    }
+}
+
 async fn exercise_http_and_websocket() {
     let server = start_migrated_test_server().await;
 
@@ -458,15 +529,7 @@ async fn exercise_http_and_websocket() {
     assert_eq!(malformed.status(), 400);
 
     // --- the WebSocket session follows the agent's own mode switch ----------
-    let ws_url = format!("{}/ws", server.base_url.replacen("http://", "ws://", 1));
-    let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "Sec-WebSocket-Protocol",
-        HeaderValue::from_str(&format!("cadencr-token.{TEST_AUTH_TOKEN}")).unwrap(),
-    );
-    let (mut socket, _) = tokio_tungstenite::connect_async(request)
-        .await
-        .expect("WebSocket connects");
+    let mut socket = connect(&server).await;
     send(
         &mut socket,
         "init",
@@ -564,8 +627,26 @@ async fn installed_providers_declare_host_conventions_as_data() {
         &["--host-integration-invalid"],
     );
     write_descriptor(&providers, PLAIN_PROVIDER_ID, &[]);
+    let durable = home.path().join("durable-agent.json");
+    std::fs::write(
+        &durable,
+        r#"{"sessionId":"fake-acp-session-1","memory":"saved"}"#,
+    )
+    .unwrap();
+    let durable = durable.to_str().unwrap();
+    write_descriptor(
+        &providers,
+        AUTO_PROVIDER_ID,
+        &["--host", "--host-auto", "--durable", durable],
+    );
+    write_descriptor(
+        &providers,
+        MANUAL_PROVIDER_ID,
+        &["--host", "--durable", durable],
+    );
     cadencr_service::domain::settings_store::init(home.path().to_path_buf());
 
+    exercise_cold_permission_mode_restore().await;
     let workspace = tempfile::tempdir().unwrap();
     for id in [INVALID_PROVIDER_ID, PLAIN_PROVIDER_ID] {
         provider_registry()

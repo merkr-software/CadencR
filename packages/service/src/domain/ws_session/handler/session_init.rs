@@ -236,17 +236,34 @@ pub(super) async fn handle_init(
         runtime_config.model = Some(model.clone());
     }
     runtime_config.thinking_effort = effective_thinking_effort.clone();
-    // Honor the client's choice when the provider supports it; otherwise fall
-    // back to the active provider's default, and report the result.
-    let resolved_mode = mode::resolve(
+    let requested_mode = payload.permission_mode.as_deref().or_else(|| {
+        row.as_ref()
+            .and_then(|session| session.permission_mode.as_deref())
+    });
+    let permission_mode = match adapter
+        .resolve_initial_permission_mode(&runtime_config.cwd, requested_mode)
+        .await
+    {
+        Ok(mode) => mode,
+        Err(error) => {
+            send_error(
+                sender,
+                &envelope.id,
+                "PROVIDER_MODE_DISCOVERY_FAILED",
+                &error.to_string(),
+            );
+            return Some(db_session_id);
+        }
+    };
+    let persisted_mode = mode::persist(
         app_state,
         db_session_id,
-        &effective_provider,
-        payload.permission_mode.as_deref(),
+        requested_mode,
+        permission_mode.as_ref(),
     )
     .await;
-    let Some((permission_mode, effective_permission_mode_wire)) =
-        saved_or_report(sender, &envelope.id, "permission mode", resolved_mode)
+    let Some(effective_permission_mode_wire) =
+        saved_or_report(sender, &envelope.id, "permission mode", persisted_mode)
     else {
         return Some(db_session_id);
     };

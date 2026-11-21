@@ -21,6 +21,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { restrictPermissionModesToSession } from "@/lib/host-rendered-config-options";
 import { useResolvedModelContext } from "@/contexts/ResolvedModelContext";
 import { useWebSocketSession } from "@/hooks/useWebSocketSession";
 import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
@@ -39,7 +40,6 @@ import type { PermissionMode } from "@/types/permission-mode";
 import type { AccessMode } from "@/types/access-mode";
 import { useAccessModeSetting } from "@/hooks/useAccessModeSetting";
 import {
-  EMPTY_PROVIDER_MODES,
   usePermissionModeSet,
   usePermissionModeToggle,
 } from "@/components/WebSocketSessionPermissionMode";
@@ -61,7 +61,7 @@ interface RuntimeSelectionControls {
   activeProviderId: string;
   supportedThinkingEfforts: ReturnType<typeof supportedThinkingEffortLevels>;
   enabledOptInModes: PermissionMode[];
-  providerModes: readonly RuntimeProviderModeOption[];
+  providerModes: readonly RuntimeProviderModeOption[] | undefined;
   providerAccessModes: readonly RuntimeProviderAccessModeOption[];
   /** Whether the session's model can hold an `auto`-risk mode (unknown: undefined). */
   modelSupportsAutoMode: boolean | undefined;
@@ -175,7 +175,10 @@ function useRuntimeSelection(
     : undefined;
   const supportedThinkingEfforts = supportedThinkingEffortLevels(activeSessionModel);
   const enabledOptInModes = useEnabledOptInModes(activeProviderId);
-  const providerModes = activeProvider?.modes ?? EMPTY_PROVIDER_MODES;
+  const providerModes = useMemo(
+    () => restrictPermissionModesToSession(activeProvider?.modes, ws.sessionConfig),
+    [activeProvider?.modes, ws.sessionConfig],
+  );
   const providerAccessModes = activeProvider?.access_modes ?? EMPTY_PROVIDER_ACCESS_MODES;
   const modelSupportsAutoMode = activeSessionModel?.supports_auto_mode ?? undefined;
   // Unknown (catalog still loading) keeps today's behavior: Enter steers.

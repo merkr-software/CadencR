@@ -71,6 +71,8 @@ _model = "fake-small"
 _mode = "agent"
 _sandbox = "on"
 HOST_MODES = [("agent", "Agent", "default"), ("plan", "Plan", "plan"), ("ask", "Ask", "ask")]
+if "--host-auto" in sys.argv:
+    HOST_MODES.append(("auto", "Auto", "auto"))
 HOST_ACCESS = [("on", "Sandboxed", "default"), ("off", "Full access", "fullAccess")]
 HOST_INTEGRATION = {
     "compactCommand": "compress",

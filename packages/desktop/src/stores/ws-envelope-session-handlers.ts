@@ -22,7 +22,7 @@ import { parseAccessMode } from "@/types/access-mode";
 import { parsePermissionMode, type PermissionMode } from "@/types/permission-mode";
 import { providerAcceptsMode } from "@/lib/provider-modes";
 import type { SessionEntry } from "./ws-session-types";
-import { createStreamHealth, updateSession } from "./ws-session-types";
+import { createSessionConfigState, createStreamHealth, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
@@ -94,12 +94,8 @@ export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload
 }
 
 /**
- * The mode to hold once the backend has picked the session's provider. New
- * entries are seeded with the default provider's mode (Claude's `auto`), which
- * a Codex or installed-provider session can't run; the backend then falls back to its
- * provider default and reports it. Adopt that report only when the local mode
- * doesn't fit the provider — a valid local mode may be a chip change made
- * while `session.init` was in flight, which the init replay still has to send.
+ * The initialization reply owns the current mode. Keep an explicit chip
+ * choice only while the replay still has to send it to the confirmed provider.
  */
 function initializedPermissionMode(
   session: SessionEntry,
@@ -107,9 +103,9 @@ function initializedPermissionMode(
   reported: string | undefined,
 ): PermissionMode | null {
   const providerId = provider ?? session.currentSelection?.providerId;
-  if (!reported || !providerId || providerAcceptsMode(providerId, session.permissionMode)) {
-    return null;
-  }
+  const pending = session.pendingInitPermissionMode;
+  if (!reported) return null;
+  if (providerId && pending && providerAcceptsMode(providerId, pending)) return pending;
   return parsePermissionMode(reported);
 }
 
@@ -124,8 +120,6 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     mcpServersError: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
     initRequestId: null,
-    // `pendingInitPermissionMode` stays until the init replay
-    // (`flushQueuedInitActions`) has sent it.
     // A fresh stream: a retry reported on the previous connection (whose
     // recovery or turn end may have been missed) no longer applies.
     streamHealth: createStreamHealth(),
@@ -136,10 +130,16 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
   // provider's model when accepting their authoritative provider.
   if (p.provider) {
     updates.currentSelection = { providerId: p.provider, modelId: p.model ?? "" };
+    if (p.provider !== session.currentSelection?.providerId) {
+      Object.assign(updates, createSessionConfigState());
+    }
   }
   if (p.profile) updates.currentProfile = p.profile;
   const permissionMode = initializedPermissionMode(session, p.provider, p.permission_mode);
   if (permissionMode) updates.permissionMode = permissionMode;
+  if (p.permission_mode === session.pendingInitPermissionMode) {
+    updates.pendingInitPermissionMode = null;
+  }
   if (p.runtime_overrides) updates.runtimeOverrides = p.runtime_overrides;
   const accessMode = p.access_mode ?? p.codex_permission_mode;
   if (accessMode) {

@@ -52,7 +52,17 @@ describe("useWsSessionEffects session initialization", () => {
     expect(initSession).toHaveBeenCalledWith({
       cwd: "/repo",
       featureId: 7,
-      permissionMode: "default",
+    });
+  });
+
+  it("lets the backend pick the initial mode unless the user made a pre-init choice", () => {
+    const { initSession } = render(loadedSession({ permissionMode: "auto" }), true);
+    expect(initSession).toHaveBeenCalledWith({ cwd: "/repo", featureId: 7 });
+    const explicit = render(loadedSession({ pendingInitPermissionMode: "auto" }), true);
+    expect(explicit.initSession).toHaveBeenCalledWith({
+      cwd: "/repo",
+      featureId: 7,
+      permissionMode: "auto",
     });
   });
 

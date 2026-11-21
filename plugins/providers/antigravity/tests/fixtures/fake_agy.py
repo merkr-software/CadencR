@@ -33,14 +33,16 @@ def options(state):
             "currentValue": state["thought_level"],
             "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}],
         })
+    modes = [
+        {"value": "default", "name": "Default"},
+        {"value": "accept-edits", "name": "Accept edits"},
+    ]
+    if scenario != "no-auto-mode":
+        modes.append({"value": "auto", "name": "Auto", "_meta": {"antigravity": {"fixture": True}}})
+    modes.append({"value": "plan", "name": "Plan"})
     result.append({
         "id": "mode", "name": "Mode", "category": "mode", "type": "select",
-        "currentValue": state["mode"], "options": [
-            {"value": "default", "name": "Default"},
-            {"value": "accept-edits", "name": "Accept edits"},
-            {"value": "auto", "name": "Auto", "_meta": {"antigravity": {"fixture": True}}},
-            {"value": "plan", "name": "Plan"},
-        ],
+        "currentValue": state["mode"], "options": modes,
     })
     return result
 
