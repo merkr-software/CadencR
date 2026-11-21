@@ -85,5 +85,6 @@ update `min_app_version` in the package template before qualifying the source.
 
 ## Connector artwork
 
-`icon.svg` is original artwork for the CadencR connector and is covered by the
-Apache-2.0 license in this package.
+The provider uses the [Google Antigravity mark](https://antigravity.google/favicon.svg)
+with a transparent background so CadencR can tint its silhouette in the sidebar.
+Google owns the mark. The connector’s Apache-2.0 license applies to its code.
