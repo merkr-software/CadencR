@@ -135,6 +135,11 @@ Updating the native CLI never touches the immutable managed package payload.
 
 ## `models` output
 
+On failure the connector exits non-zero. It can write `{"code":"CLI_NOT_FOUND"}`
+or `{"code":"AUTHENTICATION_REQUIRED"}` to stdout to request a host-provided
+installation or sign-in hint. Cadencr displays these hints during marketplace
+conformance and catalog discovery. Diagnostic text stays on stderr.
+
 The output is a JSON array of ACP v1 `SessionConfigOption` objects. It must
 contain a non-empty `select` option whose `category` is `model`.
 

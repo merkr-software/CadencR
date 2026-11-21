@@ -73,15 +73,35 @@ pub async fn discover_models(
         .await
         .map_err(|error| ModelDiscoveryError::new(format!("provider model discovery {error}")))?;
     if !output.status.success() {
-        // Provider stderr can contain credentials. Record only its bounded byte
-        // count; provider authors can reproduce the command in a terminal.
-        return Err(ModelDiscoveryError::new(format!(
+        return Err(ModelDiscoveryError::new(discovery_failure(&output)));
+    }
+    parse_models(&output.stdout)
+}
+
+/// Only host-authored text enters the catalog or an install error. A native
+/// CLI can print credentials to either stream when discovery fails.
+pub(super) fn discovery_failure(
+    output: &super::managed::process_policy::ManagedCommandOutput,
+) -> String {
+    #[derive(Deserialize)]
+    #[serde(tag = "code", rename_all = "SCREAMING_SNAKE_CASE")]
+    enum Failure {
+        CliNotFound,
+        AuthenticationRequired,
+    }
+    match serde_json::from_slice(&output.stdout) {
+        Ok(Failure::CliNotFound) => {
+            "Install the provider’s native CLI and make it available on PATH, then retry.".into()
+        }
+        Ok(Failure::AuthenticationRequired) => {
+            "Sign in with the provider’s native CLI, then retry.".into()
+        }
+        Err(_) => format!(
             "provider `models` command exited with {} ({} diagnostic bytes)",
             output.status,
             output.stderr.len()
-        )));
+        ),
     }
-    parse_models(&output.stdout)
 }
 
 fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
@@ -201,6 +221,30 @@ mod tests {
     use super::{managed_command, parse_models};
     use serde_json::json;
     use std::collections::BTreeMap;
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_failure_uses_only_recognized_codes_and_never_native_diagnostics() {
+        use super::super::managed::process_policy::ManagedCommandOutput;
+        use std::os::unix::process::ExitStatusExt;
+
+        for (code, expected) in [
+            ("CLI_NOT_FOUND", "Install the provider"),
+            ("AUTHENTICATION_REQUIRED", "Sign in"),
+            ("secret stdout", "provider `models` command exited"),
+        ] {
+            let output = ManagedCommandOutput {
+                status: std::process::ExitStatus::from_raw(1 << 8),
+                stdout: json!({"code": code, "message": "secret stdout"})
+                    .to_string()
+                    .into_bytes(),
+                stderr: b"secret stderr".to_vec(),
+            };
+            let message = super::discovery_failure(&output);
+            assert!(message.starts_with(expected), "{message}");
+            assert!(!message.contains("secret"));
+        }
+    }
 
     #[cfg(unix)]
     #[test]
