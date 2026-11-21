@@ -18,6 +18,7 @@ use super::super::events_stream_blocks::{
     stream_stop_event, EventIndexer,
 };
 use super::super::events_tool_call::{map_tool_call_start, MappedUpdate};
+use super::super::events_tool_call_parent::parent_tool_use_id;
 use super::super::events_tool_call_update::map_tool_call_update;
 use super::super::provider_hooks::AcpProviderHooks;
 
@@ -51,12 +52,21 @@ pub fn session_update_to_events(
         "agent_message_chunk" | "agent_thought_chunk" => {
             map_agent_chunk(kind, body, indexer, active_model, metadata)
         }
-        "tool_call" => {
-            let mapped = map_tool_call_start(body, indexer, metadata.clone(), hooks);
-            prepend_streaming_stops(indexer, &metadata, mapped)
-        }
-        "tool_call_update" => {
-            let mapped = map_tool_call_update(body, indexer, metadata.clone(), hooks);
+        "tool_call" | "tool_call_update" => {
+            let mapped = if kind == "tool_call" {
+                map_tool_call_start(body, indexer, metadata.clone(), hooks)
+            } else {
+                map_tool_call_update(body, indexer, metadata.clone(), hooks)
+            };
+            // A background tool can run between two chunks of the root reply.
+            if parent_tool_use_id(body).is_some()
+                || mapped
+                    .events
+                    .iter()
+                    .all(RuntimeEvent::is_subagent_signal_only)
+            {
+                return mapped;
+            }
             prepend_streaming_stops(indexer, &metadata, mapped)
         }
         "plan" => {

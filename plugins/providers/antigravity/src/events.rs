@@ -7,6 +7,7 @@ mod detached;
 mod mcp;
 mod permissions;
 mod questions;
+mod subagents;
 mod tools;
 
 use std::collections::HashMap;
@@ -14,18 +15,21 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use self::questions::Question;
+pub(crate) use self::subagents::{SubagentOperation, SubagentTracker};
 
 #[derive(Default)]
 pub(crate) struct EventMapper {
     detached: detached::Replies,
     mcp: mcp::SessionServers,
     questions: HashMap<String, Question>,
+    subagents: subagents::Subagents,
 }
 
 impl EventMapper {
     pub(crate) fn map_agent(&mut self, message: &mut Value) {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => {
+                self.subagents.observe_update(message);
                 self.detached.decorate_update(message);
                 let names = self.mcp.for_params(message.get("params"));
                 if let Some(update) = message.pointer_mut("/params/update") {
@@ -47,6 +51,7 @@ impl EventMapper {
     }
 
     pub(crate) fn map_host(&mut self, message: &mut Value) {
+        self.subagents.observe_request(message);
         self.detached.observe_request(message);
         self.mcp.observe_request(message);
         if message.get("method").is_none() {
@@ -57,6 +62,14 @@ impl EventMapper {
                 *result = question.native_response(result);
             }
         }
+    }
+
+    pub(crate) fn take_subagent_operations(&mut self) -> Vec<SubagentOperation> {
+        self.subagents.take_operations()
+    }
+
+    pub(crate) fn can_forward_subagent(&self, frame: &Value) -> bool {
+        self.subagents.can_forward(frame)
     }
 
     fn map_permission(&mut self, message: &mut Value) {

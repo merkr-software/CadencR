@@ -24,8 +24,16 @@ pub(super) fn normalize_permission(tool_call: &mut Value, servers: &[String]) {
     }
 }
 
+pub(super) fn call_name(call: &Map<String, Value>) -> Option<&str> {
+    text(call, "toolName").or_else(|| text(call, "name"))
+}
+
+pub(super) fn is_subagent_launch(name: &str) -> bool {
+    matches!(name, "invoke_subagent" | "start_subagent")
+}
+
 fn normalize_call(call: &mut Map<String, Value>, servers: &[String]) {
-    let Some(native_name) = text(call, "toolName").or_else(|| text(call, "name")) else {
+    let Some(native_name) = call_name(call) else {
         return;
     };
     let name = match native_name {
@@ -39,7 +47,7 @@ fn normalize_call(call: &mut Map<String, Value>, servers: &[String]) {
         "find_file" | "find_by_name" => "Glob",
         "search_web" => "WebSearch",
         "read_url_content" => "WebFetch",
-        "invoke_subagent" | "start_subagent" => "Agent",
+        name if is_subagent_launch(name) => "Agent",
         name if name.starts_with("mcp_") => {
             let name = name.to_owned();
             mcp::normalize_call(call, &name, servers);
