@@ -81,6 +81,7 @@ pub async fn spawn_acp_runtime_session(
             .client_info(client_info)
             .stderr_policy(stderr_policy)
             .process_tree_policy(process_tree_policy)
+            .exclude_launcher_ports(hooks.exclude_launcher_ports())
             .maybe_spawn_guard(spawn_guard)
             .build(),
     )

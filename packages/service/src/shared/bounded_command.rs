@@ -48,7 +48,17 @@ pub async fn capture_bounded(
     command: tokio::process::Command,
     timeout: Duration,
 ) -> Result<Output, BoundedCommandError> {
-    capture(command, timeout, Overflow::Fail(MAX_OUTPUT_BYTES)).await
+    capture_bounded_with_spawn(command, timeout, |_| ()).await
+}
+
+/// Like bounded capture, with a guard held from successful spawn through
+/// output collection and cleanup.
+pub(crate) async fn capture_bounded_with_spawn<G>(
+    command: tokio::process::Command,
+    timeout: Duration,
+    register: impl FnOnce(u32) -> G,
+) -> Result<Output, BoundedCommandError> {
+    capture(command, timeout, Overflow::Fail(MAX_OUTPUT_BYTES), register).await
 }
 
 /// [`capture_bounded`] for a command whose complete output is legitimately
@@ -58,7 +68,7 @@ pub async fn capture_bounded_up_to(
     timeout: Duration,
     max_bytes: usize,
 ) -> Result<Output, BoundedCommandError> {
-    capture(command, timeout, Overflow::Fail(max_bytes)).await
+    capture(command, timeout, Overflow::Fail(max_bytes), |_| ()).await
 }
 
 /// [`capture_bounded`] for output that is only read from the end, like a
@@ -68,19 +78,21 @@ pub async fn capture_tail(
     command: tokio::process::Command,
     timeout: Duration,
 ) -> Result<Output, BoundedCommandError> {
-    capture(command, timeout, Overflow::KeepTail).await
+    capture(command, timeout, Overflow::KeepTail, |_| ()).await
 }
 
-async fn capture(
+async fn capture<G>(
     mut command: tokio::process::Command,
     timeout: Duration,
     overflow: Overflow,
+    register: impl FnOnce(u32) -> G,
 ) -> Result<Output, BoundedCommandError> {
     #[cfg(unix)]
     crate::shared::process_group::lead_new_process_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| BoundedCommandError::new(format!("could not start: {error}")))?;
+    let _registration = child.id().map(register);
     // `wait` clears the child's id when a launcher exits before its descendants.
     #[cfg(unix)]
     let process_group = child.id();

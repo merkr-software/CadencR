@@ -22,6 +22,8 @@ pub struct HostIntegration {
     /// Project-relative paths copied into new worktrees.
     pub worktree_config_paths: Vec<String>,
     pub resume_command: Option<ProviderResumeCommand>,
+    /// The connector and its immediate children only host runtime infrastructure.
+    pub exclude_launcher_ports: bool,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +32,8 @@ struct RawHostIntegration {
     compact_command: Option<String>,
     worktree_config_paths: Option<Vec<String>>,
     resume_command: Option<RawResumeCommand>,
+    #[serde(default)]
+    exclude_launcher_ports: bool,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +58,7 @@ pub fn parse_host_integration(bytes: &[u8]) -> Result<HostIntegration, String> {
         compact_command: raw.compact_command,
         worktree_config_paths: paths,
         resume_command,
+        exclude_launcher_ports: raw.exclude_launcher_ports,
     })
 }
 

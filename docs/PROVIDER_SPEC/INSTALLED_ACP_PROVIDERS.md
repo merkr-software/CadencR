@@ -278,8 +278,12 @@ At runtime:
    live session exposes a `select` option with `"category": "mode"`, it sends
    `session/set_config_option { configId: <that option id>, value }` and
    replaces its configuration snapshot with the response; otherwise it falls
-   back to `session/set_mode` with the same value. A refusal fails the spawn or
-   the mode change visibly.
+   back to `session/set_mode` with the same value. When setting a select
+   option, the host requires the response to confirm the requested value.
+   An unavailable value, a refusal, or an unconfirmed selection fails the
+   spawn or the mode change visibly. When the live mode choices include host
+   permission-mode mappings, the composer shows the intersection of the
+   declared and live mapped modes.
 2. **Following the agent.** A `current_mode_update`, or a
    `config_option_update` whose mode option changed, that lands on a mapped
    value updates the session's permission mode: it is persisted and every

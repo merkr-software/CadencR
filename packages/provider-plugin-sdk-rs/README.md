@@ -140,6 +140,7 @@ default prints `{}` (no integration). Every field is optional:
 | `compact_command`       | `compactCommand`      | Slash command (without `/`) the host sends as a prompt to compact the live conversation.         |
 | `worktree_config_paths` | `worktreeConfigPaths` | Relative, normalized project paths copied into each new worktree (≤ 32).                         |
 | `resume_command`        | `resumeCommand`       | `ResumeCommand { program, args }`: bare executable name; `{session_id}` is the only placeholder. |
+| `exclude_launcher_ports` | `excludeLauncherPorts` | Defaults to `false`. Set it if the connector and its immediate children only host infrastructure. The host still attributes listeners on deeper descendants. |
 
 The harness runs `HostIntegration::validate()` — the same rules the host
 applies — before printing, so an invalid declaration fails the command

@@ -354,6 +354,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             .model_config_id(discovered.config_id)
             .modes(Arc::new(discovered.modes))
             .maybe_compact_command(integration.compact_command.clone())
+            .exclude_launcher_ports(integration.exclude_launcher_ports)
             .prompt_capabilities(self.prompt_capabilities.clone())
             .slash_commands(self.slash_commands())
             .build();
