@@ -27,6 +27,12 @@ describe("agentStreamDisplay", () => {
     ]);
   });
 
+  it("drops todo updates, which draw nothing, so they take no row", () => {
+    const todo = block("todo", "{}", { type: "tool_call", toolName: "TodoWrite" });
+    const bash = block("bash", "ls", { type: "tool_call", toolName: "Bash" });
+    expect(filterRenderableBlocks([todo, bash])).toEqual([bash]);
+  });
+
   it("folds a restart marker into the resume that follows it", () => {
     const marker = block("marker", "restart", { type: "turn_interrupted" });
     const resume = block("resume", "Cadencr restarted while you were working", {
@@ -138,7 +144,7 @@ describe("agentStreamDisplay", () => {
 
     expect(filterRenderableBlocks([error])).toEqual([error]);
     expect(buildDisplayItems([error], { compact: true })).toEqual([
-      { kind: "block", key: "internal-error", block: error },
+      expect.objectContaining({ kind: "block", key: "internal-error", block: error }),
     ]);
   });
 
@@ -186,6 +192,55 @@ describe("agentStreamDisplay", () => {
       const flow = items[1];
       if (flow.kind !== "flow") throw new Error("expected flow row");
       expect(flow.blocks.map((b) => b.id)).toEqual(["b1", "e1", "th1"]);
+    });
+
+    describe("rhythm", () => {
+      const thinking = block("th", "pondering", { type: "thinking" });
+      const bash = block("b", "ls", { type: "tool_call", toolName: "Bash" });
+      const blocks = [
+        block("u", "go", { type: "user_message" }),
+        thinking,
+        bash,
+        block("t", "answer"),
+        block("s", "{}", { type: "turn_summary" }),
+        block("u2", "again", { type: "user_message" }),
+        block("b2", "pwd", { type: "tool_call", toolName: "Bash" }),
+        block("s2", "{}", { type: "turn_summary" }),
+      ];
+      const spaceBelow = (rows: AgentBlockData[], compact: boolean) =>
+        Object.fromEntries(
+          buildDisplayItems(rows, { compact }).map((item) => [item.key, item.spaceBelow]),
+        );
+
+      it("hangs one gap under every row, consecutive steps closer, the last row none", () => {
+        expect(spaceBelow(blocks, false)).toEqual({
+          u: 20,
+          th: 4,
+          b: 18,
+          t: 21,
+          s: 22,
+          u2: 20,
+          b2: 20,
+          s2: 0,
+        });
+        expect(spaceBelow(blocks, true)).toEqual({
+          u: 20,
+          "flow:th": 18,
+          t: 21,
+          s: 22,
+          u2: 20,
+          "flow:b2": 20,
+          s2: 0,
+        });
+      });
+
+      it("keeps the rows on screen as they are when an older page loads above them", () => {
+        for (const compact of [false, true]) {
+          const recent = spaceBelow(blocks.slice(3), compact);
+          const merged = spaceBelow(blocks, compact);
+          for (const [key, value] of Object.entries(recent)) expect(merged[key]).toBe(value);
+        }
+      });
     });
 
     it("deduplicates item keys when block ids repeat", () => {
@@ -342,7 +397,7 @@ describe("agentStreamDisplay", () => {
 
     expect(filterRenderableBlocks([result])).toEqual([result]);
     expect(buildDisplayItems([result], { compact: true })).toEqual([
-      { kind: "block", key: "large-agent", block: result },
+      expect.objectContaining({ kind: "block", key: "large-agent", block: result }),
     ]);
   });
 
@@ -361,7 +416,7 @@ describe("agentStreamDisplay", () => {
     });
 
     expect(buildDisplayItems([patch, bash], { compact: true })).toEqual([
-      { kind: "flow", key: "flow:partial-patch", blocks: [patch, bash] },
+      expect.objectContaining({ kind: "flow", key: "flow:partial-patch", blocks: [patch, bash] }),
     ]);
   });
 });

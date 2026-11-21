@@ -6,6 +6,8 @@ import { highlightCode } from "@/components/markdown/highlight-cache";
 import { isLargeCodeBlock, LargeCodeBlock } from "@/components/markdown/LargeCodeBlock";
 import { Button } from "@/components/ui/button";
 import { SourceToggle } from "@/components/visuals/SourceToggle";
+import { VISUAL_BLOCK_MARGIN } from "@/components/visuals/VisualStatus";
+import { cn } from "@/lib/utils";
 
 interface VisualFenceInfo {
   /** What the rendered view is called: "Chart", "Visual". */
@@ -75,7 +77,7 @@ export function VisualChrome({ children, ...fence }: VisualFenceInfo & { childre
   }
 
   return (
-    <div data-visual className="group/visual relative my-2">
+    <div data-visual className={cn("group/visual relative", VISUAL_BLOCK_MARGIN)}>
       <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background/80 p-0.5 opacity-0 backdrop-blur-sm transition-opacity group-hover/visual:opacity-100 focus-within:opacity-100">
         <Button
           variant="ghost"

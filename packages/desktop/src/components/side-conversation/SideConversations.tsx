@@ -158,6 +158,7 @@ function SideAnswer({
               toolResultMap={ws.toolResultMap}
               streamingBlockId={flowStreamingBlockId(item.blocks, streamingBlockId)}
               live={item.key === liveKey}
+              spaceBelow={item.spaceBelow}
             />
           ) : (
             <AgentStreamItem
@@ -167,6 +168,7 @@ function SideAnswer({
               basePath={cwd}
               toolResultMap={ws.toolResultMap}
               verbosityMode="compact"
+              spaceBelow={item.spaceBelow}
             />
           ),
         )}

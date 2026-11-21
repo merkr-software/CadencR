@@ -1,13 +1,17 @@
 import type { DisplayItem, DisplayRowMode } from "@/types/agent-stream";
 import type { AgentBlockData } from "@/types/agent-block";
-import { rendersStandaloneToolResult, shouldGateFullContent } from "@/lib/agent-block-content";
+import {
+  rendersStandaloneToolResult,
+  rendersToolCall,
+  shouldGateFullContent,
+} from "@/lib/agent-block-content";
 import { collapseTurnsToSummary, isCountableTool } from "@/lib/agent-stream-summary";
 import {
   isRestartContinuationMessage,
   isRestartInterruptionMarker,
 } from "@/lib/agent-message-origin";
-import { shouldHideToolCall } from "@/lib/tool-display-policy";
 import { isAgentCardCarrier } from "@/lib/spawned-session";
+import { spaceRows } from "@/lib/stream-rhythm";
 
 /**
  * Only tool calls and thinking fold into a compact line. Prose, prompts, plans,
@@ -58,6 +62,10 @@ export function buildDisplayItems(
   blocks: AgentBlockData[],
   options: { compact: boolean },
 ): DisplayItem[] {
+  return spaceRows(groupDisplayItems(blocks, options));
+}
+
+function groupDisplayItems(blocks: AgentBlockData[], options: { compact: boolean }): DisplayItem[] {
   // Keys must be unique across the whole Virtuoso list — duplicate block ids
   // (e.g. re-prepended history batches) get suffixed deterministically so
   // re-renders stay stable.
@@ -97,7 +105,9 @@ export function buildDisplayItems(
 function isHiddenByRenderer(block: AgentBlockData): boolean {
   if (shouldGateFullContent(block)) return false;
   if (block.type === "thinking") return !block.content.trim();
-  if (block.type === "tool_call") return shouldHideToolCall(block.toolName);
+  // A todo update draws nothing (the composer's todos instrument shows it); as
+  // a row it would still take a gap in the stream's rhythm.
+  if (block.type === "tool_call") return !rendersToolCall(block);
   if (block.type !== "tool_result") return false;
   return !rendersStandaloneToolResult(block);
 }
@@ -143,5 +153,5 @@ export function countRenderableDisplayRows(
 ): number {
   let display = deriveAgentStreamDisplayBlocks(blocks);
   if (mode?.summaryMode) display = collapseTurnsToSummary(display);
-  return buildDisplayItems(display, { compact: !!mode?.compactMode }).length;
+  return groupDisplayItems(display, { compact: !!mode?.compactMode }).length;
 }
