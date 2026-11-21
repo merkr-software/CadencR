@@ -1,12 +1,10 @@
-"""Trusted-main author orchestration for compiled Cursor artifacts.
+"""Trusted-main author orchestration for compiled provider artifacts.
 
 Build jobs have no publication credential. Here payloads stay inert: bind the
 successful native build run, source/tag, protected environment, exact file
 digests and request before the separate protected job loads its author token.
 """
 import argparse
-import hashlib
-import json
 import os
 import pathlib
 import re
@@ -14,14 +12,15 @@ import subprocess
 import tempfile
 
 from official_plugin_author_review import validate_review_policy, validate_remote_reviewers
-from cursor_release_prepare import TARGETS, prepare, require
+from official_plugin_pack import REPOSITORY, digest, parse_json
+from native_provider_release_prepare import PROVIDERS, TARGETS, prepare, require, version_at
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-REPOSITORY = "merkr-software/CadencR"
+NATIVE_BUILD_WORKFLOW = ".github/workflows/cursor-provider-build.yml"
 
 
 def api(path):
-    return json.loads(subprocess.check_output(["gh", "api", f"repos/{REPOSITORY}{path}"], timeout=60))
+    return parse_json(subprocess.check_output(["gh", "api", f"repos/{REPOSITORY}{path}"], timeout=60))
 
 
 def environment(policy):
@@ -54,16 +53,17 @@ def validate_context(args):
     require(re.fullmatch("[0-9a-f]{40}", args.source_commit), "invalid source commit")
     require(re.fullmatch("[1-9][0-9]{0,19}", args.build_run), "invalid native build run")
     require(re.fullmatch("[0-9a-f]{64}", args.request_sha256), "invalid request digest")
+    provider = PROVIDERS[args.provider]
     subprocess.run(["sh", str(ROOT / "scripts/official-plugin-author-gate.sh"),
                     args.source_commit, args.request_sha256], check=True, timeout=30)
-    policy = json.loads((ROOT / "scripts/official-plugin-author-policy.json").read_bytes())
+    policy = parse_json((ROOT / "scripts/official-plugin-author-policy.json").read_bytes())
     qualification = (ROOT / "scripts/official-plugin-author-qualification.json").read_bytes()
-    require(hashlib.sha256(qualification).hexdigest() == policy["author_cli_qualification_sha256"] and
-            json.loads(qualification) == {"schema_version": 1, "author_release_contract": "QUALIFIED",
+    require(digest(qualification) == policy["author_cli_qualification_sha256"] and
+            parse_json(qualification) == {"schema_version": 1, "author_release_contract": "QUALIFIED",
                 "cli_version": policy["author_cli_version"], "cli_sha256": policy["author_cli_sha256"]},
             "author CLI qualification mismatch")
     pin = (ROOT / "scripts/official-plugin-author-cli.env").read_bytes()
-    require(hashlib.sha256(pin).hexdigest() == policy["author_cli_pin_sha256"], "author CLI pin review mismatch")
+    require(digest(pin) == policy["author_cli_pin_sha256"], "author CLI pin review mismatch")
     environment(policy)
     require(args.source_repo.resolve() == ROOT, "source objects must come from the trusted checkout")
     head = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], timeout=30).decode().strip()
@@ -73,20 +73,18 @@ def validate_context(args):
     require(source == args.source_commit, "source object mismatch")
     subprocess.run(["git", "-C", str(args.source_repo), "merge-base", "--is-ancestor",
                     args.source_commit, "HEAD"], check=True, timeout=30)
-    version = json.loads(subprocess.check_output(["git", "-C", str(args.source_repo), "show",
-                        f"{args.source_commit}:plugins/providers/cursor/package.json"], timeout=30))["version"]
-    require(re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version), "invalid Cursor version")
-    tag = f"plugins/provider-cursor/v{version}"
+    tag = provider.tag(version_at(args.source_repo, args.source_commit, provider))
     tagged = subprocess.check_output(["git", "-C", str(args.source_repo), "rev-parse", "--verify",
                                       f"refs/tags/{tag}^{{commit}}"], timeout=30).decode().strip()
-    require(tagged == args.source_commit, "Cursor tag source mismatch")
+    require(tagged == args.source_commit, "provider tag source mismatch")
     return policy
 
 
 def download(args, policy, directory):
+    provider = PROVIDERS[args.provider]
     run = api(f"/actions/runs/{args.build_run}")
     require(run.get("head_sha") == args.source_commit and run.get("status") == "completed" and
-            run.get("conclusion") == "success" and run.get("path") == ".github/workflows/cursor-provider-build.yml" and
+            run.get("conclusion") == "success" and run.get("path") == NATIVE_BUILD_WORKFLOW and
             run.get("event") in ("push", "workflow_dispatch") and
             run.get("repository", {}).get("id") == policy["repository_id"] and
             run.get("head_repository", {}).get("id") == policy["repository_id"], "native build provenance mismatch")
@@ -94,44 +92,50 @@ def download(args, policy, directory):
     all_artifacts = listing.get("artifacts", [])
     require(listing.get("total_count") == len(all_artifacts) and len(all_artifacts) <= 8,
             "ambiguous artifact listing")
-    artifacts = [artifact for artifact in all_artifacts if artifact.get("name", "").startswith("cursor-native-")]
-    expected = {f"cursor-native-{target}-{args.source_commit}" for target in TARGETS}
-    require(len(artifacts) == 4 and
+    artifacts = [artifact for artifact in all_artifacts if artifact.get("name", "").startswith(f"{provider.id}-native-")]
+    expected = {f"{provider.id}-native-{target}-{args.source_commit}" for target in TARGETS}
+    require(len(artifacts) == len(expected) and
             {artifact.get("name") for artifact in artifacts} == expected and
             all(artifact.get("expired") is False and 0 < artifact.get("size_in_bytes", 0) <= 40 * 1024 * 1024
                 for artifact in artifacts), "native build artifacts missing, expired, oversized or ambiguous")
+    command = ["gh", "run", "download", args.build_run, "--repo", REPOSITORY, "--dir", str(directory)]
     for name in sorted(expected):
-        subprocess.run(["gh", "run", "download", args.build_run, "--repo", REPOSITORY,
-                        "--name", name, "--dir", str(directory / name)], check=True, timeout=120)
+        command.extend(["--name", name])
+    subprocess.run(command, check=True, timeout=480)
 
 
 def stage(args):
     policy = validate_context(args)
-    scratch = pathlib.Path(tempfile.mkdtemp(prefix="cursor-author-"))
+    scratch = pathlib.Path(tempfile.mkdtemp(prefix=f"{args.provider}-author-"))
     print(f"Private author scratch retained: {scratch}")
     payloads = scratch / "payloads"
     payloads.mkdir()
     download(args, policy, payloads)
-    cli_dir = scratch / "cli"
     cli = pathlib.Path(subprocess.check_output(["sh", str(ROOT / "tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh"),
-                       str(ROOT / "scripts/official-plugin-author-cli.env"), str(cli_dir)], timeout=300).decode().strip())
-    require(hashlib.sha256(cli.read_bytes()).hexdigest() == policy["author_cli_sha256"], "author CLI pin mismatch")
-    package_args = argparse.Namespace(input=payloads, output=args.output, source_repo=args.source_repo,
-                                      source_commit=args.source_commit, cli=cli)
+                       str(ROOT / "scripts/official-plugin-author-cli.env"), str(args.cli_directory)],
+                       timeout=300).decode().strip())
+    require(digest(cli.read_bytes()) == policy["author_cli_sha256"], "author CLI pin mismatch")
+    package_args = argparse.Namespace(provider=args.provider, input=payloads, output=args.output,
+                                      source_repo=args.source_repo, source_commit=args.source_commit, cli=cli)
     actual = prepare(package_args)
     require(args.request_sha256 == "0" * 64 or actual == args.request_sha256, "author request digest mismatch")
+    subprocess.run([str(cli), "plugin", "inspect-release", "--request", str(args.output / "request.json"),
+                    "--directory", str(args.output)], check=True, stdout=subprocess.DEVNULL, timeout=60)
     print(f"Request SHA-256: {actual}")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as output:
-            output.write(f"Cursor request SHA-256: `{actual}`\n\nSource: `{args.source_commit}`; native build run: `{args.build_run}`.\n")
+            output.write(f"`{args.provider}` request SHA-256: `{actual}`\n\n"
+                         f"Source: `{args.source_commit}`; native build run: `{args.build_run}`.\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", choices=PROVIDERS, required=True)
     parser.add_argument("--source-repo", required=True, type=pathlib.Path)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--build-run", required=True)
     parser.add_argument("--request-sha256", required=True)
+    parser.add_argument("--cli-directory", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     stage(parser.parse_args())
