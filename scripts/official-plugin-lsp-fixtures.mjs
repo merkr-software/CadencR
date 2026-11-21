@@ -6,8 +6,8 @@ export const lspTag = "lsp-typescript-language-server-v0.1.0";
 export const preparationFiles = ["official-plugin-release.sh", "official-plugin-prepare.py",
   "official_plugin_pack.py", "official_plugin_tags.py", "official_plugin_lsp.py", "official_plugin_lsp_archive.py"];
 
-export function lspFixture() {
-  const base = fixture("provider");
+export function lspFixture(t) {
+  const base = fixture(t, "provider");
   const policy = JSON.parse(readFileSync("plugins/release-policy.json"));
   const entry = structuredClone(policy.plugins["lsp-typescript-language-server"]);
   const files = base.files;

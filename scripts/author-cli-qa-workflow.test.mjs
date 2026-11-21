@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { parse } from "yaml";
+import { testTempDir } from "./test-temp-dir.mjs";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "author-qa-guard-"));
+function fixture(t) {
+  const root = testTempDir(t, "author-qa-guard-");
   mkdirSync(join(root, "scripts/author-cli-qa"), { recursive: true });
   cpSync(resolve("scripts/qualify-author-cli.py"), join(root, "scripts/qualify-author-cli.py"));
   cpSync(resolve("scripts/author-cli-qa"), join(root, "scripts/author-cli-qa"), {
@@ -50,9 +50,9 @@ function fixture() {
   return { root, candidate, env, pin, run };
 }
 
-test("author QA guard binds reviewed context and exact candidate/binary pin", () => {
+test("author QA guard binds reviewed context and exact candidate/binary pin", (t) => {
   for (const optimized of [false, true]) {
-    const f = fixture();
+    const f = fixture(t);
     if (optimized) f.env.PYTHONOPTIMIZE = "2";
     const result = f.run();
     assert.equal(result.status, 0, result.stderr);
@@ -61,7 +61,7 @@ test("author QA guard binds reviewed context and exact candidate/binary pin", ()
   }
 });
 
-test("author QA guard rejects other contexts and changed pins before execution", () => {
+test("author QA guard rejects other contexts and changed pins before execution", (t) => {
   const changes = [
     (f) => (f.env.GITHUB_REPOSITORY = "merkr-software/CadencR"),
     (f) => (f.env.GITHUB_EVENT_NAME = "push"),
@@ -80,7 +80,7 @@ test("author QA guard rejects other contexts and changed pins before execution",
     },
   ];
   for (const change of changes) {
-    const f = fixture();
+    const f = fixture(t);
     change(f);
     const result = f.run();
     assert.equal(result.status, 1, result.stderr);

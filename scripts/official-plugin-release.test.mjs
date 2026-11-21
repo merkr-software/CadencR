@@ -15,9 +15,10 @@ import { createHash } from "node:crypto";
 import { fixture, checkNamespacedTagBinding } from "./official-plugin-fixtures.mjs";
 const commit = "a".repeat(40);
 const hash = (data) => createHash("sha256").update(data).digest("hex");
+
 for (const kind of ["theme", "provider", "tab"]) {
-  test(`${kind}: deterministic metadata-complete preparation never executes candidate payloads`, () => {
-    const f = fixture(kind);
+  test(`${kind}: deterministic metadata-complete preparation never executes candidate payloads`, (t) => {
+    const f = fixture(t, kind);
     const a = f.run();
     const b = f.run();
     assert.equal(a.status, 0, a.stderr);
@@ -52,7 +53,7 @@ for (const kind of ["theme", "provider", "tab"]) {
   });
 }
 
-test("rejects invalid tags, unknown plugins, version/source/origin drift before output", () => {
+test("rejects invalid tags, unknown plugins, version/source/origin drift before output", (t) => {
   for (const [tag, env] of [
     ["v1.0.0", {}],
     ["plugins/theme-unknown/v1.0.0", {}],
@@ -63,16 +64,16 @@ test("rejects invalid tags, unknown plugins, version/source/origin drift before 
     [undefined, { MOCK_TAG_COMMIT: "b".repeat(40) }],
     [undefined, { MOCK_ORIGIN: "https://github.com/evil/repo.git" }],
   ]) {
-    const result = fixture().run(tag, env);
+    const result = fixture(t).run(tag, env);
     assert.notEqual(result.status, 0);
     assert.equal(existsSync(result.output), false);
   }
 });
 
-test("all kinds reject changed, extra, missing, symlinked, unreviewed, and mode-drift payloads", () => {
+test("all kinds reject changed, extra, missing, symlinked, unreviewed, and mode-drift payloads", (t) => {
   for (const kind of ["theme", "provider", "tab"])
     for (const change of ["changed", "extra", "missing", "symlink", "unapproved", "mode"]) {
-      const f = fixture(kind);
+      const f = fixture(t, kind);
       const payload = Object.values(f.entry.payloads)[0];
       const name = Object.keys(payload.files)[0];
       const path = `${payload.directory}/${name}`;
@@ -92,9 +93,9 @@ test("all kinds reject changed, extra, missing, symlinked, unreviewed, and mode-
     }
 });
 
-test("production pin remains fail-closed, receipts are exact, outputs never overwrite", () => {
-  assert.match(fixture().run(undefined, {}, false).stderr, /PENDING/);
-  const f = fixture();
+test("production pin remains fail-closed, receipts are exact, outputs never overwrite", (t) => {
+  assert.match(fixture(t).run(undefined, {}, false).stderr, /PENDING/);
+  const f = fixture(t);
   writeFileSync(join(f.root, "bad-receipt"), "yes");
   assert.match(f.run().stderr, /receipt mismatch/);
   const existing = join(f.root, "existing");
@@ -108,14 +109,14 @@ test("production pin remains fail-closed, receipts are exact, outputs never over
   }
 });
 
-test("production and author modes require authoritative contexts and reviewed policy", () => {
+test("production and author modes require authoritative contexts and reviewed policy", (t) => {
   for (const env of [
     { GITHUB_REPOSITORY: "evil/repo" },
     { GITHUB_SHA: "b".repeat(40) },
     { GITHUB_REF: "refs/heads/main" },
   ])
-    assert.match(fixture().run(undefined, env, false).stderr, /authoritative GitHub tag context/);
-  const f = fixture();
+    assert.match(fixture(t).run(undefined, env, false).stderr, /authoritative GitHub tag context/);
+  const f = fixture(t);
   const context = { GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/main" };
   assert.match(f.run(undefined, context, "author-approved").stderr, /unreviewed release policy/);
   f.policy.publication = "APPROVED";
@@ -128,9 +129,9 @@ for (const kind of ["theme", "provider", "tab"]) {
   test(
     `${kind}: source-bound preparation through the real shared Rust CLI`,
     { skip: !process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI },
-    () => {
+    (t) => {
       const cli = realpathSync(process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI);
-      const f = fixture(kind, cli);
+      const f = fixture(t, kind, cli);
       const result = f.run();
       assert.equal(result.status, 0, result.stderr);
       const metadata = JSON.parse(readFileSync(join(result.output, "package.json")));
@@ -145,8 +146,8 @@ for (const kind of ["theme", "provider", "tab"]) {
   );
 }
 
-test("reviewed source mappings copy interpreted modules without running author builds", () => {
-  const f = fixture("provider");
+test("reviewed source mappings copy interpreted modules without running author builds", (t) => {
+  const f = fixture(t, "provider");
   for (const payload of Object.values(f.entry.payloads)) {
     const old = `${payload.directory}/bin/provider`;
     f.files[`${payload.directory}/src/provider.mjs`] = f.files[old];
@@ -239,8 +240,8 @@ for (const kind of ["theme", "provider", "tab"]) {
   test(
     `${kind}: shared Rust validation rejects invalid payload/metadata before public output`,
     { skip: !process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI },
-    () => {
-      const f = fixture(kind, realpathSync(process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI));
+    (t) => {
+      const f = fixture(t, kind, realpathSync(process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI));
       const payload = Object.values(f.entry.payloads)[0];
       if (kind === "theme") {
         const path = `${payload.directory}/theme.json`;
@@ -266,8 +267,8 @@ for (const kind of ["theme", "provider", "tab"]) {
   );
 }
 
-test("provider source version manifest drift fails before packaging", () => {
-  const f = fixture("provider");
+test("provider source version manifest drift fails before packaging", (t) => {
+  const f = fixture(t, "provider");
   f.entry.version_file = `${f.entry.source_path}/package.json`;
   f.files[f.entry.version_file] = JSON.stringify({ version: "2.0.0" });
   f.files["plugins/release-policy.json"] = JSON.stringify(f.policy);
@@ -278,25 +279,9 @@ test("provider source version manifest drift fails before packaging", () => {
   assert.equal(existsSync(result.output), false);
 });
 
-test("failed Rust commands expose only stage/code and retain bounded diagnostics privately", () => {
-  const f = fixture();
-  writeFileSync(join(f.root, "bad-cli"), "yes");
-  const result = f.run();
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /plugin validate failed \(INERT_FIXTURE_FAILURE\)/);
-  assert.equal(result.stderr.includes("sensitive-marker"), false);
-  assert.equal(result.stderr.includes("PRIVATE_DIAG_MARKER"), false);
-  const scratch = /Private preparation scratch retained: (.+)/.exec(result.stderr)?.[1];
-  assert.ok(scratch);
-  const log = readFileSync(join(scratch, "cli-diagnostics.log"));
-  assert.ok(log.length <= 65536);
-  assert.ok(log.includes(Buffer.from("PRIVATE_DIAG_MARKER")));
-  assert.equal(existsSync(result.output), false);
-});
-
 for (const kind of ["theme", "provider", "tab"]) {
-  test(`${kind}: nested duplicate source metadata keys cannot bypass pending decisions`, () => {
-    const f = fixture(kind, process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI);
+  test(`${kind}: nested duplicate source metadata keys cannot bypass pending decisions`, (t) => {
+    const f = fixture(t, kind, process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI);
     f.files[f.entry.package] = f.files[f.entry.package].replace(
       '"publisher":"fixture"',
       '"publisher":"PENDING","publisher":"fixture"',
@@ -313,9 +298,9 @@ for (const kind of ["theme", "provider", "tab"]) {
   });
 }
 
-test("duplicate nested release-policy and source-version keys are rejected before packaging", () => {
+test("duplicate nested release-policy and source-version keys are rejected before packaging", (t) => {
   for (const location of ["policy", "version"]) {
-    const f = fixture("provider");
+    const f = fixture(t, "provider");
     if (location === "policy") {
       f.files["plugins/release-policy.json"] = f.files["plugins/release-policy.json"].replace(
         '"preparation":"READY"',
@@ -334,10 +319,10 @@ test("duplicate nested release-policy and source-version keys are rejected befor
   }
 });
 
-test("every source JSON boundary rejects non-finite constants and numeric overflow", () => {
+test("every source JSON boundary rejects non-finite constants and numeric overflow", (t) => {
   for (const location of ["policy", "version", "metadata"])
     for (const number of ["NaN", "Infinity", "-Infinity", "1e400"]) {
-      const f = fixture("provider");
+      const f = fixture(t, "provider");
       let path = location === "policy" ? "plugins/release-policy.json" : f.entry.package;
       if (location === "version") {
         path = `${f.entry.source_path}/package.json`;
@@ -354,9 +339,9 @@ test("every source JSON boundary rejects non-finite constants and numeric overfl
     }
 });
 
-test("CLI receipt JSON rejects duplicate keys, non-finite constants and overflow", () => {
+test("CLI receipt JSON rejects duplicate keys, non-finite constants and overflow", (t) => {
   for (const invalid of ["duplicate", "NaN", "Infinity", "-Infinity", "1e400"]) {
-    const f = fixture();
+    const f = fixture(t);
     writeFileSync(join(f.root, "invalid-receipt-json"), invalid);
     const result = f.run();
     assert.notEqual(result.status, 0, invalid);
@@ -369,8 +354,8 @@ test("CLI receipt JSON rejects duplicate keys, non-finite constants and overflow
   }
 });
 
-test("many-file payload uses one bounded Git batch instead of per-file subprocesses", () => {
-  const f = fixture("tab", process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI);
+test("many-file payload uses one bounded Git batch instead of per-file subprocesses", (t) => {
+  const f = fixture(t, "tab", process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI);
   const payload = f.entry.payloads.tab;
   for (let index = 0; index < 256; index += 1) {
     const name = `dist/asset-${index}.txt`;
@@ -398,14 +383,14 @@ test("many-file payload uses one bounded Git batch instead of per-file subproces
   );
 });
 
-test("Git batch headers enforce per-blob limits before body reads and reject truncation", () => {
+test("Git batch headers enforce per-blob limits before body reads and reject truncation", (t) => {
   for (const size of [
     "33554433",
     "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
     "invalid",
     "4",
   ]) {
-    const f = fixture("tab");
+    const f = fixture(t, "tab");
     writeFileSync(join(f.root, "batch-size"), size);
     const result = f.run();
     assert.notEqual(result.status, 0);

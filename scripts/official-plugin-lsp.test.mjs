@@ -13,8 +13,8 @@ test("official LSP closed archive, tag, policy and packaging boundaries", () => 
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("LSP Git-blob reconstruction preserves qualified metadata and all three canonical archives", () => {
-  const fixture = lspFixture();
+test("LSP Git-blob reconstruction preserves qualified metadata and all three canonical archives", (t) => {
+  const fixture = lspFixture(t);
   const result = fixture.run();
   assert.equal(result.status, 0, result.stderr);
   const release = JSON.parse(readFileSync(join(result.output, "release.json")));
@@ -41,10 +41,10 @@ test("LSP Git-blob reconstruction preserves qualified metadata and all three can
   assert.match(rejected.stderr, /differs from the trusted release policy/);
 });
 
-test("protected author reconstruction admits only the policy-bound flat LSP tag and reviewed notes", () => {
-  const author = authorFixture();
+test("protected author reconstruction admits only the policy-bound flat LSP tag and reviewed notes", (t) => {
+  const author = authorFixture(t);
   author.approve();
-  const source = lspFixture();
+  const source = lspFixture(t);
   source.policy.publication = "APPROVED";
   source.save();
   writeFileSync(join(author.root, "plugins/release-policy.json"), source.files["plugins/release-policy.json"]);

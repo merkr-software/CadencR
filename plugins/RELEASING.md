@@ -191,9 +191,9 @@ Production also requires matching `GITHUB_REPOSITORY`, `GITHUB_SHA` and
 never grants production authority. Public metadata records the canonical repository
 identity, never the local checkout path.
 
-Private scratch is retained and its path printed to stderr on packaging attempts.
-Rust failures retain a private, bounded `cli-diagnostics.log` in that scratch
-(maximum 64 KiB, mode `0600`). Public errors expose only the command stage and
-stable error code; the log is never copied into output or uploaded.
-There is no recursive cleanup: an unexpected database created in CLI HOME must
-not be deleted. Review retained scratch separately; never upload it.
+Preparation uses a private scratch directory for staged payloads, the CLI home,
+and subprocess temporary files. The command removes this directory on success
+or failure. On failures with CLI diagnostics, it saves up to 64 KiB in an
+owner-only `official-plugin-diagnostics-*.log` beside the requested output and
+reports the log path on stderr. A nonzero CLI exit also reports the command
+stage and a stable error code. Review and remove the private log locally.
