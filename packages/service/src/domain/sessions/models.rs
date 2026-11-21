@@ -55,6 +55,7 @@ pub struct AgentSessionRow {
 pub struct ConversationReferenceCandidate {
     pub feature_id: i64,
     pub feature_title: String,
+    pub project_id: i64,
     pub project_name: String,
     pub feature_status: FeatureStatus,
 }

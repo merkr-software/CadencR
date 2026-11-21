@@ -49,7 +49,10 @@ export function fragmentToMarkdown(fragment: DocumentFragment): string {
   const ctx = newContext();
   // Collapse runs of 3+ blank lines (from nested block emitters) to 2,
   // then trim leading/trailing whitespace.
+  // Word joiners (U+2060) only keep a decoration on its label's line (link
+  // marks, project badges): never part of the copied text.
   return walkChildren(fragment, ctx)
+    .replaceAll("\u2060", "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

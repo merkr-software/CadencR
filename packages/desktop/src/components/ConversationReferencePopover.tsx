@@ -3,6 +3,7 @@ import { ArchiveIcon, Loader2Icon, MessageSquareIcon } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { FeatureStatus } from "@/api/generated";
 import type { ConversationReferenceItem } from "@/hooks/useConversationReference";
+import { ProjectBadge } from "./ProjectBadge";
 import { ComposerPopover, ComposerPopoverOption } from "./composer/ComposerPopover";
 
 interface ConversationReferencePopoverProps {
@@ -38,8 +39,9 @@ const ConversationReferenceRow = memo(function ConversationReferenceRow({
     >
       <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate font-medium">{item.feature_title}</span>
-      <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
-        {item.project_name}
+      <span className="flex max-w-[40%] shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <ProjectBadge projectId={item.project_id} size="xs" />
+        <span className="min-w-0 truncate">{item.project_name}</span>
       </span>
       {item.feature_status === FeatureStatus.archived && (
         <ArchiveIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Archived" />
