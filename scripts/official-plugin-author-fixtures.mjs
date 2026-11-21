@@ -1,8 +1,8 @@
-import { realpathSync, mkdtempSync, mkdirSync, writeFileSync, cpSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { testTempDir } from "./test-temp-dir.mjs";
 const sha = "a".repeat(40);
 const zero = "0".repeat(64);
 const hash = (data) => createHash("sha256").update(data).digest("hex");
@@ -28,8 +28,8 @@ urllib.request.build_opener=build_opener
   );
 }
 
-export function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "author-gate-")));
+export function fixture(t) {
+  const root = testTempDir(t, "author-gate-");
   for (const dir of ["scripts", "plugins", "mock", "py"])
     mkdirSync(join(root, dir), { recursive: true });
   for (const file of [

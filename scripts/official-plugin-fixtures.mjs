@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, cpSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { testTempDir } from "./test-temp-dir.mjs";
 
 const commit = "a".repeat(40);
 const hash = (data) => createHash("sha256").update(data).digest("hex");
+
 function packageMetadata(kind, id, version, targets) {
   return {
     kind,
@@ -83,8 +84,9 @@ else: sys.exit(1)
   writeFileSync(
     join(root, "cli"),
     `#!/usr/bin/env python3
-import sys,json,pathlib,hashlib,os
+import sys,json,pathlib,hashlib,os,tempfile
 assert 'SECRET_TEST' not in os.environ
+tempfile.mkdtemp(prefix='fixture-cli-', dir=os.environ['TMPDIR'])
 args=sys.argv
 if pathlib.Path('${root}/bad-cli').exists():
  sys.stderr.write('error[INERT_FIXTURE_FAILURE]: PRIVATE_DIAG_MARKER '+('sensitive-marker'*6000)); sys.exit(1)
@@ -115,6 +117,8 @@ print(receipt)
   writeFileSync(
     join(root, "tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh"),
     `#!/bin/sh
+set -eu
+mktemp -d "$TMPDIR/fixture-fetch.XXXXXX" >/dev/null
 case "$1" in */cli-qualification.env) printf '%s\\n' '${realCli ?? root + "/cli"}';; *) echo 'Released Cadencr CLI pin is PENDING.' >&2; exit 3;; esac
 `,
   );
@@ -132,8 +136,8 @@ function copyPreparation(root) {
     cpSync(resolve("scripts", name), join(root, "scripts", name));
 }
 
-export function fixture(kind = "theme", realCli) {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "official-release-test-")));
+export function fixture(t, kind = "theme", realCli) {
+  const root = testTempDir(t, "official-release-test-");
   for (const dir of ["scripts", "tooling/marketplace-registry/scripts/ci", "mock"])
     mkdirSync(join(root, dir), { recursive: true });
   copyPreparation(root);
@@ -232,13 +236,14 @@ export function fixture(kind = "theme", realCli) {
   return { run, root, files, modes, entry, policy, save, plugin, version };
 }
 
-export function checkNamespacedTagBinding() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "official-tag-fetch-test-")));
+export function checkNamespacedTagBinding(t) {
+  const root = testTempDir(t, "official-tag-fetch-test-");
   const origin = join(root, "origin");
   mkdirSync(origin);
   const env = {
     PATH: process.env.PATH,
     HOME: root,
+    TMPDIR: root,
     XDG_CONFIG_HOME: root,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -294,8 +299,8 @@ export function checkNamespacedTagBinding() {
 }
 
 // Reviewed prebuilt bytes only: ELF header, deliberately not a runnable program.
-export function nativeTabFixture(realCli) {
-  const f = fixture("tab", realCli);
+export function nativeTabFixture(t, realCli) {
+  const f = fixture(t, "tab", realCli);
   const payload = f.entry.payloads.tab;
   const manifest = JSON.parse(f.files[`${payload.directory}/tab.json`]);
   const target = "linux-x86_64";

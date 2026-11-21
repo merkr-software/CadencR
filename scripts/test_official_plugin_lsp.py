@@ -22,6 +22,13 @@ TARGETS = ("darwin-aarch64", "darwin-x86_64", "linux-x86_64")
 ENTRY = "lib/cli.mjs"
 
 
+def load_prepare():
+    spec = importlib.util.spec_from_file_location("official_prepare", ROOT / "scripts/official-plugin-prepare.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def fixture():
     contents = {ENTRY: b"throw new Error('inert test fixture must never execute')"}
     contents.update({"node_modules/typescript/file-%03d.js" % i: b"inert" for i in range(144)})
@@ -433,9 +440,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(release_tag("plugins/theme-graphite/v0.1.0", {}), ("theme-graphite", "0.1.0"))
 
     def test_lsp_candidate_policy_must_equal_trusted_main_policy(self):
-        spec = importlib.util.spec_from_file_location("official_prepare", ROOT / "scripts/official-plugin-prepare.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_prepare()
         policy = json.loads((ROOT / "plugins/release-policy.json").read_bytes())
         changed = copy.deepcopy(policy)
         changed["plugins"][PLUGIN]["release_notes"] += " unreviewed change"
@@ -452,6 +457,27 @@ class PolicyTests(unittest.TestCase):
 
 
 class PackTests(unittest.TestCase):
+    def test_partial_release_output_is_removed_and_retry_does_not_overwrite(self):
+        prepare = load_prepare()
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            out, stage = root / "out", root / "stage"
+            stage.mkdir()
+            name = "fixture.tar.gz"
+            data = b"archive bytes"
+            release = {"archives": [{"name": name, "sha256": digest(data)}]}
+            (stage / name).write_bytes(data)
+            # A missing submission fails after the archive and package have been copied.
+            with self.assertRaises(FileNotFoundError):
+                prepare.write_release(out, stage, release, b"{}")
+            self.assertFalse(out.exists())
+
+            (stage / "submission.json").write_bytes(b"{}")
+            prepare.write_release(out, stage, release, b"{}")
+            with self.assertRaises(FileExistsError):
+                prepare.write_release(out, stage, release, b"{}")
+            self.assertEqual((out / name).read_bytes(), data)
+
     def test_original_node_payload_uses_only_0155_compatible_validation(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)

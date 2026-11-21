@@ -47,8 +47,9 @@ not arbitrary lost-response recovery.
 
 - Upload only the explicit public proof JSON, never the scratch directory,
   subprocess output, environment, credentials or keys.
-- Scratch is intentionally retained. Never recursively remove it: an unexpected
-  Cadencr database must not be deleted.
+- Each run removes its own scratch directory on success or failure. The CLI's
+  home and temporary files live inside that directory. The proof JSON is
+  written to the requested output path.
 - Unit tests use synthetic processes/network observations. They do not qualify a
   distributed executable; record real workflow and release evidence separately.
 - QA success does not promote production pins/policies or enable marketplace UI.

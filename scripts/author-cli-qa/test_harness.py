@@ -60,7 +60,7 @@ class Guards(unittest.TestCase):
         self.assertEqual(diagnostic, {"ok": False, "code": "GUARD_REJECTED",
             "category": "REJECTED", "operations": ["get"] * 4})
 
-    def test_real_qualification_failure_does_not_print_retained_scratch_path(self):
+    def test_real_qualification_failure_cleans_scratch_and_keeps_diagnostics_private(self):
         secret = "private-token https://secret.example/private /private/raw-secret"
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
@@ -69,19 +69,23 @@ class Guards(unittest.TestCase):
             stderr = io.StringIO()
             args = ["qa", "--candidate", str(c), "--confirm-candidate-sha256",
                     qa.digest(c.read_bytes()), "--cli", secret, "--output", str(root / "proof")]
+
+            def reject_local(_cli, _candidate, work):
+                (work / "outside").symlink_to(root, target_is_directory=True)
+                raise ValueError(secret)
+
             with patch.object(sys, "argv", args), patch.object(qa, "check_cli"), patch.object(
-                qa.tempfile, "mkdtemp", return_value=scratch
-            ), patch.object(qa, "local", side_effect=ValueError(secret)), patch.object(
+                qa.tempfile, "tempdir", scratch
+            ), patch.object(qa, "local", side_effect=reject_local), patch.object(
                 sys, "stderr", stderr
             ):
                 self.assertEqual(qa.main(), 1)
-            lines = stderr.getvalue().splitlines()
-            self.assertEqual(lines[0], "Private QA scratch retained.")
-            self.assertEqual(json.loads(lines[1]), {
+            self.assertEqual(json.loads(stderr.getvalue()), {
                 "ok": False, "code": "QUALIFICATION_FAILED", "category": "VALUE"})
             self.assertNotIn(scratch, stderr.getvalue())
             self.assertNotIn(secret, stderr.getvalue())
-            self.assertFalse((root / "proof").exists())
+            self.assertEqual(list(root.iterdir()), [c])
+            self.assertEqual(json.loads(c.read_text()), candidate())
 
     def test_http_failure_has_only_bounded_status_and_closed_operation_trace(self):
         network = qa.GitHub()
@@ -106,7 +110,8 @@ class Guards(unittest.TestCase):
                 "QA_AUTHOR_GITHUB_TOKEN": "secret", "HTTPS_PROXY": "secret",
                 "CADENCR_AUTHOR_GITHUB_TOKEN": "ambient-secret"}):
             env = qa.cli_env(Path("/scratch"))
-            self.assertEqual(set(env), {"PATH", "HOME", "XDG_CONFIG_HOME", "LANG"})
+            self.assertEqual(set(env), {"PATH", "HOME", "TMPDIR", "XDG_CONFIG_HOME", "LANG"})
+            self.assertEqual(env["TMPDIR"], "/scratch")
             self.assertNotIn("secret", json.dumps(env))
             self.assertEqual(qa.cli_env(Path("/scratch"), "explicit-token"),
                              {**env, "CADENCR_AUTHOR_GITHUB_TOKEN": "explicit-token"})
@@ -418,7 +423,7 @@ for kind, variant in (("provider", "ui-only"), ("theme", "ui-only"),
         with patch.dict(os.environ, {"GITHUB_TOKEN": "actions-secret", "GH_TOKEN": "other",
                                     "HTTPS_PROXY": "https://bad", "HOME": "/private/user"}):
             env = qa.cli_env(Path("/scratch"))
-            self.assertEqual(set(env), {"PATH", "HOME", "XDG_CONFIG_HOME", "LANG"})
+            self.assertEqual(set(env), {"PATH", "HOME", "TMPDIR", "XDG_CONFIG_HOME", "LANG"})
             self.assertNotIn("secret", json.dumps(env))
             self.assertEqual(qa.cli_env(Path("/scratch"), "author")[
                 "CADENCR_AUTHOR_GITHUB_TOKEN"], "author")
@@ -463,23 +468,24 @@ for kind, variant in (("provider", "ui-only"), ("theme", "ui-only"),
     def test_completed_retry_trace_and_allowlisted_proof(self):
         trace = []
         with tempfile.TemporaryDirectory() as root:
-            p = Path(root)
-            home, stage = p / "home", p / "stage"
-            home.mkdir()
-            stage.mkdir()
-            request = stage / "request.json"
-            request.write_bytes(b'{}')
-            (stage / "theme.tar.gz").write_bytes(b"archive")
-            assets = {"theme.tar.gz": qa.asset(stage / "theme.tar.gz")}
-            inventory = {"release_id": 1, "assets": [{"id": 2, **assets["theme.tar.gz"]}]}
+            def local(_cli, _candidate, work):
+                home, stage = work / "home", work / "stage"
+                home.mkdir()
+                stage.mkdir()
+                request = stage / "request.json"
+                request.write_bytes(b'{}')
+                archive = stage / "theme.tar.gz"
+                archive.write_bytes(b"archive")
+                return home, stage, request, "d"*64, {archive.name: qa.asset(archive)}
 
             class Network:
                 count = 0
                 def identity(self, c, token):
                     trace.append("identity")
-                def inventory(self, c, a, deadline=None):
+                def inventory(self, c, assets, deadline=None):
                     trace.append("inventory")
                     self.count += 1
+                    inventory = {"release_id": 1, "assets": [{"id": 2, **assets["theme.tar.gz"]}]}
                     return None if self.count == 1 else inventory
 
             calls = []
@@ -490,11 +496,14 @@ for kind, variant in (("provider", "ui-only"), ("theme", "ui-only"),
                                        already_published=len(calls) > 1)).encode()
 
             with patch.object(qa, "check_cli"), patch.object(
-                qa, "local", return_value=(home, stage, request, "d"*64, assets)
+                qa.tempfile, "tempdir", root
+            ), patch.object(
+                qa, "local", side_effect=local
             ), patch.object(qa, "invoke", side_effect=invoke), patch.dict(
                 os.environ, {"QA_AUTHOR_GITHUB_TOKEN": "private-author-secret"}, clear=True
             ):
                 proof = qa.qualify(Path("/reviewed/cli"), candidate(), True, Network())
+            self.assertEqual(list(Path(root).iterdir()), [])
             self.assertEqual(trace, ["identity", "inventory", "publish", "inventory",
                                     "publish", "inventory", "publish", "inventory",
                                     "reject", "inventory", "reject", "inventory"])
@@ -502,7 +511,7 @@ for kind, variant in (("provider", "ui-only"), ("theme", "ui-only"),
             self.assertEqual(proof["completed_retries"], 2)
             self.assertEqual(proof["interrupted_draft"], "not_exercised")
             serialized = json.dumps(proof)
-            for secret in ("private-author-secret", "/scratch", "/reviewed", str(p)):
+            for secret in ("private-author-secret", "/scratch", "/reviewed", root):
                 self.assertNotIn(secret, serialized)
 
     def test_all_kinds_prepare_complete_metadata_without_executing_payload(self):

@@ -12,8 +12,9 @@ for (const real of [false, true]) {
   test(
     `native tab: complete deterministic UI and platform bindings (${real ? "Rust CLI" : "orchestration"})`,
     { skip: real && !process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI },
-    () => {
+    (t) => {
       const f = nativeTabFixture(
+        t,
         real ? realpathSync(process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI) : undefined,
       );
       const a = f.run();
@@ -97,9 +98,9 @@ for (const real of [false, true]) {
   );
 }
 
-test("native tab: incomplete/extra targets and differing manifests fail without public output", () => {
+test("native tab: incomplete/extra targets and differing manifests fail without public output", (t) => {
   for (const change of ["missing", "missing-ui", "extra", "manifest", "digest", "mode"]) {
-    const f = nativeTabFixture();
+    const f = nativeTabFixture(t);
     const backend = f.entry.payloads[`backend-${f.target}`];
     if (change === "missing-ui") delete f.entry.payloads.tab;
     if (change === "missing") delete f.entry.payloads[`backend-${f.target}`];
@@ -123,9 +124,9 @@ test("native tab: incomplete/extra targets and differing manifests fail without 
 test(
   "native tab: Rust refuses scripts and metadata/manifest binding drift before output",
   { skip: !process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI },
-  () => {
+  (t) => {
     for (const change of ["script", "reasoning", "cmd", "platform"]) {
-      const f = nativeTabFixture(realpathSync(process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI));
+      const f = nativeTabFixture(t, realpathSync(process.env.CADENCR_OFFICIAL_PLUGIN_TEST_CLI));
       const metadata = JSON.parse(f.files[f.entry.package]);
       if (change === "script") {
         const payload = f.entry.payloads[`backend-${f.target}`];
@@ -149,9 +150,9 @@ test(
   },
 );
 
-test("native tab: every executable receipt binding is exact before output", () => {
+test("native tab: every executable receipt binding is exact before output", (t) => {
   for (const field of ["target", "cmd", "executable_sha256", "executable_size"]) {
-    const f = nativeTabFixture();
+    const f = nativeTabFixture(t);
     writeFileSync(join(f.root, "backend-receipt-field"), field);
     const result = f.run();
     assert.notEqual(result.status, 0, field);

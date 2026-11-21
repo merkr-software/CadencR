@@ -5,7 +5,7 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 export ROOT
 python3 - "$@" <<'PY'
-import hashlib, json, os, pathlib, re, subprocess, sys, urllib.request
+import hashlib, json, os, pathlib, re, subprocess, sys, tempfile, urllib.request
 
 def fail(code): raise SystemExit(code)
 def digest(data): return hashlib.sha256(data).hexdigest()
@@ -79,9 +79,12 @@ try:
     if branch_rules.get('total_count') != 1 or len(entries) != 1 or entries[0].get('name') != 'main' or entries[0].get('type') != 'branch': fail('AUTHOR_ENVIRONMENT_UNPROTECTED')
     out = pathlib.Path(output)
     if not out.is_absolute() or out.exists() or out.is_symlink() or out.parent.resolve() != out.parent: fail('AUTHOR_OUTPUT_INVALID')
-    env = dict(os.environ)
     # Trusted main script reads candidate Git blobs; no candidate build/script runs.
-    subprocess.run(['sh',str(root/'scripts/official-plugin-release.sh'),'--author-approved',repo,commit,tag,output],env=env,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=600)
+    # The caller owns this scratch space even if the preparer is killed on timeout.
+    with tempfile.TemporaryDirectory(prefix='official-plugin-author-') as scratch:
+        env = dict(os.environ, TMPDIR=scratch)
+        subprocess.run(['sh',str(root/'scripts/official-plugin-release.sh'),'--author-approved',repo,commit,tag,output],
+                       env=env,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=600)
     metadata = json.loads((out/'release.json').read_bytes())
     def asset(name):
         if not isinstance(name,str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]{0,199}',name) or name in ('.','..'): fail('AUTHOR_ASSET_INVALID')
