@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useWorkspaceActivity, whileActive } from "@/components/workspace-pool/workspace-activity";
 import { isPaletteShortcut } from "@/lib/command-palette/palette-shortcut-commands";
 import {
   paletteKeyboardEvent,
@@ -19,10 +20,16 @@ export function useShortcutPaletteAction(
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
   const listed = isPaletteShortcut(id);
+  const activity = useWorkspaceActivity();
   useEffect(() => {
     if (!listed || !enabled) return undefined;
-    return registerShortcutAction(id, () => {
-      void callbackRef.current(paletteKeyboardEvent());
-    });
-  }, [enabled, id, listed]);
+    // A hidden workspace's actions must not shadow the visible one's in the
+    // palette: registered only while its workspace is on screen, without a
+    // render at each switch.
+    return whileActive(activity, () =>
+      registerShortcutAction(id, () => {
+        void callbackRef.current(paletteKeyboardEvent());
+      }),
+    );
+  }, [activity, enabled, id, listed]);
 }

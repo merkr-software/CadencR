@@ -1,58 +1,13 @@
-import { useEffect, useMemo } from "react";
-import { useGetFeatureAgentState, type FeatureAgentStateResponse } from "@/api/generated";
-import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
+import { useEffect } from "react";
+import { useGetFeatureAgentState } from "@/api/generated";
 import type { UseWebSocketSessionOptions } from "@/hooks/useWebSocketSession";
-import { apiErrorMessage } from "@/lib/api-errors";
-import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
+import { apiErrorMessage, toastError } from "@/lib/api-errors";
+import { CONVERSATION_SNAPSHOT_PARAMS, takeSnapshotHydration } from "@/lib/conversation-preload";
+import { conversationSnapshot } from "@/lib/conversation-snapshot";
 import { useWsSessionStore } from "@/stores/ws-session-store";
-import type { PersistedStatePayload, SessionEntry } from "@/stores/ws-session-types";
-import { persistedSessionToLifecycle } from "@/stores/ws-turn-lifecycle";
-import { parseAccessMode } from "@/types/access-mode";
-import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
-import { parsePermissionMode } from "@/types/permission-mode";
-
-type PersistedSession = FeatureAgentStateResponse["sessions"][number];
+import type { SessionEntry } from "@/stores/ws-session-types";
 
 const HISTORY_FAILURE_FALLBACK = "The service didn't return this conversation's history.";
-
-function persistedContextUsage(session: PersistedSession): ContextUsageState | null {
-  const contextWindow = normalizeContextWindow(session.contextWindow);
-  if (session.inputTokens <= 0 && session.outputTokens <= 0 && contextWindow == null) return null;
-  return {
-    inputTokens: session.inputTokens ?? 0,
-    outputTokens: session.outputTokens ?? 0,
-    contextWindow,
-    wasCompacted: session.wasCompacted ?? false,
-  };
-}
-
-function persistedStatePayload(
-  session: PersistedSession,
-  featureId: number,
-): PersistedStatePayload {
-  return {
-    blocks: serverBlocksToAgentBlocks(session.blocks),
-    lifecycle: persistedSessionToLifecycle(session),
-    hasMore: session.hasMore,
-    oldestMessageId: session.oldestMessageId,
-    maxMessageId: session.maxMessageId,
-    maxContentRevision: session.maxContentRevision,
-    featureId,
-    sessionDbId: session.sessionDbId,
-    currentSelection:
-      session.runtimeProvider && session.model
-        ? { providerId: session.runtimeProvider, modelId: session.model }
-        : undefined,
-    currentProfile: session.profile ?? undefined,
-    permissionMode: parsePermissionMode(session.permissionMode) ?? undefined,
-    accessMode: parseAccessMode(session.accessMode),
-    runtimeSessionId: session.runtimeSessionId ?? undefined,
-    pendingPermission: session.pendingPermission,
-    pendingQuestions: session.pendingQuestions,
-    contextUsage: persistedContextUsage(session),
-    hasFileChanges: session.hasFileChanges,
-  };
-}
 
 /**
  * Loads the conversation's saved history once per session entry. A failed
@@ -60,6 +15,10 @@ function persistedStatePayload(
  * it), but records why as `historyLoadFailure` so the transcript shows the
  * failure and a retry instead of reading as an empty conversation. A retry
  * re-opens the gate, which re-enables the query.
+ *
+ * A conversation opened from a preloaded snapshot (`hydratePreloadedConversation`)
+ * arrives here with the gate already settled: nothing is fetched, and the rows
+ * written between that snapshot and the session going live are caught up below.
  */
 export function usePersistedSessionLoader(
   session: SessionEntry | undefined,
@@ -69,8 +28,7 @@ export function usePersistedSessionLoader(
 ): void {
   const loadPersisted = options?.loadPersisted ?? true;
   const persistedLoaded = session?.persistedLoaded ?? false;
-  const persistedStateParams = useMemo(() => ({ limit: AGENT_STATE_INITIAL_MESSAGE_LIMIT }), []);
-  const agentStateQuery = useGetFeatureAgentState(featureId ?? 0, persistedStateParams, {
+  const agentStateQuery = useGetFeatureAgentState(featureId ?? 0, CONVERSATION_SNAPSHOT_PARAMS, {
     query: {
       enabled: loadPersisted && !!featureId && !persistedLoaded,
       gcTime: 0,
@@ -90,11 +48,25 @@ export function usePersistedSessionLoader(
       return;
     }
     if (!data) return;
-    const lastSession = data.sessions.at(-1);
-    if (!lastSession) {
-      store.markPersistedLoaded(sessionId);
-      return;
-    }
-    store.setPersistedState(sessionId, persistedStatePayload(lastSession, featureId));
+    const snapshot = conversationSnapshot(data, featureId);
+    if (snapshot) store.setPersistedState(sessionId, snapshot);
+    else store.markPersistedLoaded(sessionId);
   }, [featureId, data, error, isError, isFetching, persistedLoaded, sessionId]);
+
+  useSnapshotCatchUp(sessionId, (session?.serverSessionId ?? "") !== "");
+}
+
+/**
+ * A preloaded snapshot was read before this session's socket was bound: once
+ * the session is live, fetch the rows persisted in between. The stream's own
+ * gap detection only covers what is sent after the binding.
+ */
+function useSnapshotCatchUp(sessionId: string, isLive: boolean): void {
+  useEffect(() => {
+    if (!isLive || !takeSnapshotHydration(sessionId)) return;
+    useWsSessionStore
+      .getState()
+      .refreshSessionMessages(sessionId)
+      .catch((error: unknown) => toastError(error, "Could not refresh this conversation"));
+  }, [isLive, sessionId]);
 }

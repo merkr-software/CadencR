@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
 
 interface RootObserver {
   observer: IntersectionObserver;
@@ -65,11 +66,18 @@ export function useInViewport(
 ): { setRef: (el: HTMLElement | null) => void; inView: boolean } {
   const [el, setRef] = useState<HTMLElement | null>(null);
   const [inView, setInView] = useState(false);
+  const activity = useWorkspaceActivity();
 
   useEffect(() => {
     if (!el) return;
-    return observeInRoot(rootRef.current, rootMargin, el, setInView);
-  }, [el, rootRef, rootMargin]);
+    // A conversation workspace kept mounted but hidden (`WorkspacePool`) sits
+    // off screen: its rows keep the state they had, and the observer reports
+    // again once it is shown.
+    const onChange = (next: boolean): void => {
+      if (next || activity.isActive()) setInView(next);
+    };
+    return observeInRoot(rootRef.current, rootMargin, el, onChange);
+  }, [activity, el, rootRef, rootMargin]);
 
   // Stable return (frontend-perf rule): `setRef` is identity-stable from
   // `useState`, so this only re-creates when `inView` actually flips.

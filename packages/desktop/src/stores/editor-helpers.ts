@@ -1,8 +1,9 @@
-import type {
-  EditorFeatureState,
-  EditorPaneState,
-  EditorSplitNode,
-  EditorTab,
+import {
+  isUntitledPath,
+  type EditorFeatureState,
+  type EditorPaneState,
+  type EditorSplitNode,
+  type EditorTab,
 } from "./editor-store-types";
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,18 @@ export const defaultFeatureState: EditorFeatureState = {
   activePaneId: DEFAULT_PANE_ID,
   sidebarVisible: true,
 };
+
+/**
+ * Whether a conversation's editor holds work that lives only in its open views:
+ * a tab with unsaved edits, or an untitled buffer (whose text is in its view
+ * alone, so any open one counts). Unmounting the editor would lose it.
+ */
+export function hasUnsavedEditorWork(feature: EditorFeatureState | undefined): boolean {
+  if (feature === undefined) return false;
+  return Object.values(feature.panes).some((pane) =>
+    pane.tabs.some((tab) => tab.isDirty || isUntitledPath(tab.filePath)),
+  );
+}
 
 export function getFileName(filePath: string): string {
   return filePath.split("/").at(-1) ?? filePath;

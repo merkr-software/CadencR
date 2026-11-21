@@ -257,6 +257,12 @@ export interface AgentSessionProps {
    * ⌘↵, ⇧Tab, ⌘⇧Z) only fire when the agent tab is active. Default: true.
    */
   agentTabActive?: boolean;
+  /**
+   * Paint the last messages in the commit that mounts the conversation, ahead
+   * of the virtualized list (`TranscriptTailPreview`). Set for the full-page
+   * workspace; off by default.
+   */
+  openingPreview?: boolean;
 }
 
 /** Handle exposed by AgentSession via forwardRef */

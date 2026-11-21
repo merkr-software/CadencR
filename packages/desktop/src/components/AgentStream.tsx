@@ -30,10 +30,19 @@ import { useAgentDisplayItems, useRootBlocks, useToolResultMap } from "./useAgen
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import type { TurnClock } from "@/lib/turn-clock";
 import { TurnProgressCursor } from "./agent-session/TurnProgressCursor";
+import { useTailPreview } from "./agent-session/TranscriptTailPreview";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
 
 type ScrollRef = (el: HTMLElement | null) => void;
 const FIRST_ITEM_INDEX_BASE = 1_000_000;
+/**
+ * Virtuoso's guess for a row it has not measured. It also sets how many rows
+ * the list mounts when it opens (viewport and overscan divided by this): at
+ * 40 px it mounted a whole 40-message page to keep the half dozen in view.
+ * Rows run from a 26 px tool line to several screens of prose; 120 px is near
+ * their median.
+ */
+const DEFAULT_ROW_HEIGHT_PX = 120;
 const HISTORY_PREFETCH_ROWS = 12;
 
 interface AgentStreamVirtuosoContext {
@@ -130,6 +139,13 @@ interface AgentStreamProps {
   searchEnabled?: boolean;
   /** Scroll hooks for the prompt rail; null/absent hides it (Settings → Appearance → Agent transcript). */
   messageNavigator?: MessageNavigatorControls | null;
+  /**
+   * Paint the transcript's last rows in the commit that mounts the stream,
+   * ahead of the list (see `TranscriptTailPreview`). For a full-page
+   * conversation being opened; the rows are rendered a second time by the
+   * list, which a grid of small cards mounting together should not pay.
+   */
+  openingPreview?: boolean;
 }
 
 // The spacer is unconditional and lives inside the list rather than as padding
@@ -305,6 +321,8 @@ interface AgentVirtuosoProps {
   computeItemKey: (index: number) => string;
   onRangeChanged: (range: ListRange) => void;
   renderItem: (index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => ReactNode;
+  /** Unpainted while the tail preview is on screen (`useTailPreview`). */
+  style: CSSProperties;
 }
 
 function AgentVirtuoso({
@@ -321,19 +339,20 @@ function AgentVirtuoso({
   computeItemKey,
   onRangeChanged,
   renderItem,
+  style,
 }: AgentVirtuosoProps) {
   return (
     <Virtuoso
       data-testid="agent-stream-scroller"
       className="h-full overflow-x-hidden"
-      style={{ height: "100%" }}
+      style={style}
       ref={setVirtuoso}
       scrollerRef={onScroller}
       data={items}
       firstItemIndex={firstItemIndex}
       computeItemKey={computeItemKey}
       initialTopMostItemIndex={{ index: "LAST", align: "end" }}
-      defaultItemHeight={40}
+      defaultItemHeight={DEFAULT_ROW_HEIGHT_PX}
       increaseViewportBy={{ top: 600, bottom: 400 }}
       minOverscanItemCount={{ top: 4, bottom: 3 }}
       overscan={{ main: 300, reverse: 300 }}
@@ -377,6 +396,7 @@ export const AgentStream = memo(function AgentStream({
   summaryMode = false,
   searchEnabled = false,
   messageNavigator = null,
+  openingPreview = false,
 }: AgentStreamProps) {
   const rootBlocks = useRootBlocks(blocks, rootBlocksProp);
   const toolResultMap = useToolResultMap(blocks, toolResultMapProp);
@@ -408,6 +428,14 @@ export const AgentStream = memo(function AgentStream({
     onStartReached,
   );
   const renderItem = useAgentStreamItemRenderer(basePath, toolResultMap, verbosityMode);
+  const tail = useTailPreview({
+    enabled: openingPreview,
+    scrollerRef: streamRefs.scrollerElRef,
+    items: displayItems,
+    renderItem,
+    context: virtuosoContext,
+    Footer: StreamFooter,
+  });
 
   if (displayItems.length === 0) return <EmptyStream context={virtuosoContext} />;
 
@@ -443,7 +471,9 @@ export const AgentStream = memo(function AgentStream({
         computeItemKey={computeItemKey}
         onRangeChanged={onRangeChanged}
         renderItem={renderItem}
+        style={tail.listStyle}
       />
+      {tail.preview}
     </div>
   );
 });

@@ -1,4 +1,4 @@
-import type { Dispatch, ReactElement, SetStateAction } from "react";
+import { memo, type Dispatch, type ReactElement, type SetStateAction } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import { ArchiveCleanupDialog } from "@/components/ArchiveCleanupDialog";
@@ -17,6 +17,7 @@ import { ThemeDrawer } from "@/components/theme/ThemeDrawer";
 import { PluginTabPresenceKeeper } from "@/components/plugin-tabs/PluginTabPresenceKeeper";
 import { PluginTabShortcutRelay } from "@/components/plugin-tabs/PluginTabShortcutRelay";
 import { useRemoteUpdateCheck } from "@/hooks/useRemoteUpdateCheck";
+import { useRouteFeatureIds, useRouteProjectId } from "@/hooks/useRouteFeatureIds";
 import type { AppCloseState } from "@/hooks/useAppClose";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { useListFeatureWorktrees, type Feature } from "@/api/generated";
@@ -32,8 +33,6 @@ export interface ConfirmFeatureAction {
 interface RootOverlaysProps {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: Dispatch<SetStateAction<boolean>>;
-  activeProjectId: number | null;
-  activeFeatureId: number | null;
   confirmAction: ConfirmFeatureAction | null;
   setConfirmAction: Dispatch<SetStateAction<ConfirmFeatureAction | null>>;
   onArchiveFeature: (featureId: number, options: ArchiveFeatureOptions) => void;
@@ -41,11 +40,14 @@ interface RootOverlaysProps {
   appClose: AppCloseState;
 }
 
-export function RootOverlays({
+/**
+ * The app-wide dialogs, hosts and toaster. Memoized on stable props: the root
+ * layout renders on every navigation, and none of this depends on the route
+ * except the palette and the shortcuts help, which read it themselves.
+ */
+export const RootOverlays = memo(function RootOverlays({
   commandPaletteOpen,
   setCommandPaletteOpen,
-  activeProjectId,
-  activeFeatureId,
   confirmAction,
   setConfirmAction,
   onArchiveFeature,
@@ -54,11 +56,6 @@ export function RootOverlays({
 }: RootOverlaysProps): ReactElement {
   // In a remote PWA, watch for newer host frontend code and offer a reload.
   useRemoteUpdateCheck();
-  // The help modal's open state is owned by its store (driven by the global
-  // ⌘⇧? shortcut and the Settings button), so it subscribes here rather than
-  // re-rendering the root layout on every toggle.
-  const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.open);
-  const setShortcutsHelpOpen = useShortcutsHelpStore((s) => s.setOpen);
   const archiveConfirmAction = confirmAction?.action === "archive" ? confirmAction : null;
   const deleteConfirmAction = confirmAction?.action === "delete" ? confirmAction : null;
   const archiveFeatureId = archiveConfirmAction?.feature.id ?? null;
@@ -73,21 +70,12 @@ export function RootOverlays({
 
   return (
     <>
-      <CommandPalette
-        open={commandPaletteOpen}
-        onOpenChange={setCommandPaletteOpen}
-        activeProjectId={activeProjectId}
-        activeFeatureId={activeFeatureId}
-      />
+      <RouteCommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
       <UnifiedAgentsShortcut />
       <SchedulesShortcut />
       <PluginTabPresenceKeeper />
       <PluginTabShortcutRelay />
-      <KeyboardShortcutsModal
-        open={shortcutsHelpOpen}
-        onOpenChange={setShortcutsHelpOpen}
-        projectId={activeProjectId}
-      />
+      <ShortcutsHelpHost />
       <Toaster />
       <ServiceStatusNotifier />
       <PostUpdateChangelogDialog />
@@ -120,4 +108,36 @@ export function RootOverlays({
       <AppCloseDialog state={appClose} />
     </>
   );
+});
+
+/** The palette with the open conversation, read here so a navigation re-renders only this. */
+function RouteCommandPalette({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: Dispatch<SetStateAction<boolean>>;
+}): ReactElement {
+  const { projectId, featureId } = useRouteFeatureIds();
+  return (
+    <CommandPalette
+      open={open}
+      onOpenChange={onOpenChange}
+      activeProjectId={projectId}
+      activeFeatureId={featureId}
+    />
+  );
+}
+
+/**
+ * The help modal's open state is owned by its store (driven by the global ⌘⇧?
+ * shortcut and the Settings button), so it subscribes here rather than
+ * re-rendering the overlays on every toggle; the project only changes it when
+ * the user switches projects.
+ */
+function ShortcutsHelpHost(): ReactElement {
+  const open = useShortcutsHelpStore((s) => s.open);
+  const setOpen = useShortcutsHelpStore((s) => s.setOpen);
+  const projectId = useRouteProjectId();
+  return <KeyboardShortcutsModal open={open} onOpenChange={setOpen} projectId={projectId} />;
 }

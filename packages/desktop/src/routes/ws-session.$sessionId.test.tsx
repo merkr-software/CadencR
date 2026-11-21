@@ -16,7 +16,11 @@ const mocks = vi.hoisted(() => {
   const mockToastError = vi.fn();
   const mockListBranches = vi.fn().mockResolvedValue([]);
   const mockCheckoutBranchMutateAsync = vi.fn().mockResolvedValue({ success: true });
+  // What the session store holds: read through selectors, `getState` and
+  // `subscribe` alike (the workspace reads its session entry off the store).
+  const wsStore: { state: Record<string, unknown> } = { state: {} };
   return {
+    wsStore,
     mockUseParams,
     mockUseSearch,
     mockAgentVisible,
@@ -146,11 +150,12 @@ vi.mock("@/hooks/useWebSocketSession", () => ({
 }));
 
 vi.mock("@/stores/ws-session-store", () => ({
-  useWsSessionStore: vi.fn((selector) =>
-    selector({
-      sessions: {},
-      requestSlashCommands: vi.fn(),
-    }),
+  useWsSessionStore: Object.assign(
+    vi.fn((selector: (state: unknown) => unknown) => selector(mocks.wsStore.state)),
+    {
+      getState: () => mocks.wsStore.state,
+      subscribe: () => () => {},
+    },
   ),
 }));
 
@@ -322,8 +327,6 @@ vi.mock("@/hooks/useGitStatusSubscription", () => ({
 
 import { Route } from "./ws-session.$sessionId";
 import { AgentSession } from "@/components/agent-session";
-import { useWsSessionStore } from "@/stores/ws-session-store";
-
 function WsSessionPage() {
   const Component = (Route as unknown as { options: { component: React.ComponentType } }).options
     ?.component;
@@ -376,9 +379,10 @@ describe("WsSessionPage route", () => {
     mocks.mockUseSearch.mockReturnValue({ cwd: "/test/path", featureId: 35, projectId: 1 });
     mocks.mockAgentVisible.mockReturnValue(true);
     mocks.mockSplitEditorFocused.mockReturnValue(false);
+    mocks.wsStore.state = { sessions: {}, requestSlashCommands: vi.fn() };
   });
 
-  it("defers non-agent tab bodies until after the agent-first delay", async () => {
+  it("mounts non-agent tab bodies only after the conversation has painted", async () => {
     vi.useFakeTimers();
     try {
       render(<WsSessionPage />);
@@ -386,17 +390,16 @@ describe("WsSessionPage route", () => {
       expect(screen.queryByTestId("terminal-tab")).not.toBeInTheDocument();
       expect(screen.queryByTestId("git-tab")).not.toBeInTheDocument();
       expect(screen.queryByTestId("editor-tab")).not.toBeInTheDocument();
-      expect(screen.getByText(/Loading Terminal after the conversation/)).toBeInTheDocument();
+      expect(document.querySelector('[data-deferred-tab="Terminal"]')).not.toBeNull();
 
-      // Gate opens at the agent-first delay, then tabs reveal one at a time in
-      // priority order (editor → git → terminal → browser); advance past the
-      // stagger so all visible bodies have hydrated.
-      act(() => {
-        vi.advanceTimersByTime(1200);
-      });
-      act(() => {
-        vi.advanceTimersByTime(600);
-      });
+      // The gate opens one painted frame after mount, then tabs reveal one
+      // painted frame apart in priority order (editor → git → terminal →
+      // browser): a frame callback and a task per step.
+      for (let step = 0; step < 16; step += 1) {
+        act(() => {
+          vi.runOnlyPendingTimers();
+        });
+      }
       vi.useRealTimers();
 
       expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
@@ -409,13 +412,11 @@ describe("WsSessionPage route", () => {
 
   it("forwards session todos to AgentSession when the agent tab is visible", () => {
     const todos = [{ content: "do x", status: "pending" as const, activeForm: "doing x" }];
-    vi.mocked(useWsSessionStore).mockImplementation((selector) =>
-      (selector as (s: unknown) => unknown)({
-        sessions: { "ws-feature-35": { todos, queuedPrompts: [], initRequestId: null } },
-        requestSlashCommands: vi.fn(),
-        retryWorktreeSetup: vi.fn(),
-      }),
-    );
+    mocks.wsStore.state = {
+      sessions: { "ws-feature-35": { todos, queuedPrompts: [], initRequestId: null } },
+      requestSlashCommands: vi.fn(),
+      retryWorktreeSetup: vi.fn(),
+    };
     mocks.mockAgentVisible.mockReturnValue(true);
     mocks.mockSplitEditorFocused.mockReturnValue(false);
     render(<WsSessionPage />);
@@ -424,13 +425,11 @@ describe("WsSessionPage route", () => {
 
   it("passes null todos to AgentSession when the agent tab is hidden", () => {
     const todos = [{ content: "do x", status: "pending" as const, activeForm: "doing x" }];
-    vi.mocked(useWsSessionStore).mockImplementation((selector) =>
-      (selector as (s: unknown) => unknown)({
-        sessions: { "ws-feature-35": { todos, queuedPrompts: [], initRequestId: null } },
-        requestSlashCommands: vi.fn(),
-        retryWorktreeSetup: vi.fn(),
-      }),
-    );
+    mocks.wsStore.state = {
+      sessions: { "ws-feature-35": { todos, queuedPrompts: [], initRequestId: null } },
+      requestSlashCommands: vi.fn(),
+      retryWorktreeSetup: vi.fn(),
+    };
     mocks.mockAgentVisible.mockReturnValue(false);
     render(<WsSessionPage />);
     expect(lastAgentSessionProps().todos).toBeNull();

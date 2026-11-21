@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAgentActivityDigest, type AgentActivityDigestEntry } from "@/api/generated";
+import { useSettledWorkspaceActive } from "@/components/workspace-pool/workspace-activity";
 import type { LiveAgentStatus } from "@/types/agent";
 import type { ToolResults } from "@/lib/tool-results";
 import type { AgentBlockData } from "@/types/agent-block";
@@ -23,8 +24,9 @@ export interface SpawnedSessionActivity {
  * What a spawned conversation is doing, for its card in the parent's stream:
  * its latest top-level tool call, how that call ended, and its latest reply,
  * read from the activity digest.
- * Polls only while that agent works (a mounted card only: the stream is
- * virtualized), and a status flip refetches at once so a finished agent shows
+ * Polls only while that agent works and the card's conversation is on screen
+ * (a mounted card only: the stream is virtualized; a workspace kept mounted but
+ * hidden does not poll), and a status flip refetches at once so a finished agent shows
  * its final reply. One cache entry per conversation, never fresh for long: a
  * status-keyed entry served a turn-old reply when the agent ran again.
  */
@@ -32,6 +34,7 @@ export function useSpawnedSessionActivity(
   featureId: number,
   status: LiveAgentStatus,
 ): SpawnedSessionActivity {
+  const shown = useSettledWorkspaceActive();
   const query = useQuery({
     queryKey: ["spawned-session-activity", featureId],
     queryFn: async ({ signal }) => {
@@ -39,7 +42,7 @@ export function useSpawnedSessionActivity(
       return digest.entries.find((entry) => entry.feature_id === featureId) ?? null;
     },
     staleTime: 0,
-    refetchInterval: status === "agent" ? ACTIVITY_POLL_MS : false,
+    refetchInterval: status === "agent" && shown ? ACTIVITY_POLL_MS : false,
   });
   const { refetch } = query;
   const seenStatus = useRef(status);

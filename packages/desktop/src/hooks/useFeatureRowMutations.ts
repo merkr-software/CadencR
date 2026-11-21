@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -74,12 +74,17 @@ export function useFeatureRowMutations({
     (featureId: number) => updateStatus({ id: featureId, data: { status: "active" } }),
     [updateStatus],
   );
+  // Read when the delete starts, so `deleteFeature` keeps its identity across
+  // conversation switches (the dialogs holding it stay memoized).
+  const openRef = useRef({ activeFeatureId, activeFeatures });
+  openRef.current = { activeFeatureId, activeFeatures };
   // The neighbour is settled when the delete starts: the dialog closes before
   // the request returns, and the cross-project rows' project goes with it.
   const deleteFeature = useCallback(
     (featureId: number): void => {
+      const open = openRef.current;
       const leaveFor =
-        featureId === activeFeatureId ? adjacentFeature(activeFeatures, featureId) : null;
+        featureId === open.activeFeatureId ? adjacentFeature(open.activeFeatures, featureId) : null;
       deleteMutate(
         { id: featureId },
         {
@@ -89,7 +94,7 @@ export function useFeatureRowMutations({
         },
       );
     },
-    [activeFeatureId, activeFeatures, deleteMutate, navigate, projectId],
+    [deleteMutate, navigate, projectId],
   );
   return useMemo(
     () => ({ togglePin, unarchive, deleteFeature }),

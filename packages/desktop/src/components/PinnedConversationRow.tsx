@@ -37,7 +37,8 @@ import type { NextActionKind } from "@/lib/next-actions";
 
 interface PinnedConversationRowProps {
   feature: Feature;
-  activeFeatureId: number | null;
+  /** A boolean, not the active id: a conversation switch re-renders only the two rows it flips. */
+  isActive: boolean;
   /** Ports this conversation's own processes are listening on. */
   ports?: readonly AllocatedPort[];
   shellCount?: number;
@@ -64,7 +65,7 @@ interface PinnedConversationRowProps {
  */
 export const PinnedConversationRow = memo(function PinnedConversationRow({
   feature,
-  activeFeatureId,
+  isActive,
   ports = NO_PORTS,
   shellCount = 0,
   hasLiveWorktree = false,
@@ -79,13 +80,8 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
   const downloadCount = useBrowserStore(
     (store) => store.activeDownloadCountsByScope[feature.id] ?? 0,
   );
-  const state = useProjectFeatureRowState(
-    feature,
-    feature.project_id,
-    activeFeatureId,
-    hasLiveWorktree,
-  );
-  const { isActive, prefetchFeature } = state;
+  const state = useProjectFeatureRowState(feature, feature.project_id, isActive, hasLiveWorktree);
+  const { prefetchFeature } = state;
   const handleOpenPort = useOpenFeaturePort(feature, onNavigate);
   const handleOpenPr = useOpenFeaturePr(feature, onNavigate);
   const actions = useSidebarRowActions();
@@ -125,6 +121,8 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
         }}
         onMouseEnter={prefetchFeature}
         onFocus={prefetchFeature}
+        onMouseLeave={prefetchFeature.cancel}
+        onBlur={prefetchFeature.cancel}
         onKeyDown={(e) => openFeatureRowOnKey(e, handleOpenConversation)}
       >
         {/* Pinned to the title line's height so it stays beside the title when the meta line shows. */}

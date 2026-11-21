@@ -7,8 +7,8 @@ import { useLiveTotalWorkingCount } from "@/stores/session-status-selectors";
 import { cn } from "@/lib/utils";
 
 export const UnifiedAgentsSidebarLink = memo(function UnifiedAgentsSidebarLink(): ReactElement {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const active = pathname === "/agents";
+  // A boolean, so navigating between other pages doesn't re-render the link.
+  const active = useRouterState({ select: (state) => state.location.pathname === "/agents" });
   // The only number worth showing here is how many agents are actually
   // working right now, read live from the single source of truth
   // (`session-status-store`). The old REST-fetched "total agents" badge was

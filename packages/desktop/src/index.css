@@ -333,8 +333,10 @@ html[data-animations="off"] [data-settings-flash] {
  * size table never sees: index scrolls land short of the bottom, and a row
  * mounting or unmounting at the edge of the rendered range changes the
  * transcript's height, which moves the range back — a scroll/mount loop that
- * ran every frame. */
-[data-testid="agent-stream-scroller"] [data-testid="virtuoso-item-list"] > [data-index] {
+ * ran every frame. The tail preview's rows (`TranscriptTailPreview`) follow the
+ * same rule, so a row takes the same height in both. */
+[data-testid="agent-stream-scroller"] [data-testid="virtuoso-item-list"] > [data-index],
+[data-testid="agent-stream-tail-preview"] [data-tail-row] {
   display: flow-root;
 }
 

@@ -12,6 +12,16 @@ function useHistoryLoadFailure(sessionId: string | undefined) {
   );
 }
 
+/**
+ * Whether the conversation's saved history has not arrived yet. An entry that
+ * does not exist yet counts: the workspace creates it in its first effect.
+ */
+export function useIsHistoryLoading(sessionId: string | undefined): boolean {
+  return useWsSessionStore(
+    (state) => sessionId !== undefined && state.sessions[sessionId]?.persistedLoaded !== true,
+  );
+}
+
 function RetryButton({ sessionId, retrying }: { sessionId: string; retrying: boolean }) {
   return (
     <Button

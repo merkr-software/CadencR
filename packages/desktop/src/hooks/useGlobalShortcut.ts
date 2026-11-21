@@ -1,5 +1,6 @@
 import { matchesKeyboardEvent, parseHotkey } from "@tanstack/hotkeys";
 import { useEffect, useRef } from "react";
+import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
 import { expandCharacterHotkey } from "@/lib/shortcuts/character-hotkeys";
 import { shellOwnsKeyEvent } from "@/lib/shortcuts/shell-keys";
 
@@ -50,6 +51,8 @@ export function useGlobalShortcut(
 
   const enabledRef = useRef(true);
   enabledRef.current = options?.enabled ?? true;
+  // A workspace kept mounted but hidden (see `WorkspacePool`) handles no key.
+  const activity = useWorkspaceActivity();
 
   const shortcutKey = Array.isArray(shortcut) ? shortcut.join("|") : (shortcut as string);
 
@@ -62,7 +65,7 @@ export function useGlobalShortcut(
       })),
     );
     const handler = (e: KeyboardEvent) => {
-      if (!enabledRef.current || shellOwnsKeyEvent(e)) return;
+      if (!enabledRef.current || !activity.isActive() || shellOwnsKeyEvent(e)) return;
       const matches = variants.some((variant) => {
         // Keep navigation chords distinct from their Shift-modified variants.
         if (e.shiftKey !== variant.parsed.shift) return false;
@@ -77,5 +80,5 @@ export function useGlobalShortcut(
     return () => window.removeEventListener("keydown", handler, true);
     // shortcutKey is a stable join of the combo list, so the effect re-runs
     // only when the registered combos actually change.
-  }, [shortcutKey]);
+  }, [activity, shortcutKey]);
 }

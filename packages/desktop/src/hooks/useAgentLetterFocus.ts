@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
 import { getActiveFocusZone } from "@/lib/focus-zones";
 import {
   getDeepestActiveElement,
@@ -42,15 +43,17 @@ export function useAgentLetterFocus({ enabled, onFocus }: UseAgentLetterFocusOpt
     onFocusRef.current = onFocus;
   }, [onFocus]);
 
+  // A workspace kept mounted but hidden must not pull focus into itself.
+  const activity = useWorkspaceActivity();
   useEffect(() => {
     if (!enabled) return undefined;
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (!shouldFocusAgentFromKeydown(event)) return;
+      if (!activity.isActive() || !shouldFocusAgentFromKeydown(event)) return;
       onFocusRef.current();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [enabled]);
+  }, [activity, enabled]);
 }
 
 function isOverlayTarget(target: EventTarget | null): boolean {

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
 import { desktopBridge, type BrowserShortcut } from "@/lib/desktop-bridge";
 
 /**
@@ -9,9 +10,20 @@ import { desktopBridge, type BrowserShortcut } from "@/lib/desktop-bridge";
  *
  * The handler is read from a ref so the IPC listener is bound exactly once and
  * never re-bound, while still calling the latest closure over fresh render state.
+ *
+ * The main process sends each relay to every listener: one in a conversation
+ * workspace kept mounted but hidden (`WorkspacePool`) ignores it, read when the
+ * relay arrives so a switch re-renders nothing.
  */
 export function useBrowserShortcutRelay(handler: (shortcut: BrowserShortcut) => void): void {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
-  useEffect(() => desktopBridge.onBrowserShortcut((shortcut) => handlerRef.current(shortcut)), []);
+  const activity = useWorkspaceActivity();
+  useEffect(
+    () =>
+      desktopBridge.onBrowserShortcut((shortcut) => {
+        if (activity.isActive()) handlerRef.current(shortcut);
+      }),
+    [activity],
+  );
 }

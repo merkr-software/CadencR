@@ -4,14 +4,49 @@ import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
+/** Whether the enclosing context menu is open (Radix keeps no controlled `open` for it). */
+const ContextMenuOpenContext = React.createContext(false);
+
+function ContextMenu({
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
+  const [open, setOpen] = React.useState(false);
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+  return (
+    <ContextMenuOpenContext.Provider value={open}>
+      <ContextMenuPrimitive.Root
+        data-slot="context-menu"
+        onOpenChange={handleOpenChange}
+        {...props}
+      />
+    </ContextMenuOpenContext.Provider>
+  );
 }
 
+/**
+ * The area a context menu opens from. While the menu is open it is marked as a
+ * popup trigger (`aria-haspopup`, as popover and menu triggers always are), so
+ * code that looks for the control an open layer came from finds it
+ * (`WorkspacePool`); closed, the area keeps its own semantics.
+ */
 function ContextMenuTrigger({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
-  return <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" {...props} />;
+  const open = React.useContext(ContextMenuOpenContext);
+  return (
+    <ContextMenuPrimitive.Trigger
+      data-slot="context-menu-trigger"
+      aria-haspopup={open ? "menu" : undefined}
+      {...props}
+    />
+  );
 }
 
 function ContextMenuGroup({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Group>) {

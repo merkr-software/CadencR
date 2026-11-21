@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { memo, useEffect, useRef, useState, type ReactElement } from "react";
+import { Link } from "@tanstack/react-router";
 import { Settings, PanelLeftClose, Search, Maximize, Minimize, Share } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,12 +16,14 @@ import { SidebarRowActionsProvider } from "@/components/SidebarRowActionsProvide
 import { ShortcutHintsProvider } from "@/hooks/useNavShortcutHints";
 import { SidebarConfigProvider } from "@/components/SidebarConfigProvider";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
+import { SidebarRenameDialog, useSidebarRowShortcuts } from "@/components/SidebarShortcuts";
 import {
-  SidebarAttentionShortcuts,
-  SidebarRenameDialog,
-  useSidebarRowShortcuts,
-} from "@/components/SidebarShortcuts";
-import { PendingGateHost } from "@/components/sidebar-gate-popover/PendingGateHost";
+  ActiveAttentionShortcuts,
+  ActivePendingGateHost,
+  ActiveSidebarSections,
+  SidebarActiveFeatureProvider,
+  SidebarKeyboardNavigation,
+} from "@/components/SidebarActiveFeature";
 import { handleSidebarTypeToFilter, SidebarFilterInput } from "@/components/SidebarFilterInput";
 import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
@@ -41,9 +43,7 @@ import { SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
 import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useRouteFeatureIds } from "@/hooks/useRouteFeatureIds";
 import { useFullscreen } from "@/hooks/useFullscreen";
-import { useSidebarKeyboardNavigation } from "@/hooks/useSidebarKeyboardNavigation";
 import { useBrowserActivityBridge } from "@/hooks/useFeatureActivityCounts";
 import { useToastAnchor } from "@/hooks/useToastAnchor";
 import {
@@ -51,22 +51,21 @@ import {
   useSidebarHighlightAttribute,
 } from "@/hooks/useSidebarDisplayAttributes";
 import { SidebarSampleBanner } from "@/components/SidebarSampleBanner";
-import { SidebarSections } from "@/components/SidebarSections";
 import { SidebarSampleProvider } from "@/components/SidebarSampleProvider";
 import { SidebarDisplayOptionsHost } from "@/components/SidebarDisplayOptionsPopover";
 import { useSidebarShowsSamples } from "@/stores/sidebar-preview-store";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 
-export function Sidebar({ onSearch }: { onSearch: () => void }) {
+/**
+ * Memoized: the app shell re-renders on every navigation (it holds the routed
+ * content), and the sidebar's props stay the same. What changes with the route
+ * is read below, as close as possible to where it shows.
+ */
+export const Sidebar = memo(function Sidebar({ onSearch }: { onSearch: () => void }) {
   const { collapsed, setCollapsed } = useSidebarCollapsed();
-  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const sidebarRef = useRef<HTMLElement>(null);
-  const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
-  const { activeProjectId, routeFeatureId, effectiveFeatureId } =
-    useSidebarActiveIds(selectedFeatureId);
-  useSidebarKeyboardNavigation(sidebarRef, navigate, effectiveFeatureId);
   useSidebarRowShortcuts();
   useBrowserActivityBridge();
   const displayAttributes = useSidebarDisplayAttributes();
@@ -76,89 +75,68 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
 
   return (
     <SidebarConfigProvider>
-      <ShortcutHintsProvider enabled={!collapsed}>
-        <aside
-          data-app-sidebar
-          {...displayAttributes}
-          ref={sidebarRef}
-          onKeyDown={typeToFilter ? handleSidebarTypeToFilter : undefined}
-          aria-hidden={!isMobile && collapsed ? true : undefined}
-          inert={!isMobile && collapsed ? true : undefined}
-          // Safe-area insets pad the content here (not the mobile drawer wrapper) so
-          // `bg-sidebar` reaches the screen edges while the header/footer clear the
-          // notch and home indicator. The `env()` values are 0 on desktop, so this
-          // is a no-op outside fullscreen/standalone mobile.
-          className={cn(
-            "glass-surface flex h-full flex-col border-r border-border/60 bg-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]",
-            !isMobile && "transition-[opacity,transform] duration-[220ms] ease-[var(--ease-fluid)]",
-            !isMobile && collapsed && "pointer-events-none -translate-x-2 opacity-0",
-          )}
-        >
-          <SidebarHeader onCollapse={() => setCollapsed(true)} />
-          {/* Flex column so the scroller gets the *remaining* height (not 100%, which
+      <SidebarActiveFeatureProvider>
+        <ShortcutHintsProvider enabled={!collapsed}>
+          <SidebarKeyboardNavigation sidebarRef={sidebarRef} />
+          <aside
+            data-app-sidebar
+            {...displayAttributes}
+            ref={sidebarRef}
+            onKeyDown={typeToFilter ? handleSidebarTypeToFilter : undefined}
+            aria-hidden={!isMobile && collapsed ? true : undefined}
+            inert={!isMobile && collapsed ? true : undefined}
+            // Safe-area insets pad the content here (not the mobile drawer wrapper) so
+            // `bg-sidebar` reaches the screen edges while the header/footer clear the
+            // notch and home indicator. The `env()` values are 0 on desktop, so this
+            // is a no-op outside fullscreen/standalone mobile.
+            className={cn(
+              "glass-surface flex h-full flex-col border-r border-border/60 bg-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]",
+              !isMobile &&
+                "transition-[opacity,transform] duration-[220ms] ease-[var(--ease-fluid)]",
+              !isMobile && collapsed && "pointer-events-none -translate-x-2 opacity-0",
+            )}
+          >
+            <SidebarHeader onCollapse={() => setCollapsed(true)} />
+            {/* Flex column so the scroller gets the *remaining* height (not 100%, which
           overflows past the search bar and clips the scroll area's bottom). */}
-          <SidebarDisplayOptionsHost collapsed={!isMobile && collapsed}>
-            <SidebarSampleProvider enabled={showsSamples}>
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
-                <div className="mb-2 shrink-0 px-1">
-                  <SidebarSearchButton onSearch={onSearch} />
-                </div>
-                {/* The unified agents grid is desktop-only — hide its entry on phones.
+            <SidebarDisplayOptionsHost collapsed={!isMobile && collapsed}>
+              <SidebarSampleProvider enabled={showsSamples}>
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
+                  <div className="mb-2 shrink-0 px-1">
+                    <SidebarSearchButton onSearch={onSearch} />
+                  </div>
+                  {/* The unified agents grid is desktop-only — hide its entry on phones.
             Schedules is a plain list, so it works everywhere. */}
-                <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
-                  <MarketplaceSidebarLink />
-                  {!isMobile && <UnifiedAgentsSidebarLink />}
-                  <SchedulesSidebarLink />
-                </div>
-                <SidebarSampleBanner />
-                {!showsSamples && <SidebarFilterInput />}
-                <SidebarAttentionShortcuts
-                  activeFeatureId={effectiveFeatureId}
-                  openFeatureId={routeFeatureId}
-                  onSelectFeature={setSelectedFeatureId}
-                >
-                  <SidebarRowActionsProvider>
-                    {/* One scroller for the blocks and the projects, so every block stays
+                  <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
+                    <MarketplaceSidebarLink />
+                    {!isMobile && <UnifiedAgentsSidebarLink />}
+                    <SchedulesSidebarLink />
+                  </div>
+                  <SidebarSampleBanner />
+                  {!showsSamples && <SidebarFilterInput />}
+                  <ActiveAttentionShortcuts>
+                    <SidebarRowActionsProvider>
+                      {/* One scroller for the blocks and the projects, so every block stays
                   reachable however many are open, on a phone as on desktop. */}
-                    <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
-                      <div className="flex min-w-0 flex-col pb-2">
-                        <SidebarSections
-                          showsSamples={showsSamples}
-                          activeProjectId={activeProjectId}
-                          activeFeatureId={effectiveFeatureId}
-                          onSelectFeature={setSelectedFeatureId}
-                        />
-                      </div>
-                    </ScrollArea>
-                  </SidebarRowActionsProvider>
-                </SidebarAttentionShortcuts>
-              </div>
-            </SidebarSampleProvider>
-          </SidebarDisplayOptionsHost>
-          <SidebarFooter anchorsToasts={!isMobile && !collapsed} />
-          <SidebarRenameDialog />
-          <PendingGateHost
-            activeFeatureId={effectiveFeatureId}
-            onSelectFeature={setSelectedFeatureId}
-          />
-        </aside>
-      </ShortcutHintsProvider>
+                      <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-col pb-2">
+                          <ActiveSidebarSections showsSamples={showsSamples} />
+                        </div>
+                      </ScrollArea>
+                    </SidebarRowActionsProvider>
+                  </ActiveAttentionShortcuts>
+                </div>
+              </SidebarSampleProvider>
+            </SidebarDisplayOptionsHost>
+            <SidebarFooter anchorsToasts={!isMobile && !collapsed} />
+            <SidebarRenameDialog />
+            <ActivePendingGateHost />
+          </aside>
+        </ShortcutHintsProvider>
+      </SidebarActiveFeatureProvider>
     </SidebarConfigProvider>
   );
-}
-
-function useSidebarActiveIds(selectedFeatureId: number | null): {
-  activeProjectId: number | null;
-  routeFeatureId: number | null;
-  effectiveFeatureId: number | null;
-} {
-  const { projectId, featureId } = useRouteFeatureIds();
-  return {
-    activeProjectId: projectId,
-    routeFeatureId: featureId,
-    effectiveFeatureId: featureId ?? selectedFeatureId,
-  };
-}
+});
 
 function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactElement {
   const terminalFocused = useIsTerminalFocusActive();
@@ -188,12 +166,13 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
   );
 }
 
+/** A boolean, so focus moving between other zones (every conversation switch) renders nothing. */
 function useIsTerminalFocusActive(): boolean {
-  const [activeFocusZone, setActiveFocusZone] = useState<string | null>(() => getActiveFocusZone());
+  const [terminalFocused, setTerminalFocused] = useState(() => getActiveFocusZone() === "terminal");
 
   useEffect(() => {
     let timeoutId = 0;
-    const refresh = (): void => setActiveFocusZone(getActiveFocusZone());
+    const refresh = (): void => setTerminalFocused(getActiveFocusZone() === "terminal");
     const refreshAfterFocusSettles = (): void => {
       window.clearTimeout(timeoutId);
       timeoutId = window.setTimeout(refresh, 0);
@@ -208,7 +187,7 @@ function useIsTerminalFocusActive(): boolean {
     };
   }, []);
 
-  return activeFocusZone === "terminal";
+  return terminalFocused;
 }
 
 function InactiveShortcutHint(): ReactElement {

@@ -95,7 +95,7 @@ export function SidebarConversationBlock({
             <PinnedConversationRow
               key={feature.id}
               feature={feature}
-              activeFeatureId={activeFeatureId}
+              isActive={feature.id === activeFeatureId}
               {...crossProjectRowData(activity, portsByFeatureId, feature.id)}
               onNavigate={handleNavigate}
               nextAction={nextActions?.get(feature.id)}
