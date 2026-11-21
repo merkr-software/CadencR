@@ -134,6 +134,24 @@ describe("AgentQuestionDrawer", () => {
     expect(otherBtn).toBeTruthy();
   });
 
+  it("submits only an advertised option for a closed-choice question", async () => {
+    const user = userEvent.setup();
+    const questions = parseAskUserQuestions({
+      questions: [
+        {
+          question: "Choose a color",
+          options: [{ id: "blue-id", label: "Blue" }],
+          allowCustomAnswer: false,
+        },
+      ],
+    });
+    render(<AgentQuestionDrawer questions={questions} onSubmit={onSubmit} open />);
+    expect(screen.queryByRole("button", { name: /Other/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Blue/ }));
+    await user.click(screen.getByRole("button", { name: /Submit/ }));
+    expect(onSubmit).toHaveBeenCalledWith([["blue-id"]]);
+  });
+
   it("shows text input after clicking Other", async () => {
     const user = userEvent.setup();
     render(<AgentQuestionDrawer questions={[questionWithOptions]} onSubmit={onSubmit} open />);

@@ -9,8 +9,8 @@ const { parse } = createRequire(import.meta.url)("yaml");
 const workflow = (name) =>
   parse(readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), "utf8"));
 
-test("compiled Cursor publication binds native payloads and build provenance", () => {
-  const result = spawnSync("python3", ["test_cursor_release.py"], {
+test("compiled provider publication binds native payloads and build provenance", () => {
+  const result = spawnSync("python3", ["test_native_provider_release.py"], {
     cwd: fileURLToPath(new URL(".", import.meta.url)),
     encoding: "utf8",
     timeout: 30_000,
@@ -21,6 +21,16 @@ test("compiled Cursor publication binds native payloads and build provenance", (
 test("native release jobs have four native targets and no publication credential", () => {
   const build = workflow("cursor-provider-build.yml");
   assert.deepEqual(build.permissions, { contents: "read" });
+  assert.deepEqual(build.on.workflow_dispatch.inputs.provider.options, ["cursor", "antigravity"]);
+  const blobOnly = workflow("official-plugin-release.yml");
+  for (const id of ["cursor", "antigravity"]) {
+    assert.ok(build.on.push.tags.includes(`plugins/provider-${id}/v*`));
+    assert.ok(
+      blobOnly.jobs.prepare.if.includes(
+        `!startsWith(github.ref, 'refs/tags/plugins/provider-${id}/')`,
+      ),
+    );
+  }
   assert.deepEqual(build.jobs.native.strategy.matrix.include.map((row) => row.target).sort(), [
     "darwin-aarch64",
     "darwin-x86_64",
@@ -37,12 +47,19 @@ test("native release jobs have four native targets and no publication credential
 
 test("compiled author publication preserves exact confirmation and credential isolation", () => {
   const author = workflow("cursor-provider-author.yml");
+  assert.deepEqual(author.on.workflow_dispatch.inputs.provider.options, ["cursor", "antigravity"]);
   assert.deepEqual(author.permissions, { contents: "read", actions: "read" });
   assert.match(author.jobs.inspect.if, /refs\/heads\/main/);
   assert.equal(author.jobs.publish.environment, "official-plugin-publication");
   assert.equal(author.jobs.publish.if, "needs.inspect.outputs.confirmed == 'true'");
   for (const job of Object.values(author.jobs)) {
-    assert.ok(job.steps.some((step) => step.run?.includes("scripts/cursor-release-stage.py")));
+    const stage = job.steps.find((step) =>
+      step.run?.includes("scripts/native-provider-release-stage.py"),
+    );
+    assert.match(stage.run, /--provider "\$PROVIDER"/);
+    assert.match(stage.run, /--cli-directory "\$RUNNER_TEMP\/provider-cli"/);
+    assert.equal(stage.env.PROVIDER, "${{ inputs.provider }}");
+    assert.ok(job.steps.every((step) => !step.run?.includes("fetch-released-cli.sh")));
     assert.ok(job.steps.every((step) => !step.run?.includes("${{ inputs.")));
     const checkouts = job.steps.filter((step) => step.uses?.startsWith("actions/checkout@"));
     assert.equal(checkouts.length, 1);

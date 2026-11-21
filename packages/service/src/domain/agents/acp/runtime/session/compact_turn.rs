@@ -11,6 +11,7 @@ use crate::domain::agents::adapter::{
     RuntimeTurnStartedSource,
 };
 
+use super::super::detached_replies::DetachedReply;
 use super::super::events_stream_blocks::EventIndexer;
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::provider_hooks::AcpProviderHooks;
@@ -41,15 +42,16 @@ pub(super) struct CompactTurn {
 impl CompactTurn {
     pub(super) async fn run(self) -> Result<(), RuntimeError> {
         let _running_guard = CompactRunningGuard(Arc::clone(&self.running));
-        let _turn_guard = self.prompt_turn_lock.lock().await;
+        let turn_guard = self.prompt_turn_lock.lock().await;
         if self.closing.load(Ordering::SeqCst) {
             return Ok(());
         }
 
-        self.indexer
-            .lock()
-            .expect("EventIndexer poisoned")
-            .take_compact_boundary_emitted();
+        {
+            let mut indexer = self.indexer.lock().expect("EventIndexer poisoned");
+            indexer.detached_reply = DetachedReply::Inactive;
+            indexer.take_compact_boundary_emitted();
+        }
         let session_id = self
             .session_id_lock
             .read()
@@ -78,7 +80,7 @@ impl CompactTurn {
         if agent_was_terminated(&response) {
             return Ok(());
         }
-        await_event_loop_barrier(&self.client).await?;
+        let resume_updates = await_event_loop_barrier(&self.client).await?;
         if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
             finalize_turn(
                 &self.local_tx,
@@ -104,6 +106,8 @@ impl CompactTurn {
             )
             .await;
         }
+        drop(turn_guard);
+        drop(resume_updates);
         Ok(())
     }
 }

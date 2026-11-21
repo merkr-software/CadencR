@@ -283,7 +283,7 @@ After reviewing a successful build:
 1. Land the reviewed source on `main`, retaining the exact build commit.
 2. Create `plugins/provider-cursor/v0.1.0` at that exact commit.
 3. Dispatch [the author workflow](../../../.github/workflows/cursor-provider-author.yml)
-   from `main` with `source_commit`, `build_run` and 64 zeroes for
+   from `main` with `provider: cursor`, `source_commit`, `build_run` and 64 zeroes for
    `request_sha256`. Inspect its public candidate and request digest.
 4. Dispatch again with the inspected digest. The protected
    `official-plugin-publication` job independently checks repository, native

@@ -156,6 +156,7 @@ pub async fn spawn_acp_runtime_session(
             terminals: Arc::clone(&session.terminals),
             hooks: hooks.clone(),
             indexer: Arc::clone(&session.indexer),
+            prompt_turn_lock: Arc::clone(&session.prompt_turn_lock),
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
             browser_trust,

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { useAgentQuestionForm } from "./useAgentQuestionForm";
+import type { AgentQuestion } from "@/types/agent-question";
 import {
   clearQuestionDraft,
   reconcileQuestionDrafts,
@@ -40,7 +41,7 @@ it.each(["selection", "other", "empty other", "multiselect"])(
     if (kind === "selection" || kind === "multiselect")
       act(() => first.result.current.handleOptionToggle("a"));
     if (kind === "multiselect") act(() => first.result.current.handleOptionToggle("b"));
-    if (kind !== "selection") act(() => first.result.current.handleOtherToggle());
+    if (kind !== "selection") act(() => first.result.current.handleOtherToggle?.());
     if (kind === "other" || kind === "multiselect")
       act(() => first.result.current.setFreeText("unfinished other"));
     first.unmount();
@@ -94,6 +95,42 @@ it("retains edits when questions are rehydrated and when a submit is not confirm
   form.unmount();
   expect(mount().result.current.freeText).toBe("Q3 answer");
 });
+
+it.each(["replaced", "restricted to one"])(
+  "requires a new choice when saved options are %s",
+  (change) => {
+    const available = [
+      { id: "old", label: "Old" },
+      { id: "new", label: "New" },
+    ];
+    const first: AgentQuestion = {
+      question: "Choose a target",
+      allowCustomAnswer: false,
+      multiSelect: true,
+      options: available,
+    };
+    const last: AgentQuestion = { question: "Comment" };
+    const form = renderHook(
+      ({ questions: current }) =>
+        useAgentQuestionForm({ questions: current, onSubmit, draftIdentity: identity }),
+      { initialProps: { questions: [first, last] } },
+    );
+    act(() => form.result.current.handleOptionToggle("old"));
+    if (change === "restricted to one") act(() => form.result.current.handleOptionToggle("new"));
+    act(() => form.result.current.handleNext());
+    act(() => form.result.current.setFreeText("keep this comment"));
+    const options = change === "replaced" ? [available[1]] : available;
+    form.rerender({ questions: [{ ...first, multiSelect: false, options }, last] });
+    act(() => form.result.current.handleNext());
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(form.result.current.currentIndex).toBe(0);
+    expect(form.result.current.hasAnswer).toBe(false);
+    act(() => form.result.current.handleChoose("new"));
+    expect(form.result.current.freeText).toBe("keep this comment");
+    act(() => form.result.current.handleNext());
+    expect(onSubmit).toHaveBeenCalledWith([["new"], ["keep this comment"]]);
+  },
+);
 
 it.each(["closed", "replaced", "permission"])("cleans %s gates while offscreen", (kind) => {
   const form = mount();

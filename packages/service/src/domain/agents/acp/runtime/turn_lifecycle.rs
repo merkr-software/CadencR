@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, Mutex as AsyncMutex, Notify, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock};
 
 use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeUsage};
 
+use super::detached_replies::DetachedReply;
 use super::events_stream_blocks::{message_start_for, EventIndexer};
 use super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::provider_hooks::AcpProviderHooks;
@@ -97,15 +98,20 @@ impl PromptCancel {
 }
 
 /// Wait until the event loop has handled every event received before the
-/// prompt response. No deadline: the barrier is never skipped (lossless
-/// queue), and a loop that stops drops it, which fails this wait.
-pub async fn await_event_loop_barrier(client: &AcpClient) -> Result<(), RuntimeError> {
+/// fence, then pause event mapping until the caller drops the returned
+/// sender. Keep it through result publication and release the prompt lock
+/// before dropping it, so post-result activity cannot reopen the old blocks.
+pub async fn await_event_loop_barrier(
+    client: &AcpClient,
+) -> Result<oneshot::Sender<()>, RuntimeError> {
+    let (resume, paused) = oneshot::channel();
     let released = client
-        .enqueue_event_barrier()
+        .enqueue_event_barrier(Some(paused))
         .map_err(|error| RuntimeError::new(format!("could not fence ACP events: {error}")))?;
     released
         .await
-        .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))
+        .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))?;
+    Ok(resume)
 }
 
 #[bon::builder]
@@ -122,7 +128,7 @@ pub async fn drive_initial_prompt(
     prompt_turn_lock: &PromptTurnLock,
     prompt_cancel: &PromptCancel,
 ) -> Result<(), RuntimeError> {
-    let _guard = prompt_turn_lock.lock().await;
+    let turn_guard = prompt_turn_lock.lock().await;
     let session_id = session_id_lock
         .read()
         .await
@@ -144,7 +150,7 @@ pub async fn drive_initial_prompt(
     if agent_was_terminated(&response) {
         return Ok(());
     }
-    await_event_loop_barrier(client).await?;
+    let resume_updates = await_event_loop_barrier(client).await?;
     if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
         finalize_turn(
             tx,
@@ -157,6 +163,8 @@ pub async fn drive_initial_prompt(
         )
         .await;
     }
+    drop(turn_guard);
+    drop(resume_updates);
     Ok(())
 }
 
@@ -169,10 +177,11 @@ pub async fn start_turn_on_model(
     session_id: &str,
     model: Option<String>,
 ) {
-    indexer
-        .lock()
-        .expect("EventIndexer poisoned")
-        .latch_turn_model(model.clone());
+    {
+        let mut guard = indexer.lock().expect("EventIndexer poisoned");
+        guard.detached_reply = DetachedReply::Inactive;
+        guard.latch_turn_model(model.clone());
+    }
     if model.is_some() {
         tx.send(Ok(message_start_for(Some(session_id), model.as_deref())))
             .await
@@ -282,6 +291,7 @@ pub async fn finalize_turn(
 ) {
     let drained = {
         let mut guard = indexer.lock().expect("EventIndexer poisoned");
+        guard.detached_reply = DetachedReply::after_prompt(stop_reason);
         guard.drain_open_blocks(session_id.as_deref())
     };
     for event in drained {
@@ -686,7 +696,7 @@ mod tests {
         .expect_err("no loop to drain events");
         assert!(error.to_string().contains("could not fence"), "{error}");
         let receiver = client.subscribe_reliable();
-        let released = client.enqueue_event_barrier().expect("queued");
+        let released = client.enqueue_event_barrier(None).expect("queued");
         drop(receiver);
         tokio::time::timeout(Duration::from_secs(1), released)
             .await

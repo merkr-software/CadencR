@@ -41,9 +41,8 @@ impl StreamReaderTask {
         interrupted_generation: Option<u64>,
     ) -> Option<WsEnvelope> {
         if runtime_event.is_result() {
-            let failed = runtime_event.result_error().is_some();
             return self
-                .result_envelope(state, interrupted_generation, failed)
+                .result_envelope(state, interrupted_generation, runtime_event)
                 .await;
         }
         // Phase 3 migration seam: v1 index-based events are assigned stable
@@ -91,7 +90,7 @@ impl StreamReaderTask {
         &self,
         state: &mut StreamReaderState,
         interrupted_generation: Option<u64>,
-        failed: bool,
+        event: &RuntimeEvent,
     ) -> Option<WsEnvelope> {
         state.canonical_projection.finish_turn();
         state.turn_state.mark_result();
@@ -115,27 +114,15 @@ impl StreamReaderTask {
             return None;
         }
         if let Some(generation) = interrupted_generation {
-            return self.interrupted_result_envelope(state, generation).await;
+            return self
+                .interrupted_result_envelope(state, generation, event.is_detached_reply_end())
+                .await;
         }
 
         self.record_completed().await;
-        self.record_turn_outcome(
-            state,
-            if failed {
-                TurnOutcome::Failed
-            } else {
-                TurnOutcome::Completed
-            },
-        )
-        .await;
-        if let Err(error) = crate::domain::sessions::user_messages::resolve_pending_delivery_states(
-            &self.write_pool,
-            self.db_session_id,
-            "delivery_unknown",
-        )
-        .await
-        {
-            error!(self.db_session_id, error = %error, "failed to resolve pending prompt receipts at turn end");
+        let failed = event.result_error().is_some();
+        if !event.is_detached_reply_end() {
+            self.settle_prompt_result(state, failed).await;
         }
         if let Some(gate) = self.gate_left_pending().await {
             self.show_gate_left_pending(gate);
@@ -161,10 +148,32 @@ impl StreamReaderTask {
         )
     }
 
+    async fn settle_prompt_result(&self, state: &StreamReaderState, failed: bool) {
+        self.record_turn_outcome(
+            state,
+            if failed {
+                TurnOutcome::Failed
+            } else {
+                TurnOutcome::Completed
+            },
+        )
+        .await;
+        if let Err(error) = crate::domain::sessions::user_messages::resolve_pending_delivery_states(
+            &self.write_pool,
+            self.db_session_id,
+            "delivery_unknown",
+        )
+        .await
+        {
+            error!(self.db_session_id, error = %error, "failed to resolve pending prompt receipts at turn end");
+        }
+    }
+
     async fn interrupted_result_envelope(
         &self,
         state: &mut StreamReaderState,
         interrupted_generation: u64,
+        detached_reply: bool,
     ) -> Option<WsEnvelope> {
         if !self
             .app_state
@@ -172,7 +181,9 @@ impl StreamReaderTask {
             .is_current_generation(self.db_session_id, interrupted_generation)
             .await
         {
-            self.settle_followups(true, true).await;
+            if !detached_reply {
+                self.settle_followups(true, true).await;
+            }
             info!(
                 self.db_session_id,
                 interrupted_generation,
@@ -181,8 +192,10 @@ impl StreamReaderTask {
             return None;
         }
         self.record_completed().await;
-        self.record_turn_outcome(state, TurnOutcome::Interrupted)
-            .await;
+        if !detached_reply {
+            self.record_turn_outcome(state, TurnOutcome::Interrupted)
+                .await;
+        }
         // Both ways a stopped turn ends (its runtime's interrupted result, or
         // the runtime closing mid-interrupt) pass here exactly once.
         WsSessionPersistence::persist_turn_interrupted_static(&self.write_pool, self.db_session_id)
@@ -338,7 +351,7 @@ impl StreamReaderTask {
             interrupted_generation, "agent turn stopped intentionally"
         );
         if let Some(end_env) = self
-            .interrupted_result_envelope(state, interrupted_generation)
+            .interrupted_result_envelope(state, interrupted_generation, false)
             .await
         {
             self.publish(Message::Text(String::from(end_env).into()))

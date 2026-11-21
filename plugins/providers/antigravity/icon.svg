@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <title>Antigravity connector icon</title>
+  <rect width="128" height="128" rx="26" fill="#171833"/>
+  <path d="M64 20v88M20 64h88" stroke="#30345a" stroke-width="1"/>
+  <ellipse cx="64" cy="64" rx="48" ry="20" transform="rotate(-39 64 64)" fill="none" stroke="#8b9dff" stroke-width="4"/>
+  <circle cx="64" cy="64" r="17" fill="#f6ce99"/>
+  <path d="M64 48a17 17 0 0 1 0 32 22 22 0 0 0 0-32Z" fill="#f49985"/>
+  <circle cx="99" cy="34" r="5" fill="#e5eaff"/>
+  <circle cx="29" cy="94" r="4" fill="#e5eaff"/>
+</svg>

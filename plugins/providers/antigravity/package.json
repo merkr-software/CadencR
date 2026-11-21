@@ -1,0 +1,20 @@
+{
+  "name": "@cadencr/antigravity-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "External CadencR provider connector for the Google Antigravity CLI",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build:plugin": "node scripts/build.mjs",
+    "format:plugin": "node ../../../scripts/cargo-env.mjs cargo fmt -p cadencr-plugin-provider-antigravity",
+    "format:plugin:check": "node ../../../scripts/cargo-env.mjs cargo fmt -p cadencr-plugin-provider-antigravity -- --check",
+    "lint:plugin": "node ../../../scripts/cargo-env.mjs cargo clippy -p cadencr-plugin-provider-antigravity --all-targets -- -D warnings",
+    "test:plugin": "node ../../../scripts/cargo-env.mjs cargo test -p cadencr-plugin-provider-antigravity",
+    "package:plugin": "node scripts/package.mjs"
+  },
+  "engines": {
+    "node": ">=22.23.5 <23.0.0"
+  },
+  "packageManager": "pnpm@11.1.3"
+}

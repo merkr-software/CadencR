@@ -864,6 +864,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cadencr-plugin-provider-antigravity"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "bon",
+ "cadencr-provider-sdk",
+ "cli-discovery",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "cadencr-plugin-provider-cursor"
 version = "0.1.0"
 dependencies = [

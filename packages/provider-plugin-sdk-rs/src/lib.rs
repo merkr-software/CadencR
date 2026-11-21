@@ -1,6 +1,7 @@
 //! SDK and CLI harness for code-backed Cadencr provider packages.
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -24,17 +25,39 @@ pub const MODEL_DISCOVERY_FORMAT: &str = "acp-config-options-v1";
 pub const ACP_V1_PROTOCOL: &str = "acp-v1";
 
 #[derive(Debug)]
-pub struct ProviderError(String);
+pub struct ProviderError {
+    message: String,
+    discovery_code: Option<&'static str>,
+}
 
 impl ProviderError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self {
+            message: message.into(),
+            discovery_code: None,
+        }
+    }
+
+    /// The native agent executable could not be located.
+    pub fn cli_not_found(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            discovery_code: Some("CLI_NOT_FOUND"),
+        }
+    }
+
+    /// The native agent requires sign-in before it can list models.
+    pub fn authentication_required(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            discovery_code: Some("AUTHENTICATION_REQUIRED"),
+        }
     }
 }
 
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&self.message)
     }
 }
 
@@ -144,11 +167,19 @@ fn execute_models(
     if !cwd.is_absolute() {
         return Err(ProviderError::new("models `--cwd` must be absolute"));
     }
-    serde_json::to_writer(
-        std::io::stdout().lock(),
-        &provider.models(&cwd, &args[4..])?,
-    )?;
-    println!();
+    let result = provider.models(&cwd, &args[4..]);
+    let mut stdout = std::io::stdout().lock();
+    match result {
+        Ok(options) => serde_json::to_writer(&mut stdout, &options)?,
+        Err(error) => {
+            if let Some(code) = error.discovery_code {
+                serde_json::to_writer(&mut stdout, &serde_json::json!({ "code": code }))?;
+                writeln!(stdout)?;
+            }
+            return Err(error);
+        }
+    }
+    writeln!(stdout)?;
     Ok(ExitCode::SUCCESS)
 }
 

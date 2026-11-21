@@ -310,6 +310,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
             browser_trust: Default::default(),
             indexer: Arc::clone(&session.indexer),
+            prompt_turn_lock: Arc::clone(&session.prompt_turn_lock),
         },
     );
     let mut runtime_rx = session.take_message_rx();

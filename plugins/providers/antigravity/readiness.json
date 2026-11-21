@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "plugin": {
+    "kind": "provider",
+    "id": "antigravity",
+    "version": "0.1.0"
+  },
+  "source_license": {
+    "declared_spdx": "Apache-2.0",
+    "file": "LICENSE",
+    "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
+  },
+  "artwork": {
+    "file": "icon.svg",
+    "sha256": "e87d8b60a21b1732da869acd785a88e1d1a097fd770672912fea3ef1a4bb9b44",
+    "declared_spdx": "Apache-2.0",
+    "creation_record": "README.md#connector-artwork"
+  },
+  "runtime": {
+    "kind": "native-rust-connector-external-antigravity-cli",
+    "command": "agy acp",
+    "bundled": false
+  },
+  "targets": {
+    "darwin-aarch64": {
+      "evidence": "pending-native-release-build",
+      "managed_installation": "not-qualified"
+    },
+    "darwin-x86_64": {
+      "evidence": "pending-native-release-build",
+      "managed_installation": "not-qualified"
+    },
+    "linux-aarch64": {
+      "evidence": "pending-native-release-build",
+      "managed_installation": "not-qualified"
+    },
+    "linux-x86_64": {
+      "evidence": "pending-native-release-build",
+      "managed_installation": "not-qualified"
+    }
+  }
+}

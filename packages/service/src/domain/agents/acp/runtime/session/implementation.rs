@@ -159,20 +159,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        // ACP v1 has no portable steering request. A second `session/prompt`
-        // while the first is active is agent-defined: Pi queues it, while other
-        // agents may reject or merge it. Serialise turns at the host boundary so
-        // every accepted user message gets one authoritative turn result and the
-        // frontend cannot remain stuck in `agent` after a queued follow-up.
-        let cancels = self.prompt_cancel.cancels();
-        let _guard = self.prompt_turn_lock.lock().await;
-        // It waited for a turn a Stop then ended: it must not start its own.
-        if self.prompt_cancel.cancelled_since(cancels) {
-            return Err(RuntimeError::input_withdrawn(
-                "the turn was stopped before this follow-up reached the agent",
-            ));
-        }
-        self.prompt_input(content, client_message_id, true).await
+        self.prompt_input(content, client_message_id).await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {

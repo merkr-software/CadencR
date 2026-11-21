@@ -13,6 +13,7 @@ use super::{
 use crate::domain::agents::providers::installed::managed::process_policy::{
     capture_managed_command, managed_command,
 };
+use crate::domain::agents::providers::installed::model_discovery::discovery_failure;
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -82,11 +83,7 @@ pub(super) async fn discover_models(
         .await
         .map_err(|failure| discovery_error(format!("model discovery failed: {failure}")))?;
     if !output.status.success() {
-        return Err(discovery_error(format!(
-            "provider `models` command exited with {} ({} diagnostic bytes)",
-            output.status,
-            output.stderr.len()
-        )));
+        return Err(discovery_error(discovery_failure(&output)));
     }
     parse_model_contract(&output.stdout)
 }
