@@ -12,7 +12,8 @@ mod tools;
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use serde_json::{json, Value};
+use tokio::time::Instant;
 
 use self::questions::Question;
 pub(crate) use self::subagents::{SubagentOperation, SubagentTracker};
@@ -30,7 +31,7 @@ impl EventMapper {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => {
                 self.subagents.observe_update(message);
-                self.detached.decorate_update(message);
+                self.detached.observe_update(message, Instant::now);
                 let names = self.mcp.for_params(message.get("params"));
                 if let Some(update) = message.pointer_mut("/params/update") {
                     tools::normalize_update(update, names);
@@ -72,6 +73,14 @@ impl EventMapper {
         self.subagents.can_forward(frame)
     }
 
+    pub(crate) fn detached_reply_deadline(&self) -> Option<Instant> {
+        self.detached.next_deadline()
+    }
+
+    pub(crate) fn take_completed_detached_reply(&mut self, now: Instant) -> Option<Value> {
+        self.detached.take_completed(now)
+    }
+
     fn map_permission(&mut self, message: &mut Value) {
         let id = message
             .get("id")
@@ -91,6 +100,10 @@ impl EventMapper {
             permissions::display_security_warnings(params);
         }
     }
+}
+
+fn session_update(session: &str, update: Value) -> Value {
+    json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session,"update":update}})
 }
 
 #[cfg(test)]

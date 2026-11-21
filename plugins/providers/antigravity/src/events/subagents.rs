@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use cadencr_provider_sdk::meta::{merge_meta, subagent_background_meta};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use self::journal::ChildJournal;
 use self::store::{native_brain, uuid_segment, Discovery};
@@ -183,17 +183,16 @@ impl SubagentTracker {
     }
 }
 
-fn session_update(session: &str, update: Value) -> Value {
-    json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session,"update":update}})
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
+    use serde_json::json;
+
     use super::*;
+    use crate::events::session_update;
 
     const ROOT: &str = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
     const FOREIGN: &str = "ffffffff-ffff-4fff-ffff-ffffffffffff";

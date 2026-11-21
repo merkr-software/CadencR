@@ -1,11 +1,16 @@
 //! After finishing a prompt, agy can wake to stream another reply (for
-//! example, when a subagent finishes). Its closing usage snapshot has no
-//! corresponding prompt response to signal that the UI can go idle.
+//! example, when a subagent finishes). Agy reports usage after each model
+//! step, before any tool calls belonging to that step.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
-use cadencr_provider_sdk::meta::{merge_meta, CADENCR_META_KEY};
 use serde_json::{json, Value};
+use tokio::time::Instant;
+
+use super::session_update;
+
+const QUIET_WINDOW: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
 pub(super) struct Replies {
@@ -29,6 +34,14 @@ impl PendingRequest {
 enum Reply {
     AwaitingContent,
     Streaming,
+    Closing(Completion),
+}
+
+struct Completion {
+    deadline: Instant,
+    used: u64,
+    size: u64,
+    cancelled: bool,
 }
 
 impl Replies {
@@ -44,7 +57,17 @@ impl Replies {
             return;
         };
         match method {
-            Some("session/cancel" | "session/close") => self.clear(session),
+            Some("session/cancel") => {
+                if let Some(Reply::Closing(completion)) = self.post_turn.get_mut(session) {
+                    // The native prompt has already ended. Deliver the boundary
+                    // so the host can finish the interrupted detached turn.
+                    completion.cancelled = true;
+                    completion.deadline = Instant::now();
+                } else {
+                    self.clear(session);
+                }
+            }
+            Some("session/close") => self.clear(session),
             Some("session/prompt" | "session/load" | "session/resume") => {
                 let Some(id) = message
                     .get("id")
@@ -85,7 +108,7 @@ impl Replies {
         }
     }
 
-    pub(super) fn decorate_update(&mut self, message: &mut Value) {
+    pub(super) fn observe_update(&mut self, message: &Value, now: impl FnOnce() -> Instant) {
         let Some(reply) = message
             .pointer("/params/sessionId")
             .and_then(Value::as_str)
@@ -93,31 +116,67 @@ impl Replies {
         else {
             return;
         };
-        let Some(update) = message.pointer_mut("/params/update") else {
+        if matches!(reply, Reply::Closing(completion) if completion.cancelled) {
+            return;
+        }
+        let Some(update) = message.pointer("/params/update") else {
             return;
         };
         match update.get("sessionUpdate").and_then(Value::as_str) {
             Some("agent_message_chunk" | "agent_thought_chunk") if has_text(update) => {
                 *reply = Reply::Streaming;
             }
-            Some("usage_update")
-                if matches!(reply, Reply::Streaming)
-                    && update.get("used").and_then(Value::as_u64).is_some()
-                    && update.get("size").and_then(Value::as_u64).is_some() =>
-            {
-                if let Some(update) = update.as_object_mut() {
-                    let meta = [(
-                        CADENCR_META_KEY.to_owned(),
-                        json!({"detachedReplyEnded":true}),
-                    )]
-                    .into_iter()
-                    .collect();
-                    merge_meta(update, meta);
-                }
+            Some("tool_call" | "tool_call_update") => {
+                // Usage without a new model chunk cannot finish a tool step.
                 *reply = Reply::AwaitingContent;
+            }
+            Some("usage_update") if !matches!(reply, Reply::AwaitingContent) => {
+                if let (Some(used), Some(size)) = (update["used"].as_u64(), update["size"].as_u64())
+                {
+                    if matches!(reply, Reply::Closing(current) if (current.used, current.size) == (used, size))
+                    {
+                        return;
+                    }
+                    *reply = Reply::Closing(Completion {
+                        deadline: now() + QUIET_WINDOW,
+                        used,
+                        size,
+                        cancelled: false,
+                    });
+                }
             }
             _ => {}
         }
+    }
+
+    pub(super) fn next_deadline(&self) -> Option<Instant> {
+        self.post_turn
+            .values()
+            .filter_map(|reply| match reply {
+                Reply::Closing(completion) => Some(completion.deadline),
+                _ => None,
+            })
+            .min()
+    }
+
+    pub(super) fn take_completed(&mut self, now: Instant) -> Option<Value> {
+        let (frame, cancelled) = self.post_turn.iter_mut().find_map(|(session, reply)| {
+            let Reply::Closing(completion) = reply else { return None };
+            if completion.deadline > now {
+                return None;
+            }
+            let frame = session_update(session, json!({
+                "sessionUpdate": "usage_update", "used": completion.used, "size": completion.size,
+                "_meta": {"cadencr": {"detachedReplyEnded": true}}
+            }));
+            let cancelled = completion.cancelled.then(|| session.clone());
+            *reply = Reply::AwaitingContent;
+            Some((frame, cancelled))
+        })?;
+        if let Some(session) = cancelled {
+            self.post_turn.remove(&session);
+        }
+        Some(frame)
     }
 
     fn clear(&mut self, session: &str) {
@@ -148,19 +207,15 @@ mod tests {
         json!({"jsonrpc":"2.0","id":id,"result":{"stopReason":"end_turn","usage":{"inputTokens":12218,"outputTokens":390,"totalTokens":20088}}})
     }
 
-    fn update(session: &str, body: Value) -> Value {
-        json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session,"update":body}})
-    }
-
     fn chunk(session: &str, text: &str) -> Value {
-        update(
+        session_update(
             session,
             json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}),
         )
     }
 
     fn usage(session: &str, used: u64) -> Value {
-        update(
+        session_update(
             session,
             json!({"sessionUpdate":"usage_update","used":used,"size":1048576}),
         )
@@ -176,8 +231,16 @@ mod tests {
         assert_eq!(mapped, frame);
     }
 
+    fn complete(mapper: &mut EventMapper) -> Value {
+        let deadline = mapper.detached_reply_deadline().expect("reply candidate");
+        assert!(mapper
+            .take_completed_detached_reply(deadline - Duration::from_millis(1))
+            .is_none());
+        mapper.take_completed_detached_reply(deadline).unwrap()
+    }
+
     #[test]
-    fn marks_the_native_usage_after_a_late_reply_without_synthesizing_a_turn_result() {
+    fn forwards_native_usage_and_emits_one_marker_after_each_quiet_reply() {
         let mut mapper = EventMapper::default();
         let prompt = request("session/prompt", json!(3), "s");
         let mut mapped = prompt.clone();
@@ -196,17 +259,55 @@ mod tests {
         let mut native = usage("s", 10506);
         native["params"]["update"]["_meta"] =
             json!({"antigravity":{"native":1},"cadencr":{"keep":true}});
-        let mut expected = native.clone();
-        expected["params"]["update"]["_meta"]["cadencr"]["detachedReplyEnded"] = json!(true);
-        let mut mapped = native.clone();
-        mapper.map_agent(&mut mapped);
-        assert_eq!(mapped, expected);
+        unchanged(&mut mapper, native.clone());
+        let deadline = mapper.detached_reply_deadline().unwrap();
+        unchanged(&mut mapper, native.clone());
+        unchanged(&mut mapper, chunk("s", ""));
+        assert_eq!(mapper.detached_reply_deadline(), Some(deadline));
+        let mut expected = usage("s", 10506);
+        expected["params"]["update"]["_meta"] = json!({"cadencr":{"detachedReplyEnded":true}});
+        assert_eq!(complete(&mut mapper), expected);
         unchanged(&mut mapper, native);
+        assert_eq!(mapper.detached_reply_deadline(), None);
 
         unchanged(&mut mapper, chunk("s", "Another detached reply"));
-        let mut next = usage("s", 10600);
-        mapper.map_agent(&mut next);
-        assert_eq!(marker(&next), Some(&json!(true)));
+        unchanged(&mut mapper, usage("s", 10600));
+        let completed = complete(&mut mapper);
+        assert_eq!(marker(&completed), Some(&json!(true)));
+    }
+
+    #[test]
+    fn tool_and_chunk_activity_invalidate_an_intermediate_usage_snapshot() {
+        for continuation in ["tool_call", "tool_call_update"] {
+            let mut replies = Replies::default();
+            let start = Instant::now();
+            replies.observe_request(&request("session/prompt", json!(3), "s"));
+            replies.observe_response(&result(json!(3)));
+            replies.observe_update(&chunk("s", "Checking the source first"), || start);
+            replies.observe_update(&usage("s", 100), || start);
+            replies.observe_update(
+                &session_update("s", json!({"sessionUpdate": continuation})),
+                || start + Duration::from_millis(5),
+            );
+            replies.observe_update(&usage("s", 100), || start + Duration::from_millis(10));
+            let next_step = start + Duration::from_secs(4);
+            assert!(replies.take_completed(next_step).is_none());
+
+            replies.observe_update(&chunk("s", "The result is"), || next_step);
+            replies.observe_update(&usage("s", 200), || next_step);
+            replies.observe_update(&chunk("s", " ready"), || {
+                next_step + Duration::from_millis(50)
+            });
+            assert!(replies.take_completed(next_step + QUIET_WINDOW).is_none());
+            let final_step = next_step + Duration::from_millis(80);
+            replies.observe_update(&usage("s", 205), || final_step);
+            let corrected = final_step + Duration::from_millis(100);
+            replies.observe_update(&usage("s", 206), || corrected);
+            assert!(replies.take_completed(final_step + QUIET_WINDOW).is_none());
+            let end = replies.take_completed(corrected + QUIET_WINDOW).unwrap();
+            assert_eq!(marker(&end), Some(&json!(true)));
+            assert_eq!(end["params"]["update"]["used"], 206);
+        }
     }
 
     #[test]
@@ -220,15 +321,17 @@ mod tests {
         unchanged(&mut mapper, chunk("first", "Late first-session reply"));
         unchanged(&mut mapper, chunk("second", "Second prompt still active"));
         unchanged(&mut mapper, usage("second", 2000));
-        let mut first = usage("first", 1000);
-        mapper.map_agent(&mut first);
-        assert_eq!(marker(&first), Some(&json!(true)));
+        unchanged(&mut mapper, usage("first", 1000));
+        let completed = complete(&mut mapper);
+        assert_eq!(completed["params"]["sessionId"], "first");
+        assert_eq!(marker(&completed), Some(&json!(true)));
         unchanged(&mut mapper, result(json!(4)));
         unchanged(&mut mapper, usage("second", 2001));
+        assert_eq!(mapper.detached_reply_deadline(), None);
     }
 
     #[test]
-    fn restore_close_cancel_and_prompt_errors_do_not_trigger_a_boundary() {
+    fn host_requests_and_prompt_errors_do_not_leave_an_old_completion_armed() {
         let mut mapper = EventMapper::default();
         unchanged(&mut mapper, chunk("s", "Initial transcript"));
         unchanged(&mut mapper, usage("s", 100));
@@ -236,17 +339,22 @@ mod tests {
             "session/load",
             "session/resume",
             "session/close",
-            "session/cancel",
+            "session/prompt",
         ]
         .into_iter()
         .enumerate()
         {
+            let mut mapper = EventMapper::default();
             let id = json!(index);
             mapper.map_host(&mut request("session/prompt", id.clone(), "s"));
             unchanged(&mut mapper, result(id));
+            unchanged(&mut mapper, chunk("s", "Detached reply"));
+            unchanged(&mut mapper, usage("s", 200));
+            assert!(mapper.detached_reply_deadline().is_some());
             mapper.map_host(&mut request(method, json!(10 + index), "s"));
             unchanged(&mut mapper, chunk("s", "History or stopped content"));
             unchanged(&mut mapper, usage("s", 100));
+            assert_eq!(mapper.detached_reply_deadline(), None);
         }
         mapper.map_host(&mut request("session/prompt", json!(20), "s"));
         mapper.map_host(
@@ -263,5 +371,25 @@ mod tests {
         );
         unchanged(&mut mapper, chunk("s", "Late update after error"));
         unchanged(&mut mapper, usage("s", 100));
+        assert_eq!(mapper.detached_reply_deadline(), None);
+    }
+
+    #[test]
+    fn cancelling_a_detached_reply_finishes_it_even_if_native_updates_follow() {
+        let mut mapper = EventMapper::default();
+        mapper.map_host(&mut request("session/prompt", json!(3), "s"));
+        unchanged(&mut mapper, result(json!(3)));
+        unchanged(&mut mapper, chunk("s", "Detached reply"));
+        unchanged(&mut mapper, usage("s", 200));
+        let original = mapper.detached_reply_deadline().unwrap();
+        mapper.map_host(&mut request("session/cancel", Value::Null, "s"));
+        unchanged(&mut mapper, chunk("s", "Trailing reply"));
+        let deadline = mapper.detached_reply_deadline().unwrap();
+        assert!(deadline < original);
+        let end = mapper.take_completed_detached_reply(deadline).unwrap();
+        assert_eq!(marker(&end), Some(&json!(true)));
+        unchanged(&mut mapper, chunk("s", "Late chunk after cancel"));
+        unchanged(&mut mapper, usage("s", 201));
+        assert_eq!(mapper.detached_reply_deadline(), None);
     }
 }

@@ -5,14 +5,17 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
+use std::pin::Pin;
 use std::process::{ExitCode, ExitStatus, Stdio};
 use std::time::Duration;
 
 use cadencr_provider_sdk::ProviderError;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines,
+};
 use tokio::process::Child;
-use tokio::time::Instant;
+use tokio::time::{Instant, Sleep};
 
 use crate::cli;
 use crate::config::ConfigMapper;
@@ -84,21 +87,40 @@ async fn relay_agent(
     let mut queued = VecDeque::new();
     let mut delay = SUBAGENT_POLL_INTERVAL;
     let mut next_poll = Instant::now();
+    let mut detached_deadline = None;
+    let detached_timer = tokio::time::sleep_until(Instant::now());
+    tokio::pin!(detached_timer);
     loop {
-        tokio::select! {
-            line = lines.next_line() => {
-                let Some(line) = line? else { return Ok(()) };
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let mut message = parse_message(&line, "Antigravity")?;
-                {
-                    let mut state = state.borrow_mut();
-                    state.config.map_agent(&mut message);
-                    state.events.map_agent(&mut message);
-                }
-                write_message(&mut writer, &message).await?;
+        let deadline = state.borrow().events.detached_reply_deadline();
+        if deadline != detached_deadline {
+            if let Some(deadline) = deadline {
+                detached_timer.as_mut().reset(deadline);
             }
+            detached_deadline = deadline;
+        }
+        let timer = detached_deadline.map(|_| detached_timer.as_mut());
+        tokio::select! {
+            event = next_agent_input(&mut lines, timer) => match event? {
+                AgentInput::Line(None) => return Ok(()),
+                AgentInput::Line(Some(line)) => {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let mut message = parse_message(&line, "Antigravity")?;
+                    {
+                        let mut state = state.borrow_mut();
+                        state.config.map_agent(&mut message);
+                        state.events.map_agent(&mut message);
+                    }
+                    write_message(&mut writer, &message).await?;
+                }
+                AgentInput::DetachedDeadline => {
+                    let frame = state.borrow_mut().events.take_completed_detached_reply(Instant::now());
+                    if let Some(frame) = frame {
+                        write_message(&mut writer, &frame).await?;
+                    }
+                }
+            },
             result = async {
                 match reading.as_mut() {
                     Some(task) => task.await,
@@ -138,6 +160,29 @@ async fn relay_agent(
                 }
             }
         }
+    }
+}
+
+enum AgentInput {
+    Line(Option<String>),
+    DetachedDeadline,
+}
+
+async fn next_agent_input(
+    lines: &mut Lines<impl AsyncBufRead + Unpin>,
+    timer: Option<Pin<&mut Sleep>>,
+) -> io::Result<AgentInput> {
+    tokio::select! {
+        biased;
+        // A continuation already in the pipe invalidates an expired timer
+        // before a completion can be emitted, including after output backpressure.
+        line = lines.next_line() => line.map(AgentInput::Line),
+        () = async {
+            match timer {
+                Some(timer) => timer.await,
+                None => std::future::pending().await,
+            }
+        } => Ok(AgentInput::DetachedDeadline),
     }
 }
 
@@ -205,4 +250,28 @@ async fn stop_signal() -> io::Result<()> {
 #[cfg(not(unix))]
 async fn stop_signal() -> io::Result<()> {
     tokio::signal::ctrl_c().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn buffered_native_continuation_precedes_an_expired_deadline() {
+        let (mut native, reader) = tokio::io::duplex(64);
+        native.write_all(b"buffered continuation\n").await.unwrap();
+        let mut lines = BufReader::new(reader).lines();
+        let timer = tokio::time::sleep_until(Instant::now());
+        tokio::pin!(timer);
+        timer.as_mut().await;
+
+        let event = next_agent_input(&mut lines, Some(timer.as_mut()))
+            .await
+            .unwrap();
+        assert!(matches!(event, AgentInput::Line(Some(line)) if line == "buffered continuation"));
+        let event = next_agent_input(&mut lines, Some(timer.as_mut()))
+            .await
+            .unwrap();
+        assert!(matches!(event, AgentInput::DetachedDeadline));
+    }
 }

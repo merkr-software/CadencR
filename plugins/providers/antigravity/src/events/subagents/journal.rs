@@ -4,9 +4,8 @@ use cadencr_provider_sdk::meta::{subagent_status_meta, SubagentStatus};
 use serde_json::{json, Value};
 
 use self::cursor::JournalCursor;
-use super::session_update;
 use super::store::{read_record, NativeChild};
-use crate::events::tools;
+use crate::events::{session_update, tools};
 
 const MAX_SUMMARY_CHARS: usize = 2048;
 

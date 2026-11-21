@@ -492,9 +492,12 @@ explicit in `BOUNDARIES.md` Phase 8.
 
 A connector that receives an unsolicited reply after a successful
 `session/prompt` can mark its last `session/update` usage notification with
-`update._meta.cadencr.detachedReplyEnded: true`. Send the marker on the
-original `usage_update` after forwarding the reply's text or thought chunks,
-with the same `sessionId` and while no prompt is in flight.
+`update._meta.cadencr.detachedReplyEnded: true`. Send the marker after
+forwarding the reply's text or thought chunks and any tool steps, with the
+same `sessionId` and while no prompt is in flight. If the agent reports
+usage after each model step, forward those updates normally. Once the reply
+ends, the connector can send a separate `usage_update` with the marker and
+the last reported context-budget values.
 
 Cadencr accepts the marker only after seeing a successful prompt result and
 subsequent streamed reply content for that session outside a host prompt.
