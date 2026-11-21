@@ -90,7 +90,7 @@ function AgentQuestionContent({
           onOtherToggle={form.handleOtherToggle}
         />
       )}
-      {(form.showOther || !hasOptions) && (
+      {form.showFreeText && (
         <div className="mb-2 flex items-center gap-2">
           <Input
             value={form.freeText}

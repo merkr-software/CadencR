@@ -205,6 +205,11 @@ never descriptor fields.
 
 ## Host conventions for input-collecting gates
 
+For an `AskUserQuestion` with a closed set of choices, set
+`allowCustomAnswer: false` on each applicable question and supply the allowed
+options. The conversation drawer and the sidebar then accept those choices
+only. Omit the field to keep the additional free-text answer.
+
 Cadencr's question drawer and plan gate are driven purely by tool name, so an
 installed provider reaches them through standard ACP
 `session/request_permission` — no extension methods and no descriptor fields.
