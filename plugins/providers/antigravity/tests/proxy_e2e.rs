@@ -189,12 +189,15 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     assert_eq!(neon_effort["supportsEffort"], true);
     assert_eq!(neon_effort["supportedEffortLevels"], json!(["low", "high"]));
     assert!(cold_models["options"][1].get("_meta").is_none());
+    let cold_modes = option(&catalog, "mode");
+    assert_eq!(cold_modes["currentValue"], "default");
     assert_eq!(
-        option(&catalog, "mode")["options"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
+        values(cold_modes),
+        ["default", "accept-edits", "auto", "plan"]
+    );
+    assert_eq!(
+        cold_modes["options"][2]["_meta"]["cadencr"]["permissionMode"],
+        "auto"
     );
 
     let mut original = Host::open(&fixture);
@@ -235,6 +238,7 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     for (id, value) in [
         ("model", "mock-neon"),
         ("thought_level", "low"),
+        ("mode", "auto"),
         ("mode", "plan"),
     ] {
         let request_id = original
@@ -324,6 +328,33 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
 }
 
 #[tokio::test]
+async fn a_native_session_can_decline_auto_mode() {
+    let fixture = Fixture::new("no-auto-mode");
+    let mut host = Host::open(&fixture);
+    host.initialize().await;
+    let created = host
+        .request(
+            "session/new",
+            json!({"cwd": fixture.cwd(), "mcpServers": []}),
+        )
+        .await;
+    let session_id = &created["result"]["sessionId"];
+    let mode = option(&created["result"]["configOptions"], "mode");
+    assert_eq!(mode["currentValue"], "default");
+    assert_eq!(values(mode), ["default", "accept-edits", "plan"]);
+
+    let response = host
+        .request(
+            "session/set_config_option",
+            json!({"sessionId": session_id, "configId": "mode", "value": "auto"}),
+        )
+        .await;
+    assert_eq!(response["error"]["message"], "Value unavailable");
+    assert!(response.get("result").is_none());
+    host.close().await;
+}
+
+#[tokio::test]
 async fn permissions_and_cancellation_work_while_a_prompt_is_in_flight() {
     let fixture = Fixture::new("normal");
     let mut host = Host::open(&fixture);
@@ -376,7 +407,7 @@ async fn permissions_and_cancellation_work_while_a_prompt_is_in_flight() {
 }
 
 #[tokio::test]
-async fn detached_reply_keeps_the_original_result_and_marks_only_its_closing_usage() {
+async fn multi_step_detached_reply_emits_one_completion_after_tools_and_final_text() {
     let fixture = Fixture::new("detached-reply");
     let mut host = Host::open(&fixture);
     host.initialize().await;
@@ -394,6 +425,36 @@ async fn detached_reply_keeps_the_original_result_and_marks_only_its_closing_usa
         json!({"stopReason":"end_turn","usage":{"inputTokens":90,"outputTokens":11,"totalTokens":101}})
     );
 
+    let thought = host.next().await;
+    assert_eq!(
+        thought["params"]["update"]["sessionUpdate"],
+        "agent_thought_chunk"
+    );
+    assert_eq!(
+        thought["params"]["update"]["content"]["text"],
+        "Verify the sources"
+    );
+    assert_eq!(
+        host.next().await["params"]["update"],
+        json!({"sessionUpdate":"usage_update","used":114,"size":1048576})
+    );
+    for n in 0..5 {
+        let call = host.next().await;
+        let update = &call["params"]["update"];
+        assert_eq!(update["sessionUpdate"], "tool_call");
+        assert_eq!(update["toolCallId"], format!("read-{n}"));
+        assert_eq!(update["name"], "Read");
+        assert_eq!(host.next().await["params"]["update"]["status"], "completed");
+    }
+    let thought = host.next().await;
+    assert_eq!(
+        thought["params"]["update"]["sessionUpdate"],
+        "agent_thought_chunk"
+    );
+    assert_eq!(
+        thought["params"]["update"]["content"]["text"],
+        "The sources agree"
+    );
     let chunk = host.next().await;
     assert_eq!(
         chunk["params"]["update"]["sessionUpdate"],
@@ -404,15 +465,28 @@ async fn detached_reply_keeps_the_original_result_and_marks_only_its_closing_usa
         "Subagent result"
     );
 
+    let usage = json!({"sessionUpdate":"usage_update","used":137,"size":1048576});
+    for _ in 0..2 {
+        assert_eq!(host.next().await["params"]["update"], usage);
+    }
+    assert_eq!(
+        host.next().await["params"]["update"],
+        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":""}})
+    );
     let closing = host.next().await;
+    assert_eq!(closing["method"], "session/update");
+    assert_eq!(
+        closing["params"]["sessionId"],
+        session["result"]["sessionId"]
+    );
     assert_eq!(
         closing["params"]["update"],
         json!({"sessionUpdate":"usage_update","used":137,"size":1048576,"_meta":{"cadencr":{"detachedReplyEnded":true}}})
     );
-    let duplicate = host.next().await;
-    assert_eq!(
-        duplicate["params"]["update"],
-        json!({"sessionUpdate":"usage_update","used":137,"size":1048576})
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), host.from_agent.next_line())
+            .await
+            .is_err()
     );
     host.close().await;
 }

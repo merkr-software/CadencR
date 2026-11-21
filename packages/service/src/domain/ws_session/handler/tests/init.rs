@@ -20,9 +20,9 @@ async fn assert_claude_controls_survive_stale_overrides(stored_effort: Option<&s
     sqlx::query(
         "INSERT INTO agent_sessions
          (feature_id, agent_type, status, runtime_provider, runtime_session_id,
-          model, profile, thinking_effort, runtime_overrides)
+          model, profile, thinking_effort, runtime_overrides, permission_mode)
          VALUES (1, 'session', 'paused', 'claude_code',
-          '11111111-1111-4111-8111-111111111111', 'opus', 'default', ?, ?)",
+          '11111111-1111-4111-8111-111111111111', 'opus', 'default', ?, ?, 'plan')",
     )
     .bind(stored_effort)
     .bind(r#"{"model":"haiku","thinking_effort":"high","fast_mode":null}"#)
@@ -49,6 +49,7 @@ async fn assert_claude_controls_survive_stale_overrides(stored_effort: Option<&s
     assert_eq!(response.model.as_deref(), Some("opus"));
     assert_eq!(response.thinking_effort.as_deref(), stored_effort);
     assert_eq!(response.profile.as_deref(), Some("default"));
+    assert_eq!(response.permission_mode.as_deref(), Some("plan"));
 
     let session_id = response.session_id.parse::<i64>().unwrap();
     let sessions = sdk_sessions.lock().await;
@@ -61,6 +62,7 @@ async fn assert_claude_controls_survive_stale_overrides(stored_effort: Option<&s
     assert_eq!(options.model.as_deref(), Some("opus"));
     assert_eq!(options.thinking_effort.as_deref(), stored_effort);
     assert_eq!(options.profile.as_deref(), Some("default"));
+    assert_eq!(options.permission_mode, Some(RuntimePermissionMode::Plan));
 }
 
 #[tokio::test]

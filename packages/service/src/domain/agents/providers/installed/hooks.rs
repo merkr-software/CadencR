@@ -30,6 +30,7 @@ pub struct InstalledAcpHooks {
     model_config_id: String,
     modes: Arc<ProviderModeMap>,
     compact_command: Option<String>,
+    exclude_launcher_ports: bool,
     live: RwLock<LiveConfigIds>,
     capabilities: InstalledAcpCapabilities,
     prompt_capabilities: SharedPromptCapabilities,
@@ -51,6 +52,7 @@ impl InstalledAcpHooks {
         model_config_id: String,
         #[builder(default)] modes: Arc<ProviderModeMap>,
         compact_command: Option<String>,
+        #[builder(default)] exclude_launcher_ports: bool,
         #[builder(default)] prompt_capabilities: SharedPromptCapabilities,
         #[builder(default)] slash_commands: Arc<SlashCommandCatalog>,
     ) -> Self {
@@ -58,6 +60,7 @@ impl InstalledAcpHooks {
             model_config_id,
             modes,
             compact_command,
+            exclude_launcher_ports,
             live: RwLock::new(LiveConfigIds::default()),
             capabilities: InstalledAcpCapabilities::default(),
             prompt_capabilities,
@@ -180,6 +183,10 @@ impl AcpProviderHooks for InstalledAcpHooks {
 
     fn supports_durable_resume(&self) -> bool {
         self.capabilities.supports_durable_resume()
+    }
+
+    fn exclude_launcher_ports(&self) -> bool {
+        self.exclude_launcher_ports
     }
 
     fn observe_durable_resume_capability(&self, supported: bool) {

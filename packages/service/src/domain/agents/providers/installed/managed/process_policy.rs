@@ -165,8 +165,18 @@ fn direct_command(
 
 /// Execute a prepared one-shot command with bounded time and output.
 pub async fn capture_managed_command(
+    command: Command,
+    timeout: Duration,
+) -> Result<ManagedCommandOutput, ManagedProcessPolicyError> {
+    capture_managed_command_with_spawn(command, timeout, |_| ()).await
+}
+
+/// Like managed capture, with a guard held from successful spawn through
+/// output collection and cleanup.
+pub(crate) async fn capture_managed_command_with_spawn<G>(
     mut command: Command,
     timeout: Duration,
+    register: impl FnOnce(u32) -> G,
 ) -> Result<ManagedCommandOutput, ManagedProcessPolicyError> {
     let process_tree = ProcessTreeControl::prepare(&mut command, managed_process_tree_policy())
         .map_err(|error| containment_error("could not prepare process containment", error))?;
@@ -176,6 +186,7 @@ pub async fn capture_managed_command(
             format!("could not start managed provider process: {error}"),
         )
     })?;
+    let _registration = child.id().map(register);
     if let Err(error) = process_tree.attach(&child) {
         cleanup(child.start_kill(), "kill the uncontained managed process");
         cleanup(child.wait().await, "reap the uncontained managed process");

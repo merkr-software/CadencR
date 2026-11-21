@@ -6,6 +6,7 @@ use crate::error::AppError;
 
 use super::attribution::{attribute, resolve, unresolved_pids, ProcessRoots};
 use super::models::{FeaturePorts, PortSource};
+use super::provider_processes::ProviderProcessScan;
 use super::repository;
 use super::scan;
 
@@ -16,14 +17,22 @@ pub async fn feature_ports(state: &AppState) -> Result<Vec<FeaturePorts>, AppErr
 
 async fn scan_now(state: &AppState) -> Result<Vec<FeaturePorts>, AppError> {
     let service_pid = std::process::id() as i32;
-    let (sockets, parents) = tokio::try_join!(scan::listening_sockets(), scan::parent_map())
+    let provider_processes = ProviderProcessScan::begin();
+    let sockets = scan::listening_sockets()
+        .await
         .map_err(|error| scan_error("Failed to inspect listening processes", error))?;
     if sockets.is_empty() {
         return Ok(Vec::new());
     }
 
+    // Read parents after lsof so processes that started during its scan are
+    // visible to attribution too.
+    let parents = scan::parent_map()
+        .await
+        .map_err(|error| scan_error("Failed to inspect listening processes", error))?;
+    let provider_processes = provider_processes.finish();
     let roots = process_roots(state).await;
-    let resolved = resolve(&sockets, &parents, &roots, service_pid);
+    let resolved = resolve(&sockets, &parents, &roots, &provider_processes, service_pid);
 
     // Only sockets no live terminal or agent explains need a directory, and the
     // worktree list is worth loading only if there is something to match it
@@ -62,7 +71,7 @@ fn scan_error(context: &str, error: anyhow::Error) -> AppError {
     }
 }
 
-/// Every pid that names a feature outright. Terminals are registered first so a
+/// Every pid that names a feature outright. Terminals are registered last so a
 /// shell keeps its own feature even when an agent started it — the terminal is
 /// the more specific claim.
 async fn process_roots(state: &AppState) -> ProcessRoots {

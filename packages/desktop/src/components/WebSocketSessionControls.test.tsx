@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@/test-utils";
 import { PROVIDER_IDS } from "@/lib/providers";
 import type { useAccessModeSetting } from "@/hooks/useAccessModeSetting";
+import type { RuntimeSessionConfigSnapshot } from "@/api/generated";
 
 const mocks = vi.hoisted(() => ({
   useAgentCatalog: vi.fn(),
@@ -38,7 +39,6 @@ vi.mock("@/hooks/useAccessModeSetting", () => ({
   useAccessModeSetting: mocks.useAccessModeSetting,
 }));
 vi.mock("@/components/WebSocketSessionPermissionMode", () => ({
-  EMPTY_PROVIDER_MODES: [],
   usePermissionModeToggle: () => vi.fn(),
   usePermissionModeSet: () => vi.fn(),
 }));
@@ -123,6 +123,58 @@ describe("useSessionControls catalog scoping", () => {
     mocks.useWebSocketSession.mockReturnValue({ ...session, isCompacting: false });
     rerender();
     expect(result.current.steeringAcknowledged).toBe(true);
+  });
+
+  it("uses the native mode choices once an installed provider starts", () => {
+    const providerId = "example-acp";
+    const modes = [
+      { id: "default", label: "Default" },
+      { id: "acceptEdits", label: "Accept edits" },
+      { id: "auto", label: "Auto" },
+      { id: "plan", label: "Plan" },
+    ];
+    const session = { ...ws(providerId), sessionConfig: null };
+    mocks.useAgentCatalog.mockReturnValue({
+      data: { providers: [{ id: providerId, models: [], modes }] },
+    });
+    mocks.useWebSocketSession.mockReturnValue(session);
+    const { result, rerender } = renderHook(() => useSessionControls("session", 1, 1, "/work"));
+    expect(result.current.providerModes).toEqual(modes);
+
+    const config: RuntimeSessionConfigSnapshot = {
+      options: [
+        {
+          id: "agent-mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          current_value: "default",
+          choices: {
+            layout: "ungrouped",
+            options: [
+              {
+                value: "default",
+                name: "Default",
+                _meta: { cadencr: { permissionMode: "default" } },
+              },
+              {
+                value: "accept-edits",
+                name: "Accept edits",
+                _meta: { cadencr: { permissionMode: "acceptEdits" } },
+              },
+              { value: "plan", name: "Plan", _meta: { cadencr: { permissionMode: "plan" } } },
+            ],
+          },
+        },
+      ],
+    };
+    mocks.useWebSocketSession.mockReturnValue({ ...session, sessionConfig: config });
+    rerender();
+    expect(result.current.providerModes?.map(({ id }) => id)).toEqual([
+      "default",
+      "acceptEdits",
+      "plan",
+    ]);
   });
 
   it("deduplicates the runtime catalog with the unscoped base query when no profile is selected", () => {

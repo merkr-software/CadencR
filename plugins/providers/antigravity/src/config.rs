@@ -4,14 +4,13 @@ use serde_json::{json, Value};
 use crate::cli;
 
 pub fn catalog_mode() -> Value {
-    // Auto is conditional on the account and the native sandbox. The cold
-    // catalog only maps modes available without those prerequisites.
     let mut option = json!({
         "id": "mode", "name": "Mode", "category": "mode", "type": "select",
         "currentValue": "default",
         "options": [
             {"value":"default","name":"Default","description":"Ask before edits and commands, per your permission settings."},
             {"value":"accept-edits","name":"Accept edits","description":"Approve file edits in the workspace without asking."},
+            {"value":"auto","name":"Auto","description":"Approve workspace edits and safe commands automatically. Requires a personal account and terminal sandbox support."},
             {"value":"plan","name":"Plan","description":"Plan carefully before executing a task."}
         ],
     });

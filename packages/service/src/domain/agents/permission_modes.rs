@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use super::adapter::RuntimePermissionMode;
+use super::adapter::{AgentRuntimeAdapter, RuntimePermissionMode};
 use super::runtime_adapter;
 
 /// Parse a permission mode string from the client into a PermissionMode enum value.
@@ -87,17 +87,16 @@ pub(crate) fn effective_permission_mode(
     provider_supports_mode(provider, &mode).then_some(mode)
 }
 
-/// Like [`effective_permission_mode`], but a requested mode the provider can't
-/// run falls back to the provider default instead of to nothing. Used where a
-/// client-supplied mode may come from another provider's catalog (the frontend
-/// seeds new conversations with the default provider's mode), so the session
-/// still runs — and reports — a mode its provider accepts.
+/// Resolve a requested mode or fall back to the adapter's supported default.
 pub(crate) fn supported_or_default_permission_mode(
-    provider: &str,
+    adapter: &(impl AgentRuntimeAdapter + ?Sized),
     requested: Option<&str>,
 ) -> Option<RuntimePermissionMode> {
-    effective_permission_mode(provider, requested)
-        .or_else(|| effective_permission_mode(provider, None))
+    let default = || parse_permission_mode(&adapter.default_permission_mode_wire());
+    requested
+        .map(parse_permission_mode)
+        .filter(|mode| adapter.supports_permission_mode(mode))
+        .or_else(|| Some(default()).filter(|mode| adapter.supports_permission_mode(mode)))
 }
 
 /// Wire string the chip should land on after a plan is approved
@@ -160,17 +159,17 @@ mod tests {
 
     #[test]
     fn an_unsupported_request_falls_back_to_the_provider_default() {
-        // Claude's `auto` seeded onto a conversation that starts on Codex.
+        let adapter = crate::domain::agents::runtime_adapter("codex_cli").unwrap();
         assert_eq!(
-            supported_or_default_permission_mode("codex_cli", Some("auto")),
+            supported_or_default_permission_mode(&*adapter, Some("auto")),
             Some(RuntimePermissionMode::Default)
         );
         assert_eq!(
-            supported_or_default_permission_mode("codex_cli", Some("plan")),
+            supported_or_default_permission_mode(&*adapter, Some("plan")),
             Some(RuntimePermissionMode::Plan)
         );
         assert_eq!(
-            supported_or_default_permission_mode("codex_cli", None),
+            supported_or_default_permission_mode(&*adapter, None),
             Some(RuntimePermissionMode::Default)
         );
     }

@@ -29,6 +29,7 @@ pub const WORKTREE_CONFIG_PATHS: &[&str] = &[
 
 pub fn cursor_host_integration() -> HostIntegration {
     HostIntegration::builder()
+        .exclude_launcher_ports(true)
         .worktree_config_paths(
             WORKTREE_CONFIG_PATHS
                 .iter()
@@ -53,7 +54,8 @@ mod tests {
                 "worktreeConfigPaths": [
                     ".cursor/rules", ".cursor/commands", ".cursor/skills",
                     ".cursor/mcp.json", ".cursor/cli.json"
-                ]
+                ],
+                "excludeLauncherPorts": true
             })
         );
     }

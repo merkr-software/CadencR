@@ -278,8 +278,12 @@ At runtime:
    live session exposes a `select` option with `"category": "mode"`, it sends
    `session/set_config_option { configId: <that option id>, value }` and
    replaces its configuration snapshot with the response; otherwise it falls
-   back to `session/set_mode` with the same value. A refusal fails the spawn or
-   the mode change visibly.
+   back to `session/set_mode` with the same value. When setting a select
+   option, the host requires the response to confirm the requested value.
+   An unavailable value, a refusal, or an unconfirmed selection fails the
+   spawn or the mode change visibly. When the live mode choices include host
+   permission-mode mappings, the composer shows the intersection of the
+   declared and live mapped modes.
 2. **Following the agent.** A `current_mode_update`, or a
    `config_option_update` whose mode option changed, that lands on a mapped
    value updates the session's permission mode: it is persisted and every
@@ -488,9 +492,12 @@ explicit in `BOUNDARIES.md` Phase 8.
 
 A connector that receives an unsolicited reply after a successful
 `session/prompt` can mark its last `session/update` usage notification with
-`update._meta.cadencr.detachedReplyEnded: true`. Send the marker on the
-original `usage_update` after forwarding the reply's text or thought chunks,
-with the same `sessionId` and while no prompt is in flight.
+`update._meta.cadencr.detachedReplyEnded: true`. Send the marker after
+forwarding the reply's text or thought chunks and any tool steps, with the
+same `sessionId` and while no prompt is in flight. If the agent reports
+usage after each model step, forward those updates normally. Once the reply
+ends, the connector can send a separate `usage_update` with the marker and
+the last reported context-budget values.
 
 Cadencr accepts the marker only after seeing a successful prompt result and
 subsequent streamed reply content for that session outside a host prompt.

@@ -187,6 +187,7 @@ function useSessionInitialization({
 }: WsSessionEffectsArgs): void {
   const { initSession, isConnected } = controls.ws;
   const serverSessionId = data.session?.serverSessionId;
+  const pendingPermissionMode = data.session?.pendingInitPermissionMode;
   const persistedLoaded = data.session?.persistedLoaded ?? false;
   // Embedded cards skip init on mount, but a prompt sent from one is only
   // queued until `session.initialized` — so init on demand (issue #251). The
@@ -200,7 +201,8 @@ function useSessionInitialization({
     if (!initOnMount && !needsOnDemandInit) return;
     // A card and the full view can share this session; read the live entry so
     // two effects in one commit don't both send an init.
-    if (useWsSessionStore.getState().sessions[sessionId]?.initRequestId) return;
+    const latest = useWsSessionStore.getState().sessions[sessionId];
+    if (latest?.initRequestId) return;
     controls.initializedRef.current = sessionId;
     // No provider/model/effort: the frontend resolvers return catalog
     // fallbacks until the selection query settles. The backend treats any
@@ -210,17 +212,18 @@ function useSessionInitialization({
     initSession({
       cwd,
       featureId,
-      permissionMode: controls.ws.permissionMode,
+      permissionMode:
+        (latest ? latest.pendingInitPermissionMode : pendingPermissionMode) ?? undefined,
     });
   }, [
     autoInitSession,
     controls.initializedRef,
-    controls.ws.permissionMode,
     cwd,
     featureId,
     initSession,
     isConnected,
     needsOnDemandInit,
+    pendingPermissionMode,
     persistedLoaded,
     serverSessionId,
     sessionId,

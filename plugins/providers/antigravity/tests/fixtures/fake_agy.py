@@ -4,6 +4,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 scenario = os.environ.get("AGY_FIXTURE_SCENARIO")
@@ -33,14 +34,16 @@ def options(state):
             "currentValue": state["thought_level"],
             "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}],
         })
+    modes = [
+        {"value": "default", "name": "Default"},
+        {"value": "accept-edits", "name": "Accept edits"},
+    ]
+    if scenario != "no-auto-mode":
+        modes.append({"value": "auto", "name": "Auto", "_meta": {"antigravity": {"fixture": True}}})
+    modes.append({"value": "plan", "name": "Plan"})
     result.append({
         "id": "mode", "name": "Mode", "category": "mode", "type": "select",
-        "currentValue": state["mode"], "options": [
-            {"value": "default", "name": "Default"},
-            {"value": "accept-edits", "name": "Accept edits"},
-            {"value": "auto", "name": "Auto", "_meta": {"antigravity": {"fixture": True}}},
-            {"value": "plan", "name": "Plan"},
-        ],
+        "currentValue": state["mode"], "options": modes,
     })
     return result
 
@@ -53,11 +56,26 @@ def save_state(state):
     state_path.write_text(json.dumps(state))
 
 
-def update(kind, **fields):
+def update(variant, **fields):
     send(method="session/update", params={
         "sessionId": session_id,
-        "update": {"sessionUpdate": kind, **fields},
+        "update": {"sessionUpdate": variant, **fields},
     })
+
+
+def detached_reply():
+    update("agent_thought_chunk", content={"type": "text", "text": "Verify the sources"})
+    update("usage_update", used=114, size=1048576)
+    for n in range(5):
+        update("tool_call", toolCallId=f"read-{n}", name="read_file", title=f"Read source-{n}",
+               kind="read", status="in_progress", rawInput={"Path": f"source-{n}.txt"})
+        update("tool_call_update", toolCallId=f"read-{n}", status="completed", rawOutput="fixture")
+    time.sleep(1.25)
+    update("agent_thought_chunk", content={"type": "text", "text": "The sources agree"})
+    update("agent_message_chunk", content={"type": "text", "text": "Subagent result"})
+    update("usage_update", used=137, size=1048576)
+    update("usage_update", used=137, size=1048576)
+    update("agent_message_chunk", content={"type": "text", "text": ""})
 
 
 def run():
@@ -121,9 +139,7 @@ def run():
                     "stopReason": "end_turn",
                     "usage": {"inputTokens": 90, "outputTokens": 11, "totalTokens": 101},
                 })
-                update("agent_message_chunk", content={"type": "text", "text": "Subagent result"})
-                update("usage_update", used=137, size=1048576)
-                update("usage_update", used=137, size=1048576)
+                detached_reply()
                 continue
             pending = request_id
             update("agent_message_chunk", content={"type": "text", "text": "Fixture reply"})
@@ -143,7 +159,8 @@ def run():
             assert result["outcome"]["optionId"] == "deny"
             send(id=pending, result={"stopReason": "end_turn"})
         elif method == "session/cancel":
-            send(id=pending, result={"stopReason": "cancelled"})
+            if pending is not None:
+                send(id=pending, result={"stopReason": "cancelled"})
         elif method == "session/close":
             send(id=request_id, result={})
         else:

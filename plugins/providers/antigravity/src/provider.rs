@@ -39,6 +39,7 @@ impl CadencrProvider for AntigravityProvider {
         Ok(Some(
             HostIntegration::builder()
                 .compact_command("compact")
+                .exclude_launcher_ports(true)
                 .worktree_config_paths(
                     [
                         "AGENTS.md",

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Prepare and publish a Cadencr release from a version tag such as v0.2.0, plus the tools (crates.io SDKs, npm tab packages, CLI) that need one; or, with --tools, release only the tools.
+description: Prepare and publish a Cadencr release from a version tag such as v0.2.0, and propose independent releases for updated tools and official marketplace plugins. Use --tools to release only tools.
 argument-hint: vX.Y.Z | --tools [cadencr-tab-backend|cadencr-provider-sdk|tab-sdk|tab-kit|cli ...]
 user-invocable: true
 allowed-tools: Bash(git *) Bash(gh *) Bash(pnpm *) Bash(cargo *) Bash(./scripts/release.sh *) Bash(scripts/release.sh *) Bash(node scripts/release-tools.mjs *) Bash(npm view *) Bash(curl -s *) Read Grep Glob Edit Write Agent
@@ -18,6 +18,7 @@ Prepare and publish a Cadencr release.
   - Follow [App release flow](#app-release-flow).
   - It also detects the tools that need a release (step 3). The developer confirms which ones to release.
   - The confirmed tool bumps go into the release preparation commit. The tools are published after the app, through [Tools release flow](#tools-release-flow).
+  - It also checks the official plugins maintained in this repository, including Cursor and Antigravity. The developer confirms which plugin releases to coordinate with the app. Follow [Official plugin release flow](PLUGINS.md).
 - **Tools only:** `--tools`, optionally followed by tool ids (`cadencr-tab-backend`, `cadencr-provider-sdk`, `tab-sdk`, `tab-kit`, `cli`). Without ids, every tool is considered.
   - Follow [Tools release flow](#tools-release-flow) from step T1.
   - There is no app version, app tag, changelog section or landing news.
@@ -68,10 +69,11 @@ Never dispatch a tool workflow with `dry_run=false` without the developer's expl
    - Summarize commits with `git log --oneline "$PREVIOUS_TAG..HEAD"`.
    - You may inspect the previous tag commit hash internally when useful for validation, but do not include it in published release notes or the final user-facing summary.
 
-3. **Detect the tools that need a release**
+3. **Detect the tools and official plugins that need a release**
    - Run `node scripts/release-tools.mjs`. Do steps T1 and T2 of [Tools release flow](#tools-release-flow) for every tool it reports in another state than `up-to-date`: resolve problems, then propose versions.
    - The app release never bumps a tool to the app version. A tool only moves to its own next version, through this step.
    - Present the tools plan together with the changelog draft at the step 5 stop. The developer may release every proposed tool, some of them, or none: this does not hold up the app release.
+   - Follow P1 of [Official plugin release flow](PLUGINS.md) against the intended app source. Propose each plugin independently, including first releases, updates and published versions still awaiting marketplace admission.
 
 4. **Generate release notes and changelog**
    - Update `CHANGELOG.md` with a section for the requested tag.
@@ -87,6 +89,7 @@ Never dispatch a tool workflow with `dry_run=false` without the developer's expl
    - Keep each feature and fix bullet focused on user impact, then end that same bullet with `— [@handle](https://github.com/handle).` for every human contributor who materially authored the item. Do not add wording such as `contributed by`. Credit each contributor once per changelog line; exclude bots, merge-only identities, and the release-preparation commit author.
    - When one changelog line folds together work from multiple PRs or commits, include every applicable contributor on that line using linked GitHub handles when available.
    - Keep the changelog factual and concise.
+   - Describe a plugin as available in the marketplace only after its signed catalog entry is verified. Use the plugin plan to track releases that still need publication or admission.
    - Images are optional. Add one when it helps communicate the release or explain a user-facing change, and follow [Changelog images](#changelog-images-optional). For an announcement graphic, also follow [Landing news visuals](#landing-news-visuals).
    - The GitHub release page is populated automatically from this exact changelog section by the release workflow, so write it as publish-ready release notes.
 
@@ -98,13 +101,14 @@ Never dispatch a tool workflow with `dry_run=false` without the developer's expl
    - The post should sell the release clearly while remaining accurate.
    - When the developer requests visuals, follow [Landing news visuals](#landing-news-visuals): use an abstract announcement graphic for the opening and authentic app screenshots to illustrate features in the article.
    - Write the news post from the perspective that the release has already shipped. Use present or past release language such as `is available now` and link directly to the release. Never use staging language such as `once the release is live`, `will be available`, or `once publication finishes`.
-   - Stop after `CHANGELOG.md` and any requested landing news post are modified. Show the drafted changelog section, the news file path or changelog-only status, and the tools plan from step 3. Then ask the developer to confirm all of it before continuing.
-   - Wait for explicit developer confirmation before continuing to version bumps, security review, CI checks, release preparation commit, preflight, tagging, pushing, or asset polling.
+   - Stop after `CHANGELOG.md` and any requested landing news post are modified. Ask the developer to confirm the drafted changelog, the landing news or changelog-only status, the tools plan and the plugin plan, including which plugin ids and versions to release or defer.
+   - Wait for explicit developer confirmation before continuing to version bumps, security review, CI checks, release preparation commit, preflight, tagging, pushing, or asset polling. The plugin selection authorizes preparation. Publication requires confirmation of each inspected request in P4.
 
 6. **Update every application version**
    - Update package versions in package manifests under `packages/*/package.json` that already have a version field.
    - Update Rust package versions in `packages/*/Cargo.toml` that already have a package version.
    - Except the tools (see [Modes](#modes)): never set them to the app version. Bump only those the developer confirmed at step 5, each to its own confirmed version, as in step T3. The app release no longer builds or attaches a CLI.
+   - Apply any confirmed plugin version and metadata updates through P2. Each plugin keeps its own version.
    - Update lockfiles when the package manager requires it.
    - Do not change unrelated dependency versions.
    - Verify the landing page displays the new version from `packages/landing/package.json` rather than a hardcoded version string.
@@ -133,7 +137,7 @@ gh api "repos/{owner}/{repo}/commits/$MAIN_SHA/status" \
 
 9. **Create the release preparation commit**
    - Review the final diff and ensure it contains only release preparation changes.
-   - Commit the changelog, optional landing news, version bumps (the confirmed tool bumps included), and lockfile updates before tagging.
+   - Commit the changelog, optional landing news, confirmed app, tool and plugin version updates, and lockfile updates before tagging.
    - Use a concise commit message such as `chore: prepare release vX.Y.Z`.
    - The helper script requires a clean worktree so the local tag points at the committed release state.
 
@@ -146,6 +150,7 @@ gh api "repos/{owner}/{repo}/commits/$MAIN_SHA/status" \
 
 11. **Push the tag manually**
 
+- Complete P3–P5 first for any plugin the app release requires at launch, such as a marketplace package replacing a built-in provider. If it is blocked, report the blocker before pushing the app tag.
 - Show the critical safety rule again.
 - Run: `git push origin "$TAG"`.
 - The script must not do this step.
@@ -170,7 +175,11 @@ done
     - The tool workflows publish what `main` holds. Continue only once the release preparation commit is on `origin/main` (`git fetch origin main && git merge-base --is-ancestor <release commit> origin/main`). If it is not there yet, ask the developer to land it; never push to `main` yourself without their go.
     - Then follow [Tools release flow](#tools-release-flow) from step T4, with the tools and versions confirmed at step 5.
 
-14. **Offer the Linux alpha**
+14. **Release the confirmed official plugins**
+    - After the app release, follow P3–P5 of [Official plugin release flow](PLUGINS.md) for the remaining selected plugins. This can proceed alongside step 13 when the relevant source commits are on `origin/main`.
+    - Report each plugin's source release and verified marketplace status. Continue independent releases if one plugin is deferred or blocked.
+
+15. **Offer the Linux alpha**
     - Linux is not part of the tag release: it ships as an alpha, attached by hand to the published release. Ask the developer whether this release gets it; never run it without their explicit go.
     - On a go: `gh workflow run desktop-linux-release.yml -f release_tag="$TAG"`, then watch the run (`gh run list --workflow desktop-linux-release.yml --limit 1`, `gh run watch <id>`). It refuses a draft release or one that already carries Linux packages.
     - Report the attached Linux assets and the "Linux (alpha)" section added to the release notes.
@@ -318,5 +327,6 @@ When an app release is complete, respond with:
 5. `Tag`: local tag and push status.
 6. `GitHub release`: URL and asset count, or the failing workflow status.
 7. `Tools`: per tool, its released version and where it is published (or its failing run), or why it was not released (up to date, skipped by the developer).
+8. `Official plugins`: per proposed plugin, its version, source release URL or pending build/publication, and signed marketplace status.
 
 When a `--tools` release is complete, respond with item 7 only, plus the bump PR.

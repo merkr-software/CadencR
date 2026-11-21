@@ -49,14 +49,9 @@ pub fn map_tool_call_update(
     let index = indexer.index_for_tool(tool_call_id);
     let parent = parent_tool_use_id(body);
     if tool_name == "AskUserQuestion" {
-        if let Some(event) = hooks.tool_call_update_override(
-            tool_call_id,
-            body,
-            status,
-            &metadata,
-            parent.as_deref(),
-            indexer,
-        ) {
+        if let Some(event) =
+            hooks.tool_call_update_override(tool_call_id, body, status, &metadata, parent, indexer)
+        {
             return MappedUpdate {
                 events: vec![event],
             };
@@ -66,7 +61,7 @@ pub fn map_tool_call_update(
         tool_call_id,
         index,
         body,
-        parent.clone(),
+        parent.map(str::to_owned),
         indexer,
         metadata.clone(),
         hooks,
@@ -79,7 +74,7 @@ pub fn map_tool_call_update(
         .body(body)
         .tool_call_id(tool_call_id)
         .status(status)
-        .maybe_parent(parent.clone())
+        .maybe_parent(parent.map(str::to_owned))
         .metadata(metadata.clone())
         .hooks(hooks)
         .indexer(indexer)
@@ -92,15 +87,7 @@ pub fn map_tool_call_update(
             body,
             status,
         };
-        push_terminal_events(
-            &call,
-            index,
-            parent.as_deref(),
-            &metadata,
-            hooks,
-            indexer,
-            &mut events,
-        );
+        push_terminal_events(&call, index, parent, &metadata, hooks, indexer, &mut events);
     } else if events.is_empty() {
         events.push(other_event(metadata.clone()));
     }

@@ -157,6 +157,12 @@ pub trait AcpProviderHooks: Send + Sync {
         false
     }
 
+    /// Whether the ACP process and its immediate children are launchers whose
+    /// own listeners should stay out of the conversation's port list.
+    fn exclude_launcher_ports(&self) -> bool {
+        false
+    }
+
     /// Runs before `session/resume` or `session/load` restores `session_id`
     /// in `cwd`. A provider whose sessions keep the folder they were created
     /// in moves a session whose folder moved, so it resumes in `cwd`.

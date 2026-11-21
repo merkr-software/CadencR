@@ -257,7 +257,8 @@ object on `stdout`; every field is optional and unknown fields are ignored:
 {
   "compactCommand": "compress",
   "worktreeConfigPaths": [".cursor/rules", ".cursor/commands", ".cursor/mcp.json"],
-  "resumeCommand": { "program": "agent", "args": ["--resume", "{session_id}"] }
+  "resumeCommand": { "program": "agent", "args": ["--resume", "{session_id}"] },
+  "excludeLauncherPorts": true
 }
 ```
 
@@ -266,12 +267,17 @@ object on `stdout`; every field is optional and unknown fields are ignored:
 | `compactCommand`      | Slash-command name without `/`: 1-64 characters of `[A-Za-z0-9._:-]`.                                                                                                               | `/compact` becomes a host action: the live session receives `session/prompt` with text `/<compactCommand>`, marked as a manual compaction.  |
 | `worktreeConfigPaths` | At most 32 entries; each 1-256 bytes, relative, already normalized (`a/b`; never `./a`, `a//b`, `a/`, `..`, a root or a drive prefix), `/` separators, no control characters.       | Copied from the project into every new worktree when present and not already there.                                                         |
 | `resumeCommand`       | `program`: bare executable name, 1-64 characters of `[A-Za-z0-9._-]` (no path separators). `args`: at most 16 entries of at most 256 bytes; `{session_id}` is the only placeholder. | "Resume in terminal": the desktop quotes each element itself and substitutes the session id. Never interpreted by a shell on the host side. |
+| `excludeLauncherPorts` | Boolean, defaults to `false`. Set it when the connector and its immediate children are dedicated to runtime infrastructure. | Hides listeners owned by the connector and its immediate children. Deeper descendants retain normal attribution. |
 
 The command runs with the same direct-exec, process-policy, 1 MiB output
 bounds as `models`, with a 10-second timeout, from the user's home directory.
 The host runs it once per installation for the life of the process (and again
 after a successful connector `update`), at startup in the background and
 before the first catalog read or spawn that needs it.
+
+Listening ports opened by one-shot provider commands such as `models`
+are excluded from conversation port badges, including when the command
+runs inside a conversation worktree.
 
 - **Invalid output** (not an object, or any field breaking its rule) rejects
   the whole declaration: the provider runs without host integration and the

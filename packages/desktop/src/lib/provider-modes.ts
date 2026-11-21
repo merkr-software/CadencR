@@ -200,9 +200,7 @@ export function getProviderModes(
     if (providerId !== PROVIDER_IDS.OPENCODE || !catalogModes?.length) return modes;
     return [...modes, ...catalogModes.map(opencodeCatalogMode)];
   }
-  const declared = catalogModes?.length
-    ? catalogModes
-    : (getCatalogProviderMetadata(providerId)?.modes ?? []);
+  const declared = catalogModes ?? getCatalogProviderMetadata(providerId)?.modes ?? [];
   return declared.map(catalogProviderMode);
 }
 

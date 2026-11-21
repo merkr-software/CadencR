@@ -33,7 +33,7 @@ def main():
             "connector version mismatch")
     integration = json.loads(subprocess.check_output(
         [str(binary), "host-integration", "--format", "cadencr-host-integration-v1"], timeout=10))
-    require(integration["compactCommand"] == "compact" and
+    require(integration["compactCommand"] == "compact" and integration["excludeLauncherPorts"] is True and
             integration["resumeCommand"] == {"program": "agy", "args": ["--conversation", "{session_id}"]} and
             ".agents/rules" in integration["worktreeConfigPaths"], "host integration mismatch")
     subprocess.run(["pnpm", "rust", "--", "test", "--locked", "-p",
