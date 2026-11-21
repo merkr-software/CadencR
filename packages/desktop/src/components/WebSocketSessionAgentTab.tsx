@@ -182,6 +182,7 @@ function AgentTabContent({
         worktreeProjectPath={data.projectPath}
         worktreeSelectedBranch={controls.selectedBranch}
         onWorktreeBranchChange={controls.setSelectedBranch}
+        openingPreview={args.openingPreview}
         className="h-full"
       />
     </SessionInfoMcpServersProvider>

@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { memo, type ReactElement } from "react";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -19,8 +19,10 @@ interface FeatureArchiveDialogsProps {
  * The archive dialog of an active conversation and the delete confirmation of
  * an archived one, whichever the confirmation settled on. Shared by the
  * project tree and the rows above it, so archiving reads the same everywhere.
+ * Memoized: its hosts re-render on every conversation switch, closed dialogs
+ * included, while none of its props change.
  */
-export function FeatureArchiveDialogs({
+export const FeatureArchiveDialogs = memo(function FeatureArchiveDialogs({
   projectId,
   confirmFeatureId,
   confirmation,
@@ -57,4 +59,4 @@ export function FeatureArchiveDialogs({
       />
     </>
   );
-}
+});

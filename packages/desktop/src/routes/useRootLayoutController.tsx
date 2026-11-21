@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import { useThemeSync } from "@/hooks/useTheme";
 import { useRouteFeatureIds } from "@/hooks/useRouteFeatureIds";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 import { useAppZoom } from "@/hooks/useZoom";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { resolveFeatureArchiveAction } from "@/lib/feature-archive-decision";
 import {
   initNotificationPermission,
@@ -69,27 +70,43 @@ function useRootEnvironment(isMobile: boolean) {
   useEffect(() => listenForPushNavigation(navigate, queryClient), [navigate, queryClient]);
 }
 
-function useRootRoute(closeMobileDrawer: () => void) {
-  const routerState = useRouterState();
-  const pathname = routerState.location.pathname;
-  const search = routerState.location.search as Record<string, unknown> | undefined;
-  const { projectId: activeProjectId, featureId: activeFeatureId } = useRouteFeatureIds();
+/**
+ * Navigating closes the mobile drawer. A leaf of its own: it follows the
+ * pathname, which the root layout itself never needs to render for.
+ */
+export const MobileDrawerRouteCloser = memo(function MobileDrawerRouteCloser({
+  close,
+}: {
+  close: () => void;
+}): null {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  useEffect(() => {
+    close();
+  }, [close, pathname]);
+  return null;
+});
+
+/**
+ * Remembers the last meaningful screen. A leaf of its own: it reads the search
+ * params too, which change on every tab focus, and must not re-render the root.
+ */
+export function LastScreenTracker(): null {
+  const { pathname, search } = useRouterState({ select: (state) => state.location });
   useEffect(() => {
     if (!isMeaningfulScreenPath(pathname)) return;
-    useLastScreenStore.getState().setLastScreen({ pathname, search: search ?? {} });
+    useLastScreenStore
+      .getState()
+      .setLastScreen({ pathname, search: (search as Record<string, unknown> | undefined) ?? {} });
   }, [pathname, search]);
-  useEffect(() => {
-    closeMobileDrawer();
-  }, [closeMobileDrawer, pathname]);
-  return useMemo(
-    () => ({ activeFeatureId, activeProjectId, pathname, routerState }),
-    [activeFeatureId, activeProjectId, pathname, routerState],
-  );
+  return null;
 }
 
-type RootRouteState = ReturnType<typeof useRootRoute>;
+interface RootRouteIds {
+  activeProjectId: number | null;
+  activeFeatureId: number | null;
+}
 
-function useRootFeatureActions(route: RootRouteState) {
+function useRootFeatureActions(route: RootRouteIds) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [confirmAction, setConfirmAction] = useState<ConfirmFeatureAction | null>(null);
@@ -104,17 +121,13 @@ function useRootFeatureActions(route: RootRouteState) {
       onSuccess: (session) => {
         invalidateFeatures();
         if (route.activeProjectId == null) return;
-        void navigate({
-          to: "/projects/$projectId/features/$featureId",
-          params: {
-            projectId: String(route.activeProjectId),
-            featureId: String(session.id),
-          },
+        navigateToConversation(navigate, route.activeProjectId, session.id, {
+          featureKnown: true,
         });
       },
     },
   });
-  const deleteMutation = useDeleteFeature({
+  const { mutate: deleteFeatureMutate } = useDeleteFeature({
     mutation: {
       onError: () => toast.error("Failed to delete feature"),
       onSuccess: (_data, variables) => {
@@ -135,20 +148,25 @@ function useRootFeatureActions(route: RootRouteState) {
     projectId: route.activeProjectId,
   });
   const deleteFeature = useCallback(
-    (featureId: number): void => deleteMutation.mutate({ id: featureId }),
-    [deleteMutation],
+    (featureId: number): void => deleteFeatureMutate({ id: featureId }),
+    [deleteFeatureMutate],
   );
   const appClose = useAppClose(queryClient, route.activeFeatureId);
-  return {
-    appClose,
-    archiveFeature,
-    confirmAction,
-    createSessionMutation,
-    deleteFeature,
-    deleteNavTargetRef,
-    setConfirmAction,
-    setArchiveActiveFeatures,
-  };
+  const createSession = createSessionMutation.mutate;
+  // Stable across navigations: RootOverlays is memoized on these.
+  return useMemo(
+    () => ({
+      appClose,
+      archiveFeature,
+      confirmAction,
+      createSession,
+      deleteFeature,
+      deleteNavTargetRef,
+      setConfirmAction,
+      setArchiveActiveFeatures,
+    }),
+    [appClose, archiveFeature, confirmAction, createSession, deleteFeature],
+  );
 }
 
 type RootFeatureActions = ReturnType<typeof useRootFeatureActions>;
@@ -179,7 +197,7 @@ async function prepareFeatureAction(
 }
 
 function useRootShortcuts(
-  route: RootRouteState,
+  route: RootRouteIds,
   sidebar: SidebarController,
   features: RootFeatureActions,
   setCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>,
@@ -215,7 +233,7 @@ function useRootShortcuts(
     (event) => {
       event.preventDefault();
       if (route.activeProjectId == null) return;
-      features.createSessionMutation.mutate({
+      features.createSession({
         data: { project_id: route.activeProjectId, type: "ws-session" },
       });
     },
@@ -244,18 +262,26 @@ export function useRootLayoutController() {
   const isMobile = useIsMobile();
   useRootEnvironment(isMobile);
   const sidebar = useSidebarController(isMobile);
-  const route = useRootRoute(sidebar.closeMobileDrawer);
-  const features = useRootFeatureActions(route);
+  // Ids, not the location: the root renders once per conversation switch for
+  // these, and its memoized children (shell, hosts, routed page) bail out.
+  const { projectId: activeProjectId, featureId: activeFeatureId } = useRouteFeatureIds();
+  const routeIds = useMemo(
+    () => ({ activeProjectId, activeFeatureId }),
+    [activeFeatureId, activeProjectId],
+  );
+  const features = useRootFeatureActions(routeIds);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  useRootShortcuts(route, sidebar, features, setCommandPaletteOpen);
+  useRootShortcuts(routeIds, sidebar, features, setCommandPaletteOpen);
   const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);
-  return {
-    commandPaletteOpen,
-    features,
-    isMobile,
-    openCommandPalette,
-    route,
-    setCommandPaletteOpen,
-    sidebar,
-  };
+  return useMemo(
+    () => ({
+      commandPaletteOpen,
+      features,
+      isMobile,
+      openCommandPalette,
+      setCommandPaletteOpen,
+      sidebar,
+    }),
+    [commandPaletteOpen, features, isMobile, openCommandPalette, sidebar],
+  );
 }

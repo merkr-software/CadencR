@@ -15,6 +15,7 @@ import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useSetting } from "@/hooks/useSetting";
 import { SETTINGS_ANCHORS } from "@/components/settings/settings-anchor-ids";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { installCliCommand } from "@/lib/cli/cli-install";
 import { DEFAULT_WORKTREE_MODE_KEY, type DefaultWorktreeMode } from "@/lib/default-worktree-mode";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -91,12 +92,8 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
   const openFile = useOpenFile(activeFeatureId);
 
   const openConversation = useCallback(
-    (projectId: number, featureId: number) => {
-      void navigate({
-        to: "/projects/$projectId/features/$featureId",
-        params: { projectId: String(projectId), featureId: String(featureId) },
-      });
-    },
+    (projectId: number, featureId: number) =>
+      navigateToConversation(navigate, projectId, featureId),
     [navigate],
   );
 
@@ -115,13 +112,13 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
         }
         const created = await createFeature({ data });
         refresh();
-        openConversation(projectId, created.id);
+        navigateToConversation(navigate, projectId, created.id, { featureKnown: true });
         toast.dismiss(toastId);
       } catch (error) {
         toast.error(apiErrorMessage(error, "Couldn't create the conversation"), { id: toastId });
       }
     },
-    [createFeature, openConversation, refresh, setProjectSetting],
+    [createFeature, navigate, refresh, setProjectSetting],
   );
 
   const addProject = useCallback(async () => {

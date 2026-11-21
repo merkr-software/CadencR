@@ -1,5 +1,9 @@
 import { useCallback, useRef } from "react";
 
+import {
+  useWorkspaceActivity,
+  type WorkspaceActivity,
+} from "@/components/workspace-pool/workspace-activity";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { subscribeZoomApplied } from "@/lib/zoom-coordinator";
 
@@ -24,8 +28,17 @@ function sameBounds(a: ViewportBounds | null, b: ViewportBounds): boolean {
   return a?.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }
 
+const NO_BOUNDS: ViewportBounds = { x: 0, y: 0, width: 0, height: 0 };
+
 interface BoundsTrackerOptions {
   onBounds: (bounds: ViewportBounds) => void;
+  /**
+   * The workspace the placeholder lives in. One kept mounted but hidden
+   * (`WorkspacePool`) keeps its layout, so the placeholder keeps its size: its
+   * native view would stay on screen, over the workspace that is shown. While
+   * hidden it reports no bounds, exactly as an unmounted placeholder does.
+   */
+  activity?: WorkspaceActivity;
 }
 
 export interface BrowserViewportBoundsTracker {
@@ -39,6 +52,7 @@ export function createBrowserViewportBoundsTracker(
   let nodeRef: HTMLDivElement | null = null;
   let observer: ResizeObserver | null = null;
   let unsubscribeZoomApplied: (() => void) | null = null;
+  let unsubscribeActivity: (() => void) | null = null;
   let frame: number | null = null;
   let lastBounds: ViewportBounds | null = null;
 
@@ -48,11 +62,12 @@ export function createBrowserViewportBoundsTracker(
       frame = null;
     }
   };
+  const shown = (): boolean => options.activity?.isActive() ?? true;
   const sync = (): void => {
     frame = null;
     const node = nodeRef;
     if (!node) return;
-    const nextBounds = boundsFromElement(node);
+    const nextBounds = shown() ? boundsFromElement(node) : NO_BOUNDS;
     if (sameBounds(lastBounds, nextBounds)) return;
     lastBounds = nextBounds;
     options.onBounds(nextBounds);
@@ -71,6 +86,8 @@ export function createBrowserViewportBoundsTracker(
     view?.removeEventListener("scroll", scheduleSync, true);
     unsubscribeZoomApplied?.();
     unsubscribeZoomApplied = null;
+    unsubscribeActivity?.();
+    unsubscribeActivity = null;
   };
   const disconnect = (): void => {
     observer?.disconnect();
@@ -83,7 +100,7 @@ export function createBrowserViewportBoundsTracker(
     nodeRef = node;
     lastBounds = null;
     if (!node) {
-      options.onBounds({ x: 0, y: 0, width: 0, height: 0 });
+      options.onBounds(NO_BOUNDS);
       return;
     }
     if (typeof ResizeObserver !== "undefined") {
@@ -95,6 +112,17 @@ export function createBrowserViewportBoundsTracker(
     view?.addEventListener("resize", scheduleSync);
     view?.addEventListener("scroll", scheduleSync, true);
     unsubscribeZoomApplied = subscribeZoomApplied(resyncBounds);
+    // Hidden: gone in the same task as the switch, not a frame later, so the
+    // view never shows over the next workspace. Shown: measured on the frame.
+    unsubscribeActivity =
+      options.activity?.subscribe(() => {
+        if (shown()) {
+          resyncBounds();
+          return;
+        }
+        cancelFrame();
+        sync();
+      }) ?? null;
   };
   const dispose = (): void => {
     disconnect();
@@ -108,17 +136,19 @@ export function useBrowserViewportBounds(
   onError: (error: unknown) => void,
 ): (node: HTMLDivElement | null) => void {
   const trackerRef = useRef<BrowserViewportBoundsTracker | null>(null);
+  const activity = useWorkspaceActivity();
 
   return useCallback(
     (node: HTMLDivElement | null): void => {
       trackerRef.current?.dispose();
       trackerRef.current = createBrowserViewportBoundsTracker({
+        activity,
         onBounds: (bounds) => {
           void desktopBridge.setBrowserBounds(bounds, scopeId).catch(onError);
         },
       });
       trackerRef.current.attach(node);
     },
-    [onError, scopeId],
+    [activity, onError, scopeId],
   );
 }

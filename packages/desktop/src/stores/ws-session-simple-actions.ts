@@ -55,6 +55,7 @@ type SimpleSessionActions = Pick<
   | "failPersistedLoad"
   | "retryPersistedLoad"
   | "setPersistedState"
+  | "hydratePersistedState"
   | "loadOlderMessages"
   | "loadPromptTurn"
   | "refreshSessionMessages"

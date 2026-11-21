@@ -4,7 +4,7 @@ import type { StoreAccessors } from "./ws-envelope-handler";
 import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import type { PersistedStatePayload, ResyncTarget, WsSessionStore } from "./ws-session-types";
-import { updateSession } from "./ws-session-types";
+import { createSessionEntry, updateSession } from "./ws-session-types";
 
 type HistoryActions = Pick<
   WsSessionStore,
@@ -12,6 +12,7 @@ type HistoryActions = Pick<
   | "failPersistedLoad"
   | "retryPersistedLoad"
   | "setPersistedState"
+  | "hydratePersistedState"
   | "loadOlderMessages"
   | "loadPromptTurn"
   | "refreshSessionMessages"
@@ -47,6 +48,17 @@ export function createHistoryActions(ctx: StoreAccessors): HistoryActions {
 
     setPersistedState(sessionId: string, payload: PersistedStatePayload) {
       applyPersistedState(ctx, sessionId, payload);
+    },
+
+    hydratePersistedState(sessionId: string, snapshot: PersistedStatePayload | null) {
+      if (!get().sessions[sessionId]) {
+        set({ sessions: { ...get().sessions, [sessionId]: createSessionEntry() } });
+      }
+      if (snapshot) {
+        applyPersistedState(ctx, sessionId, snapshot);
+        return;
+      }
+      set(updateSession(get(), sessionId, { persistedLoaded: true, historyLoadFailure: null }));
     },
 
     async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {

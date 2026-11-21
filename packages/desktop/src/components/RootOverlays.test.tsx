@@ -25,8 +25,15 @@ const features: Feature[] = [
   },
 ];
 
-const { mockListFeatureWorktrees } = vi.hoisted(() => ({
+const { mockListFeatureWorktrees, routeIds } = vi.hoisted(() => ({
   mockListFeatureWorktrees: vi.fn(),
+  routeIds: { projectId: 1, featureId: 2 },
+}));
+
+// The overlays read the open conversation from the route themselves.
+vi.mock("@/hooks/useRouteFeatureIds", () => ({
+  useRouteFeatureIds: () => routeIds,
+  useRouteProjectId: () => routeIds.projectId,
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
@@ -89,12 +96,11 @@ function renderRootOverlays(
   onArchiveFeature = vi.fn().mockResolvedValue({ archived_ids: [1] }),
   activeProjectId = 1,
 ) {
+  routeIds.projectId = activeProjectId;
   render(
     <RootOverlays
       commandPaletteOpen={false}
       setCommandPaletteOpen={vi.fn()}
-      activeProjectId={activeProjectId}
-      activeFeatureId={2}
       confirmAction={confirmAction}
       setConfirmAction={vi.fn()}
       onArchiveFeature={onArchiveFeature}

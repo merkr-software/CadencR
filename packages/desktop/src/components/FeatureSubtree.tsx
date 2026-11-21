@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import type { Feature } from "@/api/generated";
 import { descendantIdsOf, type FeatureTreeNode } from "@/lib/feature-hierarchy";
@@ -37,31 +37,40 @@ export function FeatureSubtree({
 }) {
   const expanded = !collapsedIds.has(node.feature.id);
   const hasChildren = node.children.length > 0;
-
-  const control = hasChildren ? (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
-      aria-label={expanded ? "Collapse child sessions" : "Expand child sessions"}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSetCollapsed(node.feature.id, expanded);
-      }}
-    >
-      {expanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
-    </Button>
-  ) : null;
+  const featureId = node.feature.id;
+  // Kept across renders: the memoized row compares them, and a conversation
+  // switch re-renders this tree without changing either.
+  const hiddenDescendantIds = useMemo(
+    () => (hasChildren && !expanded ? descendantIdsOf(node) : undefined),
+    [expanded, hasChildren, node],
+  );
+  const control = useMemo(
+    () =>
+      hasChildren ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
+          aria-label={expanded ? "Collapse child sessions" : "Expand child sessions"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSetCollapsed(featureId, expanded);
+          }}
+        >
+          {expanded ? (
+            <ChevronDownIcon className="size-3" />
+          ) : (
+            <ChevronRightIcon className="size-3" />
+          )}
+        </Button>
+      ) : null,
+    [expanded, featureId, hasChildren, onSetCollapsed],
+  );
 
   return (
     <>
-      {renderFeature(
-        node.feature,
-        control,
-        depth,
-        hasChildren && !expanded ? descendantIdsOf(node) : undefined,
-      )}
+      {renderFeature(node.feature, control, depth, hiddenDescendantIds)}
       {expanded && hasChildren && (
         <div data-feature-subtree-children={node.feature.id}>
           {node.children.map((child) => (

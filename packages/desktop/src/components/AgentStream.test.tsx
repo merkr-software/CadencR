@@ -326,6 +326,7 @@ describe("AgentStream", () => {
 
     const { rerender } = render(<AgentStream blocks={[block1, block2, block3]} isStreaming />);
 
+    // No tail preview here (`openingPreview` is off): each row renders once.
     expect(blockRenderCounts.get("1")).toBe(1);
     expect(blockRenderCounts.get("2")).toBe(1);
     expect(blockRenderCounts.get("3")).toBe(1);

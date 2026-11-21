@@ -7,6 +7,7 @@ import type { PluginIdentity } from "@/lib/plugin-tabs/broker-runtime";
 import { pluginTabInstanceId } from "@/lib/plugin-tabs/instance-id";
 import { refreshPluginTabsOrToast } from "@/lib/plugin-tabs/live-instances";
 import { useOpenCustomTabProject } from "@/components/settings/custom-tabs/useOpenCustomTabProject";
+import { useWorkspaceActive } from "@/components/workspace-pool/workspace-activity";
 import { useDocumentVisible } from "@/hooks/useDocumentVisible";
 import type { PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
 import type { TabKind } from "@/stores/feature-layout-schema";
@@ -95,6 +96,9 @@ export const PluginTabView = memo(function PluginTabView({
     isTabVisible(selectFeatureLayout(featureId)(state), tab),
   );
   const documentVisible = useDocumentVisible();
+  // A workspace kept mounted but hidden (`WorkspacePool`) keeps its layout:
+  // its guest view must go with it rather than stay over the one on screen.
+  const workspaceActive = useWorkspaceActive();
   const [placeholder, setPlaceholder] = useState<HTMLDivElement | null>(null);
   const shortcuts = useActiveTabShortcuts(summary.shortcuts);
   const plugin = usePluginIdentity(summary, shortcuts);
@@ -104,7 +108,7 @@ export const PluginTabView = memo(function PluginTabView({
     plugin,
     context,
     live: blocked === null,
-    visible: tabVisible && documentVisible,
+    visible: tabVisible && documentVisible && workspaceActive,
     placeholder,
     shortcuts,
   });

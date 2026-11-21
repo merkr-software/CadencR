@@ -34,7 +34,10 @@ vi.mock("@/hooks/useRouteFeatureIds", () => ({
   useRouteFeatureIds: () => ({ projectId: null, featureId: mocks.activeFeatureId }),
 }));
 vi.mock("@/hooks/useArchiveFeatureAction", () => ({ useArchiveFeatureAction: () => vi.fn() }));
-vi.mock("@/lib/queryClient", () => ({ invalidateByUrlPrefix: mocks.invalidate }));
+vi.mock("@/lib/queryClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/queryClient")>()),
+  invalidateByUrlPrefix: mocks.invalidate,
+}));
 vi.mock("@/components/useFeatureArchiveConfirmation", () => ({
   useFeatureArchiveConfirmation: (id: number | null) => ({
     action: id == null ? null : "archive",

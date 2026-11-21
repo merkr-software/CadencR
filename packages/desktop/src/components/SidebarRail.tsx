@@ -29,7 +29,11 @@ import { useShortcutLabel } from "@/hooks/useShortcutLabel";
  * conversation's glyph opens its gate popover, so a request can be answered
  * without reopening the sidebar. Desktop only.
  */
-export function SidebarRail({ onExpand }: { onExpand: () => void }): ReactElement | null {
+export const SidebarRail = memo(function SidebarRail({
+  onExpand,
+}: {
+  onExpand: () => void;
+}): ReactElement | null {
   const content = useSidebarOption("rail");
   const { featureId: activeFeatureId } = useRouteFeatureIds();
   const toggleSidebarCombo = useShortcutLabel("toggle-sidebar");
@@ -90,7 +94,7 @@ export function SidebarRail({ onExpand }: { onExpand: () => void }): ReactElemen
       </nav>
     </TooltipProvider>
   );
-}
+});
 
 function RailProjects({ onExpand }: { onExpand: () => void }): ReactElement {
   const { projects } = useOrderedProjects();

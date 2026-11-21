@@ -25,6 +25,7 @@ interface AgentSessionStreamContentProps {
   summaryMode: AgentStreamProps["summaryMode"];
   searchEnabled: boolean;
   messageNavigator: AgentStreamProps["messageNavigator"];
+  openingPreview: AgentStreamProps["openingPreview"];
 }
 
 export const AgentSessionStreamContent = memo(function AgentSessionStreamContent({
@@ -43,6 +44,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   summaryMode,
   searchEnabled,
   messageNavigator,
+  openingPreview,
 }: AgentSessionStreamContentProps): ReactElement | null {
   if (blocks.length === 0 && !isAgentWorking) return null;
 
@@ -72,6 +74,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       summaryMode={summaryMode}
       searchEnabled={searchEnabled}
       messageNavigator={messageNavigator}
+      openingPreview={openingPreview}
     />
   );
 });

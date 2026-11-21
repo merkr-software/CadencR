@@ -300,6 +300,7 @@ export const AgentSession = memo(
         summaryMode={s.summaryMode}
         searchEnabled={(props.agentTabActive ?? true) && !props.disableShortcuts}
         messageNavigator={s.messageNavigator}
+        openingPreview={props.openingPreview}
       />
     );
 

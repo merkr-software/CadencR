@@ -62,7 +62,7 @@ describe("sidebar sample preview", () => {
     const live = render(
       <PinnedConversationRow
         feature={conversation.feature}
-        activeFeatureId={null}
+        isActive={false}
         hasLiveWorktree
         worktree={conversation.worktree}
         onNavigate={vi.fn()}

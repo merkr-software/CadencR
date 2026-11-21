@@ -153,6 +153,12 @@ export interface WsSessionStore {
   retryPersistedLoad: (sessionId: string) => void;
   setPersistedState: (sessionId: string, options: PersistedStatePayload) => void;
   /**
+   * Apply a snapshot fetched ahead of the conversation being opened: creates
+   * the entry when the session was never connected, then settles the history
+   * gate (`null`: the conversation has no saved history).
+   */
+  hydratePersistedState: (sessionId: string, snapshot: PersistedStatePayload | null) => void;
+  /**
    * Loads older messages for a session. Resolves with the number of blocks
    * prepended to the conversation. The store also increments
    * `historyPrependDisplayOffset` by the rendered row count for Virtuoso.

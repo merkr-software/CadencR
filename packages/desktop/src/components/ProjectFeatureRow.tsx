@@ -38,7 +38,8 @@ const ROW_KEYDOWN_IGNORED_SELECTOR = [
 interface ProjectFeatureRowProps {
   feature: Feature;
   projectId: number;
-  activeFeatureId: number | null;
+  /** A boolean, not the active id: a conversation switch re-renders only the two rows it flips. */
+  isActive: boolean;
   liveTitle: string | undefined;
   isAutoNaming: boolean;
   /** True when the feature has a worktree recorded in feature settings (icon). */
@@ -217,7 +218,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
   const {
     feature,
     projectId,
-    activeFeatureId,
+    isActive,
     hasLiveWorktree,
     onNavigate,
     onStartLabelEdit,
@@ -229,7 +230,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
   const state = useProjectFeatureRowState(
     feature,
     projectId,
-    activeFeatureId,
+    isActive,
     hasLiveWorktree,
     hiddenDescendantIds,
   );
@@ -281,6 +282,8 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
           }}
           onMouseEnter={state.prefetchFeature}
           onFocus={state.prefetchFeature}
+          onMouseLeave={state.prefetchFeature.cancel}
+          onBlur={state.prefetchFeature.cancel}
           onKeyDown={(e) => openFeatureRowOnKey(e, () => onNavigate(feature))}
         >
           <FeatureHierarchyGutter depth={hierarchyDepth}>{hierarchyControl}</FeatureHierarchyGutter>

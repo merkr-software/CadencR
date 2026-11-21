@@ -29,6 +29,7 @@ import type { AccessMode } from "@/types/access-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
 import { retainWsSession } from "@/hooks/ws-session-retention";
 import { usePersistedSessionLoader } from "@/hooks/usePersistedSessionLoader";
+import { useWorkspaceSession } from "@/hooks/useWorkspaceSession";
 
 export interface UseWebSocketSessionReturn {
   blocks: AgentBlockData[];
@@ -166,8 +167,8 @@ export function useWebSocketSession(
   options?: UseWebSocketSessionOptions,
 ): UseWebSocketSessionReturn {
   // Subscribe to this session's slice only — chunks on other sessions don't
-  // re-render the hook.
-  const session = useWsSessionStore((s) => s.sessions[sessionId]);
+  // re-render the hook. A workspace kept mounted but hidden samples it slowly.
+  const session = useWorkspaceSession(sessionId);
 
   // Backend-driven status (the single source of truth — see
   // `domain::session_status` on the Rust side and `session-status-store`

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderHook } from "@/test-utils";
+import type { ReactNode } from "react";
+import { act, renderHook } from "@/test-utils";
+import {
+  WorkspaceActivityProvider,
+  createWorkspaceActivity,
+  type WorkspaceActivityController,
+} from "@/components/workspace-pool/workspace-activity";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry, type SessionEntry } from "@/stores/ws-session-types";
 import { claudeProfileForPrompt, useWsSessionEffects } from "./WebSocketSessionFeatureBlockHooks";
@@ -101,6 +107,85 @@ describe("useWsSessionEffects session initialization", () => {
   it("initializes a full session on mount", () => {
     const { initSession } = render(loadedSession(), true);
     expect(initSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useWsSessionEffects focus when a workspace is shown again", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function renderInWorkspace(activity: WorkspaceActivityController, focusedTabId: string) {
+    const refs = {
+      agent: { current: { focusPromptBar: vi.fn(), focusActiveInput: vi.fn() } },
+      terminal: { current: { activate: vi.fn() } },
+      editor: { current: { focusActiveEditor: vi.fn() } },
+    };
+    const args = {
+      sessionId: "ws-feature-7",
+      cwd: "/repo",
+      featureId: 7,
+      data: { session: loadedSession(), effectiveCwd: "/repo", requestSlashCommands: vi.fn() },
+      controls: {
+        ws: { initSession: vi.fn(), isConnected: true, permissionMode: "default" },
+        initializedRef: { current: null },
+        claudeProfile: {},
+      },
+      refs,
+      focusedTabId,
+      hotkeysEnabled: true,
+      autoFocusPrompt: true,
+      autoInitSession: false,
+    } as unknown as EffectsArgs;
+    renderHook(() => useWsSessionEffects(args), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <WorkspaceActivityProvider value={activity}>{children}</WorkspaceActivityProvider>
+      ),
+    });
+    return refs;
+  }
+
+  /** Hide, then show: focus moves one frame after the workspace is on screen. */
+  function hideThenShow(activity: WorkspaceActivityController): void {
+    act(() => activity.set(false));
+    act(() => activity.set(true));
+    act(() => void vi.advanceTimersByTime(20));
+  }
+
+  it("activates the terminal a conversation was left on", () => {
+    vi.useFakeTimers();
+    const activity = createWorkspaceActivity(true);
+    const refs = renderInWorkspace(activity, "terminal");
+    act(() => void vi.advanceTimersByTime(20));
+    // On mount the terminal focuses itself.
+    expect(refs.terminal.current.activate).not.toHaveBeenCalled();
+
+    hideThenShow(activity);
+
+    expect(refs.terminal.current.activate).toHaveBeenCalledTimes(1);
+    expect(refs.agent.current.focusPromptBar).not.toHaveBeenCalled();
+  });
+
+  it("focuses the editor a conversation was left on", () => {
+    vi.useFakeTimers();
+    const activity = createWorkspaceActivity(true);
+    const refs = renderInWorkspace(activity, "editor");
+
+    hideThenShow(activity);
+
+    expect(refs.editor.current.focusActiveEditor).toHaveBeenCalledTimes(1);
+    expect(refs.agent.current.focusPromptBar).not.toHaveBeenCalled();
+  });
+
+  it("takes the prompt back on the agent tab, and leaves focus alone while hidden", () => {
+    vi.useFakeTimers();
+    const activity = createWorkspaceActivity(false);
+    const refs = renderInWorkspace(activity, "agent");
+    act(() => void vi.advanceTimersByTime(20));
+    expect(refs.agent.current.focusPromptBar).not.toHaveBeenCalled();
+
+    act(() => activity.set(true));
+    act(() => void vi.advanceTimersByTime(20));
+
+    expect(refs.agent.current.focusPromptBar).toHaveBeenCalledTimes(1);
   });
 });
 

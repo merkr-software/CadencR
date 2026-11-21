@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ArchivedFeatureList, ArchivedFeatureSection } from "@/components/ArchivedFeatureList";
 import { FeatureArchiveDialogs } from "@/components/FeatureArchiveDialogs";
 import {
@@ -87,12 +87,14 @@ function ProjectFeatureDialogs({
   projectId: number;
   controller: ProjectFeaturesController;
 }) {
+  const { setConfirmFeatureId } = controller;
+  const close = useCallback(() => setConfirmFeatureId(null), [setConfirmFeatureId]);
   return (
     <FeatureArchiveDialogs
       projectId={projectId}
       confirmFeatureId={controller.confirmFeatureId}
       confirmation={controller.confirmation}
-      onClose={() => controller.setConfirmFeatureId(null)}
+      onClose={close}
       onArchive={controller.actions.archiveFeature}
       onDelete={controller.actions.deleteFeature}
     />

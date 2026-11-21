@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -12,6 +12,7 @@ import {
 import { FeatureSubtree, type RenderFeature } from "@/components/FeatureSubtree";
 import { ProjectFeatureRow } from "@/components/ProjectFeatureRow";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { getFocusedTabForFeature, type FeatureNavigateOptions } from "@/lib/feature-focus-handoff";
 import { partitionActiveFeatures } from "@/lib/feature-grouping";
 import { invalidateFeatureQueries } from "@/lib/featureUpdated";
@@ -175,7 +176,7 @@ function useSortedShownFeatures(
 function useProjectFeatureLabels(data: ProjectFeaturesData) {
   const [editingFeatureId, setEditingFeatureId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
-  const updateMutation = useUpdateFeatureLabel({
+  const { mutate: updateLabel, isPending: isSaving } = useUpdateFeatureLabel({
     mutation: {
       onSuccess: (_data, variables) => {
         setEditingFeatureId(null);
@@ -199,9 +200,9 @@ function useProjectFeatureLabels(data: ProjectFeaturesData) {
         setDraft("");
         return;
       }
-      updateMutation.mutate({ id: featureId, data: { label: normalized } });
+      updateLabel({ id: featureId, data: { label: normalized } });
     },
-    [data.features, draft, updateMutation],
+    [data.features, draft, updateLabel],
   );
   const shortcut = useCallback(
     (event: KeyboardEvent): void => {
@@ -214,8 +215,8 @@ function useProjectFeatureLabels(data: ProjectFeaturesData) {
   );
   useGlobalShortcutById("edit-label", shortcut, { enabled: data.activeFeature != null });
   return useMemo(
-    () => ({ cancel, draft, editingFeatureId, save, setDraft, start, updateMutation }),
-    [cancel, draft, editingFeatureId, save, start, updateMutation],
+    () => ({ cancel, draft, editingFeatureId, isSaving, save, setDraft, start }),
+    [cancel, draft, editingFeatureId, isSaving, save, start],
   );
 }
 
@@ -232,42 +233,31 @@ function useProjectFeatureActions(props: ProjectFeaturesProps, data: ProjectFeat
     activeFeatures: data.activeFeatures,
     projectId: props.projectId,
   });
+  // Read at click time: the row callbacks must keep their identity when the
+  // open conversation changes, or every memoized row re-renders on a switch.
+  const activeFeatureIdRef = useRef(props.activeFeatureId);
+  activeFeatureIdRef.current = props.activeFeatureId;
+  const { onSelectFeature, projectId, projectPath } = props;
   const navigateToFeature = useCallback(
     (feature: Feature, options?: FeatureNavigateOptions): void => {
-      props.onSelectFeature(feature.id);
-      const focusTab = options?.focusTab ?? getFocusedTabForFeature(props.activeFeatureId);
-      const search = {
-        cwd: props.projectPath,
-        featureId: feature.id,
-        projectId: props.projectId,
-        ...(focusTab ? { focusTab } : {}),
-      };
-      void navigate({
-        to: "/ws-session/$sessionId",
-        params: { sessionId: wsSessionIdFromFeature(feature.id) },
-        search,
+      onSelectFeature(feature.id);
+      navigateToConversation(navigate, projectId, feature.id, {
+        focusTab: options?.focusTab ?? getFocusedTabForFeature(activeFeatureIdRef.current),
+        cwd: projectPath,
+        featureKnown: true,
       });
     },
-    [navigate, props],
+    [navigate, onSelectFeature, projectId, projectPath],
   );
-  return {
-    closeActivity: (
-      featureId: number,
-      shellCount: number,
-      browserCount: number,
-      downloadCount: number,
-    ): void =>
-      closeFeatureActivity({
-        projectId: props.projectId,
-        featureId,
-        shellCount,
-        browserCount,
-        downloadCount,
-      }),
-    ...mutations,
-    navigateToFeature,
-    archiveFeature,
-  };
+  const closeActivity = useCallback(
+    (featureId: number, shellCount: number, browserCount: number, downloadCount: number): void =>
+      closeFeatureActivity({ projectId, featureId, shellCount, browserCount, downloadCount }),
+    [closeFeatureActivity, projectId],
+  );
+  return useMemo(
+    () => ({ ...mutations, closeActivity, navigateToFeature, archiveFeature }),
+    [archiveFeature, closeActivity, mutations, navigateToFeature],
+  );
 }
 
 type ProjectFeatureActions = ReturnType<typeof useProjectFeatureActions>;
@@ -284,7 +274,7 @@ function createFeatureRenderer(
       key={feature.id}
       feature={feature}
       projectId={props.projectId}
-      activeFeatureId={props.activeFeatureId}
+      isActive={props.activeFeatureId === feature.id}
       liveTitle={data.getLiveTitle(feature.id)}
       isAutoNaming={data.isAutoNaming(feature.id)}
       hasWorktree={data.worktreeFeatureIds.has(feature.id)}
@@ -297,7 +287,7 @@ function createFeatureRenderer(
       isEditingLabel={labels.editingFeatureId === feature.id}
       labelDraft={labels.editingFeatureId === feature.id ? labels.draft : ""}
       labelSuggestions={data.labelSuggestions}
-      isSavingLabel={labels.updateMutation.isPending && labels.editingFeatureId === feature.id}
+      isSavingLabel={labels.isSaving && labels.editingFeatureId === feature.id}
       onNavigate={actions.navigateToFeature}
       onStartLabelEdit={labels.start}
       onLabelDraftChange={labels.setDraft}

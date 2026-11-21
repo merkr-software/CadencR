@@ -3,9 +3,17 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStaggeredTabReadiness, type NonAgentTabReadiness } from "./useAgentFirstNonAgentWork";
 
-// Mirrors STAGGER_STEP_MS in the implementation. Each successive tab reveals
-// one step apart; advancing N steps reveals the first N tabs in priority order.
-const STEP_MS = 120;
+// Each successive tab reveals one painted frame apart (a frame callback, then
+// a task behind it); advancing N frames reveals the first N tabs in priority
+// order.
+const STEP_MS = 20;
+
+/** One `act` per frame: the next step is scheduled by the previous one's commit. */
+function advanceFrames(count: number): void {
+  for (let frame = 0; frame < count; frame += 1) {
+    act(() => void vi.advanceTimersByTime(STEP_MS));
+  }
+}
 
 const NONE: NonAgentTabReadiness = {
   editor: false,
@@ -23,7 +31,7 @@ describe("useStaggeredTabReadiness", () => {
     const { result } = renderHook(() =>
       useStaggeredTabReadiness({ enabled: false, immediateTab: null, resetKey: "a" }),
     );
-    act(() => void vi.advanceTimersByTime(STEP_MS * 8));
+    advanceFrames(8);
     expect(result.current).toEqual(NONE);
   });
 
@@ -33,11 +41,11 @@ describe("useStaggeredTabReadiness", () => {
     );
 
     expect(result.current).toEqual(NONE);
-    act(() => void vi.advanceTimersByTime(STEP_MS));
+    advanceFrames(1);
     expect(result.current).toMatchObject({ editor: true, git: false });
-    act(() => void vi.advanceTimersByTime(STEP_MS));
+    advanceFrames(1);
     expect(result.current).toMatchObject({ editor: true, git: true, terminal: false });
-    act(() => void vi.advanceTimersByTime(STEP_MS * 3));
+    advanceFrames(3);
     expect(result.current).toEqual({
       editor: true,
       git: true,
@@ -59,7 +67,7 @@ describe("useStaggeredTabReadiness", () => {
     const { result, rerender } = renderHook((props) => useStaggeredTabReadiness(props), {
       initialProps: { enabled: true, immediateTab: null, resetKey: "a" },
     });
-    act(() => void vi.advanceTimersByTime(STEP_MS * 4));
+    advanceFrames(4);
     expect(result.current).toMatchObject({ editor: true, browser: true });
 
     // Switching conversation must reset readiness on the very next render — no
@@ -68,7 +76,7 @@ describe("useStaggeredTabReadiness", () => {
     expect(result.current).toEqual(NONE);
 
     // ...and the stagger restarts for the new conversation.
-    act(() => void vi.advanceTimersByTime(STEP_MS));
+    advanceFrames(1);
     expect(result.current).toMatchObject({ editor: true, git: false });
   });
 });

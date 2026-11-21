@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useWorkspaceActivity, whileActive } from "@/components/workspace-pool/workspace-activity";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusStore";
 
@@ -24,6 +25,12 @@ import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusS
  * re-resolve and bind to the freshly-created worktree. The epoch is driven
  * by the WS envelope (single source of truth) rather than by local
  * worktreeStatus fields.
+ *
+ * **Only while its workspace is on screen.** A workspace kept mounted but
+ * hidden (`WorkspacePool`) drops its subscription, so the backend watches the
+ * repositories of the conversations being looked at, not of every one kept in
+ * memory. Showing it subscribes again, and the snapshot that answers brings
+ * its Git state up to date.
  */
 export function useGitStatusSubscription(featureId: number | null | undefined): void {
   const isConnected = useSessionStatusStore((s) => s.isConnected);
@@ -31,9 +38,11 @@ export function useGitStatusSubscription(featureId: number | null | undefined): 
   const subscribeGitStatus = useSessionStatusStore((s) => s.subscribeGitStatus);
   const watcherEpoch = useGitStatusStore(selectGitWatcherEpoch(featureId));
 
+  const activity = useWorkspaceActivity();
+
   useEffect(() => {
-    if (featureId == null || !isConnected) return;
-    return subscribeGitStatus(featureId);
+    if (featureId == null || !isConnected) return undefined;
+    return whileActive(activity, () => subscribeGitStatus(featureId));
     // `watcherEpoch` is in the deps on purpose — see the docblock above.
-  }, [isConnected, connectionEpoch, subscribeGitStatus, featureId, watcherEpoch]);
+  }, [activity, isConnected, connectionEpoch, subscribeGitStatus, featureId, watcherEpoch]);
 }
