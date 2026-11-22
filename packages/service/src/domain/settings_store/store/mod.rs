@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
+use super::cache::{self, CachedEntry};
 use super::{file, lock, validate, Scope, SettingWarning};
 
 mod global;
@@ -38,22 +39,30 @@ pub fn read(
     path: &Path,
     scope: Scope,
 ) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
-    Ok(match file::read_file(path)? {
-        Some(text) => load_text(scope, &text),
-        None => (BTreeMap::new(), Vec::new()),
-    })
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Missing => Ok((BTreeMap::new(), Vec::new())),
+        CachedEntry::Present(doc) => Ok(doc.validated(scope)),
+        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
+    }
 }
 
-/// Parse + validate already-read document text. Split out so `read_for_edit`
-/// can reuse this pass without reading the same file from disk a second time.
-fn load_text(scope: Scope, text: &str) -> (BTreeMap<String, String>, Vec<SettingWarning>) {
-    let (parsed, mut warnings) = match file::parse_object(text) {
-        Ok(result) => result,
-        Err(message) => return (BTreeMap::new(), vec![SettingWarning::new("", message)]),
-    };
-    let (clean, mut validation_warnings) = validate::validate(scope, parsed);
-    warnings.append(&mut validation_warnings);
-    (clean, warnings)
+/// Read a single validated scalar setting without cloning the entire map.
+/// Missing or unreadable files return `None` (matching [`load`]).
+pub(super) fn load_key(path: &Path, scope: Scope, key: &str) -> Option<String> {
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Present(doc) => doc.get_validated(scope, key),
+        CachedEntry::Missing | CachedEntry::Unreadable(_) => None,
+    }
+}
+
+/// Like [`load_key`], but an unreadable file returns `Err(SETTINGS_READ_FAILED)`
+/// (matching [`read`]).
+pub(super) fn read_key(path: &Path, scope: Scope, key: &str) -> Result<Option<String>, AppError> {
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Missing => Ok(None),
+        CachedEntry::Present(doc) => Ok(doc.get_validated(scope, key)),
+        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
+    }
 }
 
 /// Read the full stored document (all keys preserved, nested sections intact) for
@@ -73,6 +82,88 @@ pub(super) fn load_document_for_write(
     }
 }
 
+/// How [`update_document_locked`] handles a missing or unparseable settings file.
+pub(crate) enum ReadPolicy {
+    /// Missing file starts from `{}`; invalid JSON returns `BadRequest` so a
+    /// write never clobbers a file the user is mid-edit on.
+    Strict,
+    /// Missing or invalid JSON leaves the file untouched and returns `Ok(None)`
+    /// without calling `mutate`. Used by best-effort startup cleanups.
+    SkipMissingOrCorrupt,
+}
+
+/// Serialize a read-modify-write over `path` under `WRITE_LOCK`, offloading
+/// disk I/O and JSON serialization to `spawn_blocking` and refreshing the
+/// watcher cache whenever a write occurs.
+///
+/// `mutate` returns `Ok((value, true))` to persist the updated document or
+/// `Ok((value, false))` to leave disk untouched.
+pub(crate) async fn update_document_locked<T, F>(
+    path: &Path,
+    policy: ReadPolicy,
+    task_label: &'static str,
+    mutate: F,
+) -> Result<Option<T>, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(T, bool), AppError>
+        + Send
+        + 'static,
+{
+    let owned_path = path.to_path_buf();
+    let _guard = lock::write_lock().lock().await;
+    let outcome =
+        tokio::task::spawn_blocking(move || -> Result<Option<(T, Option<String>)>, AppError> {
+            let mut doc = match policy {
+                ReadPolicy::Strict => load_document_for_write(&owned_path)?,
+                ReadPolicy::SkipMissingOrCorrupt => {
+                    let Some(text) = file::read_file(&owned_path)? else {
+                        return Ok(None);
+                    };
+                    let Ok(doc) = file::parse_document(&text) else {
+                        // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
+                        return Ok(None);
+                    };
+                    doc
+                }
+            };
+            let (value, changed) = mutate(&mut doc)?;
+            if !changed {
+                return Ok(Some((value, None)));
+            }
+            let serialized = file::serialize_document(&doc);
+            file::write_atomic(&owned_path, &serialized)?;
+            Ok(Some((value, Some(serialized))))
+        })
+        .await
+        .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))??;
+
+    match outcome {
+        Some((value, Some(serialized))) => {
+            cache::put_text(path, serialized);
+            Ok(Some(value))
+        }
+        Some((value, None)) => Ok(Some(value)),
+        None => Ok(None),
+    }
+}
+
+/// Atomically write an already-serialized document while holding `WRITE_LOCK`
+/// and refresh the watcher cache.
+pub(super) async fn write_serialized_under_lock(
+    _guard: &tokio::sync::MutexGuard<'static, ()>,
+    path: &Path,
+    serialized: String,
+    task_label: &'static str,
+) -> Result<(), AppError> {
+    let owned_path = path.to_path_buf();
+    let write_text = serialized.clone();
+    tokio::task::spawn_blocking(move || file::write_atomic(&owned_path, &write_text))
+        .await
+        .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))??;
+    cache::put_text(path, serialized);
+    Ok(())
+}
 /// Validate and atomically write a full settings document (the "Edit JSON" save
 /// path). The document is written verbatim (nested sections preserved); only the
 /// flat scalar projection is validated for warnings. Errors only on invalid JSON.
@@ -82,26 +173,26 @@ pub(super) async fn write_content(
     content: &str,
 ) -> Result<Vec<SettingWarning>, AppError> {
     let doc = file::parse_document(content).map_err(AppError::BadRequest)?;
-    let (scalars, mut warnings) = file::parse_object(content).map_err(AppError::BadRequest)?;
+    let (scalars, mut warnings) = file::scalars_from_document(&doc);
     let (_clean, mut validation_warnings) = validate::validate(scope, scalars);
     warnings.append(&mut validation_warnings);
 
-    let _guard = lock::write_lock().lock().await;
-    file::write_atomic(path, &file::serialize_document(&doc))?;
+    let serialized = file::serialize_document(&doc);
+    let guard = lock::write_lock().lock().await;
+    write_serialized_under_lock(&guard, path, serialized, "settings write").await?;
     Ok(warnings)
 }
 
 /// Current document text for the editor, plus warnings. Empty file → `{}`.
 pub fn read_for_edit(path: &Path, scope: Scope) -> (String, Vec<SettingWarning>) {
-    match file::read_file(path) {
-        Ok(Some(text)) if !text.trim().is_empty() => {
-            let (_map, warnings) = load_text(scope, &text);
-            (text, warnings)
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Present(doc) if !doc.raw.trim().is_empty() => {
+            (doc.raw.clone(), doc.validated_warnings(scope))
         }
-        Ok(_) => ("{}\n".to_string(), Vec::new()),
-        Err(e) => (
+        CachedEntry::Present(_) | CachedEntry::Missing => ("{}\n".to_string(), Vec::new()),
+        CachedEntry::Unreadable(message) => (
             "{}\n".to_string(),
-            vec![SettingWarning::new("", e.to_string())],
+            vec![SettingWarning::new("", message.clone())],
         ),
     }
 }

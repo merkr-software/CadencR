@@ -112,9 +112,17 @@ pub async fn kill_terminal_sessions_handler(
 pub async fn alacritty_config_route(
     State(state): State<AppState>,
 ) -> Json<crate::domain::terminal::alacritty_config::AlacrittyConfigResponse> {
-    Json(
-        crate::domain::terminal::alacritty_config::read_alacritty_config_response(
+    let fallback = state.fallback_palette.clone();
+    let response = tokio::task::spawn_blocking(move || {
+        crate::domain::terminal::alacritty_config::read_alacritty_config_response(fallback)
+    })
+    .await
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "alacritty config reader task failed");
+        crate::domain::terminal::alacritty_config::fallback_alacritty_config_response(
             state.fallback_palette.clone(),
-        ),
-    )
+            Some(format!("failed to read Alacritty config: {error}")),
+        )
+    });
+    Json(response)
 }
