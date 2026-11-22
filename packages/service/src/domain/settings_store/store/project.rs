@@ -68,7 +68,9 @@ pub async fn project_set_many(
     entries: &BTreeMap<String, Option<String>>,
 ) -> Result<BTreeMap<String, Option<String>>, AppError> {
     let path = project_path(pool, project_id).await?;
-    set_values(&path, entries).await
+    set_values(&path, entries)
+        .await
+        .map(|(previous, _)| previous)
 }
 
 pub async fn project_write_content(

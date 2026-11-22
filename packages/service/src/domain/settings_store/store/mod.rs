@@ -12,6 +12,8 @@ use super::{file, lock, validate, Scope, SettingWarning};
 
 mod global;
 mod project;
+mod scalars;
+use scalars::{set_value, set_values};
 
 pub use global::*;
 pub use project::*;
@@ -68,48 +70,6 @@ pub(super) fn load_document_for_write(
             ))
         }),
         None => Ok(serde_json::Map::new()),
-    }
-}
-
-/// Set a single scalar key, preserving every other key (unknown scalars and
-/// nested sections like `profiles` alike).
-pub(super) async fn set_value(path: &Path, key: &str, value: &str) -> Result<(), AppError> {
-    set_values(
-        path,
-        &BTreeMap::from([(key.to_string(), Some(value.to_string()))]),
-    )
-    .await
-    .map(drop)
-}
-
-/// Set or remove several scalar keys in one atomic write (`None` removes the
-/// key, so its in-code default applies again). Every other key is preserved.
-/// Returns each touched key's previous stored value, read under the same lock.
-pub(super) async fn set_values(
-    path: &Path,
-    entries: &BTreeMap<String, Option<String>>,
-) -> Result<BTreeMap<String, Option<String>>, AppError> {
-    let _guard = lock::write_lock().lock().await;
-    let mut doc = load_document_for_write(path)?;
-    let previous = entries
-        .iter()
-        .map(|(key, value)| {
-            let old = match value {
-                Some(value) => doc.insert(key.clone(), serde_json::Value::String(value.clone())),
-                None => doc.remove(key),
-            };
-            (key.clone(), old.map(stored_text))
-        })
-        .collect();
-    file::write_atomic(path, &file::serialize_document(&doc))?;
-    Ok(previous)
-}
-
-/// A stored value as the text a scalar setting holds.
-fn stored_text(value: serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(text) => text,
-        other => other.to_string(),
     }
 }
 
@@ -192,7 +152,9 @@ mod tests {
             ("sidebar_density".to_string(), None),
             ("sidebar_row_diff".to_string(), Some("false".to_string())),
         ]);
-        let previous = set_values(&path, &entries).await.unwrap();
+        let (previous, changed) = set_values(&path, &entries).await.unwrap();
+        assert!(changed);
+        assert!(!set_values(&path, &entries).await.unwrap().1);
         assert_eq!(
             previous,
             BTreeMap::from([

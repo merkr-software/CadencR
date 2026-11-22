@@ -59,6 +59,7 @@ mod reported_model;
 mod session_archiving;
 #[cfg(test)]
 pub(crate) use session_archiving::COMPACTION_STOPPED_MARKER;
+mod last_prompt;
 mod session_bootstrap;
 mod session_cleanup;
 mod session_configuration;

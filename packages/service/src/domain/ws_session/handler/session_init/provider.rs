@@ -72,6 +72,13 @@ pub(super) async fn access_mode_for(
     .await
 }
 
+pub(super) struct InitialSelection {
+    pub provider: String,
+    pub model: Option<String>,
+    /// A saved or requested model takes precedence over a fresh session's native profile.
+    pub pin_model: bool,
+}
+
 /// The provider and model this session runs with. A session that already
 /// ran keeps the provider it ran with (and its last model); the resolver only
 /// decides for sessions that have not pinned one yet. Errs when no model is
@@ -84,17 +91,21 @@ pub(super) async fn effective_selection(
     row: Option<&SessionRow>,
     requested_provider: Option<String>,
     requested_model: Option<String>,
-) -> Result<(String, Option<String>), crate::domain::agents::SelectionError> {
+) -> Result<InitialSelection, crate::domain::agents::SelectionError> {
     let pinned_provider = row
         .and_then(|row| row.runtime_provider.clone())
         .or(requested_provider);
     if let Some(provider) = pinned_provider {
-        let model = row.and_then(|row| row.model.clone()).or(requested_model);
-        return Ok((provider, model));
+        return Ok(InitialSelection {
+            provider,
+            pin_model: requested_model.is_some()
+                && row.is_none_or(|row| row.runtime_provider.is_none()),
+            model: row.and_then(|row| row.model.clone()).or(requested_model),
+        });
     }
     // `session.init` carries no profile: it lives on the persisted session
     // row, the same source the profile resolution reads later.
-    crate::domain::agents::resolve_selection(
+    crate::domain::agents::selection::resolve_configured_selection(
         &app_state.read_pool,
         Some(std::path::Path::new(cwd)),
         "session",
@@ -102,7 +113,12 @@ pub(super) async fn effective_selection(
         row.and_then(|row| row.profile.as_deref()),
     )
     .await
-    .map(|selection| (selection.provider_id, Some(selection.model_id)))
+    .map(|selection| InitialSelection {
+        provider: selection.provider_id,
+        model: Some(selection.model_id),
+        pin_model: selection.model_origin
+            != crate::domain::agents::SelectionOrigin::ProviderDefault,
+    })
 }
 
 #[cfg(test)]

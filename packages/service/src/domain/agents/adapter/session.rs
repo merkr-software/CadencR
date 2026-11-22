@@ -36,6 +36,10 @@ pub struct WithdrawnInputs {
 #[async_trait]
 pub trait AgentRuntimeSession: Send + Sync {
     fn take_message_rx(&mut self) -> RuntimeMessageRx;
+    /// Controls at the last accepted turn, for providers that resolve settings inside their runtime.
+    async fn delivered_turn_config(&self) -> Option<super::config::RuntimeEffectiveConfig> {
+        None
+    }
     /// Sub-agents earlier runtimes of the conversation launched. Called at
     /// most once, before `take_message_rx`, so a provider that can resume one of them
     /// reports the resumed run under its carrier. Ignored by runtimes that

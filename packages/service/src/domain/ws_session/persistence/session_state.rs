@@ -133,6 +133,7 @@ pub(super) mod session_state_tests {
                 agent_type TEXT NOT NULL DEFAULT 'session',
                 status TEXT NOT NULL DEFAULT 'idle',
                 runtime_provider TEXT,
+                runtime_overrides TEXT,
                 runtime_session_id TEXT,
 
                 model TEXT,

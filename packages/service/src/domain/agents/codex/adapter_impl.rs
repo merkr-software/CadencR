@@ -227,6 +227,7 @@ impl AgentRuntimeAdapter for CodexAdapter {
                 effective_model,
                 effective_effort,
                 summary,
+                native_fast_mode: native_effective.fast_mode.unwrap_or(false),
                 fast_mode: config.overrides.fast_mode,
                 permission_mode: config.permission_mode,
                 access_mode: config.access_mode,

@@ -2,7 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
-use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
+use crate::domain::ws_session::runtime::application::dispatch_queued_user_prompt;
 use crate::error::AppError;
 
 use super::store::{self, Pick, QueueOrigin, QueueRow};
@@ -153,13 +153,12 @@ async fn deliver_claimed(state: &AppState, prompt: &QueueRow) -> Result<(), AppE
     match prompt.origin_kind {
         // `replay = false`: persisted and mirrored to every client as the
         // user's own message, like a scheduled prompt.
-        QueueOrigin::User => dispatch_control_prompt_with_message_uuid(
+        QueueOrigin::User => dispatch_queued_user_prompt(
             state,
             feature_id,
             prompt.session_id,
             &prompt.content,
-            false,
-            Some(message_uuid),
+            message_uuid,
         )
         .await
         .map(|outcome| outcome.delivery_confirmed()),

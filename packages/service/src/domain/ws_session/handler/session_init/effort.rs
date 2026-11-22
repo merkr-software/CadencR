@@ -3,7 +3,7 @@ use tracing::warn;
 use super::thinking_effort;
 use crate::app_state::AppState;
 use crate::domain::settings;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
 use crate::domain::ws_session::runtime::helpers::{saved_or_report, setting_or_report};
 use crate::error::AppError;
 
@@ -13,20 +13,21 @@ pub(super) async fn resolve(
     effective_provider: &str,
     effective_model: Option<&str>,
     payload_thinking_effort: Option<String>,
-    stored_thinking_effort: Option<String>,
+    row: Option<&SessionRow>,
 ) -> Result<(Option<String>, bool), EffortFailure> {
-    // A persisted conversation-level effort is authoritative. The frontend
-    // initializes with the workspace's current per-model default, which may
-    // differ from an explicit effort already pinned by MCP spawn (or by a
-    // previous effort.set). Only use that payload for a conversation that has
-    // not anchored its own effort yet.
-    let effective_thinking_effort = match stored_thinking_effort.clone().or(payload_thinking_effort)
-    {
-        Some(effort) => Some(effort),
-        None => workspace_default(app_state, effective_provider, effective_model)
-            .await
-            .map_err(EffortFailure::Read)?,
-    };
+    let stored = row.and_then(|row| row.thinking_effort.as_ref());
+    // A complete session configuration owns its effort, including the choice
+    // to use the provider default. Older rows can still inherit the workspace level.
+    let effective_thinking_effort =
+        if row.is_some_and(|r| r.runtime_provider.is_some() && r.runtime_overrides.is_some()) {
+            stored.cloned()
+        } else if let Some(effort) = stored.cloned().or(payload_thinking_effort) {
+            Some(effort)
+        } else {
+            workspace_default(app_state, effective_provider, effective_model)
+                .await
+                .map_err(EffortFailure::Read)?
+        };
     let (effective_thinking_effort, cleared) = thinking_effort::filter_for_model(
         effective_provider,
         effective_model,
@@ -40,7 +41,7 @@ pub(super) async fn resolve(
             "clearing thinking effort unsupported by selected model"
         );
     }
-    if stored_thinking_effort.is_none() {
+    if stored.is_none() {
         anchor_conversation_effort(
             app_state,
             db_session_id,

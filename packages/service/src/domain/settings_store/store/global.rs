@@ -77,8 +77,10 @@ pub fn global_map() -> (PathBuf, BTreeMap<String, String>, Vec<SettingWarning>) 
 pub async fn global_set_many(
     entries: &BTreeMap<String, Option<String>>,
 ) -> Result<BTreeMap<String, Option<String>>, AppError> {
-    let previous = set_values(&global_path(), entries).await?;
-    super::super::generation::bump_global();
+    let (previous, changed) = set_values(&global_path(), entries).await?;
+    if changed {
+        super::super::generation::bump_global();
+    }
     Ok(previous)
 }
 

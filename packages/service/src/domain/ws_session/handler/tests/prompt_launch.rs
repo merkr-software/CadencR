@@ -7,6 +7,11 @@ use tokio::time::{timeout, Duration};
 
 async fn queued_prompt_after_first_launch(headless: bool) {
     let state = make_test_app_state().await;
+    if headless {
+        crate::domain::settings_store::global_set("model_session", "interactive-pick")
+            .await
+            .unwrap();
+    }
     sqlx::query("INSERT INTO agent_sessions (id, feature_id, status, runtime_provider, model) VALUES (1, 1, 'running', 'opencode', 'openai/gpt-5.4')")
         .execute(&state.write_pool).await.unwrap();
     let mut handle = make_in_place_effort_handle(1);
@@ -65,6 +70,13 @@ async fn queued_prompt_after_first_launch(headless: bool) {
         .unwrap();
     assert!(content.to_string().contains("queued text"));
     assert!(deliveries.try_recv().is_err());
+    if headless {
+        assert_eq!(
+            crate::domain::settings_store::global_get("model_session").as_deref(),
+            Some("interactive-pick"),
+            "a delivered automation must preserve the interactive selection"
+        );
+    }
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM agent_messages WHERE session_id = 1 AND role = 'user'",
     )
