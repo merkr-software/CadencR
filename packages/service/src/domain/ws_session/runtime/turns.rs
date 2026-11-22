@@ -48,6 +48,7 @@ struct InterruptedTurn {
 pub struct ActiveTurnRegistry {
     turns: Mutex<HashMap<i64, ActiveTurn>>,
     generation_changes: KeyedLocks<i64>,
+    followup_delivery: KeyedLocks<i64>,
     followups: FollowupStops,
 }
 
@@ -59,6 +60,17 @@ impl ActiveTurnRegistry {
     /// Which follow-ups a user Stop cancels (see [`FollowupStops`]).
     pub(crate) fn followups(&self) -> &FollowupStops {
         &self.followups
+    }
+
+    /// Serialize follow-up prompts for the same session in FIFO order without
+    /// holding the runtime's `turn_control_guard` (so `stop_session` and sleep
+    /// pause are never blocked behind a pre-turn git checkpoint).
+    pub(crate) async fn lock_followup_delivery(&self, db_session_id: i64) -> OwnedMutexGuard<()> {
+        self.followup_delivery
+            .lock_for(&db_session_id)
+            .await
+            .lock_owned()
+            .await
     }
 
     /// Record a new logical turn for `db_session_id` in its runtime cell.
