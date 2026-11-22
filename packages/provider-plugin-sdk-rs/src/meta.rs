@@ -130,7 +130,31 @@ pub fn subagent_background_meta() -> Meta {
 
 /// `{"cadencr": {"subagent": {"status", "summary"?}}}` ending a background run.
 pub fn subagent_status_meta(status: SubagentStatus, summary: Option<&str>) -> Meta {
-    let mut subagent = json!({ "status": status.wire_id() });
+    subagent_update_meta()
+        .status(status)
+        .maybe_summary(summary)
+        .call()
+}
+
+/// A detached carrier's progress or terminal signal. Counts are cumulative for
+/// this child. Report the model observed on the child when it is available.
+#[bon::builder]
+pub fn subagent_update_meta(
+    status: Option<SubagentStatus>,
+    summary: Option<&str>,
+    resolved_model: Option<&str>,
+    total_tokens: Option<u64>,
+) -> Meta {
+    let mut subagent = json!({});
+    if let Some(status) = status {
+        subagent["status"] = json!(status.wire_id());
+    }
+    if let Some(model) = resolved_model {
+        subagent["resolvedModel"] = json!(model);
+    }
+    if let Some(tokens) = total_tokens {
+        subagent["totalTokens"] = json!(tokens);
+    }
     if let Some(summary) = summary {
         subagent["summary"] = json!(summary);
     }
@@ -200,6 +224,15 @@ mod tests {
         assert_eq!(
             Value::Object(slash_command_kind_meta(crate::SlashCommandKind::Skill)),
             json!({ "cadencr": { "kind": "skill" } })
+        );
+        assert_eq!(
+            Value::Object(
+                super::subagent_update_meta()
+                    .resolved_model("native")
+                    .total_tokens(0)
+                    .call()
+            ),
+            json!({ "cadencr": { "subagent": { "resolvedModel": "native", "totalTokens": 0 } } })
         );
         let typed = SessionConfigSelectOption::new("plan", "Plan")
             .meta(permission_mode_meta(PermissionMode::Plan));

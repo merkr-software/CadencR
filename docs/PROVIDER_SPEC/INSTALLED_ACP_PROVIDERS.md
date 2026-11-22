@@ -353,6 +353,10 @@ declares one:
   finishes it (`cancelled` becomes `stopped` / `interrupted`; `summary` is the
   result summary, and the failure reason for `failed`). It produces no second
   transcript block.
+- After dispatch, an update may report `resolvedModel` (the model observed on the
+  child) and `totalTokens` (a cumulative unsigned count for that child). Either
+  field may arrive independently or together with terminal status. CadencR
+  persists the latest values on the originating sub-agent run.
 - A background sub-agent that is never finished is stopped
   (`runtime_ended`) when its runtime ends. The session itself is not held
   "working" for it, because an agent may never report the outcome.

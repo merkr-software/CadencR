@@ -1,6 +1,6 @@
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call::{other_event, MappedUpdate};
-use super::events_tool_call_background::{finish_detached, observe_background_launch};
+use super::events_tool_call_background::{observe_background_launch, update_detached};
 use super::events_tool_call_input::synthesize_input_delta_event;
 use super::events_tool_call_name::{recover_tool_name_from_update, resolve_tool_name};
 use super::events_tool_call_parent::parent_tool_use_id;
@@ -29,7 +29,7 @@ pub fn map_tool_call_update(
     if indexer.is_tool_call_suppressed(tool_call_id) {
         return MappedUpdate { events: vec![] };
     }
-    if let Some(event) = finish_detached(tool_call_id, body, indexer, &metadata) {
+    if let Some(event) = update_detached(tool_call_id, body, indexer, &metadata) {
         return MappedUpdate {
             events: vec![event],
         };

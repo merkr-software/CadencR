@@ -41,6 +41,8 @@ background reply status.
 Antigravity's ACP stream acknowledges the launch before the child finishes.
 The connector matches each new launch to its child's journal using the call ID
 in the launch message, including when several children start in one model step.
+The card shows the latest model recorded in that child’s planner responses and
+the cumulative tokens from those responses (uncached input, cache reads and output).
 A child waiting for a background command keeps its running status until it
 resumes and finishes. This integration is verified with `agy 1.5.14`. The
 available actions depend on what the journal writes, and parallel calls can
