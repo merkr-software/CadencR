@@ -8,11 +8,11 @@ use super::auth::forge_to_app_error;
 use super::merging::{
     validate_merge, PrMergeCancelResponse, PrMergeRequest, PrMergeResponse, PrMergeStatus,
 };
-use super::poller::{refresh_all, request_refresh};
+use super::poller::{refresh_feature_coalesced, request_refresh};
 use super::pr_lookup::PrLookupParams;
 use super::provider::PrSummary;
 use super::repository::{feature_forge_context, FeatureForge};
-use super::routes::{conversation_pr, refresh_if_stale};
+use super::routes::{conversation_pr, refresh_if_stale, STATUS_STALE_MS};
 use crate::app_state::AppState;
 use crate::error::AppError;
 
@@ -91,7 +91,7 @@ async fn resolve(
     if writes {
         refresh_if_stale(state, feature_id).await?;
     } else if state.forge_status.get(feature_id).await.is_none() {
-        refresh_all(state).await?;
+        refresh_feature_coalesced(state, feature_id, STATUS_STALE_MS).await?;
     }
     let snapshot = state
         .forge_status

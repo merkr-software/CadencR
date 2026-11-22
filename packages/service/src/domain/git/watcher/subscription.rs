@@ -60,7 +60,9 @@ pub(super) async fn resolve_paths(
     let git_path = crate::domain::git::service::resolve_feature_working_path(state, feature_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    let canonical = std::fs::canonicalize(&git_path).unwrap_or_else(|_| PathBuf::from(&git_path));
+    let canonical = tokio::fs::canonicalize(&git_path)
+        .await
+        .unwrap_or_else(|_| PathBuf::from(&git_path));
     let target = workflow_service::resolve_target_branch(state, feature_id, &canonical).await?;
     Ok((canonical, target))
 }

@@ -1,20 +1,239 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::error::AppError;
 use crate::shared::git_cli::{git_ref_resolves_background, head_is_unborn, run_git_background};
 
 use super::parsing::{self, parse_porcelain_v2};
-use super::{GitStatusSnapshot, SharedFeatureRef};
+use super::{GitStatusSnapshot, SharedFeatureRef, DETACHED_HEAD};
 use crate::domain::git::host::{self, GitHost, RemoteInfo};
+use crate::domain::git::models::GitOperationKind;
 use crate::domain::git::workflow_service::{
     detect_active_git_operation, resolve_configured_update_target,
 };
 
-/// Build a degraded snapshot for cases where we can't actually probe the
-/// worktree (path is missing, worktree is still being created, etc). The
-/// frontend treats every action as disabled because every count is `0` and
-/// `has_remote` is `false` — but the chip / button still get a determinate
-/// shape to render instead of staying stuck on "Loading…".
+/// Worktree-level Git state shared across features on the same checkout.
+pub(crate) enum WorktreeStatusBase {
+    NoGit,
+    Git(GitWorktreeBase),
+}
+
+pub(crate) struct GitWorktreeBase {
+    parsed: parsing::ParsedPorcelain,
+    ahead_of_remote: u32,
+    remote_info: Option<RemoteInfo>,
+    operation: Option<GitOperationKind>,
+}
+
+impl WorktreeStatusBase {
+    pub(crate) fn has_git(&self) -> bool {
+        matches!(self, Self::Git(_))
+    }
+
+    pub(crate) fn checked_out_branch(&self) -> Option<&str> {
+        let Self::Git(git) = self else { return None };
+        let b = git.parsed.current_branch.as_str();
+        (!b.is_empty() && b != DETACHED_HEAD).then_some(b)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedTargetMetrics {
+    target_divergence: TargetDivergence,
+    update_target: String,
+    update_divergence: TargetDivergence,
+}
+
+/// Compute worktree-level Git status once for `repo` so sibling features
+/// sharing the checkout do not repeat `git status`, unpushed counting, remote
+/// detection, or active operation probes.
+pub(crate) async fn compute_worktree_base(repo: &Path) -> Result<WorktreeStatusBase, AppError> {
+    if !crate::shared::git_context::has_git_metadata(repo).await? {
+        return Ok(WorktreeStatusBase::NoGit);
+    }
+    let porcelain = run_git_background(
+        &["status", "--porcelain=v2", "-z", "-b", "--ahead-behind"],
+        repo,
+    )
+    .await?;
+    let parsed = parse_porcelain_v2(&porcelain);
+    let (ahead_of_remote, remote_info, operation) = tokio::join!(
+        count_unpushed(repo, &parsed),
+        host::detect_origin_remote(repo),
+        detect_active_git_operation(repo),
+    );
+    Ok(WorktreeStatusBase::Git(GitWorktreeBase {
+        parsed,
+        ahead_of_remote: ahead_of_remote?,
+        remote_info: remote_info?,
+        operation: operation?,
+    }))
+}
+
+/// Resolve divergence metrics once per distinct target / update-target ref.
+pub(crate) async fn resolve_targets_for_base(
+    repo: &Path,
+    base: &WorktreeStatusBase,
+    distinct_targets: &[String],
+) -> HashMap<String, Result<ResolvedTargetMetrics, AppError>> {
+    let WorktreeStatusBase::Git(git) = base else {
+        return HashMap::new();
+    };
+    let current_ref = format!("refs/heads/{}", git.parsed.current_branch);
+    let (update_targets, target_divs) = tokio::join!(
+        futures::future::join_all(distinct_targets.iter().map(|target| {
+            let current_ref = &current_ref;
+            async move {
+                (
+                    target.clone(),
+                    resolve_update_target_for(repo, &git.parsed, current_ref, target).await,
+                )
+            }
+        })),
+        futures::future::join_all(
+            distinct_targets
+                .iter()
+                .filter(|target| upstream_divergence(&git.parsed, target).is_none())
+                .map(|target| async move {
+                    (
+                        target.clone(),
+                        resolve_target_divergence(repo, target).await,
+                    )
+                })
+        ),
+    );
+
+    let mut divergences: HashMap<String, Result<TargetDivergence, AppError>> =
+        target_divs.into_iter().collect();
+
+    let extra_refs: HashSet<String> = update_targets
+        .iter()
+        .filter_map(|(_, update_result)| update_result.as_ref().ok())
+        .filter(|target| {
+            upstream_divergence(&git.parsed, target).is_none()
+                && !divergences.contains_key(target.as_str())
+        })
+        .cloned()
+        .collect();
+    if !extra_refs.is_empty() {
+        divergences.extend(
+            futures::future::join_all(extra_refs.into_iter().map(|ref_name| async move {
+                let result = resolve_target_divergence(repo, &ref_name).await;
+                (ref_name, result)
+            }))
+            .await,
+        );
+    }
+
+    update_targets
+        .into_iter()
+        .map(|(target, update_result)| {
+            let entry = assemble_target_metrics(&git.parsed, &target, update_result, &divergences);
+            (target, entry)
+        })
+        .collect()
+}
+
+fn assemble_target_metrics(
+    parsed: &parsing::ParsedPorcelain,
+    target: &str,
+    update_result: Result<String, AppError>,
+    divergences: &HashMap<String, Result<TargetDivergence, AppError>>,
+) -> Result<ResolvedTargetMetrics, AppError> {
+    let update_target = update_result?;
+    let target_divergence = upstream_divergence(parsed, target)
+        .map_or_else(|| lookup_divergence(divergences, target), Ok)?;
+    let update_divergence =
+        shortcut_update_divergence(parsed, target, &update_target, target_divergence)
+            .map_or_else(|| lookup_divergence(divergences, &update_target), Ok)?;
+    Ok(ResolvedTargetMetrics {
+        target_divergence,
+        update_target,
+        update_divergence,
+    })
+}
+
+fn lookup_divergence(
+    divergences: &HashMap<String, Result<TargetDivergence, AppError>>,
+    ref_name: &str,
+) -> Result<TargetDivergence, AppError> {
+    match divergences.get(ref_name) {
+        Some(Ok(div)) => Ok(*div),
+        Some(Err(err)) => Err(AppError::git_command(err.to_string())),
+        None => Err(AppError::internal(format!(
+            "missing divergence for ref {ref_name}"
+        ))),
+    }
+}
+
+async fn resolve_update_target_for(
+    repo: &Path,
+    parsed: &parsing::ParsedPorcelain,
+    current_ref: &str,
+    target_branch: &str,
+) -> Result<String, AppError> {
+    if parsed.behind > 0 {
+        if let Some(upstream) = parsed.upstream.as_ref() {
+            return Ok(upstream.clone());
+        }
+    }
+    resolve_configured_update_target(repo, current_ref, target_branch).await
+}
+
+/// Assemble a per-feature [`GitStatusSnapshot`] from a shared worktree base
+/// and its resolved target metrics. Pure CPU, no Git spawns.
+pub(crate) fn build_snapshot(
+    base: &WorktreeStatusBase,
+    feature_id: i64,
+    target_branch: &str,
+    metrics: Option<&ResolvedTargetMetrics>,
+) -> GitStatusSnapshot {
+    match (base, metrics) {
+        (WorktreeStatusBase::Git(git), Some(m)) => {
+            assemble_snapshot(feature_id, target_branch, git, m)
+        }
+        _ => empty_snapshot(feature_id, target_branch),
+    }
+}
+
+fn assemble_snapshot(
+    feature_id: i64,
+    target_branch: &str,
+    git: &GitWorktreeBase,
+    metrics: &ResolvedTargetMetrics,
+) -> GitStatusSnapshot {
+    let parsed = &git.parsed;
+    let (host, compare_url, action_label) = derive_provider_fields(
+        git.remote_info.as_ref(),
+        target_branch,
+        &parsed.current_branch,
+    );
+    GitStatusSnapshot {
+        current_branch: parsed.current_branch.clone(),
+        uncommitted_count: parsed.staged_count + parsed.unstaged_count + parsed.untracked_count,
+        staged_count: parsed.staged_count,
+        unstaged_count: parsed.unstaged_count,
+        untracked_count: parsed.untracked_count,
+        ahead_of_remote: git.ahead_of_remote,
+        behind_remote: parsed.behind,
+        ahead_of_target: metrics.target_divergence.ahead,
+        behind_target: metrics.target_divergence.behind,
+        target_resolved: metrics.target_divergence.resolved,
+        update_target_branch: Some(metrics.update_target.clone()),
+        ahead_of_update_target: metrics.update_divergence.ahead,
+        behind_update_target: metrics.update_divergence.behind,
+        update_target_resolved: metrics.update_divergence.resolved,
+        conflict_count: parsed.conflict_count,
+        operation: git.operation,
+        has_remote: git.remote_info.is_some(),
+        host,
+        compare_url,
+        action_label,
+        ..empty_snapshot(feature_id, target_branch)
+    }
+}
+
+/// Degraded snapshot when the worktree path is missing or has no Git metadata.
 fn empty_snapshot(feature_id: i64, target_branch: &str) -> GitStatusSnapshot {
     GitStatusSnapshot {
         feature_id,
@@ -45,10 +264,8 @@ fn empty_snapshot(feature_id: i64, target_branch: &str) -> GitStatusSnapshot {
     }
 }
 
-/// Same contract as `compute_status` but degrades to `empty_snapshot` instead
-/// of bubbling a `GIT_COMMAND_ERROR` when `repo` is missing or has no Git metadata. Use
-/// this from request handlers and the watcher subscribe path so a stale
-/// `worktree_path` setting doesn't spam the error log on every poll.
+/// Same contract as `compute_status`, degrading to `empty_snapshot` when `repo`
+/// is missing or has no Git metadata.
 pub async fn compute_status_or_empty(
     repo: &Path,
     feature_id: i64,
@@ -60,17 +277,11 @@ pub async fn compute_status_or_empty(
     compute_status(repo, feature_id, target_branch).await
 }
 
-/// Compute a fresh snapshot for `repo`. `target_branch` is whatever the
-/// frontend (or the resolved fallback chain) decided; we just compare against
-/// it. Caller decides whether to surface stale data.
 async fn compute_status(
     repo: &Path,
     feature_id: i64,
     target_branch: &str,
 ) -> Result<GitStatusSnapshot, AppError> {
-    // Watcher hot path: every git spawn here goes through
-    // `run_git_background` so this code path can't race a user-initiated
-    // rebase/commit for `.git/index.lock`. See `run_git_background` docs.
     let porcelain = run_git_background(
         &["status", "--porcelain=v2", "-z", "-b", "--ahead-behind"],
         repo,
@@ -78,68 +289,58 @@ async fn compute_status(
     .await?;
     let parsed = parse_porcelain_v2(&porcelain);
     let current_ref = format!("refs/heads/{}", parsed.current_branch);
-    let update_target = async {
-        if parsed.behind > 0 {
-            if let Some(upstream) = parsed.upstream.as_ref() {
-                return Ok::<String, AppError>(upstream.clone());
-            }
-        }
-        resolve_configured_update_target(repo, &current_ref, target_branch).await
-    };
     let (ahead_of_remote, target_divergence, update_target, remote_info, operation) = tokio::join!(
         count_unpushed(repo, &parsed),
-        resolve_target_divergence(repo, target_branch),
-        update_target,
+        async {
+            match upstream_divergence(&parsed, target_branch) {
+                Some(div) => Ok(div),
+                None => resolve_target_divergence(repo, target_branch).await,
+            }
+        },
+        resolve_update_target_for(repo, &parsed, &current_ref, target_branch),
         host::detect_origin_remote(repo),
         detect_active_git_operation(repo),
     );
-    let target_divergence = target_divergence?;
-    let update_target = update_target?;
-    let update_divergence = if parsed.upstream.as_deref() == Some(update_target.as_str()) {
-        TargetDivergence {
-            ahead: parsed.ahead,
-            behind: parsed.behind,
-            resolved: true,
-        }
-    } else if update_target == target_branch {
-        target_divergence
-    } else {
-        resolve_target_divergence(repo, &update_target).await?
+    let (target_divergence, update_target) = (target_divergence?, update_target?);
+    let update_divergence =
+        match shortcut_update_divergence(&parsed, target_branch, &update_target, target_divergence)
+        {
+            Some(div) => div,
+            None => resolve_target_divergence(repo, &update_target).await?,
+        };
+    let git = GitWorktreeBase {
+        parsed,
+        ahead_of_remote: ahead_of_remote?,
+        remote_info: remote_info?,
+        operation: operation?,
     };
-    let operation = operation?;
-    let ahead_of_remote = ahead_of_remote?;
-    let remote_info = remote_info?;
-    let has_remote = remote_info.is_some();
-    let (host, compare_url, action_label) =
-        derive_provider_fields(remote_info.as_ref(), target_branch, &parsed.current_branch);
+    let metrics = ResolvedTargetMetrics {
+        target_divergence,
+        update_target,
+        update_divergence,
+    };
+    Ok(assemble_snapshot(feature_id, target_branch, &git, &metrics))
+}
 
-    Ok(GitStatusSnapshot {
-        feature_id,
-        current_branch: parsed.current_branch,
-        target_branch: target_branch.to_string(),
-        uncommitted_count: parsed.staged_count + parsed.unstaged_count + parsed.untracked_count,
-        staged_count: parsed.staged_count,
-        unstaged_count: parsed.unstaged_count,
-        untracked_count: parsed.untracked_count,
-        ahead_of_remote,
-        behind_remote: parsed.behind,
-        ahead_of_target: target_divergence.ahead,
-        behind_target: target_divergence.behind,
-        target_resolved: target_divergence.resolved,
-        update_target_branch: Some(update_target),
-        ahead_of_update_target: update_divergence.ahead,
-        behind_update_target: update_divergence.behind,
-        update_target_resolved: update_divergence.resolved,
-        conflict_count: parsed.conflict_count,
-        operation,
-        has_remote,
-        host,
-        compare_url,
-        action_label,
-        shared_with: Vec::new(),
-        thread_branches: Vec::new(),
-        computed_at: chrono::Utc::now().timestamp_millis(),
+fn upstream_divergence(
+    parsed: &parsing::ParsedPorcelain,
+    ref_name: &str,
+) -> Option<TargetDivergence> {
+    (parsed.upstream.as_deref() == Some(ref_name)).then_some(TargetDivergence {
+        ahead: parsed.ahead,
+        behind: parsed.behind,
+        resolved: true,
     })
+}
+
+fn shortcut_update_divergence(
+    parsed: &parsing::ParsedPorcelain,
+    target: &str,
+    update_target: &str,
+    target_divergence: TargetDivergence,
+) -> Option<TargetDivergence> {
+    upstream_divergence(parsed, update_target)
+        .or_else(|| (update_target == target).then_some(target_divergence))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -149,48 +350,28 @@ struct TargetDivergence {
     resolved: bool,
 }
 
-/// Resolve the configured target independently from its divergence. A valid
-/// target at zero commits is still resolved; a missing target degrades to
-/// zero counts without being mistaken for equality with `HEAD`.
 async fn resolve_target_divergence(
     repo: &Path,
     target_branch: &str,
 ) -> Result<TargetDivergence, AppError> {
     crate::shared::git_cli::guard_positionals(&[target_branch])?;
-    let commit = format!("{target_branch}^{{commit}}");
-    if !git_ref_resolves_background(&commit, repo).await? {
+    if !git_ref_resolves_background(&format!("{target_branch}^{{commit}}"), repo).await? {
         return Ok(TargetDivergence::default());
     }
-
     let range = format!("HEAD...{target_branch}");
-    let args = ["rev-list", "--left-right", "--count", &range, "--"];
-    let counts = run_git_background(&args, repo).await?;
-    let mut counts = counts.split_whitespace();
+    let counts =
+        run_git_background(&["rev-list", "--left-right", "--count", &range, "--"], repo).await?;
+    let mut parts = counts.split_whitespace();
+    let ahead = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let behind = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
     Ok(TargetDivergence {
-        ahead: counts
-            .next()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0),
-        behind: counts
-            .next()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0),
+        ahead,
+        behind,
         resolved: true,
     })
 }
 
 /// Count commits reachable from `HEAD` that haven't been published anywhere.
-///
-/// When an upstream is configured, `branch.ab` is authoritative and matches
-/// `git push`'s view exactly. Without an upstream — typical for a freshly
-/// created local branch that's never been pushed — `branch.ab` is missing
-/// from the porcelain, and we fall back to `git rev-list --count HEAD --not
-/// --remotes`. That's the count of commits reachable from `HEAD` but
-/// not from any remote-tracking ref, i.e. exactly what a first
-/// `git push -u origin HEAD` would publish.
-///
-/// An unborn branch has nothing to publish; any other failure is an error,
-/// never a "0 to push" that would hide unpublished work.
 async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> Result<u32, AppError> {
     if parsed.upstream.is_some() {
         return Ok(parsed.ahead);
@@ -198,13 +379,8 @@ async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> Resul
     let args = ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"];
     let count = match run_git_background(&args, repo).await {
         Ok(count) => count,
-        Err(error) => {
-            return match head_is_unborn(repo).await {
-                Ok(true) => Ok(0),
-                // Git's own message says best why the count failed.
-                Ok(false) | Err(_) => Err(error),
-            };
-        }
+        Err(_) if matches!(head_is_unborn(repo).await, Ok(true)) => return Ok(0),
+        Err(error) => return Err(error),
     };
     count
         .trim()
@@ -212,25 +388,18 @@ async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> Resul
         .map_err(|_| AppError::git_command(format!("git rev-list --count printed {count:?}")))
 }
 
-/// Bundle the provider-derived fields. `compare_url` is `None` when:
-///   * there's no remote at all, OR
-///   * the remote's host is `Other` (`host::compare_url` refuses to guess).
-///
-/// `action_label` is set whenever we have *any* remote so the frontend has a
-/// label to render even when the action itself is disabled.
 fn derive_provider_fields(
     info: Option<&RemoteInfo>,
     target: &str,
     head: &str,
 ) -> (Option<GitHost>, Option<String>, Option<String>) {
-    match info {
-        Some(info) => {
-            let url = host::compare_url(info, target, head);
-            let label = host::pr_label(&info.host).to_string();
-            (Some(info.host), url, Some(label))
-        }
-        None => (None, None, None),
-    }
+    info.map_or((None, None, None), |info| {
+        (
+            Some(info.host),
+            host::compare_url(info, target, head),
+            Some(host::pr_label(&info.host).to_string()),
+        )
+    })
 }
 
 #[cfg(test)]

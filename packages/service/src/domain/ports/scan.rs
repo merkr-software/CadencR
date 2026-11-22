@@ -1,9 +1,11 @@
 //! Raw OS process/socket enumeration.
 //!
-//! Sockets and working directories come from `lsof`, through thin wrappers
-//! plus the pure parsers for its output, so the attribution logic can be
-//! tested without a live process tree. The process tree itself is read from
-//! the kernel (`shared::process_table`).
+//! Listening sockets come from `lsof`, through a thin wrapper plus a pure
+//! parser so attribution logic can be tested without a live process tree.
+//! The process tree comes from `shared::process_table`, and process working
+//! directories are read directly from the kernel (`proc_pidinfo` on macOS,
+//! `/proc/<pid>/cwd` on Linux) to avoid a second `lsof` pass that can wedge
+//! on unreachable mounts.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -19,14 +21,13 @@ pub struct ListenSocket {
     pub port: u16,
 }
 
-/// Cap on how many pids we hand to a single `lsof -p` invocation, so a machine
-/// with an unusual number of listeners can't build an over-long argv.
+/// Cap on how many pids we hand to a single `lsof -p` invocation on fallback
+/// platforms, so a machine with many listeners can't build an over-long argv.
 const CWD_BATCH: usize = 256;
 
 /// `lsof` stats every mount it reports on and is known to wedge on an
-/// unreachable network or FUSE mount. The caller holds a process-wide lock
-/// across the scan, so a hang here would stall every future poll: give up
-/// instead and let the next scan try again.
+/// unreachable network or FUSE mount. Give up after a short timeout and let
+/// the cache's negative backoff protect the service until the next scan.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A required system tool is not installed (spawn failed with `NotFound`).
@@ -59,8 +60,29 @@ pub async fn parent_map() -> anyhow::Result<HashMap<i32, i32>> {
 }
 
 /// Working directory of each requested pid. Pids that have exited between the
-/// socket scan and this call are simply absent from the map.
+/// socket scan and this call (or belong to another user) are simply absent.
 pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
+    if pids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    match crate::shared::process_table::cwds(pids).await {
+        Ok(paths) => Ok(paths
+            .into_iter()
+            .filter_map(|(pid, path)| {
+                let path = path.to_str()?;
+                (!path.is_empty()).then(|| (pid, path.to_owned()))
+            })
+            .collect()),
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+            cwd_map_via_lsof(pids).await
+        }
+        Err(error) => Err(anyhow::anyhow!(
+            "could not read process directories: {error}"
+        )),
+    }
+}
+
+async fn cwd_map_via_lsof(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
     let mut cwds = HashMap::new();
     for chunk in pids.chunks(CWD_BATCH) {
         let list = chunk
@@ -252,5 +274,21 @@ mod tests {
             std::io::Error::from(std::io::ErrorKind::PermissionDenied),
         );
         assert!(other.downcast_ref::<MissingTool>().is_none());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[tokio::test]
+    async fn cwd_map_resolves_current_process_cwd_and_skips_invalid_pids() {
+        let self_pid = i32::try_from(std::process::id()).unwrap();
+        let expected = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+
+        let cwds = cwd_map(&[self_pid, -1, 0]).await.unwrap();
+
+        let resolved = cwds
+            .get(&self_pid)
+            .expect("current process cwd must resolve");
+        assert_eq!(std::fs::canonicalize(resolved).unwrap(), expected);
+        assert!(!cwds.contains_key(&-1));
+        assert!(!cwds.contains_key(&0));
     }
 }

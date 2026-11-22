@@ -19,6 +19,8 @@ export const NO_PORTS: readonly AllocatedPort[] = [];
  * backend caches each scan, so several clients share one process sweep.
  */
 const PORT_POLL_INTERVAL_MS = 10_000;
+/** Matches the backend's 5s PortScanCache TTL to avoid redundant refetch bursts. */
+const PORT_STALE_TIME_MS = 4_000;
 
 /**
  * Ports currently held open by each feature's own terminal and agent processes,
@@ -33,11 +35,12 @@ export function useFeaturePorts(): Map<number, readonly AllocatedPort[]> {
       queryKey: [...getListFeaturePortsQueryKey(), lastConnectedAt],
       enabled: connected,
       gcTime: 0,
-      staleTime: 0,
+      staleTime: PORT_STALE_TIME_MS,
+      retry: false,
       refetchInterval: PORT_POLL_INTERVAL_MS,
-      refetchOnMount: "always",
-      refetchOnWindowFocus: "always",
-      refetchOnReconnect: "always",
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
     },
   });
 
@@ -50,8 +53,13 @@ export function useFeaturePorts(): Map<number, readonly AllocatedPort[]> {
 
   // Query retains its last successful data on errors and while reconnecting.
   // A port badge is a live claim: never revive a previous service's snapshot
-  // before a successful scan in the current connection has confirmed it.
-  const confirmed = connected && !portsQuery.isError && portsQuery.isFetchedAfterMount;
+  // or a stale cached snapshot before a fresh scan in the current connection
+  // has confirmed it, while allowing newly mounted sibling sections to share
+  // an already-fresh snapshot without triggering a redundant mount fetch.
+  const confirmed =
+    connected &&
+    !portsQuery.isError &&
+    (portsQuery.isFetchedAfterMount || (portsQuery.isSuccess && !portsQuery.isStale));
 
   return useMemo(() => {
     const byFeatureId = new Map<number, readonly AllocatedPort[]>();

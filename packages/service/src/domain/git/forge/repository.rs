@@ -3,6 +3,8 @@ use std::path::Path;
 
 use futures::{stream, StreamExt};
 
+mod batch;
+
 use super::auth::{forge_to_app_error, host_configs, resolve_credentials};
 use super::provider::{ForgeContext, ForgeProvider};
 use super::{api_base_url, effective_kind, provider_for};
@@ -86,15 +88,7 @@ pub struct TrackedBranch {
 }
 
 pub async fn active_feature_targets(state: &AppState) -> Result<Vec<FeatureForgeTarget>, AppError> {
-    let feature_ids =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM features WHERE status = 'active' ORDER BY id")
-            .fetch_all(&state.read_pool)
-            .await?;
-    Ok(stream::iter(feature_ids)
-        .map(|feature_id| resolve_feature_target(state, feature_id))
-        .buffered(8)
-        .collect()
-        .await)
+    batch::active_feature_targets(&state.read_pool).await
 }
 
 pub async fn resolve_feature_target(state: &AppState, feature_id: i64) -> FeatureForgeTarget {
@@ -108,48 +102,48 @@ pub async fn resolve_feature_target(state: &AppState, feature_id: i64) -> Featur
                     remote,
                     error: None,
                 },
-                Err(error) => failed_target(feature_id, error),
+                Err(error) => failed_target(feature_id, error.to_string()),
             }
         }
-        Err(error) => failed_target(feature_id, error),
+        Err(error) => failed_target(feature_id, error.to_string()),
     }
 }
 
-fn failed_target(feature_id: i64, error: AppError) -> FeatureForgeTarget {
+pub(super) fn failed_target(feature_id: i64, error: impl Into<String>) -> FeatureForgeTarget {
     FeatureForgeTarget {
         feature_id,
         branch: None,
         tracked: Vec::new(),
         remote: None,
-        error: Some(error.to_string()),
+        error: Some(error.into()),
     }
 }
 
-async fn tracked_branches(
-    state: &AppState,
-    feature_id: i64,
+pub(super) fn linked_branch_entry(
+    branch: String,
+    pr_number: Option<i64>,
+    pr_state: Option<String>,
+) -> TrackedBranch {
+    TrackedBranch {
+        stored_pr: pr_number
+            .and_then(|number| u64::try_from(number).ok())
+            .map(|number| (number, pr_state.unwrap_or_default())),
+        name: branch,
+        linked: true,
+    }
+}
+
+pub(super) fn assemble_tracked(
+    mut tracked: Vec<TrackedBranch>,
+    recorded: Option<String>,
     current: Option<&str>,
-) -> Result<Vec<TrackedBranch>, AppError> {
-    let rows = linked_branches::repository::list_linked(&state.read_pool, feature_id).await?;
-    let mut tracked = rows
-        .into_iter()
-        .map(|row| TrackedBranch {
-            stored_pr: row
-                .pr_number
-                .and_then(|number| u64::try_from(number).ok())
-                .map(|number| (number, row.pr_state.unwrap_or_default())),
-            name: row.branch,
+) -> Vec<TrackedBranch> {
+    if let Some(name) = recorded.filter(|n| !tracked.iter().any(|branch| branch.name == *n)) {
+        tracked.push(TrackedBranch {
+            name,
             linked: true,
-        })
-        .collect::<Vec<_>>();
-    if let Some(name) = service::recorded_feature_branch(&state.read_pool, feature_id).await? {
-        if !tracked.iter().any(|branch| branch.name == name) {
-            tracked.push(TrackedBranch {
-                name,
-                linked: true,
-                stored_pr: None,
-            });
-        }
+            stored_pr: None,
+        });
     }
     if let Some(current) = current {
         let entry = match tracked.iter().position(|branch| branch.name == current) {
@@ -162,7 +156,21 @@ async fn tracked_branches(
         };
         tracked.insert(0, entry);
     }
-    Ok(tracked)
+    tracked
+}
+
+async fn tracked_branches(
+    state: &AppState,
+    feature_id: i64,
+    current: Option<&str>,
+) -> Result<Vec<TrackedBranch>, AppError> {
+    let rows = linked_branches::repository::list_linked(&state.read_pool, feature_id).await?;
+    let linked = rows
+        .into_iter()
+        .map(|row| linked_branch_entry(row.branch, row.pr_number, row.pr_state))
+        .collect();
+    let recorded = service::recorded_feature_branch(&state.read_pool, feature_id).await?;
+    Ok(assemble_tracked(linked, recorded, current))
 }
 
 pub async fn detected_project_remotes(state: &AppState) -> Result<Vec<RemoteInfo>, AppError> {

@@ -13,6 +13,9 @@ mod compute;
 mod parsing;
 
 pub use compute::compute_status_or_empty;
+pub(crate) use compute::{
+    build_snapshot, compute_worktree_base, resolve_targets_for_base, WorktreeStatusBase,
+};
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
