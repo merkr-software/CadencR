@@ -61,11 +61,6 @@ struct Fixture {
 /// persisted and shown as the session's pending gate.
 async fn fixture(status: &str, nonblocking: bool) -> Fixture {
     let app_state = make_test_app_state().await;
-    // Closing a question that ended its wait drains the reply queue.
-    sqlx::raw_sql("CREATE TABLE agent_session_message_queue (id INTEGER, target_session_id INTEGER, status TEXT, error TEXT, claim_token TEXT, claimed_at TEXT, attempt_count INTEGER, source_session_id INTEGER, content TEXT, message_uuid TEXT);")
-        .execute(&app_state.write_pool)
-        .await
-        .unwrap();
     let gate = serde_json::json!({
         "request_id": QUESTION, "tool_name": "AskUserQuestion",
         "tool_input": {"questions": [{"question": "Open the QA instance?"}]}

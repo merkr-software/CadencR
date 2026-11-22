@@ -27,8 +27,9 @@ export interface PromptQueueApi {
 }
 
 /**
- * A session's prompts queued for after the current turn. The list is the
- * server's: every change is confirmed by the backend (and re-broadcast as
+ * A session's prompts queued for after the current turn: the user's own, then
+ * those other conversations' agents queued for it. The list is the server's:
+ * every change is confirmed by the backend (and re-broadcast as
  * `prompt_queue_changed`) before it shows, never applied optimistically.
  */
 export function usePromptQueue(sessionId: number | undefined): PromptQueueApi {

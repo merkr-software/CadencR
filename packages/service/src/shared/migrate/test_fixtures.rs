@@ -395,3 +395,52 @@ pub(super) async fn create_pre_agent_message_index_schema(pool: &SqlitePool) {
     .await
     .unwrap();
 }
+
+/// Declare the two queues the unified session queue migration (20261122010000)
+/// merges, in their shape just before it, for fixtures baselined after the
+/// migrations that gave them that shape. Earlier fixtures get the tables from
+/// those migrations, which would fail on columns declared here ahead of time.
+pub(crate) async fn ensure_session_queue_prerequisites(pool: &SqlitePool, baseline: i64) {
+    if baseline > 20260713121500 {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS agent_session_message_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_session_id INTEGER NOT NULL,
+                source_session_id INTEGER,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered_at TEXT,
+                error TEXT,
+                message_uuid TEXT,
+                claim_token TEXT,
+                claimed_at TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    if baseline > 20261026210000 {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS agent_session_prompt_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered_at TEXT,
+                source_message_uuid TEXT,
+                message_uuid TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_queue_source_message
+            ON agent_session_prompt_queue(session_id, source_message_uuid);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}

@@ -42,6 +42,8 @@ async fn migration_preserves_reported_windows_and_defaults_new_sessions_to_unkno
     super::test_fixtures::ensure_user_message_count_prerequisites(&pool).await;
     super::test_fixtures::ensure_project_authoring_marker(&pool).await;
 
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
+
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

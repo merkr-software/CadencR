@@ -66,6 +66,7 @@ async fn legacy_pool() -> sqlx::SqlitePool {
 #[tokio::test]
 async fn upgrade_preserves_existing_checkpoints_and_adds_independent_scopes() {
     let pool = legacy_pool().await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

@@ -39,6 +39,8 @@ mod support;
 #[cfg(test)]
 mod test_fixtures;
 #[cfg(test)]
+mod unified_session_queue_migration_tests;
+#[cfg(test)]
 mod usage_checkpoint_scope_migration_tests;
 #[cfg(test)]
 mod usage_token_schema_migration_tests;
@@ -474,8 +476,12 @@ mod tests {
             CREATE TABLE agent_session_message_queue (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target_session_id INTEGER NOT NULL,
+                source_session_id INTEGER,
                 content TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending'
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered_at TEXT,
+                error TEXT
             );
             CREATE TABLE scheduled_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

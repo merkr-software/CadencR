@@ -1,8 +1,8 @@
 //! A reply already queued behind a question must outlive cancellation of that
-//! question. Exercise the real queue persistence, worker and control dispatch.
+//! question. Exercise the real queue persistence, sweep and control dispatch.
 use super::support::*;
 use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionResponse};
-use crate::domain::mcp::control::message_queue;
+use crate::domain::prompt_queue::{acceptance, sweep};
 use crate::shared::migrate::{run_migrations, MigrationContext};
 use tokio::sync::Notify;
 use tokio::time::{timeout, Duration};
@@ -110,16 +110,16 @@ async fn cancel_with_waiting_reply(automatic: bool) {
         sqlx::raw_sql("INSERT INTO agent_messages (id, session_id, role, content, message_type) VALUES (1, 2, 'user', 'do QA', 'user_message'), (2, 2, 'assistant', 'AUTOREPLY350', 'text'); INSERT INTO agent_session_reply_waits (id, requester_session_id, responder_session_id, request_message_id, kind, status, armed_at) VALUES (1, 1, 2, 1, 'message', 'armed', datetime('now'));")
             .execute(&pool).await.unwrap();
     } else {
-        message_queue::enqueue_message(
-            &pool,
+        acceptance::enqueue_agent_message(
+            &app_state,
             1,
-            Some(2),
+            2,
             "<cadencr-reply>CHILD350</cadencr-reply>",
             reply_uuid,
         )
         .await
         .unwrap();
-        message_queue::spawn(app_state.clone());
+        sweep::spawn(app_state.clone());
     }
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
     let state = app_state.clone();
@@ -149,11 +149,11 @@ async fn cancel_with_waiting_reply(automatic: bool) {
                 .unwrap()
         }))
     } else {
-        // Wake the real background worker while the cancellation is in flight.
-        message_queue::enqueue_message(
-            &pool,
+        // Wake the real background sweep while the cancellation is in flight.
+        acceptance::enqueue_agent_message(
+            &app_state,
             1,
-            Some(2),
+            2,
             "<cadencr-reply>CHILD350</cadencr-reply>",
             reply_uuid,
         )
@@ -169,7 +169,7 @@ async fn cancel_with_waiting_reply(automatic: bool) {
     );
     if !automatic {
         let pending: String = sqlx::query_scalar(
-            "SELECT status FROM agent_session_message_queue WHERE target_session_id = 1",
+            "SELECT status FROM agent_session_prompt_queue WHERE session_id = 1",
         )
         .fetch_one(&pool)
         .await
@@ -212,7 +212,12 @@ async fn cancel_with_waiting_reply(automatic: bool) {
                 .unwrap();
         assert_eq!(status, "delivered");
     } else {
-        let delivery: (String, i64) = sqlx::query_as("SELECT status, attempt_count FROM agent_session_message_queue WHERE target_session_id = 1").fetch_one(&pool).await.unwrap();
+        let delivery: (String, i64) = sqlx::query_as(
+            "SELECT status, attempt_count FROM agent_session_prompt_queue WHERE session_id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(delivery, ("delivered".into(), 1));
     }
 }
@@ -269,8 +274,6 @@ impl AgentRuntimeSession for FullTurnRuntime {
 
 async fn full_turn_prompt_remains_cancellable(close_gate: bool) {
     let state = make_test_app_state().await;
-    sqlx::raw_sql("CREATE TABLE agent_session_message_queue (id INTEGER, target_session_id INTEGER, status TEXT, error TEXT, claim_token TEXT, claimed_at TEXT, attempt_count INTEGER, source_session_id INTEGER, content TEXT, message_uuid TEXT);")
-        .execute(&state.write_pool).await.unwrap();
     sqlx::query("INSERT INTO agent_sessions (id, feature_id, status, pending_permission) VALUES (1, 1, 'running', ?)")
         .bind(if close_gate { Some(serde_json::json!({"request_id":"full-turn", "tool_name":"AskUserQuestion", "tool_input":{}}).to_string()) } else { None })
         .execute(&state.write_pool).await.unwrap();

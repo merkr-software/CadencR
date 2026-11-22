@@ -77,7 +77,7 @@ pub struct AgentMessageRow {
     pub origin: Option<AgentMessageOrigin>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessageOrigin {
     pub origin_kind: String,

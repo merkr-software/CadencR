@@ -397,8 +397,6 @@ async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
     let app_state = make_test_app_state().await;
     let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
-    sqlx::raw_sql("CREATE TABLE agent_session_message_queue (id INTEGER, target_session_id INTEGER, status TEXT, error TEXT, claim_token TEXT, claimed_at TEXT, attempt_count INTEGER, source_session_id INTEGER, content TEXT, message_uuid TEXT);")
-        .execute(&app_state.write_pool).await.unwrap();
     let session_id = 616;
     sqlx::query("INSERT INTO agent_sessions (id, feature_id, status, pending_permission) VALUES (?, 1, 'awaiting_user', ?)")
         .bind(session_id)

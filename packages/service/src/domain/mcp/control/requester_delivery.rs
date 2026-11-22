@@ -43,7 +43,9 @@ pub(super) async fn deliver_gate(
     .await
 }
 
-async fn deliver(
+/// Record `envelope` in the requester's transcript as sent by the responder,
+/// then hand it to the requester's agent.
+pub(super) async fn deliver(
     state: &AppState,
     responder: &SessionScope,
     requester: &SessionScope,
