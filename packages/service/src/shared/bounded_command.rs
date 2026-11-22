@@ -127,8 +127,8 @@ async fn capture<G>(
         .stderr
         .take()
         .ok_or_else(|| BoundedCommandError::new("stderr was unavailable"))?;
-    let mut stdout_task = tokio::spawn(read_bounded(stdout, overflow));
-    let mut stderr_task = tokio::spawn(read_bounded(stderr, overflow));
+    let mut stdout_task = tokio::spawn(read_bounded(stdout, overflow, 0));
+    let mut stderr_task = tokio::spawn(read_bounded(stderr, overflow, 0));
 
     let capture = async {
         let wait = async {
@@ -181,11 +181,22 @@ async fn capture<G>(
     Err(error)
 }
 
+/// Read an async stream up to `limit` bytes, returning
+/// [`BoundedCommandError::is_output_exceeded`] as soon as the limit is passed.
+pub(crate) async fn read_stream_capped(
+    reader: impl AsyncRead + Unpin,
+    limit: usize,
+    initial_capacity: usize,
+) -> Result<Vec<u8>, BoundedCommandError> {
+    read_bounded(reader, Overflow::Fail(limit), initial_capacity.min(limit)).await
+}
+
 async fn read_bounded(
     mut reader: impl AsyncRead + Unpin,
     overflow: Overflow,
+    initial_capacity: usize,
 ) -> Result<Vec<u8>, BoundedCommandError> {
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(initial_capacity);
     let mut buffer = [0_u8; 8192];
     loop {
         let count = reader
@@ -225,6 +236,7 @@ mod tests {
         let error = read_bounded(
             std::io::Cursor::new(bytes),
             Overflow::Fail(MAX_OUTPUT_BYTES),
+            0,
         )
         .await
         .unwrap_err();

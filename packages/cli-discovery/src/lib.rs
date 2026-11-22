@@ -43,7 +43,12 @@ use crate::walk::{canonicalize_executable, walk_path_var, walk_well_known};
 /// All candidates are deduped by canonical path. Version is queried for each.
 pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) -> Vec<Candidate> {
     if let Some(path) = override_path {
-        if let Some(canonical) = canonicalize_executable(path) {
+        let path_owned = path.to_path_buf();
+        let canonical = tokio::task::spawn_blocking(move || canonicalize_executable(&path_owned))
+            .await
+            .ok()
+            .flatten();
+        if let Some(canonical) = canonical {
             // Probe the override. Apply the substring filter too — a shim
             // dressed as the requested binary still wouldn't speak the
             // expected protocol, so silently dropping it is safer than
@@ -70,38 +75,49 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
         }
     }
 
-    let mut seen_canonical = HashSet::new();
-    let mut candidates = Vec::new();
-
-    // 1. $PATH (works in Terminal launches; usually stripped under GUI launch).
+    // Resolve the cached login-shell PATH asynchronously before offloading the
+    // synchronous PATH/well-known filesystem walks to the blocking pool.
+    let login_path = login_shell_path().await;
     let env_path = std::env::var_os("PATH");
-    walk_path_var(
-        env_path.as_deref(),
-        &spec.bin_name,
-        CandidateSource::EnvPath,
-        &mut seen_canonical,
-        &mut candidates,
-    );
+    let home_dir = std::env::var_os("HOME").map(PathBuf::from);
+    let spec_owned = spec.clone();
 
-    // 2. Login-shell PATH (fixes macOS GUI launches).
-    if let Some(login_path) = login_shell_path().await {
+    let candidates = tokio::task::spawn_blocking(move || {
+        let mut seen_canonical = HashSet::new();
+        let mut candidates = Vec::new();
+
+        // 1. $PATH (works in Terminal launches; usually stripped under GUI launch).
         walk_path_var(
-            Some(std::ffi::OsStr::new(login_path.as_str())),
-            &spec.bin_name,
-            CandidateSource::LoginShellPath,
+            env_path.as_deref(),
+            &spec_owned.bin_name,
+            CandidateSource::EnvPath,
             &mut seen_canonical,
             &mut candidates,
         );
-    }
 
-    // 3. Well-known dirs (deterministic, no subprocess).
-    let home_dir = std::env::var_os("HOME").map(PathBuf::from);
-    walk_well_known(
-        spec,
-        home_dir.as_deref(),
-        &mut seen_canonical,
-        &mut candidates,
-    );
+        // 2. Login-shell PATH (fixes macOS GUI launches).
+        if let Some(login_path) = login_path {
+            walk_path_var(
+                Some(std::ffi::OsStr::new(login_path.as_str())),
+                &spec_owned.bin_name,
+                CandidateSource::LoginShellPath,
+                &mut seen_canonical,
+                &mut candidates,
+            );
+        }
+
+        // 3. Well-known dirs (deterministic, no subprocess).
+        walk_well_known(
+            &spec_owned,
+            home_dir.as_deref(),
+            &mut seen_canonical,
+            &mut candidates,
+        );
+
+        candidates
+    })
+    .await
+    .unwrap_or_default();
 
     // Probe versions in parallel — each probe is an independent subprocess
     // with its own 5s timeout, so serial waits would compound badly when

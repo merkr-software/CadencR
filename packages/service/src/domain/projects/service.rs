@@ -39,7 +39,8 @@ pub async fn resolve_project_root(pool: &SqlitePool, project_id: i64) -> Result<
         .await?;
     let (path,) =
         row.ok_or_else(|| AppError::NotFound(format!("project {project_id} not found")))?;
-    std::fs::canonicalize(&path)
+    tokio::fs::canonicalize(&path)
+        .await
         .map_err(|e| AppError::BadRequest(format!("cannot resolve project {project_id} root: {e}")))
 }
 
@@ -66,7 +67,7 @@ pub async fn resolve_feature_editor_root(
                 .await
                 .map_err(|error| AppError::internal(error))?
         {
-            return std::fs::canonicalize(&path).map_err(|e| {
+            return tokio::fs::canonicalize(&path).await.map_err(|e| {
                 AppError::BadRequest(format!("cannot resolve feature {fid} worktree root: {e}"))
             });
         }
