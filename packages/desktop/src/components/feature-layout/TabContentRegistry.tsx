@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useShallow } from "zustand/react/shallow";
 
 import {
   isBuiltinTabKind,
@@ -11,7 +12,11 @@ import {
   selectFeatureLayout,
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
-import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
+import {
+  makeTabHostKey,
+  selectFeatureTabHosts,
+  useTabHostRegistry,
+} from "@/stores/tab-host-registry";
 
 import { tabIdsKey, useStableTabIds } from "./feature-tabs";
 import { restoreTabFocus, useTabFocusMemory } from "./tab-focus-preservation";
@@ -81,7 +86,7 @@ export function TabContentRegistry({
   const focusMemory = useTabFocusMemory(tabMounts);
   const storeLayoutState = useFeatureLayoutStore(selectFeatureLayout(featureId));
   const layoutState = layoutStateOverride ?? storeLayoutState;
-  const hosts = useTabHostRegistry((s) => s.hosts);
+  const hosts = useTabHostRegistry(useShallow(selectFeatureTabHosts(featureId)));
   const [visitedTabs, setVisitedTabs] = useState<Partial<Record<TabKind, true>>>({});
   const placements = useMemo(() => placeTabs(layoutState, tabIds), [layoutState, tabIds]);
   const visibleTabs = tabIds.filter((tab) => placements.get(tab)?.isVisible);

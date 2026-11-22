@@ -33,7 +33,7 @@ import {
   listenForNotificationFallbacks,
 } from "@/lib/notify-agent-done";
 import { forgetFeatureProject } from "@/lib/plugin-tabs/feature-projects";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { listenForPushNavigation } from "@/lib/remote/push-register";
 import { isInCodeMirrorEditor, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 import { toastError } from "@/lib/api-errors";
@@ -112,18 +112,19 @@ function useRootFeatureActions(route: RootRouteIds) {
   const [confirmAction, setConfirmAction] = useState<ConfirmFeatureAction | null>(null);
   const [archiveActiveFeatures, setArchiveActiveFeatures] = useState<Feature[]>([]);
   const deleteNavTargetRef = useRef<number | null>(null);
-  const invalidateFeatures = useCallback(
-    () => void invalidateByUrlPrefix(queryClient, "/api/features"),
-    [queryClient],
-  );
+  const createSessionPendingRef = useRef(false);
   const createSessionMutation = useCreateFeature({
     mutation: {
-      onSuccess: (session) => {
-        invalidateFeatures();
+      onSuccess: (session, variables) => {
+        void invalidateFeatureLists(queryClient, variables.data.project_id);
         if (route.activeProjectId == null) return;
         navigateToConversation(navigate, route.activeProjectId, session.id, {
           featureKnown: true,
         });
+      },
+      onError: (error) => toastError(error, "Failed to create conversation"),
+      onSettled: () => {
+        createSessionPendingRef.current = false;
       },
     },
   });
@@ -134,7 +135,7 @@ function useRootFeatureActions(route: RootRouteIds) {
         removeFeatureFromCachedLists(queryClient, variables.id);
         closeFeatureSession(variables.id);
         forgetFeatureProject(variables.id);
-        invalidateFeatures();
+        void invalidateFeatureLists(queryClient, route.activeProjectId);
         if (route.activeProjectId == null) return;
         const targetId = deleteNavTargetRef.current;
         deleteNavTargetRef.current = null;
@@ -152,7 +153,15 @@ function useRootFeatureActions(route: RootRouteIds) {
     [deleteFeatureMutate],
   );
   const appClose = useAppClose(queryClient, route.activeFeatureId);
-  const createSession = createSessionMutation.mutate;
+  const { mutate: createSessionMutate } = createSessionMutation;
+  const createSession = useCallback(
+    (projectId: number): void => {
+      if (createSessionPendingRef.current) return;
+      createSessionPendingRef.current = true;
+      createSessionMutate({ data: { project_id: projectId, type: "ws-session" } });
+    },
+    [createSessionMutate],
+  );
   // Stable across navigations: RootOverlays is memoized on these.
   return useMemo(
     () => ({
@@ -232,10 +241,8 @@ function useRootShortcuts(
     "new-session",
     (event) => {
       event.preventDefault();
-      if (route.activeProjectId == null) return;
-      features.createSession({
-        data: { project_id: route.activeProjectId, type: "ws-session" },
-      });
+      if (event.repeat || route.activeProjectId == null) return;
+      features.createSession(route.activeProjectId);
     },
     { enabled: route.activeProjectId != null },
   );

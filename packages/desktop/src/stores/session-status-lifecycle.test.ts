@@ -536,6 +536,20 @@ describe("session status lifecycle sync", () => {
     expect(keys).not.toContain("/api/features/7");
     invalidateSpy.mockRestore();
   });
+
+  it("scopes a created feature_event with project_id to that project's list", () => {
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+
+    handleAppEnvelope("app", "feature_event", { feature_id: 9, project_id: 4, action: "created" });
+
+    const keys = invalidateSpy.mock.calls.map(
+      (c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey,
+    );
+    expect(keys).toContainEqual(["/api/features", { project_id: 4 }]);
+    expect(keys).not.toContainEqual(["/api/features"]);
+    expect(keys).not.toContainEqual(["/api/features/9"]);
+    invalidateSpy.mockRestore();
+  });
 });
 
 // Exercise the same explicit composition that production installs before mounting.

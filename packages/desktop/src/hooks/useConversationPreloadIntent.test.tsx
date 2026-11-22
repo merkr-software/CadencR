@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({ calls: [] as string[], preload: vi.fn(), prewa
 vi.mock("@/lib/conversation-preload", () => ({
   preloadConversation: (featureId: number, refreshAfterMs: number) => {
     mocks.calls.push(`preload:${featureId}`);
-    mocks.preload(featureId, refreshAfterMs);
+    return Promise.resolve(mocks.preload(featureId, refreshAfterMs));
   },
 }));
 vi.mock("@/components/workspace-pool/workspace-prewarm", () => ({
@@ -113,8 +113,12 @@ describe("the idle sweep", () => {
   /** Idle callbacks the test runs by hand, one idle period each. */
   let idle: Array<() => void> = [];
 
-  function runIdle(count = Number.POSITIVE_INFINITY): void {
-    for (let ran = 0; ran < count && idle.length > 0; ran += 1) idle.shift()?.();
+  async function runIdle(count = Number.POSITIVE_INFINITY): Promise<void> {
+    for (let ran = 0; ran < count && idle.length > 0; ran += 1) {
+      idle.shift()?.();
+      // Flush the step's preload microtasks so the next idle slice is scheduled.
+      await vi.advanceTimersByTimeAsync(0);
+    }
   }
 
   beforeEach(() => {
@@ -144,7 +148,7 @@ describe("the idle sweep", () => {
     vi.advanceTimersByTime(1_500);
   }
 
-  it("preloads only the rows in view and not in an inert subtree", () => {
+  it("preloads only the rows in view and not in an inert subtree", async () => {
     addRow(1);
     addRow(2, BELOW_VIEW);
     const collapsed = document.body.appendChild(document.createElement("div"));
@@ -153,69 +157,93 @@ describe("the idle sweep", () => {
     addRow(4);
 
     startSweep();
-    runIdle();
+    await runIdle();
 
     expect(preloadedIds()).toEqual([1, 4]);
     expect(mocks.preload).toHaveBeenCalledWith(1, IDLE_SNAPSHOT_REFRESH_MS);
   });
 
-  it("preloads one conversation once, whichever of its rows is in view", () => {
+  it("preloads one conversation once, whichever of its rows is in view", async () => {
     addRow(5, BELOW_VIEW);
     addRow(5);
 
     startSweep();
-    runIdle();
+    await runIdle();
 
     expect(preloadedIds()).toEqual([5]);
   });
 
-  it(`preloads at most ${SWEEP_MAX_ROWS} rows per pass`, () => {
+  it(`preloads at most ${SWEEP_MAX_ROWS} rows per pass`, async () => {
     for (let featureId = 1; featureId <= SWEEP_MAX_ROWS + 10; featureId += 1) addRow(featureId);
 
     startSweep();
-    runIdle();
+    await runIdle();
 
     expect(preloadedIds()).toHaveLength(SWEEP_MAX_ROWS);
   });
 
-  it("skips a working conversation, then refreshes it once when it stops", () => {
+  it("skips a working conversation, then refreshes it once when it stops", async () => {
     addRow(1);
     addRow(2);
     setRunning([2]);
 
     startSweep();
-    runIdle();
+    await runIdle();
     expect(preloadedIds()).toEqual([1]);
 
     // Idle at the next pass: refreshed whatever its snapshot's age.
     setRunning([]);
     mocks.preload.mockClear();
     vi.advanceTimersByTime(20_000);
-    runIdle();
+    await runIdle();
     expect(mocks.preload).toHaveBeenCalledWith(2, 0);
     expect(mocks.preload).toHaveBeenCalledWith(1, IDLE_SNAPSHOT_REFRESH_MS);
 
     // Only once: the pass after treats it as any idle conversation.
     mocks.preload.mockClear();
     vi.advanceTimersByTime(20_000);
-    runIdle();
+    await runIdle();
     expect(mocks.preload).toHaveBeenCalledWith(2, IDLE_SNAPSHOT_REFRESH_MS);
   });
 
-  it("lets a pass in progress finish instead of starting over", () => {
+  it("lets a pass in progress finish instead of starting over", async () => {
     addRow(1);
     addRow(2);
     addRow(3);
 
     startSweep();
-    runIdle(1);
+    await runIdle(1);
     expect(preloadedIds()).toEqual([1]);
 
     // The next pass is due while this one still has rows to go.
     vi.advanceTimersByTime(20_000);
-    runIdle();
+    await runIdle();
 
     expect(preloadedIds()).toEqual([1, 2, 3]);
+  });
+
+  it("waits for one row's preload to settle before scheduling the next row", async () => {
+    let resolveFirst!: () => void;
+    mocks.preload.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    addRow(1);
+    addRow(2);
+
+    startSweep();
+    idle.shift()?.();
+    await Promise.resolve();
+    expect(preloadedIds()).toEqual([1]);
+    expect(idle).toHaveLength(0);
+
+    resolveFirst();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(idle).toHaveLength(1);
+    await runIdle();
+    expect(preloadedIds()).toEqual([1, 2]);
   });
 
   it("uses idle time only: no deadline on its idle callbacks", () => {

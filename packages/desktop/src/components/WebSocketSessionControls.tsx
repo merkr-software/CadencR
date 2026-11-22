@@ -159,7 +159,6 @@ function useRuntimeSelection(
     provider: catalogClaudeProfile ? activeProviderId : undefined,
     profile: catalogClaudeProfile,
     enabled: agentCatalogEnabled,
-    staleTime: 30_000,
   });
   const resolvedModelId = resolveModel("session");
   // `currentSelection` is the backend-confirmed pair; before it arrives, fall

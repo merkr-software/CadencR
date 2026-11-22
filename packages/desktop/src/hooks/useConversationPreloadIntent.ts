@@ -74,12 +74,12 @@ function onRowPress(event: PointerEvent): void {
   const featureId = row ? rowFeatureId(row) : null;
   if (row === null || featureId === null) return;
   if (event.pointerType !== "mouse") {
-    preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+    void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
     return;
   }
   if (!opensConversation(event, row)) return;
   prewarmPressedRow(row, featureId);
-  preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+  void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
 }
 
 function runningFeatureIds(): Set<number> {
@@ -118,11 +118,15 @@ interface SweepAgents {
 function sweepVisibleRows({ running, stopped }: SweepAgents, onDone: () => void): () => void {
   const candidates = [...document.querySelectorAll(CONVERSATION_ROW_SELECTOR)];
   const seen = new Set<number>();
+  let cursor = 0;
   let preloaded = 0;
+  let cancelled = false;
   let cancel = (): void => {};
   /** The next visible row worth preloading, its visibility read in this idle period. */
   const nextFeatureId = (): number | null => {
-    for (let row = candidates.shift(); row !== undefined; row = candidates.shift()) {
+    while (cursor < candidates.length) {
+      const row = candidates[cursor];
+      cursor += 1;
       const featureId = rowFeatureId(row);
       if (featureId === null || seen.has(featureId) || running.has(featureId)) continue;
       // A conversation can have several rows (pinned and in its project): any visible one counts.
@@ -133,17 +137,27 @@ function sweepVisibleRows({ running, stopped }: SweepAgents, onDone: () => void)
     return null;
   };
   const step = (): void => {
+    if (cancelled) return;
     const featureId = preloaded < SWEEP_MAX_ROWS ? nextFeatureId() : null;
     if (featureId === null) {
       onDone();
       return;
     }
     preloaded += 1;
-    preloadConversation(featureId, stopped.has(featureId) ? 0 : IDLE_SNAPSHOT_REFRESH_MS);
-    cancel = scheduleIdle(step);
+    // Wait for the current row's prefetches to settle before scheduling the
+    // next idle slice so the sweep never floods the loopback HTTP/1.1 pool.
+    void preloadConversation(
+      featureId,
+      stopped.has(featureId) ? 0 : IDLE_SNAPSHOT_REFRESH_MS,
+    ).finally(() => {
+      if (!cancelled) cancel = scheduleIdle(step);
+    });
   };
   cancel = scheduleIdle(step);
-  return () => cancel();
+  return () => {
+    cancelled = true;
+    cancel();
+  };
 }
 
 /**
