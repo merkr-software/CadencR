@@ -335,7 +335,8 @@ async fn main() -> anyhow::Result<()> {
             let remote_for_shutdown = state.remote.clone();
             let backends_for_shutdown = state.plugin_tab_backends.clone();
             let write_pool_for_shutdown = state.write_pool.clone();
-            let maintenance_pool = state.write_pool.clone();
+            let maintenance_read_pool = state.read_pool.clone();
+            let maintenance_write_pool = state.write_pool.clone();
             let maintenance_events = state.storage_maintenance_events_tx.clone();
             let app =
                 api::build_router(state).layer(api::cors::build_cors_layer(config.frontend_port));
@@ -352,7 +353,11 @@ async fn main() -> anyhow::Result<()> {
             // Start maintenance only after the listener is ready. The scheduler
             // adds its own delay so it cannot compete with session restore or
             // the user's first active turn.
-            domain::maintenance::spawn(maintenance_pool, maintenance_events);
+            domain::maintenance::spawn(
+                maintenance_read_pool,
+                maintenance_write_pool,
+                maintenance_events,
+            );
             // Shutdown ordering lives in `shutdown`: the signal future only
             // closes the listener, then teardown and the HTTP drain run together.
             let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();

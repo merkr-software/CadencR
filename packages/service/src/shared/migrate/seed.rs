@@ -6,7 +6,7 @@
 use sqlx::SqlitePool;
 use tracing::info;
 
-use super::support::{table_exists, table_has_column};
+use super::support::{table_columns, table_exists, table_has_column};
 
 /// Seed the `_sqlx_migrations` table so sqlx considers existing migrations already applied.
 /// One-time operation for databases originally created by the Electron migration runner.
@@ -148,9 +148,9 @@ pub(super) async fn repair_agent_messages_perf_indexes(pool: &SqlitePool) -> any
     .execute(pool)
     .await?;
 
-    if table_has_column(pool, "agent_messages", "message_type").await?
-        && table_has_column(pool, "agent_messages", "tool_name").await?
-    {
+    let message_columns = table_columns(pool, "agent_messages").await?;
+
+    if message_columns.contains("message_type") && message_columns.contains("tool_name") {
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_type_tool
              ON agent_messages(session_id, message_type, tool_name)",
@@ -159,13 +159,34 @@ pub(super) async fn repair_agent_messages_perf_indexes(pool: &SqlitePool) -> any
         .await?;
     }
 
-    if table_has_column(pool, "agent_messages", "tool_use_id").await? {
+    if message_columns.contains("tool_use_id") {
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_tool_use
              ON agent_messages(session_id, tool_use_id)",
         )
         .execute(pool)
         .await?;
+    }
+
+    if message_columns.contains("role") && message_columns.contains("created_at") {
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_role_created
+             ON agent_messages(session_id, role, created_at)",
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    if table_exists(pool, "features").await? {
+        let feature_columns = table_columns(pool, "features").await?;
+        if feature_columns.contains("project_id") && feature_columns.contains("status") {
+            sqlx::query(
+                "CREATE INDEX IF NOT EXISTS idx_features_project_status
+                 ON features(project_id, status)",
+            )
+            .execute(pool)
+            .await?;
+        }
     }
 
     Ok(())

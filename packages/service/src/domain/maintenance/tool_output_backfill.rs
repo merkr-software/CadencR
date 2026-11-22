@@ -72,38 +72,73 @@ enum StripWindow {
     Retry(u64),
 }
 
+struct StrippedCandidate {
+    content: String,
+    result_content: String,
+    cleaned: String,
+}
+
+async fn strip_candidate_async(
+    content: String,
+    result_content: String,
+    tool_name: Option<String>,
+) -> Option<StrippedCandidate> {
+    match tokio::task::spawn_blocking(move || {
+        let result_output = result_output_text(&result_content)?;
+        let cleaned = strip_duplicated_bash_output(&content, &result_output, tool_name.as_deref())?;
+        Some(StrippedCandidate {
+            content,
+            result_content,
+            cleaned,
+        })
+    })
+    .await
+    {
+        Ok(stripped) => stripped,
+        Err(error) => {
+            tracing::warn!("tool-output backfill strip task failed: {error}");
+            None
+        }
+    }
+}
+
 /// Strip every genuinely duplicated copy in `(after, upto]`. Returns the number
 /// of rows rewritten.
 async fn strip_window(
-    pool: &SqlitePool,
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
     after: i64,
     upto: i64,
 ) -> Result<StripWindow, sqlx::Error> {
     let mut cursor = after;
     let mut stripped = 0u64;
     loop {
-        // Fetch one call/result pair at a time. These are deliberately the
-        // largest rows in the table, so even a modest Vec can retain hundreds
-        // of megabytes until the whole window finishes.
+        // Fetch one call/result pair at a time on the read pool so scanning
+        // large JSON rows never stalls the single SQLite writer.
         let candidate =
             sqlx::query_as::<_, (i64, String, Option<String>, String)>(CANDIDATE_WINDOW_SQL)
                 .bind(cursor)
                 .bind(upto)
-                .fetch_optional(pool)
+                .fetch_optional(read_pool)
                 .await?;
         let Some((id, content, tool_name, result_content)) = candidate else {
             break;
         };
         cursor = id;
-        let Some(result_output) = result_output_text(&result_content) else {
-            continue;
-        };
-        let Some(cleaned) =
-            strip_duplicated_bash_output(&content, &result_output, tool_name.as_deref())
+        let Some(stripped_candidate) =
+            strip_candidate_async(content, result_content, tool_name).await
         else {
             continue;
         };
-        if !store_cleaned_if_unchanged(pool, id, &cleaned, &content, &result_content).await? {
+        if !store_cleaned_if_unchanged(
+            write_pool,
+            id,
+            &stripped_candidate.cleaned,
+            &stripped_candidate.content,
+            &stripped_candidate.result_content,
+        )
+        .await?
+        {
             return Ok(StripWindow::Retry(stripped));
         }
         stripped += 1;
@@ -116,12 +151,16 @@ async fn strip_window(
 /// the cursor stays put, so the next launch resumes from the same place.
 #[cfg(test)]
 async fn run(pool: &SqlitePool) -> u64 {
-    run_with_progress(pool, |_| {}).await
+    run_with_progress(pool, pool, |_| {}).await
 }
 
-pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64)) -> u64 {
+pub(super) async fn run_with_progress(
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
+    progress: impl Fn(i64),
+) -> u64 {
     let max_id = match sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(id) FROM agent_messages")
-        .fetch_one(pool)
+        .fetch_one(read_pool)
         .await
     {
         Ok(max_id) => max_id.unwrap_or(0),
@@ -131,7 +170,7 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
         }
     };
 
-    let mut cursor = state::get_i64(pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await;
+    let mut cursor = state::get_i64(read_pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await;
     if cursor >= max_id {
         return 0;
     }
@@ -139,7 +178,7 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
     let mut stripped = 0u64;
     while cursor < max_id {
         let upto = (cursor + WINDOW).min(max_id);
-        match strip_window(pool, cursor, upto).await {
+        match strip_window(read_pool, write_pool, cursor, upto).await {
             Ok(StripWindow::Complete(rows)) => stripped += rows,
             Ok(StripWindow::Retry(rows)) => {
                 stripped += rows;
@@ -156,7 +195,7 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
             }
         }
         cursor = upto;
-        state::set_i64(pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, cursor).await;
+        state::set_i64(write_pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, cursor).await;
         progress(cursor);
         tokio::time::sleep(WINDOW_PAUSE).await;
     }

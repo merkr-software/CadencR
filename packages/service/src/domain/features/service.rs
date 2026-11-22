@@ -62,20 +62,20 @@ pub async fn list_activity(
     terminal_counts: HashMap<i64, i64>,
     custom_action_counts: HashMap<i64, i64>,
 ) -> Result<Vec<FeatureActivity>, AppError> {
-    let features = repository::list_by_project(pool, project_id, include_archived).await?;
-    Ok(features
+    let feature_ids = repository::list_ids_by_project(pool, project_id, include_archived).await?;
+    Ok(feature_ids
         .into_iter()
-        .map(|feature| {
+        .map(|feature_id| {
             let foreground_terminal_count = terminal_counts
-                .get(&feature.id)
+                .get(&feature_id)
                 .copied()
                 .unwrap_or_default();
             let background_custom_action_count = custom_action_counts
-                .get(&feature.id)
+                .get(&feature_id)
                 .copied()
                 .unwrap_or_default();
             FeatureActivity {
-                feature_id: feature.id,
+                feature_id,
                 shell_count: foreground_terminal_count + background_custom_action_count,
             }
         })

@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::models::{ConversationIndexEntry, MessageSearchHit};
-use crate::domain::features::repository::{
-    LAST_ACTIVITY_COLUMN, LAST_USER_MESSAGE_JOIN, LATEST_SESSION_JOIN,
-};
+use crate::domain::features::repository::{LAST_ACTIVITY_COLUMN, LATEST_SESSION_JOIN};
 use crate::error::AppError;
 
 /// Matching prompts and replies scanned before keeping one per conversation,
@@ -27,7 +25,6 @@ fn conversation_index_sql() -> String {
                 {LAST_ACTIVITY_COLUMN}, f.archived_at \
          FROM features f \
          {LATEST_SESSION_JOIN} \
-         {LAST_USER_MESSAGE_JOIN} \
          ORDER BY datetime(last_activity_at) DESC, f.id DESC"
     )
 }

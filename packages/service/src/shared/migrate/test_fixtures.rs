@@ -110,11 +110,14 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
 
 /// The sub-agent registry migration (20261030120000) references
 /// `agent_sessions` and indexes `agent_messages` carriers by their tool
-/// columns and creation time, which late-baselined fixtures omit or declare
-/// without them.
+/// columns and creation time, and the feature-activity index migration
+/// (20261122020000) indexes `features(project_id, status)` and
+/// `agent_messages(session_id, role, created_at)`, which late-baselined
+/// fixtures omit or declare without all baseline columns.
 pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     sqlx::raw_sql(
-        "CREATE TABLE IF NOT EXISTS agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT);
+        "CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT);
+         CREATE TABLE IF NOT EXISTS agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT);
          CREATE TABLE IF NOT EXISTS agent_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL
@@ -124,6 +127,13 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     .await
     .unwrap();
     for (column, ddl_type) in [
+        ("project_id", "INTEGER NOT NULL DEFAULT 1"),
+        ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ] {
+        ensure_column(pool, "features", column, ddl_type).await;
+    }
+    for (column, ddl_type) in [
+        ("role", "TEXT NOT NULL DEFAULT 'assistant'"),
         ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
         ("tool_name", "TEXT"),
         ("tool_use_id", "TEXT"),

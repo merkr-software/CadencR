@@ -18,9 +18,10 @@
 //!    archived long enough ago. It runs last so the lossless passes have
 //!    already shrunk whatever they can, leaving it less to trim.
 //!
-//! Background passes use the write pool after the HTTP server starts and pause
-//! between batches rather than holding SQLite's single writer for long
-//! stretches. Their progress appears in the desktop's global sidebar.
+//! Background passes run candidate scans on the read pool and touch the write
+//! pool only for mutating updates, pausing and yielding between items so they
+//! never starve live writers. Their progress appears in the desktop's global
+//! sidebar.
 
 pub mod compaction;
 pub mod database_compaction;
@@ -185,22 +186,27 @@ fn advanced(start: i64, cursor: i64, high_water: i64) -> u64 {
 }
 
 /// Run every maintenance pass once.
-pub async fn run_once(pool: &SqlitePool, events: &StorageMaintenanceBroadcaster) {
-    let optimized = run_lossless_optimization(pool, Some(events)).await;
-    let compacted = run_cleanup(pool, events).await;
-    request_database_compaction(pool, optimized.saturating_add(compacted)).await;
+pub async fn run_once(
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
+    events: &StorageMaintenanceBroadcaster,
+) {
+    let optimized = run_lossless_optimization(read_pool, write_pool, Some(events)).await;
+    let compacted = run_cleanup(read_pool, write_pool, events).await;
+    request_database_compaction(write_pool, optimized.saturating_add(compacted)).await;
 }
 
 pub(super) async fn run_lossless_optimization(
-    pool: &SqlitePool,
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
     events: Option<&StorageMaintenanceBroadcaster>,
 ) -> u64 {
-    let show_optimization = state::get(pool, state::INITIAL_OPTIMIZATION_COMPLETED)
+    let show_optimization = state::get(read_pool, state::INITIAL_OPTIMIZATION_COMPLETED)
         .await
         .as_deref()
         != Some("1");
     let optimization = if show_optimization {
-        match OptimizationPlan::load(pool).await {
+        match OptimizationPlan::load(read_pool).await {
             Ok(plan) => Some(plan),
             Err(error) => {
                 tracing::warn!("failed to prepare initial storage optimization: {error}");
@@ -227,7 +233,7 @@ pub(super) async fn run_lossless_optimization(
         }
     }
 
-    let stripped = tool_output_backfill::run_with_progress(pool, |cursor| {
+    let stripped = tool_output_backfill::run_with_progress(read_pool, write_pool, |cursor| {
         emit_optimization_progress(events, optimization, cursor, None);
     })
     .await;
@@ -237,8 +243,8 @@ pub(super) async fn run_lossless_optimization(
             "storage maintenance: duplicated tool output removed"
         );
     }
-    let tool_cursor = state::get_i64(pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await;
-    let offloaded = image_backfill::run_with_progress(pool, |cursor| {
+    let tool_cursor = state::get_i64(read_pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await;
+    let offloaded = image_backfill::run_with_progress(read_pool, write_pool, |cursor| {
         emit_optimization_progress(events, optimization, tool_cursor, Some(cursor));
     })
     .await;
@@ -248,21 +254,26 @@ pub(super) async fn run_lossless_optimization(
             "storage maintenance: inline images moved to disk"
         );
     }
-    finish_initial_optimization(pool, events, optimization).await;
+    finish_initial_optimization(read_pool, write_pool, events, optimization).await;
     stripped.saturating_add(offloaded)
 }
 
 pub(super) async fn run_cleanup_once(
-    pool: &SqlitePool,
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
     events: &StorageMaintenanceBroadcaster,
 ) -> u64 {
-    let compacted = run_cleanup(pool, events).await;
-    request_database_compaction(pool, compacted).await;
+    let compacted = run_cleanup(read_pool, write_pool, events).await;
+    request_database_compaction(write_pool, compacted).await;
     compacted
 }
 
-async fn run_cleanup(pool: &SqlitePool, events: &StorageMaintenanceBroadcaster) -> u64 {
-    let compacted = retention::run(pool, events).await;
+async fn run_cleanup(
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
+    events: &StorageMaintenanceBroadcaster,
+) -> u64 {
+    let compacted = retention::run(read_pool, write_pool, events).await;
     if compacted > 0 {
         tracing::info!(
             compacted,
@@ -272,11 +283,11 @@ async fn run_cleanup(pool: &SqlitePool, events: &StorageMaintenanceBroadcaster) 
     compacted
 }
 
-pub(super) async fn request_database_compaction(pool: &SqlitePool, changed: u64) {
+pub(super) async fn request_database_compaction(write_pool: &SqlitePool, changed: u64) {
     if changed > 0 {
         // `VACUUM` cannot run while the service is serving reads and writes.
         // Request one for the next startup, where only the write pool exists.
-        state::set(pool, state::DATABASE_COMPACTION_REQUESTED, "1").await;
+        state::set(write_pool, state::DATABASE_COMPACTION_REQUESTED, "1").await;
     }
 }
 
@@ -299,17 +310,18 @@ fn emit_optimization_progress(
 }
 
 async fn finish_initial_optimization(
-    pool: &SqlitePool,
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
     events: Option<&StorageMaintenanceBroadcaster>,
     plan: Option<OptimizationPlan>,
 ) {
     let Some(plan) = plan else { return };
-    let tool_cursor = state::get_i64(pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await;
-    let image_cursor = state::get_i64(pool, state::IMAGE_BACKFILL_CURSOR, 0).await;
+    let tool_cursor = state::get_i64(read_pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await;
+    let image_cursor = state::get_i64(read_pool, state::IMAGE_BACKFILL_CURSOR, 0).await;
     let completed = plan.completed(tool_cursor, image_cursor);
     let total = plan.total();
     if completed >= total {
-        state::set(pool, state::INITIAL_OPTIMIZATION_COMPLETED, "1").await;
+        state::set(write_pool, state::INITIAL_OPTIMIZATION_COMPLETED, "1").await;
         if let Some(events) = events.filter(|_| total > 0) {
             events.emit(StorageMaintenanceEvent::Completed {
                 task: StorageMaintenanceTask::Optimization,
