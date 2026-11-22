@@ -263,9 +263,16 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     let live = &created["result"]["configOptions"];
     assert_eq!(values(option(live, "model")), values(cold_models));
     for modes in [cold_modes, option(live, "mode")] {
-        let accents: Vec<_> = modes["options"]
-            .as_array()
+        let choices = modes["options"].as_array().unwrap();
+        let auto = choices
+            .iter()
+            .find(|choice| choice["value"] == "auto")
+            .unwrap();
+        assert!(auto["description"]
+            .as_str()
             .unwrap()
+            .contains("approve MCP tools"));
+        let accents: Vec<_> = choices
             .iter()
             .map(|choice| {
                 (
