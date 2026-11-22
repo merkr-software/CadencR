@@ -31,19 +31,22 @@ struct MessagePage {
 
 /// Fetch messages for sessions that need a full (re)hydration. Limited fetches
 /// use per-session indexed queries so SQLite can stop after `limit + 1` rows;
-/// unbounded legacy fetches keep the original batch IN-query.
+/// unbounded legacy fetches keep the original batch IN-query. `since` bounds a
+/// `before` page from below (exclusive), as `until` does an incremental one.
 pub(super) async fn fetch_full_messages(
     pool: &SqlitePool,
     session_ids: &[i64],
     limit: Option<i64>,
     before_map: &HashMap<i64, i64>,
+    since: &HashMap<i64, i64>,
 ) -> Result<FullMessagesResult, AppError> {
     if session_ids.is_empty() {
         return Ok(empty_full_messages_result());
     }
 
     if !before_map.is_empty() || limit.is_some() {
-        return fetch_before_or_latest_per_session(pool, session_ids, limit, before_map).await;
+        return fetch_before_or_latest_per_session(pool, session_ids, limit, before_map, since)
+            .await;
     }
 
     fetch_unbounded_batch(pool, session_ids).await
@@ -62,10 +65,12 @@ async fn fetch_before_or_latest_per_session(
     session_ids: &[i64],
     limit: Option<i64>,
     before_map: &HashMap<i64, i64>,
+    since: &HashMap<i64, i64>,
 ) -> Result<FullMessagesResult, AppError> {
     let mut result = empty_full_messages_result();
     let with_before_sql = format!(
-        "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?"
+        "{MESSAGE_SELECT} FROM agent_messages
+         WHERE session_id = ? AND id < ? AND id > ? ORDER BY id DESC LIMIT ?"
     );
     let latest_sql = format!(
         "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?"
@@ -76,6 +81,7 @@ async fn fetch_before_or_latest_per_session(
             sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(with_before_sql.as_str()))
                 .bind(sid)
                 .bind(before_id)
+                .bind(since.get(sid).copied().unwrap_or(0))
         } else {
             sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(latest_sql.as_str())).bind(sid)
         };
@@ -318,9 +324,15 @@ mod tests {
         )
         .await;
 
-        let result = fetch_full_messages(&pool, &[session_id], Some(3), &HashMap::new())
-            .await
-            .unwrap();
+        let result = fetch_full_messages(
+            &pool,
+            &[session_id],
+            Some(3),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
 
         let rows = result.messages.get(&session_id).unwrap();
         let ids: Vec<i64> = rows.iter().map(|m| m.id).collect();

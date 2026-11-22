@@ -8829,6 +8829,18 @@ export type GetFeatureAgentStateParams = {
    * @nullable
    */
   before?: string | null;
+  /**
+   * JSON-encoded map of session_id -> exclusive upper bound for an `after`
+   * page: it stops before this message id (a gap in the client's history).
+   * @nullable
+   */
+  until?: string | null;
+  /**
+   * JSON-encoded map of session_id -> exclusive lower bound for a `before`
+   * page: it stops after this message id (a gap in the client's history).
+   * @nullable
+   */
+  since?: string | null;
 };
 
 export type UnmarkDiffViewedParams = {

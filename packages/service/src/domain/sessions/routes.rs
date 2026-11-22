@@ -26,6 +26,12 @@ pub struct AgentStateParams {
     pub limit: Option<i64>,
     /// JSON-encoded map of session_id -> before_message_id for loading older messages
     pub before: Option<String>,
+    /// JSON-encoded map of session_id -> exclusive upper bound for an `after`
+    /// page: it stops before this message id (a gap in the client's history).
+    pub until: Option<String>,
+    /// JSON-encoded map of session_id -> exclusive lower bound for a `before`
+    /// page: it stops after this message id (a gap in the client's history).
+    pub since: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -73,6 +79,16 @@ pub async fn get_sessions_handler(
     ))
 }
 
+/// A page bound map (`until`, `since`): absent is no bound; malformed is
+/// refused, as a page silently left unbounded would repeat history.
+fn parse_bound_map(name: &str, raw: Option<&str>) -> Result<HashMap<i64, i64>, AppError> {
+    let Some(raw) = raw else {
+        return Ok(HashMap::new());
+    };
+    serde_json::from_str(raw)
+        .map_err(|error| AppError::BadRequest(format!("`{name}` is not a session id map: {error}")))
+}
+
 #[utoipa::path(get, path = "/api/features/{feature_id}/agent-state",
     params(("feature_id" = i64, Path,), AgentStateParams),
     responses((status = 200, body = FeatureAgentStateResponse)))]
@@ -94,16 +110,16 @@ pub async fn get_feature_agent_state_handler(
         .as_deref()
         .and_then(|s| serde_json::from_str(s).ok());
     let limit = normalize_agent_message_limit(params.limit);
+    let request = repository::AgentStateRequest::builder()
+        .maybe_after_message_ids(after_map)
+        .maybe_after_content_revisions(after_revision_map)
+        .limit(limit)
+        .maybe_before_message_ids(before_map)
+        .until_message_ids(parse_bound_map("until", params.until.as_deref())?)
+        .since_message_ids(parse_bound_map("since", params.since.as_deref())?)
+        .build();
     Ok(Json(
-        repository::get_feature_agent_state(
-            &state.read_pool,
-            feature_id,
-            after_map,
-            after_revision_map,
-            Some(limit),
-            before_map,
-        )
-        .await?,
+        repository::load_feature_agent_state(&state.read_pool, feature_id, request).await?,
     ))
 }
 

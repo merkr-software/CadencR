@@ -21,6 +21,47 @@ pub async fn get_feature_agent_state(
     limit: Option<i64>,
     before_message_ids: Option<HashMap<i64, i64>>,
 ) -> Result<FeatureAgentStateResponse, AppError> {
+    let request = AgentStateRequest::builder()
+        .maybe_after_message_ids(after_message_ids)
+        .maybe_after_content_revisions(after_content_revisions)
+        .maybe_limit(limit)
+        .maybe_before_message_ids(before_message_ids)
+        .build();
+    load_feature_agent_state(pool, feature_id, request).await
+}
+
+/// What one `agent-state` read asks for, per session id. `after_*` and
+/// `before_*` pick the page (incremental, older, or the latest when neither is
+/// set for a session); `until_*` and `since_*` are exclusive bounds that keep
+/// an `after` or a `before` page inside a gap of the client's history, so it
+/// never re-reads messages the client already holds on the gap's far side.
+/// (Consecutive text rows are joined into one block per page: a page running
+/// into loaded rows would repeat their text under another block id.)
+#[derive(Debug, Default, bon::Builder)]
+pub struct AgentStateRequest {
+    pub after_message_ids: Option<HashMap<i64, i64>>,
+    pub after_content_revisions: Option<HashMap<i64, i64>>,
+    pub limit: Option<i64>,
+    pub before_message_ids: Option<HashMap<i64, i64>>,
+    #[builder(default)]
+    pub until_message_ids: HashMap<i64, i64>,
+    #[builder(default)]
+    pub since_message_ids: HashMap<i64, i64>,
+}
+
+pub async fn load_feature_agent_state(
+    pool: &SqlitePool,
+    feature_id: i64,
+    request: AgentStateRequest,
+) -> Result<FeatureAgentStateResponse, AppError> {
+    let AgentStateRequest {
+        after_message_ids,
+        after_content_revisions,
+        limit,
+        before_message_ids,
+        until_message_ids,
+        since_message_ids,
+    } = request;
     let sql = format!("{SESSION_SELECT} FROM agent_sessions WHERE feature_id = ? ORDER BY id ASC");
     let sessions = sqlx::query_as::<_, AgentSessionRow>(AssertSqlSafe(sql))
         .bind(feature_id)
@@ -48,8 +89,20 @@ pub async fn get_feature_agent_state(
     // recovered post-shutdown for ACP, add a database-backed hydration
     // path here — do not bring back an HTTP fetch.
     let (full_result, incremental_result) = tokio::try_join!(
-        fetch_full_messages(pool, &full_fetch_ids, limit, &before_map),
-        fetch_incremental_data(pool, &incremental_fetches, &after_revision_map, &sessions)
+        fetch_full_messages(
+            pool,
+            &full_fetch_ids,
+            limit,
+            &before_map,
+            &since_message_ids
+        ),
+        fetch_incremental_data(
+            pool,
+            &incremental_fetches,
+            &after_revision_map,
+            &until_message_ids,
+            &sessions,
+        )
     )?;
     let FullMessagesResult {
         messages: mut full_messages,
@@ -383,5 +436,72 @@ mod tests {
             .unwrap();
         let s = &state.sessions[0];
         assert!(!s.has_more);
+    }
+
+    /// Six consecutive text rows, which a page joins into one block.
+    async fn text_run(pool: &SqlitePool) -> (i64, i64, Vec<i64>) {
+        let fid: (i64,) = sqlx::query_as("INSERT INTO features (title) VALUES ('f') RETURNING id")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let session_id = insert_session(pool, fid.0, "completed").await;
+        let mut ids = Vec::new();
+        for n in 0..6 {
+            ids.push(
+                insert_message(
+                    pool,
+                    session_id,
+                    "text",
+                    &format!("t{n} "),
+                    None,
+                    None,
+                    None,
+                )
+                .await,
+            );
+        }
+        (fid.0, session_id, ids)
+    }
+
+    #[tokio::test]
+    async fn bounded_after_page_stops_before_loaded_rows() {
+        let pool = setup_test_db().await;
+        let (feature_id, session_id, ids) = text_run(&pool).await;
+        let request = AgentStateRequest::builder()
+            .after_message_ids(HashMap::from([(session_id, ids[0])]))
+            .after_content_revisions(HashMap::from([(session_id, i64::MAX)]))
+            .until_message_ids(HashMap::from([(session_id, ids[3])]))
+            .build();
+
+        let state = load_feature_agent_state(&pool, feature_id, request)
+            .await
+            .unwrap();
+
+        let s = &state.sessions[0];
+        assert_eq!(s.blocks.len(), 1);
+        assert_eq!(s.blocks[0].content, "t1 t2 ");
+        assert_eq!(s.has_more_incremental_messages, Some(false));
+        assert_eq!(s.max_message_id, ids[2]);
+    }
+
+    #[tokio::test]
+    async fn bounded_before_page_stops_after_loaded_rows() {
+        let pool = setup_test_db().await;
+        let (feature_id, session_id, ids) = text_run(&pool).await;
+        let request = AgentStateRequest::builder()
+            .limit(100)
+            .before_message_ids(HashMap::from([(session_id, ids[5])]))
+            .since_message_ids(HashMap::from([(session_id, ids[2])]))
+            .build();
+
+        let state = load_feature_agent_state(&pool, feature_id, request)
+            .await
+            .unwrap();
+
+        let s = &state.sessions[0];
+        assert_eq!(s.blocks.len(), 1);
+        assert_eq!(s.blocks[0].content, "t3 t4 ");
+        assert!(!s.has_more, "the whole bounded range came back");
+        assert_eq!(s.oldest_message_id, Some(ids[3]));
     }
 }

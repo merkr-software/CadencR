@@ -42,7 +42,7 @@ pub(crate) use conversation_references::{
     resolve_conversation_references, ResolvedConversationReference,
 };
 pub use drafts::{get_draft, get_message_content, save_draft};
-pub use feature_state::get_feature_agent_state;
+pub use feature_state::{get_feature_agent_state, load_feature_agent_state, AgentStateRequest};
 pub(crate) use origins::{get_message_origin, origin_matches_session_generated};
 pub use queries::{get_session_status_snapshot, get_sessions, latest_assistant_preview};
 pub(crate) use queries::{parse_turn_models, preview_snippet};
