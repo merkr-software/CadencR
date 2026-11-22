@@ -53,6 +53,7 @@ export function useArchiveCleanupState(args: ArchiveCleanupStateArgs): ArchiveCl
   const [removeBranch, setRemoveBranch] = useState(false);
   const { branchCheck, gitStatus, noWorktreeBranchMode } = useArchiveCleanupQueries(
     args,
+    removeWorktree,
     removeBranch,
   );
   const branchSafety = getBranchCleanupSafety({
@@ -97,12 +98,14 @@ export function useArchiveCleanupState(args: ArchiveCleanupStateArgs): ArchiveCl
       forceWorktreeDelete,
       isCheckingWorktree,
       isCheckingBranch: removeBranch && branchCheck.isLoading,
-      gitStatusError: gitStatus.isError ? gitStatus.error : null,
+      gitStatusError:
+        removeWorktree && args.hasLiveWorktree && gitStatus.isError ? gitStatus.error : null,
       branchCheckError: branchCheck.isError ? branchCheck.error : null,
       toggleWorktree: controls.toggleWorktree,
       toggleBranch: controls.toggleBranch,
     }),
     [
+      args.hasLiveWorktree,
       args.showWorktreeRemoval,
       args.showBranchRemoval,
       removeWorktree,
@@ -145,6 +148,7 @@ interface QueryState<TData> {
 
 function useArchiveCleanupQueries(
   args: ArchiveCleanupStateArgs,
+  removeWorktree: boolean,
   removeBranch: boolean,
 ): ArchiveCleanupQueries {
   const noWorktreeBranchMode = args.showBranchRemoval && !args.showWorktreeRemoval;
@@ -163,7 +167,12 @@ function useArchiveCleanupQueries(
   );
   const gitStatus = useGetGitStatus<GitStatusSnapshot>(
     { feature_id: args.feature?.id ?? 0 },
-    { query: { enabled: args.open && args.hasLiveWorktree && args.feature != null, retry: false } },
+    {
+      query: {
+        enabled: args.open && args.hasLiveWorktree && args.feature != null && removeWorktree,
+        retry: false,
+      },
+    },
   );
 
   return { branchCheck, gitStatus, noWorktreeBranchMode };

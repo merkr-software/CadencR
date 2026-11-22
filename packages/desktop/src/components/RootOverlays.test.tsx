@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@/test-utils";
 import { RootOverlays, type ConfirmFeatureAction } from "@/components/RootOverlays";
+import { FEATURE_WORKTREES_STALE_MS } from "@/lib/sidebar-queries";
 import type { Feature, FeatureWorktreeInfo } from "@/api/generated";
 
 const features: Feature[] = [
@@ -180,7 +181,7 @@ describe("RootOverlays", () => {
     renderRootOverlays({ action: "archive", feature: features[0] }, onArchive, 2);
     expect(mockListFeatureWorktrees).toHaveBeenLastCalledWith(
       { project_id: 1 },
-      { query: { enabled: true } },
+      { query: { enabled: true, staleTime: FEATURE_WORKTREES_STALE_MS } },
     );
     await user.click(screen.getByText("Remove worktree"));
     await user.click(screen.getByRole("button", { name: /archive/i }));

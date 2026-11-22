@@ -140,4 +140,23 @@ describe("useFeatureArchiveConfirmation", () => {
     expect(result.current.action).toBe("archive");
     client.clear();
   });
+
+  it("does not retry preflight empty or archive-preview checks on error", async () => {
+    customInstance.mockRejectedValue(new Error("backend unavailable"));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: 3, retryDelay: 1 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const { result } = renderHook(
+      () => useFeatureArchiveConfirmation(1, [feature], new Map<number, FeatureWorktreeInfo>()),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.action).toBe("archive"));
+    // Exactly 1 attempt for /empty and 1 attempt for /archive-preview (no retries).
+    expect(customInstance).toHaveBeenCalledTimes(2);
+    client.clear();
+  });
 });
