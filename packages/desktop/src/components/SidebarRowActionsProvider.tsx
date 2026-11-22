@@ -107,6 +107,10 @@ function useCrossProjectFeatureActions(feature: Feature | null) {
     activeFeatures,
     projectId: feature?.project_id ?? null,
   });
-  const mutations = useFeatureRowMutations({ activeFeatureId, activeFeatures, projectId });
+  const mutations = useFeatureRowMutations({
+    activeFeatureId,
+    activeFeatures,
+    projectId: feature?.project_id ?? null,
+  });
   return { confirmation, archiveFeature, mutations };
 }

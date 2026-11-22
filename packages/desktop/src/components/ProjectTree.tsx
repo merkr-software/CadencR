@@ -13,7 +13,7 @@ import { useProjectExpansion } from "@/hooks/useProjectExpansion";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ProjectRowActions, ProjectRowContextMenu } from "./ProjectRowMenus";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -73,8 +73,8 @@ function useProjectTreeMutations(
   const createSession = useCreateFeature({
     mutation: {
       onSuccess: (session) => {
-        void invalidateByUrlPrefix(queryClient, "/api/features");
         const projectId = pendingProjectIdRef.current;
+        void invalidateFeatureLists(queryClient, projectId);
         const project = projects.find((candidate) => candidate.id === projectId);
         void navigate({
           to: "/ws-session/$sessionId",

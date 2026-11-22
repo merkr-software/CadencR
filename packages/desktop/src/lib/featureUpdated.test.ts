@@ -1,9 +1,11 @@
+import type { QueryClient } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/api/generated", () => ({
   getGetFeatureQueryKey: (id: number) => [`/api/features/${id}`],
   getGetFeatureSettingsQueryKey: (id: number) => [`/api/features/${id}/settings`],
-  getListFeaturesQueryKey: () => ["/api/features"],
+  getListFeaturesQueryKey: (params?: { project_id?: number }) =>
+    params ? ["/api/features", params] : ["/api/features"],
 }));
 
 const mockInvalidateQueries = vi.fn();
@@ -13,7 +15,11 @@ vi.mock("@/lib/queryClient", () => ({
   invalidateByUrlPrefix: (...args: unknown[]) => mockInvalidateByUrlPrefix(...args),
 }));
 
-import { invalidateFeatureQueries } from "./featureUpdated";
+import {
+  GLOBAL_FEATURE_LIST_URLS,
+  invalidateFeatureLists,
+  invalidateFeatureQueries,
+} from "./featureUpdated";
 
 describe("invalidateFeatureQueries", () => {
   beforeEach(() => {
@@ -42,7 +48,6 @@ describe("invalidateFeatureQueries", () => {
     });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
       queryKey: ["/api/features"],
-      exact: false,
     });
   });
 
@@ -54,7 +59,6 @@ describe("invalidateFeatureQueries", () => {
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["/api/features/1/settings"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
       queryKey: ["/api/features"],
-      exact: false,
     });
   });
 
@@ -77,7 +81,43 @@ describe("invalidateFeatureQueries", () => {
     });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
       queryKey: ["/api/features"],
-      exact: false,
     });
+  });
+});
+
+describe("invalidateFeatureLists", () => {
+  beforeEach(() => {
+    mockInvalidateQueries.mockClear();
+    mockInvalidateByUrlPrefix.mockClear();
+  });
+
+  it("scopes list invalidation to the project and global list URLs without touching per-feature or ports caches", async () => {
+    const client = {
+      invalidateQueries: mockInvalidateQueries.mockResolvedValue(undefined),
+    } as unknown as QueryClient;
+
+    await invalidateFeatureLists(client, 9);
+
+    expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["/api/features", { project_id: 9 }],
+    });
+    expect(mockInvalidateByUrlPrefix).toHaveBeenCalledWith(client, GLOBAL_FEATURE_LIST_URLS);
+  });
+
+  it("falls back to all project lists when projectId is absent, null, or 0", async () => {
+    const client = {
+      invalidateQueries: mockInvalidateQueries.mockResolvedValue(undefined),
+    } as unknown as QueryClient;
+
+    for (const invalidProjectId of [undefined, null, 0] as const) {
+      mockInvalidateQueries.mockClear();
+      mockInvalidateByUrlPrefix.mockClear();
+      await invalidateFeatureLists(client, invalidProjectId);
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["/api/features"],
+      });
+      expect(mockInvalidateByUrlPrefix).toHaveBeenCalledWith(client, GLOBAL_FEATURE_LIST_URLS);
+    }
   });
 });

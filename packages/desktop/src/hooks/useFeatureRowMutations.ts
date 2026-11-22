@@ -15,14 +15,14 @@ import {
   removeFeatureFromCachedLists,
 } from "@/components/project-feature-navigation";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { forgetFeatureProject } from "@/lib/plugin-tabs/feature-projects";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
 
 interface UseFeatureRowMutationsOptions {
   activeFeatureId: number | null;
   /** The project's active conversations: deleting the open one opens a neighbour. */
   activeFeatures: readonly Feature[];
-  projectId: number;
+  projectId: number | null;
 }
 
 export interface FeatureRowMutations {
@@ -42,7 +42,7 @@ export function useFeatureRowMutations({
 }: UseFeatureRowMutationsOptions): FeatureRowMutations {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const invalidateFeatures = (): void => void invalidateByUrlPrefix(queryClient, "/api/features");
+  const invalidateFeatures = (): void => void invalidateFeatureLists(queryClient, projectId);
   const { mutate: updatePinned } = useUpdateFeaturePinned({
     mutation: {
       onSuccess: invalidateFeatures,
@@ -89,7 +89,9 @@ export function useFeatureRowMutations({
         { id: featureId },
         {
           onSuccess: () => {
-            if (leaveFor !== null) navigateToFeatureOrHome(navigate, projectId, leaveFor);
+            if (leaveFor !== null && projectId !== null) {
+              navigateToFeatureOrHome(navigate, projectId, leaveFor);
+            }
           },
         },
       );

@@ -190,7 +190,6 @@ describe("useSessionControls catalog scoping", () => {
       provider: undefined,
       profile: undefined,
       enabled: true,
-      staleTime: 30_000,
     });
   });
 
@@ -223,7 +222,6 @@ describe("useSessionControls catalog scoping", () => {
       provider: PROVIDER_IDS.CODEX_CLI,
       profile: "non-active-profile",
       enabled: true,
-      staleTime: 30_000,
     });
   });
 

@@ -68,23 +68,29 @@ function isLoadedInStore(featureId: number): boolean {
 export function preloadConversation(
   featureId: number,
   refreshAfterMs: number = SNAPSHOT_REFRESH_AFTER_MS,
-): void {
-  void queryClient.prefetchQuery({
-    ...getGetFeatureSettingsQueryOptions(featureId),
-    staleTime: SNAPSHOT_MAX_AGE_MS,
-  });
-  void queryClient.prefetchQuery({
-    ...getListLayoutsQueryOptions(),
-    staleTime: SNAPSHOT_MAX_AGE_MS,
-  });
+): Promise<void> {
+  const prefetches: Array<Promise<void>> = [
+    queryClient.prefetchQuery({
+      ...getGetFeatureSettingsQueryOptions(featureId),
+      staleTime: SNAPSHOT_MAX_AGE_MS,
+    }),
+    queryClient.prefetchQuery({
+      ...getListLayoutsQueryOptions(),
+      staleTime: SNAPSHOT_MAX_AGE_MS,
+    }),
+  ];
   // A session already in the store is live: its socket keeps it current.
-  if (isLoadedInStore(featureId)) return;
-  void queryClient.prefetchQuery({
-    ...getGetFeatureAgentStateQueryOptions(featureId, CONVERSATION_SNAPSHOT_PARAMS),
-    staleTime: refreshAfterMs,
-    gcTime: SNAPSHOT_MAX_AGE_MS,
-    retry: false,
-  });
+  if (!isLoadedInStore(featureId)) {
+    prefetches.push(
+      queryClient.prefetchQuery({
+        ...getGetFeatureAgentStateQueryOptions(featureId, CONVERSATION_SNAPSHOT_PARAMS),
+        staleTime: refreshAfterMs,
+        gcTime: SNAPSHOT_MAX_AGE_MS,
+        retry: false,
+      }),
+    );
+  }
+  return Promise.all(prefetches).then(() => undefined);
 }
 
 function hydrateLayoutFromCache(featureId: number): void {

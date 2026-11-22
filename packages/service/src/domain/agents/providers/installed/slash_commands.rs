@@ -32,6 +32,7 @@ use std::convert::Infallible;
 use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitStatus;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::command_capture::run_provider_subcommand;
@@ -46,6 +47,7 @@ use validate::parse_slash_commands;
 pub const SLASH_COMMANDS_FORMAT: &str = "cadencr-slash-commands-v1";
 const SLASH_COMMANDS_TIMEOUT: Duration = Duration::from_secs(10);
 const CATALOG_TTL: Duration = Duration::from_secs(30);
+const CATALOG_MAX_STALE: Duration = Duration::from_secs(5 * 60);
 const FAILURE_TTL: Duration = Duration::from_secs(5);
 /// Rust's exit code for a panic.
 const PANIC_EXIT_CODE: i32 = 101;
@@ -56,7 +58,7 @@ type Listing = Result<Vec<RuntimeSlashCommand>, String>;
 /// Per-installation catalog: package listings plus live ACP snapshots.
 #[derive(Default)]
 pub struct SlashCommandCatalog {
-    listings: WorkspaceCache<String, Listing>,
+    listings: Arc<WorkspaceCache<String, Listing>>,
     live: SlashCommandSnapshots,
 }
 
@@ -104,21 +106,34 @@ impl SlashCommandCatalog {
                 "slash commands need an absolute working directory, got {cwd:?}"
             )));
         }
-        let executable = installation.launchable().map_err(RuntimeError::new)?;
+        if let Some(listing) = self.listings.fresh(cwd).await {
+            return listing.map_err(RuntimeError::new);
+        }
+        let executable = installation
+            .launchable()
+            .map_err(RuntimeError::new)?
+            .clone();
+        let cwd_key = cwd.to_string();
+        let refresh_cwd = cwd_key.clone();
         let listing = self
             .listings
-            .get_or_refresh(&cwd.to_string(), || async {
-                let listing = discover(executable, cwd)
-                    .await
-                    .map(Option::unwrap_or_default)
-                    .map_err(|error| error.to_string());
-                let ttl = if listing.is_ok() {
-                    CATALOG_TTL
-                } else {
-                    FAILURE_TTL
-                };
-                Ok::<_, Infallible>((listing, ttl))
-            })
+            .get_or_revalidate(
+                &cwd_key,
+                CATALOG_MAX_STALE,
+                Result::is_ok,
+                move || async move {
+                    let listing = discover(&executable, &refresh_cwd)
+                        .await
+                        .map(Option::unwrap_or_default)
+                        .map_err(|error| error.to_string());
+                    let ttl = if listing.is_ok() {
+                        CATALOG_TTL
+                    } else {
+                        FAILURE_TTL
+                    };
+                    Ok::<_, Infallible>((listing, ttl))
+                },
+            )
             .await
             .unwrap_or_else(|never| match never {});
         listing.map_err(RuntimeError::new)

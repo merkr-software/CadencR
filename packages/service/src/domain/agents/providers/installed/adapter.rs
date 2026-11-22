@@ -9,8 +9,7 @@ mod capabilities;
 use std::borrow::Cow;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -23,6 +22,7 @@ use crate::domain::agents::adapter::{
     RuntimeCompactionStrategy, RuntimeError, RuntimePermissionMode, RuntimePermissionRequest,
     RuntimePromptAttachment, RuntimeSlashCommand, RuntimeSpawnConfig,
 };
+use crate::domain::agents::catalog_cache::{CachedCatalog, CatalogProvider, LiveCatalogCache};
 use crate::domain::agents::runtime::{
     ProviderCatalogEntry, ProviderPromptCapabilities, ProviderResumeCommand, ProviderStatus,
 };
@@ -34,17 +34,16 @@ use super::model_discovery::{discover_models, DiscoveredModels, ProviderModeMap}
 use super::prompt_capabilities::SharedPromptCapabilities;
 use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
 use super::slash_commands::SlashCommandCatalog;
-use super::workspace_cache::WorkspaceCache;
 
-const CATALOG_TTL: Duration = Duration::from_secs(30);
+type InstalledCatalogCache = LiveCatalogCache<PathBuf, Option<DiscoveredModels>>;
 
 pub struct GenericAcpAdapter {
     installation: Arc<HostInstallation>,
     session_scope: Result<Option<super::managed::ManagedSessionScope>, String>,
-    catalog_cache: WorkspaceCache<PathBuf, DiscoveredModels>,
+    catalog_cache: Arc<InstalledCatalogCache>,
     /// Modes from the most recent `models` run. Mode and access checks are
     /// synchronous trait calls, so they read this snapshot.
-    last_modes: std::sync::RwLock<Arc<ProviderModeMap>>,
+    last_modes: Arc<RwLock<Arc<ProviderModeMap>>>,
     host_integration: Arc<HostIntegrationCache>,
     slash_commands: Arc<SlashCommandCatalog>,
     prompt_capabilities: SharedPromptCapabilities,
@@ -55,11 +54,17 @@ impl GenericAcpAdapter {
         let host_integration = Arc::new(HostIntegrationCache::new(installation.provider_id()));
         let session_scope =
             super::managed::ManagedSessionScope::load(&installation.executable().command);
+        let agent = installation.agent();
+        let catalog_cache = Arc::new(LiveCatalogCache::new(CatalogProvider::owned(
+            agent.id.clone(),
+            agent.name.clone(),
+            agent.name.clone(),
+        )));
         Self {
             session_scope,
             installation,
-            catalog_cache: WorkspaceCache::default(),
-            last_modes: std::sync::RwLock::new(Arc::default()),
+            catalog_cache,
+            last_modes: Arc::new(RwLock::new(Arc::default())),
             host_integration,
             slash_commands: Arc::default(),
             prompt_capabilities: SharedPromptCapabilities::default(),
@@ -84,54 +89,101 @@ impl GenericAcpAdapter {
             .clone()
     }
 
-    fn observe_modes(&self, discovered: &DiscoveredModels) {
-        *self
-            .last_modes
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Arc::new(discovered.modes.clone());
+    async fn cached_catalog_for_cwd(&self, cwd: &Path) -> CachedCatalog<Option<DiscoveredModels>> {
+        discover_cached(
+            &self.catalog_cache,
+            &self.installation,
+            &self.last_modes,
+            cwd,
+        )
+        .await
     }
 
     async fn discover_for_cwd(&self, cwd: &Path) -> Result<DiscoveredModels, RuntimeError> {
-        self.catalog_cache
-            .get_or_refresh(&cwd.to_path_buf(), || async {
-                let executable = self.installation.launchable().map_err(RuntimeError::new)?;
-                let discovered = discover_models(executable, cwd).await.map_err(|error| {
-                    RuntimeError::new(format!("model discovery failed: {error}"))
-                })?;
-                self.observe_modes(&discovered);
-                Ok((discovered, CATALOG_TTL))
-            })
-            .await
-    }
-
-    fn discovered_catalog(&self, discovered: DiscoveredModels) -> ProviderCatalogEntry {
-        let agent = self.installation.agent();
-        self.with_icon(ProviderCatalogEntry {
-            id: agent.id.clone(),
-            label: agent.name.clone(),
-            icon_data: None,
-            status: ProviderStatus::Available,
-            status_message: None,
-            refresh_error: None,
-            modes: discovered.modes.mode_catalog(),
-            access_modes: discovered.modes.access_mode_catalog(),
-            models: discovered.models,
-            default_model: Some(discovered.default_model),
-        })
-    }
-
-    fn unavailable_catalog(&self, message: impl AsRef<str>) -> ProviderCatalogEntry {
-        self.with_icon(ProviderCatalogEntry::unavailable(
-            self.installation.provider_id(),
-            self.installation.agent().name.clone(),
-            message.as_ref(),
+        let entry = self.cached_catalog_for_cwd(cwd).await;
+        if let Some(discovered) = entry.extra.as_ref() {
+            return Ok(discovered.clone());
+        }
+        Err(RuntimeError::new(
+            entry
+                .catalog
+                .status_message
+                .clone()
+                .unwrap_or_else(|| "model discovery failed".to_string()),
         ))
     }
 
-    fn with_icon(&self, mut entry: ProviderCatalogEntry) -> ProviderCatalogEntry {
-        entry.icon_data = self.installation.icon_data().map(str::to_string);
-        entry
+    fn unavailable_catalog(&self, message: impl AsRef<str>) -> ProviderCatalogEntry {
+        with_installation_icon(
+            &self.installation,
+            ProviderCatalogEntry::unavailable(
+                self.installation.provider_id(),
+                self.installation.agent().name.clone(),
+                message.as_ref(),
+            ),
+        )
     }
+}
+
+fn default_cwd() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+}
+
+fn with_installation_icon(
+    installation: &HostInstallation,
+    mut entry: ProviderCatalogEntry,
+) -> ProviderCatalogEntry {
+    entry.icon_data = installation.icon_data().map(str::to_string);
+    entry
+}
+
+fn discovered_catalog_entry(
+    installation: &HostInstallation,
+    discovered: &DiscoveredModels,
+) -> ProviderCatalogEntry {
+    let agent = installation.agent();
+    ProviderCatalogEntry {
+        id: agent.id.clone(),
+        label: agent.name.clone(),
+        icon_data: None,
+        status: ProviderStatus::Available,
+        status_message: None,
+        refresh_error: None,
+        modes: discovered.modes.mode_catalog(),
+        access_modes: discovered.modes.access_mode_catalog(),
+        models: discovered.models.clone(),
+        default_model: Some(discovered.default_model.clone()),
+    }
+}
+
+async fn discover_cached(
+    catalog_cache: &Arc<InstalledCatalogCache>,
+    installation: &Arc<HostInstallation>,
+    last_modes: &Arc<RwLock<Arc<ProviderModeMap>>>,
+    cwd: &Path,
+) -> CachedCatalog<Option<DiscoveredModels>> {
+    let cwd_owned = cwd.to_path_buf();
+    let installation = Arc::clone(installation);
+    let last_modes = Arc::clone(last_modes);
+    catalog_cache
+        .get_or_revalidate(cwd_owned.clone(), move || {
+            let installation = Arc::clone(&installation);
+            let last_modes = Arc::clone(&last_modes);
+            let cwd = cwd_owned.clone();
+            async move {
+                let executable = installation.launchable().map_err(RuntimeError::new)?;
+                let discovered = discover_models(executable, &cwd).await.map_err(|error| {
+                    RuntimeError::new(format!("model discovery failed: {error}"))
+                })?;
+                *last_modes
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                    Arc::new(discovered.modes.clone());
+                let entry = discovered_catalog_entry(&installation, &discovered);
+                Ok((entry, Some(discovered)))
+            }
+        })
+        .await
 }
 
 #[async_trait]
@@ -154,24 +206,31 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         let cwd = match cwd {
             Some(cwd) => cwd,
             None => {
-                fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+                fallback_cwd = default_cwd();
                 &fallback_cwd
             }
         };
-        self.host_integration
-            .ensure_loaded(&self.installation)
-            .await;
-        match self.discover_for_cwd(cwd).await {
-            Ok(discovered) => self.discovered_catalog(discovered),
-            Err(error) => self.unavailable_catalog(error.to_string()),
-        }
+        let (_, cached) = tokio::join!(
+            self.host_integration.ensure_loaded(&self.installation),
+            self.cached_catalog_for_cwd(cwd),
+        );
+        with_installation_icon(&self.installation, (*cached.catalog).clone())
     }
 
     fn spawn_startup_warmup(&self) {
+        if self.installation.quarantine().is_some() {
+            return;
+        }
         let cache = self.host_integration();
         let installation = Arc::clone(&self.installation);
+        let catalog_cache = Arc::clone(&self.catalog_cache);
+        let last_modes = Arc::clone(&self.last_modes);
         tokio::spawn(async move {
-            cache.ensure_loaded(&installation).await;
+            let cwd = default_cwd();
+            let _ = tokio::join!(
+                cache.ensure_loaded(&installation),
+                discover_cached(&catalog_cache, &installation, &last_modes, &cwd),
+            );
         });
     }
 
@@ -530,9 +589,58 @@ exit 1
         adapter.discover_for_cwd(second_cwd.path()).await.unwrap();
 
         for cwd in [first_cwd.path(), second_cwd.path()] {
-            let cached = adapter.catalog_cache.fresh(&cwd.to_path_buf()).await;
-            assert!(cached.is_some(), "{}", cwd.display());
+            let cached = adapter.catalog_cache.cached(&cwd.to_path_buf()).await;
+            assert!(
+                cached.is_some_and(|entry| entry.is_fresh()),
+                "{}",
+                cwd.display()
+            );
         }
+    }
+
+    #[tokio::test]
+    async fn expired_model_catalog_serves_stale_entry_immediately_while_refreshing() {
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        let gate = dir.path().join("gate");
+        let script = super::super::test_fixtures::write_script(
+            dir.path(),
+            "swr-agent",
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" != \"models\" ]; then exit 1; fi\necho run >> '{}'\nwhile [ -f '{}' ]; do sleep 0.02; done\ncat <<'JSON'\n[{{\"id\":\"model\",\"name\":\"Model\",\"category\":\"model\",\"type\":\"select\",\"currentValue\":\"m\",\"options\":[{{\"value\":\"m\",\"name\":\"M\"}}]}}]\nJSON\n",
+                runs.display(),
+                gate.display(),
+            ),
+        );
+        let adapter = adapter(&script.to_string_lossy());
+        let cwd = dir.path();
+
+        let initial = adapter.catalog_entry_live_for_cwd(Some(cwd)).await;
+        assert_eq!(initial.status, ProviderStatus::Available);
+        assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1);
+
+        // Hold subsequent probes behind `gate` and expire the cached entry: a
+        // read within MAX_STALE must return the cached catalog while the
+        // background probe is still gated.
+        std::fs::write(&gate, "").unwrap();
+        adapter
+            .catalog_cache
+            .force_expire_for_test(&cwd.to_path_buf())
+            .await;
+
+        let stale = adapter.catalog_entry_live_for_cwd(Some(cwd)).await;
+        assert!(gate.exists(), "stale read must return while probe is gated");
+        assert_eq!(stale.status, ProviderStatus::Available);
+        assert_eq!(stale.default_model.as_deref(), Some("m"));
+
+        std::fs::remove_file(&gate).unwrap();
+        for _ in 0..100 {
+            if std::fs::read_to_string(&runs).unwrap().lines().count() >= 2 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("background catalog refresh never ran");
     }
 
     #[tokio::test]
