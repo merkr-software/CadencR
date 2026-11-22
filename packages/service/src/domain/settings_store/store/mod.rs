@@ -14,7 +14,8 @@ use super::{file, lock, validate, Scope, SettingWarning};
 mod global;
 mod project;
 mod scalars;
-use scalars::{set_value, set_values};
+pub(super) use scalars::set_value;
+use scalars::set_values;
 
 pub use global::*;
 pub use project::*;

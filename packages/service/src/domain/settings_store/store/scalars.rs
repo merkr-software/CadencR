@@ -4,7 +4,11 @@ use super::{update_document_locked, AppError, ReadPolicy};
 
 /// Set a single scalar key, preserving every other key (unknown scalars and
 /// nested sections like `profiles` alike).
-pub(super) async fn set_value(path: &Path, key: &str, value: &str) -> Result<(), AppError> {
+pub(in super::super) async fn set_value(
+    path: &Path,
+    key: &str,
+    value: &str,
+) -> Result<(), AppError> {
     set_values(
         path,
         &BTreeMap::from([(key.to_string(), Some(value.to_string()))]),
