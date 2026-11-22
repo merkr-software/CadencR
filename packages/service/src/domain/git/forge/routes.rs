@@ -5,10 +5,10 @@ use axum::routing::{get, put};
 use axum::Router;
 
 use super::auth::{
-    forge_to_app_error, host_configs, normalize_hostname, normalized_optional, resolve_credentials,
-    save_host_config,
+    forge_to_app_error, host_configs, invalidate_cli_token, normalize_hostname,
+    normalized_optional, resolve_credentials, save_host_config,
 };
-use super::poller::refresh_all;
+use super::poller::{refresh_all, refresh_all_coalesced, refresh_feature_coalesced};
 use super::provider::{
     FeaturePrParams, ForgeAuthContext, ForgeAuthSource, ForgeAuthStatus, ForgeCredentials,
     ForgeHostConfig, ForgeTokenDeleteParams, ForgeTokenDeleteResponse, ForgeTokenRequest,
@@ -20,7 +20,7 @@ use crate::app_state::AppState;
 use crate::domain::git::host::GitHost;
 use crate::error::AppError;
 
-const STATUS_STALE_MS: i64 = 60_000;
+pub(super) const STATUS_STALE_MS: i64 = 60_000;
 
 #[utoipa::path(get, path = "/api/git/forge/auth-status", responses((status = 200, body = Vec<ForgeAuthStatus>)))]
 pub async fn get_forge_auth_status_handler(
@@ -98,6 +98,7 @@ pub async fn put_forge_token_handler(
             .map_err(|error| forge_to_app_error(error))?;
     }
     save_host_config(&hostname, config.clone()).await?;
+    invalidate_cli_token(&hostname);
     let refresh_error = refresh_all(&state)
         .await
         .err()
@@ -138,6 +139,7 @@ pub async fn delete_forge_token_handler(
             .expect("disabled CLI auth config remains present");
         save_host_config(&hostname, config).await?;
     }
+    invalidate_cli_token(&hostname);
     Ok(Json(ForgeTokenDeleteResponse {
         deleted: deleted || cli_auth_disabled,
     }))
@@ -149,7 +151,7 @@ pub async fn get_pr_statuses_handler(
 ) -> Result<Json<Vec<PrStatusSnapshot>>, AppError> {
     let mut snapshots = state.forge_status.list().await;
     if snapshots.is_empty() {
-        refresh_all(&state).await?;
+        refresh_all_coalesced(&state).await?;
         snapshots = state.forge_status.list().await;
     }
     Ok(Json(snapshots))
@@ -258,18 +260,12 @@ pub fn forge_router() -> Router<AppState> {
 }
 
 pub(super) async fn refresh_if_stale(state: &AppState, feature_id: i64) -> Result<(), AppError> {
-    let stale = state
+    if !state
         .forge_status
-        .get(feature_id)
+        .is_fresh(feature_id, STATUS_STALE_MS)
         .await
-        .is_none_or(|status| {
-            chrono::Utc::now()
-                .timestamp_millis()
-                .saturating_sub(status.fetched_at)
-                >= STATUS_STALE_MS
-        });
-    if stale {
-        refresh_all(state).await?;
+    {
+        refresh_feature_coalesced(state, feature_id, STATUS_STALE_MS).await?;
     }
     Ok(())
 }

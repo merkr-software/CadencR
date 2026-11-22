@@ -27,6 +27,7 @@ mod debouncer;
 mod filter;
 mod handle;
 mod pending;
+mod recompute;
 mod registry;
 mod subscription;
 

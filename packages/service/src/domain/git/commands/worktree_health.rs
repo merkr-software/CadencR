@@ -91,21 +91,40 @@ impl WorktreeRoots {
     /// against that worktree). Empty for a project registered at a
     /// repository root, and when no registered worktree contains it.
     pub fn project_subpath(&self, project_path: &Path) -> PathBuf {
-        let project = canonical_dir(project_path);
+        self.project_subpath_canonical(&canonical_dir(project_path))
+    }
+
+    /// Like [`Self::project_subpath`], taking an already-canonicalized
+    /// `canonical_project` path to avoid redundant filesystem syscalls.
+    pub fn project_subpath_canonical(&self, canonical_project: &Path) -> PathBuf {
         self.entries
             .iter()
             .filter(|(worktree, _)| !worktree.is_bare)
-            .filter_map(|(_, root)| project.strip_prefix(root).ok().map(Path::to_path_buf))
+            .filter_map(|(_, root)| {
+                canonical_project
+                    .strip_prefix(root)
+                    .ok()
+                    .map(Path::to_path_buf)
+            })
             .min_by_key(|subpath| subpath.components().count())
             .unwrap_or_default()
     }
 
     /// The worktree whose root joined with `subpath` is `path`.
     pub fn find_copy(&self, path: &Path, subpath: &Path) -> Option<&WorktreeInfo> {
-        let path = canonical_dir(path);
+        self.find_copy_canonical(&canonical_dir(path), subpath)
+    }
+
+    /// Like [`Self::find_copy`], taking an already-canonicalized
+    /// `canonical_path`.
+    pub fn find_copy_canonical(
+        &self,
+        canonical_path: &Path,
+        subpath: &Path,
+    ) -> Option<&WorktreeInfo> {
         self.entries
             .iter()
-            .find(|(_, root)| root.join(subpath) == path)
+            .find(|(_, root)| root.join(subpath) == canonical_path)
             .map(|(worktree, _)| worktree)
     }
 }
