@@ -2,13 +2,13 @@
 //! example, when a subagent finishes). Agy reports usage after each model
 //! step, before any tool calls belonging to that step.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::time::Instant;
 
-use super::session_update;
+use super::{is_terminal_tool_status, session_update};
 
 const QUIET_WINDOW: Duration = Duration::from_secs(1);
 
@@ -31,16 +31,31 @@ impl PendingRequest {
     }
 }
 
-enum Reply {
+#[derive(Default)]
+struct Reply {
+    phase: Phase,
+    tools: HashSet<String>,
+    last_usage: Option<Usage>,
+}
+
+#[derive(Default)]
+enum Phase {
+    #[default]
     AwaitingContent,
     Streaming,
+    ToolStep,
     Closing(Completion),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Usage {
+    used: u64,
+    size: u64,
 }
 
 struct Completion {
     deadline: Instant,
-    used: u64,
-    size: u64,
+    usage: Usage,
     cancelled: bool,
 }
 
@@ -58,7 +73,11 @@ impl Replies {
         };
         match method {
             Some("session/cancel") => {
-                if let Some(Reply::Closing(completion)) = self.post_turn.get_mut(session) {
+                if let Some(Phase::Closing(completion)) = self
+                    .post_turn
+                    .get_mut(session)
+                    .map(|reply| &mut reply.phase)
+                {
                     // The native prompt has already ended. Deliver the boundary
                     // so the host can finish the interrupted detached turn.
                     completion.cancelled = true;
@@ -88,12 +107,12 @@ impl Replies {
         }
     }
 
-    pub(super) fn observe_response(&mut self, message: &Value) {
+    pub(super) fn observe_response(&mut self, message: &Value) -> Option<String> {
         let Some(PendingRequest::Prompt(session)) = message
             .get("id")
             .and_then(|id| self.requests.remove(&id.to_string()))
         else {
-            return;
+            return None;
         };
         if message
             .pointer("/result/stopReason")
@@ -104,8 +123,20 @@ impl Replies {
                 .values()
                 .any(|request| request.session() == session)
         {
-            self.post_turn.insert(session, Reply::AwaitingContent);
+            self.post_turn.insert(session.clone(), Reply::default());
+            return Some(session);
         }
+        None
+    }
+
+    pub(super) fn has_boundary(&self, session: &str) -> bool {
+        self.post_turn
+            .get(session)
+            .is_some_and(|reply| !matches!(reply.phase, Phase::AwaitingContent))
+            || self
+                .requests
+                .values()
+                .any(|request| request.session() == session)
     }
 
     pub(super) fn observe_update(&mut self, message: &Value, now: impl FnOnce() -> Instant) {
@@ -116,7 +147,7 @@ impl Replies {
         else {
             return;
         };
-        if matches!(reply, Reply::Closing(completion) if completion.cancelled) {
+        if matches!(&reply.phase, Phase::Closing(completion) if completion.cancelled) {
             return;
         }
         let Some(update) = message.pointer("/params/update") else {
@@ -124,27 +155,13 @@ impl Replies {
         };
         match update.get("sessionUpdate").and_then(Value::as_str) {
             Some("agent_message_chunk" | "agent_thought_chunk") if has_text(update) => {
-                *reply = Reply::Streaming;
+                // The model advanced beyond the earlier tool step. Its tools
+                // can continue in the background without holding this reply.
+                reply.tools.clear();
+                reply.phase = Phase::Streaming;
             }
-            Some("tool_call" | "tool_call_update") => {
-                // Usage without a new model chunk cannot finish a tool step.
-                *reply = Reply::AwaitingContent;
-            }
-            Some("usage_update") if !matches!(reply, Reply::AwaitingContent) => {
-                if let (Some(used), Some(size)) = (update["used"].as_u64(), update["size"].as_u64())
-                {
-                    if matches!(reply, Reply::Closing(current) if (current.used, current.size) == (used, size))
-                    {
-                        return;
-                    }
-                    *reply = Reply::Closing(Completion {
-                        deadline: now() + QUIET_WINDOW,
-                        used,
-                        size,
-                        cancelled: false,
-                    });
-                }
-            }
+            Some(kind @ ("tool_call" | "tool_call_update")) => reply.observe_tool(update, kind),
+            Some("usage_update") => reply.observe_usage(update, now),
             _ => {}
         }
     }
@@ -152,8 +169,8 @@ impl Replies {
     pub(super) fn next_deadline(&self) -> Option<Instant> {
         self.post_turn
             .values()
-            .filter_map(|reply| match reply {
-                Reply::Closing(completion) => Some(completion.deadline),
+            .filter_map(|reply| match &reply.phase {
+                Phase::Closing(completion) => Some(completion.deadline),
                 _ => None,
             })
             .min()
@@ -161,16 +178,16 @@ impl Replies {
 
     pub(super) fn take_completed(&mut self, now: Instant) -> Option<Value> {
         let (frame, cancelled) = self.post_turn.iter_mut().find_map(|(session, reply)| {
-            let Reply::Closing(completion) = reply else { return None };
+            let Phase::Closing(completion) = &reply.phase else { return None };
             if completion.deadline > now {
                 return None;
             }
             let frame = session_update(session, json!({
-                "sessionUpdate": "usage_update", "used": completion.used, "size": completion.size,
+                "sessionUpdate": "usage_update", "used": completion.usage.used, "size": completion.usage.size,
                 "_meta": {"cadencr": {"detachedReplyEnded": true}}
             }));
             let cancelled = completion.cancelled.then(|| session.clone());
-            *reply = Reply::AwaitingContent;
+            *reply = Reply::default();
             Some((frame, cancelled))
         })?;
         if let Some(session) = cancelled {
@@ -183,6 +200,49 @@ impl Replies {
         self.post_turn.remove(session);
         self.requests
             .retain(|_, request| request.session() != session);
+    }
+}
+
+impl Reply {
+    fn observe_tool(&mut self, update: &Value, kind: &str) {
+        if matches!(self.phase, Phase::AwaitingContent) {
+            return;
+        }
+        if let Some(call) = update["toolCallId"].as_str() {
+            if kind == "tool_call_update" && !self.tools.contains(call) {
+                // Updates from already completed or detached steps cannot
+                // reopen them or change a fresh usage deadline.
+                return;
+            }
+            let status = update["status"].as_str();
+            if is_terminal_tool_status(status) {
+                self.tools.remove(call);
+            } else {
+                self.tools.insert(call.to_owned());
+            }
+        }
+        self.phase = Phase::ToolStep;
+    }
+
+    fn observe_usage(&mut self, update: &Value, now: impl FnOnce() -> Instant) {
+        if matches!(self.phase, Phase::AwaitingContent) {
+            return;
+        }
+        let (Some(used), Some(size)) = (update["used"].as_u64(), update["size"].as_u64()) else {
+            return;
+        };
+        let usage = Usage { used, size };
+        let changed = self.last_usage.replace(usage) != Some(usage);
+        if !self.tools.is_empty()
+            || (!changed && matches!(self.phase, Phase::ToolStep | Phase::Closing(_)))
+        {
+            return;
+        }
+        self.phase = Phase::Closing(Completion {
+            deadline: now() + QUIET_WINDOW,
+            usage,
+            cancelled: false,
+        });
     }
 }
 
@@ -308,6 +368,38 @@ mod tests {
             assert_eq!(marker(&end), Some(&json!(true)));
             assert_eq!(end["params"]["update"]["used"], 206);
         }
+    }
+
+    #[test]
+    fn current_reply_tools_need_to_finish_before_a_fresh_usage_can_close_the_reply() {
+        let mut replies = Replies::default();
+        let start = Instant::now();
+        let tool = |id, kind, status| {
+            session_update(
+                "s",
+                json!({"sessionUpdate":kind,"toolCallId":id,"status":status}),
+            )
+        };
+        replies.observe_request(&request("session/prompt", json!(3), "s"));
+        replies.observe_response(&result(json!(3)));
+        replies.observe_update(&chunk("s", "Checking first"), || start);
+        replies.observe_update(&usage("s", 100), || start);
+        for id in ["read-1", "read-2"] {
+            replies.observe_update(&tool(id, "tool_call", "in_progress"), || start);
+        }
+        replies.observe_update(&tool("read-1", "tool_call_update", "completed"), || start);
+        replies.observe_update(&usage("s", 105), || start);
+        assert!(replies.take_completed(start + QUIET_WINDOW).is_none());
+
+        replies.observe_update(&tool("read-2", "tool_call_update", "completed"), || start);
+        replies.observe_update(&usage("s", 105), || start);
+        assert!(replies.take_completed(start + QUIET_WINDOW).is_none());
+
+        replies.observe_update(&usage("s", 110), || start);
+        replies.observe_update(&tool("read-2", "tool_call_update", "completed"), || start);
+        let end = replies.take_completed(start + QUIET_WINDOW).unwrap();
+        assert_eq!(marker(&end), Some(&json!(true)));
+        assert_eq!(end["params"]["update"]["used"], 110);
     }
 
     #[test]

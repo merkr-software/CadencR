@@ -47,12 +47,15 @@ The connector matches each new launch to its child's journal using the call ID
 in the launch message, including when several children start in one model step.
 The card shows the latest model recorded in that child’s planner responses and
 the cumulative tokens from those responses (uncached input, cache reads and output).
-A child waiting for a background command keeps its running status until it
-resumes and finishes. This integration is verified with `agy 1.5.14`. The
-available actions depend on what the journal writes, and parallel calls can
-appear without individually attributed results. CadencR retains activity it
-recorded during the launch. A child whose outcome is unavailable stays
-running until its runtime closes.
+The conversation stays working while a dispatched child or root Bash command
+continues after a prompt. A child that yields to a timer or background command
+stays running until it resumes and finishes. If the connector cannot find a
+readable child journal within 30 seconds, it releases that child's hold on the
+conversation. The card retains the last observed status until its runtime closes.
+
+This integration is verified with `agy 1.5.14`. The journal determines which
+actions CadencR can show. Parallel calls can appear without individually
+attributed results.
 
 **Auto** uses Antigravity’s native execution policy. Antigravity approves
 workspace edits, runs terminal commands in its sandbox by default, and checks

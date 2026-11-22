@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock};
 
+use crate::domain::agents::acp::types::AcpEventBarrier;
 use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeUsage};
 
@@ -15,7 +16,7 @@ use super::detached_replies::DetachedReply;
 use super::events_stream_blocks::{message_start_for, EventIndexer};
 use super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::provider_hooks::AcpProviderHooks;
-use super::turn_result::emit_turn_result;
+use super::turn_result::turn_result;
 
 pub type PromptTurnLock = Arc<AsyncMutex<()>>;
 
@@ -97,21 +98,23 @@ impl PromptCancel {
     }
 }
 
-/// Wait until the event loop has handled every event received before the
-/// fence, then pause event mapping until the caller drops the returned
-/// sender. Keep it through result publication and release the prompt lock
-/// before dropping it, so post-result activity cannot reopen the old blocks.
-pub async fn await_event_loop_barrier(
-    client: &AcpClient,
-) -> Result<oneshot::Sender<()>, RuntimeError> {
-    let (resume, paused) = oneshot::channel();
-    let released = client
-        .enqueue_event_barrier(Some(paused))
-        .map_err(|error| RuntimeError::new(format!("could not fence ACP events: {error}")))?;
-    released
-        .await
-        .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))?;
-    Ok(resume)
+pub(super) struct PromptReply {
+    body: Value,
+    fence_reached: oneshot::Receiver<()>,
+    resume_updates: oneshot::Sender<()>,
+}
+
+impl PromptReply {
+    /// Wait for events ahead of the wire response. The caller keeps the sender
+    /// through result publication and releases the prompt lock before dropping it.
+    pub(super) async fn after_prior_events(
+        self,
+    ) -> Result<(Value, oneshot::Sender<()>), RuntimeError> {
+        self.fence_reached
+            .await
+            .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))?;
+        Ok((self.body, self.resume_updates))
+    }
 }
 
 #[bon::builder]
@@ -146,11 +149,10 @@ pub async fn drive_initial_prompt(
         effort.as_deref(),
         false,
     );
-    let response = request_prompt_with_cancel(client, params, prompt_cancel, tx).await?;
-    if agent_was_terminated(&response) {
+    let Some(reply) = request_prompt_with_cancel(client, params, prompt_cancel, tx).await? else {
         return Ok(());
-    }
-    let resume_updates = await_event_loop_barrier(client).await?;
+    };
+    let (response, resume_updates) = reply.after_prior_events().await?;
     if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
         finalize_turn(
             tx,
@@ -194,29 +196,38 @@ pub async fn start_turn_on_model(
 /// protocol state — the caller already sent `session/cancel`, and the agent
 /// should answer with stop reason `cancelled`. Only when it does not settle
 /// within the cancel grace is the process terminated, visibly.
-pub async fn request_prompt_with_cancel(
+pub(super) async fn request_prompt_with_cancel(
     client: &AcpClient,
     params: Value,
     prompt_cancel: &PromptCancel,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
-) -> Result<Value, RuntimeError> {
+) -> Result<Option<PromptReply>, RuntimeError> {
     let start_epoch = prompt_cancel.current_epoch();
     prompt_cancel.interrupted.store(false, Ordering::Relaxed);
-    let prompt = client.request_until_closed("session/prompt", params);
+    let (resume_updates, paused) = oneshot::channel();
+    let (barrier, fence_reached) = AcpEventBarrier::new(Some(paused));
+    let prompt = client.request_prompt_with_event_barrier(params, barrier);
     tokio::pin!(prompt);
 
-    tokio::select! {
-        result = &mut prompt => prompt_result(result),
+    let body = tokio::select! {
+        result = &mut prompt => result
+            .map_err(|error| RuntimeError::new(format!("session/prompt failed: {error}")))?,
         _ = prompt_cancel.wait_for_cancel_after(start_epoch) => {
             match tokio::time::timeout(prompt_cancel.grace, &mut prompt).await {
-                Ok(result) => prompt_result_after_cancel(result),
+                Ok(result) => result.unwrap_or_else(|_| cancelled_prompt_response()),
                 Err(_) => {
                     escalate_unresponsive_cancel(client, prompt_cancel.grace, tx).await;
-                    Ok(terminated_prompt_response())
+                    // The reader got the escalation. A killed agent has no result to publish.
+                    return Ok(None);
                 }
             }
         }
-    }
+    };
+    Ok(Some(PromptReply {
+        body,
+        fence_reached,
+        resume_updates,
+    }))
 }
 
 async fn escalate_unresponsive_cancel(
@@ -251,32 +262,8 @@ fn unresponsive_cancel_message(grace: Duration) -> String {
     )
 }
 
-fn prompt_result(
-    result: Result<Value, crate::domain::agents::acp::error::AcpError>,
-) -> Result<Value, RuntimeError> {
-    result.map_err(|e| RuntimeError::new(format!("session/prompt failed: {e}")))
-}
-
-fn prompt_result_after_cancel(
-    result: Result<Value, crate::domain::agents::acp::error::AcpError>,
-) -> Result<Value, RuntimeError> {
-    Ok(result.unwrap_or_else(|_| cancelled_prompt_response()))
-}
-
 fn cancelled_prompt_response() -> Value {
     json!({ "stopReason": "cancelled", "cadencrSynthetic": true })
-}
-
-fn terminated_prompt_response() -> Value {
-    json!({ "stopReason": "cancelled", "cadencrSynthetic": true, "cadencrTerminated": true })
-}
-
-/// Whether the prompt ended by killing the agent after an ignored Stop. Its
-/// event loop is gone and the reader already got the escalation error, so the
-/// caller neither fences events nor finalizes the turn: either would only add
-/// a second, misleading error.
-pub fn agent_was_terminated(response: &Value) -> bool {
-    response.get("cadencrTerminated") == Some(&Value::Bool(true))
 }
 
 /// Drain open streaming blocks, then emit the per-turn `Result` envelope.
@@ -289,10 +276,15 @@ pub async fn finalize_turn(
     stop_reason: &str,
     response: &Value,
 ) {
-    let drained = {
+    let (drained, background) = {
         let mut guard = indexer.lock().expect("EventIndexer poisoned");
         guard.detached_reply = DetachedReply::after_prompt(stop_reason);
-        guard.drain_open_blocks(session_id.as_deref())
+        let pending =
+            stop_reason == "end_turn" && super::background_work::pending(response) == Some(true);
+        (
+            guard.drain_open_blocks(session_id.as_deref()),
+            guard.background_work.observe(pending),
+        )
     };
     for event in drained {
         if tx.send(Ok(event)).await.is_err() {
@@ -300,22 +292,22 @@ pub async fn finalize_turn(
             return;
         }
     }
-    emit_turn_result(
-        tx,
+    let event = turn_result(
         session_id,
         context_window,
         prompt_response_usage,
         stop_reason,
         response,
     )
-    .await;
+    .with_background_agent(background);
+    tx.send(Ok(event)).await.ignore_closed();
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        await_event_loop_barrier, drive_initial_prompt, finalize_turn, request_prompt_with_cancel,
-        start_turn_on_model, EventIndexer, PromptCancel, PromptTurnLock, DEFAULT_CANCEL_GRACE,
+        drive_initial_prompt, finalize_turn, request_prompt_with_cancel, start_turn_on_model,
+        EventIndexer, PromptCancel, PromptReply, PromptTurnLock, DEFAULT_CANCEL_GRACE,
     };
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::acp::runtime::test_support::spawn_event_barrier_acker;
@@ -584,7 +576,9 @@ mod tests {
                 crate::domain::agents::adapter::RuntimeError,
             >,
         >,
-    ) -> tokio::task::JoinHandle<Result<Value, crate::domain::agents::adapter::RuntimeError>> {
+    ) -> tokio::task::JoinHandle<
+        Result<Option<PromptReply>, crate::domain::agents::adapter::RuntimeError>,
+    > {
         let (client, cancel, tx) = (client.clone(), cancel.clone(), tx.clone());
         tokio::spawn(async move {
             request_prompt_with_cancel(&client, json!({"sessionId": "s-1"}), &cancel, &tx).await
@@ -607,7 +601,12 @@ mod tests {
             "Stop must wait for the agent to unwind"
         );
         reply_with_stop(&mut agent_stdout, request["id"].clone(), "cancelled").await;
-        let response = prompt.await.unwrap().expect("cancelled turn settles");
+        let response = prompt
+            .await
+            .unwrap()
+            .expect("cancelled turn settles")
+            .expect("native cancellation response")
+            .body;
         assert_eq!(response["stopReason"], "cancelled");
         assert!(response.get("cadencrSynthetic").is_none());
         assert!(rx.try_recv().is_err(), "no escalation error");
@@ -633,14 +632,13 @@ mod tests {
         let prompt = spawn_prompt(&client, &cancel, &tx).await;
         read_one_request(&mut agent_stdin).await;
         cancel.cancel_current_turn();
-        let response = tokio::time::timeout(Duration::from_secs(5), prompt)
+        let reply = tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
             .expect("escalation settles the turn")
             .unwrap()
             .unwrap();
-        assert_eq!(response["stopReason"], "cancelled");
         assert!(
-            super::agent_was_terminated(&response),
+            reply.is_none(),
             "callers must not fence or finalize a killed agent"
         );
         let error = rx.recv().await.unwrap().expect_err("visible escalation");
@@ -675,32 +673,30 @@ mod tests {
         assert!(rx.recv().await.unwrap().is_ok(), "earlier event first");
         let error = rx.recv().await.unwrap().expect_err("visible escalation");
         assert!(error.is_stop_escalation(), "{error:?}");
-        let response = tokio::time::timeout(Duration::from_secs(5), prompt)
+        let reply = tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
             .expect("escalation settles the turn")
             .unwrap()
             .unwrap();
-        assert_eq!(response["stopReason"], "cancelled");
+        assert!(reply.is_none());
     }
 
     #[tokio::test]
     async fn barrier_fails_fast_without_an_event_loop() {
-        // Previously this waited 2 s and then failed the turn.
-        let (client, _agent_stdout, _agent_stdin) = build_in_memory_client().await;
-        let error = tokio::time::timeout(
-            Duration::from_millis(200),
-            await_event_loop_barrier(&client),
-        )
-        .await
-        .expect("no hidden deadline")
-        .expect_err("no loop to drain events");
-        assert!(error.to_string().contains("could not fence"), "{error}");
-        let receiver = client.subscribe_reliable();
-        let released = client.enqueue_event_barrier(None).expect("queued");
-        drop(receiver);
-        tokio::time::timeout(Duration::from_secs(1), released)
-            .await
-            .expect("a dropped loop releases the waiter")
-            .expect_err("barrier was never reached");
+        for subscribed in [false, true] {
+            let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+            let receiver = subscribed.then(|| client.subscribe_reliable());
+            let (tx, _rx) = mpsc::channel(4);
+            let prompt = spawn_prompt(&client, &PromptCancel::new(), &tx).await;
+            let request = read_one_request(&mut agent_stdin).await;
+            reply_with_stop(&mut agent_stdout, request["id"].clone(), "end_turn").await;
+            let reply = prompt.await.unwrap().unwrap().unwrap();
+            drop(receiver);
+            let error = tokio::time::timeout(Duration::from_secs(1), reply.after_prior_events())
+                .await
+                .expect("a missing or dropped loop releases the waiter")
+                .expect_err("barrier was never reached");
+            assert!(error.to_string().contains("stopped before turn completion"));
+        }
     }
 }

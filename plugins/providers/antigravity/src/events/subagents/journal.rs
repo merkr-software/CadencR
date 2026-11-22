@@ -2,12 +2,10 @@ mod background;
 mod cursor;
 mod usage;
 
-use std::collections::HashSet;
-
 use cadencr_provider_sdk::meta::SubagentStatus;
 use serde_json::{json, Value};
 
-use self::background::{finished_task, started_task};
+use self::background::BackgroundTasks;
 use self::cursor::JournalCursor;
 use super::store::{read_record, NativeChild};
 use crate::events::{session_update, tools};
@@ -20,7 +18,7 @@ pub(super) struct ChildJournal {
     usage: usage::ChildUsage,
     last_settled_step: Option<u64>,
     single_action: Option<(u64, String)>,
-    background: HashSet<u64>,
+    background: BackgroundTasks,
 }
 
 impl ChildJournal {
@@ -31,7 +29,7 @@ impl ChildJournal {
             usage: usage::ChildUsage::default(),
             last_settled_step: None,
             single_action: None,
-            background: HashSet::new(),
+            background: BackgroundTasks::default(),
         }
     }
 
@@ -75,16 +73,13 @@ impl ChildJournal {
         match (step["source"].as_str(), step["type"].as_str()) {
             (Some("SYSTEM"), Some("SYSTEM_MESSAGE")) if status == "DONE" => {
                 // A rewritten journal can supply an earlier notification we missed.
-                if !self.background.is_empty() {
-                    if let Some(task) = finished_task(content, &self.child.id) {
-                        self.background.remove(&task);
-                    }
-                }
+                self.background
+                    .observe_notification(content, &self.child.id);
                 None
             }
             (Some("MODEL"), Some("GENERIC")) => {
                 if let Some(outcome) = outcome {
-                    self.background.remove(&index);
+                    self.background.remove(index);
                     if fresh
                         && self
                             .single_action
@@ -95,11 +90,9 @@ impl ChildJournal {
                             frames.push(self.action_result(root, &id, outcome, content));
                         }
                     }
-                } else if fresh
-                    && status == "RUNNING"
-                    && started_task(content, &self.child.id) == Some(index)
-                {
-                    self.background.insert(index);
+                } else if fresh && status == "RUNNING" {
+                    self.background
+                        .observe_running(content, &self.child.id, index);
                 }
                 None
             }

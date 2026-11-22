@@ -15,6 +15,7 @@ use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines,
 };
 use tokio::process::Child;
+use tokio::sync::Notify;
 use tokio::time::{Instant, Sleep};
 
 use crate::cli;
@@ -52,14 +53,16 @@ pub async fn run(binary: &Path, args: &[OsString]) -> Result<ExitCode, ProviderE
         ));
     };
     let state = RefCell::new(FrameMapper::default());
+    let host_changed = Notify::new();
     let mut host_output = tokio::io::stdout();
     let result = tokio::select! {
         result = relay_lines(tokio::io::stdin(), child_input, "Cadencr", |message| {
             let mut state = state.borrow_mut();
             state.config.map_host(message);
             state.events.map_host(message);
+            host_changed.notify_one();
         }) => result.map(|()| false),
-        result = relay_agent(child_output, &mut host_output, &state, SubagentTracker::new(args)) => result.map(|()| true),
+        result = relay_agent(child_output, &mut host_output, &state, &host_changed, SubagentTracker::new(args)) => result.map(|()| true),
         result = stop_signal() => result.map(|()| false),
     };
     let status = stop_child(&mut child).await;
@@ -77,6 +80,7 @@ async fn relay_agent(
     reader: impl AsyncRead + Unpin,
     mut writer: impl AsyncWrite + Unpin,
     state: &RefCell<FrameMapper>,
+    host_changed: &Notify,
     tracker: SubagentTracker,
 ) -> io::Result<()> {
     let mut lines = BufReader::new(reader).lines();
@@ -99,8 +103,9 @@ async fn relay_agent(
             detached_deadline = deadline;
         }
         let timer = detached_deadline.map(|_| detached_timer.as_mut());
+        let release = state.borrow().events.has_work_release();
         tokio::select! {
-            event = next_agent_input(&mut lines, timer) => match event? {
+            event = next_agent_input(&mut lines, timer, release) => match event? {
                 AgentInput::Line(None) => return Ok(()),
                 AgentInput::Line(Some(line)) => {
                     if line.trim().is_empty() {
@@ -120,14 +125,24 @@ async fn relay_agent(
                         write_message(&mut writer, &frame).await?;
                     }
                 }
+                AgentInput::WorkFinished => {
+                    let frame = state.borrow_mut().events.take_finished_work();
+                    if let Some(frame) = frame {
+                        write_message(&mut writer, &frame).await?;
+                    }
+                }
             },
+            () = host_changed.notified() => {}
             result = async {
                 match reading.as_mut() {
                     Some(task) => task.await,
                     None => std::future::pending().await,
                 }
             } => {
-                let (finished, frames) = result.map_err(io::Error::other)?;
+                let (mut finished, frames) = result.map_err(io::Error::other)?;
+                for (session, carrier) in finished.unobserved.drain(..) {
+                    state.borrow_mut().events.forget_child(&session, &carrier);
+                }
                 reading = None;
                 delay = if frames.is_empty() && !finished.has_pending_launches() {
                     (delay * 2).min(SUBAGENT_IDLE_INTERVAL)
@@ -141,7 +156,10 @@ async fn relay_agent(
             () = std::future::ready(()), if !queued.is_empty() => {
                 if let Some(frame) = queued.pop_front() {
                     let forward = state.borrow().events.can_forward_subagent(&frame);
-                    if forward { write_message(&mut writer, &frame).await?; }
+                    if forward {
+                        state.borrow_mut().events.observe_child(&frame);
+                        write_message(&mut writer, &frame).await?;
+                    }
                 }
             }
             _ = poll.tick() => {
@@ -166,16 +184,18 @@ async fn relay_agent(
 enum AgentInput {
     Line(Option<String>),
     DetachedDeadline,
+    WorkFinished,
 }
 
 async fn next_agent_input(
     lines: &mut Lines<impl AsyncBufRead + Unpin>,
     timer: Option<Pin<&mut Sleep>>,
+    release: bool,
 ) -> io::Result<AgentInput> {
     tokio::select! {
         biased;
-        // A continuation already in the pipe invalidates an expired timer
-        // before a completion can be emitted, including after output backpressure.
+        // Buffered continuation can replace a timer or carry the release on
+        // its own boundary, including after output backpressure.
         line = lines.next_line() => line.map(AgentInput::Line),
         () = async {
             match timer {
@@ -183,6 +203,7 @@ async fn next_agent_input(
                 None => std::future::pending().await,
             }
         } => Ok(AgentInput::DetachedDeadline),
+        () = std::future::ready(()), if release => Ok(AgentInput::WorkFinished),
     }
 }
 
@@ -265,13 +286,25 @@ mod tests {
         tokio::pin!(timer);
         timer.as_mut().await;
 
-        let event = next_agent_input(&mut lines, Some(timer.as_mut()))
+        let event = next_agent_input(&mut lines, Some(timer.as_mut()), false)
             .await
             .unwrap();
         assert!(matches!(event, AgentInput::Line(Some(line)) if line == "buffered continuation"));
-        let event = next_agent_input(&mut lines, Some(timer.as_mut()))
+        let event = next_agent_input(&mut lines, Some(timer.as_mut()), false)
             .await
             .unwrap();
         assert!(matches!(event, AgentInput::DetachedDeadline));
+    }
+
+    #[tokio::test]
+    async fn buffered_native_continuation_precedes_a_ready_work_release() {
+        let (mut native, reader) = tokio::io::duplex(64);
+        native.write_all(b"buffered continuation\n").await.unwrap();
+        let mut lines = BufReader::new(reader).lines();
+
+        let event = next_agent_input(&mut lines, None, true).await.unwrap();
+        assert!(matches!(event, AgentInput::Line(Some(line)) if line == "buffered continuation"));
+        let event = next_agent_input(&mut lines, None, true).await.unwrap();
+        assert!(matches!(event, AgentInput::WorkFinished));
     }
 }

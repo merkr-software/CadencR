@@ -212,6 +212,7 @@ or merged into raw JSON with `merge_meta`, which keeps existing `_meta` keys.
 | `permission_mode_meta(PermissionMode)`  | values of the `category: "mode"` select        | Mode chip / Shift+Tab; value order is the cycle order, the first is the edit mode |
 | `access_mode_role_meta()`               | the access select option itself                | Marks it as the access control                                                    |
 | `access_mode_meta(AccessMode)`          | values of that access select                   | Access chip and remembered workspace default                                      |
+| `background_work_meta(pending)`         | prompt result or session update                | Keeps the session working across turns or releases the hold                       |
 | `subagent_background_meta()`            | the sub-agent's launching `tool_call(_update)` | Keeps the sub-agent running past the call and the turn                            |
 | `subagent_status_meta(status, summary)` | a later `tool_call_update`, same `toolCallId`  | Ends that background sub-agent                                                    |
 | `slash_command_kind_meta(kind)`         | an `available_commands_update` entry           | Groups that live command with skills (`Skill`) or commands                        |

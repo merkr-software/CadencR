@@ -1,17 +1,69 @@
-/// The native journal identifies detached commands by <child>/task-<step>.
-pub(super) fn started_task(content: &str, child: &str) -> Option<u64> {
-    let header = content
-        .lines()
-        .find(|line| !line.starts_with("Created At: "))?;
-    let id = header.strip_prefix("Tool is running as a background task with task id: ")?;
-    task_step(id, child)
+use std::collections::HashMap;
+
+#[derive(Clone, Copy)]
+enum TaskKind {
+    Command,
+    Timer,
+}
+
+/// agy addresses each task by the owning child's ID and its journal step.
+#[derive(Default)]
+pub(super) struct BackgroundTasks(HashMap<u64, TaskKind>);
+
+impl BackgroundTasks {
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(super) fn remove(&mut self, index: u64) {
+        self.0.remove(&index);
+    }
+
+    pub(super) fn observe_running(&mut self, content: &str, child: &str, index: u64) {
+        let mut lines = content
+            .lines()
+            .skip_while(|line| line.starts_with("Created At: "));
+        let task = lines.next().and_then(|header| {
+            header.strip_prefix("Tool is running as a background task with task id: ")
+        });
+        if task.and_then(|id| task_step(id, child)) != Some(index) {
+            return;
+        }
+        let kind = match lines
+            .next()
+            .and_then(|line| line.strip_prefix("Task Description: Timer: "))
+        {
+            Some(description) if description.contains(", Prompt: ") => TaskKind::Timer,
+            _ => TaskKind::Command,
+        };
+        self.0.insert(index, kind);
+    }
+
+    pub(super) fn observe_notification(&mut self, content: &str, child: &str) {
+        if self.0.is_empty() {
+            return;
+        }
+        let Some((sender, body)) = task_message(content) else {
+            return;
+        };
+        let Some(step) = task_step(sender, child) else {
+            return;
+        };
+        match self.0.get(&step) {
+            // A timer delivers the reminder itself. A command can send output,
+            // so only its native terminal notification settles it.
+            Some(TaskKind::Timer) => self.remove(step),
+            Some(TaskKind::Command) if command_finished(sender, body) => self.remove(step),
+            _ => {}
+        }
+    }
 }
 
 fn task_step(id: &str, child: &str) -> Option<u64> {
     id.strip_prefix(child)?.strip_prefix("/task-")?.parse().ok()
 }
 
-pub(super) fn finished_task(content: &str, child: &str) -> Option<u64> {
+fn task_message(content: &str) -> Option<(&str, &str)> {
     let (_, message) = content.split_once("<SYSTEM_MESSAGE>\n")?;
     let header = message
         .lines()
@@ -19,12 +71,22 @@ pub(super) fn finished_task(content: &str, child: &str) -> Option<u64> {
         .strip_prefix("[Message] timestamp=")?;
     let (_, fields) = header.split_once(" sender=")?;
     let (sender, fields) = fields.split_once(" priority=")?;
-    let (_, result) = fields.split_once(" content=Task id \"")?;
-    let task = result.strip_suffix("\" finished with result:")?;
-    if sender != task {
-        return None;
-    }
-    task_step(sender, child)
+    let (_, body) = fields.split_once(" content=")?;
+    Some((sender, body))
+}
+
+fn command_finished(sender: &str, body: &str) -> bool {
+    let Some((task, outcome)) = body
+        .strip_prefix("Task id \"")
+        .and_then(|rest| rest.split_once('"'))
+    else {
+        return false;
+    };
+    task == sender
+        && matches!(
+            outcome,
+            " finished with result:" | " was canceled with result:"
+        )
 }
 
 #[cfg(test)]
@@ -71,6 +133,32 @@ mod tests {
         assert_eq!(observe(reply(8)), None);
         assert_eq!(observe(message(9, "child/task-3")), None);
         assert_eq!(observe(reply(10)), Some(SubagentStatus::Completed));
+    }
+
+    #[test]
+    fn cancellations_and_expired_timers_release_only_their_own_task() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut child = ChildJournal::new(NativeChild {
+            id: "child".into(),
+            carrier: "launch".into(),
+            descriptor: temp.path().join("descriptor"),
+            transcript: temp.path().join("journal"),
+        });
+        let mut frames = Vec::new();
+        let mut row = |step, source, kind, state, text: &str| {
+            child.observe_step(
+            &json!({"step_index":step,"source":source,"type":kind,"status":state,"content":text}), "root",&mut frames)
+        };
+        row(3,"MODEL","GENERIC","RUNNING","Tool is running as a background task with task id: child/task-3\nTask Description: Timer: 30s, Prompt: Retry");
+        row(4,"MODEL","GENERIC","RUNNING","Tool is running as a background task with task id: child/task-4\nTask Description: Run tests");
+        row(5,"SYSTEM","SYSTEM_MESSAGE","DONE","<SYSTEM_MESSAGE>\n[Message] timestamp=t sender=child/task-4 priority=high content=Ordinary message");
+        row(6,"SYSTEM","SYSTEM_MESSAGE","DONE","<SYSTEM_MESSAGE>\n[Message] timestamp=t sender=child/task-3 priority=high content=Retry");
+        assert_eq!(row(7, "MODEL", "PLANNER_RESPONSE", "DONE", "Waiting"), None);
+        row(8,"SYSTEM","SYSTEM_MESSAGE","DONE","<SYSTEM_MESSAGE>\n[Message] timestamp=t sender=child/task-4 priority=low content=Task id \"child/task-4\" was canceled with result:\nTool execution was canceled");
+        assert_eq!(
+            row(9, "MODEL", "PLANNER_RESPONSE", "DONE", "Final report"),
+            Some(SubagentStatus::Completed)
+        );
     }
 
     #[test]

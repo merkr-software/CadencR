@@ -150,6 +150,11 @@ fn read_child(
     }
     let child = generated(brain, id)?;
     let transcript = directory(&child, "logs")?.join("transcript_full.jsonl");
+    // A launch can publish its descriptor before it opens the journal. Keep
+    // the discovery deadline until there is a source of lifecycle events.
+    if record["state"] != "SUBAGENT_STATE_KILLED" {
+        open_file(&transcript).ok()?;
+    }
     let scan = match launches.entry(id.to_owned()) {
         std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
         std::collections::hash_map::Entry::Vacant(entry) => {

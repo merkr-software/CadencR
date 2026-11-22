@@ -213,12 +213,12 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     async fn interrupt(&self) -> Result<(), RuntimeError> {
         let session_id = self.require_session_id().await?;
         reject_all_pending(&self.client, &self.pending_permissions).await;
-        let result = self
-            .client
-            .send_notification_typed(CancelNotification::new(session_id))
-            .await;
+        // The agent may report the interruption as soon as it sees the notification.
         self.prompt_cancel.cancel_current_turn();
-        result.map_err(|e| RuntimeError::new(format!("session/cancel failed: {e}")))
+        self.client
+            .send_notification_typed(CancelNotification::new(session_id))
+            .await
+            .map_err(|e| RuntimeError::new(format!("session/cancel failed: {e}")))
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {

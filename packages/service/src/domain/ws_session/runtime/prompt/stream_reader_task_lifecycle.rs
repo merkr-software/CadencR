@@ -1,11 +1,12 @@
 use tracing::{error, info};
 
-use crate::domain::agents::adapter::RuntimeError;
+use crate::domain::agents::adapter::{BackgroundAgentSignal, RuntimeError, RuntimeEvent};
 use crate::domain::restart_continuations::forget_user_stop;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 use super::super::QueryState;
+use super::stream_reader_background_agents::track_background_agents;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
 impl StreamReaderTask {
@@ -170,6 +171,33 @@ impl StreamReaderTask {
             .active_turns
             .take_interruption(self.db_session_id, runtime)
             .await
+    }
+
+    pub(super) async fn discard_stale_result(
+        &self,
+        state: &mut StreamReaderState,
+        event: &RuntimeEvent,
+    ) {
+        // The older work finished even though a newer prompt owns the turn.
+        if matches!(
+            event.background_agent_signal(),
+            Some(BackgroundAgentSignal::Finished { .. })
+        ) {
+            track_background_agents(&mut state.live_background_agents, event);
+        }
+        let generation = state.turn_state.detached_result_generation();
+        let runtime = self
+            .runtime_session_handle
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        if let (Some(generation), Some(runtime)) = (generation, runtime) {
+            // A Stop can carry into the new generation while the older work
+            // drains. Consume only the Stop this detached result answered.
+            self.app_state
+                .active_turns
+                .clear_interruption(self.db_session_id, generation, &runtime)
+                .await;
+        }
     }
 
     async fn discard_if_superseded(&self, action: &str) -> bool {

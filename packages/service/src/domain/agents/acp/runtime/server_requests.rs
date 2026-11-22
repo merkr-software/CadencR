@@ -193,11 +193,18 @@ async fn handle_notification(
                 let mut indexer = config.indexer.lock().expect("EventIndexer poisoned");
                 let turn_model = latched_turn_model(&mut indexer, agent_moved_model, model);
                 let detached = session_id.as_deref().and_then(|session_id| {
-                    if indexer.detached_reply == DetachedReply::Inactive {
+                    let detached_active = indexer.detached_reply != DetachedReply::Inactive;
+                    if !detached_active && !indexer.background_work.is_pending() {
                         return None;
                     }
                     let update = DetachedUpdate::classify(payload, session_id)?;
-                    let turn_guard = config.prompt_turn_lock.try_lock().ok()?;
+                    let work_finished = matches!(update, DetachedUpdate::WorkFinished);
+                    let turn_guard = detached_active
+                        .then(|| config.prompt_turn_lock.try_lock().ok())
+                        .flatten();
+                    if turn_guard.is_none() && !work_finished {
+                        return None;
+                    }
                     Some((session_id, update, turn_guard))
                 });
                 let mut mapped = session_update_to_events(
@@ -207,8 +214,8 @@ async fn handle_notification(
                     session_id.as_deref(),
                     config.hooks.as_ref(),
                 );
-                if let Some((session_id, update, _)) = &detached {
-                    update.apply(&mut indexer, &mut mapped, session_id);
+                if let Some((session_id, update, turn_guard)) = &detached {
+                    update.apply(&mut indexer, &mut mapped, session_id, turn_guard.is_some());
                 }
                 (mapped, detached)
             };

@@ -123,6 +123,11 @@ pub fn access_mode_role_meta() -> Meta {
     cadencr(json!({ "role": ACCESS_MODE_ROLE }))
 }
 
+/// Keep a session working after a real turn result, or release that hold.
+pub fn background_work_meta(pending: bool) -> Meta {
+    cadencr(json!({ "backgroundWorkPending": pending }))
+}
+
 /// `{"cadencr": {"subagent": {"background": true}}}` for the launching call.
 pub fn subagent_background_meta() -> Meta {
     cadencr(json!({ "subagent": { "background": true } }))
