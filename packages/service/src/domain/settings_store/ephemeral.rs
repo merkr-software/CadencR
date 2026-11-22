@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
-use super::{dir, file, lock, paths};
+use super::{dir, paths, store};
 
 /// Exact workspace keys to drop.
 const EPHEMERAL_KEYS: &[&str] = &["lastOpenedFeature"];
@@ -35,28 +35,27 @@ pub async fn prune_ephemeral_global() -> Result<bool, AppError> {
 }
 
 async fn prune(path: &Path) -> Result<bool, AppError> {
-    let _guard = lock::write_lock().lock().await;
-    let Some(text) = file::read_file(path)? else {
-        return Ok(false);
-    };
-    let Ok(mut doc) = file::parse_document(&text) else {
-        // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
-        return Ok(false);
-    };
-    let before = doc.len();
-    // Ephemeral keys are scalar UI state; nested sections (e.g. `profiles`) are
-    // never ephemeral and are preserved by operating on the full document.
-    doc.retain(|key, _| !is_ephemeral_key(key));
-    if doc.len() == before {
-        return Ok(false);
-    }
-    file::write_atomic(path, &file::serialize_document(&doc))?;
-    Ok(true)
+    let changed = store::update_document_locked(
+        path,
+        store::ReadPolicy::SkipMissingOrCorrupt,
+        "settings prune",
+        |doc| {
+            let before = doc.len();
+            // Ephemeral keys are scalar UI state; nested sections (e.g. `profiles`) are
+            // never ephemeral and are preserved by operating on the full document.
+            doc.retain(|key, _| !is_ephemeral_key(key));
+            let changed = doc.len() != before;
+            Ok((changed, changed))
+        },
+    )
+    .await?;
+    Ok(changed.unwrap_or(false))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::settings_store::file;
 
     #[test]
     fn matches_exact_and_prefixed_keys() {

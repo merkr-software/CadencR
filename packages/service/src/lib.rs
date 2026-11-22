@@ -15,3 +15,4 @@ pub mod error;
 pub mod remote;
 pub mod shared;
 pub mod shutdown;
+pub mod startup_lock;

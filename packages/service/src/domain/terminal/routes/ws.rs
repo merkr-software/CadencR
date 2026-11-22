@@ -158,8 +158,18 @@ async fn handle_new_pty(
         }
     };
 
-    let (pty_id, handle) = match state.pty_manager.create_pty(feature_id, &cwd, cols, rows) {
-        Ok(result) => result,
+    let pty_manager = state.pty_manager.clone();
+    let spawn_cwd = cwd.clone();
+    let (pty_id, handle) = match tokio::task::spawn_blocking(move || {
+        pty_manager.create_pty(feature_id, &spawn_cwd, cols, rows)
+    })
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            send_error(socket, &format!("Failed to create PTY: {e}")).await;
+            return;
+        }
         Err(e) => {
             send_error(socket, &format!("Failed to create PTY: {e}")).await;
             return;

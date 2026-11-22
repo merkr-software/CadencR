@@ -106,12 +106,25 @@ impl NeovimManager {
 
         let project_id = project_id_for_feature(&self.read_pool, feature_id).await?;
         let cwd = resolve_cwd(&self.read_pool, feature_id, project_id).await?;
-        let (pty_id, pty_handle) = self
-            .pty_manager
-            .create_pty_with_command(feature_id, cmd, &cwd, 120, 40, PtyKind::Neovim)
-            .map_err(|e| AppError::NeovimSpawnError {
-                detail: e.to_string(),
-            })?;
+        let pty_manager = self.pty_manager.clone();
+        let spawn_cwd = cwd.clone();
+        let (pty_id, pty_handle) = tokio::task::spawn_blocking(move || {
+            pty_manager.create_pty_with_command(
+                feature_id,
+                cmd,
+                &spawn_cwd,
+                120,
+                40,
+                PtyKind::Neovim,
+            )
+        })
+        .await
+        .map_err(|e| AppError::NeovimSpawnError {
+            detail: format!("neovim spawn task failed: {e}"),
+        })?
+        .map_err(|e| AppError::NeovimSpawnError {
+            detail: e.to_string(),
+        })?;
 
         let mut startup = StartupPty::new(self.pty_manager.clone(), pty_id.clone());
         let mut alive = pty_handle.alive.subscribe();

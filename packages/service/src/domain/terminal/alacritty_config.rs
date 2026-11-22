@@ -195,6 +195,20 @@ pub fn read_alacritty_config_response(fallback_palette: AnsiPalette) -> Alacritt
     }
 }
 
+/// Build a fallback response without touching the filesystem (used when the
+/// blocking config reader task fails to join).
+pub fn fallback_alacritty_config_response(
+    fallback_palette: AnsiPalette,
+    parse_error: Option<String>,
+) -> AlacrittyConfigResponse {
+    AlacrittyConfigResponse {
+        config: merge_with_fallback(AlacrittyConfig::default(), &fallback_palette),
+        found: false,
+        parse_error,
+        watch_error: watcher::watch_error(),
+    }
+}
+
 /// Fill each color `config` leaves unset with the bundled fallback. This is
 /// how the terminal panel gets a consistent color palette when there's no
 /// usable config at all — with a usable config, `normal` preserves the

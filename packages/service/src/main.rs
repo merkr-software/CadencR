@@ -4,7 +4,7 @@
 #![deny(clippy::let_underscore_must_use, clippy::unused_result_ok)] // as in lib.rs
 
 use cadencr_service::{
-    api, app_state, config, dev_clone, dev_env, domain, remote, shared, shutdown,
+    api, app_state, config, dev_clone, dev_env, domain, remote, shared, shutdown, startup_lock,
 };
 
 use anyhow::Context;
@@ -82,20 +82,17 @@ async fn main() -> anyhow::Result<()> {
                 info!("Loaded env from {}", dotenv_path.display());
             }
 
-            let addr = format!("127.0.0.1:{}", config.port);
-            let listener = tokio::net::TcpListener::bind(&addr)
-                .await
-                .with_context(|| format!("failed to bind Cadencr service listener on {addr}"))?;
-
-            // Freeze the data roots from Electron's launch env, then hydrate the
-            // login-shell env before any git, agent or PTY subprocess spawns.
-            shared::data_roots::pin_and_log(config.data_dir.as_deref())?;
-            shared::login_env::hydrate_from_login_shell().await;
-
             let db_path = config
                 .db_path
                 .clone()
                 .expect("--db-path or CADENCR_DB_PATH env var required");
+            let _db_lock = startup_lock::acquire_db_lock(std::path::Path::new(&db_path))?;
+            // Probe the port before slow startup work, then drop so `/api/health` gets ECONNREFUSED until ready.
+            let addr = format!("127.0.0.1:{}", config.port);
+            drop(bind_listener(&addr).await?);
+
+            shared::data_roots::pin_and_log(config.data_dir.as_deref())?;
+            shared::login_env::hydrate_from_login_shell().await;
 
             let write_pool = db::create_write_pool(&db_path).await?;
             shared::migrate::run_migrations(&shared::migrate::MigrationContext {
@@ -341,25 +338,19 @@ async fn main() -> anyhow::Result<()> {
             let app =
                 api::build_router(state).layer(api::cors::build_cors_layer(config.frontend_port));
 
+            let listener = bind_listener(&addr).await?;
             info!("Cadencr service listening on {addr}");
-            // Disable Nagle's algorithm on every accepted connection. Nagle is
-            // the default on `tokio::net::TcpStream` and silently coalesces
-            // small frames for ~200 ms, which destroys real-time WS streaming.
+            // Disable Nagle's algorithm on accepted connections (small WS frames).
             let listener = listener.tap_io(|stream| {
                 if let Err(err) = stream.set_nodelay(true) {
                     tracing::warn!("set_nodelay failed: {err}");
                 }
             });
-            // Start maintenance only after the listener is ready. The scheduler
-            // adds its own delay so it cannot compete with session restore or
-            // the user's first active turn.
             domain::maintenance::spawn(
                 maintenance_read_pool,
                 maintenance_write_pool,
                 maintenance_events,
             );
-            // Shutdown ordering lives in `shutdown`: the signal future only
-            // closes the listener, then teardown and the HTTP drain run together.
             let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();
             let server = axum::serve(
                 listener,
@@ -375,10 +366,17 @@ async fn main() -> anyhow::Result<()> {
                 write_pool_for_shutdown,
             )
             .await?;
+            drop(_db_lock);
         }
     }
 
     Ok(())
+}
+
+async fn bind_listener(addr: &str) -> anyhow::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("failed to bind Cadencr service listener on {addr}"))
 }
 
 /// MCP subprocess mode writes to stderr to keep stdout clean for JSON-RPC.

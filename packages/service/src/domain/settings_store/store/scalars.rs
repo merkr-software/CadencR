@@ -1,10 +1,14 @@
 use std::{collections::BTreeMap, path::Path};
 
-use super::{file, load_document_for_write, lock, AppError};
+use super::{update_document_locked, AppError, ReadPolicy};
 
 /// Set a single scalar key, preserving every other key (unknown scalars and
 /// nested sections like `profiles` alike).
-pub(super) async fn set_value(path: &Path, key: &str, value: &str) -> Result<(), AppError> {
+pub(in super::super) async fn set_value(
+    path: &Path,
+    key: &str,
+    value: &str,
+) -> Result<(), AppError> {
     set_values(
         path,
         &BTreeMap::from([(key.to_string(), Some(value.to_string()))]),
@@ -20,27 +24,30 @@ pub(super) async fn set_values(
     path: &Path,
     entries: &BTreeMap<String, Option<String>>,
 ) -> Result<(BTreeMap<String, Option<String>>, bool), AppError> {
-    let _guard = lock::write_lock().lock().await;
-    let mut doc = load_document_for_write(path)?;
-    let mut changed = false;
-    let previous = entries
-        .iter()
-        .map(|(key, value)| {
-            let old = match value {
-                Some(value) => doc.insert(key.clone(), serde_json::Value::String(value.clone())),
-                None => doc.remove(key),
-            };
-            changed |= match value {
-                Some(value) => old.as_ref().and_then(serde_json::Value::as_str) != Some(value),
-                None => old.is_some(),
-            };
-            (key.clone(), old.map(stored_text))
-        })
-        .collect();
-    if changed {
-        file::write_atomic(path, &file::serialize_document(&doc))?;
-    }
-    Ok((previous, changed))
+    let entries = entries.clone();
+    let outcome = update_document_locked(path, ReadPolicy::Strict, "settings write", move |doc| {
+        let mut changed = false;
+        let previous = entries
+            .iter()
+            .map(|(key, value)| {
+                let old = match value {
+                    Some(value) => {
+                        doc.insert(key.clone(), serde_json::Value::String(value.clone()))
+                    }
+                    None => doc.remove(key),
+                };
+                changed |= match value {
+                    Some(value) => old.as_ref().and_then(serde_json::Value::as_str) != Some(value),
+                    None => old.is_some(),
+                };
+                (key.clone(), old.map(stored_text))
+            })
+            .collect();
+        Ok(((previous, changed), changed))
+    })
+    .await?
+    .unwrap_or_default();
+    Ok(outcome)
 }
 
 /// A stored value as the text a scalar setting holds.
