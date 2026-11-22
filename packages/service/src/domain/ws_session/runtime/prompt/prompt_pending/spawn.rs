@@ -58,8 +58,18 @@ pub(in crate::domain::ws_session) async fn spawn_runtime(
     let content_value =
         build_content_value_for_provider(&context.provider_id, &prompt_text, &attachments);
     let options = std::mem::take(&mut context.options);
+    let selection = context.remember_selection.then(|| {
+        super::super::user_selection::PromptedSelection::pending(&context.provider_id, &options)
+    });
     match adapter.spawn(content_value, options).await {
         Ok(runtime_session) => {
+            if let Some(selection) = selection {
+                selection
+                    .delivered(&*runtime_session)
+                    .await
+                    .remember(&context.sender, &context.envelope_id)
+                    .await;
+            }
             user_shell_context
                 .mark_delivered_or_warn(
                     &context.app_state.write_pool,

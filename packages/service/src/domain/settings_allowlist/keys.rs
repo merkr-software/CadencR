@@ -166,6 +166,7 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // last prompted with (written by the backend, not a configured default);
     // `auto_name` is global-only, with an optional custom system prompt.
     "model_session",
+    "last_prompt_selection",
     "model_auto_name",
     "agent_runtime_session",
     "agent_runtime_auto_name",

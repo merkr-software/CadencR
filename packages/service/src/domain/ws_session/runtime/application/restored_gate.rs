@@ -8,7 +8,7 @@ use crate::domain::ws_session::protocol::PermissionRespondPayload;
 use crate::domain::ws_session::runtime::helpers::broadcast_session_error;
 use crate::domain::ws_session::runtime::output::{CommandError, CommandOutput};
 
-use super::control_dispatch::dispatch_control_prompt_with_message_uuid;
+use super::dispatch_control_prompt_with_message_uuid;
 use super::permission::PermissionResponseOutcome;
 use super::permission_context::PermissionContext;
 use super::permission_pending::clear_answered_gate_preserving_replacement;

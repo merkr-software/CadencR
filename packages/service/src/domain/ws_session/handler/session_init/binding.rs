@@ -4,7 +4,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::access_mode_wire;
 use crate::domain::agents::permission_modes::permission_mode_wire;
 use crate::domain::agents::runtime_adapter;
-use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::persistence::SessionRow;
 use crate::domain::ws_session::protocol::{SessionInitializedPayload, WsEnvelope, WsSessionEvent};
 use crate::shared::discard::IgnoreClosed;
 
@@ -117,10 +117,31 @@ pub(super) async fn read_row(
     envelope_id: &str,
     db_session_id: i64,
 ) -> Result<Option<SessionRow>, ()> {
-    WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id)
+    crate::domain::ws_session::persistence::WsSessionPersistence::get_session_row(
+        &app_state.read_pool,
+        db_session_id,
+    )
+    .await
+    .map_err(|error| {
+        super::super::send_error(
+            sender,
+            envelope_id,
+            "DB_ERROR",
+            &format!("Failed to read the session: {error}"),
+        );
+    })
+}
+
+pub(super) async fn prepare_controls(
+    state: &AppState,
+    row: Option<&mut SessionRow>,
+    request: &crate::domain::ws_session::protocol::SessionInitPayload,
+    cwd: &str,
+) -> Result<bool, crate::error::AppError> {
+    let Some(row) = row else { return Ok(false) };
+    if request.provider.is_some() || request.model.is_some() || request.thinking_effort.is_some() {
+        return Ok(false);
+    }
+    row.inherit_last_prompt(&state.read_pool, std::path::Path::new(cwd))
         .await
-        .map_err(|error| {
-            let message = format!("Failed to read the session: {error}");
-            super::super::send_error(sender, envelope_id, "DB_ERROR", &message);
-        })
 }

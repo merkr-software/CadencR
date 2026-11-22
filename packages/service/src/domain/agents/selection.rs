@@ -1,9 +1,7 @@
 //! Single source of truth for a session's runtime `(provider, model)` pair.
 //!
 //! Both the HTTP settings surface and the WebSocket session lifecycle resolve
-//! through here, so the pair can never be assembled from two independently
-//! resolved halves. The returned model is always a member of the returned
-//! provider's catalog.
+//! here. The returned model belongs to the resolved provider's catalog.
 
 use std::path::Path;
 
@@ -15,8 +13,11 @@ use super::providers::{canonical_provider_or_error, provider_model_catalog_entry
 use super::runtime::{model_setting_key, runtime_setting_key};
 use crate::domain::settings::{self, SettingOrigin};
 
+mod error;
+pub use error::SelectionError;
 mod last_used;
-pub use last_used::remember_session_selection;
+pub(crate) use last_used::PromptedSelection;
+pub use last_used::{remember_session_selection, resolve_selection};
 
 /// Where each half of the selection came from. `ProviderDefault` means no level
 /// set it and the provider's own default applies — the frontend renders that as
@@ -48,56 +49,7 @@ pub struct ResolvedSelection {
     pub model_origin: SelectionOrigin,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum SelectionError {
-    /// The provider resolved fine but exposes no usable model. Surfaced to the
-    /// user instead of inventing a plausible model id that would fail later at
-    /// session start with an opaque runtime error.
-    #[error("provider '{provider_id}' exposes no models; check that its CLI is installed and authenticated")]
-    NoModelAvailable { provider_id: String },
-    /// A settings level could not be read. Starting on a fallback would run an
-    /// agent the user did not pick, so the read failure is the answer.
-    #[error("could not read the saved agent selection: {0}")]
-    SettingsUnreadable(String),
-}
-
-impl SelectionError {
-    /// Stable wire code for the WebSocket error reply.
-    pub fn code(&self) -> &'static str {
-        match self {
-            Self::NoModelAvailable { .. } => "NO_MODEL_AVAILABLE",
-            Self::SettingsUnreadable(_) => {
-                crate::domain::settings_store::file::SETTINGS_READ_FAILED
-            }
-        }
-    }
-}
-
-/// A settings level that cannot be read is not a malformed request: it gets its
-/// own code, and a 4xx status so the cause reaches the user, who can fix it.
-impl From<SelectionError> for crate::error::AppError {
-    fn from(error: SelectionError) -> Self {
-        match error {
-            SelectionError::SettingsUnreadable(_) => Self::coded(
-                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                error.code(),
-                error.to_string(),
-            ),
-            SelectionError::NoModelAvailable { .. } => Self::BadRequest(error.to_string()),
-        }
-    }
-}
-
-impl From<crate::error::AppError> for SelectionError {
-    fn from(error: crate::error::AppError) -> Self {
-        Self::SettingsUnreadable(error.to_string())
-    }
-}
-
-/// Cascade: feature override → workspace (the pair the user last prompted
-/// with, see [`remember_session_selection`]) → provider default. There is no
-/// project level: the last-used pair follows the user across projects.
-pub async fn resolve_selection(
+pub(crate) async fn resolve_configured_selection(
     read_pool: &SqlitePool,
     cwd: Option<&Path>,
     agent_type: &str,

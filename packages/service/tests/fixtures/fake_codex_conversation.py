@@ -130,6 +130,10 @@ for line in sys.stdin:
     elif method == "model/list":
         result = {"data": [{"id": "qa-model", "model": "qa-model", "displayName": "QA model",
                             "isDefault": True, "supportedReasoningEfforts": [],
+                            "defaultReasoningEffort": "low"},
+                           {"id": "qa-alternate", "model": "qa-alternate", "displayName": "Alternate",
+                            "isDefault": False, "supportedReasoningEfforts": [{"reasoningEffort": "low"}, {"reasoningEffort": "high"}],
+                            "serviceTiers": [{"id": "priority", "name": "Fast"}],
                             "defaultReasoningEffort": "low"}], "nextCursor": None}
     elif method == "skills/list":
         result = {"data": []}
@@ -148,6 +152,9 @@ for line in sys.stdin:
     elif method == "turn/start":
         generation += 1
         mode = " ".join(i.get("text", "") for i in params.get("input", []))
+        if "qa-reject" in mode:
+            emit({"id": msg["id"], "error": {"code": -32000, "message": "QA prompt rejected"}})
+            continue
         emit({"id": msg["id"], "result": {"turn": {"id": root + "-turn-" + str(generation)}}})
         threading.Thread(target=scenario, args=(mode,), daemon=True).start()
         continue

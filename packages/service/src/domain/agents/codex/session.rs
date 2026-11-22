@@ -6,6 +6,7 @@ mod options;
 mod question;
 mod stream;
 
+use crate::domain::agents::adapter::RuntimeEffectiveConfig;
 use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -63,6 +64,8 @@ pub(super) struct CodexSession {
     effective_effort: Arc<RwLock<Option<String>>>,
     summary: Option<String>,
     fast_mode: Arc<RwLock<Option<bool>>>,
+    native_fast_mode: bool,
+    delivered_controls: RwLock<RuntimeEffectiveConfig>,
     permission_mode: Arc<RwLock<Option<RuntimePermissionMode>>>,
     access_mode: Arc<RwLock<Option<RuntimeAccessMode>>>,
     cwd: PathBuf,
@@ -106,6 +109,8 @@ impl CodexSession {
             effective_effort: Arc::new(RwLock::new(options.effective_effort)),
             summary: options.summary,
             fast_mode: Arc::new(RwLock::new(options.fast_mode)),
+            native_fast_mode: options.native_fast_mode,
+            delivered_controls: RwLock::default(),
             permission_mode: Arc::new(RwLock::new(options.permission_mode)),
             access_mode: Arc::new(RwLock::new(options.access_mode)),
             cwd: options.cwd,
@@ -157,6 +162,11 @@ impl CodexSession {
         *self.turn_model.write().await = collaboration_model.clone();
         let collaboration_effort = self.effective_effort.read().await.clone();
         let fast_mode = *self.fast_mode.read().await;
+        let controls = RuntimeEffectiveConfig {
+            model: collaboration_model.clone(),
+            thinking_effort: collaboration_effort.clone(),
+            fast_mode: fast_mode.unwrap_or(self.native_fast_mode),
+        };
         let permission_mode = self.permission_mode.read().await.clone();
         let access_mode = self.access_mode.read().await.clone();
         let mut params = turn_start_params(
@@ -179,6 +189,7 @@ impl CodexSession {
         }
         let _starting = self.turn_start.lock().await;
         let turn = self.client.turn_start(params).await?;
+        *self.delivered_controls.write().await = controls;
         *self.active_turn_id.write().await = Some(turn.id.clone());
         *self.last_root_turn_id.write().await = Some(turn.id);
         Ok(())
@@ -187,6 +198,10 @@ impl CodexSession {
 
 #[async_trait]
 impl AgentRuntimeSession for CodexSession {
+    async fn delivered_turn_config(&self) -> Option<RuntimeEffectiveConfig> {
+        Some(self.delivered_controls.read().await.clone())
+    }
+
     fn context_window(&self) -> Option<u64> {
         self.context_window
     }

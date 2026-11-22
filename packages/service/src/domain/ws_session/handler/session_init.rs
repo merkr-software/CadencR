@@ -6,7 +6,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::agents::runtime_adapter;
 use crate::domain::workflow::worktree;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 mod binding;
 mod effort;
 mod fast_mode;
@@ -44,10 +44,6 @@ pub(super) async fn handle_init(
         .map(crate::domain::agents::adapter::access_mode_wire);
 
     // Find or create DB session row
-    info!(
-        feature_id,
-        "handle_init: looking up session in DB for feature_id"
-    );
     let mut persistence = WsSessionPersistence::new(app_state.write_pool.clone(), feature_id);
     let pm_str = payload.permission_mode.as_deref();
     let db_session_id = match persistence
@@ -58,14 +54,7 @@ pub(super) async fn handle_init(
         )
         .await
     {
-        Ok(id) => {
-            info!(
-                feature_id,
-                db_session_id = id,
-                "handle_init: found/created session row"
-            );
-            id
-        }
+        Ok(id) => id,
         Err(error) => {
             send_error(
                 sender,
@@ -83,8 +72,8 @@ pub(super) async fn handle_init(
         .await;
     let mut sessions = sdk_sessions.lock().await;
 
-    // Read session row for runtime_session_id (--resume), token usage, and stored model.
-    let Ok(row) = binding::read_row(app_state, sender, &envelope.id, db_session_id).await else {
+    let Ok(mut row) = binding::read_row(app_state, sender, &envelope.id, db_session_id).await
+    else {
         return Some(db_session_id);
     };
     let spawning = app_state.session_runtimes.is_spawning(db_session_id).await;
@@ -114,31 +103,46 @@ pub(super) async fn handle_init(
         );
         return Some(db_session_id);
     }
-    if let Some(ref r) = row {
-        debug!(
-            db_session_id,
-            feature_id,
-            runtime_provider = ?r.runtime_provider,
-            runtime_session_id = ?r.runtime_session_id,
-            status = %r.status,
-            model = ?r.model,
-            "handle_init: DB row state at init time"
-        );
+    let effective_cwd = match worktree::resolve_feature_cwd(&app_state.read_pool, feature_id).await
+    {
+        Ok(path) => path,
+        Err(error) => {
+            send_error(sender, &envelope.id, "WORKTREE_CHECK_FAILED", &error);
+            return Some(db_session_id);
+        }
+    };
+    if effective_cwd != cwd {
+        info!(feature_id, runtime_cwd = %effective_cwd, "resolved runtime cwd from feature state");
     }
-
-    let stored_model = row.as_ref().and_then(|r| r.model.clone());
+    let inherited =
+        match binding::prepare_controls(app_state, row.as_mut(), &payload, &effective_cwd).await {
+            Ok(true) => row.as_ref(),
+            Ok(false) => None,
+            Err(error) => {
+                let (code, message) = match error {
+                    crate::error::AppError::Coded { code, message, .. } => (code, message),
+                    error => ("DB_ERROR", error.to_string()),
+                };
+                send_error(sender, &envelope.id, code, &message);
+                return Some(db_session_id);
+            }
+        };
     let stored_thinking_effort = row.as_ref().and_then(|r| r.thinking_effort.clone());
     let stored_fast_mode = row.as_ref().is_some_and(|r| r.fast_mode);
     let selection = provider::effective_selection()
         .app_state(app_state)
-        .cwd(&cwd)
+        .cwd(&effective_cwd)
         .feature_id(feature_id)
         .maybe_row(row.as_ref())
         .maybe_requested_provider(payload.provider.clone())
         .maybe_requested_model(payload.model.clone())
         .call()
         .await;
-    let (effective_provider, mut effective_model) = match selection {
+    let provider::InitialSelection {
+        provider: effective_provider,
+        model: mut effective_model,
+        pin_model,
+    } = match selection {
         Ok(selection) => selection,
         Err(error) => {
             send_error(sender, &envelope.id, error.code(), &error.to_string());
@@ -152,7 +156,7 @@ pub(super) async fn handle_init(
         &effective_provider,
         effective_model.as_deref(),
         payload.thinking_effort.clone(),
-        stored_thinking_effort.clone(),
+        row.as_ref(),
     )
     .await;
     let Some((mut effective_thinking_effort, cleared_unsupported_effort)) =
@@ -194,48 +198,12 @@ pub(super) async fn handle_init(
             return Some(db_session_id);
         }
     };
-    if let Err(error) = WsSessionPersistence::update_runtime_selection_static()
-        .pool(&app_state.write_pool)
-        .session_id(db_session_id)
-        .runtime_provider(&effective_provider)
-        .maybe_model(effective_model.as_deref())
-        .clear_thinking_effort(cleared_unsupported_effort)
-        .call()
-        .await
-    {
-        warn!(
-            db_session_id,
-            runtime_provider = %effective_provider,
-            %error,
-            "failed to persist session runtime selection"
-        );
-        send_error(
-            sender,
-            &envelope.id,
-            "DB_ERROR",
-            "Failed to persist session runtime selection",
-        );
-        return Some(db_session_id);
-    }
-
-    // Build SDK options — prefer the model stored in the DB (last used) over the frontend settings model
-    let mut runtime_config = RuntimeSpawnConfig::default();
-    let effective_cwd = match worktree::resolve_feature_cwd(&app_state.read_pool, feature_id).await
-    {
-        Ok(path) => path,
-        Err(error) => {
-            send_error(sender, &envelope.id, "WORKTREE_CHECK_FAILED", &error);
-            return Some(db_session_id);
-        }
+    let mut runtime_config = RuntimeSpawnConfig {
+        cwd: effective_cwd.into(),
+        model: effective_model.clone(),
+        thinking_effort: effective_thinking_effort.clone(),
+        ..Default::default()
     };
-    if effective_cwd != cwd {
-        info!(feature_id, runtime_cwd = %effective_cwd, "resolved runtime cwd from feature state");
-    }
-    runtime_config.cwd = std::path::PathBuf::from(&effective_cwd);
-    if let Some(ref model) = effective_model {
-        runtime_config.model = Some(model.clone());
-    }
-    runtime_config.thinking_effort = effective_thinking_effort.clone();
     let requested_mode = payload.permission_mode.as_deref().or_else(|| {
         row.as_ref()
             .and_then(|session| session.permission_mode.as_deref())
@@ -295,7 +263,7 @@ pub(super) async fn handle_init(
             .db_session_id(db_session_id)
             .provider(&effective_provider)
             .maybe_row(row.as_ref())
-            .maybe_stored_model(stored_model.as_deref())
+            .pin_model(pin_model)
             .maybe_stored_effort(stored_thinking_effort.as_deref())
             .stored_fast_mode(stored_fast_mode)
             .maybe_effective_model(effective_model)
@@ -351,6 +319,40 @@ pub(super) async fn handle_init(
         effective_fast_mode,
     );
     runtime_config.fast_mode = effective_fast_mode;
+
+    let persisted = if let Some(row) = inherited {
+        row.persist_inherited_controls(&app_state.write_pool).await
+    } else {
+        WsSessionPersistence::update_runtime_selection_static()
+            .pool(&app_state.write_pool)
+            .session_id(db_session_id)
+            .runtime_provider(&effective_provider)
+            .maybe_model(effective_model.as_deref())
+            .maybe_initial_overrides(
+                (inherits_profile_config
+                    && row.as_ref().is_none_or(|r| r.runtime_overrides.is_none()))
+                .then_some(&runtime_config.overrides),
+            )
+            .clear_thinking_effort(cleared_unsupported_effort)
+            .call()
+            .await
+            .map_err(crate::error::AppError::from)
+    };
+    if let Err(error) = persisted {
+        warn!(
+            db_session_id,
+            runtime_provider = %effective_provider,
+            %error,
+            "failed to persist session runtime selection"
+        );
+        send_error(
+            sender,
+            &envelope.id,
+            "DB_ERROR",
+            "Failed to persist session runtime selection",
+        );
+        return Some(db_session_id);
+    }
 
     info!(
         db_session_id,

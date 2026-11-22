@@ -127,6 +127,7 @@ mod tests {
             permission_tx: Some(permission_response_channel().0),
             internal_replay: true,
             wait_for_delivery: true,
+            remember_selection: false,
             spawn_claim: None,
             handle_identity,
         }

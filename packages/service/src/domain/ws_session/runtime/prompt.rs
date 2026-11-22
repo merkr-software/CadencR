@@ -43,6 +43,7 @@ mod stream_reader_task_lifecycle;
 mod stream_reader_turn_state;
 mod stream_reader_usage;
 mod user_message_delivery;
+pub(in crate::domain::ws_session) mod user_selection;
 pub(in crate::domain::ws_session) mod user_shell_context;
 pub(in crate::domain::ws_session) mod user_shell_local;
 pub(in crate::domain::ws_session) mod user_shell_payload;

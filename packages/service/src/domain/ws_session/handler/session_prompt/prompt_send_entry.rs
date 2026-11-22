@@ -2,7 +2,7 @@ use super::prompt_send_pending::spawn_pending_prompt;
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::WsEnvelope;
 
-use super::super::{send_error, SdkHandle, SdkSessions, WsSender};
+use super::super::{send_error, SdkSessions, WsSender};
 use super::prompt_send::{dispatch_local_phase, dispatch_owner_phase, prepare_prompt};
 use crate::domain::ws_session::runtime::prompt::prompt_selection_sync;
 
@@ -90,50 +90,12 @@ pub(crate) async fn handle_prompt_send(
     .await;
 }
 
-/// The provider/model a user-typed prompt is about to run on.
-pub(in crate::domain::ws_session) struct PromptedSelection {
-    provider_id: String,
-    model_id: Option<String>,
-}
-
-impl PromptedSelection {
-    pub(in crate::domain::ws_session) fn of(handle: &SdkHandle) -> Self {
-        Self {
-            provider_id: handle.runtime_provider.clone(),
-            model_id: handle.desired_model.clone(),
-        }
-    }
-}
-
-/// Report whether the prompt's user message was persisted. An accepted prompt
-/// makes its pair the workspace's last-used selection — the one the next new
-/// conversation starts on — off the prompt path. Schedules and MCP spawns
-/// dispatch through the control path, so they never move it.
-pub(in crate::domain::ws_session) fn report_prompt_result(
+pub(super) fn report_prompt_result(
     sender: &WsSender,
     envelope_id: &str,
-    selection: PromptedSelection,
     result: Result<(), String>,
 ) {
     if let Err(error) = result {
         send_error(sender, envelope_id, "USER_MESSAGE_PERSIST_FAILED", &error);
-        return;
     }
-    let sender = sender.clone();
-    let envelope_id = envelope_id.to_string();
-    tokio::spawn(async move {
-        let remembered = crate::domain::agents::selection::remember_session_selection(
-            &selection.provider_id,
-            selection.model_id.as_deref(),
-        )
-        .await;
-        if let Err(error) = remembered {
-            send_error(
-                &sender,
-                &envelope_id,
-                "LAST_USED_MODEL_SAVE_FAILED",
-                &format!("Couldn't remember this model for new conversations: {error}"),
-            );
-        }
-    });
 }

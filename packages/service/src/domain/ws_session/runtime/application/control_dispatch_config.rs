@@ -15,16 +15,26 @@ use crate::domain::ws_session::runtime::state::{QueryState, SdkHandle, SessionCo
 pub(in crate::domain::ws_session) async fn build_pending_handle(
     app_state: &AppState,
     project_id: i64,
-    row: SessionRow,
+    mut row: SessionRow,
+    user_prompt: bool,
 ) -> Result<SdkHandle, AppError> {
     let runtime_cwd = worktree::resolve_feature_cwd(&app_state.read_pool, row.feature_id)
         .await
         .map(std::path::PathBuf::from)
         .map_err(|error| AppError::internal(error))?;
+    let inherited = user_prompt
+        && row
+            .inherit_last_prompt(&app_state.read_pool, &runtime_cwd)
+            .await?;
     let provider = effective_provider(app_state, project_id, &runtime_cwd, &row).await?;
-    persist_resolved_provider(app_state, &row, &provider).await?;
     let (options, claude_profile) =
         runtime_options(app_state, project_id, runtime_cwd, &provider, &row).await?;
+    if inherited {
+        row.persist_inherited_controls(&app_state.write_pool)
+            .await?;
+    } else {
+        persist_resolved_provider(app_state, &row, &provider).await?;
+    }
     let config = SessionConfig::from_runtime(&options, claude_profile.clone());
     Ok(SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
@@ -335,7 +345,9 @@ mod tests {
             runtime_overrides: None,
         };
 
-        let handle = build_pending_handle(&app_state, 1, row).await.unwrap();
+        let handle = build_pending_handle(&app_state, 1, row, false)
+            .await
+            .unwrap();
         assert_eq!(
             handle.desired_claude_profile.as_deref(),
             Some("control-routing-proxy")

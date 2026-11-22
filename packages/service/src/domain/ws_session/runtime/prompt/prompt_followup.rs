@@ -32,6 +32,7 @@ use crate::domain::ws_session::runtime::followup_stops::HandOff;
 
 pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub query: RuntimeSessionHandle,
+    pub user_selection: Option<super::user_selection::PromptedSelection>,
     pub delivery_lease: Option<super::super::state::RuntimeDeliveryLease>,
     pub feature_id: i64,
     pub db_session_id: i64,
@@ -41,9 +42,7 @@ pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub ws_feature_senders: WsFeatureSenderRegistry,
     pub feature_events_tx: FeatureEventBroadcaster,
     pub envelope_id: String,
-    /// The owning connection's session map + the global registry, so a
-    /// follow-up turn re-stamps the start time and owner (single source of
-    /// truth for the synced timer + cross-device answers).
+    /// Session owners for cross-device answers and turn timing.
     pub sdk_sessions: SdkSessions,
     pub active_turns: Arc<ActiveTurnRegistry>,
     pub provider_id: String,
@@ -191,9 +190,7 @@ async fn persist_followup_user_message(
         .internal_replay(context.internal_replay)
         .call()
         .await?;
-    // The user message changed this feature's most-recent-user-message sort
-    // key. Broadcast so every client's sidebar re-sorts conversations and
-    // floats this one to the top of its project.
+    // Reorder every client's sidebar after a new user message.
     if outcome.inserted() {
         context
             .feature_events_tx
@@ -260,6 +257,10 @@ async fn stream_followup_prompt(
         .await;
     // Recorded before the barrier drops: a Stop that follows withdraws it,
     // and finds its dispatch final.
+    let selection = match (&stream_result, context.user_selection.take()) {
+        (Ok(()), Some(selection)) => Some(selection.delivered(&**turn_guard.runtime).await),
+        _ => None,
+    };
     if stream_result.is_ok() {
         mark_followup_succeeded(&context, dispatch_claim.as_ref()).await;
         if let (Some(accepted), Some(id)) = (delivery.accepted, receipt_message_uuid.as_ref()) {
@@ -280,7 +281,11 @@ async fn stream_followup_prompt(
     }
     drop(turn_guard);
     drop(context.delivery_lease.take());
-
+    if let Some(selection) = selection {
+        selection
+            .remember(&context.sender, &context.envelope_id)
+            .await;
+    }
     if let Err(error) = stream_result {
         if error.is_input_withdrawn() {
             let shell_context = Some(shell_context);

@@ -125,19 +125,23 @@ impl WsSessionPersistence {
         session_id: i64,
         runtime_provider: &str,
         model: Option<&str>,
+        initial_overrides: Option<&crate::domain::agents::adapter::RuntimeConfigOverrides>,
         clear_thinking_effort: bool,
     ) -> Result<(), sqlx::Error> {
-        let sql = if clear_thinking_effort {
-            "UPDATE agent_sessions SET runtime_provider = ?, model = ?, thinking_effort = NULL WHERE id = ?"
-        } else {
-            "UPDATE agent_sessions SET runtime_provider = ?, model = ? WHERE id = ?"
-        };
-        sqlx::query(sql)
-            .bind(runtime_provider)
-            .bind(model)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
+        let overrides = initial_overrides
+            .map(|value| serde_json::to_string(value).expect("runtime overrides serialize"));
+        sqlx::query(
+            "UPDATE agent_sessions SET runtime_provider = ?, model = ?,
+             runtime_overrides = COALESCE(runtime_overrides, ?),
+             thinking_effort = CASE WHEN ? THEN NULL ELSE thinking_effort END WHERE id = ?",
+        )
+        .bind(runtime_provider)
+        .bind(model)
+        .bind(overrides)
+        .bind(clear_thinking_effort)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 

@@ -91,6 +91,20 @@ async fn resolve_table_column_setting(
         .filter(|value| !value.is_empty()))
 }
 
+pub(crate) async fn feature_setting(
+    pool: &SqlitePool,
+    feature_id: i64,
+    key: &str,
+) -> Result<Option<String>, AppError> {
+    if SHARED_COLUMNS.contains(&key) {
+        if let Some(value) = resolve_table_column_setting(pool, "features", feature_id, key).await?
+        {
+            return Ok(Some(value));
+        }
+    }
+    resolve_feature_kv_setting(pool, feature_id, key).await
+}
+
 /// Resolve a setting using the cascade: feature (SQLite) → project (JSON) →
 /// global (JSON) → default. Only empty strings are treated as unset and fall
 /// through. Global and project settings live in JSON files now; feature
@@ -127,13 +141,8 @@ pub(crate) async fn resolve_in_with_origin(
 ) -> Result<Option<(String, SettingOrigin)>, AppError> {
     // 1. Feature-level (SQLite: real column then EAV).
     if let Some(fid) = feature_id {
-        if SHARED_COLUMNS.contains(&key) {
-            if let Some(v) = resolve_table_column_setting(pool, "features", fid, key).await? {
-                return Ok(Some((v, SettingOrigin::Feature)));
-            }
-        }
-        if let Some(v) = resolve_feature_kv_setting(pool, fid, key).await? {
-            return Ok(Some((v, SettingOrigin::Feature)));
+        if let Some(value) = feature_setting(pool, fid, key).await? {
+            return Ok(Some((value, SettingOrigin::Feature)));
         }
     }
 

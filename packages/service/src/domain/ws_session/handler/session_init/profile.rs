@@ -6,7 +6,7 @@ use crate::domain::agents::providers::runtime_adapter;
 use crate::domain::agents::runtime_overrides::{self, RestoreOptions};
 use crate::domain::settings;
 use crate::domain::ws_session::handler::session_runtime_config;
-use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::persistence::SessionRow;
 use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 use crate::domain::ws_session::runtime::session_runtime_config::RuntimeSettingsContext;
 
@@ -26,7 +26,7 @@ pub(super) struct ResolveOptions<'a> {
     db_session_id: i64,
     provider: &'a str,
     row: Option<&'a SessionRow>,
-    stored_model: Option<&'a str>,
+    pin_model: bool,
     stored_effort: Option<&'a str>,
     stored_fast_mode: bool,
     effective_model: Option<String>,
@@ -44,7 +44,7 @@ pub(super) async fn resolve(
         db_session_id,
         provider,
         row,
-        stored_model,
+        pin_model,
         stored_effort,
         stored_fast_mode,
         mut effective_model,
@@ -56,7 +56,7 @@ pub(super) async fn resolve(
             .provider(provider)
             .maybe_runtime_session_id(row.and_then(|session| session.runtime_session_id.as_deref()))
             .maybe_stored_json(row.and_then(|session| session.runtime_overrides.as_deref()))
-            .maybe_model(stored_model)
+            .maybe_model(row.and_then(|session| session.model.as_deref()))
             .maybe_thinking_effort(stored_effort)
             .fast_mode(stored_fast_mode)
             .build(),
@@ -64,14 +64,8 @@ pub(super) async fn resolve(
     .map_err(|error| ("INVALID_RUNTIME_OVERRIDES", error))?;
     let inherits = runtime_adapter(provider)
         .is_some_and(|adapter| adapter.supports_profile_config_inheritance());
-    if row.is_some_and(|session| session.runtime_overrides.is_none()) && inherits {
-        WsSessionPersistence::update_runtime_overrides_static(
-            &app_state.write_pool,
-            db_session_id,
-            &runtime_config.overrides,
-        )
-        .await
-        .map_err(|error| ("DB_ERROR", error.to_string()))?;
+    if inherits && pin_model && fresh_session(row) {
+        runtime_config.overrides.model.clone_from(&effective_model);
     }
     let selected_profile = session_runtime_config::persisted_profile_selection(
         provider,
@@ -123,7 +117,6 @@ pub(super) async fn resolve(
             .map_err(|error| ("PROFILE_CONFIG_ERROR", error.to_string()))?;
         pin_last_used_effort(
             app_state,
-            db_session_id,
             provider,
             row,
             &mut runtime_config.overrides,
@@ -146,6 +139,12 @@ pub(super) async fn resolve(
     })
 }
 
+fn fresh_session(row: Option<&SessionRow>) -> bool {
+    row.is_some_and(|session| {
+        session.runtime_overrides.is_none() && session.runtime_session_id.is_none()
+    })
+}
+
 /// A brand-new session of a profile-inheriting provider (no override document
 /// and no runtime thread yet) starts at the user's last level for its effective
 /// model, as a spawn or a model switch would; without one, the profile's own
@@ -153,16 +152,12 @@ pub(super) async fn resolve(
 /// keeps it when it is reopened.
 async fn pin_last_used_effort(
     app_state: &AppState,
-    db_session_id: i64,
     provider: &str,
     row: Option<&SessionRow>,
     overrides: &mut RuntimeConfigOverrides,
     effective: &mut RuntimeEffectiveConfig,
 ) -> Result<(), (&'static str, String)> {
-    let fresh = row.is_some_and(|session| {
-        session.runtime_overrides.is_none() && session.runtime_session_id.is_none()
-    });
-    if !fresh || overrides.thinking_effort.is_some() {
+    if !fresh_session(row) || overrides.thinking_effort.is_some() {
         return Ok(());
     }
     let Some(model) = effective.model.as_deref() else {
@@ -176,13 +171,6 @@ async fn pin_last_used_effort(
         return Ok(());
     };
     overrides.thinking_effort = Some(level.clone());
-    WsSessionPersistence::update_runtime_overrides_static(
-        &app_state.write_pool,
-        db_session_id,
-        overrides,
-    )
-    .await
-    .map_err(|error| ("DB_ERROR", error.to_string()))?;
     effective.thinking_effort = Some(level);
     Ok(())
 }
@@ -192,6 +180,7 @@ mod tests {
     use super::*;
     use crate::domain::ws_session::handler::tests::support::{init_session, make_test_app_state};
     use crate::domain::ws_session::handler::types::SdkSessions;
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
@@ -222,7 +211,6 @@ mod tests {
         let mut effective = effective_for();
         pin_last_used_effort(
             &app_state,
-            db_id,
             "codex_cli",
             fresh_row.as_ref(),
             &mut overrides,
@@ -232,25 +220,15 @@ mod tests {
         .unwrap();
         assert_eq!(overrides.thinking_effort.as_deref(), Some("high"));
         assert_eq!(effective.thinking_effort.as_deref(), Some("high"));
-        let persisted: Option<String> =
-            sqlx::query_scalar("SELECT runtime_overrides FROM agent_sessions WHERE id = ?")
-                .bind(db_id)
-                .fetch_one(&app_state.read_pool)
-                .await
-                .unwrap();
-        assert!(persisted.unwrap().contains("\"high\""));
-
         // Once it has an override document, its own provenance wins.
-        let known_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id)
-            .await
-            .unwrap();
+        let mut known_row = fresh_row.unwrap();
+        known_row.runtime_overrides = Some("{}".into());
         let mut overrides = RuntimeConfigOverrides::default();
         let mut effective = effective_for();
         pin_last_used_effort(
             &app_state,
-            db_id,
             "codex_cli",
-            known_row.as_ref(),
+            Some(&known_row),
             &mut overrides,
             &mut effective,
         )
