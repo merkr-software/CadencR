@@ -157,12 +157,29 @@ pub(super) async fn repair_agent_messages_perf_indexes(pool: &SqlitePool) -> any
         )
         .execute(pool)
         .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_todo_tools
+             ON agent_messages(session_id, id)
+             WHERE message_type = 'tool_call'
+               AND tool_name IN ('TodoWrite', 'TaskCreate', 'TaskUpdate')",
+        )
+        .execute(pool)
+        .await?;
     }
 
     if message_columns.contains("tool_use_id") {
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_tool_use
              ON agent_messages(session_id, tool_use_id)",
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    if message_columns.contains("created_at") {
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_created
+             ON agent_messages(session_id, created_at DESC)",
         )
         .execute(pool)
         .await?;

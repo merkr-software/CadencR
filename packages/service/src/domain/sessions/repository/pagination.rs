@@ -6,11 +6,13 @@
 //! Agent tool_call from its children.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::super::models::*;
 use super::MESSAGE_SELECT;
 use crate::error::AppError;
+
+const MISSING_PARENT_PAIR_CHUNK_SIZE: usize = 200;
 
 /// Soft cap on the total number of blocks (root + nested) returned by a single
 /// `get_feature_agent_state` call. The wire payload for very long conversations
@@ -59,6 +61,79 @@ pub(super) fn trim_blocks_to_cap(blocks: &mut Vec<AgentBlock>, cap: usize) -> us
     dropped
 }
 
+fn collect_parent_refs(
+    session_id: i64,
+    rows: &[AgentMessageRow],
+    known: &mut HashSet<(i64, String)>,
+    pending: &mut HashSet<(i64, String)>,
+) {
+    for message in rows {
+        if message.message_type == "tool_call" {
+            if let Some(tool_use_id) = &message.tool_use_id {
+                known.insert((session_id, tool_use_id.clone()));
+            }
+        }
+        if let Some(parent) = &message.parent_tool_use_id {
+            pending.insert((session_id, parent.clone()));
+        }
+        if matches!(message.message_type.as_str(), "tool_result" | "tool_error") {
+            if let Some(tool_use_id) = &message.tool_use_id {
+                pending.insert((session_id, tool_use_id.clone()));
+            }
+        }
+    }
+}
+
+/// Iteratively fetch missing ancestor `tool_call` rows for `(session_id, tool_use_id)`
+/// pairs until the transitive parent chain is closed (or dangling/cyclic).
+async fn fetch_missing_parent_rows(
+    pool: &SqlitePool,
+    known: &mut HashSet<(i64, String)>,
+    pending: &mut HashSet<(i64, String)>,
+) -> Result<Vec<AgentMessageRow>, AppError> {
+    let message_select_m = MESSAGE_SELECT
+        .replacen("SELECT ", "SELECT m.", 1)
+        .replace(", ", ", m.");
+    let mut ancestors = Vec::new();
+    loop {
+        let missing: Vec<(i64, String)> = pending
+            .drain()
+            .filter(|pair| !known.contains(pair))
+            .collect();
+        if missing.is_empty() {
+            break;
+        }
+        // Mark requested pairs before querying: malformed cycles and dangling
+        // references terminate instead of being requested forever.
+        known.extend(missing.iter().cloned());
+        for chunk in missing.chunks(MISSING_PARENT_PAIR_CHUNK_SIZE) {
+            let values = std::iter::repeat_n("(?, ?)", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "WITH needed(session_id, tool_use_id) AS (VALUES {values}) \
+                 {message_select_m} FROM needed n \
+                 CROSS JOIN agent_messages m \
+                 WHERE m.session_id = n.session_id \
+                   AND m.tool_use_id = n.tool_use_id \
+                   AND m.message_type = 'tool_call'"
+            );
+            let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
+            for (session_id, tool_use_id) in chunk {
+                query = query.bind(session_id).bind(tool_use_id);
+            }
+            let fetched = query.fetch_all(pool).await?;
+            for row in &fetched {
+                if let Some(parent) = &row.parent_tool_use_id {
+                    pending.insert((row.session_id, parent.clone()));
+                }
+            }
+            ancestors.extend(fetched);
+        }
+    }
+    Ok(ancestors)
+}
+
 /// Fetch parent Agent/Task tool_call rows that are referenced by children in the
 /// given message page but not already present. This lets `build_blocks` correctly
 /// nest sub-agent children even when pagination splits parent from children.
@@ -67,47 +142,31 @@ pub(super) async fn fetch_missing_parents(
     session_id: i64,
     msgs: &[AgentMessageRow],
 ) -> Result<Vec<AgentMessageRow>, AppError> {
-    let mut known: HashSet<String> = msgs
-        .iter()
-        .filter(|m| m.message_type == "tool_call")
-        .filter_map(|m| m.tool_use_id.clone())
-        .collect();
+    let mut known = HashSet::new();
     let mut pending = HashSet::new();
-    for m in msgs {
-        if let Some(parent) = &m.parent_tool_use_id {
-            pending.insert(parent.clone());
-        }
-        if matches!(m.message_type.as_str(), "tool_result" | "tool_error") {
-            pending.extend(m.tool_use_id.iter().cloned());
-        }
-    }
-    let mut ancestors = Vec::new();
-    loop {
-        let missing: Vec<String> = pending.drain().filter(|id| !known.contains(id)).collect();
-        if missing.is_empty() {
-            break;
-        }
-        // Mark requested ids before querying: malformed cycles and dangling
-        // references terminate instead of being requested forever.
-        known.extend(missing.iter().cloned());
-        let placeholders = missing.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!(
-            "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND message_type = 'tool_call' AND tool_use_id IN ({placeholders}) ORDER BY id ASC"
-        );
-        let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql)).bind(session_id);
-        for tool_use_id in &missing {
-            query = query.bind(tool_use_id);
-        }
-        let fetched = query.fetch_all(pool).await?;
-        pending.extend(
-            fetched
-                .iter()
-                .filter_map(|message| message.parent_tool_use_id.clone()),
-        );
-        ancestors.extend(fetched);
-    }
+    collect_parent_refs(session_id, msgs, &mut known, &mut pending);
+    let mut ancestors = fetch_missing_parent_rows(pool, &mut known, &mut pending).await?;
     ancestors.sort_by_key(|message| message.id);
     Ok(ancestors)
+}
+
+/// Batched counterpart of [`fetch_missing_parents`] across multiple sessions.
+pub(super) async fn fetch_missing_parents_batch(
+    pool: &SqlitePool,
+    messages_by_session: &mut HashMap<i64, Vec<AgentMessageRow>>,
+) -> Result<(), AppError> {
+    let mut known = HashSet::new();
+    let mut pending = HashSet::new();
+    for (&session_id, rows) in messages_by_session.iter() {
+        collect_parent_refs(session_id, rows, &mut known, &mut pending);
+    }
+    for row in fetch_missing_parent_rows(pool, &mut known, &mut pending).await? {
+        messages_by_session
+            .entry(row.session_id)
+            .or_default()
+            .push(row);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -9,8 +9,9 @@ use super::feature_state_fetch::{
 };
 use super::incremental_fetch::{fetch_incremental_data, IncrementalData};
 use super::origins::attach_message_origins;
+use super::SESSION_SELECT;
 use crate::error::AppError;
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
 pub async fn get_feature_agent_state(
     pool: &SqlitePool,
@@ -20,17 +21,11 @@ pub async fn get_feature_agent_state(
     limit: Option<i64>,
     before_message_ids: Option<HashMap<i64, i64>>,
 ) -> Result<FeatureAgentStateResponse, AppError> {
-    let sessions = sqlx::query_as::<_, AgentSessionRow>(
-        r#"SELECT id, feature_id, agent_type, runtime_provider, runtime_session_id, status, started_at, ended_at,
-           subprocess_id, model, profile, pending_questions, has_file_changes,
-           permission_mode, codex_permission_mode, pending_permission,
-           input_tokens, output_tokens, context_window, was_compacted, draft_prompt,
-           message_revision
-           FROM agent_sessions WHERE feature_id = ? ORDER BY id ASC"#,
-    )
-    .bind(feature_id)
-    .fetch_all(pool)
-    .await?;
+    let sql = format!("{SESSION_SELECT} FROM agent_sessions WHERE feature_id = ? ORDER BY id ASC");
+    let sessions = sqlx::query_as::<_, AgentSessionRow>(AssertSqlSafe(sql))
+        .bind(feature_id)
+        .fetch_all(pool)
+        .await?;
     if sessions.is_empty() {
         return Ok(FeatureAgentStateResponse { sessions: vec![] });
     }
