@@ -6751,6 +6751,7 @@ export interface SessionMcpServersPayload {
    */
   error?: string | null;
   mcp_servers: McpServerStatusPayload[];
+  session_id: string;
 }
 
 export interface SessionMessagePayload {

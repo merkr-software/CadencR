@@ -38,7 +38,7 @@ fn test_mcp_server_names_for_project_and_workspace() {
 #[tokio::test]
 async fn test_mcp_stdio_server_responds_to_tools_list() {
     let (_tmp, db_path) = setup_browser_test_db().await;
-    let Some(mut process) = spawn_mcp_process(&db_path, "browser") else {
+    let Some(mut process) = spawn_mcp_process(&db_path, "browser", None) else {
         return;
     };
 
@@ -49,12 +49,47 @@ async fn test_mcp_stdio_server_responds_to_tools_list() {
     shutdown_mcp_process(process).await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn status_connection_tracks_the_stdio_catalog_and_process_exit() {
+    use std::os::unix::net::UnixListener;
+    use tokio::io::AsyncReadExt;
+
+    let socket_dir = tempfile::tempdir_in("/tmp").unwrap();
+    let status_path = socket_dir.path().join("status");
+    let listener = UnixListener::bind(&status_path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (_db, db_path) = setup_browser_test_db().await;
+    let mut process = spawn_mcp_process(&db_path, "browser", Some(&status_path)).unwrap();
+
+    tokio::time::timeout(
+        STARTUP_TIMEOUT,
+        initialize_mcp(&mut process, "cadencr-browser", None),
+    )
+    .await
+    .expect("the MCP server must finish initializing");
+    assert_eq!(listener.accept().unwrap_err().kind(), ErrorKind::WouldBlock);
+    let listener = tokio::net::UnixListener::from_std(listener).unwrap();
+    tokio::time::timeout(IO_TIMEOUT, async {
+        assert_browser_tools(&list_mcp_tools(&mut process).await);
+        let (mut connection, _) = listener.accept().await.unwrap();
+        assert_eq!(
+            connection.try_read(&mut [0]).unwrap_err().kind(),
+            ErrorKind::WouldBlock
+        );
+        shutdown_mcp_process(process).await;
+        assert_eq!(connection.read(&mut [0]).await.unwrap(), 0);
+    })
+    .await
+    .expect("tool discovery and stdio shutdown must reach the observer");
+}
+
 /// Keep the initialize(2026-07-28) path from issue #208 covered: its tool
 /// response must now include every field required by the negotiated version.
 #[tokio::test]
 async fn test_mcp_modern_initialize_returns_conformant_tools() {
     let (_tmp, db_path) = setup_browser_test_db().await;
-    let Some(mut process) = spawn_mcp_process(&db_path, "browser") else {
+    let Some(mut process) = spawn_mcp_process(&db_path, "browser", None) else {
         return;
     };
 
@@ -250,9 +285,17 @@ fn service_binary() -> PathBuf {
         .join("cadencr-service")
 }
 
-fn spawn_mcp_process(db_path: &Path, agent_type: &str) -> Option<McpTestProcess> {
+fn spawn_mcp_process(
+    db_path: &Path,
+    agent_type: &str,
+    status_path: Option<&Path>,
+) -> Option<McpTestProcess> {
     let binary = service_binary();
-    let child = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    if let Some(path) = status_path {
+        command.env("CADENCR_MCP_STATUS_SOCKET", path);
+    }
+    let child = command
         .arg("--db-path")
         .arg(db_path.to_str().unwrap())
         .arg("mcp-serve")
@@ -384,7 +427,7 @@ async fn assert_stdio_tools_list_for_agent_type(
     expected_tools: &[&str],
 ) {
     let (_tmp, db_path) = setup_project_test_db().await;
-    let Some(mut process) = spawn_mcp_process(&db_path, agent_type) else {
+    let Some(mut process) = spawn_mcp_process(&db_path, agent_type, None) else {
         return;
     };
 

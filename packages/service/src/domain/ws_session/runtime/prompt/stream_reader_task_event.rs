@@ -28,6 +28,17 @@ impl StreamReaderTask {
         persistence: &mut WsSessionPersistence,
         runtime_event: RuntimeEvent,
     ) {
+        if runtime_event.mcp_servers_changed() {
+            if let Some(message) = super::mcp_servers::current_mcp_servers_message(
+                &self.sdk_sessions,
+                self.db_session_id,
+            )
+            .await
+            {
+                self.publish(message).await;
+            }
+            return;
+        }
         state.last_runtime_activity = tokio::time::Instant::now();
         state.diagnostics.record(runtime_event.raw_json());
         let detached_generation = if runtime_event.is_detached_reply_end() {

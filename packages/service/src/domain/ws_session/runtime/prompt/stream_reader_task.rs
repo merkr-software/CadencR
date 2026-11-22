@@ -21,7 +21,6 @@ use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 use super::super::output::{OutputTarget, SessionOutput};
 use super::super::SdkSessions;
 use super::runtime_hold_registry;
-use super::stream_reader_resume::transition_active_to_pending_on_stream_end;
 use super::stream_reader_stop;
 use super::stream_reader_turn_state::StreamTurnState;
 
@@ -208,13 +207,7 @@ impl StreamReaderTask {
         self.publish_transcript_status(&mut persistence, true).await;
         self.forget_background_work(&mut state).await;
         drop(hold_registration);
-        transition_active_to_pending_on_stream_end(
-            &self.sdk_sessions,
-            self.db_session_id,
-            self.runtime_session_handle.as_ref(),
-            self.cleanup_session_on_end,
-        )
-        .await;
+        self.transition_active_to_pending_on_stream_end().await;
         let app_state = self.app_state.clone();
         let session_id = self.db_session_id;
         drop(self);

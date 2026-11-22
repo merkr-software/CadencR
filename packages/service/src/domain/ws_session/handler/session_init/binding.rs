@@ -1,30 +1,32 @@
 //! Reconnect snapshots come from the authoritative runtime, never a replacement.
 
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::access_mode_wire;
+use crate::domain::agents::adapter::{access_mode_wire, RuntimeSessionHandle};
 use crate::domain::agents::permission_modes::permission_mode_wire;
 use crate::domain::agents::runtime_adapter;
 use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
 use crate::domain::ws_session::protocol::{SessionInitializedPayload, WsEnvelope, WsSessionEvent};
 use crate::shared::discard::IgnoreClosed;
 
-use super::super::{QueryState, SdkHandle, SessionConfig, WsSender};
+use super::super::{QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender};
 
 pub(super) fn live_payload(
     id: i64,
     handle: &SdkHandle,
     row: Option<&SessionRow>,
     spawning: bool,
-) -> Option<SessionInitializedPayload> {
-    if !spawning && !matches!(handle.state, QueryState::Active { .. }) {
-        return None;
-    }
+) -> Option<(SessionInitializedPayload, Option<RuntimeSessionHandle>)> {
+    let live_query = match &handle.state {
+        QueryState::Active { query, .. } => Some(query.clone()),
+        QueryState::Pending(_) if spawning => None,
+        QueryState::Pending(_) => return None,
+    };
     let access_mode = handle
         .desired_access_mode
         .as_ref()
         .map(access_mode_wire)
         .map(str::to_owned);
-    Some(SessionInitializedPayload {
+    let payload = SessionInitializedPayload {
         session_id: id.to_string(),
         provider: Some(handle.runtime_provider.clone()),
         model: handle.desired_model.clone(),
@@ -44,7 +46,8 @@ pub(super) fn live_payload(
         context_window: row.and_then(|row| row.context_window).map(|v| v as u64),
         supports_prompt_receipts: runtime_adapter(&handle.runtime_provider)
             .is_some_and(|adapter| adapter.supports_prompt_receipts()),
-    })
+    };
+    Some((payload, live_query))
 }
 
 pub(super) async fn reply_and_restore(
@@ -54,6 +57,7 @@ pub(super) async fn reply_and_restore(
     payload: SessionInitializedPayload,
     feature_id: i64,
     resume_id: Option<&str>,
+    runtime: Option<(&SdkSessions, RuntimeSessionHandle)>,
 ) {
     let id = payload
         .session_id
@@ -64,6 +68,12 @@ pub(super) async fn reply_and_restore(
     sender
         .send(axum::extract::ws::Message::Text(String::from(reply).into()))
         .ignore_closed();
+    if let Some((sessions, query)) = runtime {
+        crate::domain::ws_session::runtime::prompt::mcp_servers::replay_cached_mcp_servers(
+            sessions, id, &query, sender,
+        )
+        .await;
+    }
     state.persistence_health.replay(id, sender).await;
     if let Some(resume_id) = resume_id {
         super::super::send_runtime_session_id(sender, resume_id);

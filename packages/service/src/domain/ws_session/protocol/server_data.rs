@@ -27,6 +27,7 @@ pub struct SessionClearedPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionMcpServersPayload {
+    pub session_id: String,
     pub mcp_servers: Vec<McpServerStatusPayload>,
     /// Why the servers could not be read; `mcp_servers` is then empty and
     /// says nothing about what the agent has.

@@ -197,12 +197,14 @@ function parseSessionConfigSelectOptions(
 
 export function parseMcpServersPayload(
   payload: unknown,
-): { mcpServers: McpServerStatus[]; error: string | null } | null {
+): { sessionId: string; mcpServers: McpServerStatus[]; error: string | null } | null {
   const record = asRecord(payload);
   if (!record) return null;
+  const sessionId = optionalString(record, "session_id");
   const servers = optionalArray(record, "mcp_servers");
-  if (!servers) return null;
+  if (!sessionId || !servers) return null;
   return {
+    sessionId,
     error: optionalString(record, "error") ?? null,
     mcpServers: servers
       .map((entry): McpServerStatus | null => {

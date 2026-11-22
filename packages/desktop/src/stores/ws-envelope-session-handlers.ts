@@ -167,6 +167,7 @@ export function handleMcpServers(ctx: StoreAccessors, sessionId: string, payload
   const p = parseMcpServersPayload(payload);
   if (!p) return;
   const session = ctx.getSession(sessionId);
+  if (session.sessionDbId == null || String(session.sessionDbId) !== p.sessionId) return;
   if (session.mcpServersError === p.error && mcpServersEqual(session.mcpServers, p.mcpServers)) {
     return;
   }

@@ -132,7 +132,11 @@ fn supported_protocol_versions() -> Cow<'static, [ProtocolVersion]> {
 
 /// rmcp's constructor omits SEP-2549 fields required by the modern protocol.
 /// Keep catalogs private to the connection's scope and immediately revalidatable.
-fn tool_list_result(tools: Vec<Tool>) -> ListToolsResult {
+fn tool_list_result(_ctx: &McpContext, tools: Vec<Tool>) -> ListToolsResult {
+    #[cfg(unix)]
+    if let Some(reporter) = &_ctx.connection_reporter {
+        reporter.tools_listed();
+    }
     ListToolsResult::with_all_items(tools)
         .with_ttl_ms(0)
         .with_cache_scope(CacheScope::Private)

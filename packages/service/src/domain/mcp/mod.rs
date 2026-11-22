@@ -1,3 +1,5 @@
+#[cfg(unix)]
+pub(crate) mod connection;
 pub mod context;
 pub mod control;
 pub mod control_client;

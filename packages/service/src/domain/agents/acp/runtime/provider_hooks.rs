@@ -140,6 +140,12 @@ pub trait AcpProviderHooks: Send + Sync {
         None
     }
 
+    /// Installed ACP packages have no native health API for host-injected MCP servers.
+    #[cfg(unix)]
+    fn observe_attached_mcp_connections(&self) -> bool {
+        false
+    }
+
     /// Provider opt-in: refine the MCP server statuses negotiated at
     /// spawn. Generic ACP only knows the configured catalog, so providers
     /// with their own status mechanism can replace it here.

@@ -38,6 +38,10 @@ background reply status.
 | Slash commands and compaction | The composer lists ACP prompt commands and invocable skills before the first message. During a session it follows the CLI’s live catalog.                                                                 |
 | Workspace instructions        | The connector declares `AGENTS.md`, `GEMINI.md`, and Antigravity configuration under `.agents/` for CadencR worktrees.                                                                                    |
 
+The session info menu reports an attached CadencR MCP server as configured
+until Antigravity requests its tools, connected while that MCP connection is
+open, and disconnected after its last connection closes.
+
 Antigravity's ACP stream acknowledges the launch before the child finishes.
 The connector matches each new launch to its child's journal using the call ID
 in the launch message, including when several children start in one model step.
