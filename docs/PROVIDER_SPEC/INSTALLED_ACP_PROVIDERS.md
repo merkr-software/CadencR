@@ -326,7 +326,8 @@ per conversation directory before any session exists, plus the last
 entries the package did not list are appended). A package without the command
 therefore shows the live snapshot after its first session in that directory;
 one with it shows its list from the first keystroke. A live
-`available_commands_update` still replaces the menu during the session and
+`available_commands_update` replaces the provider entries, retains the host’s
+built-ins and virtual skills, and
 drops the cached listing for that directory. A failed or rejected listing is
 returned as `error` on `GET /api/prompt-commands` and on the WebSocket
 `commands.list` reply, and shown in the `/` menu; the host's own commands stay

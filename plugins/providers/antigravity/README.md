@@ -31,11 +31,11 @@ background reply status.
 | Questions                     | CadencR displays interactive questions as single-choice prompts. If Antigravity prints a numbered question in the chat, send the chosen number as a follow-up message.                                    |
 | Permissions                   | CadencR shows the scope warning supplied by Antigravity for persistent grants.                                                                                                                            |
 | Context usage                 | CadencR displays context usage when Antigravity reports it through ACP.                                                                                                                                   |
-| Background subagents          | The launch appears as running while the child works. Its available tool activity and final reply summary appear under the launch.                                                                        |
-| Background replies            | A background completion can post a follow-up after the prompt ends. The connector waits for a quiet interval after model usage and keeps the reply open across tool steps.                                  |
+| Background subagents          | The launch appears as running while the child works. Its available tool activity and final reply summary appear under the launch.                                                                         |
+| Background replies            | A background completion can post a follow-up after the prompt ends. The connector waits for a quiet interval after model usage and keeps the reply open across tool steps.                                |
 | Session restore               | CadencR reopens the saved Antigravity session when the CLI advertises ACP session loading.                                                                                                                |
 | Terminal resume               | CadencR can open a saved session in the Antigravity terminal with `agy --conversation <session-id>`.                                                                                                      |
-| Slash commands and compaction | Antigravity publishes its command list during a session. The connector identifies `/compact` as the compaction command.                                                                                   |
+| Slash commands and compaction | The composer lists ACP prompt commands and invocable skills before the first message. During a session it follows the CLI’s live catalog.                                                                 |
 | Workspace instructions        | The connector declares `AGENTS.md`, `GEMINI.md`, and Antigravity configuration under `.agents/` for CadencR worktrees.                                                                                    |
 
 Antigravity's ACP stream acknowledges the launch before the child finishes.

@@ -3,11 +3,14 @@ use crate::domain::ws_session::runtime::output::OutputTarget;
 use axum::extract::ws::Message;
 use tracing::{debug, error, warn};
 
+use crate::domain::agents::adapter::RuntimeEvent;
 use crate::domain::agents::adapter::RuntimeStreamStatus;
-use crate::domain::agents::adapter::{RuntimeEvent, RuntimeSlashCommandKind};
 use crate::domain::ws_session::protocol::{
-    CommandsUpdatedPayload, SessionStreamStatusPayload, SlashCommandKindPayload,
-    SlashCommandPayload, StreamStatusState, WsEnvelope, WsSessionAction,
+    CommandsUpdatedPayload, SessionStreamStatusPayload, StreamStatusState, WsEnvelope,
+    WsSessionAction,
+};
+use crate::domain::ws_session::{
+    handler::commands::to_payload_commands, slash_commands::with_host_commands,
 };
 
 use super::prompt_receipt::prompt_received_envelope;
@@ -88,14 +91,10 @@ pub(in crate::domain::ws_session) async fn forward_immediate_event(
                 "commands",
                 "updated",
                 serde_json::to_value(CommandsUpdatedPayload {
-                    commands: commands
-                        .iter()
-                        .map(|command| SlashCommandPayload {
-                            name: command.name.clone(),
-                            description: command.description.clone(),
-                            kind: slash_command_kind_payload(command.kind),
-                        })
-                        .collect(),
+                    commands: to_payload_commands(with_host_commands(
+                        &task.runtime_provider,
+                        commands.to_vec(),
+                    )),
                     error: None,
                 })
                 .unwrap(),
@@ -184,13 +183,6 @@ async fn send_envelope(
         return ForwardOutcome::SenderClosed;
     }
     ForwardOutcome::Forwarded
-}
-
-fn slash_command_kind_payload(kind: RuntimeSlashCommandKind) -> SlashCommandKindPayload {
-    match kind {
-        RuntimeSlashCommandKind::Command => SlashCommandKindPayload::Command,
-        RuntimeSlashCommandKind::Skill => SlashCommandKindPayload::Skill,
-    }
 }
 
 fn stream_status_payload(status: &RuntimeStreamStatus) -> SessionStreamStatusPayload {

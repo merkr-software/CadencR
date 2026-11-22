@@ -51,6 +51,47 @@ impl Fixture {
     }
 }
 
+#[tokio::test]
+async fn first_command_listing_includes_project_skills_without_starting_the_cli() {
+    let fixture = Fixture::new("normal");
+    let skill = fixture.directory.path().join(".agents/skills/deploy");
+    std::fs::create_dir_all(&skill).unwrap();
+    std::fs::write(
+        skill.join("SKILL.md"),
+        "---\nname: ship\ndescription: Deploy changes\n---\n",
+    )
+    .unwrap();
+    let output = fixture
+        .command()
+        .env("HOME", fixture.directory.path())
+        .args([
+            "slash-commands",
+            "--format",
+            "cadencr-slash-commands-v1",
+            "--cwd",
+            fixture.cwd(),
+        ])
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let catalog: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(catalog.iter().any(|c| c["name"] == "goal"));
+    assert!(catalog
+        .iter()
+        .any(|c| c["name"] == "ship" && c["description"] == "Deploy changes"));
+    assert!(!fixture
+        .directory
+        .path()
+        .join("fixture-requests.jsonl")
+        .exists());
+    assert!(!fixture
+        .directory
+        .path()
+        .join("fixture-session.json")
+        .exists());
+}
+
 async fn run_models(mut command: Command, fixture: &Fixture) -> Output {
     command.args([
         "models",
