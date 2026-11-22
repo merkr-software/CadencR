@@ -292,9 +292,12 @@ pub fn build_api_routes() -> Router<AppState> {
 fn compression_layer() -> tower_http::compression::CompressionLayer {
     // Compression sits OUTSIDE auth so 401 bodies also compress.
     // Tower's CompressionLayer automatically skips `Upgrade` (WebSocket) requests.
+    // Use fast gzip only: default Brotli runs at high CPU quality on the Tokio
+    // worker threads and can stall the runtime on multi-MB JSON responses.
     tower_http::compression::CompressionLayer::new()
         .gzip(true)
-        .br(true)
+        .br(false)
+        .quality(tower_http::CompressionLevel::Fastest)
 }
 
 /// Loopback router for the local Electron renderer. Also hosts the loopback-only

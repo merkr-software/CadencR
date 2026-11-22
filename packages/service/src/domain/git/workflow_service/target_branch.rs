@@ -11,7 +11,8 @@ use crate::domain::git::commands;
 use crate::domain::git::linked_branches::{self, BranchOrigin, BranchRef};
 use crate::domain::git::models::{SuccessResponse, UpdateTargetBranchBody};
 use crate::domain::git::service::{
-    branch_identity, recorded_feature_branch, resolve_feature_branch, resolve_feature_git_path,
+    branch_identity, current_feature_branch, recorded_feature_branch, resolve_feature_branch,
+    resolve_feature_git_path,
 };
 use crate::error::AppError;
 use crate::shared::git_cli::git_ref_resolves_background;
@@ -48,13 +49,70 @@ pub async fn resolve_target_branch(
     feature_id: i64,
     repo: &Path,
 ) -> Result<String, AppError> {
-    let has_git = crate::shared::git_context::has_git_metadata(repo).await?;
+    resolve_target_branch_inner(state, feature_id, repo, CheckedOut::Unresolved, false).await
+}
+
+/// Like [`resolve_target_branch`], reusing a `get_current_branch` result the
+/// caller already resolved so it does not spawn `git rev-parse` a second time,
+/// and skipping `has_git_metadata` when `has_git_verified` is `true`.
+pub(crate) async fn resolve_target_branch_with_head(
+    state: &AppState,
+    feature_id: i64,
+    repo: &Path,
+    checked_out: Option<&str>,
+    has_git_verified: bool,
+) -> Result<String, AppError> {
+    resolve_target_branch_inner(
+        state,
+        feature_id,
+        repo,
+        CheckedOut::Known(checked_out),
+        has_git_verified,
+    )
+    .await
+}
+
+enum CheckedOut<'a> {
+    Unresolved,
+    Known(Option<&'a str>),
+}
+
+async fn resolve_target_branch_inner(
+    state: &AppState,
+    feature_id: i64,
+    repo: &Path,
+    checked_out: CheckedOut<'_>,
+    has_git_verified: bool,
+) -> Result<String, AppError> {
+    let has_git = if has_git_verified {
+        true
+    } else {
+        crate::shared::git_context::has_git_metadata(repo).await?
+    };
     // Targets are per branch: the conversation's current branch picks its own.
     let branch = if has_git {
-        resolve_feature_branch(&state.read_pool, feature_id, repo).await?
+        match checked_out {
+            CheckedOut::Unresolved => {
+                resolve_feature_branch(&state.read_pool, feature_id, repo).await?
+            }
+            CheckedOut::Known(head) => {
+                let normalized = head.and_then(branch_identity);
+                current_feature_branch(&state.read_pool, feature_id, repo, normalized).await?
+            }
+        }
     } else {
         None
     };
+    resolve_target_for_branch(state, feature_id, repo, has_git, branch).await
+}
+
+async fn resolve_target_for_branch(
+    state: &AppState,
+    feature_id: i64,
+    repo: &Path,
+    has_git: bool,
+    branch: Option<String>,
+) -> Result<String, AppError> {
     if let Some(stored) =
         linked_branches::configured_target(&state.read_pool, feature_id, branch.as_deref()).await?
     {

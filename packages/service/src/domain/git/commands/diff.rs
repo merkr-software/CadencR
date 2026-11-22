@@ -4,17 +4,43 @@
 
 use std::path::Path;
 
+use axum::http::StatusCode;
+
 use crate::domain::git::models::GitStats;
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    guard_positionals, head_is_unborn, run_git_background, run_git_safe_background,
-    run_git_safe_refs_background,
+    bytes_to_string_lossy, guard_positionals, head_is_unborn, run_git_background,
+    run_git_background_bounded, run_git_safe_background, run_git_safe_background_bounded,
+    run_git_safe_refs_background_bounded, BoundedGitOutput,
 };
 use crate::shared::git_z;
 
 use super::stash::commit_diff;
 use super::untracked::{count_untracked_lines, synthesize_untracked_new_file_diff};
-use super::util::{branch_read_error, empty_tree, FirstParentDiff};
+use super::util::{branch_read_error, empty_tree, format_bytes, FirstParentDiff};
+
+/// Hard ceiling on a single file's unified diff payload (10 MiB) so a giant
+/// tracked generated file cannot OOM or stall the service.
+const MAX_FILE_DIFF_BYTES: usize = 10 * 1024 * 1024;
+
+/// Hard ceiling on an aggregate repository/commit unified diff (16 MiB).
+const MAX_AGGREGATE_DIFF_BYTES: usize = 16 * 1024 * 1024;
+
+fn diff_too_large(max_bytes: usize) -> AppError {
+    let label = format_bytes(max_bytes as u64);
+    AppError::coded(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "DIFF_TOO_LARGE",
+        format!("Diff exceeds {label} display limit — open the file in the editor to inspect it"),
+    )
+}
+
+fn decode_bounded_diff(output: BoundedGitOutput, max_bytes: usize) -> Result<String, AppError> {
+    match output {
+        BoundedGitOutput::Bytes(bytes) => Ok(bytes_to_string_lossy(bytes)),
+        BoundedGitOutput::ExceededLimit => Err(diff_too_large(max_bytes)),
+    }
+}
 
 /// Parse git diff --stat summary line.
 pub(super) fn parse_stat_line(output: &str) -> GitStats {
@@ -46,14 +72,17 @@ async fn branch_diff(
     worktree_path: &Path,
     target_branch: Option<&str>,
     flags: &[&str],
+    max_bytes: usize,
 ) -> Result<String, AppError> {
     let branch = target_branch.unwrap_or("main");
     guard_positionals(&[branch])?;
     let range = format!("{branch}...HEAD");
-    // The path list is empty: `run_git_safe_background` still ends the
+    // The path list is empty: `run_git_safe_background_bounded` still ends the
     // revisions with `--`, so a file named like the range stays a revision.
-    match run_git_safe_background(&["diff", &range], flags, &[], worktree_path).await {
-        Ok(diff) => Ok(diff),
+    match run_git_safe_background_bounded(&["diff", &range], flags, &[], worktree_path, max_bytes)
+        .await
+    {
+        Ok(output) => decode_bounded_diff(output, max_bytes),
         Err(error) => Err(branch_read_error(worktree_path, branch, error).await),
     }
 }
@@ -73,7 +102,13 @@ pub async fn get_stats(
     target_branch: Option<&str>,
 ) -> Result<GitStats, AppError> {
     if mode == "branch" {
-        let stdout = branch_diff(worktree_path, target_branch, &["--stat"]).await?;
+        let stdout = branch_diff(
+            worktree_path,
+            target_branch,
+            &["--stat"],
+            MAX_AGGREGATE_DIFF_BYTES,
+        )
+        .await?;
         return Ok(parse_stat_line(&stdout));
     }
 
@@ -111,18 +146,31 @@ pub async fn get_diff(
     mode: &str,
     target_branch: Option<&str>,
 ) -> Result<String, AppError> {
+    get_diff_with_limit(worktree_path, mode, target_branch, MAX_AGGREGATE_DIFF_BYTES).await
+}
+
+async fn get_diff_with_limit(
+    worktree_path: &Path,
+    mode: &str,
+    target_branch: Option<&str>,
+    max_bytes: usize,
+) -> Result<String, AppError> {
     if mode == "branch" {
-        return branch_diff(worktree_path, target_branch, &[]).await;
+        return branch_diff(worktree_path, target_branch, &[], max_bytes).await;
     }
 
     // Worktree mode
     let (unstaged, staged, untracked_list) = tokio::try_join!(
-        run_git_background(&["diff"], worktree_path),
-        run_git_background(&["diff", "--cached"], worktree_path),
+        run_git_background_bounded(&["diff"], worktree_path, max_bytes),
+        run_git_background_bounded(&["diff", "--cached"], worktree_path, max_bytes),
         list_untracked(worktree_path),
     )?;
 
-    let mut result = unstaged;
+    let mut result = decode_bounded_diff(unstaged, max_bytes)?;
+    let staged = decode_bounded_diff(staged, max_bytes)?;
+    if result.len().saturating_add(staged.len()) > max_bytes {
+        return Err(diff_too_large(max_bytes));
+    }
     result.push_str(&staged);
 
     // `git ls-files --others --exclude-standard` already filters gitignored
@@ -131,6 +179,9 @@ pub async fn get_diff(
     // file can't blow up the aggregate response.
     for file in git_z::paths(&untracked_list) {
         if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await? {
+            if result.len().saturating_add(block.len()) > max_bytes {
+                return Err(diff_too_large(max_bytes));
+            }
             result.push_str(&block);
         }
     }
@@ -141,20 +192,6 @@ pub async fn get_diff(
 /// Get the unified diff for a single file. Same mode/ref semantics as
 /// [`get_diff`], scoped to `file_path` via a trailing `-- <path>` so the pane
 /// can load one file's patch at a time instead of the whole working-tree diff.
-///
-/// `old_file` is the pre-rename path for a rename/copy (`R*`/`C*`) entry from
-/// the changed-files list, or `None` otherwise. It's passed as a *second*
-/// pathspec so git can pair the old path's deletion with the new path's
-/// addition and emit a `rename from/to` block with just the edited hunk —
-/// without it, `git diff -- <new>` only sees the new path and reports the whole
-/// file as additions (`new file mode`).
-///
-/// `run_git_safe_background` inserts the `--` separator, rejects a path that
-/// begins with `-`, and prevents this observational request from refreshing
-/// the real index. Refs (`target_branch`, `commit_sha`) are guarded against
-/// flag-injection separately. Git errors (e.g. a bad ref) propagate as an
-/// `AppError` so the HTTP response fails and the row shows its error state,
-/// rather than being swallowed into an empty "no hunks" diff.
 pub async fn get_file_diff(
     worktree_path: &Path,
     mode: &str,
@@ -162,6 +199,27 @@ pub async fn get_file_diff(
     commit_sha: Option<&str>,
     file_path: &str,
     old_file: Option<&str>,
+) -> Result<String, AppError> {
+    get_file_diff_with_limit(
+        worktree_path,
+        mode,
+        target_branch,
+        commit_sha,
+        file_path,
+        old_file,
+        MAX_FILE_DIFF_BYTES,
+    )
+    .await
+}
+
+async fn get_file_diff_with_limit(
+    worktree_path: &Path,
+    mode: &str,
+    target_branch: Option<&str>,
+    commit_sha: Option<&str>,
+    file_path: &str,
+    old_file: Option<&str>,
+    max_bytes: usize,
 ) -> Result<String, AppError> {
     // For a rename/copy, scope to BOTH the old and new paths so git's rename
     // detection can pair them; otherwise just the one path.
@@ -172,13 +230,6 @@ pub async fn get_file_diff(
 
     if let Some(sha) = commit_sha {
         guard_positionals(&[sha])?;
-        // `diff-tree --root` diffs a commit against its parent (or the empty
-        // tree for a root commit) in one call, so it handles both cases without
-        // a `sha^..sha` probe whose errors we'd have to swallow to reach the
-        // root-commit fallback. `-M` matches the rename detection the commit
-        // changed-files listing uses, so file list and file diff agree, and
-        // `FirstParentDiff` keeps merge commits (every stash is one) from
-        // diffing to nothing.
         let target = FirstParentDiff::of(worktree_path, sha).await?;
         let args = [
             &["diff-tree", "--no-commit-id", "--root", "-M", "-p"],
@@ -186,45 +237,48 @@ pub async fn get_file_diff(
             &target.revs(),
         ]
         .concat();
-        let diff = run_git_safe_background(&args, &[], &paths, worktree_path).await?;
+        let diff = decode_bounded_diff(
+            run_git_safe_background_bounded(&args, &[], &paths, worktree_path, max_bytes).await?,
+            max_bytes,
+        )?;
         if !diff.is_empty() {
             return Ok(diff);
         }
-        // Empty means this path isn't in the first-parent diff at all. For a
-        // stash pushed with `--include-untracked` that is exactly what its new
-        // files look like — they live in a third parent — so read them from
-        // there before reporting "no hunks". Every other commit falls straight
-        // through with the empty diff it really has.
         let Some(parent) = commit_diff::untracked_parent(worktree_path, sha).await? else {
             return Ok(diff);
         };
-        return run_git_safe_background(
-            &["diff-tree", "--no-commit-id", "--root", "-p", &parent],
-            &[],
-            &paths,
-            worktree_path,
-        )
-        .await;
+        return decode_bounded_diff(
+            run_git_safe_background_bounded(
+                &["diff-tree", "--no-commit-id", "--root", "-p", &parent],
+                &[],
+                &paths,
+                worktree_path,
+                max_bytes,
+            )
+            .await?,
+            max_bytes,
+        );
     }
 
     if mode == "branch" {
         let branch = target_branch.unwrap_or("main");
         guard_positionals(&[branch])?;
         let range = format!("{branch}...HEAD");
-        return match run_git_safe_background(&["diff", &range], &[], &paths, worktree_path).await {
-            Ok(diff) => Ok(diff),
+        return match run_git_safe_background_bounded(
+            &["diff", &range],
+            &[],
+            &paths,
+            worktree_path,
+            max_bytes,
+        )
+        .await
+        {
+            Ok(output) => decode_bounded_diff(output, max_bytes),
             Err(error) => Err(branch_read_error(worktree_path, branch, error).await),
         };
     }
 
-    // Worktree / uncommitted mode: `diff HEAD` folds staged + unstaged changes
-    // into a single coherent block per file (unlike the aggregate `get_diff`,
-    // which concatenates `diff` + `diff --cached` — fine for a whole-tree dump,
-    // but it would hand a partially-staged file two `diff --git` headers here).
-    // A tracked file always appears here; only an empty diff can be an untracked
-    // file (absent from HEAD), so we pay the extra `ls-files` probe + synthesis
-    // in that case alone rather than for every tracked file.
-    let tracked = worktree_file_diff(worktree_path, &paths).await?;
+    let tracked = worktree_file_diff(worktree_path, &paths, max_bytes).await?;
     if !tracked.is_empty() {
         return Ok(tracked);
     }
@@ -244,11 +298,6 @@ pub async fn get_file_diff(
         return Ok(
             match synthesize_untracked_new_file_diff(worktree_path, file_path).await? {
                 Some(block) => block,
-                // Synthesis skips binary (and too-large-binary) untracked files.
-                // The aggregate diff just omits them, but a per-file request
-                // names a file the changed-files list DID surface — so emit a
-                // minimal binary marker, otherwise the row shows "No text hunks"
-                // instead of the "Binary file" placeholder the frontend draws.
                 None => format!(
                     "diff --git a/{file_path} b/{file_path}\nnew file mode 100644\nBinary files /dev/null and b/{file_path} differ\n"
                 ),
@@ -263,9 +312,21 @@ pub async fn get_file_diff(
 /// branch with no commit yet there is no `HEAD` to compare with, so the
 /// changes are read against the empty tree — the file a first `git add`
 /// staged is an addition, not a "bad revision".
-async fn worktree_file_diff(worktree_path: &Path, paths: &[&str]) -> Result<String, AppError> {
-    let error = match run_git_safe_background(&["diff", "HEAD"], &[], paths, worktree_path).await {
-        Ok(diff) => return Ok(diff),
+async fn worktree_file_diff(
+    worktree_path: &Path,
+    paths: &[&str],
+    max_bytes: usize,
+) -> Result<String, AppError> {
+    let error = match run_git_safe_background_bounded(
+        &["diff", "HEAD"],
+        &[],
+        paths,
+        worktree_path,
+        max_bytes,
+    )
+    .await
+    {
+        Ok(output) => return decode_bounded_diff(output, max_bytes),
         Err(error) => error,
     };
     if !matches!(head_is_unborn(worktree_path).await, Ok(true)) {
@@ -273,7 +334,11 @@ async fn worktree_file_diff(worktree_path: &Path, paths: &[&str]) -> Result<Stri
         return Err(error);
     }
     let tree = empty_tree(worktree_path).await?;
-    run_git_safe_background(&["diff", &tree], &[], paths, worktree_path).await
+    decode_bounded_diff(
+        run_git_safe_background_bounded(&["diff", &tree], &[], paths, worktree_path, max_bytes)
+            .await?,
+        max_bytes,
+    )
 }
 
 /// Get the diff for a specific commit.
@@ -291,19 +356,34 @@ pub async fn get_commit_diff(worktree_path: &Path, commit_sha: &str) -> Result<S
         target.flags,
     ]
     .concat();
-    let (mut diff, untracked_parent) = tokio::try_join!(
-        run_git_safe_refs_background(&args, &[], &revs, worktree_path),
+    let (diff_output, untracked_parent) = tokio::try_join!(
+        run_git_safe_refs_background_bounded(
+            &args,
+            &[],
+            &revs,
+            worktree_path,
+            MAX_AGGREGATE_DIFF_BYTES,
+        ),
         commit_diff::untracked_parent(worktree_path, commit_sha),
     )?;
+    let mut diff = decode_bounded_diff(diff_output, MAX_AGGREGATE_DIFF_BYTES)?;
 
     if let Some(parent) = untracked_parent {
-        let untracked = run_git_safe_refs_background(
-            &["diff-tree", "--no-commit-id", "--root", "-p"],
-            &[],
-            &[&parent],
-            worktree_path,
-        )
-        .await?;
+        let remaining = MAX_AGGREGATE_DIFF_BYTES.saturating_sub(diff.len());
+        let untracked = decode_bounded_diff(
+            run_git_safe_refs_background_bounded(
+                &["diff-tree", "--no-commit-id", "--root", "-p"],
+                &[],
+                &[&parent],
+                worktree_path,
+                remaining,
+            )
+            .await?,
+            MAX_AGGREGATE_DIFF_BYTES,
+        )?;
+        if diff.len().saturating_add(untracked.len()) > MAX_AGGREGATE_DIFF_BYTES {
+            return Err(diff_too_large(MAX_AGGREGATE_DIFF_BYTES));
+        }
         diff.push_str(&untracked);
     }
     Ok(diff)
@@ -650,5 +730,53 @@ mod tests {
         assert_eq!(stats.files_changed, 1);
         assert_eq!(stats.insertions, 10);
         assert_eq!(stats.deletions, 0);
+    }
+
+    #[tokio::test]
+    async fn tracked_diffs_exceeding_cap_fail_with_diff_too_large() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        init_repo(root);
+        std::fs::write(root.join("big.txt"), "seed\n").unwrap();
+        git(&["add", "big.txt"], root);
+        git(&["commit", "-q", "-m", "init"], root);
+
+        // Create a tracked diff comfortably over a 4 KiB test cap.
+        std::fs::write(root.join("big.txt"), "line of text\n".repeat(1000)).unwrap();
+
+        let file_err =
+            get_file_diff_with_limit(root, "uncommitted", None, None, "big.txt", None, 4096)
+                .await
+                .unwrap_err();
+        assert!(
+            matches!(
+                file_err,
+                AppError::Coded {
+                    code: "DIFF_TOO_LARGE",
+                    ..
+                }
+            ),
+            "{file_err:?}"
+        );
+
+        let agg_err = get_diff_with_limit(root, "worktree", None, 4096)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                agg_err,
+                AppError::Coded {
+                    code: "DIFF_TOO_LARGE",
+                    ..
+                }
+            ),
+            "{agg_err:?}"
+        );
+
+        // Normal production cap succeeds cleanly for the same diff.
+        let ok = get_file_diff(root, "uncommitted", None, None, "big.txt", None)
+            .await
+            .unwrap();
+        assert!(ok.contains("diff --git a/big.txt b/big.txt"));
     }
 }

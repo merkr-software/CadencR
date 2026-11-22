@@ -3,13 +3,18 @@
 
 use std::path::Path;
 
-use crate::domain::git::file_size::classify_content_bytes;
+use crate::domain::git::file_size::classify_batch_sides;
 use crate::domain::git::models::FileContentBatchItem;
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_background;
 use crate::shared::git_z;
 
-use super::diff_side::read_side;
+use super::diff_side::{read_side, read_side_for_batch};
+
+/// Safety ceiling for single-file diff side reads (`GET /api/git/file-content`),
+/// allowing explicit opt-in viewing of large text files above `LARGE_FILE_BYTES`
+/// while preventing an unbounded multi-hundred-MB read from exhausting memory.
+const MAX_SINGLE_FILE_SIDE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Get exact file bytes at a ref, or from the working tree when `ref_spec` is
 /// `None`. This never applies UTF-8 conversion. A path the side does not hold
@@ -34,20 +39,22 @@ pub async fn get_diff_side_bytes(
     file_path: &str,
     ref_spec: Option<&str>,
 ) -> Result<Option<Vec<u8>>, AppError> {
-    read_side(worktree_path, file_path, ref_spec, usize::MAX).await
+    read_side(
+        worktree_path,
+        file_path,
+        ref_spec,
+        MAX_SINGLE_FILE_SIDE_BYTES,
+    )
+    .await
 }
 
 /// Get file content for multiple files (batch). A side that cannot be read
 /// fails the whole batch rather than rendering as an added or deleted file.
 ///
-/// We fetch both sides of every file (same per-file cost as the original
-/// implementation) and then derive size + binary + large flags from the
-/// returned content. For binary files or files whose largest side meets
-/// `LARGE_FILE_BYTES`, content is omitted from the response — the frontend
-/// renders a placeholder and pulls the content via the single-file endpoint
-/// on opt-in. Deriving metadata from the already-fetched content avoids
-/// adding extra git calls per file (which was making the batch slow and
-/// produced visible empty blocks while the diff view loaded).
+/// Files at or above `LARGE_FILE_BYTES` stop before reading the full blob or
+/// working-tree file — only metadata plus an 8 KB binary sniff is read — and
+/// return `is_large: true` with content omitted so the frontend renders its
+/// placeholder and pulls the content via the single-file endpoint on opt-in.
 pub async fn get_file_content_batch(
     git_path: &Path,
     file_paths: &[String],
@@ -71,15 +78,10 @@ pub async fn get_file_content_batch(
             let new_ref = new_ref.clone();
             async move {
                 let (old, new) = tokio::try_join!(
-                    get_diff_side_bytes(&git_path, &file_path, Some(&old_ref)),
-                    get_diff_side_bytes(&git_path, &file_path, new_ref.as_deref()),
+                    read_side_for_batch(&git_path, &file_path, Some(&old_ref)),
+                    read_side_for_batch(&git_path, &file_path, new_ref.as_deref()),
                 )?;
-                Ok(classify_content_bytes(
-                    file_path,
-                    old.unwrap_or_default(),
-                    new.unwrap_or_default(),
-                    /* keep_large_content */ false,
-                ))
+                Ok(classify_batch_sides(file_path, old, new))
             }
         })
         .buffer_unordered(20)
@@ -313,5 +315,58 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn batch_classifies_large_text_and_binary_files_without_inlining_content() {
+        use crate::domain::git::file_size::LARGE_FILE_BYTES;
+
+        let tmp = committed_repo();
+        let root = tmp.path();
+        let large_text = "x".repeat(LARGE_FILE_BYTES as usize + 123);
+        let mut large_bin = vec![b'a'; LARGE_FILE_BYTES as usize + 45];
+        large_bin[10] = 0;
+
+        std::fs::write(root.join("big.txt"), &large_text).unwrap();
+        std::fs::write(root.join("big.bin"), &large_bin).unwrap();
+        git(&["add", "big.txt", "big.bin"], root);
+        git(&["commit", "-q", "-m", "large"], root);
+        std::fs::write(root.join("big.txt"), format!("{large_text}!")).unwrap();
+
+        let items = get_file_content_batch(
+            root,
+            &["kept.txt".into(), "big.txt".into(), "big.bin".into()],
+            "HEAD",
+            None,
+        )
+        .await
+        .unwrap();
+
+        let by_path: std::collections::HashMap<_, _> = items
+            .into_iter()
+            .map(|i| (i.file_path.clone(), i))
+            .collect();
+
+        let kept = &by_path["kept.txt"];
+        assert!(!kept.is_large);
+        assert!(!kept.is_binary);
+        assert_eq!(kept.old_content.as_deref(), Some("kept\n"));
+        assert_eq!(kept.new_content.as_deref(), Some("kept\n"));
+
+        let big_txt = &by_path["big.txt"];
+        assert!(big_txt.is_large);
+        assert!(!big_txt.is_binary);
+        assert!(big_txt.old_content.is_none());
+        assert!(big_txt.new_content.is_none());
+        assert_eq!(big_txt.old_size, LARGE_FILE_BYTES + 123);
+        assert_eq!(big_txt.new_size, LARGE_FILE_BYTES + 124);
+
+        let big_bin = &by_path["big.bin"];
+        assert!(big_bin.is_large);
+        assert!(big_bin.is_binary);
+        assert!(big_bin.old_content.is_none());
+        assert!(big_bin.new_content.is_none());
+        assert_eq!(big_bin.old_size, LARGE_FILE_BYTES + 45);
+        assert_eq!(big_bin.new_size, LARGE_FILE_BYTES + 45);
     }
 }

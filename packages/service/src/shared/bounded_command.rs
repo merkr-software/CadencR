@@ -9,20 +9,43 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoundedCommandErrorKind {
+    Other,
+    OutputExceeded,
+}
+
 /// Failure fragment; callers prefix it with the command they ran, e.g.
 /// "provider model discovery " + "timed out after 10 seconds".
 #[derive(Debug, Clone)]
-pub struct BoundedCommandError(String);
+pub struct BoundedCommandError {
+    message: String,
+    kind: BoundedCommandErrorKind,
+}
 
 impl BoundedCommandError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self {
+            message: message.into(),
+            kind: BoundedCommandErrorKind::Other,
+        }
+    }
+
+    fn output_exceeded(limit: usize) -> Self {
+        Self {
+            message: format!("output exceeded {limit} bytes"),
+            kind: BoundedCommandErrorKind::OutputExceeded,
+        }
+    }
+
+    pub fn is_output_exceeded(&self) -> bool {
+        self.kind == BoundedCommandErrorKind::OutputExceeded
     }
 }
 
 impl std::fmt::Display for BoundedCommandError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&self.message)
     }
 }
 
@@ -174,9 +197,7 @@ async fn read_bounded(
         }
         if let Overflow::Fail(limit) = overflow {
             if bytes.len().saturating_add(count) > limit {
-                return Err(BoundedCommandError::new(format!(
-                    "output exceeded {limit} bytes"
-                )));
+                return Err(BoundedCommandError::output_exceeded(limit));
             }
         }
         bytes.extend_from_slice(&buffer[..count]);
@@ -207,6 +228,7 @@ mod tests {
         )
         .await
         .unwrap_err();
+        assert!(error.is_output_exceeded());
         assert!(error.to_string().contains("exceeded"));
     }
 
@@ -246,6 +268,7 @@ mod tests {
         let error = capture_bounded(slow, Duration::from_millis(100))
             .await
             .unwrap_err();
+        assert!(!error.is_output_exceeded());
         assert!(error.to_string().contains("timed out"));
     }
 

@@ -6,11 +6,10 @@
 
 use std::path::Path;
 
-use crate::domain::git::file_size::LARGE_FILE_BYTES;
+use crate::domain::git::file_size::{BINARY_SNIFF_BYTES, LARGE_FILE_BYTES};
 use crate::error::AppError;
 
-/// Number of leading bytes sniffed for git's binary heuristic.
-const BINARY_SNIFF_BYTES: usize = 8192;
+use super::util::{format_bytes, read_file_prefix};
 
 /// git's binary heuristic, shared by the diff-synthesis and stats-counting
 /// untracked paths so the two can never disagree about which files to skip: a
@@ -18,26 +17,6 @@ const BINARY_SNIFF_BYTES: usize = 8192;
 /// no NUL is still "text" to git — it is rendered/counted lossily, not skipped.
 fn head_looks_binary(head: &[u8]) -> bool {
     head[..head.len().min(BINARY_SNIFF_BYTES)].contains(&0)
-}
-
-/// Read up to `max` bytes from the start of a file without pulling the whole
-/// thing into memory — used to classify a large untracked file as binary before
-/// emitting its placeholder.
-async fn read_head(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
-    use tokio::io::AsyncReadExt;
-
-    let mut file = tokio::fs::File::open(path).await?;
-    let mut buf = vec![0u8; max];
-    let mut filled = 0;
-    while filled < max {
-        let n = file.read(&mut buf[filled..]).await?;
-        if n == 0 {
-            break;
-        }
-        filled += n;
-    }
-    buf.truncate(filled);
-    Ok(buf)
 }
 
 /// An untracked file deleted between the listing and the read has nothing left
@@ -136,7 +115,7 @@ pub(super) async fn synthesize_untracked_new_file_diff(
     if metadata.len() >= LARGE_FILE_BYTES {
         // Sniff the head so a large *binary* file is skipped (as the stats path
         // does) rather than mislabeled as text "too large to display".
-        let head = read_head(&full_path, BINARY_SNIFF_BYTES).await;
+        let head = read_file_prefix(&full_path, BINARY_SNIFF_BYTES, Some(metadata.len())).await;
         match unless_gone(head, &full_path)? {
             Some(head) if !head_looks_binary(&head) => {}
             _ => return Ok(None),
@@ -167,18 +146,6 @@ pub(super) async fn synthesize_untracked_new_file_diff(
     Ok(Some(format!(
         "diff --git a/{file} b/{file}\nnew file mode 100644\n--- /dev/null\n+++ b/{file}\n@@ -0,0 +1,{line_count} @@\n{added_lines}\n"
     )))
-}
-
-/// Human-readable byte count for placeholder messages. Mirrors the frontend's
-/// `formatBytes` (`lib/diff-thresholds.ts`) so the two read the same.
-fn format_bytes(n: u64) -> String {
-    if n < 1024 {
-        format!("{n} B")
-    } else if n < 1024 * 1024 {
-        format!("{:.1} KB", n as f64 / 1024.0)
-    } else {
-        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
-    }
 }
 
 #[cfg(test)]
@@ -279,13 +246,6 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-    }
-
-    #[test]
-    fn format_bytes_reads_like_the_frontend() {
-        assert_eq!(format_bytes(512), "512 B");
-        assert_eq!(format_bytes(2048), "2.0 KB");
-        assert_eq!(format_bytes(3 * 1024 * 1024), "3.0 MB");
     }
 
     #[tokio::test]

@@ -7,7 +7,8 @@ use crate::domain::git::models::{MergeConflictResult, MergeResult};
 use crate::error::AppError;
 use crate::shared::git_cli::version::{self, GitFeature};
 use crate::shared::git_cli::{
-    git_output_error, run_git_background, run_git_output_with_env, run_git_safe_refs,
+    git_output_error, run_git_background, run_git_output_background, run_git_output_with_env,
+    run_git_safe_refs,
 };
 
 /// Check if merging source_branch into target_branch would produce conflicts.
@@ -92,7 +93,7 @@ pub async fn is_branch_merged(
 ) -> Result<bool, AppError> {
     crate::shared::git_cli::guard_positionals(&[branch_name, target_branch])?;
     let args = ["merge-base", "--is-ancestor", branch_name, target_branch];
-    let output = run_git_output_with_env(&args, repo_path, &[]).await?;
+    let output = run_git_output_background(&args, repo_path).await?;
     match output.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),

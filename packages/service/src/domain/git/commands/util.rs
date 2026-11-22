@@ -116,6 +116,35 @@ pub(super) async fn revs_after_failed_walk<'a>(
     Ok(existing)
 }
 
+/// Human-readable byte count for placeholder and limit messages. Mirrors the
+/// frontend's `formatBytes` (`lib/diff-thresholds.ts`) so the two read the same.
+pub(super) fn format_bytes(n: u64) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else if n < 1024 * 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// Read at most `limit` bytes from the start of `path`, pre-allocating from
+/// `size_hint` (capped to `limit`) when metadata was already fetched.
+pub(super) async fn read_file_prefix(
+    path: &Path,
+    limit: usize,
+    size_hint: Option<u64>,
+) -> std::io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt as _;
+
+    let file = tokio::fs::File::open(path).await?;
+    let mut reader = file.take(limit as u64);
+    let capacity = size_hint.map_or(0, |hint| hint.min(limit as u64) as usize);
+    let mut bytes = Vec::with_capacity(capacity);
+    reader.read_to_end(&mut bytes).await?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,5 +247,12 @@ mod tests {
         )
         .await;
         assert!(!matches!(error, AppError::Conflict(_)), "{error:?}");
+    }
+
+    #[test]
+    fn format_bytes_reads_like_the_frontend() {
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(2048), "2.0 KB");
+        assert_eq!(format_bytes(3 * 1024 * 1024), "3.0 MB");
     }
 }

@@ -22,6 +22,12 @@ pub async fn resolve_default_branch(repo: &Path) -> Result<String, AppError> {
     if !crate::shared::git_context::has_git_metadata(repo).await? {
         return Ok("main".to_string());
     }
+    resolve_default_branch_verified(repo).await
+}
+
+/// Like [`resolve_default_branch`], for callers that already verified Git
+/// metadata (e.g. via `require_git_metadata`).
+pub(crate) async fn resolve_default_branch_verified(repo: &Path) -> Result<String, AppError> {
     if let Some(branch) = resolve_origin_head(repo).await? {
         return Ok(branch);
     }

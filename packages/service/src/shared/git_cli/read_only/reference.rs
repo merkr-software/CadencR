@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
+use super::super::{parse_batch_check_line, BatchCheckEntry};
 use super::{failure, run_with_input};
 
 /// Probe a locally available Git object using fixed argv and one stdin record.
@@ -36,29 +37,12 @@ fn parse_response(reference: &str, bytes: &[u8]) -> Result<bool, AppError> {
         .strip_suffix('\n')
         .filter(|line| !line.contains(['\r', '\n']))
         .ok_or_else(|| failure("Git reference response must contain exactly one line"))?;
-    if valid_oid(line) {
-        return Ok(true);
+    match parse_batch_check_line(line) {
+        Some(BatchCheckEntry::Object(_)) => Ok(true),
+        Some(BatchCheckEntry::Submodule(_)) => Ok(false),
+        Some(BatchCheckEntry::Missing { spec }) if spec == reference => Ok(false),
+        _ => Err(failure("Git reference response is malformed")),
     }
-    if line.strip_suffix(" submodule").is_some_and(valid_oid) {
-        return Ok(false);
-    }
-    for status in ["missing", "ambiguous"] {
-        if line
-            .strip_suffix(status)
-            .and_then(|value| value.strip_suffix(' '))
-            == Some(reference)
-        {
-            return Ok(false);
-        }
-    }
-    Err(failure("Git reference response is malformed"))
-}
-
-fn valid_oid(value: &str) -> bool {
-    matches!(value.len(), 40 | 64)
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 #[cfg(test)]
