@@ -51,13 +51,14 @@ pub(super) struct CodexProbe {
     pub(super) config: Value,
 }
 
-static CATALOG_CACHE: LazyLock<LiveCatalogCache<CatalogKey, CodexProbe>> = LazyLock::new(|| {
-    LiveCatalogCache::new(CatalogProvider {
-        id: PROVIDER_ID,
-        label: PROVIDER_LABEL,
-        name: "Codex",
-    })
-});
+static CATALOG_CACHE: LazyLock<Arc<LiveCatalogCache<CatalogKey, CodexProbe>>> =
+    LazyLock::new(|| {
+        Arc::new(LiveCatalogCache::new(CatalogProvider::borrowed(
+            PROVIDER_ID,
+            PROVIDER_LABEL,
+            "Codex",
+        )))
+    });
 
 /// The catalog read without a workspace, for the active profile: the entry
 /// the settings pages read, so warming it up at startup is not wasted.
@@ -108,9 +109,7 @@ where
     F: Fn() -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<(ProviderCatalogEntry, CodexProbe), RuntimeError>> + Send + 'static,
 {
-    LazyLock::force(&CATALOG_CACHE)
-        .get_or_revalidate(key, probe)
-        .await
+    CATALOG_CACHE.get_or_revalidate(key, probe).await
 }
 
 /// An empty `model/list` is a failed refresh, not a catalog to keep.
