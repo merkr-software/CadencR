@@ -39,8 +39,10 @@ background reply status.
 | Workspace instructions        | The connector declares `AGENTS.md`, `GEMINI.md`, and Antigravity configuration under `.agents/` for CadencR worktrees.                                                                                    |
 
 Antigravity's ACP stream acknowledges the launch before the child finishes.
-The connector follows the verified child in Antigravity CLI's local journal
-for new launches. This integration is verified with `agy 1.5.14`. The
+The connector matches each new launch to its child's journal using the call ID
+in the launch message, including when several children start in one model step.
+A child waiting for a background command keeps its running status until it
+resumes and finishes. This integration is verified with `agy 1.5.14`. The
 available actions depend on what the journal writes, and parallel calls can
 appear without individually attributed results. CadencR retains activity it
 recorded during the launch. A child whose outcome is unavailable stays

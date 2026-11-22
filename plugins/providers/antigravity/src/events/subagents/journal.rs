@@ -1,8 +1,12 @@
+mod background;
 mod cursor;
+
+use std::collections::HashSet;
 
 use cadencr_provider_sdk::meta::{subagent_status_meta, SubagentStatus};
 use serde_json::{json, Value};
 
+use self::background::{finished_task, started_task};
 use self::cursor::JournalCursor;
 use super::store::{read_record, NativeChild};
 use crate::events::{session_update, tools};
@@ -14,6 +18,7 @@ pub(super) struct ChildJournal {
     cursor: JournalCursor,
     last_settled_step: Option<u64>,
     single_action: Option<(u64, String)>,
+    background: HashSet<u64>,
 }
 
 impl ChildJournal {
@@ -23,6 +28,7 @@ impl ChildJournal {
             cursor: JournalCursor::default(),
             last_settled_step: None,
             single_action: None,
+            background: HashSet::new(),
         }
     }
 
@@ -51,29 +57,46 @@ impl ChildJournal {
         frames: &mut Vec<Value>,
     ) -> Option<SubagentStatus> {
         let index = step["step_index"].as_u64()?;
-        let outcome = step_outcome(step["status"].as_str()?)?;
-        if self.last_settled_step.is_some_and(|last| index <= last) {
-            return None;
+        let status = step["status"].as_str()?;
+        let outcome = step_outcome(status);
+        let fresh = self.last_settled_step.is_none_or(|last| index > last);
+        if fresh && outcome.is_some() {
+            self.last_settled_step = Some(index);
         }
-        self.last_settled_step = Some(index);
-        if step["source"] != "MODEL" {
-            return None;
-        }
-        match step["type"].as_str() {
-            Some("GENERIC") => {
-                if self
-                    .single_action
-                    .as_ref()
-                    .is_some_and(|(action_step, _)| Some(*action_step) == index.checked_sub(1))
-                {
-                    if let Some((_, id)) = self.single_action.take() {
-                        let output = step["content"].as_str().unwrap_or_default();
-                        frames.push(self.action_result(root, &id, outcome, output));
+        let content = step["content"].as_str().unwrap_or_default();
+        match (step["source"].as_str(), step["type"].as_str()) {
+            (Some("SYSTEM"), Some("SYSTEM_MESSAGE")) if status == "DONE" => {
+                // A rewritten journal can supply an earlier notification we missed.
+                if !self.background.is_empty() {
+                    if let Some(task) = finished_task(content, &self.child.id) {
+                        self.background.remove(&task);
                     }
                 }
                 None
             }
-            Some("PLANNER_RESPONSE") => {
+            (Some("MODEL"), Some("GENERIC")) => {
+                if let Some(outcome) = outcome {
+                    self.background.remove(&index);
+                    if fresh
+                        && self
+                            .single_action
+                            .as_ref()
+                            .is_some_and(|(action, _)| action.checked_add(1) == Some(index))
+                    {
+                        if let Some((_, id)) = self.single_action.take() {
+                            frames.push(self.action_result(root, &id, outcome, content));
+                        }
+                    }
+                } else if fresh
+                    && status == "RUNNING"
+                    && started_task(content, &self.child.id) == Some(index)
+                {
+                    self.background.insert(index);
+                }
+                None
+            }
+            (Some("MODEL"), Some("PLANNER_RESPONSE")) if fresh => {
+                let outcome = outcome?;
                 // The next planner step does not reveal the prior tool outcomes.
                 self.single_action = None;
                 match outcome {
@@ -109,12 +132,12 @@ impl ChildJournal {
             }
             return None;
         }
-        // The native journal writes the final, tool-free model reply as a
-        // completed planner step. The child remains ALIVE for future messages.
-        step["content"]
-            .as_str()
-            .is_some_and(|text| !text.trim().is_empty())
-            .then_some(SubagentStatus::Completed)
+        // The child can also send a tool-free reply while waiting for a command.
+        (self.background.is_empty()
+            && step["content"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty()))
+        .then_some(SubagentStatus::Completed)
     }
 
     fn start_action(&self, root: &str, id: &str, name: &str, args: Option<&Value>) -> Value {

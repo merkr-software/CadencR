@@ -260,6 +260,64 @@ mod tests {
     }
 
     #[test]
+    fn batched_launches_share_a_registry_step_but_each_follow_their_own_call() {
+        let test = tempfile::tempdir().unwrap();
+        let brain = test.path();
+        let children = [
+            (CHILD_A, 35, "first"),
+            (CHILD_B, 36, "second"),
+            ("11111111-1111-4111-8111-111111111111", 37, "third"),
+        ];
+        let mut tracker = SubagentTracker {
+            brain: Some(brain.to_owned()),
+            sessions: HashMap::new(),
+        };
+        let mut observer = Subagents::default();
+        observer.observe_request(&json!({"method":"session/prompt","params":{"sessionId":ROOT}}));
+        let journals = children.map(|(id, step, carrier)| {
+            let log = put_child(brain, id, 37);
+            put_message(brain, id, MESSAGE_A, launch(ROOT, id, step, carrier));
+            append(
+                &log,
+                &format!(
+                    "{}\n",
+                    json!({
+                        "step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE",
+                        "tool_calls":[{"name":"read_file","args":{"Path":id}}]
+                    })
+                ),
+            );
+            dispatch(&mut observer, carrier);
+            (id, carrier, log)
+        });
+        let actions = tracker.poll(observer.take_operations());
+        assert_eq!(actions.len(), 3);
+        for (id, carrier, log) in journals.into_iter().rev() {
+            assert!(actions
+                .iter()
+                .map(update)
+                .any(|u| u["parentToolCallId"] == carrier && u["rawInput"]["file_path"] == id));
+            append(
+                &log,
+                &format!(
+                    "{}\n",
+                    json!({
+                        "step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":id
+                    })
+                ),
+            );
+            let frames = tracker.poll(Vec::new());
+            assert_eq!(frames.len(), 1);
+            assert_eq!(update(&frames[0])["toolCallId"], carrier);
+            assert_eq!(
+                update(&frames[0])["_meta"]["cadencr"]["subagent"],
+                json!({"status":"completed","summary":id})
+            );
+        }
+        assert!(tracker.is_idle());
+    }
+
+    #[test]
     fn discovery_advances_across_multiple_message_batches() {
         let test = tempfile::tempdir().unwrap();
         let brain = test.path();
