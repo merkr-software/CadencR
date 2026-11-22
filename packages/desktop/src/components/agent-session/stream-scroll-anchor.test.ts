@@ -96,7 +96,12 @@ function createStream(rows: RowSpec[], { paddingTop = 0, scrollTop = 0 } = {}) {
         row.setAttribute("data-index", String(spec.local));
         row.setAttribute("data-item-index", String(spec.index));
         const block = document.createElement("div");
-        block.setAttribute("data-block-id", spec.block);
+        // `gap:<id>` stands for a history gap's row, which renders no block.
+        if (spec.block.startsWith("gap:")) {
+          block.setAttribute("data-history-gap-id", spec.block.slice(4));
+        } else {
+          block.setAttribute("data-block-id", spec.block);
+        }
         row.appendChild(block);
         row.getBoundingClientRect = () =>
           rect(SCROLLER_TOP + rowTop(spec) - state.scrollTop + translate(), spec.height);
@@ -326,15 +331,37 @@ describe("ScrollAnchorGuard", () => {
     expect(stream.list.style.transform).toBe("translateY(-100px)");
   });
 
-  it("anchors below the first row, which older pages are inserted under", async () => {
-    // The session's first prompt (row 0) and the window's first rows are on
-    // screen when a page lands between them.
+  it("anchors on the rows a jump left on screen once it settles", async () => {
+    const stream = readingMidList();
+    const release = stream.guard.suspend();
+
+    release();
+    // No scroll since: the release itself picked the anchor.
+    mountTallRowAbove(stream);
+    await flush();
+    expect(stream.visualTop(1001)).toBe(0);
+  });
+
+  it("ignores an older jump's release once a newer jump holds the view", async () => {
+    const stream = readingMidList();
+    const releaseOlder = stream.guard.suspend();
+    stream.guard.suspend();
+
+    releaseOlder();
+    mountTallRowAbove(stream);
+    await flush();
+    expect(stream.list.style.transform).toBe("");
+  });
+
+  it("anchors past a gap row at the top of the view, as its page lands under it", async () => {
+    // The reader scrolled up to the gap: it fills from their side, under its
+    // row, and the row they were reading must hold.
     const stream = guarded(
-      createStream([row(1000, 0, 80, "prompt"), row(1001, 1, 300), row(1002, 2, 300)]),
+      createStream([row(1000, 0, 24, "gap:g1"), row(1001, 1, 300), row(1002, 2, 300)]),
     );
 
     stream.render([
-      row(998, 0, 80, "prompt"),
+      row(998, 0, 24, "gap:g1"),
       row(999, 1, 200, "older-a"),
       row(1000, 2, 250, "older-b"),
       row(1001, 3, 300),
@@ -342,22 +369,26 @@ describe("ScrollAnchorGuard", () => {
     ]);
     await flush();
 
-    expect(stream.visualTop(1001)).toBe(80);
+    expect(stream.visualTop(1001)).toBe(24);
   });
 
-  it("follows the first row by position when it is all that is on screen", async () => {
-    const stream = guarded(createStream([row(1000, 0, 900, "prompt"), row(1001, 1, 300)]));
+  it("holds the reader's row while the gap below it fills downward", async () => {
+    // A far prompt's turn at the top of the view, the gap after it below: it
+    // fills from the turn's end, above the gap's row, and the turn holds.
+    const stream = guarded(
+      createStream([row(1000, 0, 300, "turn"), row(1001, 1, 24, "gap:g2"), row(1002, 2, 300)]),
+    );
 
-    // A page lands below the prompt; its newest row takes over index 1000.
     stream.render([
-      row(998, 0, 900, "prompt"),
-      row(999, 1, 200, "older-a"),
-      row(1000, 2, 250, "older-b"),
-      row(1001, 3, 300),
+      row(1000, 0, 300, "turn"),
+      row(1001, 1, 200, "newer-a"),
+      row(1002, 2, 24, "gap:g2"),
+      row(1003, 3, 300),
     ]);
     await flush();
 
     expect(stream.visualTop(1000)).toBe(0);
+    expect(stream.list.style.transform).toBe("");
   });
 
   it("keeps a row re-keyed in place anchored by its index", async () => {
@@ -374,7 +405,7 @@ describe("ScrollAnchorGuard", () => {
     expect(stream.list.style.transform).toBe("translateY(-60px)");
   });
 
-  it("trusts Virtuoso's compensation until the next scroll once the anchor row is gone", async () => {
+  it("lets Virtuoso's compensation run while the anchor's row is gone, then lets go at input", async () => {
     const stream = readingMidList();
     const native = vi.spyOn(Element.prototype, "scrollBy").mockImplementation(() => {});
 
@@ -389,12 +420,37 @@ describe("ScrollAnchorGuard", () => {
     stream.scroller.scrollBy({ top: 150 });
     expect(native).toHaveBeenCalledWith({ top: 150 });
 
-    // The next scroll sets a new baseline.
+    // The reader's own scroll lets the missing row go and sets a new baseline.
+    stream.scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -40 }));
     stream.scroll();
     stream.state.rows[0].height = 400;
     stream.render();
     await flush();
     expect(stream.list.style.transform).toBe("translateY(-150px)");
+  });
+
+  it("nets Virtuoso's estimate out once the anchor's row comes back", async () => {
+    const stream = readingMidList();
+    vi.spyOn(Element.prototype, "scrollBy").mockImplementation((...args: unknown[]) => {
+      const [options] = args;
+      if (typeof options === "object" && options !== null && "top" in options) {
+        stream.state.scrollTop += Number(options.top);
+      }
+    });
+    const rows = stream.state.rows;
+
+    // A page lands above: Virtuoso first renders the old offset over new rows,
+    // unmounting the anchor's row, then scrolls by its estimate (500 px)...
+    stream.render([row(900, 0, 300, "new-a"), row(901, 1, 300, "new-b")]);
+    await flush();
+    stream.scroller.scrollBy({ top: 500 });
+    stream.scroll();
+    // ...and the row comes back, 400 px lower than it was in the content.
+    stream.state.paddingTop = 1400;
+    stream.render(rows);
+    await flush();
+
+    expect(stream.visualTop(1001)).toBe(0);
   });
 
   it("restores the native scrollBy and drops the bridge on detach", async () => {

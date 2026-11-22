@@ -3,7 +3,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { AgentBlockData } from "@/types/agent-block";
 import { buildDisplayItems } from "@/lib/agent-stream-display";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
-import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
+import { applyPersistedState } from "./ws-session-actions";
+import { fillSessionHistoryGap } from "./ws-session-history-fill";
 import type { StoreAccessors } from "./ws-envelope-handler";
 
 const apiMocks = vi.hoisted(() => ({
@@ -44,8 +45,7 @@ function createPaginationSession(blocks: AgentBlockData[]): SessionEntry {
   return {
     ...createSessionEntry(),
     blocks,
-    hasMore: true,
-    oldestMessageId: 200,
+    historyGaps: [{ id: "g1", afterId: null, beforeId: 200 }],
     featureId: 1077,
     sessionDbId: 2586,
     historyPrependDisplayOffset: 5,
@@ -87,10 +87,12 @@ describe("ws session history pagination", () => {
       ],
     });
 
-    await loadOlderSessionMessages(ctx, "s1");
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older");
 
     const session = ctx.get().sessions.s1;
-    expect(session.historyPrependDisplayOffset).toBe(7);
+    // Two rows land above msg-300 and the gap row above it closes: +1.
+    expect(session.historyPrependDisplayOffset).toBe(6);
+    expect(session.historyGaps).toEqual([]);
     expect(session.blocks.map((block) => block.id)).toEqual([
       "msg-100",
       "msg-101",
@@ -115,12 +117,12 @@ describe("ws session history pagination", () => {
       sessions: [{ sessionDbId: 2586, blocks: olderBlocks, hasMore: false, oldestMessageId: 100 }],
     });
 
-    await loadOlderSessionMessages(ctx, "s1", { summaryMode: true });
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older", { displayMode: { summaryMode: true } });
 
     // Older chunk renders as [u1, tool_summary, m1] = 3 collapsed rows (vs 4 raw
-    // rows), so the offset grows by 3 from its base of 5.
+    // rows) where the closed gap's row was, so the offset grows by 2 from 5.
     const session = ctx.get().sessions.s1;
-    expect(session.historyPrependDisplayOffset).toBe(8);
+    expect(session.historyPrependDisplayOffset).toBe(7);
     // The store still holds raw blocks; the collapse is display-only.
     expect(session.blocks.map((block) => block.id)).toEqual([
       "msg-100",
@@ -151,12 +153,15 @@ describe("ws session history pagination", () => {
         sessions: [{ sessionDbId: 2586, blocks: secondPage, hasMore: false, oldestMessageId: 160 }],
       });
 
-    await loadOlderSessionMessages(ctx, "s1", { compactMode: true });
-    await loadOlderSessionMessages(ctx, "s1", { compactMode: true });
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older", { displayMode: { compactMode: true } });
+    expect(ctx.get().sessions.s1.historyGaps).toEqual([{ id: "g1", afterId: null, beforeId: 170 }]);
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older", { displayMode: { compactMode: true } });
 
     const session = ctx.get().sessions.s1;
-    // Each page adds one row ([170-199], then [160-169]) on top of the seeded 5.
-    expect(session.historyPrependDisplayOffset).toBe(7);
+    // The first page adds a row ([170-199]) under the gap's; the second
+    // ([160-169]) takes the place of the gap's row as it closes.
+    expect(session.historyPrependDisplayOffset).toBe(6);
+    expect(session.historyGaps).toEqual([]);
     expect(session.blocks.find((block) => block.id === "msg-170")?.compactFlowBreakBefore).toBe(
       true,
     );
@@ -198,7 +203,7 @@ describe("ws session history pagination", () => {
       ],
     });
 
-    await loadOlderSessionMessages(ctx, "s1", { compactMode: true });
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older", { displayMode: { compactMode: true } });
 
     const session = ctx.get().sessions.s1;
     const mergedTask = session.blocks.find((block) => block.id === task.id);
@@ -216,15 +221,165 @@ describe("ws session history pagination", () => {
     );
   });
 
-  it("resets historyPrependDisplayOffset when persisted state replaces a session", () => {
-    const ctx = createCtx(createPaginationSession([makeBlock("current", "Current")]));
+  it("resets historyPrependDisplayOffset when persisted state fills an empty session", () => {
+    const ctx = createCtx({ ...createPaginationSession([]), historyGaps: [] });
 
     applyPersistedState(ctx, "s1", {
-      blocks: [],
+      blocks: [makeBlock("msg-50", "first", "user_message"), makeBlock("msg-300", "Current")],
       lifecycle: { phase: "idle" },
+      hasMore: true,
+      oldestMessageId: 300,
     });
 
-    expect(ctx.get().sessions.s1.historyPrependDisplayOffset).toBe(0);
+    const session = ctx.get().sessions.s1;
+    expect(session.historyPrependDisplayOffset).toBe(0);
+    // The first prompt shipped ahead of the page is an island between two gaps.
+    expect(session.historyGaps.map(({ afterId, beforeId }) => [afterId, beforeId])).toEqual([
+      [null, 50],
+      [50, 300],
+    ]);
+  });
+
+  it("drops a page whose gap another load moved while it was in flight", async () => {
+    const ctx = createCtx(createPaginationSession([makeBlock("msg-300", "Current")]));
+    apiMocks.getFeatureAgentState.mockImplementation(async () => {
+      // A prompt's turn lands meanwhile and splits the gap.
+      const session = ctx.get().sessions.s1;
+      ctx.set({
+        sessions: {
+          s1: {
+            ...session,
+            historyGaps: [
+              { id: "g1", afterId: null, beforeId: 150 },
+              { id: "g9", afterId: 160, beforeId: 200 },
+            ],
+          },
+        },
+      } as Partial<WsSessionStore>);
+      return {
+        sessions: [
+          {
+            sessionDbId: 2586,
+            blocks: [makeBlock("msg-170", "x")],
+            hasMore: true,
+            oldestMessageId: 101,
+          },
+        ],
+      };
+    });
+
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older");
+
+    const session = ctx.get().sessions.s1;
+    expect(session.blocks.map((block) => block.id)).toEqual(["msg-300"]);
+    expect(session.historyGaps.map((gap) => gap.id)).toEqual(["g1", "g9"]);
+  });
+
+  it("stops before a page lands once told to", async () => {
+    const ctx = createCtx(createPaginationSession([makeBlock("msg-300", "Current")]));
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [{ sessionDbId: 2586, blocks: [makeBlock("msg-150", "x")], hasMore: false }],
+    });
+
+    await fillSessionHistoryGap(ctx, "s1", "g1", "older", { shouldContinue: () => false });
+
+    const session = ctx.get().sessions.s1;
+    expect(session.blocks.map((block) => block.id)).toEqual(["msg-300"]);
+    expect(session.historyGaps).toEqual([{ id: "g1", afterId: null, beforeId: 200 }]);
+  });
+
+  it("fills a gap from below without moving the rows above the reader", async () => {
+    const island = [makeBlock("msg-100", "far prompt", "user_message")];
+    const window = [makeBlock("msg-300", "Current")];
+    const ctx = createCtx({
+      ...createPaginationSession([...island, ...window]),
+      historyGaps: [{ id: "g2", afterId: 100, beforeId: 300 }],
+    });
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 2586,
+          blocks: [makeBlock("msg-101", "answer"), makeBlock("msg-102", "more")],
+          hasMoreIncrementalMessages: true,
+          maxMessageId: 102,
+        },
+      ],
+    });
+
+    await fillSessionHistoryGap(ctx, "s1", "g2", "newer");
+
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, {
+      after: JSON.stringify({ 2586: 100 }),
+      after_revisions: JSON.stringify({ 2586: Number.MAX_SAFE_INTEGER }),
+      // The page stops at the rows already loaded under the gap.
+      until: JSON.stringify({ 2586: 300 }),
+    });
+    const session = ctx.get().sessions.s1;
+    // The page lands below the reader: no row above it moved.
+    expect(session.historyPrependDisplayOffset).toBe(5);
+    expect(session.historyGaps).toEqual([{ id: "g2", afterId: 102, beforeId: 300 }]);
+    expect(session.blocks.map((block) => block.id)).toEqual([
+      "msg-100",
+      "msg-101",
+      "msg-102",
+      "msg-300",
+    ]);
+  });
+
+  it("keeps the gap open above a page while its bounded range holds more rows", async () => {
+    const ctx = createCtx({
+      ...createPaginationSession([
+        makeBlock("msg-100", "far prompt", "user_message"),
+        makeBlock("msg-300", "Current"),
+      ]),
+      historyGaps: [{ id: "g2", afterId: 100, beforeId: 300 }],
+    });
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 2586,
+          blocks: [makeBlock("msg-200", "x")],
+          hasMore: true,
+          oldestMessageId: 200,
+        },
+      ],
+    });
+
+    await fillSessionHistoryGap(ctx, "s1", "g2", "older");
+
+    expect(ctx.get().sessions.s1.historyGaps).toEqual([{ id: "g2", afterId: 100, beforeId: 200 }]);
+  });
+
+  it("keeps an older page inside the gap, and closes the gap once the range is exhausted", async () => {
+    const ctx = createCtx({
+      ...createPaginationSession([
+        makeBlock("msg-100", "far prompt", "user_message"),
+        makeBlock("msg-300", "Current"),
+      ]),
+      historyGaps: [{ id: "g2", afterId: 100, beforeId: 300 }],
+    });
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [{ sessionDbId: 2586, blocks: [makeBlock("msg-150", "x")], hasMore: false }],
+    });
+
+    await fillSessionHistoryGap(ctx, "s1", "g2", "older");
+
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, {
+      before: JSON.stringify({ 2586: 300 }),
+      limit: 100,
+      since: JSON.stringify({ 2586: 100 }),
+    });
+    expect(ctx.get().sessions.s1.historyGaps).toEqual([]);
+  });
+
+  it("rejects a page that makes no progress, leaving the gap as it was", async () => {
+    const ctx = createCtx(createPaginationSession([makeBlock("msg-300", "Current")]));
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [{ sessionDbId: 2586, blocks: [], hasMore: true, oldestMessageId: 250 }],
+    });
+
+    await expect(fillSessionHistoryGap(ctx, "s1", "g1", "older")).rejects.toThrow("no messages");
+    expect(ctx.get().sessions.s1.historyGaps).toEqual([{ id: "g1", afterId: null, beforeId: 200 }]);
   });
 
   it("hydrates a persisted provider and model as one ready selection", () => {

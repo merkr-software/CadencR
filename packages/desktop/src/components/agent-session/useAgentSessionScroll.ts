@@ -8,60 +8,43 @@ import { subscribeResize } from "@/lib/resize-coordinator";
 import { type StartJump, type UseAgentSessionScrollResult } from "./agent-session-scroll-utils";
 import { ScrollAnchorGuard } from "./stream-scroll-anchor";
 import { StreamScrollWriter } from "./stream-scroll-writer";
+import type { HistoryGap } from "@/types/agent-stream";
+import { NO_HISTORY_GAPS } from "@/stores/ws-history-gaps";
 import { useAgentSessionScrollInput } from "./useAgentSessionScrollInput";
-import { type HistoryLoader, useHistoryLoader } from "./useOlderHistoryLoader";
+import { type FillHistoryGap, useHistoryGapFiller } from "./useHistoryGapFiller";
 
 interface UseAgentSessionScrollOptions {
   blocks: AgentBlockData[];
   conversationKey: string | null;
-  hasMore?: boolean;
-  onLoadOlder?: () => Promise<number | void>;
+  /** Saved history not loaded yet; each gap's row fills as it nears the view. */
+  historyGaps?: HistoryGap[];
+  onFillGap?: FillHistoryGap;
 }
 
 function useScrollState(options: UseAgentSessionScrollOptions) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
   const stickRef = useRef(true);
-  const historyLoadArmedRef = useRef(false);
-  const loadingOlderRef = useRef(false);
-  const loadGenerationRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const suppressScrollIntentRef = useRef(false);
   const userScrollIntentRef = useRef(false);
   const prevConversationKeyRef = useRef<string | null>(options.conversationKey);
   const didFirstPaintScrollRef = useRef(false);
-  const viewportFillPagesRef = useRef(0);
   const [autoScrollEnabled, setAutoScrollEnabledState] = useState(true);
-  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
-  const hasMoreRef = useRef(options.hasMore);
-  const onLoadOlderRef = useRef(options.onLoadOlder);
-  hasMoreRef.current = options.hasMore;
-  onLoadOlderRef.current = options.onLoadOlder;
   return useMemo(
     () => ({
       autoScrollEnabled,
       didFirstPaintScrollRef,
-      hasMoreRef,
-      historyLoadArmedRef,
-      isLoadingOlder,
       lastScrollTopRef,
-      loadGenerationRef,
-      loadingOlderRef,
-      olderLoadError,
-      onLoadOlderRef,
       prevConversationKeyRef,
       scrollerElRef,
       setAutoScrollEnabledState,
-      setIsLoadingOlder,
-      setOlderLoadError,
       stickRef,
       suppressScrollIntentRef,
       userScrollIntentRef,
-      viewportFillPagesRef,
       virtuosoRef,
     }),
-    [autoScrollEnabled, isLoadingOlder, olderLoadError],
+    [autoScrollEnabled],
   );
 }
 
@@ -110,6 +93,11 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
     }
     requestAnimationFrame(pinScrollerToEnd);
   }, [pinScrollerToEnd, state.virtuosoRef, writer]);
+  // Forget a scroll-up in progress: the next one must start from here.
+  const resetIntent = useCallback((): void => {
+    state.userScrollIntentRef.current = false;
+    state.lastScrollTopRef.current = state.scrollerElRef.current?.scrollTop ?? 0;
+  }, [state.lastScrollTopRef, state.scrollerElRef, state.userScrollIntentRef]);
   const suppressProgrammaticScrollIntent = useCallback((): void => {
     state.suppressScrollIntentRef.current = true;
     requestAnimationFrame(() => {
@@ -122,6 +110,7 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
     () => ({
       followBottom,
       pinToEnd,
+      resetIntent,
       setAutoScrollEnabled,
       stopFollowGlide,
       suppressProgrammaticScrollIntent,
@@ -129,6 +118,7 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
     [
       followBottom,
       pinToEnd,
+      resetIntent,
       setAutoScrollEnabled,
       stopFollowGlide,
       suppressProgrammaticScrollIntent,
@@ -138,12 +128,12 @@ function useScrollPinning(state: ScrollState, writer: StreamScrollWriter) {
 
 type ScrollPinning = ReturnType<typeof useScrollPinning>;
 
-function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history: HistoryLoader) {
+function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning) {
   const scrollToBottom = useCallback((): void => {
-    history.resetIntent();
+    pinning.resetIntent();
     pinning.setAutoScrollEnabled(true);
     pinning.pinToEnd();
-  }, [history, pinning]);
+  }, [pinning]);
   const followOutput = useMemo<FollowOutput>(
     () =>
       // Off iOS, Virtuoso does not follow at all: the growth observer, the
@@ -163,11 +153,11 @@ function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history:
     (atBottom: boolean): void => {
       if (!atBottom) return;
       const wasDisengaged = !state.stickRef.current;
-      history.resetIntent();
+      pinning.resetIntent();
       pinning.setAutoScrollEnabled(true);
       if (wasDisengaged) pinning.pinToEnd();
     },
-    [history, pinning, state.stickRef],
+    [pinning, state.stickRef],
   );
   const onTotalListHeightChanged = useCallback(
     (_height: number): void => {
@@ -183,32 +173,20 @@ function useScrollCallbacks(state: ScrollState, pinning: ScrollPinning, history:
       // is idempotent, so once the growth observer has pinned, this is a
       // no-op. On iOS, reissuing scrollToIndex from Virtuoso's own height
       // callback closes a feedback loop, and `followOutput` already owns that
-      // platform's streaming bottom pin; viewport backfill remains independent
-      // below.
+      // platform's streaming bottom pin.
       if (!isIos()) pinning.followBottom();
-      history.maybeFillViewport();
     },
-    [history, pinning, state.stickRef],
+    [pinning, state.stickRef],
   );
-  const onStartReached = useCallback((): void => {
-    if (state.historyLoadArmedRef.current) history.requestOlderHistory();
-  }, [history, state.historyLoadArmedRef]);
   return useMemo(
-    () => ({
-      followOutput,
-      onAtBottomStateChange,
-      onStartReached,
-      onTotalListHeightChanged,
-      scrollToBottom,
-    }),
-    [followOutput, onAtBottomStateChange, onStartReached, onTotalListHeightChanged, scrollToBottom],
+    () => ({ followOutput, onAtBottomStateChange, onTotalListHeightChanged, scrollToBottom }),
+    [followOutput, onAtBottomStateChange, onTotalListHeightChanged, scrollToBottom],
   );
 }
 
 function useScrollLifecycle(
   state: ScrollState,
   pinning: ScrollPinning,
-  history: HistoryLoader,
   conversationKey: string | null,
   blocksLength: number,
 ) {
@@ -216,19 +194,14 @@ function useScrollLifecycle(
     if (state.prevConversationKeyRef.current === conversationKey) return;
     recordDiagnosticEvent("scroll", { event: "conversation-changed", following: true });
     state.prevConversationKeyRef.current = conversationKey;
-    state.loadGenerationRef.current += 1;
-    state.loadingOlderRef.current = false;
     state.stickRef.current = true;
-    history.resetIntent();
-    state.setIsLoadingOlder(false);
-    state.setOlderLoadError(null);
+    pinning.resetIntent();
     state.setAutoScrollEnabledState(true);
     state.didFirstPaintScrollRef.current = false;
-    state.viewportFillPagesRef.current = 0;
     pinning.suppressProgrammaticScrollIntent();
     pinning.stopFollowGlide();
     pinning.pinToEnd();
-  }, [conversationKey, history, pinning, state]);
+  }, [conversationKey, pinning, state]);
   useEffect(() => {
     if (state.didFirstPaintScrollRef.current || blocksLength === 0) return;
     state.didFirstPaintScrollRef.current = true;
@@ -248,15 +221,17 @@ function useScrollLifecycle(
  * composer's agent list): a new one cancels the one still settling, so two
  * never fight over `scrollTop`. Identity-stable, unlike `prepareJump`.
  */
-export function useJumpOwner(prepareJump: () => void): StartJump {
+export function useJumpOwner(prepareJump: () => () => void): StartJump {
   const prepareRef = useRef(prepareJump);
   prepareRef.current = prepareJump;
   const cancelRef = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelRef.current?.(), []);
   return useCallback((run) => {
-    prepareRef.current();
+    // Prepared before the old jump is cancelled: the old one's release, which
+    // its cancel triggers, then no longer ends the new jump's hold.
+    const settled = prepareRef.current();
     cancelRef.current?.();
-    const cancel = run();
+    const cancel = run(settled);
     cancelRef.current = cancel;
     return cancel;
   }, []);
@@ -268,69 +243,81 @@ export function useAgentSessionScroll(
   const state = useScrollState(options);
   // Every scroll write names its intent through this writer; a jump or reveal
   // it performs releases bottom-stick through `prepareJump` (set below).
-  const prepareJumpRef = useRef<() => void>(() => {});
+  const prepareJumpRef = useRef<() => () => void>(() => () => {});
   const [writer] = useState(
     () =>
       new StreamScrollWriter({
         isFollowing: () => state.stickRef.current,
-        prepareJump: () => prepareJumpRef.current(),
+        // A write the writer moves on its own (a reveal) holds until input.
+        prepareJump: () => {
+          prepareJumpRef.current();
+        },
       }),
   );
   const pinning = useScrollPinning(state, writer);
   const [anchorGuard] = useState(() => new ScrollAnchorGuard(() => state.stickRef.current));
-  const history = useHistoryLoader(state);
-  const callbacks = useScrollCallbacks(state, pinning, history);
-  const { setAutoScrollEnabled } = pinning;
-  const { resetIntent } = history;
+  const gaps = useHistoryGapFiller({
+    scrollerElRef: state.scrollerElRef,
+    conversationKey: options.conversationKey,
+    historyGaps: options.historyGaps ?? NO_HISTORY_GAPS,
+    onFillGap: options.onFillGap,
+    delayBeforeFill: () => writer.indexScrollSettlesIn(),
+    isFollowing: () => state.stickRef.current,
+  });
+  const callbacks = useScrollCallbacks(state, pinning);
+  const { resetIntent, setAutoScrollEnabled } = pinning;
+  const { holdForJump } = gaps;
   // A programmatic jump owns the viewport: bottom-stick lets go, and neither
-  // the anchor guard nor an armed history load may pull it back.
-  const prepareJump = useCallback((): void => {
-    anchorGuard.suspend();
+  // the anchor guard nor a history page landing above it may pull it away
+  // until the jump settles (the returned release) or the reader takes over.
+  const prepareJump = useCallback((): (() => void) => {
+    const releaseGuard = anchorGuard.suspend();
+    const releaseGaps = holdForJump();
     resetIntent();
     setAutoScrollEnabled(false);
-  }, [anchorGuard, resetIntent, setAutoScrollEnabled]);
+    return () => {
+      releaseGuard();
+      releaseGaps();
+    };
+  }, [anchorGuard, holdForJump, resetIntent, setAutoScrollEnabled]);
   prepareJumpRef.current = prepareJump;
   const startJump = useJumpOwner(prepareJump);
-  useScrollLifecycle(state, pinning, history, options.conversationKey, options.blocks.length);
+  useScrollLifecycle(state, pinning, options.conversationKey, options.blocks.length);
   const scrollContainerRef = useAgentSessionScrollInput({
     scrollerElRef: state.scrollerElRef,
     stickRef: state.stickRef,
     writer,
     anchorGuard,
-    historyLoadArmedRef: state.historyLoadArmedRef,
     lastScrollTopRef: state.lastScrollTopRef,
     userScrollIntentRef: state.userScrollIntentRef,
     suppressScrollIntentRef: state.suppressScrollIntentRef,
-    armUserScrollIntent: history.armUserScrollIntent,
     setAutoScrollEnabled: pinning.setAutoScrollEnabled,
-    requestOlderHistory: history.requestOlderHistory,
+    onScrollActivity: gaps.schedule,
+    onUserInput: gaps.resumeFromInput,
   });
   return useMemo(
     () => ({
       virtuosoRef: state.virtuosoRef,
       scrollContainerRef,
       itemSize: anchorGuard.measureItem,
-      onStartReached: callbacks.onStartReached,
       followOutput: callbacks.followOutput,
       onAtBottomStateChange: callbacks.onAtBottomStateChange,
       onTotalListHeightChanged: callbacks.onTotalListHeightChanged,
       autoScrollEnabled: state.autoScrollEnabled,
-      isLoadingOlder: state.isLoadingOlder,
-      olderLoadError: state.olderLoadError,
-      retryOlderHistory: history.requestOlderHistory,
+      historyGapStatus: gaps.status,
+      holdHistoryFills: gaps.holdForJump,
       scrollToBottom: callbacks.scrollToBottom,
       startJump,
     }),
     [
       anchorGuard,
       callbacks,
+      gaps.holdForJump,
+      gaps.status,
       scrollContainerRef,
       startJump,
       state.autoScrollEnabled,
-      state.isLoadingOlder,
-      state.olderLoadError,
       state.virtuosoRef,
-      history.requestOlderHistory,
     ],
   );
 }

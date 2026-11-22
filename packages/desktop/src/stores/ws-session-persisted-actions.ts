@@ -1,4 +1,5 @@
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
+import { snapshotHistoryGaps } from "./ws-history-gaps";
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import type { AgentQuestion } from "@/types/agent-question";
 import type { PendingPermission } from "@/types/agent-permission";
@@ -78,8 +79,11 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     persistedLoaded: true,
     historyLoadFailure: null,
     historyPrependDisplayOffset: 0,
-    hasMore: payload.hasMore ?? false,
-    oldestMessageId: payload.oldestMessageId ?? null,
+    historyGaps: snapshotHistoryGaps({
+      blocks: payload.blocks,
+      hasMore: payload.hasMore ?? false,
+      oldestMessageId: payload.oldestMessageId ?? null,
+    }),
     lastAppliedMessageId: payload.maxMessageId ?? null,
     lastAppliedContentRevision: payload.maxContentRevision ?? null,
     featureId: payload.featureId ?? null,

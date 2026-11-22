@@ -47,6 +47,7 @@ const PREVIEW_SCROLLER_CLASS =
 /** A rough row height, only to decide how many rows fill a viewport. */
 function estimateRowHeight(item: DisplayItem): number {
   if (item.kind === "flow") return 32;
+  if (item.kind === "gap") return 24;
   const { type, content } = item.block;
   if (type === "text" || type === "user_message" || type === "tool_result") {
     return Math.min(900, 48 + Math.ceil(content.length / 90) * 22);

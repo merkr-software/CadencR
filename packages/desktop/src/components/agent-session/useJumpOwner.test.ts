@@ -6,7 +6,10 @@ import { useJumpOwner } from "./useAgentSessionScroll";
 describe("useJumpOwner", () => {
   it("hands over the viewport, then cancels the jump still settling before the next starts", () => {
     const calls: string[] = [];
-    const prepare = vi.fn(() => calls.push("prepare"));
+    const prepare = vi.fn(() => {
+      calls.push("prepare");
+      return () => {};
+    });
     const { result } = renderHook(() => useJumpOwner(prepare));
     const first = vi.fn(() => calls.push("cancel first"));
     result.current(() => {
@@ -20,8 +23,18 @@ describe("useJumpOwner", () => {
     expect(calls).toEqual(["prepare", "start first", "prepare", "cancel first", "start second"]);
   });
 
+  it("hands the jump the release its preparation returned, to call once settled", () => {
+    const release = vi.fn();
+    const { result } = renderHook(() => useJumpOwner(() => release));
+    result.current((settled) => {
+      settled();
+      return () => {};
+    });
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it("returns the jump's cancel, and stops the jump when the session unmounts", () => {
-    const { result, unmount } = renderHook(() => useJumpOwner(() => {}));
+    const { result, unmount } = renderHook(() => useJumpOwner(() => () => {}));
     const cancel = vi.fn();
     expect(result.current(() => cancel)).toBe(cancel);
     unmount();

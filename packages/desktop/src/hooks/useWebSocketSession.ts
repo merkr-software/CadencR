@@ -24,7 +24,9 @@ import { type TurnLifecycle, createIdleTurnLifecycle } from "@/stores/ws-turn-li
 import { turnClockFromStatus, type TurnClock } from "@/lib/turn-clock";
 import type { SessionStatusEntry } from "@/stores/session-status-store";
 import { useSessionStatus } from "@/stores/session-status-selectors";
-import type { DisplayRowMode } from "@/types/agent-stream";
+import type { DisplayRowMode, HistoryGap } from "@/types/agent-stream";
+import { NO_HISTORY_GAPS, type HistoryGapFillDirection } from "@/stores/ws-history-gaps";
+import type { FillHistoryGapOptions } from "@/stores/ws-session-history-fill";
 import type { AccessMode } from "@/types/access-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
 import { retainWsSession } from "@/hooks/ws-session-retention";
@@ -63,10 +65,15 @@ export interface UseWebSocketSessionReturn {
   isSubmittingPermission: boolean;
   pendingQuestions: AgentQuestion[];
   respondToQuestion: (response: AgentQuestionAnswers) => void;
-  hasMore: boolean;
-  /** Resolves with the number of older blocks that were prepended. `displayMode`
-   *  sizes the prepend to the rows actually rendered under summary/compact. */
-  loadOlderMessages: (displayMode?: DisplayRowMode) => Promise<number>;
+  /** Saved history not loaded yet: each gap is a row of the transcript. */
+  historyGaps: HistoryGap[];
+  /** Loads a gap's messages from the reader's side. `displayMode` sizes the
+   *  rows they add to what summary/compact actually render. */
+  fillHistoryGap: (
+    gapId: string,
+    direction: HistoryGapFillDirection,
+    options?: FillHistoryGapOptions,
+  ) => Promise<void>;
   /** Loads one unloaded prompt and the start of its turn (message navigator). */
   loadPromptTurn: (messageDbId: number, displayMode?: DisplayRowMode) => Promise<boolean>;
 
@@ -131,7 +138,7 @@ export interface UseWebSocketSessionOptions {
 
 type SessionActions = Pick<
   UseWebSocketSessionReturn,
-  | "loadOlderMessages"
+  | "fillHistoryGap"
   | "loadPromptTurn"
   | "sendPrompt"
   | "deliverPrompt"
@@ -192,12 +199,15 @@ function useSessionActions(sessionId: string): SessionActions {
   return useMemo<SessionActions>(() => {
     const s = useWsSessionStore.getState();
     return {
-      // The caller passes the active display mode so the older-history prepend
-      // is sized to the rows actually rendered (summary/compact collapse fewer
-      // rows than the raw block count), keeping Virtuoso's `firstItemIndex`
-      // aligned and the scroll from jumping.
-      loadOlderMessages: (displayMode?: DisplayRowMode): Promise<number> =>
-        s.loadOlderMessages(sessionId, displayMode),
+      // The caller passes the active display mode so a page landing above the
+      // reader is sized to the rows actually rendered (summary/compact collapse
+      // fewer rows than the raw block count), keeping Virtuoso's
+      // `firstItemIndex` aligned and the scroll from jumping.
+      fillHistoryGap: (
+        gapId: string,
+        direction: HistoryGapFillDirection,
+        options?: FillHistoryGapOptions,
+      ): Promise<void> => s.fillHistoryGap(sessionId, gapId, direction, options),
       loadPromptTurn: (messageDbId: number, displayMode?: DisplayRowMode): Promise<boolean> =>
         s.loadPromptTurn(sessionId, messageDbId, displayMode),
       sendPrompt: (text: string, options?: PromptDispatchOptions): void =>
@@ -264,7 +274,7 @@ function useSessionSnapshot(
       isConnected: session?.isConnected ?? false,
       sessionId,
       sessionDbId: session?.sessionDbId ?? null,
-      hasMore: session?.hasMore ?? false,
+      historyGaps: session?.historyGaps ?? NO_HISTORY_GAPS,
       pendingPermission: session?.pendingPermission ?? null,
       pendingRequestId: session?.pendingRequestId ?? "",
       // Scope the boolean to the currently visible request so a stale clear

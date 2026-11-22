@@ -13,7 +13,6 @@ import {
   Virtuoso,
   type Components,
   type FollowOutput,
-  type ListRange,
   type SizeFunction,
   type VirtuosoHandle,
 } from "react-virtuoso";
@@ -21,12 +20,14 @@ import type { AgentBlockData } from "@/types/agent-block";
 import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { STREAM_AT_BOTTOM_THRESHOLD_PX, STREAM_BOTTOM_GAP_PX } from "./agent-session/stream-fade";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
-import { OlderHistoryStatus } from "./agent-session/OlderHistoryStatus";
+import { HistoryGapRow } from "./agent-session/HistoryGapRow";
+import type { HistoryGapStatus } from "./agent-session/useHistoryGapFiller";
 import { flowStreamingBlockId, liveDisplayItemKey } from "@/lib/agent-stream-display";
 import { cursorSpaceAbove, STREAM_TOP_GAP_PX } from "@/lib/stream-rhythm";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
-import type { DisplayItem } from "@/types/agent-stream";
+import type { DisplayItem, HistoryGap } from "@/types/agent-stream";
+import { NO_HISTORY_GAPS } from "@/stores/ws-history-gaps";
 import { useAgentDisplayItems, useRootBlocks, useToolResultMap } from "./useAgentStreamData";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import type { TurnClock } from "@/lib/turn-clock";
@@ -44,7 +45,6 @@ const FIRST_ITEM_INDEX_BASE = 1_000_000;
  * their median.
  */
 const DEFAULT_ROW_HEIGHT_PX = 120;
-const HISTORY_PREFETCH_ROWS = 12;
 
 interface AgentStreamVirtuosoContext {
   showStreamingIndicator: boolean;
@@ -66,6 +66,8 @@ interface AgentStreamVirtuosoContext {
   liveItemKey: string | null;
   /** Padding above the working cursor, one gap under the last row. */
   cursorSpaceAbove: number;
+  /** Which history gap row is loading or failed; null where gaps never fill. */
+  gapStatus: HistoryGapStatus | null;
 }
 
 interface AgentStreamProps {
@@ -119,15 +121,12 @@ interface AgentStreamProps {
    * to the bottom while measurements settle on cold-open.
    */
   onTotalListHeightChanged?: (height: number) => void;
-  /** Called by Virtuoso when the first rendered item is reached. */
-  onStartReached?: () => void;
-  /** When true, a spinner is shown above the first item (older history loading). */
-  isLoadingOlder?: boolean;
-  /** Why the last older-history page failed; shown above the first item with a retry. */
-  olderLoadError?: string | null;
-  onRetryOlder?: () => void;
-  /** Number of rendered Virtuoso rows prepended by older-history pagination. */
+  /** Number of rendered Virtuoso rows history pages added above the reader. */
   historyPrependDisplayOffset?: number;
+  /** Saved history not loaded yet: each gap renders as a row between the rows around it. */
+  historyGaps?: HistoryGap[];
+  /** Fill state of those rows (`useHistoryGapFiller`). */
+  historyGapStatus?: HistoryGapStatus | null;
   verbosityMode?: AgentVerbosityMode;
   /**
    * "Summary mode": collapse each turn's tool calls into a single recap block
@@ -234,23 +233,12 @@ function useAgentStreamRefs(
   );
 }
 
-/** Row keys and the history prefetch trigger, both offset by `firstItemIndex`. */
-function useVirtuosoIndexing(
-  displayItems: DisplayItem[],
-  firstItemIndex: number,
-  onStartReached: (() => void) | undefined,
-) {
-  const onRangeChanged = useCallback(
-    (range: ListRange): void => {
-      if (range.startIndex <= firstItemIndex + HISTORY_PREFETCH_ROWS) onStartReached?.();
-    },
-    [firstItemIndex, onStartReached],
-  );
-  const computeItemKey = useCallback(
+/** Row keys, offset by `firstItemIndex`. */
+function useComputeItemKey(displayItems: DisplayItem[], firstItemIndex: number) {
+  return useCallback(
     (i: number): string => displayItems[i - firstItemIndex]?.key ?? String(i),
     [displayItems, firstItemIndex],
   );
-  return { onRangeChanged, computeItemKey };
 }
 
 function useVirtuosoContext({
@@ -262,6 +250,7 @@ function useVirtuosoContext({
   searchBlockId,
   liveItemKey,
   cursorSpaceAbove,
+  gapStatus,
 }: AgentStreamVirtuosoContext): AgentStreamVirtuosoContext {
   return useMemo(
     () => ({
@@ -273,6 +262,7 @@ function useVirtuosoContext({
       searchBlockId,
       liveItemKey,
       cursorSpaceAbove,
+      gapStatus,
     }),
     [
       showStreamingIndicator,
@@ -283,6 +273,7 @@ function useVirtuosoContext({
       searchBlockId,
       liveItemKey,
       cursorSpaceAbove,
+      gapStatus,
     ],
   );
 }
@@ -294,6 +285,11 @@ function useAgentStreamItemRenderer(
 ) {
   return useCallback(
     (_index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => {
+      if (item.kind === "gap") {
+        return (
+          <HistoryGapRow gap={item.gap} status={context.gapStatus} spaceBelow={item.spaceBelow} />
+        );
+      }
       if (item.kind === "flow") {
         const target = context.searchBlockId;
         const reveal = target && item.blocks.some((block) => block.id === target);
@@ -332,11 +328,9 @@ interface AgentVirtuosoProps {
   followOutput?: FollowOutput;
   onAtBottomStateChange?: AgentStreamProps["onAtBottomStateChange"];
   onTotalListHeightChanged?: AgentStreamProps["onTotalListHeightChanged"];
-  onStartReached?: AgentStreamProps["onStartReached"];
   setVirtuoso: (handle: VirtuosoHandle | null) => void;
   onScroller: (element: HTMLElement | Window | null) => void;
   computeItemKey: (index: number) => string;
-  onRangeChanged: (range: ListRange) => void;
   renderItem: (index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => ReactNode;
   /** Unpainted while the tail preview is on screen (`useTailPreview`). */
   style: CSSProperties;
@@ -350,11 +344,9 @@ function AgentVirtuoso({
   followOutput,
   onAtBottomStateChange,
   onTotalListHeightChanged,
-  onStartReached,
   setVirtuoso,
   onScroller,
   computeItemKey,
-  onRangeChanged,
   renderItem,
   style,
 }: AgentVirtuosoProps) {
@@ -380,8 +372,6 @@ function AgentVirtuoso({
       atBottomStateChange={onAtBottomStateChange}
       atBottomThreshold={STREAM_AT_BOTTOM_THRESHOLD_PX}
       totalListHeightChanged={onTotalListHeightChanged}
-      startReached={onStartReached}
-      rangeChanged={onRangeChanged}
       itemContent={renderItem}
     />
   );
@@ -404,11 +394,9 @@ export const AgentStream = memo(function AgentStream({
   followOutput,
   onAtBottomStateChange,
   onTotalListHeightChanged,
-  onStartReached,
-  isLoadingOlder = false,
-  olderLoadError = null,
-  onRetryOlder,
   historyPrependDisplayOffset = 0,
+  historyGaps = NO_HISTORY_GAPS,
+  historyGapStatus = null,
   verbosityMode = "maximal",
   summaryMode = false,
   searchEnabled = false,
@@ -423,6 +411,7 @@ export const AgentStream = memo(function AgentStream({
     turnActive,
     isStreaming,
     verbosityMode,
+    historyGaps,
   );
   const firstItemIndex = FIRST_ITEM_INDEX_BASE - historyPrependDisplayOffset;
 
@@ -438,13 +427,10 @@ export const AgentStream = memo(function AgentStream({
     searchBlockId,
     liveItemKey: liveDisplayItemKey(displayItems, turnActive ?? !!isStreaming),
     cursorSpaceAbove: cursorSpaceAbove(displayItems.at(-1)),
+    gapStatus: historyGapStatus,
   });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
-  const { onRangeChanged, computeItemKey } = useVirtuosoIndexing(
-    displayItems,
-    firstItemIndex,
-    onStartReached,
-  );
+  const computeItemKey = useComputeItemKey(displayItems, firstItemIndex);
   const renderItem = useAgentStreamItemRenderer(basePath, toolResultMap, verbosityMode);
   const tail = useTailPreview({
     enabled: openingPreview,
@@ -465,7 +451,6 @@ export const AgentStream = memo(function AgentStream({
       className={messageNavigator ? "relative mr-2 h-full" : "relative h-full"}
       data-rich-copy="true"
     >
-      <OlderHistoryStatus loading={isLoadingOlder} error={olderLoadError} onRetry={onRetryOlder} />
       <AgentStreamTools
         items={displayItems}
         toolResultMap={toolResultMap}
@@ -483,11 +468,9 @@ export const AgentStream = memo(function AgentStream({
         followOutput={followOutput}
         onAtBottomStateChange={onAtBottomStateChange}
         onTotalListHeightChanged={onTotalListHeightChanged}
-        onStartReached={onStartReached}
         setVirtuoso={streamRefs.setVirtuoso}
         onScroller={streamRefs.onScroller}
         computeItemKey={computeItemKey}
-        onRangeChanged={onRangeChanged}
         renderItem={renderItem}
         style={tail.listStyle}
       />

@@ -150,7 +150,7 @@ function SideAnswer({
     >
       <div ref={contentRef}>
         {displayItems.map((item) =>
-          item.kind === "flow" ? (
+          item.kind === "gap" ? null : item.kind === "flow" ? (
             <CompactFlowRow
               key={item.key}
               blocks={item.blocks}

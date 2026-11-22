@@ -27,13 +27,12 @@ const params = {
   writer: new StreamScrollWriter({ isFollowing: () => stickRef.current, prepareJump: noop }),
   // The guard is unit-tested on its own (stream-scroll-anchor.test.ts).
   anchorGuard: { attach: vi.fn(), detach: vi.fn() },
-  historyLoadArmedRef: { current: false },
   lastScrollTopRef: { current: 0 },
   userScrollIntentRef: { current: false },
   suppressScrollIntentRef: { current: false },
-  armUserScrollIntent: noop,
   setAutoScrollEnabled: noop,
-  requestOlderHistory: noop,
+  onScrollActivity: noop,
+  onUserInput: noop,
 };
 
 let scrollRef: ScrollRef;

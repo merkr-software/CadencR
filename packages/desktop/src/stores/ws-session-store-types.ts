@@ -1,6 +1,8 @@
 import type { AgentQuestionAnswers } from "@/types/agent-question";
 import type { PermissionDecisionValue } from "@/types/agent-permission";
 import type { DisplayRowMode } from "@/types/agent-stream";
+import type { HistoryGapFillDirection } from "./ws-history-gaps";
+import type { FillHistoryGapOptions } from "./ws-session-history-fill";
 import type {
   GateCloseReason,
   PromptDispatchOptions,
@@ -159,11 +161,16 @@ export interface WsSessionStore {
    */
   hydratePersistedState: (sessionId: string, snapshot: PersistedStatePayload | null) => void;
   /**
-   * Loads older messages for a session. Resolves with the number of blocks
-   * prepended to the conversation. The store also increments
-   * `historyPrependDisplayOffset` by the rendered row count for Virtuoso.
+   * Loads a history gap's messages from the reader's side, a page at a time
+   * until a visible row appears or the gap closes. Rejects with the reason a
+   * page failed; the gap is left as it was.
    */
-  loadOlderMessages: (sessionId: string, displayMode?: DisplayRowMode) => Promise<number>;
+  fillHistoryGap: (
+    sessionId: string,
+    gapId: string,
+    direction: HistoryGapFillDirection,
+    options?: FillHistoryGapOptions,
+  ) => Promise<void>;
   /**
    * Loads one prompt sitting in unloaded history together with the start of
    * its turn (message navigator). Resolves with whether the prompt is now in

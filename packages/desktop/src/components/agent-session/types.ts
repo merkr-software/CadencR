@@ -1,6 +1,8 @@
 import type { Loader2Icon } from "lucide-react";
 import type { AgentBlockData } from "@/types/agent-block";
-import type { DisplayRowMode } from "@/types/agent-stream";
+import type { DisplayRowMode, HistoryGap } from "@/types/agent-stream";
+import type { HistoryGapFillDirection } from "@/stores/ws-history-gaps";
+import type { FillHistoryGapOptions } from "@/stores/ws-session-history-fill";
 import type { AgentType } from "../../types/agent-types";
 import type { PromptAttachmentPayload } from "../../types/agent-types";
 import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
@@ -222,16 +224,19 @@ export interface AgentSessionProps {
   slashCommandsLoading?: boolean;
   /** Why the provider's own commands could not be listed, shown in the `/` menu. */
   slashCommandsError?: string | null;
-  /** Whether older messages exist beyond current window */
-  hasMore?: boolean;
+  /** Saved history not loaded yet; each gap is a transcript row (see `HistoryGap`). */
+  historyGaps?: HistoryGap[];
   /**
-   * Called when user scrolls to top and older messages should be loaded.
-   * Resolves with the number of blocks that were prepended (or `void` for
-   * legacy callers that haven't migrated). WS sessions preserve prepend
-   * anchoring through `historyPrependDisplayOffset`. `displayMode` sizes the
-   * prepend to the rows actually rendered under summary/compact collapse.
+   * Loads a gap's messages from the side the reader is on, as its row nears
+   * the viewport. Rejects with the reason a page failed. Rows landing above
+   * the reader keep their place through `historyPrependDisplayOffset`;
+   * `displayMode` sizes them to what summary/compact actually render.
    */
-  onLoadOlder?: (displayMode?: DisplayRowMode) => Promise<number | void>;
+  onFillHistoryGap?: (
+    gapId: string,
+    direction: HistoryGapFillDirection,
+    options?: FillHistoryGapOptions,
+  ) => Promise<void>;
   /**
    * Loads one prompt that sits in unloaded history, with the start of its
    * turn, so the message navigator can jump to it without paging through

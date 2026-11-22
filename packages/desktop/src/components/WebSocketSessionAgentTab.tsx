@@ -172,8 +172,8 @@ function AgentTabContent({
         disableShortcuts={!hotkeysEnabled}
         agentTabActive={agentVisible && hotkeysEnabled}
         claudeProfileSelection={controls.claudeProfile}
-        hasMore={controls.ws.hasMore}
-        onLoadOlder={controls.ws.loadOlderMessages}
+        historyGaps={controls.ws.historyGaps}
+        onFillHistoryGap={controls.ws.fillHistoryGap}
         onLoadPromptTurn={controls.ws.loadPromptTurn}
         worktreeMode={controls.worktreeMode}
         onWorktreeModeChange={controls.setWorktreeMode}
