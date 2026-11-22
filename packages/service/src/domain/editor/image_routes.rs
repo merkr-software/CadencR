@@ -34,10 +34,15 @@ pub async fn read_image_handler(
 ) -> Result<Response, AppError> {
     let project_root =
         resolve_feature_editor_root(&state.read_pool, params.project_id, params.feature_id).await?;
-    let path = service::validate_path(&project_root, &params.file_path)?;
-
-    let mime = image_mime_for_path(&path)
-        .ok_or_else(|| AppError::BadRequest("Unsupported image extension".into()))?;
+    let file_path = params.file_path;
+    let (path, mime) = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
+        let path = service::validate_path(&project_root, &file_path)?;
+        let mime = image_mime_for_path(&path)
+            .ok_or_else(|| AppError::BadRequest("Unsupported image extension".into()))?;
+        Ok((path, mime))
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     let bytes = read_file_capped(path, MAX_IMAGE_FILE_SIZE, "Image").await?;
     image_response(bytes, mime)

@@ -34,6 +34,7 @@ pub mod process_table;
 pub mod quarantine;
 pub mod security;
 pub mod setup_log;
+pub mod singleflight;
 pub mod slug;
 pub mod ssh_env;
 pub mod startup_progress;
