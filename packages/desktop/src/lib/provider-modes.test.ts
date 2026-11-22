@@ -108,6 +108,27 @@ describe("getVisibleModes", () => {
     expect(modes[1].description).toBe("Plan");
   });
 
+  it("uses declared accents without changing host risk or other providers' colors", () => {
+    const modes = [
+      { id: "default", label: "Default", accent: "blue" },
+      { id: "acceptEdits", label: "Accept edits", accent: "green" },
+      { id: "auto", label: "Auto", accent: "yellow" },
+      { id: "plan", label: "Plan", accent: "violet" },
+    ] as const;
+    setProviderCatalogMetadata([
+      { id: "acme", label: "Acme", modes },
+      { id: "example", label: "Example", modes: [{ id: "plan", label: "Plan" }] },
+    ]);
+
+    expect(getVisibleModes("acme", []).map(({ risk, tone }) => [risk, tone])).toEqual([
+      ["ask", "var(--chip-blue-fg)"],
+      ["edits", "var(--acc-green)"],
+      ["auto", "var(--acc-yellow)"],
+      ["read", "var(--chip-violet-fg)"],
+    ]);
+    expect(findProviderMode("example", "plan")?.tone).toBe("var(--acc-yellow)");
+  });
+
   it("never gates catalog bypass modes behind an opt-in", () => {
     const catalogModes = [
       { id: "default" as const, label: "Default" },

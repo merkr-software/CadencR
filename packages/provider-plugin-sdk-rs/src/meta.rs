@@ -49,6 +49,16 @@ impl PermissionMode {
     }
 }
 
+/// Theme colors supported by the host's permission-mode controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModeAccent {
+    Blue,
+    Green,
+    Yellow,
+    Violet,
+}
+
 /// Host access-mode wire ids.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessMode {
@@ -94,6 +104,13 @@ fn cadencr(fields: Value) -> Meta {
 /// `{"cadencr": {"permissionMode": <wire id>}}` for a mode select value.
 pub fn permission_mode_meta(mode: PermissionMode) -> Meta {
     cadencr(json!({ "permissionMode": mode.wire_id() }))
+}
+
+/// A permission mode with a host theme accent.
+pub fn permission_mode_meta_with_accent(mode: PermissionMode, accent: ModeAccent) -> Meta {
+    let mut meta = permission_mode_meta(mode);
+    meta[CADENCR_META_KEY]["modeAccent"] = json!(accent);
+    meta
 }
 
 /// `{"cadencr": {"accessMode": <wire id>}}` for an access select value.

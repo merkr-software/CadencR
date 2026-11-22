@@ -1,4 +1,6 @@
-use cadencr_provider_sdk::meta::{merge_meta, permission_mode_meta, PermissionMode};
+use cadencr_provider_sdk::meta::{
+    merge_meta, permission_mode_meta_with_accent, ModeAccent, PermissionMode,
+};
 use serde_json::{json, Value};
 
 use crate::cli;
@@ -26,14 +28,17 @@ fn decorate_mode(option: &mut Value) {
         return;
     };
     for choice in choices.iter_mut().filter_map(Value::as_object_mut) {
-        let permission_mode = match choice.get("value").and_then(Value::as_str) {
-            Some("default") => PermissionMode::Default,
-            Some("accept-edits") => PermissionMode::AcceptEdits,
-            Some("auto") => PermissionMode::Auto,
-            Some("plan") => PermissionMode::Plan,
+        let (permission_mode, accent) = match choice.get("value").and_then(Value::as_str) {
+            Some("default") => (PermissionMode::Default, ModeAccent::Blue),
+            Some("accept-edits") => (PermissionMode::AcceptEdits, ModeAccent::Green),
+            Some("auto") => (PermissionMode::Auto, ModeAccent::Yellow),
+            Some("plan") => (PermissionMode::Plan, ModeAccent::Violet),
             _ => continue,
         };
-        merge_meta(choice, permission_mode_meta(permission_mode));
+        merge_meta(
+            choice,
+            permission_mode_meta_with_accent(permission_mode, accent),
+        );
     }
 }
 

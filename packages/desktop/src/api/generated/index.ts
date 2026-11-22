@@ -204,7 +204,22 @@ export interface AgentBlock {
   type: string;
 }
 
+/**
+ * A theme accent for a provider-declared permission mode.
+ */
+export type ProviderModeAccent = (typeof ProviderModeAccent)[keyof typeof ProviderModeAccent];
+
+export const ProviderModeAccent = {
+  blue: "blue",
+  green: "green",
+  yellow: "yellow",
+  violet: "violet",
+} as const;
+
+export type ProviderModeCatalogEntryAccent = null | ProviderModeAccent;
+
 export interface ProviderModeCatalogEntry {
+  accent?: ProviderModeCatalogEntryAccent;
   /** @nullable */
   description?: string | null;
   id: string;

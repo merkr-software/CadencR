@@ -116,6 +116,18 @@ pub struct ProviderModeCatalogEntry {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<ProviderModeAccent>,
+}
+
+/// A theme accent for a provider-declared permission mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderModeAccent {
+    Blue,
+    Green,
+    Yellow,
+    Violet,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

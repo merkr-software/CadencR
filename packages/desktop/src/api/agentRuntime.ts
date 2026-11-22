@@ -7,6 +7,7 @@ import type { PermissionMode } from "@/types/permission-mode";
 import type {
   ModelCatalogEntry,
   ProviderCatalogResponseEntry,
+  ProviderModeAccent,
   ProviderOrigin,
   UpsertCustomModelRequest,
 } from "./generated";
@@ -45,6 +46,7 @@ export interface RuntimeProviderModeOption {
   id: PermissionMode;
   label: string;
   description?: string;
+  accent?: ProviderModeAccent;
 }
 
 export interface RuntimeProviderAccessModeOption {

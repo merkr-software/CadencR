@@ -148,7 +148,6 @@ fn read_child(
     if record["conversationId"] != id {
         return None;
     }
-    let spawn_step = record["spawnStepIndex"].as_u64()?;
     let child = generated(brain, id)?;
     let transcript = directory(&child, "logs")?.join("transcript_full.jsonl");
     let scan = match launches.entry(id.to_owned()) {
@@ -161,7 +160,7 @@ fn read_child(
             })
         }
     };
-    let carrier = scan.advance(root, id, spawn_step)?;
+    let carrier = scan.advance(root, id)?;
     launches.remove(id);
     Some(NativeChild {
         id: id.to_owned(),
@@ -177,8 +176,9 @@ struct LaunchScan {
 }
 
 impl LaunchScan {
-    /// A finished scan returns its uniquely attributable carrier, if present.
-    fn advance(&mut self, root: &str, child: &str, spawn_step: u64) -> Option<Option<String>> {
+    /// Batched siblings can share the registry's spawnStepIndex. The addressed
+    /// launch message carries the exact ACP call ID for this child.
+    fn advance(&mut self, root: &str, child: &str) -> Option<Option<String>> {
         for _ in 0..MESSAGE_SCAN_BATCH {
             let Some(entry) = self.messages.next() else {
                 return Some(self.carrier.take());
@@ -196,7 +196,6 @@ impl LaunchScan {
             if record["sender"] != root
                 || record["recipient"] != child
                 || tool["conversationId"] != root
-                || tool["stepIndex"].as_u64() != Some(spawn_step)
                 || !call["name"].as_str().is_some_and(is_subagent_launch)
             {
                 continue;

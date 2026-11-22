@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::super::store::open_file;
 
 pub(super) const READ_BUDGET: usize = 256 * 1024;
+const TASK_HEADER_BYTES: usize = 4096;
 
 #[derive(Default)]
 pub(super) struct JournalCursor {
@@ -62,21 +63,46 @@ impl JournalCursor {
                 if self.partial.len() + line.len() <= READ_BUDGET {
                     self.partial.extend_from_slice(line);
                 } else {
-                    self.partial.clear();
+                    self.partial.truncate(TASK_HEADER_BYTES);
+                    let needed = TASK_HEADER_BYTES - self.partial.len();
+                    self.partial
+                        .extend_from_slice(&line[..needed.min(line.len())]);
                     self.skipping_oversize = true;
                 }
             }
             if complete {
-                if !self.skipping_oversize {
-                    if let Ok(row) = serde_json::from_slice(&self.partial) {
-                        rows.push(row);
-                    }
+                let row = if self.skipping_oversize {
+                    task_header(&mut self.partial)
+                } else {
+                    serde_json::from_slice(&self.partial).ok()
+                };
+                if let Some(row) = row {
+                    rows.push(row);
                 }
                 self.partial.clear();
                 self.skipping_oversize = false;
             }
         }
         rows
+    }
+}
+
+/// agy writes step identity and status before its multiline content. For an
+/// oversized command or notification only the leading content lines carry
+/// lifecycle information. Never project this shortened text as tool output.
+fn task_header(prefix: &mut Vec<u8>) -> Option<Value> {
+    let newline = prefix.windows(2).rposition(|pair| pair == br"\n")?;
+    prefix.truncate(newline + 2);
+    prefix.extend_from_slice(br#""}"#);
+    let row: Value = serde_json::from_slice(prefix).ok()?;
+    match (
+        row["source"].as_str(),
+        row["type"].as_str(),
+        row["status"].as_str(),
+    ) {
+        (Some("SYSTEM"), Some("SYSTEM_MESSAGE"), Some("DONE"))
+        | (Some("MODEL"), Some("GENERIC"), Some("RUNNING")) => Some(row),
+        _ => None,
     }
 }
 
