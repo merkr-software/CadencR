@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useGetFileDiff } from "@/api/generated";
-import { parseUnifiedDiff, type FileDiffSection } from "@/lib/parse-unified-diff";
+import { isBinaryPatch, parseUnifiedDiff, type FileDiffSection } from "@/lib/parse-unified-diff";
+import { LARGE_DIFF_BYTES } from "@/lib/diff-thresholds";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { DiffMode } from "./useDiffData";
 
@@ -10,11 +11,44 @@ const EMPTY_SECTION: FileDiffSection = {
   hunks: [],
 };
 
+type LargeDiffOptInState =
+  | { kind: "none" }
+  | { kind: "pending"; scopeKey: string }
+  | { kind: "accepted"; scopeKey: string; raw: string };
+
+const NO_OPT_IN: LargeDiffOptInState = { kind: "none" };
+
+function reconcileOptInForRaw(
+  optIn: LargeDiffOptInState,
+  scopeKey: string,
+  raw: string | undefined,
+): { optedIn: boolean; nextState: LargeDiffOptInState | null } {
+  if (optIn.kind === "none") return { optedIn: false, nextState: null };
+  if (optIn.scopeKey !== scopeKey) return { optedIn: false, nextState: NO_OPT_IN };
+  if (optIn.kind === "pending") {
+    return raw === undefined
+      ? { optedIn: true, nextState: null }
+      : { optedIn: true, nextState: { kind: "accepted", scopeKey, raw } };
+  }
+  return raw === optIn.raw
+    ? { optedIn: true, nextState: null }
+    : { optedIn: false, nextState: NO_OPT_IN };
+}
+
 export interface FileDiffSectionResult {
-  /** Parsed patch for the file, or `null` while the fetch is pending / gated. */
+  /** Parsed patch for the file, or `null` while the fetch is pending / gated / deferred. */
   section: FileDiffSection | null;
+  /** Length of the fetched raw diff string when available. */
+  rawLength: number | null;
+  /**
+   * True when the raw diff exceeds large-diff thresholds and parsing (or
+   * fetching for large-by-lines files) is deferred until the user opts in.
+   */
+  isDeferredLarge: boolean;
   isLoading: boolean;
   errorMessage: string | null;
+  /** Explicitly opt into fetching and parsing the current large diff revision. */
+  displayLargeDiff: () => void;
 }
 
 export interface UseFileDiffSectionParams {
@@ -31,12 +65,19 @@ export interface UseFileDiffSectionParams {
   commitSha: string | null;
   /**
    * Gates only the *fetch* — driven by the row's expanded + virtualized-visible
-   * state — so a collapsed / off-screen file that was never fetched costs
-   * nothing, while a file that HAS been fetched keeps its parsed section after
-   * it scrolls out of view (react-query retains the cached data), so scrolling
-   * back doesn't re-mount / re-tokenize Pierre or re-request the diff.
+   * state (and large-file opt-in) — so a collapsed / off-screen / deferred
+   * large file costs nothing, while a file that HAS been fetched keeps its
+   * parsed section after it scrolls out of view.
    */
   enabled: boolean;
+  /**
+   * Whether a diff exceeding `LARGE_DIFF_BYTES` (or `isLargeByLines`) should
+   * be parsed synchronously. Defaults to `false` so huge diffs never block the
+   * main thread with `parseUnifiedDiff` before the user clicks "Display diff".
+   */
+  allowLargeParse?: boolean;
+  /** True when `additions + deletions >= LARGE_DIFF_LINES`. */
+  isLargeByLines?: boolean;
 }
 
 /**
@@ -46,10 +87,10 @@ export interface UseFileDiffSectionParams {
  * synchronous parse are bounded to the files the user is actually looking at
  * instead of the whole working tree.
  *
- * The parse runs on the main thread (memoized on the raw diff) — safe because a
- * single file's patch is small; the genuinely large single-file case is still
- * gated behind the "Display diff" opt-in + `ProgressiveLargeDiff` chunking
- * downstream.
+ * When a fetched diff is large (`raw.length >= LARGE_DIFF_BYTES` or
+ * `isLargeByLines`) and `allowLargeParse` is false, `parseUnifiedDiff` is
+ * skipped entirely so multi-megabyte patches never stall the main thread until
+ * the user explicitly opts in via "Display diff".
  */
 export function useFileDiffSection({
   featureId,
@@ -59,7 +100,14 @@ export function useFileDiffSection({
   targetBranch,
   commitSha,
   enabled,
+  allowLargeParse = false,
+  isLargeByLines = false,
 }: UseFileDiffSectionParams): FileDiffSectionResult {
+  const scopeKey = `${featureId}:${mode}:${targetBranch ?? ""}:${commitSha ?? ""}:${filePath}:${oldFilePath ?? ""}`;
+  const [optIn, setOptIn] = useState<LargeDiffOptInState>(NO_OPT_IN);
+  const scopeOptedIn = optIn.kind !== "none" && optIn.scopeKey === scopeKey;
+  const fetchEnabled = enabled && (!isLargeByLines || allowLargeParse || scopeOptedIn);
+
   const { data, isLoading, isError, error } = useGetFileDiff(
     {
       feature_id: featureId,
@@ -69,21 +117,50 @@ export function useFileDiffSection({
       target_branch: targetBranch,
       commit_sha: commitSha ?? undefined,
     },
-    { query: { enabled } },
+    { query: { enabled: fetchEnabled } },
   );
 
   const raw = data?.diff;
+  const { optedIn, nextState } = reconcileOptInForRaw(optIn, scopeKey, raw);
+  if (nextState !== null) setOptIn(nextState);
+
+  const rawRef = useRef<string | undefined>(raw);
+  rawRef.current = raw;
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
+  const displayLargeDiff = useCallback((): void => {
+    const currentRaw = rawRef.current;
+    const currentScopeKey = scopeKeyRef.current;
+    setOptIn(
+      currentRaw === undefined
+        ? { kind: "pending", scopeKey: currentScopeKey }
+        : { kind: "accepted", scopeKey: currentScopeKey, raw: currentRaw },
+    );
+  }, []);
+
+  const effectiveAllowLargeParse = allowLargeParse || optedIn;
+  const rawLength = raw === undefined ? null : raw.length;
+  const isDeferredLarge = useMemo(() => {
+    if (effectiveAllowLargeParse) return false;
+    if (raw === undefined) return isLargeByLines;
+    if (!isLargeByLines && raw.length < LARGE_DIFF_BYTES) return false;
+    return !isBinaryPatch(raw);
+  }, [effectiveAllowLargeParse, isLargeByLines, raw]);
+
   const section = useMemo<FileDiffSection | null>(() => {
-    if (raw === undefined) return null;
+    if (raw === undefined || isDeferredLarge) return null;
     // The backend emits exactly one `diff --git` block per file, so the first
     // parsed section is the whole patch. An empty-but-loaded diff yields
     // EMPTY_SECTION so the row shows "No text hunks", not a perpetual loader.
     return parseUnifiedDiff(raw)[0] ?? EMPTY_SECTION;
-  }, [raw]);
+  }, [isDeferredLarge, raw]);
 
   // NB: don't gate `section` on `enabled` — once fetched, keep the parsed diff
   // mounted through scroll-out. `data`/`isLoading`/`isError` already reflect the
   // cache: an un-fetched, disabled row has `data === undefined` → `section` null.
   const errorMessage = isError ? apiErrorMessage(error, "Failed to load this file's diff") : null;
-  return useMemo(() => ({ section, isLoading, errorMessage }), [errorMessage, isLoading, section]);
+  return useMemo(
+    () => ({ section, rawLength, isDeferredLarge, isLoading, errorMessage, displayLargeDiff }),
+    [displayLargeDiff, errorMessage, isDeferredLarge, isLoading, rawLength, section],
+  );
 }

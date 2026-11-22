@@ -7,13 +7,37 @@ type TimeoutConfig = Pick<AxiosRequestConfig, "method" | "timeout" | "url">;
  * tight for these:
  * - `/api/git/commit` fires pre-commit hooks (full test suite easily ≥ minutes).
  * - `/api/git/push` waits on remote network.
+ * - `/api/git/update-branch` (and `/continue`, `/abort`), `/api/git/merge`, and
+ *   `/api/git/fetch` can rebase, merge, or transfer large histories across the
+ *   network for well over 30 s.
  * - `/api/lsp/sessions` may trigger a 30 MB+ rust-analyzer download on the
  *   first open in a Rust workspace. The backend has its own 5-min download
  *   timeout; the renderer just needs to not give up on the POST first.
  *
  * For these calls we disable the timeout entirely.
  */
-export const NO_TIMEOUT_PATHS = ["/api/git/commit", "/api/git/push", "/api/lsp/sessions"];
+const NO_TIMEOUT_PATHS = [
+  "/api/git/commit",
+  "/api/git/push",
+  "/api/git/update-branch",
+  "/api/git/merge",
+  "/api/git/fetch",
+  "/api/lsp/sessions",
+];
+
+/**
+ * Matches a `NO_TIMEOUT_PATHS` entry on a full path-segment boundary so
+ * `/api/git/merge` does not accidentally disable timeouts on
+ * `/api/git/merge-conflicts` (or `/api/git/commit` on `/api/git/commit-log`).
+ */
+export function isNoTimeoutPath(url: string | undefined): boolean {
+  if (typeof url !== "string") return false;
+  return NO_TIMEOUT_PATHS.some(
+    (path) =>
+      url.startsWith(path) &&
+      (url.length === path.length || url[path.length] === "/" || url[path.length] === "?"),
+  );
+}
 
 const LONG_PUBLICATION_PATH =
   /^\/api\/projects\/\d+\/(?:publication-release(?:\/preview)?|publication-contribution|publication-registry(?:\/preview)?)$/;
