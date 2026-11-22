@@ -334,6 +334,17 @@ returned as `error` on `GET /api/prompt-commands` and on the WebSocket
 usable. `_meta.cadencr.kind: "skill"` on a live `availableCommands` entry
 groups it with skills. Nothing here branches on a provider id.
 
+## Attached MCP server status
+
+On macOS and Linux, the host observes its own browser, project and workspace
+MCP servers per runtime. Session info shows `configured` before tool discovery,
+`connected` after the agent requests the server's catalog, and `disconnected`
+when the last connection closes. A new connection restores `connected`.
+Viewers that attach to a running conversation receive its current status.
+When the runtime exits, its attached servers show `disconnected`.
+Other configured stdio servers keep the status available from the provider.
+Connection reporting grants no tool permissions.
+
 ## Background sub-agents
 
 ACP has no notion of a dispatch tool call that returns while its sub-agent

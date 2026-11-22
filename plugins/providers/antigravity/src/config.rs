@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 
 use crate::cli;
 
+const AUTO_MCP_HINT: &str = "Antigravity may still ask you to approve MCP tools.";
+
 pub fn catalog_mode() -> Value {
     let mut option = json!({
         "id": "mode", "name": "Mode", "category": "mode", "type": "select",
@@ -31,7 +33,20 @@ fn decorate_mode(option: &mut Value) {
         let (permission_mode, accent) = match choice.get("value").and_then(Value::as_str) {
             Some("default") => (PermissionMode::Default, ModeAccent::Blue),
             Some("accept-edits") => (PermissionMode::AcceptEdits, ModeAccent::Green),
-            Some("auto") => (PermissionMode::Auto, ModeAccent::Yellow),
+            Some("auto") => {
+                let detail = choice
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !detail.contains(AUTO_MCP_HINT) {
+                    let detail = match detail.trim_end() {
+                        "" => AUTO_MCP_HINT.to_owned(),
+                        native => format!("{native} {AUTO_MCP_HINT}"),
+                    };
+                    choice.insert("description".into(), Value::String(detail));
+                }
+                (PermissionMode::Auto, ModeAccent::Yellow)
+            }
             Some("plan") => (PermissionMode::Plan, ModeAccent::Violet),
             _ => continue,
         };
@@ -137,5 +152,23 @@ fn decorate_agent_info(result: &mut Value) {
     if let Some(version) = info.insert("version".to_string(), json!(env!("CARGO_PKG_VERSION"))) {
         let meta = [("antigravity".to_string(), json!({"cliVersion": version}))];
         merge_meta(info, meta.into_iter().collect());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_preserves_native_mcp_guidance_and_adds_its_approval_hint_once() {
+        let mut modes = json!({"id":"mode","options":[
+            {"value":"auto","description":"Discover configured MCP servers."}
+        ]});
+        decorate_mode(&mut modes);
+        decorate_mode(&mut modes);
+        assert_eq!(
+            modes["options"][0]["description"],
+            format!("Discover configured MCP servers. {AUTO_MCP_HINT}")
+        );
     }
 }

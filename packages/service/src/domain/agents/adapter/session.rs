@@ -61,8 +61,18 @@ pub trait AgentRuntimeSession: Send + Sync {
     async fn available_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
         Ok(Vec::new())
     }
+    /// MCP snapshot for a viewer joining a live runtime. Implementations must
+    /// read local state only and return `None` when the runtime is closing.
+    async fn cached_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        None
+    }
     async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
         self.available_mcp_servers().await
+    }
+    /// The final catalog for a runtime with host-observed MCP connections.
+    /// Providers without host-observed connections have no terminal update.
+    async fn ended_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        None
     }
     async fn stream_input(&self, content: Value) -> Result<(), RuntimeError>;
     /// The live runtime is temporarily unable to accept steering input.

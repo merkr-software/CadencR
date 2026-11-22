@@ -66,6 +66,9 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) pid: Option<u32>,
     pub(in crate::domain::agents::acp::runtime) cwd: PathBuf,
     pub(in crate::domain::agents::acp::runtime) context_window: Option<u64>,
+    #[cfg(unix)]
+    pub(in crate::domain::agents::acp::runtime) mcp_connections:
+        crate::domain::mcp::connection::Connections,
     pub(in crate::domain::agents::acp::runtime) configured_mcp_servers: Vec<RuntimeMcpServerStatus>,
     pub(in crate::domain::agents::acp::runtime) mcp_servers:
         Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
@@ -114,6 +117,19 @@ impl AcpRuntimeSession {
             .await
             .ok_or_else(|| RuntimeError::new("ACP session id not yet known"))
     }
+
+    fn with_mcp_connection_statuses(
+        &self,
+        servers: Vec<RuntimeMcpServerStatus>,
+    ) -> Vec<RuntimeMcpServerStatus> {
+        #[cfg(unix)]
+        let servers = {
+            let mut servers = servers;
+            self.mcp_connections.apply(&mut servers);
+            servers
+        };
+        servers
+    }
 }
 
 #[async_trait]
@@ -137,7 +153,8 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     async fn available_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
-        Ok(self.mcp_servers.read().await.clone())
+        let servers = self.mcp_servers.read().await.clone();
+        Ok(self.with_mcp_connection_statuses(servers))
     }
 
     async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
@@ -146,7 +163,30 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             .available_mcp_servers(&self.cwd, self.configured_mcp_servers.clone())
             .await;
         *self.mcp_servers.write().await = servers.clone();
-        Ok(servers)
+        Ok(self.with_mcp_connection_statuses(servers))
+    }
+
+    #[cfg(unix)]
+    async fn cached_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        if self.closing.load(Ordering::SeqCst)
+            || self.loop_task.as_ref().is_none_or(JoinHandle::is_finished)
+            || self.mcp_connections.is_empty()
+        {
+            return None;
+        }
+        let servers = self.mcp_servers.read().await.clone();
+        Some(self.with_mcp_connection_statuses(servers))
+    }
+
+    #[cfg(unix)]
+    async fn ended_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        if self.mcp_connections.is_empty() {
+            return None;
+        }
+        let mut servers = self.mcp_servers.read().await.clone();
+        self.mcp_connections
+            .apply_disconnected(&mut servers)
+            .then_some(servers)
     }
 
     async fn stream_input(&self, content: Value) -> Result<(), RuntimeError> {
@@ -217,6 +257,8 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         // The stream receiver is owned outside the runtime. Drop our last
         // steady-state sender after stopping producer tasks so it observes EOF
         // even while the closed runtime remains registered for resume metadata.
+        #[cfg(unix)]
+        self.mcp_connections.stop().await;
         self.local_tx.take();
         self.client.shutdown().await;
         Ok(())

@@ -154,6 +154,8 @@ pub enum RuntimeEventKind {
     /// `Arc` so the WS bridge can fan out without cloning the vec
     /// per subscriber.
     SlashCommandsUpdated(Arc<Vec<RuntimeSlashCommand>>),
+    /// The current runtime MCP status list is available to publish to viewers.
+    McpServersChanged,
     /// Runtime accepted a user prompt for delivery to the provider. The
     /// frontend uses this to clear "not received yet" UI.
     PromptReceived {

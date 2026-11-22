@@ -18,6 +18,7 @@ use crate::domain::ws_session::protocol::{
     RuntimeSessionIdPayload, SessionErrorPayload, WsEnvelope,
 };
 
+use super::prompt::mcp_servers::mcp_servers_message_from_servers;
 use super::session_init_resume::persistable_resume_session_id_for_provider;
 use crate::domain::ws_session::stream_readers::{close_failure_is_benign, process_alive};
 
@@ -118,7 +119,17 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
     }
     // Read first: closing may drop the process handle.
     let pid = q.pid();
-    if let Err(error) = q.close().await {
+    let result = q.close().await;
+    // Intentional retirement can already have detached this runtime. Publish
+    // from the exact instance while its caller still prevents replacement.
+    if let Some(servers) = q.ended_mcp_servers().await {
+        let message = mcp_servers_message_from_servers(db_session_id, servers);
+        context
+            .feature_senders
+            .broadcast_all(feature_id, &message)
+            .await;
+    }
+    if let Err(error) = result {
         // The shutdown's own rule: an idle runtime whose process is already
         // gone (the service's process group took it) lost nothing.
         if context.idle

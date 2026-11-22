@@ -19,6 +19,8 @@ use crate::domain::agents::adapter::{
     RuntimeInitEvent, RuntimeSpawnConfig,
 };
 
+#[cfg(unix)]
+use crate::domain::mcp::connection::Connections;
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 use super::events_stream_blocks::EventIndexer;
@@ -87,6 +89,16 @@ pub async fn spawn_acp_runtime_session(
     )
     .await
     .map_err(|e| RuntimeError::new(format!("failed to spawn ACP subprocess: {e}")))?;
+    #[cfg(unix)]
+    let (config, mcp_connections) = {
+        let mut config = config;
+        let connections = if hooks.observe_attached_mcp_connections() {
+            Connections::attach(config.mcp_servers.as_mut())
+        } else {
+            Connections::default()
+        };
+        (config, connections)
+    };
     let pid = client.pid();
     let mut event_rx = client.subscribe_reliable();
     // Overlaps the handshake: OpenCode lists its own MCP config to decide.
@@ -133,7 +145,18 @@ pub async fn spawn_acp_runtime_session(
     apply_initial_model(&session, &negotiated, &config).await?;
     apply_initial_thinking_effort(&session, &negotiated, &config).await?;
 
+    #[cfg(unix)]
+    let negotiated = {
+        let mut negotiated = negotiated;
+        session.mcp_connections = mcp_connections;
+        session
+            .mcp_connections
+            .apply_initial(&mut negotiated.mcp_servers);
+        negotiated
+    };
     emit_init_event(&tx, &negotiated).await;
+    #[cfg(unix)]
+    session.mcp_connections.publish_changes(&tx);
     if negotiated.may_replay_history {
         let drained = drain_resume_backlog(&mut event_rx);
         if drained > 0 {
@@ -284,6 +307,8 @@ impl AcpRuntimeSession {
             pid,
             cwd,
             context_window: negotiated.context_window,
+            #[cfg(unix)]
+            mcp_connections: Default::default(),
             configured_mcp_servers: negotiated.mcp_servers.clone(),
             mcp_servers: Arc::new(RwLock::new(negotiated.mcp_servers.clone())),
             message_rx: Some(rx),

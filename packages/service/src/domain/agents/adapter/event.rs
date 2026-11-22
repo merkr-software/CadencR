@@ -166,6 +166,10 @@ impl RuntimeEvent {
         &self.metadata.raw
     }
 
+    pub fn mcp_servers_changed(&self) -> bool {
+        matches!(self.kind, RuntimeEventKind::McpServersChanged)
+    }
+
     pub fn init(&self) -> Option<&RuntimeInitEvent> {
         match &self.kind {
             RuntimeEventKind::Init(init) => Some(init),

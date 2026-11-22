@@ -137,6 +137,11 @@ fn unsupported_block(kind: &str, capabilities: ProviderPromptCapabilities) -> Op
 
 #[async_trait]
 impl AcpProviderHooks for InstalledAcpHooks {
+    #[cfg(unix)]
+    fn observe_attached_mcp_connections(&self) -> bool {
+        true
+    }
+
     fn normalize_tool_name(&self, raw: &str) -> String {
         raw.to_string()
     }

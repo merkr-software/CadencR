@@ -47,8 +47,10 @@ describe("handleInitialized", () => {
 describe("handleMcpServers", () => {
   it("stores every reported MCP status on the active session", () => {
     const ctx = createTestContext(createSessionEntry());
+    handleInitialized(ctx, "s1", { session_id: "123" });
 
     handleMcpServers(ctx, "s1", {
+      session_id: "123",
       mcp_servers: [
         { name: "cadencr-browser", status: "connected" },
         { name: "filesystem", status: "unavailable" },
@@ -66,8 +68,10 @@ describe("handleMcpServers", () => {
 
   it("keeps a failed read apart from an empty list, and clears it once read", () => {
     const ctx = createTestContext(createSessionEntry());
+    handleInitialized(ctx, "s1", { session_id: "123" });
 
     handleMcpServers(ctx, "s1", {
+      session_id: "123",
       mcp_servers: [],
       error: "The agent's MCP servers could not be read: timed out",
     });
@@ -76,7 +80,20 @@ describe("handleMcpServers", () => {
       "The agent's MCP servers could not be read: timed out",
     );
 
-    handleMcpServers(ctx, "s1", { mcp_servers: [] });
+    handleMcpServers(ctx, "s1", { session_id: "123", mcp_servers: [] });
     expect(ctx.getSession("s1").mcpServersError).toBeNull();
+  });
+
+  it("ignores a sibling conversation's snapshots and frames without a session ID", () => {
+    const ctx = createTestContext(createSessionEntry());
+    const servers = [{ name: "cadencr-browser", status: "connected" }];
+    handleMcpServers(ctx, "s1", { session_id: "123", mcp_servers: servers });
+    expect(ctx.getSession("s1").mcpServers).toBeNull();
+
+    handleInitialized(ctx, "s1", { session_id: "123" });
+    handleMcpServers(ctx, "s1", { session_id: "123", mcp_servers: servers });
+    handleMcpServers(ctx, "s1", { session_id: "456", mcp_servers: [] });
+    handleMcpServers(ctx, "s1", { mcp_servers: [] });
+    expect(ctx.getSession("s1").mcpServers).toEqual(servers);
   });
 });

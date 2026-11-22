@@ -1,8 +1,27 @@
-//! MCP refresh behavior for the WebSocket stream reader.
+//! MCP status reports from live and retired runtimes.
 
 use super::support::*;
+use crate::domain::ws_session::runtime::detached_runtime::DetachedRuntime;
+use std::time::Duration;
 
-struct RefreshingMcpSession;
+struct RefreshingMcpSession {
+    observed: bool,
+}
+
+fn server(name: &str, status: &str) -> RuntimeMcpServerStatus {
+    RuntimeMcpServerStatus {
+        name: name.to_string(),
+        status: status.to_string(),
+    }
+}
+
+fn observed_servers(browser: &str, project: &str) -> Vec<RuntimeMcpServerStatus> {
+    vec![
+        server("cadencr-browser", browser),
+        server("cadencr-project", project),
+        server("external", "failed"),
+    ]
+}
 
 #[async_trait::async_trait]
 impl AgentRuntimeSession for RefreshingMcpSession {
@@ -16,17 +35,24 @@ impl AgentRuntimeSession for RefreshingMcpSession {
     }
 
     async fn available_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
-        Ok(vec![RuntimeMcpServerStatus {
-            name: "cached-server".to_string(),
-            status: "stale".to_string(),
-        }])
+        Ok(if self.observed {
+            observed_servers("connected", "configured")
+        } else {
+            vec![server("cached-server", "stale")]
+        })
     }
 
     async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
-        Ok(vec![RuntimeMcpServerStatus {
-            name: "chrome-devtools".to_string(),
-            status: "connected".to_string(),
-        }])
+        Ok(if self.observed {
+            observed_servers("connected", "configured")
+        } else {
+            vec![server("chrome-devtools", "connected")]
+        })
+    }
+
+    async fn ended_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        self.observed
+            .then(|| observed_servers("disconnected", "disconnected"))
     }
 
     async fn stream_input(&self, _content: Value) -> Result<(), RuntimeError> {
@@ -62,16 +88,11 @@ async fn test_stream_reader_refreshes_mcp_servers_after_turn_result() {
     let db_session_id = 79i64;
     let feature_id = 1i64;
 
-    sqlx::query("INSERT INTO agent_sessions (id, feature_id, agent_type, status) VALUES (?, ?, 'session', 'running')")
-        .bind(db_session_id)
-        .bind(feature_id)
-        .execute(&app_state.write_pool)
-        .await
-        .unwrap();
+    insert_running_session(&app_state, db_session_id, feature_id).await;
     sdk_sessions
         .lock()
         .await
-        .insert(db_session_id, make_refreshing_mcp_handle(feature_id));
+        .insert(db_session_id, make_refreshing_mcp_handle(feature_id, false));
 
     let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
     msg_tx
@@ -98,12 +119,156 @@ async fn test_stream_reader_refreshes_mcp_servers_after_turn_result() {
     assert_eq!(payload["mcp_servers"][0]["status"], "connected");
 }
 
-fn make_refreshing_mcp_handle(feature_id: i64) -> SdkHandle {
+#[tokio::test]
+async fn observed_mcp_servers_disconnect_on_runtime_eof_or_crash_but_stay_connected_between_turns()
+{
+    for crash in [false, true] {
+        let mut fixture = ObservedRuntime::start().await;
+        fixture.complete_turn().await;
+        if crash {
+            fixture
+                .msg_tx
+                .send(Err(RuntimeError::new("fixture runtime crashed")))
+                .await
+                .unwrap();
+        }
+        drop(fixture.msg_tx);
+
+        let payload = recv_mcp_servers_payload(&mut fixture.ws_rx).await;
+        assert_observed_statuses(&payload, "disconnected", "disconnected");
+    }
+}
+
+#[tokio::test]
+async fn explicitly_closing_a_detached_runtime_disconnects_its_observed_mcp_servers() {
+    let mut fixture = ObservedRuntime::start().await;
+    fixture.complete_turn().await;
+    let detached = {
+        let mut sessions = fixture.sdk_sessions.lock().await;
+        let handle = sessions.get_mut(&ObservedRuntime::SESSION).unwrap();
+        let query = handle.state.active_query().unwrap();
+        let detached = DetachedRuntime::of(
+            handle,
+            query,
+            ObservedRuntime::SESSION,
+            &fixture.app_state.session_runtimes,
+        );
+        handle.state = QueryState::Pending(Default::default());
+        detached
+    };
+    detached.close_in(&fixture.app_state).await;
+
+    let payload = recv_mcp_servers_payload(&mut fixture.ws_rx).await;
+    assert_observed_statuses(&payload, "disconnected", "disconnected");
+}
+
+#[tokio::test]
+async fn superseded_reader_does_not_publish_a_terminal_snapshot_for_the_replacement() {
+    let mut fixture = ObservedRuntime::start().await;
+    fixture.complete_turn().await;
+    fixture.sdk_sessions.lock().await.insert(
+        ObservedRuntime::SESSION,
+        make_refreshing_mcp_handle(ObservedRuntime::FEATURE, true),
+    );
+    fixture
+        .app_state
+        .ws_feature_senders
+        .unregister_sender(&fixture.ws_tx)
+        .await;
+    drop(fixture.ws_tx);
+    drop(fixture.msg_tx);
+
+    // EOF on the viewer channel proves the old reader has processed its own EOF.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(message) = fixture.ws_rx.recv().await {
+            if let Message::Text(text) = message {
+                let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+                assert_ne!(envelope.action, "mcp_servers");
+            }
+        }
+    })
+    .await
+    .expect("superseded reader should stop");
+    assert!(fixture.sdk_sessions.lock().await[&ObservedRuntime::SESSION]
+        .state
+        .active_query()
+        .is_some());
+}
+
+struct ObservedRuntime {
+    app_state: AppState,
+    sdk_sessions: SdkSessions,
+    msg_tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+    ws_tx: WsSender,
+    ws_rx: mpsc::UnboundedReceiver<Message>,
+}
+
+impl ObservedRuntime {
+    const SESSION: i64 = 79;
+    const FEATURE: i64 = 1;
+
+    async fn start() -> Self {
+        let app_state = make_test_app_state().await;
+        insert_running_session(&app_state, Self::SESSION, Self::FEATURE).await;
+        let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::from([(
+            Self::SESSION,
+            make_refreshing_mcp_handle(Self::FEATURE, true),
+        )])));
+        let (ws_tx, ws_rx) = mpsc::unbounded_channel();
+        let (msg_tx, msg_rx) = mpsc::channel(1);
+        app_state
+            .ws_feature_senders
+            .register(Self::FEATURE, ws_tx.clone())
+            .await;
+        spawn_test_stream_reader(
+            &app_state,
+            Self::SESSION,
+            Self::FEATURE,
+            msg_rx,
+            ws_tx.clone(),
+            sdk_sessions.clone(),
+            "claude_code",
+        );
+        Self {
+            app_state,
+            sdk_sessions,
+            msg_tx,
+            ws_tx,
+            ws_rx,
+        }
+    }
+
+    async fn complete_turn(&mut self) {
+        self.msg_tx
+            .send(Ok(RuntimeEvent::new(
+                Default::default(),
+                RuntimeEventKind::Result,
+            )))
+            .await
+            .unwrap();
+        let payload = recv_mcp_servers_payload(&mut self.ws_rx).await;
+        assert_observed_statuses(&payload, "connected", "configured");
+    }
+}
+
+fn assert_observed_statuses(payload: &Value, browser: &str, project: &str) {
+    assert_eq!(payload["session_id"], ObservedRuntime::SESSION.to_string());
+    assert_eq!(
+        payload["mcp_servers"],
+        serde_json::json!([
+            {"name": "cadencr-browser", "status": browser},
+            {"name": "cadencr-project", "status": project},
+            {"name": "external", "status": "failed"},
+        ]),
+    );
+}
+
+fn make_refreshing_mcp_handle(feature_id: i64, observed: bool) -> SdkHandle {
     let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
-            query: Arc::new(RwLock::new(Box::new(RefreshingMcpSession))),
+            query: Arc::new(RwLock::new(Box::new(RefreshingMcpSession { observed }))),
             permission_tx,
         },
         feature_id,
@@ -145,13 +310,17 @@ fn make_refreshing_mcp_handle(feature_id: i64) -> SdkHandle {
 async fn recv_mcp_servers_payload(
     ws_rx: &mut mpsc::UnboundedReceiver<Message>,
 ) -> serde_json::Value {
-    loop {
-        let Some(Message::Text(text)) = ws_rx.recv().await else {
-            continue;
-        };
-        let env: WsEnvelope = serde_json::from_str(&text).unwrap();
-        if env.action == "mcp_servers" {
-            return env.payload;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(message) = ws_rx.recv().await {
+            if let Message::Text(text) = message {
+                let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+                if envelope.action == "mcp_servers" {
+                    return envelope.payload;
+                }
+            }
         }
-    }
+        panic!("viewer channel closed before the MCP snapshot");
+    })
+    .await
+    .expect("timed out waiting for an MCP snapshot")
 }

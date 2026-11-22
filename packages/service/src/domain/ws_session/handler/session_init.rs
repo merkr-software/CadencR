@@ -26,8 +26,7 @@ pub(super) async fn handle_init(
 ) -> Option<i64> {
     let (payload, feature_id, cwd) = input::parse(&envelope, sender)?;
 
-    // Register the WS sender so HTTP handlers (e.g. auto-rename) can push
-    // envelopes to this connection later.
+    // Subscribe the new viewer to the feature's live events.
     app_state
         .ws_feature_senders
         .register(feature_id, sender.clone())
@@ -77,7 +76,7 @@ pub(super) async fn handle_init(
         return Some(db_session_id);
     };
     let spawning = app_state.session_runtimes.is_spawning(db_session_id).await;
-    if let Some(payload) = sessions
+    if let Some((payload, runtime)) = sessions
         .get(&db_session_id)
         .and_then(|handle| binding::live_payload(db_session_id, handle, row.as_ref(), spawning))
     {
@@ -90,6 +89,7 @@ pub(super) async fn handle_init(
             feature_id,
             row.as_ref()
                 .and_then(|row| row.runtime_session_id.as_deref()),
+            runtime.map(|query| (&sdk_sessions, query)),
         )
         .await;
         return Some(db_session_id);
@@ -394,6 +394,7 @@ pub(super) async fn handle_init(
         },
         feature_id,
         resume_session_id.as_deref(),
+        None,
     )
     .await;
     Some(db_session_id)
