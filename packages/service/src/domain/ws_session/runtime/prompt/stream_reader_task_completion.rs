@@ -110,6 +110,12 @@ impl StreamReaderTask {
         // resetting elapsed time to 0s. The resume turn's final `Result` arrives
         // with the set empty and ends the turn normally below.
         if interrupted_generation.is_none() && !state.live_background_agents.is_empty() {
+            // A provider can explicitly acknowledge this prompt while reporting
+            // outstanding work. Its later autonomous completion owns no receipts.
+            if !event.is_detached_reply_end() && event.background_agent_signal().is_some() {
+                self.settle_prompt_result(state, event.result_error().is_some())
+                    .await;
+            }
             self.record_running().await;
             return None;
         }

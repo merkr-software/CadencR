@@ -5,6 +5,7 @@
 //! through the [`provider_hooks::AcpProviderHooks`] trait.
 
 mod apply_model_config;
+mod background_work;
 pub mod capability_probe;
 pub mod config_options;
 mod detached_replies;

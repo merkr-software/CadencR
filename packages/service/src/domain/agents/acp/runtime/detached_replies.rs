@@ -1,12 +1,11 @@
 //! Provider-neutral opt-in for an unsolicited reply after a prompt result.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call::MappedUpdate;
-use crate::domain::agents::adapter::{
-    RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeStreamEvent,
-};
+use super::turn_result::detached_result;
+use crate::domain::agents::adapter::RuntimeStreamEvent;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum DetachedReply {
@@ -28,7 +27,8 @@ impl DetachedReply {
 #[derive(Clone, Copy)]
 pub(super) enum DetachedUpdate {
     Chunk,
-    End,
+    End { pending: bool },
+    WorkFinished,
 }
 
 impl DetachedUpdate {
@@ -43,20 +43,25 @@ impl DetachedUpdate {
                 if body.pointer("/_meta/cadencr/detachedReplyEnded")
                     == Some(&Value::Bool(true)) =>
             {
-                Some(Self::End)
+                Some(Self::End {
+                    pending: super::background_work::pending(body) == Some(true),
+                })
+            }
+            Some("session_info_update") if super::background_work::pending(body) == Some(false) => {
+                Some(Self::WorkFinished)
             }
             _ => None,
         }
     }
 
-    /// Called with the session's prompt lock held, after mapping this update.
-    /// A completion marker only ends an observed detached reply. The marker's
-    /// normal usage event carries context usage; the boundary has no billing.
+    /// A completion marker only ends an observed detached reply. An older work
+    /// hold may finish while a new prompt owns the lock and its own blocks.
     pub(super) fn apply(
         self,
         indexer: &mut EventIndexer,
         mapped: &mut MappedUpdate,
         session_id: &str,
+        owns_prompt_lock: bool,
     ) {
         match self {
             Self::Chunk if indexer.detached_reply == DetachedReply::Awaiting => {
@@ -69,28 +74,50 @@ impl DetachedUpdate {
                     indexer.detached_reply = DetachedReply::Streaming;
                 }
             }
-            Self::End if indexer.detached_reply == DetachedReply::Streaming => {
-                indexer.detached_reply = DetachedReply::Awaiting;
-                mapped
-                    .events
-                    .extend(indexer.drain_open_blocks(Some(session_id)));
-                indexer.message_started = false;
-                indexer.latch_turn_model(None);
-                mapped.events.push(RuntimeEvent::new(
-                    RuntimeEventMetadata {
-                        session_id: Some(session_id.to_string()),
-                        raw: json!({
-                            "type":"result", "transport":"acp", "source":"detached_reply",
-                            "session_id": session_id,
-                        }),
-                        ..Default::default()
-                    },
-                    RuntimeEventKind::DetachedReplyEnded,
-                ));
+            Self::End { pending } if indexer.detached_reply == DetachedReply::Streaming => {
+                finish_reply(indexer, mapped, session_id, pending);
+            }
+            Self::WorkFinished if indexer.background_work.is_pending() => {
+                if !owns_prompt_lock || indexer.detached_reply == DetachedReply::Inactive {
+                    // The reader settles the old work without completing the new turn.
+                    emit_result(indexer, mapped, session_id, false);
+                } else if indexer.detached_reply == DetachedReply::Awaiting
+                    || indexer.turn_interrupted()
+                {
+                    finish_reply(indexer, mapped, session_id, false);
+                }
             }
             _ => {}
         }
     }
+}
+
+fn finish_reply(
+    indexer: &mut EventIndexer,
+    mapped: &mut MappedUpdate,
+    session_id: &str,
+    pending: bool,
+) {
+    if indexer.detached_reply == DetachedReply::Streaming {
+        mapped
+            .events
+            .extend(indexer.drain_open_blocks(Some(session_id)));
+        indexer.message_started = false;
+        indexer.latch_turn_model(None);
+    }
+    indexer.detached_reply = DetachedReply::Awaiting;
+    emit_result(indexer, mapped, session_id, pending);
+}
+
+fn emit_result(
+    indexer: &mut EventIndexer,
+    mapped: &mut MappedUpdate,
+    session_id: &str,
+    pending: bool,
+) {
+    let signal = indexer.background_work.observe(pending);
+    let result = detached_result(session_id);
+    mapped.events.push(result.with_background_agent(signal));
 }
 
 #[cfg(test)]
@@ -104,6 +131,8 @@ mod tests {
     use super::*;
     use crate::domain::agents::acp::AcpClient;
     use crate::domain::agents::adapter::RuntimeError;
+    use crate::domain::agents::adapter::RuntimeEvent;
+    use serde_json::json;
     use std::time::Duration;
     use tokio::io::{AsyncWriteExt, BufReader, DuplexStream};
     use tokio::sync::mpsc;
@@ -179,6 +208,14 @@ mod tests {
             write_json_frame(&mut self.stdout, frame).await;
         }
 
+        async fn send_burst(&mut self, frames: &[Value]) {
+            let burst = frames
+                .iter()
+                .map(|frame| format!("{frame}\n"))
+                .collect::<String>();
+            self.stdout.write_all(burst.as_bytes()).await.unwrap();
+        }
+
         async fn next(&mut self) -> RuntimeEvent {
             tokio::time::timeout(Duration::from_secs(3), self.rx.recv())
                 .await
@@ -241,11 +278,90 @@ mod tests {
         })
     }
 
+    fn release_work(session_id: &str) -> Value {
+        update(
+            session_id,
+            json!({"sessionUpdate":"session_info_update","_meta":{"cadencr":{"backgroundWorkPending":false}}}),
+        )
+    }
+
     fn is_block_stop(event: &RuntimeEvent) -> bool {
         matches!(
             event.stream_event(),
             Some(RuntimeStreamEvent::ContentBlockStop { .. })
         )
+    }
+
+    #[tokio::test]
+    async fn coalesced_result_and_work_release_preserve_accounting_and_settle_once() {
+        use crate::domain::agents::adapter::BackgroundAgentSignal;
+        let mut harness = Harness::new().await;
+        let (id, task) = harness.start_prompt().await;
+        let mut result = prompt_result();
+        result["_meta"] = json!({"cadencr":{"backgroundWorkPending":true}});
+        harness
+            .send_burst(&[
+                chunk(),
+                json!({"jsonrpc":"2.0", "id":id, "result":result}),
+                release_work("foreign"),
+                release_work("s-1"),
+                release_work("s-1"),
+                usage("s-1", 7, false),
+            ])
+            .await;
+        let events = harness.through_usage(7).await;
+        await_prompt(task).await;
+        let (index, receipt) = events
+            .iter()
+            .enumerate()
+            .find(|(_, event)| event.is_result())
+            .unwrap();
+        assert!(index > 0 && is_block_stop(&events[index - 1]));
+        assert!(receipt.token_usage().is_some());
+        assert!(matches!(
+            receipt.background_agent_signal(),
+            Some(BackgroundAgentSignal::Started { .. })
+        ));
+        let mut releases = events[index + 1..].iter().filter(|event| event.is_result());
+        let release = releases.next().expect("one work release");
+        assert!(release.is_detached_reply_end() && release.token_usage().is_none());
+        assert!(matches!(
+            release.background_agent_signal(),
+            Some(BackgroundAgentSignal::Finished { .. })
+        ));
+        assert!(releases.next().is_none());
+    }
+
+    #[tokio::test]
+    async fn work_release_during_a_new_prompt_preserves_that_prompts_open_blocks() {
+        use crate::domain::agents::adapter::BackgroundAgentSignal;
+        let mut harness = Harness::new().await;
+        let (id, first) = harness.start_prompt().await;
+        let mut result = prompt_result();
+        result["_meta"] = json!({"cadencr":{"backgroundWorkPending":true}});
+        send_response(&mut harness.stdout, id, result).await;
+        await_prompt(first).await;
+        assert!(harness.next().await.is_result());
+
+        let (id, second) = harness.start_prompt().await;
+        harness
+            .send_burst(&[chunk(), release_work("s-1"), usage("s-1", 7, false)])
+            .await;
+        let events = harness.through_usage(7).await;
+        let release = events.iter().find(|e| e.is_detached_reply_end()).unwrap();
+        assert!(matches!(
+            release.background_agent_signal(),
+            Some(BackgroundAgentSignal::Finished { .. })
+        ));
+        assert!(!events.iter().any(is_block_stop));
+        assert!(!second.is_finished());
+
+        send_response(&mut harness.stdout, id, prompt_result()).await;
+        await_prompt(second).await;
+        assert!(is_block_stop(&harness.next().await));
+        let result = harness.next().await;
+        assert!(result.is_result() && result.token_usage().is_some());
+        assert!(result.background_agent_signal().is_none());
     }
 
     #[tokio::test]
@@ -318,14 +434,14 @@ mod tests {
             usage("s-1", 1, true),
             usage("s-1", 2, false),
         ];
-        let burst = frames
-            .iter()
-            .map(|frame| format!("{frame}\n"))
-            .collect::<String>();
-        harness.stdout.write_all(burst.as_bytes()).await.unwrap();
-        let mut events = harness.through_usage(2).await;
+        harness.send_burst(&frames).await;
+        let events = harness.through_usage(2).await;
         await_prompt(task).await;
-        events.extend(std::iter::from_fn(|| harness.rx.try_recv().ok()).map(Result::unwrap));
+        assert!(events[0].is_result());
+        assert!(events[1..].iter().any(|event| matches!(
+            event.stream_event(),
+            Some(RuntimeStreamEvent::ContentBlockDelta { .. })
+        )));
         assert_eq!(
             events
                 .iter()
@@ -337,7 +453,7 @@ mod tests {
             events.iter().filter(|event| is_block_stop(event)).count(),
             1
         );
-        assert!(events.iter().filter(|event| event.is_result()).count() <= 2);
+        assert_eq!(events.iter().filter(|event| event.is_result()).count(), 2);
         let indexer = harness.config.indexer.lock().unwrap();
         assert!(indexer.current_text_index.is_none());
         assert!(indexer.current_thinking_index.is_none());

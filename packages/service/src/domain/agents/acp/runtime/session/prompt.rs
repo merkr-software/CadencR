@@ -10,8 +10,7 @@ use crate::domain::agents::adapter::RuntimeError;
 
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::turn_lifecycle::{
-    agent_was_terminated, await_event_loop_barrier, finalize_turn, request_prompt_with_cancel,
-    start_turn_on_model,
+    finalize_turn, request_prompt_with_cancel, start_turn_on_model,
 };
 
 impl AcpRuntimeSession {
@@ -54,7 +53,7 @@ impl AcpRuntimeSession {
         }
         self.replay_suppression.store(false, Ordering::SeqCst);
 
-        let response = match request_prompt_with_cancel(
+        let reply = match request_prompt_with_cancel(
             &self.client,
             params,
             &self.prompt_cancel,
@@ -62,7 +61,7 @@ impl AcpRuntimeSession {
         )
         .await
         {
-            Ok(response) => response,
+            Ok(reply) => reply,
             Err(error) => {
                 if let Some(client_message_id) = receipt_client_message_id.as_deref() {
                     self.pending_prompt_receipts
@@ -79,10 +78,10 @@ impl AcpRuntimeSession {
                 self.local_tx().send(Ok(event)).await.ignore_closed();
             }
         }
-        if agent_was_terminated(&response) {
+        let Some(reply) = reply else {
             return Ok(());
-        }
-        let resume_updates = await_event_loop_barrier(&self.client).await?;
+        };
+        let (response, resume_updates) = reply.after_prior_events().await?;
         if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
             tracing::debug!(stop_reason = reason, "session/prompt completed");
             finalize_turn(

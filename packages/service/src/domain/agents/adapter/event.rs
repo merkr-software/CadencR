@@ -70,7 +70,7 @@ impl RuntimeEvent {
     }
 
     /// Attach a [`BackgroundAgentSignal`] to this event. Used by adapters that
-    /// model run-in-background agents (today only Claude Code) so the shared
+    /// report work continuing across turns so the shared
     /// stream reader can track which agents are still alive.
     pub fn with_background_agent(mut self, signal: Option<BackgroundAgentSignal>) -> Self {
         self.background_agent = signal;

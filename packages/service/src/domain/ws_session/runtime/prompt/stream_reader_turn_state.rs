@@ -62,6 +62,10 @@ impl StreamTurnState {
         self.phase = TurnPhase::BetweenTurnsAfterResult;
     }
 
+    pub(super) fn detached_result_generation(&self) -> Option<u64> {
+        self.last_prompt_result_generation
+    }
+
     /// The autonomous reply can finish the generation its prompt settled.
     /// A newer generation may already be preparing its ACP request.
     pub(super) fn accepts_result_generation(
@@ -70,7 +74,7 @@ impl StreamTurnState {
         generation: Option<u64>,
     ) -> bool {
         if detached_reply {
-            return self.last_prompt_result_generation == generation;
+            return self.detached_result_generation() == generation;
         }
         self.last_prompt_result_generation = generation;
         true

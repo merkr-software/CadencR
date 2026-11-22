@@ -3,23 +3,20 @@
 //! the 400-line ceiling once W4's tests land.
 
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
 
 use crate::domain::agents::adapter::{
-    RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeTokenUsage,
+    RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeTokenUsage,
     RuntimeTokenUsageEntry, RuntimeUsage,
 };
 
-/// Forward a `RuntimeEventKind::Result` envelope to the message channel
-/// when the agent reports a `stopReason`.
-pub async fn emit_turn_result(
-    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+/// Build the prompt result and its usage from the native ACP response.
+pub(super) fn turn_result(
     session_id: Option<String>,
     context_window: Option<u64>,
     usage: Option<RuntimeUsage>,
     stop_reason: &str,
     response: &Value,
-) {
+) -> RuntimeEvent {
     let raw = json!({
         "type": "result",
         "session_id": session_id.clone(),
@@ -34,10 +31,22 @@ pub async fn emit_turn_result(
         raw,
     };
     let token_usage = accounting_token_usage(response);
-    let event = RuntimeEvent::new(metadata, RuntimeEventKind::Result).with_token_usage(token_usage);
-    if let Err(error) = tx.send(Ok(event)).await {
-        tracing::debug!(%error, "failed to forward ACP turn result; channel closed");
-    }
+    RuntimeEvent::new(metadata, RuntimeEventKind::Result).with_token_usage(token_usage)
+}
+
+/// A detached boundary has no prompt delivery or usage of its own.
+pub(super) fn detached_result(session_id: &str) -> RuntimeEvent {
+    RuntimeEvent::new(
+        RuntimeEventMetadata {
+            session_id: Some(session_id.to_string()),
+            raw: json!({
+                "type":"result", "transport":"acp", "source":"detached_reply",
+                "session_id":session_id
+            }),
+            ..Default::default()
+        },
+        RuntimeEventKind::DetachedReplyEnded,
+    )
 }
 
 /// Parse the draft ACP end-turn usage shape. `totalTokens` is authoritative
@@ -89,41 +98,27 @@ fn usage_field_optional(usage: &Value, camel: &str, snake: &str) -> Option<u64> 
 
 #[cfg(test)]
 mod tests {
-    use super::emit_turn_result;
-    use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeTokenUsage};
+    use super::turn_result;
+    use crate::domain::agents::adapter::RuntimeTokenUsage;
     use serde_json::json;
-    use tokio::sync::mpsc;
 
-    #[tokio::test]
-    async fn emit_turn_result_sends_a_result_event() {
-        let (tx, mut rx) = mpsc::channel(4);
-        emit_turn_result(
-            &tx,
+    #[test]
+    fn turn_result_preserves_native_stop_reason() {
+        let event = turn_result(
             Some("s-1".into()),
             Some(123_456),
             None,
             "end_turn",
             &json!({}),
-        )
-        .await;
-        let event = rx.recv().await.unwrap().unwrap();
+        );
         assert!(event.is_result());
         assert_eq!(event.raw_json()["stop_reason"], "end_turn");
         assert_eq!(event.raw_json()["transport"], "acp");
     }
 
-    #[tokio::test]
-    async fn emit_turn_result_silently_drops_when_channel_closed() {
-        let (tx, rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
-        drop(rx);
-        emit_turn_result(&tx, None, None, None, "cancelled", &json!({})).await;
-    }
-
-    #[tokio::test]
-    async fn emit_turn_result_does_not_treat_prompt_response_usage_as_context_usage() {
-        let (tx, mut rx) = mpsc::channel(4);
-        emit_turn_result(
-            &tx,
+    #[test]
+    fn turn_result_does_not_treat_prompt_response_usage_as_context_usage() {
+        let event = turn_result(
             Some("s-1".into()),
             Some(200_000),
             None,
@@ -136,9 +131,7 @@ mod tests {
                     "thoughtTokens": 13,
                 }
             }),
-        )
-        .await;
-        let event = rx.recv().await.unwrap().unwrap();
+        );
         assert!(
             event.usage().is_none(),
             "session/prompt usage is per-turn accounting, not a context-budget snapshot",
@@ -152,11 +145,9 @@ mod tests {
         assert_eq!(entries[0].output_tokens, 16);
     }
 
-    #[tokio::test]
-    async fn emit_turn_result_can_attach_provider_usage_fallback() {
-        let (tx, mut rx) = mpsc::channel(4);
-        emit_turn_result(
-            &tx,
+    #[test]
+    fn turn_result_can_attach_provider_usage_fallback() {
+        let event = turn_result(
             Some("s-1".into()),
             Some(200_000),
             Some(crate::domain::agents::adapter::RuntimeUsage {
@@ -165,9 +156,7 @@ mod tests {
             }),
             "end_turn",
             &json!({}),
-        )
-        .await;
-        let event = rx.recv().await.unwrap().unwrap();
+        );
         let usage = event.usage().expect("provider fallback usage is attached");
         assert_eq!(usage.input_tokens, 12_345);
         assert_eq!(usage.output_tokens, 0);

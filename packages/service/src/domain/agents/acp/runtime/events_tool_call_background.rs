@@ -10,8 +10,8 @@
 //! "failed" | "cancelled", "summary"?: string}` finishes it. The declaration may
 //! also ride the completing update itself (some agents only learn a task went
 //! to the background when its launching call returns). A background run that
-//! is never finished is stopped by the runtime-end sweep. The session itself
-//! is not held "working" for it: an agent may never report the outcome. See
+//! is never finished is stopped by the runtime-end sweep. Session activity is declared
+//! separately through `_meta.cadencr.backgroundWorkPending`. See
 //! `docs/PROVIDER_SPEC/INSTALLED_ACP_PROVIDERS.md#background-sub-agents`.
 
 use serde_json::Value;

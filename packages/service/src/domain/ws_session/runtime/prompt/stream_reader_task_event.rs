@@ -61,6 +61,7 @@ impl StreamReaderTask {
                 .turn_state
                 .accepts_result_generation(runtime_event.is_detached_reply_end(), generation)
             {
+                self.discard_stale_result(state, &runtime_event).await;
                 return;
             }
         }
@@ -409,14 +410,14 @@ impl StreamReaderTask {
 mod tests {
     use super::*;
     use crate::domain::agents::adapter::{
-        AgentRuntimeSession, RuntimeError, RuntimeEventKind, RuntimeEventMetadata,
-        RuntimeSpawnConfig,
+        AgentRuntimeSession, BackgroundAgentSignal, RuntimeError, RuntimeEventKind,
+        RuntimeEventMetadata, RuntimeSpawnConfig,
     };
+    use crate::domain::runtime_stream::RuntimeUsageSnapshot;
     use serde_json::json;
 
     #[tokio::test]
     async fn detached_completion_preserves_prompt_delivery_and_an_open_gate() {
-        use crate::domain::runtime_stream::RuntimeUsageSnapshot;
         use crate::domain::ws_session::persistence::PendingUserInput;
 
         let (task, _runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
@@ -455,8 +456,15 @@ mod tests {
             RuntimeEventMetadata::default(),
             RuntimeEventKind::DetachedReplyEnded,
         );
-        task.handle_runtime_event(&mut state, None, &mut persistence, end.clone())
+        state.live_background_agents.insert("older-work".into());
+        let stale = end
+            .clone()
+            .with_background_agent(Some(BackgroundAgentSignal::Finished {
+                agent_id: "older-work".into(),
+            }));
+        task.handle_runtime_event(&mut state, None, &mut persistence, stale)
             .await;
+        assert!(state.live_background_agents.is_empty());
         let row = WsSessionPersistence::get_session_row(pool, id)
             .await
             .unwrap()
@@ -493,6 +501,77 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(delivery, "pending_agent");
+    }
+
+    #[tokio::test]
+    async fn stale_background_release_does_not_interrupt_the_new_prompt() {
+        check_background_release_after_new_prompt(false).await;
+    }
+
+    #[tokio::test]
+    async fn stale_background_release_preserves_a_stop_of_the_new_prompt() {
+        check_background_release_after_new_prompt(true).await;
+    }
+
+    async fn check_background_release_after_new_prompt(stop_new_prompt: bool) {
+        let (task, runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        let mut state = StreamReaderState::new(RuntimeUsageSnapshot {
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: None,
+        });
+        let id = task.db_session_id;
+        let pool = &task.write_pool;
+        let turns = &task.app_state.active_turns;
+        let mut persistence =
+            WsSessionPersistence::with_session_id(pool.clone(), task.feature_id, Some(id));
+        let result =
+            || RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Result);
+
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        let held = result().with_background_agent(Some(BackgroundAgentSignal::Started {
+            agent_id: "older-work".into(),
+        }));
+        task.handle_runtime_event(&mut state, None, &mut persistence, held)
+            .await;
+        assert_eq!(turns.request_interruption(id, &runtime).await, Some(1));
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        task.record_running().await;
+        if stop_new_prompt {
+            assert_eq!(turns.request_interruption(id, &runtime).await, Some(2));
+        }
+
+        let release = RuntimeEvent::new(
+            RuntimeEventMetadata::default(),
+            RuntimeEventKind::DetachedReplyEnded,
+        )
+        .with_background_agent(Some(BackgroundAgentSignal::Finished {
+            agent_id: "older-work".into(),
+        }));
+        task.handle_runtime_event(&mut state, None, &mut persistence, release)
+            .await;
+        assert!(state.live_background_agents.is_empty());
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "running");
+
+        task.handle_runtime_event(&mut state, None, &mut persistence, result())
+            .await;
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "completed");
+        let interruption_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND message_type = 'turn_interrupted'",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(interruption_count, i64::from(stop_new_prompt));
     }
 
     struct BoundOwnerAdapter;

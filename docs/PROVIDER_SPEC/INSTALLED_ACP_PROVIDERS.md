@@ -369,8 +369,8 @@ declares one:
   field may arrive independently or together with terminal status. CadencR
   persists the latest values on the originating sub-agent run.
 - A background sub-agent that is never finished is stopped
-  (`runtime_ended`) when its runtime ends. The session itself is not held
-  "working" for it, because an agent may never report the outcome.
+  (`runtime_ended`) when its runtime ends. Connectors that track outstanding
+  work can also keep the conversation working across turns.
 
 Other keys in the object are ignored.
 
@@ -522,3 +522,18 @@ The usage notification keeps its normal context-budget meaning. The marker
 adds no token accounting and does not complete an outstanding
 `session/prompt` request. Notifications without the marker keep their usual
 ACP behavior.
+
+## Keeping a conversation working across turns
+
+When a successful `session/prompt` ends with tracked work still running, set
+`result._meta.cadencr.backgroundWorkPending` to `true`. On a detached reply
+that ends while work continues, set the same field on the `usage_update`
+carrying `detachedReplyEnded`. Each prompt retains its response and accounting.
+CadencR keeps the conversation working between replies.
+
+Track each task by its native ID. When the last task ends during a reply, send
+its normal completion boundary with `backgroundWorkPending: false`. Between
+replies, send a `session_info_update` for that session with
+`_meta.cadencr.backgroundWorkPending: false`. This releases the hold even
+when the agent sends no further text. Providers that only expose a launch
+acknowledgement can continue to use sub-agent metadata on its own.

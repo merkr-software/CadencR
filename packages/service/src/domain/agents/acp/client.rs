@@ -16,6 +16,7 @@ use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::process_tree::AcpProcessTreePolicy;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent, AcpEventBarrier};
+use crate::shared::discard::{cleanup, SendIgnoreClosed};
 
 /// Generic ACP subprocess client backed by the official ACP Rust SDK.
 #[derive(Clone)]
@@ -95,24 +96,32 @@ impl AcpClient {
         self.inner.events.subscribe_reliable()
     }
 
-    /// Queue a fence behind every event received so far. The receiver
-    /// resolves once the event loop reaches it, or errors if the loop's
-    /// queue is gone — it never waits on a fence that was skipped.
-    pub(crate) fn enqueue_event_barrier(
+    /// Insert the runtime event fence at the prompt response's position on the
+    /// wire. The SDK keeps later messages behind this callback until it returns.
+    pub(super) async fn request_prompt_with_event_barrier(
         &self,
-        resume: Option<oneshot::Receiver<()>>,
-    ) -> Result<oneshot::Receiver<()>, AcpError> {
-        let (barrier, released) = AcpEventBarrier::new(resume);
-        if !self
-            .inner
-            .events
-            .send_reliable(AcpEvent::EventBarrier(barrier))
-        {
-            return Err(AcpError::Protocol(
-                "ACP runtime event loop is unavailable".to_string(),
-            ));
+        params: Value,
+        barrier: AcpEventBarrier,
+    ) -> Result<Value, AcpError> {
+        let request = UntypedMessage::new("session/prompt", params).map_err(AcpError::from_acp)?;
+        let mut closed = self.inner.closed.subscribe();
+        let (respond, response) = oneshot::channel();
+        let events = self.inner.events.clone();
+        let pending = self.inner.connection.send_request_to(Agent, request);
+        let _cancel_on_drop = CancelPendingPrompt(pending.cancellation_handle());
+        pending
+            .on_receiving_result(async move |result| {
+                // A missing queue drops the fence and wakes its waiter with an error.
+                events.send_reliable(AcpEvent::EventBarrier(barrier));
+                respond.send_ignore_closed(result.map_err(AcpError::from_acp));
+                Ok(())
+            })
+            .map_err(AcpError::from_acp)?;
+        tokio::select! {
+            biased;
+            result = response => result.map_err(|_| AcpError::ConnectionClosed("session/prompt"))?,
+            _ = closed.wait_for(|closed| *closed) => Err(AcpError::ConnectionClosed("session/prompt")),
         }
-        Ok(released)
     }
 
     pub fn client_info(&self) -> &AcpClientInfo {
@@ -228,6 +237,15 @@ impl AcpClient {
             .map_err(|_| AcpError::Protocol("server responder lock poisoned".to_string()))?
             .remove(&server_request_key(id))
             .ok_or_else(|| AcpError::Protocol(format!("no pending ACP server request for id {id}")))
+    }
+}
+
+struct CancelPendingPrompt(agent_client_protocol::RequestCancellationHandle);
+
+impl Drop for CancelPendingPrompt {
+    fn drop(&mut self) {
+        // An already-settled request disarms the SDK cancellation handle.
+        cleanup(self.0.cancel(), "cancel abandoned ACP prompt request");
     }
 }
 
