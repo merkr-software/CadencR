@@ -52,6 +52,10 @@ pub(crate) async fn handle_model_set(
         super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
+    // Model catalog validation can run a slow CLI probe and never starts a
+    // turn; let controls (such as Stop) run without waiting on it.
+    crate::domain::ws_session::handler::let_controls_through();
+
     let Some((snapshot, model, entry)) = validate_model_set(
         sdk_sessions,
         app_state,

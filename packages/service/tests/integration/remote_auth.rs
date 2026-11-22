@@ -8,8 +8,9 @@ use crate::common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::{Path, State};
 use cadencr_service::app_state::AppState;
-use cadencr_service::domain::remote::repo;
+use cadencr_service::domain::remote::routes::revoke_handler;
 use cadencr_service::remote::{RemoteConfig, RemoteController};
 use common::apply_ws_upgrade_headers;
 use reqwest::StatusCode;
@@ -229,7 +230,9 @@ async fn remote_pairing_device_auth_and_revoke() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert!(repo::revoke_device(&pool, device_id).await.unwrap());
+    let _ = revoke_handler(State(state.clone()), Path(device_id))
+        .await
+        .expect("revoke succeeds");
     let resp = client
         .get(format!("{base}/api/health"))
         .header("x-cadencr-token", &device_token)
@@ -420,9 +423,6 @@ async fn pair_device(
 /// HTTP server's graceful shutdown.
 #[tokio::test]
 async fn revoke_and_stop_close_open_remote_websockets() {
-    use axum::extract::{Path, State};
-    use cadencr_service::domain::remote::routes::revoke_handler;
-
     let pool = pool_with_remote_tables().await;
     let renderer = tempfile::tempdir().unwrap();
     std::fs::write(renderer.path().join("index.html"), "<!doctype html>").unwrap();

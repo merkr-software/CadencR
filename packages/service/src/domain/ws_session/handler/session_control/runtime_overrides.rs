@@ -60,6 +60,10 @@ pub(crate) async fn handle_runtime_overrides_set(
     if let Err(error) = apply_patch(&mut overrides, patch) {
         return send_error(sender, &envelope.id, "INVALID_OVERRIDES", &error);
     }
+    // Model validation and profile effective-config resolution can run slow
+    // CLI probes without starting a turn; never hold up subsequent controls.
+    crate::domain::ws_session::handler::let_controls_through();
+
     if let Some(requested) = switched_model(patch, &previous_overrides) {
         if let Err((code, message)) = resolve_switched_model(
             app_state,

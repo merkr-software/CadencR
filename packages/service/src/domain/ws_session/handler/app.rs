@@ -185,7 +185,11 @@ async fn handle_subscribe_session_status(
 
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
+            let received = tokio::select! {
+                _ = sender.closed() => break,
+                received = rx.recv() => received,
+            };
+            match received {
                 Ok(event) => {
                     let update = WsEnvelope::new(
                         "app",
@@ -327,7 +331,11 @@ async fn handle_subscribe_alacritty_config_events(sender: &WsSender, app_state: 
     let sender = sender.clone();
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
+            let received = tokio::select! {
+                _ = sender.closed() => break,
+                received = rx.recv() => received,
+            };
+            match received {
                 Ok(_event) => {
                     let update =
                         WsEnvelope::new("app", "alacritty_config_event", serde_json::json!({}));

@@ -587,3 +587,47 @@ async fn reconnect_replays_current_transcript_warning_and_proven_recovery() {
         assert_next_persistence_status(&mut viewer_rx, status).await;
     }
 }
+
+#[tokio::test]
+async fn init_does_not_overwrite_concurrent_active_or_spawning_runtime_with_pending() {
+    let state = make_test_app_state().await;
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let session_id = init_session(&tx, &mut rx, &sessions, &state, 1).await;
+    let db_session_id: i64 = session_id.parse().unwrap();
+
+    // Simulate a runtime becoming Active on the canonical session cell.
+    let canonical = state.session_runtimes.get(db_session_id).await.unwrap();
+    {
+        let mut guard = canonical.lock().await;
+        let mut active = make_active_handle(1, Some("live-sid".to_string()));
+        active.desired_model = Some("opus".to_string());
+        guard.insert(db_session_id, active);
+    }
+
+    // A second connection sending `session.init` must receive the authoritative
+    // live state and leave `QueryState::Active` untouched.
+    let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel();
+    let viewer_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let payload = init_session_and_get_response(
+        &viewer_tx,
+        &mut viewer_rx,
+        &viewer_sessions,
+        &state,
+        SessionInitPayload {
+            provider: Some("claude_code".to_string()),
+            model: Some("haiku".to_string()),
+            thinking_effort: None,
+            permission_mode: None,
+            system_prompt: None,
+            cwd: Some("/tmp/test".to_string()),
+            feature_id: Some(1),
+        },
+    )
+    .await;
+    assert_eq!(payload.model.as_deref(), Some("opus"));
+    assert!(matches!(
+        canonical.lock().await[&db_session_id].state,
+        QueryState::Active { .. }
+    ));
+}

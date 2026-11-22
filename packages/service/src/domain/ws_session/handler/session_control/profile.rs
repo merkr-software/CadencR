@@ -52,6 +52,10 @@ pub(crate) async fn handle_profile_set(
         )
     };
 
+    // Profile resolution and effective-config inheritance can spawn CLI probes
+    // without starting or steering a turn; never block a subsequent Stop.
+    crate::domain::ws_session::handler::let_controls_through();
+
     let update = match resolve_provider_profile(&provider, profile, &cwd).await {
         Ok(update) => update,
         Err(error) => {
