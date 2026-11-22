@@ -51,7 +51,7 @@ pub async fn update_session_queued_prompt(
     Path((session_id, id)): Path<(i64, i64)>,
     Json(body): Json<QueuePromptRequest>,
 ) -> Result<Json<QueuedPrompt>, AppError> {
-    let prompt = store::update_content(
+    let row = store::update_content(
         &state.write_pool,
         session_id,
         id,
@@ -59,6 +59,16 @@ pub async fn update_session_queued_prompt(
     )
     .await?;
     super::notify_changed(&state, session_id);
+    // An agent message waits only for the session to be free, and an edit
+    // can make a failed one pending again.
+    if row.origin_kind == store::QueueOrigin::Session {
+        super::sweep::wake();
+    }
+    // Listed, it carries its sender's conversation; a row delivered since
+    // the edit is no longer listed and answers as edited.
+    let prompt = store::get_open(&state.read_pool, session_id, row.id)
+        .await?
+        .unwrap_or_else(|| row.into());
     Ok(Json(prompt))
 }
 

@@ -91,6 +91,7 @@ async fn migrated_pool(tmp: &tempfile::NamedTempFile) -> SqlitePool {
     legacy_schema(&pool).await;
     super::test_fixtures::seed_applied_migrations_before(&pool, SEED_BEFORE_VERSION).await;
     super::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, SEED_BEFORE_VERSION).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

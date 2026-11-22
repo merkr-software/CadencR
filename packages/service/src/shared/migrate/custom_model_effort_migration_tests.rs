@@ -18,8 +18,9 @@ async fn migration_preserves_existing_custom_models_with_unknown_effort() {
          NULL); \
          CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT); \
          CREATE TABLE agent_session_message_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, \
-         target_session_id INTEGER NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT \
-         'pending'); \
+         target_session_id INTEGER NOT NULL, source_session_id INTEGER, content TEXT NOT NULL, \
+         status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT \
+         (datetime('now')), delivered_at TEXT, error TEXT, message_uuid TEXT); \
          CREATE TABLE scheduled_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER \
          NOT NULL, text TEXT NOT NULL, scheduled_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT \
          'pending', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL \
@@ -34,6 +35,7 @@ async fn migration_preserves_existing_custom_models_with_unknown_effort() {
     seed_migrations_before_target(&pool).await;
 
     crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, 20260713120000).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

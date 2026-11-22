@@ -282,7 +282,7 @@ mod tests {
         .unwrap();
         assert_eq!(delivery_state, "delivery_failed");
         let queued: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM agent_session_message_queue WHERE target_session_id = 777",
+            "SELECT COUNT(*) FROM agent_session_prompt_queue WHERE session_id = 777",
         )
         .fetch_one(&pool)
         .await

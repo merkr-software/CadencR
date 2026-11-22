@@ -1,0 +1,178 @@
+use super::{run_migrations, test_fixtures::seed_applied_migrations_before, MigrationContext};
+
+/// The agent queue as it stood before the merge, with its legacy columns.
+const OLD_AGENT_QUEUE: &str = "CREATE TABLE agent_session_message_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    source_session_id INTEGER REFERENCES agent_sessions(id) ON DELETE SET NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (
+        status IN ('pending', 'delivering', 'delivered', 'error', 'cancelled')
+    ),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at TEXT,
+    error TEXT,
+    message_uuid TEXT,
+    claim_token TEXT,
+    claimed_at TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0
+);";
+
+type MovedRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+);
+
+#[tokio::test]
+async fn open_agent_messages_move_into_the_session_queue() {
+    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::raw_sql(
+        "PRAGMA foreign_keys=ON;
+         CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY);
+         INSERT INTO agent_sessions VALUES (1), (2), (3);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    for sql in [
+        OLD_AGENT_QUEUE,
+        include_str!("../../../migrations/20261024210000_session_prompt_queue.sql"),
+        include_str!("../../../migrations/20261026210000_prompt_queue_message_identity.sql"),
+    ] {
+        sqlx::raw_sql(sql).execute(&pool).await.unwrap();
+    }
+    sqlx::raw_sql(
+        "INSERT INTO agent_session_prompt_queue (id, session_id, content, message_uuid)
+         VALUES (1, 1, 'user prompt', 'u-1');
+         INSERT INTO agent_session_message_queue
+             (id, target_session_id, source_session_id, content, status, error, message_uuid,
+              claim_token, attempt_count)
+         VALUES (1, 1, 2, 'pending from 2', 'pending', NULL, 'a-1', NULL, 0),
+                (2, 1, 3, 'in flight from 3', 'delivering', NULL, 'a-2', 'tok', 1),
+                (3, 1, 2, 'failed from 2', 'error', 'offline', 'a-3', NULL, 1),
+                (4, 1, 2, 'delivered', 'delivered', NULL, 'a-4', NULL, 1),
+                (5, 2, NULL, 'legacy event', 'pending', NULL, NULL, NULL, 0);
+         PRAGMA foreign_keys=OFF;
+         INSERT INTO agent_session_message_queue
+             (id, target_session_id, source_session_id, content, status, message_uuid)
+         VALUES (6, 99, 2, 'for a deleted session', 'pending', 'a-6'),
+                (7, 2, 98, 'from a deleted session', 'pending', 'a-7');
+         PRAGMA foreign_keys=ON;",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    seed_applied_migrations_before(&pool, 20261122010000).await;
+    super::test_fixtures::ensure_custom_action_schedule_prerequisites(&pool).await;
+
+    run_migrations(&MigrationContext::pool_only(&pool))
+        .await
+        .unwrap();
+
+    let rows: Vec<MovedRow> = sqlx::query_as(
+        "SELECT session_id, content, status, origin_kind, source_session_id,
+                source_message_uuid, message_uuid, original_content, attempt_count
+         FROM agent_session_prompt_queue ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let row =
+        |session: i64, content: &str, status: &str, kind: &str, source, uuid: Option<&str>| {
+            (
+                session,
+                content.to_string(),
+                status.to_string(),
+                kind.to_string(),
+                source,
+                uuid.map(str::to_string),
+                uuid.map(str::to_string),
+                (kind == "session").then(|| content.to_string()),
+                i64::from(status == "delivering"),
+            )
+        };
+    let mut user = row(1, "user prompt", "pending", "user", None, None);
+    user.6 = Some("u-1".into());
+    assert_eq!(
+        rows,
+        vec![
+            user,
+            row(
+                1,
+                "pending from 2",
+                "pending",
+                "session",
+                Some(2),
+                Some("a-1")
+            ),
+            row(
+                1,
+                "in flight from 3",
+                "delivering",
+                "session",
+                Some(3),
+                Some("a-2")
+            ),
+            row(2, "legacy event", "pending", "session", None, None),
+            row(
+                2,
+                "from a deleted session",
+                "pending",
+                "session",
+                None,
+                Some("a-7")
+            ),
+        ]
+    );
+    let left: Vec<(i64, String)> =
+        sqlx::query_as("SELECT id, status FROM agent_session_message_queue ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        left,
+        [
+            (1, "cancelled".into()),
+            (2, "cancelled".into()),
+            (3, "error".into()),
+            (4, "delivered".into()),
+            (5, "cancelled".into()),
+            (6, "cancelled".into()),
+            (7, "cancelled".into())
+        ]
+    );
+    // Deleting a sender keeps what it queued.
+    sqlx::query("DELETE FROM agent_sessions WHERE id = 3")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let orphaned: Option<i64> = sqlx::query_scalar(
+        "SELECT source_session_id FROM agent_session_prompt_queue WHERE content = 'in flight from 3'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(orphaned, None);
+    assert!(sqlx::query(
+        "INSERT INTO agent_session_prompt_queue (session_id, content, origin_kind)
+         VALUES (1, 'x', 'robot')"
+    )
+    .execute(&pool)
+    .await
+    .is_err());
+    // The old table keeps its orphans; the queue gained none.
+    let violations: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_foreign_key_check('agent_session_prompt_queue')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(violations, 0);
+}

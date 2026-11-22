@@ -5856,6 +5856,8 @@ export interface QueuePromptRequest {
   content: string;
 }
 
+export type QueuedPromptOrigin = null | AgentMessageOrigin;
+
 /**
  * Where a queued prompt stands.
  */
@@ -5876,6 +5878,7 @@ export interface QueuedPrompt {
   /** @nullable */
   error?: string | null;
   id: number;
+  origin?: QueuedPromptOrigin;
   session_id: number;
   status: QueuedPromptStatus;
 }

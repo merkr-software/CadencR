@@ -42,8 +42,8 @@ pub(super) async fn get_session_status(
         _ => "open",
     };
     let pending_queue_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM agent_session_message_queue
-         WHERE target_session_id = ? AND status = 'pending'",
+        "SELECT COUNT(*) FROM agent_session_prompt_queue
+         WHERE session_id = ? AND status = 'pending' AND origin_kind = 'session'",
     )
     .bind(session_id)
     .fetch_one(&ctx.read_pool)

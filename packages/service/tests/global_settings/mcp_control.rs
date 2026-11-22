@@ -283,7 +283,7 @@ async fn project_send_message_ignores_legacy_write_policy_setting() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let queued_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_session_message_queue")
+    let queued_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_session_prompt_queue")
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -303,7 +303,7 @@ async fn project_send_message_still_rejects_cross_project_targets() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let queue_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM agent_session_message_queue WHERE target_session_id = 999",
+        "SELECT COUNT(*) FROM agent_session_prompt_queue WHERE session_id = 999",
     )
     .fetch_one(&pool)
     .await
@@ -324,8 +324,8 @@ async fn workspace_send_message_queues_cross_project_follow_up_and_audits_worksp
 
     assert_eq!(response.status(), StatusCode::OK);
     let queue: (i64, i64, String) = sqlx::query_as(
-        "SELECT source_session_id, target_session_id, content
-         FROM agent_session_message_queue WHERE target_session_id = 999",
+        "SELECT source_session_id, session_id, content
+         FROM agent_session_prompt_queue WHERE session_id = 999 AND origin_kind = 'session'",
     )
     .fetch_one(&pool)
     .await
@@ -440,7 +440,7 @@ async fn project_send_message_steers_targets_awaiting_user_resolution() {
             ("Please validate delivery.".into(), "delivery_failed".into())
         );
         let queue_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM agent_session_message_queue WHERE target_session_id = 888",
+            "SELECT COUNT(*) FROM agent_session_prompt_queue WHERE session_id = 888",
         )
         .fetch_one(&pool)
         .await
@@ -490,8 +490,8 @@ async fn project_send_message_queue_if_busy_creates_messaged_link() {
             .unwrap();
     assert_eq!(message_count, 0);
     let queued: (i64, i64, String, String) = sqlx::query_as(
-        "SELECT target_session_id, source_session_id, content, status
-         FROM agent_session_message_queue",
+        "SELECT session_id, source_session_id, content, status
+         FROM agent_session_prompt_queue WHERE origin_kind = 'session'",
     )
     .fetch_one(&pool)
     .await

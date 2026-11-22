@@ -7,7 +7,6 @@ use super::{
     clear_persisted_gate_and_notify, dismissed, durable_close, RuntimeGateClose, SdkSessions,
 };
 use crate::app_state::AppState;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::GateCloseReason;
 use crate::domain::ws_session::runtime::output::{CommandError, OutputTarget};
 
@@ -140,18 +139,9 @@ async fn drain_after_gate_close(
     app_state: &AppState,
     session_id: i64,
 ) -> Result<(), crate::error::AppError> {
-    if crate::domain::prompt_queue::delivery::drain_next_after_turn(app_state, session_id).await {
-        return Ok(());
+    use crate::domain::prompt_queue::delivery;
+    if !delivery::drain_next_if_idle(app_state, session_id).await? {
+        delivery::deliver_next_agent_message(app_state, session_id).await?;
     }
-    let Some(row) = WsSessionPersistence::get_session_row(&app_state.read_pool, session_id).await?
-    else {
-        return Ok(());
-    };
-    crate::domain::mcp::control::message_queue::drain_next_queued_message(
-        app_state,
-        row.feature_id,
-        session_id,
-    )
-    .await?;
     Ok(())
 }

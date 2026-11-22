@@ -245,6 +245,15 @@ pub(crate) async fn make_test_app_state() -> AppState {
             env!("CARGO_MANIFEST_DIR"),
             "/migrations/20261026210000_prompt_queue_message_identity.sql"
         )),
+        // The queue it merges, empty, so the merge itself can run.
+        "CREATE TABLE agent_session_message_queue (id INTEGER PRIMARY KEY, target_session_id INTEGER, content TEXT,
+             status TEXT, error TEXT, created_at TEXT, message_uuid TEXT,
+             source_session_id INTEGER, attempt_count INTEGER, claim_token TEXT,
+             claimed_at TEXT);",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/migrations/20261122010000_unified_session_queue.sql"
+        )),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await.unwrap();
     }

@@ -1,8 +1,6 @@
 //! What follows a turn's result: the next queued prompt, if any, and a
 //! refreshed MCP server list.
 
-use tracing::error;
-
 use super::mcp_servers::refreshed_mcp_servers_message;
 use super::stream_reader_task::StreamReaderTask;
 
@@ -36,21 +34,13 @@ impl StreamReaderTask {
         if row.is_some_and(|row| row.has_pending_user_input()) {
             return;
         }
-        // The user's own queued prompts go first: they are what the person
-        // supervising this session asked for next.
-        use crate::domain::prompt_queue::delivery::drain_next_after_turn;
-        if drain_next_after_turn(&self.app_state, self.db_session_id).await {
-            return;
-        }
-        if let Err(error) = crate::domain::mcp::control::message_queue::drain_next_queued_message(
+        // One queue: the user's own prompts go first, then what other
+        // sessions' agents queued for this one.
+        crate::domain::prompt_queue::delivery::drain_next_after_turn(
             &self.app_state,
-            self.feature_id,
             self.db_session_id,
         )
-        .await
-        {
-            error!(self.db_session_id, error = %error, "failed to drain queued MCP message");
-        }
+        .await;
     }
 
     async fn refresh_mcp_servers_after_turn(&self) {

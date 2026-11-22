@@ -104,10 +104,10 @@ pub async fn forget_inherited_runtime_state(
     .await?
     .rows_affected();
     let queued_messages = sqlx::query(
-        "UPDATE agent_session_message_queue
+        "UPDATE agent_session_prompt_queue
          SET status = 'cancelled',
              error = 'Copied from another checkout''s database; that checkout delivers it.'
-         WHERE status IN ('pending', 'delivering')",
+         WHERE origin_kind = 'session' AND status IN ('pending', 'delivering')",
     )
     .execute(&mut *tx)
     .await?
@@ -216,8 +216,10 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(
-            "INSERT INTO agent_session_message_queue (target_session_id, content) VALUES (?, 'hi')",
+            "INSERT INTO agent_session_prompt_queue (session_id, content, origin_kind)
+             VALUES (?, 'hi', 'session'), (?, 'mine', 'user')",
         )
+        .bind(session_id)
         .bind(session_id)
         .execute(pool)
         .await
@@ -273,7 +275,7 @@ mod tests {
         assert_eq!(
             scalar(
                 &pool,
-                "SELECT COUNT(*) FROM agent_session_message_queue WHERE status = 'cancelled'"
+                "SELECT COUNT(*) FROM agent_session_prompt_queue WHERE status = 'cancelled'"
             )
             .await,
             1

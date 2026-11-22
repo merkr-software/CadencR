@@ -129,27 +129,8 @@ pub async fn recover_orphaned_claims(pool: &sqlx::SqlitePool) -> anyhow::Result<
     .execute(&mut *tx)
     .await?
     .rows_affected();
-    recovered += sqlx::query(
-        "UPDATE agent_session_message_queue
-         SET status = 'error', error = 'service restarted during delivery',
-             claim_token = NULL, claimed_at = NULL
-         WHERE status = 'delivering'",
-    )
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
-    sqlx::query(
-        "UPDATE agent_messages SET delivery_state = 'delivery_unknown'
-         WHERE delivery_state = 'pending_agent' AND EXISTS (
-             SELECT 1 FROM agent_session_message_queue q
-             WHERE q.target_session_id = agent_messages.session_id
-               AND q.message_uuid = agent_messages.message_uuid
-               AND q.status = 'error'
-               AND q.error = 'service restarted during delivery'
-         )",
-    )
-    .execute(&mut *tx)
-    .await?;
+    // Queued messages (the user's and other agents') recover with their
+    // queue: `prompt_queue::store::recover_interrupted_deliveries`.
     // A schedule claimed but never finished was never delivered, so releasing
     // the claim (rather than marking it failed) lets the next poll re-attempt
     // it. That is safe to redo: the message uuid is derived from the schedule
@@ -222,7 +203,7 @@ mod tests {
             .unwrap();
         seed(&pool).await;
 
-        assert_eq!(recover_orphaned_claims(&pool).await.unwrap(), 5);
+        assert_eq!(recover_orphaned_claims(&pool).await.unwrap(), 4);
         assert_eq!(
             claim(&pool, 1).await.unwrap(),
             DispatchClaim::Claimed {
@@ -319,7 +300,6 @@ mod tests {
         sqlx::query("INSERT INTO agent_sessions (id,feature_id,agent_type,status) VALUES (1,1,'session','paused')").execute(pool).await.unwrap();
         sqlx::query("INSERT INTO agent_messages (id,session_id,role,content,message_type,message_uuid,delivery_state) VALUES (1,1,'user','x','user_message','00000000-0000-0000-0000-000000000001','pending_agent'), (2,1,'user','<cadencr-reply status=\"completed\">ok</cadencr-reply>','user_message','00000000-0000-0000-0000-000000000002','received_agent')").execute(pool).await.unwrap();
         sqlx::query("INSERT INTO agent_message_dispatches (message_id,status,claim_token) VALUES (1,'dispatching','a')").execute(pool).await.unwrap();
-        sqlx::query("INSERT INTO agent_session_message_queue (target_session_id,content,status,claim_token) VALUES (1,'q','delivering','b')").execute(pool).await.unwrap();
         sqlx::query("INSERT INTO schedules (id,feature_id,prompt,target_kind,recurrence_kind,timezone,next_run_at,claim_token,claimed_at) VALUES (1,1,'s','conversation','once','UTC',datetime('now'),'c',datetime('now'))").execute(pool).await.unwrap();
         sqlx::query("INSERT INTO agent_session_reply_waits (id,requester_session_id,responder_session_id,kind,status,delivery_claim_token,delivery_started_at,delivery_message_uuid) VALUES (1,1,1,'message','armed','d',datetime('now'),'00000000-0000-0000-0000-000000000001'), (2,1,1,'message','armed','e',datetime('now'),'00000000-0000-0000-0000-000000000002')").execute(pool).await.unwrap();
     }

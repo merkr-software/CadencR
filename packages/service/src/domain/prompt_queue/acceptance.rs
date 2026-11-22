@@ -26,7 +26,7 @@ pub(super) async fn enqueue(
 ) -> Result<store::QueuedPrompt, AppError> {
     let prompt = store::enqueue(&state.write_pool, session_id, validated(content)?).await?;
     accepted(state, session_id).await;
-    Ok(prompt)
+    Ok(prompt.into())
 }
 
 /// A retransmission of a deferred request remains accepted, including after
@@ -61,6 +61,30 @@ pub(crate) async fn defer_if_required(
         accepted(state, session_id).await;
     }
     Ok(true)
+}
+
+/// Queue a message another session's agent sent with `delivery=next_turn`.
+/// `send_message` has already validated its text, as for an immediate send.
+pub(crate) async fn enqueue_agent_message(
+    state: &AppState,
+    target_session_id: i64,
+    source_session_id: i64,
+    content: &str,
+    message_uuid: uuid::Uuid,
+) -> Result<store::EnqueuedMessage, AppError> {
+    let queued = store::enqueue_agent_message(
+        &state.write_pool,
+        target_session_id,
+        source_session_id,
+        content,
+        message_uuid,
+    )
+    .await?;
+    super::notify_changed(state, target_session_id);
+    // The target may have gone idle since the sender saw it busy; the sweep
+    // delivers it then, outside this request.
+    super::sweep::wake();
+    Ok(queued)
 }
 
 async fn accepted(state: &AppState, session_id: i64) {
