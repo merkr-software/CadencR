@@ -5,14 +5,8 @@ use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
 use super::stream_reader_resume::runtime_allows_resume_persistence;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent};
-use crate::domain::runtime_stream::{
-    capture_runtime_session_id, permission_request_payload, persist_usage,
-};
-use crate::domain::ws_session::persistence::{
-    PendingUserInput, TranscriptPersistenceError, WsSessionPersistence,
-};
-use crate::domain::ws_session::protocol::{permission_request_envelope, PermissionRequestPayload};
-use crate::domain::ws_session::runtime::application::mark_awaiting_user;
+use crate::domain::runtime_stream::{capture_runtime_session_id, persist_usage};
+use crate::domain::ws_session::persistence::{TranscriptPersistenceError, WsSessionPersistence};
 use axum::extract::ws::Message;
 use tracing::{error, info};
 impl StreamReaderTask {
@@ -114,7 +108,7 @@ impl StreamReaderTask {
         }
 
         if self
-            .handle_permission_request(runtime_adapter, &runtime_event)
+            .handle_permission_request(runtime_adapter, persistence, &runtime_event)
             .await
         {
             return;
@@ -125,6 +119,13 @@ impl StreamReaderTask {
         // MCP-server snapshots only go to the owner socket; if it is gone, skip
         // and keep streaming the rest of the turn.
         self.send_mcp_servers_if_init(&runtime_event).await;
+
+        if runtime_event.provider_error().is_some()
+            || runtime_event.unknown_message().is_some()
+            || runtime_event.result_error().is_some()
+        {
+            self.flush_all_pending_deltas(persistence, false).await;
+        }
 
         if self.handle_provider_error(&runtime_event).await {
             state
@@ -174,50 +175,6 @@ impl StreamReaderTask {
             self.continue_after_result(state, interrupted_generation)
                 .await;
         }
-    }
-
-    async fn handle_permission_request(
-        &self,
-        runtime_adapter: Option<&dyn AgentRuntimeAdapter>,
-        runtime_event: &RuntimeEvent,
-    ) -> bool {
-        let Some(request) = runtime_adapter
-            .and_then(|adapter| adapter.parse_permission_request(runtime_event.raw_json()))
-        else {
-            return false;
-        };
-        let is_question = crate::domain::ws_session::protocol::is_question_tool(&request.tool_name);
-        let mut payload: PermissionRequestPayload = permission_request_payload(request);
-        crate::domain::ws_session::protocol::clear_question_permission_chrome(&mut payload);
-        let question_payload = is_question.then(|| {
-            serde_json::to_value(&payload).expect("question permission payload should serialize")
-        });
-        self.persist_pending_user_input(&payload, question_payload.as_ref())
-            .await;
-        let envelope = permission_request_envelope(payload)
-            .expect("permission request payload should serialize");
-        // Mirror the gate to every device viewing this feature so it appears on
-        // the host and any remote clients alike, not only the turn owner.
-        self.publish(Message::Text(String::from(envelope).into()))
-            .await;
-        true
-    }
-
-    async fn persist_pending_user_input(
-        &self,
-        payload: &PermissionRequestPayload,
-        question_payload: Option<&serde_json::Value>,
-    ) {
-        let pending = question_payload
-            .map(PendingUserInput::Question)
-            .unwrap_or(PendingUserInput::Permission(payload));
-        mark_awaiting_user(
-            &self.app_state,
-            self.db_session_id,
-            self.feature_id,
-            &pending,
-        )
-        .await;
     }
 
     async fn capture_runtime_session_id(
@@ -330,7 +287,10 @@ impl StreamReaderTask {
             .await;
         }
 
-        let persisted_message = match persistence.persist_runtime_event(runtime_event).await {
+        let persisted_message = match persistence
+            .persist_runtime_event_buffered(runtime_event)
+            .await
+        {
             Ok(message) => message,
             Err(TranscriptPersistenceError::AwaitingReconciliation) => None,
             Err(error) => {
@@ -383,6 +343,9 @@ impl StreamReaderTask {
             self.publish(Message::Text(String::from(envelope).into()))
                 .await;
         }
+        // Flush coalesced text/thinking deltas after forwarding the live WS
+        // frame so token delivery never blocks on periodic SQLite updates.
+        self.flush_due_deltas(persistence).await;
     }
 
     async fn continue_after_result(

@@ -6,11 +6,11 @@ use crate::domain::agents::adapter::{RuntimeStreamScope, RuntimeToolInputBuffer}
 impl TranscriptWriter {
     pub(super) async fn persist_tool_input_delta(
         &mut self,
-        stream_scope: &RuntimeStreamScope,
+        stream_scope: RuntimeStreamScope,
         index: u64,
         partial_json: &str,
     ) -> Result<Option<PersistedMessageRef>, TranscriptPersistenceError> {
-        let key = (stream_scope.clone(), index);
+        let key = (stream_scope, index);
         let parsed = self
             .pending_tool_inputs
             .get_mut(&key)

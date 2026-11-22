@@ -3,10 +3,42 @@
 use super::super::helpers::persist_and_close_runtime;
 use super::super::QueryState;
 use super::stream_reader_resume::pending_options;
-use super::stream_reader_task::StreamReaderTask;
+use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::protocol::{SessionEndedPayload, WsEnvelope, WsSessionEvent};
 use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
+use axum::extract::ws::Message;
+
+/// Debounce provider completion checks long enough for normal events to arrive.
+const PROVIDER_RECONCILE_IDLE: std::time::Duration = std::time::Duration::from_millis(750);
+
+pub(super) fn should_reconcile_provider(state: &StreamReaderState) -> bool {
+    state.last_runtime_activity.elapsed() >= PROVIDER_RECONCILE_IDLE
+        && state.last_provider_reconcile.elapsed() >= PROVIDER_RECONCILE_IDLE
+}
+
+pub(super) async fn reconcile_provider_completion(
+    task: &StreamReaderTask,
+    runtime_sid: &str,
+    state: &mut StreamReaderState,
+) {
+    tracing::info!(
+        task.db_session_id,
+        runtime_session_id = runtime_sid,
+        "provider reports finished session; reconciling completion"
+    );
+    task.record_completed().await;
+    task.session_status_tx
+        .broadcast(task.db_session_id, task.feature_id, AgentStatus::Idle, None);
+    let end_env = WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
+        reason: "provider_complete".into(),
+        received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
+    }))
+    .expect("session event payload should serialize");
+    task.publish(Message::Text(String::from(end_env).into()))
+        .await;
+}
 
 pub(super) async fn retire_unobserved_runtime(task: &StreamReaderTask) -> bool {
     // Delivery selection acquires its lease under this same per-session lock.
