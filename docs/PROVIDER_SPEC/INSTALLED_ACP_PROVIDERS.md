@@ -326,7 +326,8 @@ per conversation directory before any session exists, plus the last
 entries the package did not list are appended). A package without the command
 therefore shows the live snapshot after its first session in that directory;
 one with it shows its list from the first keystroke. A live
-`available_commands_update` still replaces the menu during the session and
+`available_commands_update` replaces the provider entries, retains the host’s
+built-ins and virtual skills, and
 drops the cached listing for that directory. A failed or rejected listing is
 returned as `error` on `GET /api/prompt-commands` and on the WebSocket
 `commands.list` reply, and shown in the `/` menu; the host's own commands stay
@@ -352,6 +353,10 @@ declares one:
   finishes it (`cancelled` becomes `stopped` / `interrupted`; `summary` is the
   result summary, and the failure reason for `failed`). It produces no second
   transcript block.
+- After dispatch, an update may report `resolvedModel` (the model observed on the
+  child) and `totalTokens` (a cumulative unsigned count for that child). Either
+  field may arrive independently or together with terminal status. CadencR
+  persists the latest values on the originating sub-agent run.
 - A background sub-agent that is never finished is stopped
   (`runtime_ended`) when its runtime ends. The session itself is not held
   "working" for it, because an agent may never report the outcome.

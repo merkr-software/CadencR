@@ -1,9 +1,10 @@
 mod background;
 mod cursor;
+mod usage;
 
 use std::collections::HashSet;
 
-use cadencr_provider_sdk::meta::{subagent_status_meta, SubagentStatus};
+use cadencr_provider_sdk::meta::SubagentStatus;
 use serde_json::{json, Value};
 
 use self::background::{finished_task, started_task};
@@ -16,6 +17,7 @@ const MAX_SUMMARY_CHARS: usize = 2048;
 pub(super) struct ChildJournal {
     child: NativeChild,
     cursor: JournalCursor,
+    usage: usage::ChildUsage,
     last_settled_step: Option<u64>,
     single_action: Option<(u64, String)>,
     background: HashSet<u64>,
@@ -26,6 +28,7 @@ impl ChildJournal {
         Self {
             child,
             cursor: JournalCursor::default(),
+            usage: usage::ChildUsage::default(),
             last_settled_step: None,
             single_action: None,
             background: HashSet::new(),
@@ -34,7 +37,9 @@ impl ChildJournal {
 
     /// Returns whether the child still needs tracking.
     pub(super) fn poll(&mut self, root: &str, frames: &mut Vec<Value>) -> bool {
+        let mut usage_changed = false;
         for row in self.cursor.read(&self.child.transcript) {
+            usage_changed |= self.usage.observe(&row);
             if let Some(outcome) = self.observe_step(&row, root, frames) {
                 frames.push(self.finish(root, outcome, row["content"].as_str()));
                 return false;
@@ -46,6 +51,9 @@ impl ChildJournal {
         }) {
             frames.push(self.finish(root, SubagentStatus::Cancelled, None));
             return false;
+        }
+        if usage_changed {
+            frames.push(self.update(root, None, None));
         }
         true
     }
@@ -183,12 +191,16 @@ impl ChildJournal {
                 .take(MAX_SUMMARY_CHARS)
                 .collect::<String>()
         });
+        self.update(root, Some(outcome), summary.as_deref())
+    }
+
+    fn update(&self, root: &str, status: Option<SubagentStatus>, summary: Option<&str>) -> Value {
         session_update(
             root,
             json!({
                 "sessionUpdate": "tool_call_update",
                 "toolCallId": self.child.carrier,
-                "_meta": subagent_status_meta(outcome, summary.as_deref()),
+                "_meta": self.usage.metadata(status, summary)
             }),
         )
     }
@@ -313,11 +325,22 @@ mod tests {
 
         let mut reply = json!({
             "step_index":3, "source":"MODEL", "type":"PLANNER_RESPONSE",
-            "status":"GENERATING", "content":"Child final reply"
+            "status":"GENERATING", "content":"Child final reply",
+            "model":"child-model","input_tokens":12,"cache_read_tokens":3,"output_tokens":2
         });
         append(&reply);
         assert!(child.poll("root", &mut frames));
-        assert!(frames.is_empty());
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0].pointer("/params/update/toolCallId"),
+            Some(&json!("call-1"))
+        );
+        assert_eq!(
+            frames[0].pointer("/params/update/_meta/cadencr/subagent"),
+            Some(&json!({"resolvedModel":"child-model","totalTokens":17}))
+        );
+        frames.clear();
+        reply["output_tokens"] = json!(5);
 
         reply["status"] = json!("DONE");
         append(&reply);
@@ -325,7 +348,9 @@ mod tests {
         assert_eq!(frames.len(), 1);
         assert_eq!(
             frames[0].pointer("/params/update/_meta/cadencr/subagent"),
-            Some(&json!({"status":"completed","summary":"Child final reply"}))
+            Some(
+                &json!({"status":"completed","summary":"Child final reply","totalTokens":20,"resolvedModel":"child-model"})
+            )
         );
     }
 

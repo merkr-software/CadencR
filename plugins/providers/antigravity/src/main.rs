@@ -6,6 +6,7 @@ mod config;
 mod events;
 mod provider;
 mod relay;
+mod slash_commands;
 
 fn main() -> std::process::ExitCode {
     cadencr_provider_sdk::run_cli(&provider::AntigravityProvider)

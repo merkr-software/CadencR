@@ -4,7 +4,8 @@ use std::process::ExitCode;
 
 use agent_client_protocol::schema::v1::SessionConfigOption;
 use cadencr_provider_sdk::{
-    CadencrProvider, HostIntegration, ProviderError, ResumeCommand, SESSION_ID_PLACEHOLDER,
+    CadencrProvider, HostIntegration, ProviderError, ResumeCommand, SlashCommand,
+    SESSION_ID_PLACEHOLDER,
 };
 
 use crate::{catalog, cli, relay};
@@ -19,6 +20,14 @@ impl CadencrProvider for AntigravityProvider {
     ) -> Result<Vec<SessionConfigOption>, ProviderError> {
         let binary = cli::resolve()?;
         cli::runtime()?.block_on(catalog::discover(&binary, cwd))
+    }
+
+    fn slash_commands(&self, cwd: &Path) -> Result<Option<Vec<SlashCommand>>, ProviderError> {
+        cli::resolve()?;
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .filter(|home| home.is_absolute());
+        Ok(Some(crate::slash_commands::commands(cwd, home.as_deref())?))
     }
 
     fn run_acp(&self, provider_args: &[OsString]) -> Result<ExitCode, ProviderError> {
