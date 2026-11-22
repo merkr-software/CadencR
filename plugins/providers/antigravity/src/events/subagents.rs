@@ -108,6 +108,7 @@ impl Subagents {
 
 pub(crate) struct SubagentTracker {
     brain: Option<PathBuf>,
+    pub(crate) unobserved: Vec<(String, String)>,
     sessions: HashMap<String, Session>,
 }
 
@@ -122,6 +123,7 @@ impl SubagentTracker {
     pub(crate) fn new(args: &[OsString]) -> Self {
         Self {
             brain: native_brain(args),
+            unobserved: Vec::new(),
             sessions: HashMap::new(),
         }
     }
@@ -140,6 +142,11 @@ impl SubagentTracker {
 
     pub(crate) fn poll(&mut self, operations: Vec<SubagentOperation>) -> Vec<Value> {
         let Some(brain) = self.brain.as_ref() else {
+            for op in operations {
+                if let SubagentOperation::Dispatched { session, carrier } = op {
+                    self.unobserved.push((session, carrier));
+                }
+            }
             return Vec::new();
         };
         let now = Instant::now();
@@ -159,9 +166,12 @@ impl SubagentTracker {
         }
         let mut frames = Vec::new();
         for (id, session) in &mut self.sessions {
-            session
+            for (carrier, _) in session
                 .awaiting_child
-                .retain(|_, started| now.duration_since(*started) < DISCOVERY_TIMEOUT);
+                .extract_if(|_, started| now.duration_since(*started) >= DISCOVERY_TIMEOUT)
+            {
+                self.unobserved.push((id.clone(), carrier));
+            }
             if session.awaiting_child.is_empty() {
                 session.discovery.pause();
             } else {
@@ -270,6 +280,7 @@ mod tests {
         ];
         let mut tracker = SubagentTracker {
             brain: Some(brain.to_owned()),
+            unobserved: Vec::new(),
             sessions: HashMap::new(),
         };
         let mut observer = Subagents::default();
@@ -318,6 +329,44 @@ mod tests {
     }
 
     #[test]
+    fn discovering_a_child_before_its_journal_preserves_the_launch_deadline() {
+        let directory = tempfile::tempdir().unwrap();
+        let brain = directory.path();
+        let first = put_child(brain, CHILD_A, 2);
+        put_child(brain, CHILD_B, 3);
+        let mut tracker = SubagentTracker {
+            brain: Some(brain.to_owned()),
+            unobserved: Vec::new(),
+            sessions: HashMap::new(),
+        };
+        let dispatches = [(CHILD_A, "late"), (CHILD_B, "missing")].map(|(id, carrier)| {
+            put_message(brain, id, MESSAGE_A, launch(ROOT, id, 2, carrier));
+            SubagentOperation::Dispatched {
+                session: ROOT.to_owned(),
+                carrier: carrier.to_owned(),
+            }
+        });
+        assert!(tracker.poll(Vec::from(dispatches)).is_empty());
+        assert_eq!(tracker.sessions[ROOT].awaiting_child.len(), 2);
+
+        append(&first, "{\"step_index\":4,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"content\":\"Reported\"}\n");
+        let wait = &mut tracker.sessions.get_mut(ROOT).unwrap().awaiting_child;
+        *wait.get_mut("missing").unwrap() = Instant::now() - DISCOVERY_TIMEOUT;
+        let frames = tracker.poll(Vec::new());
+        assert_eq!(frames.len(), 1);
+        assert_eq!(update(&frames[0])["toolCallId"], "late");
+        assert_eq!(
+            update(&frames[0])["_meta"]["cadencr"]["subagent"]["status"],
+            "completed"
+        );
+        assert_eq!(
+            tracker.unobserved,
+            [(ROOT.to_owned(), "missing".to_owned())]
+        );
+        assert!(tracker.is_idle());
+    }
+
+    #[test]
     fn discovery_advances_across_multiple_message_batches() {
         let test = tempfile::tempdir().unwrap();
         let brain = test.path();
@@ -338,6 +387,7 @@ mod tests {
         );
         let mut tracker = SubagentTracker {
             brain: Some(brain.to_owned()),
+            unobserved: Vec::new(),
             sessions: HashMap::new(),
         };
         assert!(tracker
@@ -387,6 +437,7 @@ mod tests {
 
         let mut tracker = SubagentTracker {
             brain: Some(brain.to_owned()),
+            unobserved: Vec::new(),
             sessions: HashMap::new(),
         };
         let frames = tracker.poll(observer.take_operations());

@@ -9,6 +9,7 @@ mod permissions;
 mod questions;
 mod subagents;
 mod tools;
+mod working;
 
 use std::collections::HashMap;
 
@@ -21,6 +22,7 @@ pub(crate) use self::subagents::{SubagentOperation, SubagentTracker};
 #[derive(Default)]
 pub(crate) struct EventMapper {
     detached: detached::Replies,
+    working: working::Working,
     mcp: mcp::SessionServers,
     questions: HashMap<String, Question>,
     subagents: subagents::Subagents,
@@ -31,7 +33,9 @@ impl EventMapper {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => {
                 self.subagents.observe_update(message);
-                self.detached.observe_update(message, Instant::now);
+                if !self.working.observe_tool(message) {
+                    self.detached.observe_update(message, Instant::now);
+                }
                 let names = self.mcp.for_params(message.get("params"));
                 if let Some(update) = message.pointer_mut("/params/update") {
                     tools::normalize_update(update, names);
@@ -44,14 +48,18 @@ impl EventMapper {
                 }
             }
             None => {
-                self.detached.observe_response(message);
                 self.mcp.observe_response(message);
+                if let Some(session) = self.detached.observe_response(message) {
+                    self.working
+                        .decorate_boundary(&session, &mut message["result"]);
+                }
             }
             _ => {}
         }
     }
 
     pub(crate) fn map_host(&mut self, message: &mut Value) {
+        self.working.observe_request(message);
         self.subagents.observe_request(message);
         self.detached.observe_request(message);
         self.mcp.observe_request(message);
@@ -78,7 +86,27 @@ impl EventMapper {
     }
 
     pub(crate) fn take_completed_detached_reply(&mut self, now: Instant) -> Option<Value> {
-        self.detached.take_completed(now)
+        let mut frame = self.detached.take_completed(now)?;
+        let session = frame.pointer("/params/sessionId")?.as_str()?.to_owned();
+        self.working
+            .decorate_boundary(&session, &mut frame["params"]["update"]);
+        Some(frame)
+    }
+
+    pub(crate) fn take_finished_work(&mut self) -> Option<Value> {
+        self.working.take_finished(&self.detached)
+    }
+
+    pub(crate) fn has_work_release(&self) -> bool {
+        self.working.has_releases()
+    }
+
+    pub(crate) fn observe_child(&mut self, frame: &Value) {
+        self.working.observe_child(frame);
+    }
+
+    pub(crate) fn forget_child(&mut self, session: &str, carrier: &str) {
+        self.working.forget_child(session, carrier);
     }
 
     fn map_permission(&mut self, message: &mut Value) {
@@ -100,6 +128,10 @@ impl EventMapper {
             permissions::display_security_warnings(params);
         }
     }
+}
+
+fn is_terminal_tool_status(status: Option<&str>) -> bool {
+    matches!(status, Some("completed" | "failed" | "cancelled"))
 }
 
 fn session_update(session: &str, update: Value) -> Value {
