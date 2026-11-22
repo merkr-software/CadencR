@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::path::PathBuf;
 
 /// Where a process sits in the process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +36,18 @@ pub async fn parents() -> io::Result<HashMap<i32, i32>> {
         .into_iter()
         .map(|(pid, links)| (pid, links.ppid))
         .collect())
+}
+
+/// Current working directory of each requested pid, read directly from the
+/// kernel (`proc_pidinfo(PROC_PIDVNODEPATHINFO)` on macOS, `/proc/<pid>/cwd`
+/// on Linux). Duplicate pids are probed once; exited or inaccessible processes
+/// are omitted. Returns `ErrorKind::Unsupported` on platforms without a kernel
+/// cwd reader.
+pub async fn cwds(pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
+    let owned: Vec<i32> = pids.to_vec();
+    tokio::task::spawn_blocking(move || platform::cwds(&owned))
+        .await
+        .map_err(io::Error::other)?
 }
 
 /// When `pid` started, or `None` when there is no such process: a pid with
@@ -64,10 +77,41 @@ pub(crate) fn group_has_live_member(pgid: i32) -> io::Result<bool> {
 #[cfg(target_os = "macos")]
 mod platform {
     use std::collections::HashMap;
+    use std::ffi::OsStr;
     use std::io;
-    use std::mem::size_of;
+    use std::mem::{size_of, size_of_val};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::PathBuf;
 
     use super::ProcessLinks;
+
+    pub(super) fn cwds(pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
+        let mut out = HashMap::new();
+        for &pid in pids {
+            if pid <= 0 || out.contains_key(&pid) {
+                continue;
+            }
+            if let Some(path) = pid_cwd(pid) {
+                out.insert(pid, path);
+            }
+        }
+        Ok(out)
+    }
+
+    fn pid_cwd(pid: i32) -> Option<PathBuf> {
+        let info: libc::proc_vnodepathinfo = pid_info(pid, libc::PROC_PIDVNODEPATHINFO)?;
+        let raw_len = size_of_val(&info.pvi_cdir.vip_path);
+        // SAFETY: `vip_path` is a contiguous `[[c_char; 32]; 32]` (MAXPATHLEN = 1024)
+        // populated as a NUL-terminated path by `proc_pidinfo`.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(info.pvi_cdir.vip_path.as_ptr().cast::<u8>(), raw_len)
+        };
+        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        if end == 0 {
+            return None;
+        }
+        Some(PathBuf::from(OsStr::from_bytes(&bytes[..end])))
+    }
 
     pub(super) fn links() -> io::Result<HashMap<i32, ProcessLinks>> {
         Ok(all_pids()?
@@ -195,8 +239,22 @@ mod platform {
 mod platform {
     use std::collections::HashMap;
     use std::io;
+    use std::path::PathBuf;
 
     use super::{stat_fields, ProcessLinks};
+
+    pub(super) fn cwds(pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
+        let mut out = HashMap::new();
+        for &pid in pids {
+            if pid <= 0 || out.contains_key(&pid) {
+                continue;
+            }
+            if let Ok(path) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
+                out.insert(pid, path);
+            }
+        }
+        Ok(out)
+    }
 
     pub(super) fn links() -> io::Result<HashMap<i32, ProcessLinks>> {
         let mut links = HashMap::new();
@@ -232,8 +290,16 @@ mod platform {
 mod platform {
     use std::collections::HashMap;
     use std::io;
+    use std::path::PathBuf;
 
     use super::ProcessLinks;
+
+    pub(super) fn cwds(_pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "reading process cwds is not supported on this platform",
+        ))
+    }
 
     pub(super) fn links() -> io::Result<HashMap<i32, ProcessLinks>> {
         Err(io::Error::new(

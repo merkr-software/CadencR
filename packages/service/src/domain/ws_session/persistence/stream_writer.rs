@@ -33,10 +33,28 @@ impl MergeableMessageType {
     }
 }
 
+pub(super) const DELTA_FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+pub(super) const DELTA_FLUSH_MAX_BYTES: usize = 16 * 1024;
+
 #[derive(Debug, Clone, Copy)]
 struct PendingMergeableBlock {
     row_id: i64,
     message_type: MergeableMessageType,
+}
+
+#[derive(Debug)]
+pub(super) struct PendingDeltaBuffer {
+    pub(super) row_id: i64,
+    pub(super) buffered: String,
+    pub(super) last_flush_at: Option<tokio::time::Instant>,
+}
+
+/// Distinguishes a repairable coalesced text/thinking delta flush failure
+/// (already recorded on the delta's own scope via `mark_delta_flush_damaged`)
+/// from a failure persisting the current runtime event itself.
+pub(super) enum PersistEventError {
+    RepairableDeltaFlush(transcript::TranscriptPersistenceError),
+    EventFailure(transcript::TranscriptPersistenceError),
 }
 
 pub(super) struct TranscriptWriter {
@@ -48,6 +66,9 @@ pub(super) struct TranscriptWriter {
     pending_tool_row_ids: HashMap<(RuntimeStreamScope, u64), i64>,
     /// (runtime stream scope, block_index) -> merged text/thinking row metadata
     pending_mergeable_blocks: HashMap<(RuntimeStreamScope, u64), PendingMergeableBlock>,
+    /// (runtime stream scope, block_index) -> coalesced text/thinking delta chunks
+    /// waiting for the next windowed or boundary SQLite `UPDATE`.
+    pending_delta_buffers: HashMap<(RuntimeStreamScope, u64), PendingDeltaBuffer>,
     /// Runtime stream scopes whose current message cycle streamed text/thinking
     /// (via `message_start` … content deltas). Used to decide whether a full
     /// assistant message's text was already persisted live, so the
@@ -67,9 +88,29 @@ impl TranscriptWriter {
             pending_tool_inputs: HashMap::new(),
             pending_tool_row_ids: HashMap::new(),
             pending_mergeable_blocks: HashMap::new(),
+            pending_delta_buffers: HashMap::new(),
             streamed_assistant_content: HashSet::new(),
             transcript: Default::default(),
             file_change_marked: false,
+        }
+    }
+
+    pub(super) fn log_boundary_delta_flush_error(
+        &self,
+        session_id: i64,
+        boundary: &'static str,
+        error: &transcript::TranscriptPersistenceError,
+    ) {
+        if !matches!(
+            error,
+            transcript::TranscriptPersistenceError::AwaitingReconciliation
+        ) {
+            tracing::error!(
+                session_id,
+                boundary,
+                %error,
+                "pending delta flush degraded before boundary event"
+            );
         }
     }
 }

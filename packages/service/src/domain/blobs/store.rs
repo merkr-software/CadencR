@@ -254,17 +254,30 @@ pub fn get(hash: &str) -> Result<Vec<u8>, AppError> {
     Ok(bytes)
 }
 
-/// Async read path for HTTP handlers; large screenshots must not block a Tokio
-/// worker while the filesystem fills the response buffer.
+/// Async read path for HTTP handlers; file open, metadata check, full read,
+/// and SHA-256 verification all run inside a single blocking task so large
+/// screenshots never stall a Tokio worker.
 pub async fn get_async(hash: &str) -> Result<Vec<u8>, AppError> {
     if !is_valid_hash(hash) {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
-    let path = path_for(hash);
-    let bytes = tokio::fs::read(&path)
+    let hash = hash.to_string();
+    let path = path_for(&hash);
+    tokio::task::spawn_blocking(move || read_verified_blob(&path, &hash))
         .await
+        .map_err(|error| AppError::internal(format!("failed to join blob read task: {error}")))?
+}
+
+fn read_verified_blob(path: &Path, hash: &str) -> Result<Vec<u8>, AppError> {
+    let mut file = std::fs::File::open(path).map_err(|error| read_error(hash, error))?;
+    let metadata = file.metadata().map_err(|error| read_error(hash, error))?;
+    if !metadata.is_file() {
+        return Err(AppError::NotFound(format!("blob {hash} not found")));
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+    file.read_to_end(&mut bytes)
         .map_err(|error| read_error(hash, error))?;
-    if !path.is_file() || hash_bytes(&bytes) != hash {
+    if hash_bytes(&bytes) != hash {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
     Ok(bytes)
@@ -424,5 +437,41 @@ mod tests {
             b"incomplete unrelated write",
             "a write must not delete another process's staging data"
         );
+    }
+
+    #[tokio::test]
+    async fn get_async_round_trips_and_verifies_blob_off_runtime() {
+        let hash = put(b"async-screenshot-bytes").unwrap();
+        assert_eq!(get_async(&hash).await.unwrap(), b"async-screenshot-bytes");
+
+        let absent = "0".repeat(64);
+        assert!(matches!(
+            get_async(&absent).await,
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            get_async("../invalid").await,
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn read_verified_blob_rejects_corrupt_or_directory_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let hash = hash_bytes(b"expected");
+        let path = path_for_in(root.path(), &hash);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"corrupt").unwrap();
+        assert!(matches!(
+            read_verified_blob(&path, &hash),
+            Err(AppError::NotFound(_))
+        ));
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        assert!(matches!(
+            read_verified_blob(&path, &hash),
+            Err(AppError::NotFound(_))
+        ));
     }
 }

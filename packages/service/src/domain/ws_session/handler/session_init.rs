@@ -69,18 +69,14 @@ pub(super) async fn handle_init(
         .session_runtimes
         .bind_feature(db_session_id, feature_id, sdk_sessions)
         .await;
-    let mut sessions = sdk_sessions.lock().await;
 
     let Ok(mut row) = binding::read_row(app_state, sender, &envelope.id, db_session_id).await
     else {
         return Some(db_session_id);
     };
-    let spawning = app_state.session_runtimes.is_spawning(db_session_id).await;
-    if let Some((payload, runtime)) = sessions
-        .get(&db_session_id)
-        .and_then(|handle| binding::live_payload(db_session_id, handle, row.as_ref(), spawning))
+    if let Some((payload, runtime)) =
+        binding::live_session_payload(app_state, &sdk_sessions, db_session_id, row.as_ref()).await
     {
-        drop(sessions);
         binding::reply_and_restore(
             app_state,
             sender,
@@ -368,14 +364,16 @@ pub(super) async fn handle_init(
         .maybe_resume_session_id(resume_session_id.clone())
         .call();
 
-    sessions.insert(db_session_id, handle);
-    drop(sessions);
-
-    binding::reply_and_restore(
-        app_state,
-        sender,
-        &envelope.id,
-        SessionInitializedPayload {
+    binding::finalize_pending_or_live()
+        .app_state(app_state)
+        .sdk_sessions(&sdk_sessions)
+        .sender(sender)
+        .ref_id(&envelope.id)
+        .db_session_id(db_session_id)
+        .feature_id(feature_id)
+        .maybe_row(row.as_ref())
+        .pending(handle)
+        .pending_payload(SessionInitializedPayload {
             session_id: db_session_id.to_string(),
             provider: Some(effective_provider.clone()),
             model: effective_model,
@@ -391,11 +389,9 @@ pub(super) async fn handle_init(
             output_tokens: init_output_tokens.map(|v| v as u64),
             context_window: init_context_window.map(|v| v as u64),
             supports_prompt_receipts: adapter.supports_prompt_receipts(),
-        },
-        feature_id,
-        resume_session_id.as_deref(),
-        None,
-    )
-    .await;
+        })
+        .maybe_resume_session_id(resume_session_id.as_deref())
+        .call()
+        .await;
     Some(db_session_id)
 }

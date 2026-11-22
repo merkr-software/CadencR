@@ -1,14 +1,15 @@
-use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use tokio::sync::{broadcast, watch};
-use tracing::{info, warn};
+use tracing::warn;
 
 mod output;
-use output::publish_output;
+mod writer;
 pub use output::ScrollbackBuffer;
+pub use writer::PtyWriteQueue;
+use writer::{spawn_reader_thread, spawn_waiter_thread};
 
 /// What a PTY is used for. Every PTY lives in the same `PtyManager` map keyed
 /// only by feature, so listing/killing "a feature's terminals" must filter on
@@ -24,7 +25,7 @@ pub enum PtyKind {
 /// Handle for a single PTY session.
 pub struct PtyHandle {
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
-    pub master_writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub write_queue: PtyWriteQueue,
     pub scrollback: Arc<Mutex<ScrollbackBuffer>>,
     pub alive: Arc<watch::Sender<Option<i32>>>,
     /// Killer handle — allows sending signals without holding the child lock.
@@ -122,35 +123,33 @@ impl PtyManager {
         rows: u16,
         kind: PtyKind,
     ) -> anyhow::Result<(String, Arc<PtyHandle>)> {
-        let pty_system = native_pty_system();
-        let pair = pty_system.openpty(PtySize {
+        let pair = native_pty_system().openpty(PtySize {
             rows,
             cols,
             pixel_width: 0,
             pixel_height: 0,
         })?;
+        configure_pty_command(&mut cmd, cwd);
 
-        cmd.cwd(cwd);
-        crate::shared::security::scrub_service_only_pty_env(&mut cmd);
-        // Ensure the program knows it's running inside an xterm-compatible
-        // terminal. Without this, programs emit wrong escape sequences.
-        cmd.env("TERM", "xterm-256color");
-        // The renderer is truecolor-capable. Without this, TUIs that probe
-        // COLORTERM quantize their palettes to the 256-color cube.
-        cmd.env("COLORTERM", "truecolor");
-
-        let mut child = pair.slave.spawn_command(cmd)?;
+        let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
-        let mut reader = pair.master.try_clone_reader()?;
+        let reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
 
         let pty_id = uuid::Uuid::new_v4().to_string();
         let (alive_tx, _) = watch::channel::<Option<i32>>(None);
         let (data_tx, _) = broadcast::channel::<String>(256);
 
-        // Clone a killer handle before moving child into the blocking task.
-        let killer = child.clone_killer();
+        // Clone a killer handle before moving child into the waiter thread.
+        let mut killer = child.clone_killer();
+        let write_queue = match PtyWriteQueue::spawn(&pty_id, writer) {
+            Ok(queue) => queue,
+            Err(error) => {
+                crate::shared::discard::cleanup(killer.kill(), "kill PTY after writer spawn error");
+                return Err(error);
+            }
+        };
 
         #[cfg(unix)]
         let shell_process_group_leader = pair.master.process_group_leader();
@@ -158,7 +157,7 @@ impl PtyManager {
         let shell_process_group_leader = None;
         let handle = Arc::new(PtyHandle {
             master: Arc::new(Mutex::new(pair.master)),
-            master_writer: Arc::new(Mutex::new(writer)),
+            write_queue,
             scrollback: Arc::new(Mutex::new(ScrollbackBuffer::new())),
             alive: Arc::new(alive_tx),
             killer: Arc::new(Mutex::new(killer)),
@@ -169,67 +168,48 @@ impl PtyManager {
             kind,
         });
 
+        if let Err(error) =
+            spawn_reader_thread(&pty_id, reader, Arc::clone(&handle.scrollback), data_tx)
+        {
+            cleanup_failed_spawn(&handle, "kill PTY after reader spawn error");
+            return Err(error);
+        }
+
         self.terminals.insert(pty_id.clone(), Arc::clone(&handle));
 
-        // Persistent reader task: lives as long as the PTY.
-        // Reads PTY output, updates scrollback, and broadcasts to all WS subscribers.
-        let scrollback = Arc::clone(&handle.scrollback);
-        let data_tx_reader = data_tx;
-        tokio::task::spawn_blocking(move || {
-            let mut buf = [0u8; 4096];
-            let mut decoder = output::Utf8Output::default();
-            loop {
-                let n = match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => n,
-                    Err(_) => break,
-                };
-                publish_output(&scrollback, &data_tx_reader, decoder.push(&buf[..n]));
-            }
-            publish_output(&scrollback, &data_tx_reader, decoder.finish());
-        });
-
-        // Child watcher task: signals alive channel and schedules cleanup.
-        let terminals = Arc::clone(&self.terminals);
-        let alive_tx = Arc::clone(&handle.alive);
-        let pid = pty_id.clone();
-        tokio::task::spawn_blocking(move || {
-            let status = child.wait();
-            let exit_code = match status {
-                Ok(s) => s.exit_code() as i32,
-                Err(_) => -1,
-            };
-            info!(pty_id = %pid, exit_code, "PTY child exited");
-            alive_tx.send_replace(Some(exit_code));
-
-            tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-                terminals.remove(&pid);
-                info!(pty_id = %pid, "PTY handle removed after grace period");
-            });
-        });
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        if let Err(error) = spawn_waiter_thread(
+            pty_id.clone(),
+            child,
+            Arc::clone(&self.terminals),
+            Arc::clone(&handle.alive),
+            handle.write_queue.clone(),
+            runtime,
+        ) {
+            self.terminals.remove(&pty_id);
+            cleanup_failed_spawn(&handle, "kill PTY after waiter spawn error");
+            return Err(error);
+        }
 
         Ok((pty_id, handle))
     }
 
-    pub fn write_pty(&self, pty_id: &str, data: &[u8]) -> anyhow::Result<()> {
-        let handle = self
-            .terminals
+    /// Clone the `Arc<PtyHandle>` and immediately drop the `DashMap` shard ref
+    /// so no bucket lock is ever held across PTY locks or I/O.
+    fn get_handle(&self, pty_id: &str) -> anyhow::Result<Arc<PtyHandle>> {
+        self.terminals
             .get(pty_id)
-            .ok_or_else(|| anyhow::anyhow!("PTY not found: {pty_id}"))?;
-        handle
-            .master_writer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .write_all(data)?;
-        Ok(())
+            .map(|entry| Arc::clone(entry.value()))
+            .ok_or_else(|| anyhow::anyhow!("PTY not found: {pty_id}"))
+    }
+
+    pub fn write_pty(&self, pty_id: &str, data: &[u8]) -> anyhow::Result<()> {
+        let handle = self.get_handle(pty_id)?;
+        handle.write_queue.try_write(data)
     }
 
     pub fn resize_pty(&self, pty_id: &str, cols: u16, rows: u16) -> anyhow::Result<()> {
-        let handle = self
-            .terminals
-            .get(pty_id)
-            .ok_or_else(|| anyhow::anyhow!("PTY not found: {pty_id}"))?;
+        let handle = self.get_handle(pty_id)?;
         handle
             .master
             .lock()
@@ -245,10 +225,8 @@ impl PtyManager {
     }
 
     pub fn kill_pty(&self, pty_id: &str) -> anyhow::Result<()> {
-        let handle = self
-            .terminals
-            .get(pty_id)
-            .ok_or_else(|| anyhow::anyhow!("PTY not found: {pty_id}"))?;
+        let handle = self.get_handle(pty_id)?;
+        handle.write_queue.close();
         handle
             .killer
             .lock()
@@ -309,7 +287,7 @@ impl PtyManager {
 
     #[cfg(test)]
     pub fn get_scrollback(&self, pty_id: &str) -> Option<(bool, String)> {
-        let handle = self.terminals.get(pty_id)?;
+        let handle = self.terminals.get(pty_id).map(|e| Arc::clone(e.value()))?;
         let alive = handle.alive.borrow().is_none();
         let scrollback = handle
             .scrollback
@@ -327,17 +305,18 @@ impl PtyManager {
         pty_id: &str,
         feature_id: i64,
     ) -> Option<PtyReconnect> {
-        let handle = self.terminals.get(pty_id)?;
+        let handle = self.terminals.get(pty_id).map(|e| Arc::clone(e.value()))?;
         if handle.feature_id != feature_id || handle.kind != PtyKind::Terminal {
             return None;
         }
         let alive = handle.alive.borrow().is_none();
         let (scrollback, data_rx) = handle.subscribe_with_scrollback();
+        let cwd = handle.cwd.clone();
         Some(PtyReconnect {
-            handle: Arc::clone(handle.value()),
+            handle,
             alive,
             scrollback,
-            cwd: handle.cwd.clone(),
+            cwd,
             data_rx,
         })
     }
@@ -354,23 +333,52 @@ impl PtyManager {
     /// (the child hasn't exited). Dead-but-not-yet-reaped PTYs are still listed;
     /// the caller decides whether to attach (e.g. to read final scrollback).
     pub fn feature_ptys(&self, feature_id: i64) -> Vec<PtySession> {
-        self.terminals
+        let matches: Vec<(String, Arc<PtyHandle>)> = self
+            .terminals
             .iter()
             .filter(|entry| {
                 entry.value().feature_id == feature_id && entry.value().kind == PtyKind::Terminal
             })
-            .map(|entry| PtySession {
-                pty_id: entry.key().clone(),
-                cwd: entry.value().cwd.clone(),
-                alive: entry.value().alive.borrow().is_none(),
-                foreground_active: super::activity::pty_foreground_active(entry.value()),
+            .map(|entry| (entry.key().clone(), Arc::clone(entry.value())))
+            .collect();
+        matches
+            .into_iter()
+            .map(|(pty_id, handle)| PtySession {
+                pty_id,
+                cwd: handle.cwd.clone(),
+                alive: handle.alive.borrow().is_none(),
+                foreground_active: super::activity::pty_foreground_active(&handle),
             })
             .collect()
     }
 }
 
+fn configure_pty_command(cmd: &mut CommandBuilder, cwd: &str) {
+    cmd.cwd(cwd);
+    crate::shared::security::scrub_service_only_pty_env(cmd);
+    // Ensure the program knows it's running inside an xterm-compatible
+    // terminal. Without this, programs emit wrong escape sequences.
+    cmd.env("TERM", "xterm-256color");
+    // The renderer is truecolor-capable. Without this, TUIs that probe
+    // COLORTERM quantize their palettes to the 256-color cube.
+    cmd.env("COLORTERM", "truecolor");
+}
+
+fn cleanup_failed_spawn(handle: &PtyHandle, reason: &str) {
+    handle.write_queue.close();
+    crate::shared::discard::cleanup(
+        handle
+            .killer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .kill(),
+        reason,
+    );
+}
+
 #[cfg(test)]
 mod tests {
+    use super::output::publish_output;
     use super::*;
 
     #[cfg(unix)]
@@ -674,6 +682,133 @@ mod tests {
             scrubbed,
             "a caller-supplied command must not inherit the service launch token"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_pty_backpressures_without_blocking_tokio_or_feature_ptys() {
+        let manager = PtyManager::new();
+        let cwd = temp_existing_dir();
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        // Put the slave in raw mode before sleeping so neither macOS's
+        // MAX_CANON line-discipline discard nor echo drains stdin.
+        cmd.args(["-c", "stty raw -echo; printf 'READY\\n'; exec sleep 60"]);
+        let (pty_id, handle) = manager
+            .create_pty_with_command(77, cmd, &cwd, 80, 24, PtyKind::Terminal)
+            .expect("spawn non-reading child");
+
+        let (initial, mut rx) = handle.subscribe_with_scrollback();
+        let mut ready_buf = initial;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !ready_buf.contains("READY") {
+                if let Ok(chunk) = rx.recv().await {
+                    ready_buf.push_str(&chunk);
+                }
+            }
+        })
+        .await
+        .expect("non-reading child should become ready");
+
+        // Concurrent Tokio ticker proves the runtime never stalls while we
+        // flood a PTY whose child never drains stdin.
+        let ticks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let ticks_task = Arc::clone(&ticks);
+        let ticker = tokio::spawn(async move {
+            for _ in 0..10 {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                ticks_task.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+
+        let chunk = vec![b'x'; 8 * 1024];
+        let start = std::time::Instant::now();
+        let mut total_accepted = 0usize;
+        let mut backpressure_err = None;
+        for _ in 0..256 {
+            match manager.write_pty(&pty_id, &chunk) {
+                Ok(()) => total_accepted += chunk.len(),
+                Err(error) => {
+                    backpressure_err = Some(error);
+                    break;
+                }
+            }
+            // Exercise DashMap + master lock concurrently with blocked writer.
+            let sessions = manager.feature_ptys(77);
+            assert_eq!(sessions.len(), 1);
+            tokio::task::yield_now().await;
+        }
+        let elapsed = start.elapsed();
+
+        let err = backpressure_err.expect("bounded queue must surface explicit backpressure");
+        assert!(
+            err.to_string().contains("backpressure"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            total_accepted > 64 * 1024,
+            "expected >64 KiB accepted before backpressure, got {total_accepted}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "write_pty + feature_ptys should not block Tokio (took {elapsed:?})"
+        );
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), ticker)
+            .await
+            .expect("concurrent Tokio ticker must complete promptly")
+            .unwrap();
+        assert_eq!(ticks.load(std::sync::atomic::Ordering::Relaxed), 10);
+
+        manager.kill_all();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_pty_preserves_fifo_order_for_200_lines() {
+        let manager = PtyManager::new();
+        let cwd = temp_existing_dir();
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "stty -echo; printf 'READY\\n'; exec cat"]);
+        let (pty_id, handle) = manager
+            .create_pty_with_command(78, cmd, &cwd, 80, 24, PtyKind::Terminal)
+            .expect("spawn cat");
+
+        let (initial, mut rx) = handle.subscribe_with_scrollback();
+        let mut collected = initial;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !collected.contains("READY") {
+                if let Ok(chunk) = rx.recv().await {
+                    collected.push_str(&chunk);
+                }
+            }
+        })
+        .await
+        .expect("cat child should become ready");
+
+        for i in 0..200 {
+            let line = format!("line-{i:03}\n");
+            manager.write_pty(&pty_id, line.as_bytes()).unwrap();
+        }
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !collected.contains("line-199") {
+                if let Ok(chunk) = rx.recv().await {
+                    collected.push_str(&chunk);
+                }
+            }
+        })
+        .await
+        .expect("all 200 lines should echo back from cat");
+
+        let received: Vec<&str> = collected
+            .lines()
+            .map(|l| l.trim_end_matches('\r'))
+            .filter(|l| l.starts_with("line-"))
+            .collect();
+        let expected: Vec<String> = (0..200).map(|i| format!("line-{i:03}")).collect();
+        assert_eq!(received, expected);
+
+        manager.kill_all();
     }
 
     async fn wait_for_scrollback(manager: &PtyManager, pty_id: &str, needle: &str) -> bool {

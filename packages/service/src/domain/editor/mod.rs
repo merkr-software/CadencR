@@ -1,3 +1,4 @@
+mod content_search;
 pub mod document_routes;
 pub mod file_search;
 pub mod file_size;

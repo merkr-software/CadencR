@@ -26,6 +26,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::app_state::AppState;
+use crate::domain::remote::tokens::DeviceTokenCache;
 use live::LiveSessions;
 use pairing::PairingCodes;
 use tunnel::{allowed_hosts, allowed_origins};
@@ -144,6 +145,7 @@ pub struct RemoteController {
     runtime: Mutex<RemoteRuntime>,
     pairing: PairingCodes,
     live: Arc<LiveSessions>,
+    token_cache: Arc<DeviceTokenCache>,
 }
 
 impl RemoteController {
@@ -153,6 +155,7 @@ impl RemoteController {
             runtime: Mutex::new(RemoteRuntime::default()),
             pairing: PairingCodes::default(),
             live: Arc::new(LiveSessions::default()),
+            token_cache: Arc::new(DeviceTokenCache::default()),
         }
     }
 
@@ -166,6 +169,12 @@ impl RemoteController {
     /// sockets on revoke.
     pub fn live(&self) -> Arc<LiveSessions> {
         Arc::clone(&self.live)
+    }
+
+    /// Per-instance device-token verification cache, evicted synchronously on
+    /// revocation.
+    pub fn token_cache(&self) -> &DeviceTokenCache {
+        &self.token_cache
     }
 
     /// Start the listener. Idempotent: returns the current info if already

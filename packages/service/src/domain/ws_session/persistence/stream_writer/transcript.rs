@@ -130,6 +130,17 @@ impl TranscriptDurability {
         self.expected.retain(|(row_scope, _), _| row_scope != scope);
     }
 
+    pub(super) fn record_mergeable_failure(&mut self, scope: &RuntimeStreamScope) {
+        if self.recovery_limited {
+            self.unrecoverable = true;
+        }
+        if self.damaged.contains(scope) || self.damaged.len() < MAX_DAMAGED_SCOPES {
+            self.damaged.insert(scope.clone());
+        } else {
+            self.unrecoverable = true;
+        }
+    }
+
     fn record_failure(&mut self, event: &RuntimeEvent) {
         let repairable = matches!(
             event.stream_event(),
@@ -144,12 +155,8 @@ impl TranscriptDurability {
             )
         ) || event.assistant_message().is_some();
         let scope = RuntimeStreamScope::for_event(event);
-        if self.recovery_limited {
-            self.unrecoverable = true;
-        }
-        if repairable && (self.damaged.contains(&scope) || self.damaged.len() < MAX_DAMAGED_SCOPES)
-        {
-            self.damaged.insert(scope);
+        if repairable {
+            self.record_mergeable_failure(&scope);
         } else {
             self.unrecoverable = true;
         }

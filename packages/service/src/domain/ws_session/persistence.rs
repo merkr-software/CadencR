@@ -99,9 +99,34 @@ impl WsSessionPersistence {
         &mut self,
         event: &RuntimeEvent,
     ) -> Result<Option<PersistedEventRef>, TranscriptPersistenceError> {
+        let persisted = self.persist_runtime_event_buffered(event).await?;
+        self.flush_due_deltas().await?;
+        Ok(persisted)
+    }
+
+    /// Persist a runtime event while coalescing consecutive text/thinking delta
+    /// appends in memory. Callers using this hot path must call
+    /// [`Self::flush_due_deltas`] after forwarding live frames and
+    /// [`Self::flush_all_pending_deltas`] on stream shutdown/idle boundaries.
+    pub async fn persist_runtime_event_buffered(
+        &mut self,
+        event: &RuntimeEvent,
+    ) -> Result<Option<PersistedEventRef>, TranscriptPersistenceError> {
         self.writer
-            .persist_runtime_event(self.session_db_id, event)
+            .persist_runtime_event_buffered(self.session_db_id, event)
             .await
+    }
+
+    pub async fn flush_due_deltas(&mut self) -> Result<(), TranscriptPersistenceError> {
+        self.writer.flush_due_deltas().await
+    }
+
+    pub async fn flush_all_pending_deltas(&mut self) -> Result<(), TranscriptPersistenceError> {
+        self.writer.flush_all_pending_deltas().await
+    }
+
+    pub fn next_delta_flush_deadline(&self) -> Option<tokio::time::Instant> {
+        self.writer.next_delta_flush_deadline()
     }
 
     pub fn current_model_for_event(&self, event: &RuntimeEvent) -> Option<&str> {

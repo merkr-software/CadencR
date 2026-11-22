@@ -5,8 +5,11 @@ use std::sync::atomic::Ordering;
 use axum::extract::ws::Message;
 use tokio::sync::mpsc;
 
-use super::debouncer::{self, now_ms};
+#[cfg(test)]
+use super::debouncer;
+use super::debouncer::now_ms;
 use super::handle::RecomputePing;
+use super::recompute;
 use super::registry::GitWatcherRegistry;
 use super::subscription::broadcast_envelope;
 use crate::app_state::AppState;
@@ -56,7 +59,7 @@ impl GitWatcherRegistry {
     async fn recompute_now(&self, worktree_path: &Path, state: &AppState) {
         let canonical =
             std::fs::canonicalize(worktree_path).unwrap_or_else(|_| worktree_path.to_path_buf());
-        debouncer::recompute_for_path(&self.inner, &canonical, state, None).await;
+        recompute::recompute_for_path(&self.inner, &canonical, state, None).await;
     }
 
     /// Stamp the self-write dedupe window and supersede queued fs work without
@@ -72,10 +75,11 @@ impl GitWatcherRegistry {
     /// Suppress self-induced fs events and synchronously confirm one fresh
     /// status (or status-error) snapshot for a user-initiated write.
     pub async fn confirm_after_write(&self, worktree_path: &Path, state: &AppState) {
-        let canonical =
-            std::fs::canonicalize(worktree_path).unwrap_or_else(|_| worktree_path.to_path_buf());
+        let canonical = tokio::fs::canonicalize(worktree_path)
+            .await
+            .unwrap_or_else(|_| worktree_path.to_path_buf());
         self.nudge(&canonical).await;
-        debouncer::recompute_for_path(&self.inner, &canonical, state, None).await;
+        recompute::recompute_for_path(&self.inner, &canonical, state, None).await;
     }
 
     /// Drop every handle and abort their compute tasks.

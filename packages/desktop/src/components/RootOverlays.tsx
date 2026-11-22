@@ -23,6 +23,7 @@ import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { useListFeatureWorktrees, type Feature } from "@/api/generated";
 import { getArchiveCleanupAvailability } from "@/components/archive-cleanup-availability";
 import { type FeatureArchiveAction } from "@/lib/feature-archive-decision";
+import { FEATURE_WORKTREES_STALE_MS } from "@/lib/sidebar-queries";
 import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
 
 export interface ConfirmFeatureAction {
@@ -62,7 +63,12 @@ export const RootOverlays = memo(function RootOverlays({
   const archiveProjectId = archiveConfirmAction?.feature.project_id ?? null;
   const { data: featureWorktrees = [] } = useListFeatureWorktrees(
     { project_id: archiveProjectId ?? 0 },
-    { query: { enabled: archiveProjectId != null && archiveFeatureId != null } },
+    {
+      query: {
+        enabled: archiveProjectId != null && archiveFeatureId != null,
+        staleTime: FEATURE_WORKTREES_STALE_MS,
+      },
+    },
   );
   const confirmFeatureWorktree =
     featureWorktrees.find((worktree) => worktree.feature_id === archiveFeatureId) ?? null;

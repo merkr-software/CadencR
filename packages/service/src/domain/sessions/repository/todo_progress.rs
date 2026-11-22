@@ -9,6 +9,23 @@ use super::feature_state_fetch::fetch_latest_todos;
 use super::latest_todos_query::TODO_TOOL_NAMES_SQL;
 use crate::error::AppError;
 
+fn latest_todo_session_sql() -> String {
+    format!(
+        "SELECT session_id FROM ( \
+             SELECT s.id AS session_id, \
+                    (SELECT m.id FROM agent_messages m \
+                     WHERE m.session_id = s.id \
+                       AND m.message_type = 'tool_call' \
+                       AND m.tool_name IN {TODO_TOOL_NAMES_SQL} \
+                     ORDER BY m.id DESC LIMIT 1) AS last_todo_id \
+             FROM agent_sessions s \
+             WHERE s.feature_id = ? \
+         ) \
+         WHERE last_todo_id IS NOT NULL \
+         ORDER BY last_todo_id DESC LIMIT 1"
+    )
+}
+
 /// Progress of the todo list the feature's agents touched last, or `None`
 /// when none of its sessions ever wrote one.
 pub async fn latest_todo_progress(
@@ -17,16 +34,10 @@ pub async fn latest_todo_progress(
 ) -> Result<Option<TodoProgress>, AppError> {
     // A conversation can hold several sessions; the list that counts is the
     // one written most recently.
-    let session_id: Option<i64> = sqlx::query_scalar(AssertSqlSafe(format!(
-        "SELECT session_id FROM agent_messages \
-         WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?) \
-           AND message_type = 'tool_call' \
-           AND tool_name IN {TODO_TOOL_NAMES_SQL} \
-         ORDER BY id DESC LIMIT 1"
-    )))
-    .bind(feature_id)
-    .fetch_optional(pool)
-    .await?;
+    let session_id: Option<i64> = sqlx::query_scalar(AssertSqlSafe(latest_todo_session_sql()))
+        .bind(feature_id)
+        .fetch_optional(pool)
+        .await?;
     let Some(session_id) = session_id else {
         return Ok(None);
     };
@@ -123,5 +134,42 @@ mod tests {
         insert_message(&pool, session_id, "text", "hello", None, None, None).await;
 
         assert_eq!(latest_todo_progress(&pool, 7).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn latest_todo_progress_uses_partial_todo_index_on_migrated_db() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+
+        let explain_sql = format!("EXPLAIN QUERY PLAN {}", latest_todo_session_sql());
+        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
+            .bind(1_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let details = plan
+            .iter()
+            .map(|(_, _, _, detail)| detail.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            details.contains("idx_agent_messages_session_todo_tools"),
+            "expected partial index idx_agent_messages_session_todo_tools:\n{details}"
+        );
+        assert!(
+            !details
+                .lines()
+                .any(|line| line.contains("SCAN agent_messages")),
+            "unexpected full scan of agent_messages:\n{details}"
+        );
     }
 }

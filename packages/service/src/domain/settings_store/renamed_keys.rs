@@ -10,7 +10,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
-use super::{dir, file, lock, paths, registry};
+use super::{dir, paths, registry, store};
 
 /// `(old key, new key)` pairs. Migration data, not provider behavior: the
 /// keys a former built-in wrote, named once so their values survive.
@@ -22,38 +22,38 @@ pub async fn carry_renamed_global_keys() -> Result<bool, AppError> {
     carry(&paths::global_file(&dir::global_dir()), RENAMED_KEYS).await
 }
 
-async fn carry(path: &Path, renamed: &[(&str, &str)]) -> Result<bool, AppError> {
-    let _guard = lock::write_lock().lock().await;
-    let Some(text) = file::read_file(path)? else {
-        return Ok(false);
-    };
-    let Ok(mut doc) = file::parse_document(&text) else {
-        // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
-        return Ok(false);
-    };
-    let mut changed = false;
-    for (old, new) in renamed {
-        if doc.contains_key(*new) {
-            continue;
-        }
-        let Some(value) = doc.get(*old).and_then(|value| value.as_str()) else {
-            continue;
-        };
-        // A value the new key rejects would only fall back to its default.
-        if registry::workspace_spec(new).is_some_and(|spec| spec.is_valid(value)) {
-            doc.insert((*new).to_string(), value.into());
-            changed = true;
-        }
-    }
-    if changed {
-        file::write_atomic(path, &file::serialize_document(&doc))?;
-    }
-    Ok(changed)
+async fn carry(path: &Path, renamed: &[(&'static str, &'static str)]) -> Result<bool, AppError> {
+    let pairs: Vec<(&'static str, &'static str)> = renamed.to_vec();
+    let changed = store::update_document_locked(
+        path,
+        store::ReadPolicy::SkipMissingOrCorrupt,
+        "settings rename-keys",
+        move |doc| {
+            let mut changed = false;
+            for (old, new) in pairs {
+                if doc.contains_key(new) {
+                    continue;
+                }
+                let Some(value) = doc.get(old).and_then(|value| value.as_str()) else {
+                    continue;
+                };
+                // A value the new key rejects would only fall back to its default.
+                if registry::workspace_spec(new).is_some_and(|spec| spec.is_valid(value)) {
+                    doc.insert(new.to_string(), value.into());
+                    changed = true;
+                }
+            }
+            Ok((changed, changed))
+        },
+    )
+    .await?;
+    Ok(changed.unwrap_or(false))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::settings_store::file;
 
     fn read(path: &Path) -> serde_json::Map<String, serde_json::Value> {
         file::parse_document(&std::fs::read_to_string(path).unwrap()).unwrap()

@@ -15,6 +15,11 @@
 use std::ffi::OsString;
 
 /// A `tokio` `git` command with the machine-readable environment applied.
+///
+/// Does **not** set `kill_on_drop(true)`: mutating Git commands (`commit`,
+/// `push`, `merge`, `rebase`, `stash`, `worktree remove`) must finish cleanly
+/// instead of being `SIGKILL`ed mid-write if a client disconnects. Observational
+/// and read-only background helpers opt into `kill_on_drop(true)` explicitly.
 pub fn git_command() -> tokio::process::Command {
     tokio::process::Command::from(git_std_command())
 }
@@ -161,5 +166,50 @@ mod tests {
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("not a git repository"), "{stderr}");
+    }
+
+    #[tokio::test]
+    async fn git_command_does_not_kill_child_on_drop() {
+        use std::process::Stdio;
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@t"],
+            &["config", "user.name", "T"],
+            &["config", "commit.gpgsign", "false"],
+            &["commit", "-q", "--allow-empty", "-m", "seed"],
+        ] {
+            let status = git_std_command()
+                .args(args)
+                .current_dir(dir.path())
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+
+        let mut child = git_command()
+            .args(["cat-file", "--batch-check=%(objectname)"])
+            .current_dir(dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        drop(child);
+
+        stdin.write_all(b"HEAD\n").await.unwrap();
+        stdin.shutdown().await.unwrap();
+        drop(stdin);
+
+        let mut out = String::new();
+        stdout.read_to_string(&mut out).await.unwrap();
+        assert!(
+            super::super::batch_check::is_valid_oid(out.trim()),
+            "dropped git_command child should finish cleanly, got {out:?}"
+        );
     }
 }

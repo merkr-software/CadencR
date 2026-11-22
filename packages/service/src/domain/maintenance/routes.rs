@@ -56,6 +56,7 @@ pub async fn run_archived_cleanup_handler(
     }
 
     scheduler::spawn_cleanup(
+        state.read_pool.clone(),
         state.write_pool.clone(),
         state.storage_maintenance_events_tx.clone(),
         run,

@@ -61,7 +61,7 @@ impl TranscriptWriter {
     pub(super) async fn persist_content_block_delta(
         &mut self,
         session_id: i64,
-        stream_scope: &RuntimeStreamScope,
+        stream_scope: RuntimeStreamScope,
         index: u64,
         delta: &RuntimeContentDelta,
         ptuid: Option<&str>,
@@ -69,7 +69,7 @@ impl TranscriptWriter {
         match delta {
             RuntimeContentDelta::Text { text } => {
                 self.transcript.observe_delta(
-                    stream_scope,
+                    &stream_scope,
                     index,
                     MergeableMessageType::Text,
                     text,
@@ -86,7 +86,7 @@ impl TranscriptWriter {
             }
             RuntimeContentDelta::Thinking { thinking } => {
                 self.transcript.observe_delta(
-                    stream_scope,
+                    &stream_scope,
                     index,
                     MergeableMessageType::Thinking,
                     thinking,

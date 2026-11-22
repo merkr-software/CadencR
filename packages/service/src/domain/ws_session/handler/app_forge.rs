@@ -32,7 +32,10 @@ pub(super) async fn subscribe_forge_status(
         .register(client_id.clone(), visible)
         .await;
     let mut rx = app_state.forge_events_tx.subscribe();
-    if send_snapshots(sender, app_state.forge_status.list().await).is_err() {
+    if send_snapshots(sender, app_state.forge_status.list().await)
+        .await
+        .is_err()
+    {
         app_state.forge_activity.remove(&client_id).await;
         return;
     }
@@ -41,6 +44,7 @@ pub(super) async fn subscribe_forge_status(
     tokio::spawn(async move {
         loop {
             tokio::select! {
+                _ = sender.closed() => break,
                 result = rx.recv() => match result {
                     Ok(snapshot) => {
                         if send_snapshot(&sender, snapshot).is_err() {
@@ -49,17 +53,12 @@ pub(super) async fn subscribe_forge_status(
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         let snapshots = state.forge_status.list().await;
-                        if send_snapshots(&sender, snapshots).is_err() {
+                        if send_snapshots(&sender, snapshots).await.is_err() {
                             break;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 },
-                () = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
-                    if sender.is_closed() {
-                        break;
-                    }
-                }
             }
         }
         state.forge_activity.remove(&client_id).await;
@@ -105,9 +104,14 @@ fn client_id(envelope: &WsEnvelope) -> Option<String> {
         .map(str::to_string)
 }
 
-fn send_snapshots(sender: &WsSender, snapshots: Vec<PrStatusSnapshot>) -> Result<(), ()> {
-    for snapshot in snapshots {
+const SNAPSHOT_YIELD_BATCH: usize = 32;
+
+async fn send_snapshots(sender: &WsSender, snapshots: Vec<PrStatusSnapshot>) -> Result<(), ()> {
+    for (index, snapshot) in snapshots.into_iter().enumerate() {
         send_snapshot(sender, snapshot)?;
+        if (index + 1) % SNAPSHOT_YIELD_BATCH == 0 {
+            tokio::task::yield_now().await;
+        }
     }
     Ok(())
 }

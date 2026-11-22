@@ -11,8 +11,8 @@ use crate::domain::projects::models::ProjectSetting;
 use crate::error::AppError;
 use crate::shared::no_replace_rename::rename_no_replace;
 
-use super::super::{dir, lock, paths, Scope, SettingWarning};
-use super::{load, read_for_edit, set_value, set_values, write_content};
+use super::super::{cache, dir, lock, paths, Scope, SettingWarning};
+use super::{load, load_key, read_for_edit, set_value, set_values, write_content};
 
 pub async fn project_path(pool: &SqlitePool, project_id: i64) -> Result<PathBuf, AppError> {
     paths::project_file(&dir::global_dir(), pool, project_id).await
@@ -33,7 +33,8 @@ pub async fn project_get(
     project_id: i64,
     key: &str,
 ) -> Result<Option<String>, AppError> {
-    Ok(project_map(pool, project_id).await?.1.remove(key))
+    let path = project_path(pool, project_id).await?;
+    Ok(load_key(&path, Scope::Project, key))
 }
 
 pub async fn project_list(
@@ -103,7 +104,10 @@ impl ProjectSettingsRename {
                 to.display(),
                 from.display()
             ))
-        })
+        })?;
+        cache::invalidate_path(&from);
+        cache::invalidate_path(&to);
+        Ok(())
     }
 }
 
@@ -128,6 +132,8 @@ pub async fn project_rename(
         moved: None,
         _guard: lock::write_lock().lock().await,
     };
+    // Resolve the settings dir on the calling thread before `spawn_blocking`
+    // so `cfg(test)`'s thread-local test dir stays intact.
     let dir = dir::global_dir();
     let old_name = paths::project_name(pool, project_id).await?;
     let from = paths::project_file_for_name(&dir, &old_name);
@@ -136,23 +142,34 @@ pub async fn project_rename(
         return Ok(rename);
     }
     let shared = paths::name_is_shared_for(pool, project_id, &old_name).await?;
-    if !from.exists() || to.exists() {
-        return Ok(rename);
-    }
-    let moved = if shared {
-        std::fs::copy(&from, &to).map(|_| ())
-    } else {
-        std::fs::rename(&from, &to)
-    };
-    moved.map_err(|e| {
-        AppError::internal(format!(
-            "failed to move project settings from {} to {}: {e}",
-            from.display(),
-            to.display()
-        ))
-    })?;
-    if !shared {
-        rename.moved = Some((from, to));
+    let from_owned = from.clone();
+    let to_owned = to.clone();
+    let did_move = tokio::task::spawn_blocking(move || -> Result<bool, AppError> {
+        if !from_owned.exists() || to_owned.exists() {
+            return Ok(false);
+        }
+        let moved = if shared {
+            std::fs::copy(&from_owned, &to_owned).map(|_| ())
+        } else {
+            std::fs::rename(&from_owned, &to_owned)
+        };
+        moved.map_err(|e| {
+            AppError::internal(format!(
+                "failed to move project settings from {} to {}: {e}",
+                from_owned.display(),
+                to_owned.display()
+            ))
+        })?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("settings rename task failed: {error}")))??;
+    if did_move {
+        cache::invalidate_path(&from);
+        cache::invalidate_path(&to);
+        if !shared {
+            rename.moved = Some((from, to));
+        }
     }
     Ok(rename)
 }

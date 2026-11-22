@@ -231,9 +231,10 @@ pub async fn revoke_handler(
     if !repo::revoke_device(&state.write_pool, id).await? {
         return Err(AppError::NotFound(format!("device {id}")));
     }
-    // Force-close any live sockets this device still holds as soon as the
-    // revocation is committed, before the fallible audit write below.
+    // Force-close any live sockets and evict the auth cache synchronously as
+    // soon as the revocation commits, before the fallible audit write below.
     state.remote.live().cancel_device(id);
+    state.remote.token_cache().evict_device(id);
     repo::record_audit(&state.write_pool, "revoke", Some(id), None).await?;
     Ok(Json(current_status(&state).await?))
 }

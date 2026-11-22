@@ -1,11 +1,16 @@
 //! How a turn that ends with a user-input gate still pending leaves the status.
 
+use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent};
 use crate::domain::gate_registry::GateKind;
+use crate::domain::runtime_stream::permission_request_payload;
 use crate::domain::session_status::PendingKind;
-use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::persistence::{PendingUserInput, SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::protocol::{permission_request_envelope, PermissionRequestPayload};
+use crate::domain::ws_session::runtime::application::mark_awaiting_user;
 use crate::domain::ws_session::runtime::helpers::{
     broadcast_session_error, SESSION_STATE_UNREADABLE,
 };
+use axum::extract::ws::Message;
 use std::sync::atomic::Ordering;
 
 use super::stream_reader_task::StreamReaderTask;
@@ -75,5 +80,51 @@ impl StreamReaderTask {
                 request_id,
             );
         }
+    }
+
+    pub(super) async fn handle_permission_request(
+        &self,
+        runtime_adapter: Option<&dyn AgentRuntimeAdapter>,
+        persistence: &mut WsSessionPersistence,
+        runtime_event: &RuntimeEvent,
+    ) -> bool {
+        let Some(request) = runtime_adapter
+            .and_then(|adapter| adapter.parse_permission_request(runtime_event.raw_json()))
+        else {
+            return false;
+        };
+        self.flush_all_pending_deltas(persistence, false).await;
+        let is_question = crate::domain::ws_session::protocol::is_question_tool(&request.tool_name);
+        let mut payload: PermissionRequestPayload = permission_request_payload(request);
+        crate::domain::ws_session::protocol::clear_question_permission_chrome(&mut payload);
+        let question_payload = is_question.then(|| {
+            serde_json::to_value(&payload).expect("question permission payload should serialize")
+        });
+        self.persist_pending_user_input(&payload, question_payload.as_ref())
+            .await;
+        let envelope = permission_request_envelope(payload)
+            .expect("permission request payload should serialize");
+        // Mirror the gate to every device viewing this feature so it appears on
+        // the host and any remote clients alike, not only the turn owner.
+        self.publish(Message::Text(String::from(envelope).into()))
+            .await;
+        true
+    }
+
+    async fn persist_pending_user_input(
+        &self,
+        payload: &PermissionRequestPayload,
+        question_payload: Option<&serde_json::Value>,
+    ) {
+        let pending = question_payload
+            .map(PendingUserInput::Question)
+            .unwrap_or(PendingUserInput::Permission(payload));
+        mark_awaiting_user(
+            &self.app_state,
+            self.db_session_id,
+            self.feature_id,
+            &pending,
+        )
+        .await;
     }
 }

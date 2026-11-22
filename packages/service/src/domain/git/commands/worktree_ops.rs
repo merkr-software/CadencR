@@ -26,7 +26,7 @@ async fn worktree_porcelain(repo: &Path) -> Result<String, AppError> {
     } else {
         &["worktree", "list", "--porcelain"]
     };
-    run_git(args, repo).await
+    run_git_background(args, repo).await
 }
 
 /// The records of either `worktree list --porcelain` form; an empty record

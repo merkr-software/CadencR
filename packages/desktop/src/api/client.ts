@@ -10,13 +10,23 @@ import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote
 import {
   agentExtensionOperationTimeout,
   archiveOperationTimeout,
+  isNoTimeoutPath,
   managedProviderOperationTimeout,
   neovimOperationTimeout,
-  NO_TIMEOUT_PATHS,
   projectUpdateOperationTimeout,
   publicationOperationTimeout,
 } from "./operation-timeouts";
+import {
+  executeStableReadRequest,
+  STRICT_MODE_ABORT_GRACE_MS,
+  STRICT_MODE_STABLE_RESULT_TTL_MS,
+  strictModeStableReadRequestKey,
+} from "./stable-read-requests";
 export { managedProviderOperationTimeout, publicationOperationTimeout } from "./operation-timeouts";
+export {
+  __resetStableReadRequestsForTests,
+  strictModeStableReadRequestKey,
+} from "./stable-read-requests";
 
 export interface RuntimeConfig {
   baseUrl: string;
@@ -127,10 +137,6 @@ async function decodeBlobErrorBody(error: AxiosError): Promise<void> {
   response.data = JSON.parse(await response.data.text());
 }
 
-const STRICT_MODE_STABLE_GET_PATHS = ["/api/git/", "/api/feature-layouts"];
-const STRICT_MODE_STABLE_RESULT_TTL_MS = 250;
-const stableReadRequests = new Map<string, Promise<unknown>>();
-const stableReadResults = new Map<string, { expiresAt: number; value: unknown }>();
 const WORKSPACE_SETTINGS_PATH = "/api/workspace/settings";
 const WORKSPACE_SETTINGS_SINGLE_PREFIX = `${WORKSPACE_SETTINGS_PATH}/`;
 const WORKSPACE_SETTINGS_BULK_RESULT_TTL_MS = 500;
@@ -154,40 +160,20 @@ interface WorkspaceSettingValue {
   value: string | null;
 }
 
-export function shouldAttachAbortSignal(
-  config: Pick<AxiosRequestConfig, "method" | "signal" | "url">,
-): boolean {
-  if (config.signal === undefined) return true;
-  const method = config.method?.toUpperCase() ?? "GET";
-  if (method !== "GET" || typeof config.url !== "string") return true;
-  return !STRICT_MODE_STABLE_GET_PATHS.some((path) => config.url!.startsWith(path));
-}
-
-export function strictModeStableReadRequestKey(
-  config: Pick<AxiosRequestConfig, "method" | "params" | "url">,
-): string | null {
-  const method = config.method?.toUpperCase() ?? "GET";
-  if (method !== "GET" || typeof config.url !== "string") return null;
-  if (!STRICT_MODE_STABLE_GET_PATHS.some((path) => config.url!.startsWith(path))) return null;
-  return `${method} ${config.url}?${stableStringify(config.params)}`;
-}
-
 export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> {
-  const operationTimeout =
-    publicationOperationTimeout(config) ??
-    managedProviderOperationTimeout(config) ??
-    neovimOperationTimeout(config) ??
-    agentExtensionOperationTimeout(config) ??
-    archiveOperationTimeout(config) ??
-    projectUpdateOperationTimeout(config);
-  let finalConfig: AxiosRequestConfig =
-    typeof config.url === "string" && NO_TIMEOUT_PATHS.some((p) => config.url!.startsWith(p))
-      ? { ...config, timeout: 0 }
-      : operationTimeout === undefined
-        ? config
-        : { ...config, timeout: operationTimeout };
-  if (!shouldAttachAbortSignal(finalConfig)) {
-    finalConfig = { ...finalConfig, signal: undefined };
+  let finalConfig: AxiosRequestConfig;
+  if (isNoTimeoutPath(config.url)) {
+    finalConfig = { ...config, timeout: 0 };
+  } else {
+    const operationTimeout =
+      publicationOperationTimeout(config) ??
+      managedProviderOperationTimeout(config) ??
+      neovimOperationTimeout(config) ??
+      agentExtensionOperationTimeout(config) ??
+      archiveOperationTimeout(config) ??
+      projectUpdateOperationTimeout(config);
+    finalConfig =
+      operationTimeout === undefined ? config : { ...config, timeout: operationTimeout };
   }
   // A write makes the short-lived bulk snapshot stale: the refetch it triggers
   // must reach the server, not replay the values from before the write. A bulk
@@ -210,27 +196,16 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
   }
   const dedupeKey = strictModeStableReadRequestKey(finalConfig);
   if (dedupeKey) {
-    const now = Date.now();
-    const cached = stableReadResults.get(dedupeKey);
-    if (cached && cached.expiresAt > now) return cached.value as T;
-    if (cached) stableReadResults.delete(dedupeKey);
-    const existing = stableReadRequests.get(dedupeKey);
-    if (existing) return (await existing) as T;
-    const request = axiosInstance(finalConfig).then((response) => response.data as T);
-    stableReadRequests.set(dedupeKey, request);
-    try {
-      const result = await request;
-      stableReadResults.set(dedupeKey, {
-        expiresAt: Date.now() + STRICT_MODE_STABLE_RESULT_TTL_MS,
-        value: result,
-      });
-      return result;
-    } finally {
-      stableReadRequests.delete(dedupeKey);
-      // Prune in `finally` so error paths also bound map growth — one entry
-      // per unique cached path would otherwise leak across a long session.
-      pruneExpiredStableReadResults();
-    }
+    const isDev = Boolean(import.meta.env.DEV);
+    return executeStableReadRequest<T>(
+      dedupeKey,
+      finalConfig,
+      (requestConfig) => axiosInstance(requestConfig).then((response) => response.data as T),
+      {
+        graceMs: isDev ? STRICT_MODE_ABORT_GRACE_MS : 0,
+        resultTtlMs: isDev ? STRICT_MODE_STABLE_RESULT_TTL_MS : 0,
+      },
+    );
   }
   const response = await axiosInstance(finalConfig);
   return response.data;
@@ -315,26 +290,6 @@ function isWorkspaceSettingEntryArray(value: unknown): value is WorkspaceSetting
         typeof item.value === "string",
     )
   );
-}
-
-function pruneExpiredStableReadResults(): void {
-  const now = Date.now();
-  for (const [key, entry] of stableReadResults) {
-    if (entry.expiresAt <= now) stableReadResults.delete(key);
-  }
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 /**

@@ -70,6 +70,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn latest_todos_uses_indexes_with_zero_table_scan_on_migrated_db() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+
+        let explain_sql = format!("EXPLAIN QUERY PLAN {}", super::latest_todos_sql(1));
+        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
+            .bind(1_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let details = plan
+            .iter()
+            .map(|(_, _, _, detail)| detail.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            details.contains("idx_agent_messages_session_todo_tools")
+                || details.contains("idx_agent_messages_session_type_tool"),
+            "expected todo index seek:\n{details}"
+        );
+        assert!(
+            details.contains("SEARCH m USING INDEX idx_agent_messages_session_tool_use"),
+            "expected tool_use index seek:\n{details}"
+        );
+        assert!(
+            !details
+                .lines()
+                .any(|detail| detail.contains("SCAN m") || detail.contains("SCAN agent_messages")),
+            "unexpected full scan of agent_messages:\n{details}"
+        );
+    }
+
     async fn create_agent_message_indexes(pool: &sqlx::SqlitePool) {
         sqlx::query(
             "CREATE INDEX idx_agent_messages_session_type_tool \

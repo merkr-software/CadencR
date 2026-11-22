@@ -8,8 +8,13 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::shared::git_cli::{
     git_ref_resolves_background, guard_positionals, head_is_unborn, run_git_background,
-    run_git_safe_refs_bytes,
+    run_git_safe_refs_background_bounded, BoundedGitOutput,
 };
+
+use super::util::read_file_prefix;
+
+mod batch;
+pub(super) use batch::read_side_for_batch;
 
 /// Refusal code for a path with no text to diff (a directory, a symlink, a
 /// socket…), so a view that only decorates (the editor's change markers) can
@@ -34,7 +39,7 @@ pub(crate) fn is_missing(error: &std::io::Error) -> bool {
 }
 
 /// The bytes at `ref_spec` (the working tree when `None`), or `None` when that
-/// side has no such file. `max_bytes` caps a read before it happens.
+/// side has no such file. `max_bytes` caps a read before and during capture.
 pub(super) async fn read_side(
     worktree_path: &Path,
     file_path: &str,
@@ -54,6 +59,23 @@ struct TreeEntry {
     size: Option<u64>,
 }
 
+async fn resolve_tree_entry(
+    worktree_path: &Path,
+    reference: &str,
+    file_path: &str,
+) -> Result<Option<TreeEntry>, AppError> {
+    match tree_entry(worktree_path, reference, file_path).await {
+        Ok(entry) => Ok(entry),
+        // Git's own message says best why the read failed; a probe that fails
+        // as well only confirms the reference is unreadable.
+        Err(error) => match base_without_tree(worktree_path, reference).await {
+            Ok(BaseWithoutTree::Empty) => Ok(None),
+            Ok(BaseWithoutTree::Truncated(commit)) => Err(history_truncated(&commit)),
+            Ok(BaseWithoutTree::Unreadable) | Err(_) => Err(error),
+        },
+    }
+}
+
 /// One `ls-tree` answers whether the path is there and what it is, where a
 /// blob read would fail alike for a missing path, a gitlink and a bad ref.
 async fn read_tree_side(
@@ -62,25 +84,25 @@ async fn read_tree_side(
     file_path: &str,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, AppError> {
-    let entry = match tree_entry(worktree_path, reference, file_path).await {
-        Ok(entry) => entry,
-        // Git's own message says best why the read failed; a probe that fails
-        // as well only confirms the reference is unreadable.
-        Err(error) => match base_without_tree(worktree_path, reference).await {
-            Ok(BaseWithoutTree::Empty) => return Ok(None),
-            Ok(BaseWithoutTree::Truncated(commit)) => return Err(history_truncated(&commit)),
-            Ok(BaseWithoutTree::Unreadable) | Err(_) => return Err(error),
-        },
-    };
-    let Some(entry) = entry else {
+    let Some(entry) = resolve_tree_entry(worktree_path, reference, file_path).await? else {
         return Ok(None);
     };
     match entry.kind.as_str() {
         "blob" => {
             ensure_file_size(entry.size.unwrap_or(0), max_bytes)?;
             let oid = [entry.oid.as_str()];
-            let blob = run_git_safe_refs_bytes(&["cat-file", "blob"], &[], &oid, worktree_path);
-            Ok(Some(blob.await?))
+            match run_git_safe_refs_background_bounded(
+                &["cat-file", "blob"],
+                &[],
+                &oid,
+                worktree_path,
+                max_bytes,
+            )
+            .await?
+            {
+                BoundedGitOutput::Bytes(bytes) => Ok(Some(bytes)),
+                BoundedGitOutput::ExceededLimit => Err(oversized_file_error(max_bytes)),
+            }
         }
         // A submodule reads as `git diff` shows it: the commit it points to.
         "commit" => Ok(Some(subproject_commit(&entry.oid))),
@@ -228,8 +250,14 @@ async fn read_worktree_side(
         return submodule_side(&file).await;
     }
     ensure_file_size(metadata.len(), max_bytes)?;
-    match tokio::fs::read(&file).await {
-        Ok(bytes) => Ok(Some(bytes)),
+    let read_limit = max_bytes.saturating_add(1);
+    match read_file_prefix(&file, read_limit, Some(metadata.len())).await {
+        Ok(bytes) => {
+            if bytes.len() > max_bytes {
+                return Err(oversized_file_error(max_bytes));
+            }
+            Ok(Some(bytes))
+        }
         Err(error) if is_missing(&error) => Ok(None),
         Err(error) => Err(read_error(&file, &error)),
     }
@@ -301,12 +329,16 @@ fn read_error(path: &Path, error: &std::io::Error) -> AppError {
 
 fn ensure_file_size(len: u64, max_bytes: usize) -> Result<(), AppError> {
     if len > max_bytes as u64 {
-        return Err(AppError::BadRequest(format!(
-            "File exceeds {} MB size limit",
-            max_bytes / (1024 * 1024)
-        )));
+        return Err(oversized_file_error(max_bytes));
     }
     Ok(())
+}
+
+fn oversized_file_error(max_bytes: usize) -> AppError {
+    AppError::BadRequest(format!(
+        "File exceeds {} MB size limit",
+        max_bytes / (1024 * 1024)
+    ))
 }
 
 #[cfg(test)]

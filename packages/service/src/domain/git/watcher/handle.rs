@@ -52,7 +52,7 @@ pub(super) struct WatcherHandle {
     pub(super) ping_tx: mpsc::UnboundedSender<RecomputePing>,
     /// Background task that consumes `ping_tx` and runs `compute_status`.
     pub(super) compute_task: JoinHandle<()>,
-    /// Last time a Cadencr-initiated write was confirmed (unix millis).
+    /// Last time a Cadencr-initiated write was confirmed (monotonic millis, 0 = never).
     pub(super) last_nudge_ms: Arc<AtomicI64>,
     /// Bumped whenever a user-initiated write supersedes queued fs work.
     pub(super) write_generation: Arc<AtomicU64>,

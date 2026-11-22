@@ -1,6 +1,6 @@
 use super::super::PersistedMessageRef;
 use super::super::TranscriptPersistenceError;
-use super::TranscriptWriter;
+use super::{PersistEventError, TranscriptWriter};
 use crate::domain::agents::adapter::{
     is_file_change_tool_name, RuntimeStreamScope, RuntimeToolInputBuffer,
 };
@@ -47,16 +47,21 @@ impl TranscriptWriter {
 
     pub(super) async fn persist_content_block_stop(
         &mut self,
-        stream_scope: &RuntimeStreamScope,
+        stream_scope: RuntimeStreamScope,
         index: u64,
-    ) -> Result<(), TranscriptPersistenceError> {
-        let key = (stream_scope.clone(), index);
+    ) -> Result<(), PersistEventError> {
+        let key = (stream_scope, index);
+        let delta_flush = self.flush_delta_for_key(&key).await;
         self.pending_mergeable_blocks.remove(&key);
-        if let Some(buffer) = self.pending_tool_inputs.remove(&key) {
-            self.flush_tool_input_buffer(&key, buffer).await?;
-        }
+        self.pending_delta_buffers.remove(&key);
+        let tool_flush = if let Some(buffer) = self.pending_tool_inputs.remove(&key) {
+            self.flush_tool_input_buffer(&key, buffer).await
+        } else {
+            Ok(())
+        };
         self.pending_tool_row_ids.remove(&key);
-        Ok(())
+        tool_flush.map_err(PersistEventError::EventFailure)?;
+        delta_flush.map_err(PersistEventError::RepairableDeltaFlush)
     }
 }
 

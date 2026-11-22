@@ -7,16 +7,17 @@ use crate::error::AppError;
 
 use super::attribution::FeatureDir;
 
-/// Worktree directory of every feature that owns one outright, across all
-/// projects — the scan is machine-wide, so it cannot be narrowed to one project.
+/// Worktree directory of every active feature that owns one outright, across
+/// all projects — the scan is machine-wide, so it cannot be narrowed to one
+/// project.
 ///
-/// A directory only identifies a feature when exactly one feature answers to
-/// it, so anything shared is dropped rather than guessed at: features with no
-/// worktree share their project root, reused worktrees are recorded against
-/// several features, and a `worktree_path` equal to the project path is a
-/// non-worktree feature in disguise. Those features are not lost — their
-/// servers are attributed by terminal or agent ancestry instead, for as long as
-/// that process lives.
+/// A directory only identifies a feature when exactly one active feature
+/// answers to it, so anything shared is dropped rather than guessed at:
+/// features with no worktree share their project root, reused worktrees are
+/// recorded against several features, and a `worktree_path` equal to the
+/// project path is a non-worktree feature in disguise. Those features are not
+/// lost — their servers are attributed by terminal or agent ancestry instead,
+/// for as long as that process lives.
 pub async fn unambiguous_worktree_dirs(pool: &SqlitePool) -> Result<Vec<FeatureDir>, AppError> {
     let rows = sqlx::query_as::<_, (i64, String, String)>(
         "SELECT fs.feature_id, TRIM(fs.value), p.path
@@ -24,10 +25,22 @@ pub async fn unambiguous_worktree_dirs(pool: &SqlitePool) -> Result<Vec<FeatureD
          JOIN features f ON f.id = fs.feature_id
          JOIN projects p ON p.id = f.project_id
          WHERE fs.key = 'worktree_path'
-           AND TRIM(fs.value) <> ''",
+           AND TRIM(fs.value) <> ''
+           AND f.status = 'active'",
     )
     .fetch_all(pool)
     .await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    tokio::task::spawn_blocking(move || resolve_unambiguous_dirs(rows))
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("resolve worktree directories failed: {error}"))
+        })
+}
+
+fn resolve_unambiguous_dirs(rows: Vec<(i64, String, String)>) -> Vec<FeatureDir> {
     // Compared as directories, not strings: a trailing separator or a
     // symlinked spelling of the project root is still the project root. Each
     // path is canonicalized once; project roots repeat across rows.
@@ -42,7 +55,7 @@ pub async fn unambiguous_worktree_dirs(pool: &SqlitePool) -> Result<Vec<FeatureD
             (key != *project_key).then_some((feature_id, path, key))
         })
         .collect();
-    Ok(keep_unshared(rows))
+    keep_unshared(rows)
 }
 
 fn directory_key(path: &str) -> PathBuf {
@@ -74,6 +87,22 @@ mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
 
+    async fn setup_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for ddl in [
+            "CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT)",
+            "CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER, status TEXT NOT NULL DEFAULT 'active')",
+            "CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT, PRIMARY KEY (feature_id, key))",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
     #[test]
     fn a_directory_claimed_by_two_features_identifies_neither() {
         let row = |feature_id, path: &str| (feature_id, path.to_string(), directory_key(path));
@@ -89,24 +118,18 @@ mod tests {
 
     #[tokio::test]
     async fn skips_blank_paths_and_the_project_root() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        for ddl in [
-            "CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT)",
-            "CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER)",
-            "CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT, PRIMARY KEY (feature_id, key))",
-        ] {
-            sqlx::query(ddl).execute(&pool).await.unwrap();
-        }
+        let pool = setup_pool().await;
         sqlx::query("INSERT INTO projects (id, path) VALUES (1, '/repo')")
             .execute(&pool)
             .await
             .unwrap();
         sqlx::query(
-            "INSERT INTO features (id, project_id) VALUES (1, 1), (2, 1), (3, 1), (4, 1), (5, 1)",
+            "INSERT INTO features (id, project_id, status) VALUES
+                (1, 1, 'active'),
+                (2, 1, 'active'),
+                (3, 1, 'active'),
+                (4, 1, 'active'),
+                (5, 1, 'active')",
         )
         .execute(&pool)
         .await
@@ -128,5 +151,40 @@ mod tests {
         assert_eq!(dirs.len(), 1);
         assert_eq!(dirs[0].feature_id, 1);
         assert_eq!(dirs[0].path, "/w/one");
+    }
+
+    #[tokio::test]
+    async fn excludes_archived_features() {
+        let pool = setup_pool().await;
+        sqlx::query("INSERT INTO projects (id, path) VALUES (1, '/repo')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO features (id, project_id, status) VALUES
+                (1, 1, 'active'),
+                (2, 1, 'archived'),
+                (3, 1, 'archived')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Feature 2 is archived on a distinct path; feature 3 is archived on
+        // the same path as active feature 1 and must not make it ambiguous.
+        sqlx::query(
+            "INSERT INTO feature_settings (feature_id, key, value) VALUES
+                (1, 'worktree_path', '/w/active'),
+                (2, 'worktree_path', '/w/archived'),
+                (3, 'worktree_path', '/w/active')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let dirs = unambiguous_worktree_dirs(&pool).await.unwrap();
+
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].feature_id, 1);
+        assert_eq!(dirs[0].path, "/w/active");
     }
 }

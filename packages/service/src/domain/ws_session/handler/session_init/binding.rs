@@ -10,6 +10,86 @@ use crate::shared::discard::IgnoreClosed;
 
 use super::super::{QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender};
 
+pub(super) async fn live_session_payload(
+    app_state: &AppState,
+    sdk_sessions: &SdkSessions,
+    id: i64,
+    row: Option<&SessionRow>,
+) -> Option<(SessionInitializedPayload, Option<RuntimeSessionHandle>)> {
+    let sessions = sdk_sessions.lock().await;
+    let spawning = app_state.session_runtimes.is_spawning(id).await;
+    sessions
+        .get(&id)
+        .and_then(|handle| live_payload(id, handle, row, spawning))
+}
+
+/// Install `pending` unless a concurrent active/spawning runtime appeared while
+/// init probes ran unlocked, then send the `initialized` reply and restore
+/// state for whichever payload won.
+#[bon::builder]
+pub(super) async fn finalize_pending_or_live(
+    app_state: &AppState,
+    sdk_sessions: &SdkSessions,
+    sender: &WsSender,
+    ref_id: &str,
+    db_session_id: i64,
+    feature_id: i64,
+    row: Option<&SessionRow>,
+    pending: SdkHandle,
+    pending_payload: SessionInitializedPayload,
+    resume_session_id: Option<&str>,
+) {
+    if let Some((live, runtime)) =
+        insert_pending_unless_live(app_state, sdk_sessions, db_session_id, row, pending).await
+    {
+        let live_resume = row.and_then(|row| row.runtime_session_id.as_deref());
+        reply_and_restore(
+            app_state,
+            sender,
+            ref_id,
+            live,
+            feature_id,
+            live_resume,
+            runtime.map(|query| (sdk_sessions, query)),
+        )
+        .await;
+        return;
+    }
+    reply_and_restore(
+        app_state,
+        sender,
+        ref_id,
+        pending_payload,
+        feature_id,
+        resume_session_id,
+        None,
+    )
+    .await;
+}
+
+/// Insert `pending` into `sdk_sessions` unless a concurrent active/spawning
+/// runtime appeared while init probes ran unlocked. Returns `Some(live)` when
+/// an authoritative live runtime won the race so the caller replies with it
+/// instead of clobbering it with `Pending`.
+pub(super) async fn insert_pending_unless_live(
+    app_state: &AppState,
+    sdk_sessions: &SdkSessions,
+    id: i64,
+    row: Option<&SessionRow>,
+    pending: SdkHandle,
+) -> Option<(SessionInitializedPayload, Option<RuntimeSessionHandle>)> {
+    let mut sessions = sdk_sessions.lock().await;
+    let spawning = app_state.session_runtimes.is_spawning(id).await;
+    if let Some(live) = sessions
+        .get(&id)
+        .and_then(|handle| live_payload(id, handle, row, spawning))
+    {
+        return Some(live);
+    }
+    sessions.insert(id, pending);
+    None
+}
+
 pub(super) fn live_payload(
     id: i64,
     handle: &SdkHandle,
@@ -154,4 +234,64 @@ pub(super) async fn prepare_controls(
     }
     row.inherit_last_prompt(&state.read_pool, std::path::Path::new(cwd))
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agents::adapter::RuntimeSpawnConfig;
+    use crate::domain::ws_session::handler::tests::support::{
+        make_active_handle, make_test_app_state,
+    };
+    use crate::domain::ws_session::handler::types::new_sdk_sessions;
+
+    #[tokio::test]
+    async fn insert_pending_unless_live_preserves_racing_active_or_spawning_runtime() {
+        let app_state = make_test_app_state().await;
+        let sessions = new_sdk_sessions();
+        let mut active = make_active_handle(1, Some("live-sid".to_string()));
+        active.desired_model = Some("opus".to_string());
+        sessions.lock().await.insert(11, active);
+
+        let pending = pending_handle()
+            .runtime_config(RuntimeSpawnConfig::default())
+            .feature_id(1)
+            .runtime_provider("claude_code".to_string())
+            .call();
+        let live = insert_pending_unless_live(&app_state, &sessions, 11, None, pending).await;
+        assert_eq!(live.and_then(|(p, _)| p.model).as_deref(), Some("opus"));
+        assert!(matches!(
+            sessions.lock().await[&11].state,
+            QueryState::Active { .. }
+        ));
+
+        // Spawning Pending handle must also win over a racing init.
+        let mut spawning_handle = pending_handle()
+            .runtime_config(RuntimeSpawnConfig {
+                model: Some("sonnet".to_string()),
+                ..Default::default()
+            })
+            .feature_id(1)
+            .runtime_provider("claude_code".to_string())
+            .call();
+        spawning_handle.desired_model = Some("sonnet".to_string());
+        sessions.lock().await.insert(12, spawning_handle);
+        let _spawn_claim = app_state.session_runtimes.claim_spawn(12).await;
+
+        let racing_pending = pending_handle()
+            .runtime_config(RuntimeSpawnConfig {
+                model: Some("haiku".to_string()),
+                ..Default::default()
+            })
+            .feature_id(1)
+            .runtime_provider("claude_code".to_string())
+            .call();
+        let live =
+            insert_pending_unless_live(&app_state, &sessions, 12, None, racing_pending).await;
+        assert_eq!(live.and_then(|(p, _)| p.model).as_deref(), Some("sonnet"));
+        assert_eq!(
+            sessions.lock().await[&12].desired_model.as_deref(),
+            Some("sonnet")
+        );
+    }
 }

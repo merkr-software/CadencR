@@ -8,7 +8,16 @@ pub const LARGE_FILE_BYTES: u64 = 200_000;
 
 /// Number of bytes to sniff when probing for binary content (matches git's
 /// own heuristic).
-const BINARY_SNIFF_BYTES: usize = 8192;
+pub(crate) const BINARY_SNIFF_BYTES: usize = 8192;
+
+/// One side of a file diff fetched for batch classification, where files at or
+/// above [`LARGE_FILE_BYTES`] are classified from metadata plus an 8 KB binary
+/// sniff without loading the entire object into memory.
+pub(crate) enum BatchSide {
+    Missing,
+    Inline(Vec<u8>),
+    Large { size: u64, is_binary: bool },
+}
 
 /// Derive content, size, binary, and large-file metadata from fetched bytes.
 /// Both single-file and batch endpoints use this path so invalid UTF-8 is
@@ -50,8 +59,68 @@ pub fn classify_content_bytes(
     }
 }
 
+/// Classify a batch item whose sides were fetched with a [`LARGE_FILE_BYTES`]
+/// read cap so multi-MB files are never loaded into memory just to be dropped.
+pub(crate) fn classify_batch_sides(
+    file_path: String,
+    old: BatchSide,
+    new: BatchSide,
+) -> FileContentBatchItem {
+    if matches!(old, BatchSide::Large { .. }) || matches!(new, BatchSide::Large { .. }) {
+        let (old_size, old_binary) = side_meta(&old);
+        let (new_size, new_binary) = side_meta(&new);
+        return FileContentBatchItem {
+            file_path,
+            old_content: None,
+            new_content: None,
+            old_size,
+            new_size,
+            is_binary: old_binary || new_binary,
+            is_large: true,
+        };
+    }
+    classify_content_bytes(
+        file_path,
+        inline_bytes(old),
+        inline_bytes(new),
+        /* keep_large_content */ false,
+    )
+}
+
+fn side_meta(side: &BatchSide) -> (u64, bool) {
+    match side {
+        BatchSide::Missing => (0, false),
+        BatchSide::Inline(bytes) => (
+            bytes.len() as u64,
+            std::str::from_utf8(bytes).is_err() || bytes_have_binary_marker(bytes),
+        ),
+        BatchSide::Large { size, is_binary } => (*size, *is_binary),
+    }
+}
+
+fn inline_bytes(side: BatchSide) -> Vec<u8> {
+    match side {
+        BatchSide::Inline(bytes) => bytes,
+        BatchSide::Missing | BatchSide::Large { .. } => Vec::new(),
+    }
+}
+
 pub(crate) fn bytes_have_binary_marker(bytes: &[u8]) -> bool {
     bytes.iter().take(BINARY_SNIFF_BYTES).any(|&b| b == 0)
+}
+
+/// Binary heuristic for an 8 KB prefix sniffed from a large file: detects a NUL
+/// byte or invalid UTF-8 without false-positiving when a multi-byte UTF-8
+/// character is split at the prefix truncation boundary.
+pub(crate) fn head_is_binary(head: &[u8]) -> bool {
+    let prefix = &head[..head.len().min(BINARY_SNIFF_BYTES)];
+    if bytes_have_binary_marker(prefix) {
+        return true;
+    }
+    match std::str::from_utf8(prefix) {
+        Ok(_) => false,
+        Err(error) => error.error_len().is_some(),
+    }
 }
 
 #[cfg(test)]
@@ -125,5 +194,23 @@ mod tests {
         s.push('\0');
         let it = item("", &s, false);
         assert!(!it.is_binary);
+    }
+
+    #[test]
+    fn head_is_binary_tolerates_utf8_character_split_at_sniff_boundary() {
+        // 'é' is [0xC3, 0xA9]; ending the sniff buffer on 0xC3 is a truncation
+        // boundary, not invalid UTF-8.
+        let mut truncated = vec![b'a'; 10];
+        truncated.push(0xC3);
+        assert!(!head_is_binary(&truncated));
+
+        // Genuine invalid UTF-8 byte is still detected as binary.
+        assert!(head_is_binary(&[b'a', 0xFF, b'b']));
+        assert!(head_is_binary(&[b'a', 0x00, b'b']));
+
+        // Bytes beyond the sniff window are not scanned.
+        let mut past_window = vec![b'a'; BINARY_SNIFF_BYTES + 16];
+        past_window[BINARY_SNIFF_BYTES + 4] = 0xFF;
+        assert!(!head_is_binary(&past_window));
     }
 }

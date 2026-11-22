@@ -1,4 +1,4 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
@@ -51,7 +51,7 @@ fn validate_quick_check(rows: Vec<String>) -> Result<(), QuickCheckError> {
     }
 }
 
-/// Create a read-only SQLite pool (max 4 connections, query_only pragma).
+/// Create a read-only SQLite pool (max 12 connections, query_only pragma).
 pub async fn create_read_pool(db_path: &str) -> Result<SqlitePool, sqlx::Error> {
     prepare_database(db_path, false)
         .map_err(|error| sqlx::Error::Io(std::io::Error::other(format!("{error:#}"))))?;
@@ -63,7 +63,7 @@ pub async fn create_read_pool(db_path: &str) -> Result<SqlitePool, sqlx::Error> 
         .read_only(true);
 
     SqlitePoolOptions::new()
-        .max_connections(4)
+        .max_connections(12)
         .connect_with(options)
         .await
 }
@@ -74,6 +74,7 @@ pub async fn create_write_pool(db_path: &str) -> Result<SqlitePool, sqlx::Error>
         .map_err(|error| sqlx::Error::Io(std::io::Error::other(format!("{error:#}"))))?;
     let options = SqliteConnectOptions::from_str(&format!("sqlite:{db_path}"))?
         .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(std::time::Duration::from_millis(5000))
         .pragma("journal_size_limit", "67108864")
         // Preparation creates missing files exclusively with private permissions.
@@ -136,5 +137,26 @@ mod tests {
 
         assert!(matches!(error, QuickCheckError::Corrupt(_)));
         assert!(error.to_string().contains("quick_check failed"));
+    }
+
+    #[tokio::test]
+    async fn write_pool_uses_normal_synchronous_mode_and_read_pool_allows_twelve_connections() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tuned.db");
+        let path_str = path.to_str().unwrap();
+
+        let write_pool = create_write_pool(path_str).await.unwrap();
+        let sync_mode: i64 = sqlx::query_scalar("PRAGMA synchronous")
+            .fetch_one(&write_pool)
+            .await
+            .unwrap();
+        // SQLite PRAGMA synchronous: 0 = OFF, 1 = NORMAL, 2 = FULL, 3 = EXTRA
+        assert_eq!(sync_mode, 1);
+
+        let read_pool = create_read_pool(path_str).await.unwrap();
+        assert_eq!(read_pool.options().get_max_connections(), 12);
+
+        read_pool.close().await;
+        write_pool.close().await;
     }
 }

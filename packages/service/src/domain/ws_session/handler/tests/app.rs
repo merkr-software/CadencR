@@ -266,3 +266,59 @@ async fn test_session_delete_running_session_keeps_in_memory_handle() {
     let _ = rx.recv().await.unwrap();
     assert!(sdk_sessions.lock().await.contains_key(&session_id));
 }
+
+#[tokio::test]
+async fn broadcast_forwarders_exit_immediately_when_socket_closes() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    dispatch_envelope(
+        make_envelope("app", "subscribe.session_status", serde_json::json!({})),
+        &tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+    let _ = rx.recv().await.unwrap();
+
+    dispatch_envelope(
+        make_envelope(
+            "app",
+            "subscribe.alacritty_config_events",
+            serde_json::json!({}),
+        ),
+        &tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+
+    dispatch_envelope(
+        make_envelope(
+            "app",
+            "subscribe.forge_status",
+            serde_json::json!({ "client_id": "test-client", "visible": true }),
+        ),
+        &tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+
+    assert!(app_state.alacritty_config_events_tx.receiver_count() >= 1);
+    assert!(app_state.forge_events_tx.receiver_count() >= 1);
+
+    // Closing the socket receiver must tear down all three forwarders right away
+    // (well under the old 15 s forge sleep and without needing a new broadcast).
+    drop(rx);
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while app_state.alacritty_config_events_tx.receiver_count() > 0
+            || app_state.forge_events_tx.receiver_count() > 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("all broadcast forwarders should exit immediately on sender.closed()");
+}

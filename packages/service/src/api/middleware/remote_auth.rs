@@ -64,7 +64,13 @@ pub async fn remote_auth_middleware(
     let Some(token) = presented else {
         return unauthorized();
     };
-    let Some(device_id) = tokens::verify_device_token(&state.read_pool, &ctx.pepper, token).await
+    let Some(device_id) = tokens::verify_device_token(
+        state.remote.token_cache(),
+        &state.read_pool,
+        &ctx.pepper,
+        token,
+    )
+    .await
     else {
         return unauthorized();
     };
@@ -124,5 +130,104 @@ mod tests {
         assert!(!is_known_ws_path("/api/some/new/socket"));
         assert!(!is_known_ws_path("/api/lsp/sessions/abc-123"));
         assert!(!is_known_ws_path("/api/git/status"));
+    }
+
+    #[tokio::test]
+    async fn cached_device_token_hits_cache_and_is_invalidated_immediately_by_revoke_handler() {
+        use std::sync::Arc;
+
+        use axum::{
+            body::Body,
+            extract::{Path, State},
+            http::{header, Request, StatusCode},
+            middleware,
+            routing::get,
+            Extension, Router,
+        };
+        use tower::ServiceExt;
+
+        use crate::app_state::AppState;
+        use crate::domain::remote::{repo, routes::revoke_handler, tokens};
+        use crate::remote::RemoteContext;
+
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE remote_devices (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+             token_hash TEXT NOT NULL UNIQUE, label TEXT, \
+             created_at TEXT NOT NULL DEFAULT (datetime('now')), \
+             last_seen_at TEXT, revoked_at TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE remote_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+             event TEXT NOT NULL, device_id INTEGER, detail TEXT, \
+             created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let pepper = Arc::new(b"middleware-cache-test-pepper".to_vec());
+        let raw_token = tokens::mint_raw_token();
+        let device_id = repo::insert_device(&pool, &tokens::hash_token(&pepper, &raw_token), "mac")
+            .await
+            .unwrap();
+
+        let state = AppState::with_pool(pool.clone());
+        let ctx = RemoteContext {
+            allowed_hosts: Arc::new(vec!["remote.test".to_string()]),
+            allowed_origins: Arc::new(vec!["https://remote.test".to_string()]),
+            pepper: Arc::clone(&pepper),
+        };
+        let app = Router::new()
+            .route("/api/ping", get(|| async { StatusCode::OK }))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                super::remote_auth_middleware,
+            ))
+            .layer(Extension(ctx));
+
+        let make_req = |token: &str| {
+            Request::builder()
+                .uri("/api/ping")
+                .header(header::HOST, "remote.test")
+                .header(super::AUTH_HEADER, token)
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        // 1. First request misses cache, hits DB, succeeds, and caches.
+        let resp = app.clone().oneshot(make_req(&raw_token)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 2. Delete the row directly behind the cache to prove the second
+        //    request is served purely from the in-memory cache (0 DB queries).
+        //    Then restore it before testing `revoke_handler`.
+        sqlx::query("UPDATE remote_devices SET revoked_at = datetime('now') WHERE id = ?")
+            .bind(device_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let cached_resp = app.clone().oneshot(make_req(&raw_token)).await.unwrap();
+        assert_eq!(cached_resp.status(), StatusCode::OK, "expected cache hit");
+
+        sqlx::query("UPDATE remote_devices SET revoked_at = NULL WHERE id = ?")
+            .bind(device_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // 3. `revoke_handler` synchronously evicts the cached token.
+        let _ = revoke_handler(State(state), Path(device_id))
+            .await
+            .expect("revoke succeeds");
+        let after_revoke = app.oneshot(make_req(&raw_token)).await.unwrap();
+        assert_eq!(after_revoke.status(), StatusCode::UNAUTHORIZED);
     }
 }

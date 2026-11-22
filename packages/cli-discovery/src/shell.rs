@@ -26,6 +26,7 @@ async fn resolve_login_shell_path() -> Option<String> {
         Command::new(&shell)
             .args(["-ilc", "printenv PATH"])
             .env_remove("CLAUDECODE")
+            .kill_on_drop(true)
             .output(),
     )
     .await;

@@ -37,7 +37,35 @@ pub fn open_owner_only(path: &Path, create: bool) -> Result<std::fs::File> {
     let file = options
         .open(path)
         .with_context(|| format!("open private file {}", path.display()))?;
+    validate_and_tighten_private_file(&file, path, false)?;
+    Ok(file)
+}
+
+/// Open an existing regular file read-only without following a final symlink.
+/// Uses `O_RDONLY` on Unix so reading a watched file never triggers
+/// `IN_CLOSE_WRITE` on Linux, and preserves `0400` owner-read-only files.
+pub fn open_owner_only_read(path: &Path) -> Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(path)
+        .with_context(|| format!("open private file {}", path.display()))?;
+    validate_and_tighten_private_file(&file, path, true)?;
+    Ok(file)
+}
+
+fn validate_and_tighten_private_file(
+    file: &std::fs::File,
+    path: &Path,
+    allow_read_only: bool,
+) -> Result<()> {
     let metadata = file.metadata()?;
+    anyhow::ensure!(!metadata.is_dir(), "{} is a directory", path.display());
     anyhow::ensure!(metadata.is_file(), "not a regular file: {}", path.display());
     #[cfg(unix)]
     {
@@ -47,12 +75,14 @@ pub fn open_owner_only(path: &Path, create: bool) -> Result<std::fs::File> {
             "refusing hard-linked private file: {}",
             path.display()
         );
-        if metadata.permissions().mode() & 0o7777 != 0o600 {
+        let mode = metadata.permissions().mode() & 0o7777;
+        let allowed = mode == 0o600 || (allow_read_only && mode == 0o400);
+        if !allowed {
             file.set_permissions(std::fs::Permissions::from_mode(0o600))
                 .with_context(|| format!("chmod 600 {}", path.display()))?;
         }
     }
-    Ok(file)
+    Ok(())
 }
 
 /// Only the known Cadencr roots are ours to tighten; custom ancestors are not.
@@ -242,5 +272,51 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         ensure_owner_only(&path).unwrap();
         assert_eq!(mode(&path), 0o600, "load-time tighten must fix perms");
+    }
+
+    #[test]
+    fn open_owner_only_read_allows_0600_and_0400_without_modifying_metadata() {
+        use std::io::Read;
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        write_secret(&path, b"{}").unwrap();
+
+        let before_600 = std::fs::metadata(&path).unwrap();
+        let mut buf = String::new();
+        open_owner_only_read(&path)
+            .unwrap()
+            .read_to_string(&mut buf)
+            .unwrap();
+        assert_eq!(buf, "{}");
+        let after_600 = std::fs::metadata(&path).unwrap();
+        assert_eq!(
+            (before_600.ctime(), before_600.ctime_nsec()),
+            (after_600.ctime(), after_600.ctime_nsec())
+        );
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let before_400 = std::fs::metadata(&path).unwrap();
+        buf.clear();
+        open_owner_only_read(&path)
+            .unwrap()
+            .read_to_string(&mut buf)
+            .unwrap();
+        assert_eq!(buf, "{}");
+        assert_eq!(mode(&path), 0o400, "0400 read-only mode must be preserved");
+        let after_400 = std::fs::metadata(&path).unwrap();
+        assert_eq!(
+            (before_400.ctime(), before_400.ctime_nsec()),
+            (after_400.ctime(), after_400.ctime_nsec())
+        );
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        open_owner_only_read(&path).unwrap();
+        assert_eq!(mode(&path), 0o600, "loose perms tightened on read");
+
+        let subdir = dir.path().join("subdir");
+        std::fs::create_dir(&subdir).unwrap();
+        let err = open_owner_only_read(&subdir).unwrap_err().to_string();
+        assert!(err.to_lowercase().contains("directory"), "{err}");
     }
 }

@@ -1,8 +1,25 @@
 use std::path::Path;
+use std::process::{Output, Stdio};
+use std::time::Duration;
 
 use crate::error::AppError;
 
-use super::{git_failure, run_raw_observer, safe_path_args, safe_ref_args, validate_positionals};
+use super::redact::redact_paths;
+use super::{
+    bytes_to_string_lossy, git_command, git_failure, safe_path_args, safe_ref_args,
+    validate_positionals,
+};
+
+mod io;
+pub use io::{
+    run_git_background_bounded, run_git_background_head_bytes, run_git_background_with_stdin,
+    run_git_safe_background_bounded, run_git_safe_refs_background_bounded, BoundedGitOutput,
+};
+
+/// Hard wall-clock ceiling for observational / read-only background Git calls.
+/// Mutations (`commit`, `push`, `fetch`, `rebase`, `merge`) use the non-background
+/// helpers and are not bound by this timeout.
+const BACKGROUND_GIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Run a **periodic / read-style** git command with `--no-optional-locks`
 /// so it can't race a concurrent user-initiated mutation (`git rebase`,
@@ -17,7 +34,16 @@ use super::{git_failure, run_raw_observer, safe_path_args, safe_ref_args, valida
 /// `merge`, `fetch`, `stash`, etc.); those need normal Git locking semantics
 /// and must not be killed when their caller is cancelled.
 pub async fn run_git_background(args: &[&str], cwd: &Path) -> Result<String, AppError> {
-    run_raw_observer(&prepend_no_optional_locks(args), cwd).await
+    let args = prepend_no_optional_locks(args);
+    run_checked_background(&args, cwd).await
+}
+
+/// Spawn a read-only Git command with `--no-optional-locks`, `kill_on_drop(true)`,
+/// and [`BACKGROUND_GIT_TIMEOUT`], returning its raw [`Output`] even on non-zero
+/// exit (for commands like `merge-base --is-ancestor` whose exit code is a verdict).
+pub async fn run_git_output_background(args: &[&str], cwd: &Path) -> Result<Output, AppError> {
+    let args = prepend_no_optional_locks(args);
+    output_background(&args, cwd, BACKGROUND_GIT_TIMEOUT).await
 }
 
 /// Resolve a ref without optional locks while distinguishing an absent ref
@@ -39,9 +65,9 @@ pub async fn run_git_probe_background(
     cwd: &Path,
 ) -> Result<Option<String>, AppError> {
     let args = prepend_no_optional_locks(args);
-    let output = output_background(&args, cwd).await?;
+    let output = output_background(&args, cwd, BACKGROUND_GIT_TIMEOUT).await?;
     if output.status.success() {
-        return Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned()));
+        return Ok(Some(bytes_to_string_lossy(output.stdout)));
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     if output.status.code() == Some(1) && stderr.trim().is_empty() {
@@ -63,7 +89,7 @@ pub async fn run_git_safe_background(
     validate_positionals(positionals)?;
     let safe_args = safe_path_args(subcommand_args, flags, positionals);
     let args = prepend_no_optional_locks(&safe_args);
-    run_raw_observer(&args, cwd).await
+    run_checked_background(&args, cwd).await
 }
 
 /// Read-only counterpart to `run_git_safe_refs`. Ref-like positionals remain
@@ -77,7 +103,7 @@ pub async fn run_git_safe_refs_background(
     validate_positionals(positionals)?;
     let safe_args = safe_ref_args(subcommand_args, flags, positionals);
     let args = prepend_no_optional_locks(&safe_args);
-    run_raw_observer(&args, cwd).await
+    run_checked_background(&args, cwd).await
 }
 
 /// Whether `HEAD` is the unborn branch of a repository with no commit yet,
@@ -96,7 +122,7 @@ pub async fn head_is_unborn(cwd: &Path) -> Result<bool, AppError> {
     let target = target.trim();
     validate_positionals(&[target])?;
     let args = prepend_no_optional_locks(&["for-each-ref", "--format=%(refname)", target]);
-    let output = output_background(&args, cwd).await?;
+    let output = output_background(&args, cwd, BACKGROUND_GIT_TIMEOUT).await?;
     if !output.status.success() {
         return Err(git_failure(&args, &String::from_utf8_lossy(&output.stderr)));
     }
@@ -118,14 +144,44 @@ pub async fn head_commit_exists(cwd: &Path) -> Result<bool, AppError> {
     ))
 }
 
-async fn output_background(args: &[&str], cwd: &Path) -> Result<std::process::Output, AppError> {
-    super::git_command()
-        .kill_on_drop(true)
+async fn run_checked_background(args: &[&str], cwd: &Path) -> Result<String, AppError> {
+    let output = output_background(args, cwd, BACKGROUND_GIT_TIMEOUT).await?;
+    if !output.status.success() {
+        return Err(git_failure(args, &String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(bytes_to_string_lossy(output.stdout))
+}
+
+/// Read-only / observational Git command that terminates its child if the
+/// caller's future is dropped or times out.
+pub(super) fn background_git_command() -> tokio::process::Command {
+    let mut command = git_command();
+    command.kill_on_drop(true);
+    command
+}
+
+async fn output_background(
+    args: &[&str],
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<Output, AppError> {
+    let future = background_git_command()
         .args(args)
         .current_dir(cwd)
-        .output()
+        .stdin(Stdio::null())
+        .output();
+    tokio::time::timeout(timeout, future)
         .await
+        .map_err(|_| timeout_error(args, timeout))?
         .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))
+}
+
+fn timeout_error(args: &[&str], timeout: Duration) -> AppError {
+    AppError::git_command(format!(
+        "git {} timed out after {} seconds",
+        redact_paths(&args.join(" ")),
+        timeout.as_secs()
+    ))
 }
 
 fn prepend_no_optional_locks<'a>(args: &[&'a str]) -> Vec<&'a str> {
@@ -255,5 +311,52 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn background_git_command_kills_child_on_drop() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let repo = tempfile::tempdir().unwrap();
+        git(&["init", "-q", "-b", "main"], repo.path());
+        git(
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ],
+            repo.path(),
+        );
+
+        let mut child = background_git_command()
+            .args(["cat-file", "--batch-check=%(objectname)"])
+            .current_dir(repo.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        drop(child);
+
+        // The child was killed on drop, so writing may hit EPIPE and stdout yields EOF.
+        let _write = stdin.write_all(b"HEAD\n").await;
+        drop(stdin);
+        let mut out = Vec::new();
+        stdout.read_to_end(&mut out).await.unwrap();
+        assert!(
+            out.is_empty(),
+            "background child should be killed on drop, got {:?}",
+            String::from_utf8_lossy(&out)
+        );
     }
 }

@@ -7,8 +7,8 @@ export type LargeDiffPlaceholderVariant = "large" | "binary";
 
 interface LargeDiffPlaceholderProps {
   variant: LargeDiffPlaceholderVariant;
-  /** Largest of the old/new byte sizes — what we use to size the placeholder copy. */
-  sizeBytes: number;
+  /** Patch or file byte size when known; omitted when the fetch was deferred for a large diff. */
+  sizeBytes?: number;
   additions: number;
   deletions: number;
   /** Only used for `variant === "large"` — opt-in to render the actual diff. */
@@ -28,6 +28,7 @@ export function LargeDiffPlaceholder({
   onDisplay,
 }: LargeDiffPlaceholderProps) {
   const isBinary = variant === "binary";
+  const showSize = sizeBytes !== undefined;
   return (
     <div className="bg-muted/40 flex items-center justify-between rounded-md border p-4">
       <div className="flex flex-col gap-1">
@@ -36,10 +37,10 @@ export function LargeDiffPlaceholder({
             {isBinary ? "Binary file" : "Large file"}
           </Badge>
           <span className="text-muted-foreground text-xs">
-            {formatBytes(sizeBytes)}
+            {showSize && formatBytes(sizeBytes)}
             {!isBinary && (
               <>
-                {" · "}
+                {showSize && " · "}
                 <NumStat
                   additions={additions}
                   deletions={deletions}

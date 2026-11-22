@@ -1,9 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useCreateFeature, useDeleteFeature, type Feature } from "@/api/generated";
-import { customInstance } from "@/api/client";
+import {
+  getListFeaturesQueryOptions,
+  useCreateFeature,
+  useDeleteFeature,
+  type Feature,
+} from "@/api/generated";
 import type { ConfirmFeatureAction } from "@/components/RootOverlays";
 import {
   closeFeatureSession,
@@ -181,6 +185,7 @@ function useRootFeatureActions(route: RootRouteIds) {
 type RootFeatureActions = ReturnType<typeof useRootFeatureActions>;
 
 async function prepareFeatureAction(
+  queryClient: QueryClient,
   projectId: number,
   featureId: number,
 ): Promise<{
@@ -188,10 +193,11 @@ async function prepareFeatureAction(
   confirmAction: ConfirmFeatureAction;
   targetId: number | null;
 } | null> {
-  const features = await customInstance<Feature[]>({
-    method: "GET",
-    url: `/api/features?project_id=${projectId}&include_archived=true`,
+  const listOptions = getListFeaturesQueryOptions({
+    project_id: projectId,
+    include_archived: true,
   });
+  const features = await queryClient.ensureQueryData({ ...listOptions, retry: false });
   const feature = features.find((candidate) => candidate.id === featureId);
   if (!feature) return null;
   const activeFeatures = features.filter((candidate) => candidate.status === "active");
@@ -200,7 +206,7 @@ async function prepareFeatureAction(
   const target = index > 0 ? activeFeatures[index - 1] : (remaining[0] ?? null);
   return {
     activeFeatures,
-    confirmAction: { action: await resolveFeatureArchiveAction(feature), feature },
+    confirmAction: { action: await resolveFeatureArchiveAction(feature, queryClient), feature },
     targetId: target?.id ?? null,
   };
 }
@@ -212,6 +218,7 @@ function useRootShortcuts(
   setCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>,
 ) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   useShortcut("toggle-sidebar", (event) => {
     event.preventDefault();
     sidebar.setCollapsed(!sidebar.collapsed);
@@ -252,7 +259,11 @@ function useRootShortcuts(
     const toastId = `feature-archive-check-${route.activeFeatureId}`;
     toast.loading("Checking conversation…", { id: toastId });
     try {
-      const prepared = await prepareFeatureAction(route.activeProjectId, route.activeFeatureId);
+      const prepared = await prepareFeatureAction(
+        queryClient,
+        route.activeProjectId,
+        route.activeFeatureId,
+      );
       if (!prepared) return;
       features.deleteNavTargetRef.current = prepared.targetId;
       features.setArchiveActiveFeatures(prepared.activeFeatures);
