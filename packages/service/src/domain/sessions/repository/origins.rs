@@ -19,15 +19,29 @@ struct OriginRow {
     created_at: Option<String>,
 }
 
+const ORIGIN_CHUNK_SIZE: usize = 500;
+
 pub(super) async fn attach_message_origins(
     pool: &SqlitePool,
     messages_by_session: &mut HashMap<i64, Vec<AgentMessageRow>>,
 ) -> Result<(), AppError> {
     let message_ids = message_ids(messages_by_session);
-    if message_ids.is_empty() || !origin_table_exists(pool).await? {
+    if message_ids.is_empty() {
         return Ok(());
     }
-    let origins = fetch_origins(pool, &message_ids).await?;
+    let origins = match fetch_origins(pool, &message_ids).await {
+        Ok(origins) => origins,
+        Err(sqlx::Error::Database(db_err))
+            if db_err
+                .message()
+                .contains("no such table: agent_message_origins") =>
+        {
+            // Minimal unit-test schemas omit `agent_message_origins`; avoid a
+            // hot-path `sqlite_master` probe on every hydrated session load.
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
     if origins.is_empty() {
         return Ok(());
     }
@@ -79,38 +93,29 @@ fn message_ids(messages_by_session: &HashMap<i64, Vec<AgentMessageRow>>) -> Vec<
     ids
 }
 
-async fn origin_table_exists(pool: &SqlitePool) -> Result<bool, AppError> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = 'agent_message_origins'",
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(count > 0)
-}
-
 async fn fetch_origins(
     pool: &SqlitePool,
     message_ids: &[i64],
-) -> Result<HashMap<i64, AgentMessageOrigin>, AppError> {
-    let placeholders = message_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql = format!(
-        "SELECT message_id, origin_kind, source_session_id, source_feature_id,
-                source_project_id, source_message_id, note, created_at
-         FROM agent_message_origins WHERE message_id IN ({placeholders})"
-    );
-    let mut query = sqlx::query_as::<_, OriginRow>(AssertSqlSafe(sql));
-    for id in message_ids {
-        query = query.bind(id);
+) -> Result<HashMap<i64, AgentMessageOrigin>, sqlx::Error> {
+    let mut origins = HashMap::new();
+    for chunk in message_ids.chunks(ORIGIN_CHUNK_SIZE) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT message_id, origin_kind, source_session_id, source_feature_id,
+                    source_project_id, source_message_id, note, created_at
+             FROM agent_message_origins WHERE message_id IN ({placeholders})"
+        );
+        let mut query = sqlx::query_as::<_, OriginRow>(AssertSqlSafe(sql));
+        for id in chunk {
+            query = query.bind(id);
+        }
+        for row in query.fetch_all(pool).await? {
+            origins.insert(row.message_id, row.into());
+        }
     }
-    let rows = query.fetch_all(pool).await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.message_id, row.into()))
-        .collect())
+    Ok(origins)
 }
 
 impl From<OriginRow> for AgentMessageOrigin {

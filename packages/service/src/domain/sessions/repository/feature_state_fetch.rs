@@ -220,6 +220,8 @@ fn is_todo_source_message(message: &AgentMessageRow) -> bool {
     )
 }
 
+const TODO_SESSION_CHUNK_SIZE: usize = 200;
+
 /// Fetch latest todo state for each session from `TodoWrite` snapshots or
 /// Claude Code task tool deltas.
 pub(super) async fn fetch_latest_todos(
@@ -231,15 +233,16 @@ pub(super) async fn fetch_latest_todos(
         return Ok(todos_by_session);
     }
 
-    let sql = latest_todos_sql(session_ids.len());
-    let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
-    for sid in session_ids {
-        query = query.bind(sid);
-    }
-    let rows = query.fetch_all(pool).await?;
     let mut rows_by_session: HashMap<i64, Vec<AgentMessageRow>> = HashMap::new();
-    for row in rows {
-        rows_by_session.entry(row.session_id).or_default().push(row);
+    for chunk in session_ids.chunks(TODO_SESSION_CHUNK_SIZE) {
+        let sql = latest_todos_sql(chunk.len());
+        let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
+        for sid in chunk {
+            query = query.bind(sid);
+        }
+        for row in query.fetch_all(pool).await? {
+            rows_by_session.entry(row.session_id).or_default().push(row);
+        }
     }
     for (session_id, rows) in rows_by_session {
         if let Some(todos) = latest_todos_from_messages(&rows) {
