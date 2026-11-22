@@ -117,29 +117,37 @@ describe("AgentStreamItem", () => {
     expect(screen.getByText("User")).toBeInTheDocument();
   });
 
-  it.each([
-    { type: "text", inFlow: "pt-3 pb-3", floating: "pt-3 pb-3.5" },
-    { type: "user_message", inFlow: "pt-6 pb-6", floating: "pt-6 pb-5" },
-  ] as const)(
-    "keeps a $type's hover actions in flow, balanced, only in compact flow",
-    ({ type, inFlow, floating }) => {
+  it.each(["text", "user_message"] as const)(
+    "hangs a $0 row's rhythm spacing under it, the same in every verbosity mode",
+    (type) => {
       const block = { id: `row-${type}`, type, content: "hello" };
-      const { container, rerender } = render(
-        <AgentStreamItem block={block} toolResultMap={new Map()} verbosityMode="compact" />,
-      );
-      const row = () => container.querySelector(`[data-block-id="row-${type}"]`);
-      expect(row()).toHaveAttribute("data-stream-actions-in-flow", "true");
-      expect(row()).toHaveClass(...inFlow.split(" "));
-
-      for (const verbosityMode of ["maximal", "auto_collapse", "collapsed"] as const) {
-        rerender(
-          <AgentStreamItem block={block} toolResultMap={new Map()} verbosityMode={verbosityMode} />,
+      const row = (container: HTMLElement) =>
+        container.querySelector<HTMLElement>(`[data-block-id="row-${type}"]`);
+      for (const verbosityMode of ["compact", "maximal", "auto_collapse", "collapsed"] as const) {
+        const { container, unmount } = render(
+          <AgentStreamItem
+            block={block}
+            toolResultMap={new Map()}
+            verbosityMode={verbosityMode}
+            spaceBelow={21}
+          />,
         );
-        expect(row()).not.toHaveAttribute("data-stream-actions-in-flow");
-        expect(row()).toHaveClass(...floating.split(" "));
+        expect(row(container)?.style.paddingBottom).toBe("21px");
+        expect(row(container)?.style.paddingTop).toBe("");
+        unmount();
       }
     },
   );
+
+  it.each([
+    { type: "thinking", nested: "py-0.5" },
+    { type: "text", nested: "pt-3 pb-3.5" },
+  ] as const)("keeps a nested $type row's own spacing, outside the rhythm", ({ type, nested }) => {
+    const { container } = render(
+      <AgentStreamItem block={{ id: "nested", type, content: "hi" }} toolResultMap={new Map()} />,
+    );
+    expect(container.querySelector('[data-block-id="nested"]')).toHaveClass(...nested.split(" "));
+  });
 });
 
 describe("AgentStreamItem fold policy", () => {

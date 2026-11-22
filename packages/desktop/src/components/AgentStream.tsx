@@ -23,6 +23,7 @@ import { STREAM_AT_BOTTOM_THRESHOLD_PX, STREAM_BOTTOM_GAP_PX } from "./agent-ses
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
 import { OlderHistoryStatus } from "./agent-session/OlderHistoryStatus";
 import { flowStreamingBlockId, liveDisplayItemKey } from "@/lib/agent-stream-display";
+import { cursorSpaceAbove, STREAM_TOP_GAP_PX } from "@/lib/stream-rhythm";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
 import type { DisplayItem } from "@/types/agent-stream";
@@ -63,6 +64,8 @@ interface AgentStreamVirtuosoContext {
   searchBlockId: string | null;
   /** Key of the last row while the turn runs: a compact run there may still take steps. */
   liveItemKey: string | null;
+  /** Padding above the working cursor, one gap under the last row. */
+  cursorSpaceAbove: number;
 }
 
 interface AgentStreamProps {
@@ -167,6 +170,7 @@ const StreamFooter = memo(function StreamFooter({
           lifecycle={context.lifecycle}
           label={context.workingLabel}
           clock={context.workingClock}
+          spaceAbove={context.cursorSpaceAbove}
         />
       )}
       <div aria-hidden style={STREAM_BOTTOM_GAP_STYLE} />
@@ -174,7 +178,15 @@ const StreamFooter = memo(function StreamFooter({
   );
 });
 
+// Rows hang their gaps below them (`stream-rhythm.ts`): the first row's room
+// above is the list's, so a history page loading above it moves nothing.
+const STREAM_TOP_GAP_STYLE: CSSProperties = { height: STREAM_TOP_GAP_PX };
+const StreamHeader = memo(function StreamHeader() {
+  return <div aria-hidden style={STREAM_TOP_GAP_STYLE} />;
+});
+
 const VIRTUOSO_COMPONENTS = {
+  Header: StreamHeader,
   Footer: StreamFooter,
 } satisfies Components<DisplayItem, AgentStreamVirtuosoContext>;
 
@@ -249,6 +261,7 @@ function useVirtuosoContext({
   workingClock,
   searchBlockId,
   liveItemKey,
+  cursorSpaceAbove,
 }: AgentStreamVirtuosoContext): AgentStreamVirtuosoContext {
   return useMemo(
     () => ({
@@ -259,6 +272,7 @@ function useVirtuosoContext({
       workingClock,
       searchBlockId,
       liveItemKey,
+      cursorSpaceAbove,
     }),
     [
       showStreamingIndicator,
@@ -268,6 +282,7 @@ function useVirtuosoContext({
       workingClock,
       searchBlockId,
       liveItemKey,
+      cursorSpaceAbove,
     ],
   );
 }
@@ -290,6 +305,7 @@ function useAgentStreamItemRenderer(
             toolResultMap={toolResultMap}
             streamingBlockId={flowStreamingBlockId(item.blocks, context.streamingBlockId)}
             live={context.liveItemKey === item.key}
+            spaceBelow={item.spaceBelow}
           />
         );
       }
@@ -300,6 +316,7 @@ function useAgentStreamItemRenderer(
           basePath={basePath}
           toolResultMap={toolResultMap}
           verbosityMode={verbosityMode}
+          spaceBelow={item.spaceBelow}
         />
       );
     },
@@ -420,6 +437,7 @@ export const AgentStream = memo(function AgentStream({
     workingClock,
     searchBlockId,
     liveItemKey: liveDisplayItemKey(displayItems, turnActive ?? !!isStreaming),
+    cursorSpaceAbove: cursorSpaceAbove(displayItems.at(-1)),
   });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
   const { onRangeChanged, computeItemKey } = useVirtuosoIndexing(

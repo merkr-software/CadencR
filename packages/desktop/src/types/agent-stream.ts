@@ -6,9 +6,13 @@ import type { AgentBlockData } from "@/types/agent-block";
  * blocks (tool calls, thinking) folds into one `flow` row that renders as a
  * single line until the user unfolds it.
  */
-export type DisplayItem =
+export type DisplayItem = (
   | { kind: "block"; key: string; block: AgentBlockData }
-  | { kind: "flow"; key: string; blocks: AgentBlockData[] };
+  | { kind: "flow"; key: string; blocks: AgentBlockData[] }
+) & {
+  /** Padding under the row, set from the row after it (`spaceRows`). */
+  spaceBelow?: number;
+};
 
 /**
  * Which display transforms are active, so row counts match what `AgentStream`

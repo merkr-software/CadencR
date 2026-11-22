@@ -10,6 +10,7 @@ import {
   type RefObject,
 } from "react";
 import type { DisplayItem } from "@/types/agent-stream";
+import { STREAM_TOP_GAP_PX } from "@/lib/stream-rhythm";
 import { findStreamItemList } from "./agent-session-scroll-utils";
 
 /**
@@ -90,6 +91,8 @@ export const TranscriptTailPreview = memo(function TranscriptTailPreview({
   return (
     <div data-testid="agent-stream-tail-preview" className={PREVIEW_SCROLLER_CLASS}>
       <div className="mb-auto">
+        {/* The list's room above its first row (`StreamHeader`), when that row is here. */}
+        {tail.length === items.length && <div aria-hidden style={TOP_GAP_STYLE} />}
         {/* `data-tail-row` keeps a row's margins inside its box, by the rule
             the list's rows follow (index.css): the same height in both. */}
         {tail.map((item) => (
@@ -158,6 +161,7 @@ export function useListSettled(
   return settled;
 }
 
+const TOP_GAP_STYLE: CSSProperties = { height: STREAM_TOP_GAP_PX };
 const LIST_STYLE: CSSProperties = { height: "100%" };
 // Behind the tail preview: laid out and scrollable (it is still opening), not painted.
 const LIST_BEHIND_PREVIEW_STYLE: CSSProperties = { height: "100%", visibility: "hidden" };
