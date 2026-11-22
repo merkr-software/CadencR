@@ -131,6 +131,7 @@ fn access_mode_catalog() -> Vec<super::runtime::ProviderModeCatalogEntry> {
         super::runtime::ProviderModeCatalogEntry {
             id: "default".to_string(),
             label: "Default".to_string(),
+            accent: None,
             description: Some(
                 "Runs in the workspace-write sandbox. Codex asks you to review command, network, or file access when approval is needed."
                     .to_string(),
@@ -139,6 +140,7 @@ fn access_mode_catalog() -> Vec<super::runtime::ProviderModeCatalogEntry> {
         super::runtime::ProviderModeCatalogEntry {
             id: "fullAccess".to_string(),
             label: "Full Access".to_string(),
+            accent: None,
             description: Some(
                 "Disables sandboxing and approval prompts. Codex can run commands and access files or network without asking first."
                     .to_string(),
@@ -147,6 +149,7 @@ fn access_mode_catalog() -> Vec<super::runtime::ProviderModeCatalogEntry> {
         super::runtime::ProviderModeCatalogEntry {
             id: "autoReview".to_string(),
             label: "Auto Review".to_string(),
+            accent: None,
             description: Some(
                 "Keeps the workspace-write sandbox, but lets Codex automatically review approval requests instead of routing each one to you."
                     .to_string(),

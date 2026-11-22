@@ -192,10 +192,6 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     let cold_modes = option(&catalog, "mode");
     assert_eq!(cold_modes["currentValue"], "default");
     assert_eq!(
-        values(cold_modes),
-        ["default", "accept-edits", "auto", "plan"]
-    );
-    assert_eq!(
         cold_modes["options"][2]["_meta"]["cadencr"]["permissionMode"],
         "auto"
     );
@@ -225,6 +221,28 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     let session = &created["result"]["sessionId"];
     let live = &created["result"]["configOptions"];
     assert_eq!(values(option(live, "model")), values(cold_models));
+    for modes in [cold_modes, option(live, "mode")] {
+        let accents: Vec<_> = modes["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|choice| {
+                (
+                    choice["value"].as_str().unwrap(),
+                    choice["_meta"]["cadencr"]["modeAccent"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            accents,
+            [
+                ("default", "blue"),
+                ("accept-edits", "green"),
+                ("auto", "yellow"),
+                ("plan", "violet")
+            ]
+        );
+    }
     assert_eq!(option(live, "model")["currentValue"], "mock-alt-medium");
     assert!(live
         .as_array()

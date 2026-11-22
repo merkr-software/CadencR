@@ -123,6 +123,7 @@ fn parse_primary_agent_modes(raw: &str) -> Vec<ProviderModeCatalogEntry> {
             id: mode_id_for_agent(name),
             label: name.to_string(),
             description: Some(format!("Use the OpenCode {name} agent.")),
+            accent: None,
         });
     }
 

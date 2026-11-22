@@ -195,6 +195,9 @@ plain ACP options; the mapping lives in `_meta.cadencr` on each select value.
 - **Mode selector** — the first option with `"category": "mode"`. A value may
   carry `_meta.cadencr.permissionMode`, one of the host wire ids `default`,
   `acceptEdits`, `plan`, `ask`, `auto`, `bypassPermissions`, `dontAsk`.
+  A value can also declare `_meta.cadencr.modeAccent` as `blue`, `green`,
+  `yellow`, or `violet`. Cadencr renders this through its theme palette.
+  Missing or unknown accents fall back to the host mode's default color.
 - **Access-mode selector** — the first option whose option-level
   `_meta.cadencr.role` is `"access_mode"` (its ACP `category` is free). A value
   may carry `_meta.cadencr.accessMode`, one of `default`, `fullAccess`,
@@ -239,7 +242,8 @@ Rules:
   ignored rather than rejected.
 - The host's catalog lists the mapped values as `modes` /
   `access_modes` (`{id: <host id>, label: <value name>, description}`), and its
-  permission-mode gate accepts exactly the listed modes for the provider. How a
+  permission-mode gate accepts exactly the listed modes for the provider. Entries
+  in `modes` can also include the optional theme `accent`. How a
   mapped value is applied to a live session is specified in
   [`INSTALLED_ACP_PROVIDERS.md`](./INSTALLED_ACP_PROVIDERS.md#host-conventions-for-modes-and-access-modes).
 
