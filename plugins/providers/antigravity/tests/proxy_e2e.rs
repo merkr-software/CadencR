@@ -1,6 +1,6 @@
 #![cfg(unix)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::Duration;
 
@@ -17,10 +17,20 @@ struct Fixture {
 
 impl Fixture {
     fn new(scenario: &'static str) -> Self {
-        Self {
+        let fixture = Self {
             directory: tempfile::tempdir().unwrap(),
             scenario,
-        }
+        };
+        std::fs::create_dir(fixture.home()).unwrap();
+        fixture
+    }
+
+    fn home(&self) -> PathBuf {
+        self.directory.path().join("home")
+    }
+
+    fn native() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_agy.py")
     }
 
     fn command(&self) -> Command {
@@ -32,11 +42,12 @@ impl Fixture {
             }
             None => PathBuf::from(env!("CARGO_BIN_EXE_cadencr-antigravity-provider")),
         };
-        let native = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_agy.py");
         let mut command = Command::new(binary);
         command
             .current_dir(self.directory.path())
-            .env("CADENCR_ANTIGRAVITY_COMMAND", native)
+            .env("HOME", self.home())
+            .env_remove("ANTIGRAVITY_CLI_PATH")
+            .env("CADENCR_ANTIGRAVITY_COMMAND", Self::native())
             .env("AGY_FIXTURE_SCENARIO", self.scenario)
             .kill_on_drop(true);
         command
@@ -63,7 +74,6 @@ async fn first_command_listing_includes_project_skills_without_starting_the_cli(
     .unwrap();
     let output = fixture
         .command()
-        .env("HOME", fixture.directory.path())
         .args([
             "slash-commands",
             "--format",
@@ -586,8 +596,7 @@ async fn absent_cli_and_invalid_override_fail_without_spawning_an_agent() {
     let mut missing = fixture.command();
     missing
         .env_remove("CADENCR_ANTIGRAVITY_COMMAND")
-        .env("PATH", fixture.cwd())
-        .env("HOME", fixture.cwd());
+        .env("PATH", fixture.cwd());
     let output = run_models(missing, &fixture).await;
     assert!(!output.status.success());
     let failure: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -598,6 +607,22 @@ async fn absent_cli_and_invalid_override_fail_without_spawning_an_agent() {
     let output = run_models(invalid, &fixture).await;
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("absolute path"));
+}
+
+#[tokio::test]
+async fn connector_accepts_managed_override_without_the_legacy_host_variable() {
+    let fixture = Fixture::new("normal");
+    let mut managed = fixture.command();
+    managed
+        .env_remove("CADENCR_ANTIGRAVITY_COMMAND")
+        .env("ANTIGRAVITY_CLI_PATH", Fixture::native());
+    assert!(run_models(managed, &fixture).await.status.success());
+
+    let mut conflicting = fixture.command();
+    conflicting.env("ANTIGRAVITY_CLI_PATH", "./agy");
+    let output = run_models(conflicting, &fixture).await;
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("ANTIGRAVITY_CLI_PATH"));
 }
 
 #[tokio::test]

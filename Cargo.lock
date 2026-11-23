@@ -871,6 +871,7 @@ dependencies = [
  "bon",
  "cadencr-provider-sdk",
  "cli-discovery",
+ "libc",
  "serde",
  "serde_json",
  "serde_yaml_ng",

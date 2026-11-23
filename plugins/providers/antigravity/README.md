@@ -12,12 +12,16 @@ Install and authenticate `agy` separately on the machine running CadencR.
 3. From CadencR's Marketplace, install **Google Antigravity**, then select it as
    the provider for a project conversation.
 
-The connector finds `agy` on `PATH` and in common user and system installation
-directories. Set `CADENCR_ANTIGRAVITY_COMMAND` to the absolute path of your CLI
-executable in the CadencR process environment to override discovery. The
-CLI manages authentication and credentials. You can also start ACP sign-in
-from a terminal with `agy acp --login`. The terminal resume action resolves
-`agy` through the terminal's `PATH`.
+The connector searches the absolute directories on CadencR's `PATH` in order,
+then checks `$HOME/.local/bin/agy`. For a Marketplace or local installation,
+set `ANTIGRAVITY_CLI_PATH` in the CadencR environment to the absolute path of
+an executable `agy` file. Local installations also accept the legacy
+`CADENCR_ANTIGRAVITY_COMMAND` variable when `ANTIGRAVITY_CLI_PATH` is unset
+or empty.
+
+The CLI manages authentication and credentials. You can start ACP sign-in
+from a terminal with `agy acp --login`. Terminal resume resolves `agy`
+through the terminal's `PATH`.
 
 Saved conversation history remains available when CLI discovery fails.
 CadencR keeps the saved permission mode in that case and validates it against

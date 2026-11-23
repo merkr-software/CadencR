@@ -6,17 +6,25 @@ use cadencr_provider_sdk::ProviderError;
 use tokio::process::Command;
 
 pub const BINARY: &str = "agy";
-const COMMAND_ENV: &str = "CADENCR_ANTIGRAVITY_COMMAND";
+const COMMAND_ENV: &str = "ANTIGRAVITY_CLI_PATH";
+const LOCAL_COMMAND_ENV: &str = "CADENCR_ANTIGRAVITY_COMMAND";
 pub const SIGN_IN: &str = "Sign in with `agy acp --login` in a terminal, then retry.";
 
 pub fn resolve() -> Result<PathBuf, ProviderError> {
-    if let Some(path) = std::env::var_os(COMMAND_ENV).filter(|path| !path.is_empty()) {
+    if let Some((key, path)) = [COMMAND_ENV, LOCAL_COMMAND_ENV]
+        .into_iter()
+        .find_map(|key| {
+            std::env::var_os(key)
+                .filter(|path| !path.is_empty())
+                .map(|path| (key, path))
+        })
+    {
         let path = PathBuf::from(path);
         if path.is_absolute() && is_executable(&path)? {
             return Ok(path);
         }
         return Err(ProviderError::new(format!(
-            "{COMMAND_ENV} must name an absolute path to an executable Antigravity CLI."
+            "{key} must name an absolute path to an executable Antigravity CLI."
         )));
     }
 
