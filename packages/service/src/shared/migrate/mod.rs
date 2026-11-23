@@ -5,6 +5,8 @@ use std::path::Path;
 use tracing::{info, warn};
 #[cfg(test)]
 mod agent_session_profiles_migration_tests;
+#[cfg(test)]
+mod agent_sessions_feature_index_migration_tests;
 mod backup_rotation;
 mod checksum_repair;
 mod checksum_repair_data;

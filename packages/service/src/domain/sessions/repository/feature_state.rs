@@ -4,10 +4,10 @@
 use super::super::models::*;
 use super::feature_state_build::build_session_state;
 use super::feature_state_fetch::{
-    fetch_full_messages, fetch_latest_todos, todo_fetch_session_ids, todos_from_full_messages,
-    FullMessagesResult,
+    fetch_full_messages, todo_fetch_session_ids, todos_from_full_messages, FullMessagesResult,
 };
 use super::incremental_fetch::{fetch_incremental_data, IncrementalData};
+use super::latest_todos::fetch_latest_todos;
 use super::origins::attach_message_origins;
 use super::SESSION_SELECT;
 use crate::error::AppError;
@@ -286,10 +286,6 @@ mod tests {
     #[tokio::test]
     async fn get_feature_agent_state_hydrates_message_origins() {
         let pool = setup_test_db().await;
-        sqlx::query("CREATE TABLE agent_message_origins (message_id INTEGER PRIMARY KEY, origin_kind TEXT NOT NULL, source_session_id INTEGER, source_feature_id INTEGER, source_project_id INTEGER, source_message_id INTEGER, note TEXT, created_at TEXT)")
-            .execute(&pool)
-            .await
-            .unwrap();
         let fid: (i64,) = sqlx::query_as("INSERT INTO features (title) VALUES ('f') RETURNING id")
             .fetch_one(&pool)
             .await

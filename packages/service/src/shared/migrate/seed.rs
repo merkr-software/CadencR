@@ -147,6 +147,10 @@ pub(super) async fn repair_agent_messages_perf_indexes(pool: &SqlitePool) -> any
     )
     .execute(pool)
     .await?;
+    // Same keys as `idx_agent_messages_session_id_desc` (`id` is the rowid).
+    sqlx::query("DROP INDEX IF EXISTS idx_agent_messages_session")
+        .execute(pool)
+        .await?;
 
     let message_columns = table_columns(pool, "agent_messages").await?;
 
@@ -189,6 +193,15 @@ pub(super) async fn repair_agent_messages_perf_indexes(pool: &SqlitePool) -> any
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_agent_messages_session_role_created
              ON agent_messages(session_id, role, created_at)",
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    if table_has_column(pool, "agent_sessions", "feature_id").await? {
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_agent_sessions_feature_id
+             ON agent_sessions(feature_id, id)",
         )
         .execute(pool)
         .await?;

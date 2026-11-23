@@ -29,19 +29,7 @@ pub(super) async fn attach_message_origins(
     if message_ids.is_empty() {
         return Ok(());
     }
-    let origins = match fetch_origins(pool, &message_ids).await {
-        Ok(origins) => origins,
-        Err(sqlx::Error::Database(db_err))
-            if db_err
-                .message()
-                .contains("no such table: agent_message_origins") =>
-        {
-            // Minimal unit-test schemas omit `agent_message_origins`; avoid a
-            // hot-path `sqlite_master` probe on every hydrated session load.
-            return Ok(());
-        }
-        Err(error) => return Err(error.into()),
-    };
+    let origins = fetch_origins(pool, &message_ids).await?;
     if origins.is_empty() {
         return Ok(());
     }
