@@ -14,9 +14,7 @@ use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::{
     raw_event_with_agent_message_id, PersistedEventRef, WsSessionPersistence,
 };
-use crate::domain::ws_session::protocol::{
-    SessionEndedPayload, SessionErrorPayload, SessionMessagePayload, WsEnvelope,
-};
+use crate::domain::ws_session::protocol::{SessionEndedPayload, SessionErrorPayload, WsEnvelope};
 
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
@@ -76,14 +74,7 @@ impl StreamReaderTask {
                 serde_json::Value::String(model.to_string()),
             );
         }
-        state.message_seq += 1;
-        Some(
-            WsEnvelope::session_event(&WsSessionEvent::Message(SessionMessagePayload {
-                blocks: vec![block],
-                seq: Some(state.message_seq),
-            }))
-            .expect("session event payload should serialize"),
-        )
+        Some(state.next_message_envelope(block))
     }
 
     async fn result_envelope(

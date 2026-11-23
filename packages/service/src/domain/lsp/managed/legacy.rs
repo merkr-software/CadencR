@@ -32,7 +32,7 @@ async fn discover() -> Result<Vec<ServerProbe>, AppError> {
     let entries = futures::future::join_all(legacy::CATALOG.iter().map(|entry| {
         let data = data.clone();
         async move {
-            let candidates = cli_discovery::discover_all(&entry.discovery_spec(), None).await;
+            let candidates = cli_discovery::discover_all(&entry.discovery_spec(), None).await?;
             let found = cli_discovery::select_best(&candidates).map(|best| {
                 (
                     best.canonical.clone(),
@@ -57,7 +57,10 @@ async fn discover() -> Result<Vec<ServerProbe>, AppError> {
                     )
                 })
             });
-            found.map(|(path, status, version)| ServerProbe {
+            let Some((path, status, version)) = found else {
+                return Ok::<_, AppError>(None);
+            };
+            Ok(Some(ServerProbe {
                 lsp_id: entry.lsp_id.into(),
                 name: entry.lsp_id.into(),
                 description: "Existing installation (unsigned legacy metadata)".into(),
@@ -85,12 +88,11 @@ async fn discover() -> Result<Vec<ServerProbe>, AppError> {
                 downloadable: false,
                 initialization_options: serde_json::json!({}),
                 error: None,
-            })
+            }))
         }
     }))
     .await
     .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    Ok(entries)
+    .collect::<Result<Vec<_>, _>>()?;
+    Ok(entries.into_iter().flatten().collect())
 }

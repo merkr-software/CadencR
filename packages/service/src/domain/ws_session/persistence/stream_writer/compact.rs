@@ -36,7 +36,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&compact_boundary_event(Some(RuntimeCompactMetadata {
+            .persist_event_then_flush_due(&compact_boundary_event(Some(RuntimeCompactMetadata {
                 trigger: Some("auto".to_string()),
                 pre_tokens: Some(90_000),
             })))
@@ -71,7 +71,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&compact_boundary_event(None))
+            .persist_event_then_flush_due(&compact_boundary_event(None))
             .await
             .expect("persist runtime event");
 

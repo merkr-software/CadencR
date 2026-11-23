@@ -1,197 +1,168 @@
-use std::io::{Read, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::future::Future;
+use std::io::Write;
+use std::sync::{Arc, Mutex, OnceLock};
 
-use dashmap::DashMap;
-use portable_pty::Child;
-use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::{broadcast, mpsc, watch};
-use tracing::info;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
-use super::output::{publish_output, ScrollbackBuffer, Utf8Output};
-use super::PtyHandle;
+use crate::shared::discard::KeepFirst;
 
-/// Maximum queued write chunks per PTY before returning explicit backpressure.
-const WRITE_QUEUE_CHUNKS: usize = 256;
-/// Maximum total queued bytes per PTY (512 KiB) so huge pastes cannot grow
-/// memory without bound when a child stops reading stdin.
-const WRITE_QUEUE_MAX_BYTES: usize = 512 * 1024;
+/// Largest piece of one client write handed to the writer thread at a time.
+const WRITE_CHUNK_BYTES: usize = 4 * 1024;
+/// Queued pieces per PTY. With [`WRITE_CHUNK_BYTES`] this caps the bytes
+/// waiting in memory at 512 KiB however much a child refuses to read.
+const WRITE_QUEUE_CHUNKS: usize = 128;
 
-/// Bounded, non-blocking handle to a PTY's dedicated writer OS thread.
+/// Bounded handle to a PTY's dedicated writer OS thread.
 ///
 /// Writes are strictly FIFO: one channel feeds one `std::thread` that owns the
-/// blocking `MasterPty` writer exclusively. Calling [`Self::close`] (or dropping
-/// the last `PtyHandle`) drops the shared sender, exits the OS thread
-/// immediately, and closes the master writer off the Tokio runtime.
+/// blocking `MasterPty` writer exclusively, so a child that stops reading stdin
+/// blocks that thread, never a Tokio worker. A full queue makes [`Self::write`]
+/// wait asynchronously for room instead of refusing bytes; callers keep that
+/// wait off their socket's read loop (see `terminal::input`).
 #[derive(Clone)]
 pub struct PtyWriteQueue {
     tx: Arc<Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
-    queued_bytes: Arc<AtomicUsize>,
-    max_bytes: usize,
+    /// Fired by [`Self::close`] or when the writer thread stops, so writes
+    /// waiting for room fail at once instead of waiting forever.
+    closed: CancellationToken,
+    /// Why the writer thread stopped early (an `EIO` from the master, …).
+    failure: Arc<OnceLock<String>>,
+    /// Keeps each client write contiguous when two sockets share a PTY.
+    order: Arc<tokio::sync::Mutex<()>>,
+    chunk_bytes: usize,
 }
 
 impl PtyWriteQueue {
     pub(super) fn spawn(pty_id: &str, writer: Box<dyn Write + Send>) -> anyhow::Result<Self> {
-        Self::spawn_with_limits(pty_id, writer, WRITE_QUEUE_CHUNKS, WRITE_QUEUE_MAX_BYTES)
+        Self::spawn_with_limits(pty_id, writer, WRITE_CHUNK_BYTES, WRITE_QUEUE_CHUNKS)
     }
 
     fn spawn_with_limits(
         pty_id: &str,
         mut writer: Box<dyn Write + Send>,
+        chunk_bytes: usize,
         max_chunks: usize,
-        max_bytes: usize,
     ) -> anyhow::Result<Self> {
         let (tx, mut rx) = mpsc::channel::<Vec<u8>>(max_chunks);
-        let queued_bytes = Arc::new(AtomicUsize::new(0));
-        let queued_for_thread = Arc::clone(&queued_bytes);
-        let thread_name = format!("pty-write-{pty_id}");
+        let closed = CancellationToken::new();
+        let failure = Arc::new(OnceLock::new());
+        let thread_closed = closed.clone();
+        let thread_failure = Arc::clone(&failure);
 
         std::thread::Builder::new()
-            .name(thread_name)
+            .name(format!("pty-write-{pty_id}"))
             .spawn(move || {
                 while let Some(chunk) = rx.blocking_recv() {
-                    let len = chunk.len();
-                    let result = writer.write_all(&chunk);
-                    queued_for_thread.fetch_sub(len, Ordering::AcqRel);
-                    if result.is_err() {
+                    if thread_closed.is_cancelled() {
+                        break;
+                    }
+                    if let Err(error) = writer.write_all(&chunk) {
+                        thread_failure
+                            .keep_first(format!("writing to the terminal failed: {error}"));
                         break;
                     }
                 }
+                thread_closed.cancel();
+                // Dropping portable-pty's Unix writer sends "\n" + VEOF to the
+                // PTY. Only `close()` (called once the child has exited) or a
+                // failed write gets here, so no live shell can run that newline.
+                drop(writer);
             })
             .map_err(|error| anyhow::anyhow!("Failed to spawn PTY writer thread: {error}"))?;
 
         Ok(Self {
             tx: Arc::new(Mutex::new(Some(tx))),
-            queued_bytes,
-            max_bytes,
+            closed,
+            failure,
+            order: Arc::new(tokio::sync::Mutex::new(())),
+            chunk_bytes,
         })
     }
 
-    /// Drop the shared channel sender so the dedicated writer OS thread exits
-    /// immediately rather than idling during the post-exit scrollback grace window.
+    /// Stop the writer thread once the child has exited: writes waiting for
+    /// room fail, anything still queued is discarded (nothing reads it any
+    /// more), and the thread exits after its in-flight write.
+    ///
+    /// Never call this on a live child: the thread then drops the master
+    /// writer, which types "\n" + VEOF into the PTY.
     pub(super) fn close(&self) {
+        self.closed.cancel();
         let sender = self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
         drop(sender);
     }
 
-    /// Enqueue `data` without blocking. Returns an explicit backpressure error
-    /// if either the chunk limit or the byte budget is full, never silently
-    /// dropping bytes mid-stream.
-    pub(super) fn try_write(&self, data: &[u8]) -> anyhow::Result<()> {
-        if data.is_empty() {
-            return Ok(());
-        }
-        let tx = {
-            let guard = self.tx.lock().unwrap_or_else(|e| e.into_inner());
-            match guard.as_ref() {
-                Some(tx) if !tx.is_closed() => tx.clone(),
-                _ => anyhow::bail!("PTY writer closed"),
+    /// Queue `data` for the child, in order, waiting (asynchronously) for room
+    /// while the child is not reading. Resolves once every byte is queued, or
+    /// with the reason the PTY can no longer take input.
+    pub(crate) fn write(
+        &self,
+        data: Vec<u8>,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send + 'static {
+        let queue = self.clone();
+        async move {
+            if data.is_empty() {
+                return Ok(());
             }
-        };
-        let len = data.len();
-        let max_bytes = self.max_bytes;
-        let reserved =
-            self.queued_bytes
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                    let next = current.checked_add(len)?;
-                    (next <= max_bytes).then_some(next)
-                });
-        if reserved.is_err() {
-            anyhow::bail!("PTY input buffer full (backpressure)");
-        }
-        match tx.try_send(data.to_vec()) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) => {
-                self.queued_bytes.fetch_sub(len, Ordering::AcqRel);
-                anyhow::bail!("PTY input buffer full (backpressure)");
+            let _turn = tokio::select! {
+                biased;
+                () = queue.closed.cancelled() => return Err(queue.stopped_error()),
+                turn = Arc::clone(&queue.order).lock_owned() => turn,
+            };
+            let tx = queue.sender()?;
+            if data.len() <= queue.chunk_bytes {
+                // A keystroke fits in one piece: no copy.
+                return queue.send_chunk(&tx, data).await;
             }
-            Err(TrySendError::Closed(_)) => {
-                self.queued_bytes.fetch_sub(len, Ordering::AcqRel);
-                anyhow::bail!("PTY writer closed");
+            for chunk in data.chunks(queue.chunk_bytes) {
+                queue.send_chunk(&tx, chunk.to_vec()).await?;
             }
+            Ok(())
         }
     }
-}
 
-/// Persistent OS reader thread: reads PTY output, updates scrollback, and
-/// broadcasts to all WS subscribers without occupying Tokio's blocking pool.
-pub(super) fn spawn_reader_thread(
-    pty_id: &str,
-    mut reader: Box<dyn Read + Send>,
-    scrollback: Arc<Mutex<ScrollbackBuffer>>,
-    data_tx: broadcast::Sender<String>,
-) -> anyhow::Result<()> {
-    std::thread::Builder::new()
-        .name(format!("pty-read-{pty_id}"))
-        .spawn(move || {
-            let mut buf = [0u8; 4096];
-            let mut decoder = Utf8Output::default();
-            loop {
-                let n = match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => n,
-                    Err(_) => break,
-                };
-                publish_output(&scrollback, &data_tx, decoder.push(&buf[..n]));
-            }
-            publish_output(&scrollback, &data_tx, decoder.finish());
-        })
-        .map_err(|error| anyhow::anyhow!("Failed to spawn PTY reader thread: {error}"))?;
-    Ok(())
-}
+    /// Queue one piece, waiting for room unless the PTY stops taking input.
+    async fn send_chunk(&self, tx: &mpsc::Sender<Vec<u8>>, chunk: Vec<u8>) -> anyhow::Result<()> {
+        tokio::select! {
+            biased;
+            () = self.closed.cancelled() => Err(self.stopped_error()),
+            sent = tx.send(chunk) => sent.map_err(|_| self.stopped_error()),
+        }
+    }
 
-/// Persistent OS child-waiter thread: closes the writer thread immediately on
-/// exit, signals the `alive` channel, and schedules grace-period removal on the
-/// captured Tokio runtime (if any).
-pub(super) fn spawn_waiter_thread(
-    pty_id: String,
-    mut child: Box<dyn Child + Send + Sync>,
-    terminals: Arc<DashMap<String, Arc<PtyHandle>>>,
-    alive_tx: Arc<watch::Sender<Option<i32>>>,
-    write_queue: PtyWriteQueue,
-    runtime: Option<tokio::runtime::Handle>,
-) -> anyhow::Result<()> {
-    let thread_name = format!("pty-wait-{pty_id}");
-    std::thread::Builder::new()
-        .name(thread_name)
-        .spawn(move || {
-            let exit_code = match child.wait() {
-                Ok(status) => status.exit_code() as i32,
-                Err(_) => -1,
-            };
-            info!(pty_id = %pty_id, exit_code, "PTY child exited");
-            write_queue.close();
-            alive_tx.send_replace(Some(exit_code));
+    fn sender(&self) -> anyhow::Result<mpsc::Sender<Vec<u8>>> {
+        let guard = self.tx.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.as_ref() {
+            Some(tx) if !self.closed.is_cancelled() => Ok(tx.clone()),
+            _ => Err(self.stopped_error()),
+        }
+    }
 
-            if let Some(handle) = runtime {
-                handle.spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-                    terminals.remove(&pty_id);
-                    info!(pty_id = %pty_id, "PTY handle removed after grace period");
-                });
-            } else {
-                terminals.remove(&pty_id);
-            }
-        })
-        .map_err(|error| anyhow::anyhow!("Failed to spawn PTY waiter thread: {error}"))?;
-    Ok(())
+    fn stopped_error(&self) -> anyhow::Error {
+        match self.failure.get() {
+            Some(cause) => anyhow::anyhow!("Terminal input stopped: {cause}"),
+            None => anyhow::anyhow!("Terminal input closed: the process has exited"),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::mpsc as std_mpsc;
+    use std::time::Duration;
 
-    struct BlockingWriter {
-        started: std_mpsc::Sender<()>,
+    struct GatedWriter {
         release: std_mpsc::Receiver<()>,
         written: Arc<Mutex<Vec<u8>>>,
     }
 
-    impl Write for BlockingWriter {
+    impl Write for GatedWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let _ = self.started.send(());
-            let _ = self.release.recv();
+            // A test that drops its release sender is tearing down.
+            if self.release.recv().is_err() {
+                return Err(std::io::Error::other("test torn down"));
+            }
             self.written.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
         }
@@ -201,42 +172,103 @@ mod tests {
         }
     }
 
-    #[test]
-    fn write_queue_enforces_byte_budget_and_recovers_after_drain() {
-        let (started_tx, started_rx) = std_mpsc::channel();
+    #[tokio::test]
+    async fn a_write_larger_than_the_queue_waits_for_room_and_loses_nothing() {
         let (release_tx, release_rx) = std_mpsc::channel();
         let written = Arc::new(Mutex::new(Vec::new()));
-        let writer = BlockingWriter {
-            started: started_tx,
+        let writer = GatedWriter {
             release: release_rx,
             written: Arc::clone(&written),
         };
-        let queue = PtyWriteQueue::spawn_with_limits("test-budget", Box::new(writer), 16, 16)
+        // 4-byte pieces, 2 queued: the 64-byte write is 8x the queue.
+        let queue = PtyWriteQueue::spawn_with_limits("test-wait", Box::new(writer), 4, 2)
             .expect("spawn writer");
+        let payload: Vec<u8> = (0..64u8).collect();
+        let mut write = Box::pin(queue.write(payload.clone()));
 
-        // First write enters the writer thread and blocks inside `write()`.
-        queue.try_write(b"12345678").unwrap();
-        started_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("writer thread should start first write");
+        // The child is not reading: the write waits instead of failing.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut write)
+                .await
+                .is_err(),
+            "a full queue must make the write wait, not reject bytes"
+        );
 
-        // Second 8 bytes fit within the 16-byte budget; third triggers backpressure.
-        queue.try_write(b"abcdefgh").unwrap();
-        let err = queue
-            .try_write(b"Z")
-            .expect_err("exceeding byte budget must return backpressure");
-        assert!(err.to_string().contains("backpressure"), "{err}");
-
-        // Release both writes and verify exact FIFO bytes without the rejected byte.
-        release_tx.send(()).unwrap();
-        release_tx.send(()).unwrap();
-        drop(queue);
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while written.lock().unwrap().len() < 16 && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+        // The child starts reading: every byte arrives, in order.
+        for _ in 0..16 {
+            release_tx.send(()).unwrap();
         }
-        assert_eq!(*written.lock().unwrap(), b"12345678abcdefgh");
+        tokio::time::timeout(Duration::from_secs(2), write)
+            .await
+            .expect("write completes once the child drains")
+            .expect("no error");
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while written.lock().unwrap().len() < payload.len() && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(*written.lock().unwrap(), payload);
+    }
+
+    #[tokio::test]
+    async fn close_fails_a_write_that_is_waiting_for_room() {
+        let (_release_tx, release_rx) = std_mpsc::channel();
+        let writer = GatedWriter {
+            release: release_rx,
+            written: Arc::new(Mutex::new(Vec::new())),
+        };
+        let queue = PtyWriteQueue::spawn_with_limits("test-close-wait", Box::new(writer), 4, 1)
+            .expect("spawn writer");
+        let mut write = Box::pin(queue.write(vec![b'x'; 64]));
+        assert!(tokio::time::timeout(Duration::from_millis(50), &mut write)
+            .await
+            .is_err());
+
+        queue.close();
+        let error = tokio::time::timeout(Duration::from_secs(2), write)
+            .await
+            .expect("close wakes the waiting write")
+            .expect_err("a closed PTY takes no input");
+        assert!(error.to_string().contains("exited"), "{error}");
+    }
+
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::from_raw_os_error(libc::EIO))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_write_keeps_its_cause_for_later_writes() {
+        let queue = PtyWriteQueue::spawn_with_limits("test-eio", Box::new(FailingWriter), 4, 4)
+            .expect("spawn writer");
+        queue.write(b"first".to_vec()).await.expect("queued");
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let error = loop {
+            match queue.write(b"next".to_vec()).await {
+                Err(error) => break error,
+                Ok(()) if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                Ok(()) => panic!("the writer thread never reported its failure"),
+            }
+        };
+        let message = error.to_string();
+        assert!(
+            message.contains("writing to the terminal failed"),
+            "{message}"
+        );
+        assert!(
+            message.contains(&std::io::Error::from_raw_os_error(libc::EIO).to_string()),
+            "the original I/O error must be kept: {message}"
+        );
     }
 
     struct DropNotifyWriter {
@@ -256,29 +288,29 @@ mod tests {
     impl Drop for DropNotifyWriter {
         fn drop(&mut self) {
             if let Some(tx) = self.dropped.take() {
-                let _ = tx.send(());
+                tx.send(()).expect("test still listening");
             }
         }
     }
 
-    #[test]
-    fn close_exits_writer_thread_immediately_while_queue_is_held() {
+    #[tokio::test]
+    async fn close_exits_writer_thread_while_queue_clones_are_held() {
         let (dropped_tx, dropped_rx) = std_mpsc::channel();
         let writer = DropNotifyWriter {
             dropped: Some(dropped_tx),
         };
-        let queue = PtyWriteQueue::spawn_with_limits("test-close", Box::new(writer), 16, 1024)
+        let queue = PtyWriteQueue::spawn_with_limits("test-close", Box::new(writer), 16, 16)
             .expect("spawn writer");
         let queue_clone = queue.clone();
 
         queue.close();
 
         dropped_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("writer thread must exit and drop writer immediately after close()");
-
+            .recv_timeout(Duration::from_secs(2))
+            .expect("writer thread must exit and drop writer after close()");
         let err = queue_clone
-            .try_write(b"after-close")
+            .write(b"after-close".to_vec())
+            .await
             .expect_err("writes after close must fail");
         assert!(err.to_string().contains("closed"), "{err}");
     }

@@ -5,8 +5,8 @@ async fn prompt_queue_identity_preserves_legacy_rows_and_deduplicates_sources() 
     let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
     sqlx::raw_sql(
         "PRAGMA foreign_keys=ON;
-         CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY);
-         INSERT INTO agent_sessions VALUES (1), (2);",
+         CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL DEFAULT 1);
+         INSERT INTO agent_sessions (id) VALUES (1), (2);",
     )
     .execute(&pool)
     .await

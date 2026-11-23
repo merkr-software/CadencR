@@ -212,7 +212,7 @@ impl StreamReaderTask {
         true
     }
 
-    async fn runtime_is_current(&self) -> bool {
+    pub(super) async fn runtime_is_current(&self) -> bool {
         let Some(runtime) = self.runtime_session_handle.as_ref() else {
             return true;
         };

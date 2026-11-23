@@ -21,6 +21,7 @@
 //! up on the next refresh another change triggers. Read-only accesses never
 //! count, and a lost event queue rescans and refreshes everything.
 
+mod rules;
 mod tree;
 mod walk;
 
@@ -38,8 +39,10 @@ use notify_debouncer_mini::notify::{
 };
 use tracing::{debug, warn};
 
+pub use rules::GitIgnoreRules;
 pub(crate) use tree::Strategy;
 use tree::WatchTree;
+pub use walk::editor_tree_walker;
 
 use crate::shared::watch_limits::{describe_watch_error, is_watch_limit_error};
 
@@ -278,6 +281,7 @@ impl Maintenance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::process::Command;
 
     fn repo() -> (tempfile::TempDir, PathBuf) {
@@ -373,6 +377,26 @@ mod tests {
         assert!(changes_content(&EventKind::Any));
     }
 
+    /// Write `name` under `root` and collect every path reported up to the
+    /// batch holding it. Backends report in order, so a path changed before
+    /// the sentinel is in the result: no fixed wait to guess.
+    fn paths_through_sentinel(
+        root: &Path,
+        rx: &mpsc::Receiver<Vec<PathBuf>>,
+        name: &str,
+    ) -> Vec<PathBuf> {
+        let sentinel = root.join(name);
+        std::fs::write(&sentinel, name).unwrap();
+        let mut seen = Vec::new();
+        while !seen.contains(&sentinel) {
+            let batch = rx
+                .recv_timeout(Duration::from_secs(20))
+                .unwrap_or_else(|error| panic!("{name} never reported: {error}"));
+            seen.extend(batch);
+        }
+        seen
+    }
+
     /// inotify reports opens: before they were filtered, reading a watched
     /// file (as every `git status` reads `.git/index`) refreshed again,
     /// forever. FSEvents reports no reads, so this only bites on Linux.
@@ -388,16 +412,22 @@ mod tests {
             move |paths| tx.send(paths).unwrap(),
         )
         .unwrap();
-        // FSEvents replays the fixture's setup writes; let them pass.
-        std::thread::sleep(Duration::from_millis(500));
-        while rx.try_recv().is_ok() {}
+        // Whatever the fixture's setup still reports arrives before this.
+        paths_through_sentinel(&root, &rx, "before-reads");
         for _ in 0..5 {
             std::fs::read(root.join("src/lib.rs")).unwrap();
             std::fs::read_dir(root.join("src")).unwrap().for_each(drop);
             std::fs::read(root.join(".git/HEAD")).unwrap();
         }
-        let batch = rx.recv_timeout(Duration::from_millis(800));
-        assert!(batch.is_err(), "reads reached the callback: {batch:?}");
+        // The first sentinel's write may also report a later event (its
+        // close after writing) in a batch of its own.
+        let sentinels = [root.join("before-reads"), root.join("after-reads")];
+        let reported = paths_through_sentinel(&root, &rx, "after-reads");
+        let leaked: Vec<&PathBuf> = reported
+            .iter()
+            .filter(|path| !sentinels.contains(path))
+            .collect();
+        assert!(leaked.is_empty(), "reads reached the callback: {leaked:?}");
     }
 
     #[test]

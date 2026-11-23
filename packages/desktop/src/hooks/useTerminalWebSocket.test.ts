@@ -227,6 +227,23 @@ describe("useTerminalWebSocket", () => {
     expect(onError).toHaveBeenCalledWith("bad", "protocol");
   });
 
+  it("toasts undelivered input without treating it as a fatal terminal error", () => {
+    const onError = vi.fn();
+    renderAndConnect({ onError });
+    act(() => lastWs().simulateOpen());
+    act(() =>
+      lastWs().simulateMessage({
+        type: "input_error",
+        message: "Terminal input closed: the process has exited",
+      }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Terminal input was not delivered: Terminal input closed: the process has exited",
+      { id: "terminal-input-error" },
+    );
+  });
+
   it("sends write/resize/kill JSON when WS is open", () => {
     const { result } = renderAndConnect();
     act(() => lastWs().simulateOpen());

@@ -31,6 +31,14 @@ impl RuntimeStreamScope {
     pub fn for_event(event: &RuntimeEvent) -> Self {
         Self::new(event.session_id(), event.parent_tool_use_id())
     }
+
+    pub fn runtime_session_id(&self) -> Option<&str> {
+        self.runtime_session_id.as_deref()
+    }
+
+    pub fn parent_tool_use_id(&self) -> Option<&str> {
+        self.parent_tool_use_id.as_deref()
+    }
 }
 
 impl RuntimeEvent {

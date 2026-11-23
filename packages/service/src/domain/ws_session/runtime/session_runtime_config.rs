@@ -9,6 +9,10 @@ use super::default_permission_mode;
 pub(in crate::domain::ws_session) struct RuntimeSettingsContext<'a> {
     read_pool: &'a sqlx::SqlitePool,
     write_pool: &'a sqlx::SqlitePool,
+    /// Save a provider-selected default profile on a row that has none. Off
+    /// for `session.init`, which saves it only once its handle is installed.
+    #[builder(default = true)]
+    persist_default_profile: bool,
 }
 
 pub(in crate::domain::ws_session) async fn apply_provider_settings(
@@ -30,7 +34,7 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
         runtime_config.env_unset = profile.env_unset;
         runtime_config.profile_revision = Some(profile.revision);
         runtime_config.profile_state_identity = profile.state_identity;
-        if stored_profile.is_none() {
+        if stored_profile.is_none() && context.persist_default_profile {
             WsSessionPersistence::update_profile_static(
                 context.write_pool,
                 db_session_id,

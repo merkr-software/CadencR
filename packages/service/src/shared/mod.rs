@@ -45,6 +45,8 @@ pub(crate) mod test_dirs;
 pub mod test_env;
 #[cfg(all(test, unix))]
 pub mod test_processes;
+#[cfg(test)]
+pub(crate) mod test_query_plan;
 pub mod trash;
 pub mod user_shell;
 pub mod watch_limits;

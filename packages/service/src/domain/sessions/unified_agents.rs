@@ -160,84 +160,10 @@ async fn load_candidates(
 mod tests {
     use super::*;
 
+    /// The real migrated schema: hydration reads origins and names the todo
+    /// index, so a hand-written subset would drift from production.
     async fn setup_pool() -> SqlitePool {
-        let pool = SqlitePool::connect(":memory:").await.unwrap();
-        sqlx::query(
-            r#"CREATE TABLE projects (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL,
-                kind TEXT NOT NULL DEFAULT 'user'
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"CREATE TABLE features (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'active',
-                label TEXT,
-                created_at TEXT NOT NULL,
-                type TEXT NOT NULL,
-                is_pinned INTEGER NOT NULL DEFAULT 0
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"CREATE TABLE agent_sessions (
-                id INTEGER PRIMARY KEY,
-                feature_id INTEGER NOT NULL,
-                agent_type TEXT NOT NULL,
-                runtime_provider TEXT,
-                runtime_session_id TEXT,
-                status TEXT NOT NULL,
-                started_at TEXT,
-                ended_at TEXT,
-                subprocess_id TEXT,
-                model TEXT,
-                profile TEXT,
-                pending_questions TEXT,
-                has_file_changes INTEGER DEFAULT 0,
-                permission_mode TEXT,
-                codex_permission_mode TEXT DEFAULT 'default',
-                pending_permission TEXT,
-                input_tokens INTEGER,
-                output_tokens INTEGER,
-                context_window INTEGER,
-                was_compacted INTEGER DEFAULT 0,
-                draft_prompt TEXT,
-                message_revision INTEGER NOT NULL DEFAULT 0
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"CREATE TABLE agent_messages (
-                id INTEGER PRIMARY KEY,
-                session_id INTEGER NOT NULL,
-                message_uuid TEXT,
-                delivery_state TEXT,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                message_type TEXT NOT NULL,
-                tool_name TEXT,
-                tool_use_id TEXT,
-                parent_tool_use_id TEXT,
-                created_at TEXT,
-                model TEXT,
-                content_revision INTEGER NOT NULL DEFAULT 0
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        pool
+        crate::shared::test_query_plan::migrated_pool().await
     }
 
     #[tokio::test]
@@ -405,60 +331,44 @@ mod tests {
 
     #[tokio::test]
     async fn load_candidates_uses_session_created_index_on_migrated_db() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        crate::shared::migrate::run_migrations(
-            &crate::shared::migrate::MigrationContext::pool_only(&pool),
-        )
-        .await
-        .unwrap();
+        use crate::shared::test_query_plan::{assert_no_full_scan, migrated_pool, plan_details};
+        let pool = migrated_pool().await;
 
-        for mode in [UnifiedAgentsMode::All, UnifiedAgentsMode::Recent] {
+        for (mode, project_id) in [
+            (UnifiedAgentsMode::All, None),
+            (UnifiedAgentsMode::Recent, None),
+            (UnifiedAgentsMode::Recent, Some(1)),
+        ] {
             let query = UnifiedAgentsQuery {
                 mode,
                 fresh_minutes: 30,
-                project_id: None,
+                project_id,
                 message_limit: 10,
             };
             let explain_sql = format!("EXPLAIN QUERY PLAN {}", load_candidates_sql(&query));
             let mut q = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql));
+            if let Some(project_id) = project_id {
+                q = q.bind(project_id);
+            }
             if matches!(query.mode, UnifiedAgentsMode::Recent) {
                 q = q.bind("-30 minutes");
             }
-            let plan = q.fetch_all(&pool).await.unwrap();
-            let details = plan
-                .iter()
-                .map(|(_, _, _, detail)| detail.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let details = plan_details(&q.fetch_all(&pool).await.unwrap());
             assert!(
                 details.contains("idx_agent_messages_session_created"),
                 "expected idx_agent_messages_session_created seek:\n{details}"
             );
             assert!(
-                !details
-                    .lines()
-                    .any(|line| line.contains("SCAN m") || line.contains("SCAN agent_messages")),
-                "unexpected full scan of agent_messages:\n{details}"
+                details.contains("idx_agent_sessions_feature_id"),
+                "expected sessions to be reached per feature through idx_agent_sessions_feature_id:\n{details}"
             );
+            assert_no_full_scan(&details, &["candidates"]);
         }
     }
 
     #[tokio::test]
     async fn batched_unified_agents_matches_feature_agent_state_parity() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        crate::shared::migrate::run_migrations(
-            &crate::shared::migrate::MigrationContext::pool_only(&pool),
-        )
-        .await
-        .unwrap();
+        let pool = setup_pool().await;
 
         sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'p1', '/p1')")
             .execute(&pool)

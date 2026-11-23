@@ -254,23 +254,9 @@ pub(super) fn run_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<SubagentRun,
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
 
-    use crate::shared::migrate::{run_migrations, MigrationContext};
-
-    /// In-memory database with the real migrations applied.
-    pub async fn migrated_pool() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        run_migrations(&MigrationContext::pool_only(&pool))
-            .await
-            .unwrap();
-        pool
-    }
+    pub(crate) use crate::shared::test_query_plan::migrated_pool;
 
     /// A project, feature and session to hang runs and messages on.
     pub async fn seeded_session(pool: &SqlitePool) -> (i64, i64) {

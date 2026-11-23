@@ -430,7 +430,7 @@ async fn project_send_message_steers_targets_awaiting_user_resolution() {
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let message: (String, String) = sqlx::query_as(
-            "SELECT content, delivery_state FROM agent_messages WHERE session_id = 888",
+            "SELECT content, delivery_state FROM agent_messages WHERE session_id = 888 ORDER BY id LIMIT 1",
         )
         .fetch_one(&pool)
         .await

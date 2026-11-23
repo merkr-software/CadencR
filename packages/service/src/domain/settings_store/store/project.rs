@@ -2,7 +2,7 @@
 //! derives from the project name (see `paths::project_file`).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
 use tokio::sync::MutexGuard;
@@ -128,10 +128,7 @@ pub async fn project_rename(
     project_id: i64,
     new_name: &str,
 ) -> Result<ProjectSettingsRename, AppError> {
-    let mut rename = ProjectSettingsRename {
-        moved: None,
-        _guard: lock::write_lock().lock().await,
-    };
+    let guard = lock::write_lock().lock().await;
     // Resolve the settings dir on the calling thread before `spawn_blocking`
     // so `cfg(test)`'s thread-local test dir stays intact.
     let dir = dir::global_dir();
@@ -139,32 +136,27 @@ pub async fn project_rename(
     let from = paths::project_file_for_name(&dir, &old_name);
     let to = paths::project_file_for_name(&dir, new_name);
     if from == to {
-        return Ok(rename);
+        return Ok(ProjectSettingsRename {
+            moved: None,
+            _guard: guard,
+        });
     }
     let shared = paths::name_is_shared_for(pool, project_id, &old_name).await?;
     let from_owned = from.clone();
     let to_owned = to.clone();
-    let did_move = tokio::task::spawn_blocking(move || -> Result<bool, AppError> {
-        if !from_owned.exists() || to_owned.exists() {
-            return Ok(false);
-        }
-        let moved = if shared {
-            std::fs::copy(&from_owned, &to_owned).map(|_| ())
-        } else {
-            std::fs::rename(&from_owned, &to_owned)
-        };
-        moved.map_err(|e| {
-            AppError::internal(format!(
-                "failed to move project settings from {} to {}: {e}",
-                from_owned.display(),
-                to_owned.display()
-            ))
-        })?;
-        Ok(true)
+    // The guard rides along with the move and comes back with its result, so
+    // a dropped caller cannot free the lock while the file is being moved.
+    let (guard, did_move) = tokio::task::spawn_blocking(move || {
+        let moved = move_document(&from_owned, &to_owned, shared);
+        (guard, moved)
     })
     .await
-    .map_err(|error| AppError::internal(format!("settings rename task failed: {error}")))??;
-    if did_move {
+    .map_err(|error| AppError::internal(format!("settings rename task failed: {error}")))?;
+    let mut rename = ProjectSettingsRename {
+        moved: None,
+        _guard: guard,
+    };
+    if did_move? {
         cache::invalidate_path(&from);
         cache::invalidate_path(&to);
         if !shared {
@@ -172,6 +164,27 @@ pub async fn project_rename(
         }
     }
     Ok(rename)
+}
+
+/// Copy (when the old name is still in use) or move a project's settings
+/// document; `false` when there is nothing to carry or the target exists.
+fn move_document(from: &Path, to: &Path, shared: bool) -> Result<bool, AppError> {
+    if !from.exists() || to.exists() {
+        return Ok(false);
+    }
+    let moved = if shared {
+        std::fs::copy(from, to).map(|_| ())
+    } else {
+        std::fs::rename(from, to)
+    };
+    moved.map_err(|e| {
+        AppError::internal(format!(
+            "failed to move project settings from {} to {}: {e}",
+            from.display(),
+            to.display()
+        ))
+    })?;
+    Ok(true)
 }
 
 pub async fn project_read_for_edit(

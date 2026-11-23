@@ -1,14 +1,14 @@
 use super::super::send_runtime_session_id;
 use super::mcp_servers::mcp_servers_message_if_init;
-use super::stream_reader_background_agents::track_background_agents;
-use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
 use super::stream_reader_resume::runtime_allows_resume_persistence;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
+use super::stream_reader_task_event_phases::EventObservation;
 use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent};
 use crate::domain::runtime_stream::{capture_runtime_session_id, persist_usage};
 use crate::domain::ws_session::persistence::{TranscriptPersistenceError, WsSessionPersistence};
 use axum::extract::ws::Message;
 use tracing::{error, info};
+
 impl StreamReaderTask {
     /// Process one runtime event. A closed owner socket is no longer fatal:
     /// every send becomes best-effort because the agent must keep running on
@@ -23,14 +23,7 @@ impl StreamReaderTask {
         runtime_event: RuntimeEvent,
     ) {
         if runtime_event.mcp_servers_changed() {
-            if let Some(message) = super::mcp_servers::current_mcp_servers_message(
-                &self.sdk_sessions,
-                self.db_session_id,
-            )
-            .await
-            {
-                self.publish(message).await;
-            }
+            self.publish_current_mcp_servers().await;
             return;
         }
         state.last_runtime_activity = tokio::time::Instant::now();
@@ -45,118 +38,27 @@ impl StreamReaderTask {
         } else {
             None
         };
-        if runtime_event.is_result() {
-            let generation = self
-                .app_state
-                .active_turns
-                .current_generation(self.db_session_id)
-                .await;
-            if !state
-                .turn_state
-                .accepts_result_generation(runtime_event.is_detached_reply_end(), generation)
-            {
-                self.discard_stale_result(state, &runtime_event).await;
-                return;
-            }
-        }
-        // Provider-native token reports are recorded before any early return
-        // below. Context-window usage remains on the separate `usage_state`
-        // path and is never mistaken for consumption, except for a provider's
-        // explicit provider fallback.
-        self.capture_usage_attribution(state, &runtime_event).await;
-        self.capture_provider_usage_event_id(state, &runtime_event);
-        self.record_token_usage(state, &runtime_event).await;
-        if runtime_event.is_usage_accounting() {
+        if !self.accepts_result_event(state, &runtime_event).await {
             return;
         }
-        if runtime_event.is_result() {
-            state.usage_attribution = None;
-            state.usage_attribution_captured = false;
-            state.provider_usage_event_id = None;
-        }
-        let interrupted_generation = if runtime_event.is_result() {
-            self.take_interruption().await
-        } else {
-            None
+        let EventObservation::Continue {
+            interrupted_generation,
+        } = self.observe_runtime_event(state, &runtime_event).await
+        else {
+            return;
         };
-        self.reflect_reported_status(&runtime_event);
-        self.observe_reported_model(state, &runtime_event).await;
-        let had_background_agents = !state.live_background_agents.is_empty();
-        track_background_agents(&mut state.live_background_agents, &runtime_event);
-        if had_background_agents && state.live_background_agents.is_empty() {
-            self.end_background_only_stop(state).await;
-        }
-        self.track_subagents(state, &runtime_event, interrupted_generation.is_some())
-            .await;
-        if runtime_event.is_subagent_signal_only() {
-            return;
-        }
-        state
-            .runtime_hold
-            .observe(&runtime_event, !state.turn_state.is_between_turns());
-
-        match forward_immediate_event(self, state, &runtime_event).await {
-            // `prompt_received` / `commands.updated` / `stream_status` are
-            // transient UI acks that are never persisted. `SenderClosed` here
-            // means only the owner socket is gone — mirrored acks
-            // (`prompt_received`, `stream_status`) already reached other viewers
-            // before that send — so either outcome just continues the stream.
-            ForwardOutcome::Forwarded
-            | ForwardOutcome::SenderClosed
-            | ForwardOutcome::Suppressed => return,
-            ForwardOutcome::NotHandled => {}
-        }
-
         if self
-            .handle_permission_request(runtime_adapter, persistence, &runtime_event)
+            .handle_before_persistence(state, runtime_adapter, persistence, &runtime_event)
             .await
         {
             return;
         }
-
-        self.capture_runtime_session_id(state, runtime_adapter, &runtime_event)
-            .await;
-        // MCP-server snapshots only go to the owner socket; if it is gone, skip
-        // and keep streaming the rest of the turn.
-        self.send_mcp_servers_if_init(&runtime_event).await;
-
-        if runtime_event.provider_error().is_some()
-            || runtime_event.unknown_message().is_some()
-            || runtime_event.result_error().is_some()
+        if self
+            .surface_event_errors(state, persistence, &runtime_event, interrupted_generation)
+            .await
         {
-            self.flush_all_pending_deltas(persistence, false).await;
-        }
-
-        if self.handle_provider_error(&runtime_event).await {
-            state
-                .turn_state
-                .mark_error_surfaced(runtime_event.parent_tool_use_id());
             return;
         }
-
-        if self.handle_unknown_message(&runtime_event).await {
-            state
-                .turn_state
-                .mark_error_surfaced(runtime_event.parent_tool_use_id());
-            return;
-        }
-
-        // A turn-ending error result is surfaced but must NOT short-circuit —
-        // the result still has to flow through the turn-complete path below.
-        // Suppressed when an error already surfaced this turn (issue #78).
-        if interrupted_generation.is_none()
-            && self
-                .surface_result_error(
-                    state.turn_state.has_error_surfaced_this_turn(),
-                    &runtime_event,
-                )
-                .await
-        {
-            state
-                .turn_state
-                .mark_error_surfaced(runtime_event.parent_tool_use_id());
-        }
-
         if self.handle_non_result_signal(state, &runtime_event).await {
             return;
         }
@@ -177,7 +79,7 @@ impl StreamReaderTask {
         }
     }
 
-    async fn capture_runtime_session_id(
+    pub(super) async fn capture_runtime_session_id(
         &self,
         state: &mut StreamReaderState,
         adapter: Option<&dyn AgentRuntimeAdapter>,
@@ -216,7 +118,7 @@ impl StreamReaderTask {
         send_runtime_session_id(&self.sender, persisted_sid.as_str());
     }
 
-    async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) {
+    pub(super) async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) {
         let message =
             mcp_servers_message_if_init(&self.sdk_sessions, self.db_session_id, runtime_event)
                 .await;
@@ -343,8 +245,11 @@ impl StreamReaderTask {
             self.publish(Message::Text(String::from(envelope).into()))
                 .await;
         }
-        // Flush coalesced text/thinking deltas after forwarding the live WS
-        // frame so token delivery never blocks on periodic SQLite updates.
+        // Write the deltas whose flush window has passed only after this
+        // frame went out, so the frame itself never waits on SQLite. The write
+        // still runs on this task: the next event waits for it (at most one
+        // UPDATE per block per window), which keeps writes in stream order
+        // and their failures on this event's durability path.
         self.flush_due_deltas(persistence).await;
     }
 

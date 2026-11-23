@@ -12,6 +12,8 @@ use crate::domain::ws_session::runtime::session_runtime_config::RuntimeSettingsC
 
 pub(super) struct ResolvedProfileConfig {
     pub effective_profile: Option<String>,
+    /// The provider's default profile, to save on a row that had none.
+    pub default_profile: Option<String>,
     pub effective_model: Option<String>,
     pub effective_thinking_effort: Option<String>,
     pub profile_effective_fast_mode: Option<bool>,
@@ -78,6 +80,7 @@ pub(super) async fn resolve(
     let context = RuntimeSettingsContext::builder()
         .read_pool(&app_state.read_pool)
         .write_pool(&app_state.write_pool)
+        .persist_default_profile(false)
         .build();
     let profile = session_runtime_config::apply_provider_settings(
         &context,
@@ -131,6 +134,10 @@ pub(super) async fn resolve(
         effective_fast_mode = Some(effective.fast_mode);
     }
     Ok(ResolvedProfileConfig {
+        default_profile: selected_profile
+            .is_none()
+            .then(|| profile.clone())
+            .flatten(),
         effective_profile: profile,
         effective_model,
         effective_thinking_effort: effective_effort,

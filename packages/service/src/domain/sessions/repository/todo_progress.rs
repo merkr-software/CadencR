@@ -5,15 +5,19 @@
 use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::super::models::TodoProgress;
-use super::feature_state_fetch::fetch_latest_todos;
-use super::latest_todos_query::TODO_TOOL_NAMES_SQL;
+use super::latest_todos::fetch_latest_todos;
+use super::latest_todos_query::{TODO_TOOLS_INDEX, TODO_TOOL_NAMES_SQL};
 use crate::error::AppError;
 
+/// The feature's session whose last todo call is the most recent. `INDEXED BY`
+/// pins the one-row seek on the partial todo index (see [`TODO_TOOLS_INDEX`]);
+/// `MATERIALIZED` keeps SQLite from re-running the lookup for the filter and
+/// the sort.
 fn latest_todo_session_sql() -> String {
     format!(
-        "SELECT session_id FROM ( \
+        "WITH latest AS MATERIALIZED ( \
              SELECT s.id AS session_id, \
-                    (SELECT m.id FROM agent_messages m \
+                    (SELECT m.id FROM agent_messages m INDEXED BY {TODO_TOOLS_INDEX} \
                      WHERE m.session_id = s.id \
                        AND m.message_type = 'tool_call' \
                        AND m.tool_name IN {TODO_TOOL_NAMES_SQL} \
@@ -21,6 +25,7 @@ fn latest_todo_session_sql() -> String {
              FROM agent_sessions s \
              WHERE s.feature_id = ? \
          ) \
+         SELECT session_id FROM latest \
          WHERE last_todo_id IS NOT NULL \
          ORDER BY last_todo_id DESC LIMIT 1"
     )
@@ -138,16 +143,16 @@ mod tests {
 
     #[tokio::test]
     async fn latest_todo_progress_uses_partial_todo_index_on_migrated_db() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        crate::shared::migrate::run_migrations(
-            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        use crate::shared::test_query_plan::{
+            assert_no_full_scan, forge_index_stats, migrated_pool, plan_details,
+        };
+        let pool = migrated_pool().await;
+        forge_index_stats(
+            &pool,
+            "agent_messages",
+            super::super::latest_todos_query::PLAIN_INDEX_FAVOURED_STATS,
         )
-        .await
-        .unwrap();
+        .await;
 
         let explain_sql = format!("EXPLAIN QUERY PLAN {}", latest_todo_session_sql());
         let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
@@ -155,21 +160,23 @@ mod tests {
             .fetch_all(&pool)
             .await
             .unwrap();
-        let details = plan
-            .iter()
-            .map(|(_, _, _, detail)| detail.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let details = plan_details(&plan);
 
         assert!(
-            details.contains("idx_agent_messages_session_todo_tools"),
+            details.contains("USING INDEX idx_agent_messages_session_todo_tools (session_id=?)"),
             "expected partial index idx_agent_messages_session_todo_tools:\n{details}"
         );
-        assert!(
-            !details
-                .lines()
-                .any(|line| line.contains("SCAN agent_messages")),
-            "unexpected full scan of agent_messages:\n{details}"
+        assert_eq!(
+            details
+                .matches("idx_agent_messages_session_todo_tools")
+                .count(),
+            1,
+            "the lookup must run once per session, not again for the filter and sort:\n{details}"
         );
+        assert!(
+            details.contains("idx_agent_sessions_feature_id"),
+            "expected the feature's sessions through idx_agent_sessions_feature_id:\n{details}"
+        );
+        assert_no_full_scan(&details, &["latest"]);
     }
 }

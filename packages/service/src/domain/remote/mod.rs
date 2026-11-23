@@ -4,6 +4,7 @@
 
 pub mod models;
 pub mod repo;
+pub mod revocation;
 pub mod routes;
 pub mod tokens;
 

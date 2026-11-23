@@ -6,10 +6,11 @@ use tokio::sync::{broadcast, watch};
 use tracing::warn;
 
 mod output;
+mod threads;
 mod writer;
 pub use output::ScrollbackBuffer;
+use threads::{kill_and_reap, spawn_reader_thread, spawn_waiter_thread, WaiterParts};
 pub use writer::PtyWriteQueue;
-use writer::{spawn_reader_thread, spawn_waiter_thread};
 
 /// What a PTY is used for. Every PTY lives in the same `PtyManager` map keyed
 /// only by feature, so listing/killing "a feature's terminals" must filter on
@@ -142,11 +143,11 @@ impl PtyManager {
         let (data_tx, _) = broadcast::channel::<String>(256);
 
         // Clone a killer handle before moving child into the waiter thread.
-        let mut killer = child.clone_killer();
+        let killer = child.clone_killer();
         let write_queue = match PtyWriteQueue::spawn(&pty_id, writer) {
             Ok(queue) => queue,
             Err(error) => {
-                crate::shared::discard::cleanup(killer.kill(), "kill PTY after writer spawn error");
+                kill_and_reap(child, "kill PTY after writer spawn error");
                 return Err(error);
             }
         };
@@ -171,23 +172,22 @@ impl PtyManager {
         if let Err(error) =
             spawn_reader_thread(&pty_id, reader, Arc::clone(&handle.scrollback), data_tx)
         {
-            cleanup_failed_spawn(&handle, "kill PTY after reader spawn error");
+            abandon_spawn(&handle, child, "kill PTY after reader spawn error");
             return Err(error);
         }
 
         self.terminals.insert(pty_id.clone(), Arc::clone(&handle));
 
-        let runtime = tokio::runtime::Handle::try_current().ok();
-        if let Err(error) = spawn_waiter_thread(
-            pty_id.clone(),
-            child,
-            Arc::clone(&self.terminals),
-            Arc::clone(&handle.alive),
-            handle.write_queue.clone(),
-            runtime,
-        ) {
+        let waiter = WaiterParts {
+            pty_id: pty_id.clone(),
+            terminals: Arc::clone(&self.terminals),
+            alive_tx: Arc::clone(&handle.alive),
+            write_queue: handle.write_queue.clone(),
+            runtime: tokio::runtime::Handle::try_current().ok(),
+        };
+        if let Err((error, child)) = spawn_waiter_thread(waiter, child) {
             self.terminals.remove(&pty_id);
-            cleanup_failed_spawn(&handle, "kill PTY after waiter spawn error");
+            abandon_spawn(&handle, child, "kill PTY after waiter spawn error");
             return Err(error);
         }
 
@@ -203,9 +203,18 @@ impl PtyManager {
             .ok_or_else(|| anyhow::anyhow!("PTY not found: {pty_id}"))
     }
 
-    pub fn write_pty(&self, pty_id: &str, data: &[u8]) -> anyhow::Result<()> {
-        let handle = self.get_handle(pty_id)?;
-        handle.write_queue.try_write(data)
+    /// Queue client input for the PTY. The returned future waits (without
+    /// holding a Tokio worker) while the child is not reading, and fails only
+    /// when the PTY can no longer take input; callers report that failure.
+    pub fn write_pty(
+        &self,
+        pty_id: &str,
+        data: Vec<u8>,
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send + 'static {
+        let write = self
+            .get_handle(pty_id)
+            .map(|handle| handle.write_queue.write(data));
+        async move { write?.await }
     }
 
     pub fn resize_pty(&self, pty_id: &str, cols: u16, rows: u16) -> anyhow::Result<()> {
@@ -224,9 +233,12 @@ impl PtyManager {
         Ok(())
     }
 
+    /// Hang up the PTY's child. The input queue stays open until the waiter
+    /// thread sees the child exit: closing it now would drop the master
+    /// writer, whose Drop types "\n" + VEOF into the PTY while SIGHUP is still
+    /// in flight, and a shell would run the line the user had not submitted.
     pub fn kill_pty(&self, pty_id: &str) -> anyhow::Result<()> {
         let handle = self.get_handle(pty_id)?;
-        handle.write_queue.close();
         handle
             .killer
             .lock()
@@ -364,16 +376,11 @@ fn configure_pty_command(cmd: &mut CommandBuilder, cwd: &str) {
     cmd.env("COLORTERM", "truecolor");
 }
 
-fn cleanup_failed_spawn(handle: &PtyHandle, reason: &str) {
+/// Tear down a PTY whose setup failed after its writer thread started: reap
+/// the child first, so the writer's "\n" + VEOF reaches no live shell.
+fn abandon_spawn(handle: &PtyHandle, child: threads::PtyChild, reason: &str) {
+    kill_and_reap(child, reason);
     handle.write_queue.close();
-    crate::shared::discard::cleanup(
-        handle
-            .killer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .kill(),
-        reason,
-    );
 }
 
 #[cfg(test)]
@@ -598,8 +605,9 @@ mod tests {
         manager
             .write_pty(
                 &pty_id,
-                b"printf 'CADENCR_TEST_PTY_ENV=%s AUTH=%s\\n' \"$CADENCR_TEST_PTY_ENV\" \"${CADENCR_AUTH_TOKEN-unset}\"\nexit\n",
+                b"printf 'CADENCR_TEST_PTY_ENV=%s AUTH=%s\\n' \"$CADENCR_TEST_PTY_ENV\" \"${CADENCR_AUTH_TOKEN-unset}\"\nexit\n".to_vec(),
             )
+            .await
             .expect("write command to PTY");
 
         let saw_expected =
@@ -626,7 +634,11 @@ mod tests {
             .create_pty(1, &cwd, 80, 24)
             .expect("PTY should spawn in temp dir");
         manager
-            .write_pty(&pty_id, b"printf 'CADENCR_SHELL_ARG0=%s\\n' \"$0\"\nexit\n")
+            .write_pty(
+                &pty_id,
+                b"printf 'CADENCR_SHELL_ARG0=%s\\n' \"$0\"\nexit\n".to_vec(),
+            )
+            .await
             .expect("write command to PTY");
 
         let saw_login_shell =
@@ -684,33 +696,74 @@ mod tests {
         );
     }
 
+    /// Spawn `script` under `/bin/sh` and wait until it prints READY.
+    #[cfg(unix)]
+    async fn spawn_ready(manager: &PtyManager, script: &str) -> (String, Arc<PtyHandle>) {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", script]);
+        let (pty_id, handle) = manager
+            .create_pty_with_command(77, cmd, &temp_existing_dir(), 80, 24, PtyKind::Terminal)
+            .expect("spawn child");
+        assert!(
+            wait_for_scrollback(manager, &pty_id, "READY").await,
+            "child never became ready"
+        );
+        (pty_id, handle)
+    }
+
+    #[cfg(unix)]
+    fn sigkill_foreground(handle: &PtyHandle) {
+        let pid = handle.shell_process_group_leader.expect("foreground pid");
+        // SAFETY: plain signal delivery to a child this test spawned.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
-    async fn write_pty_backpressures_without_blocking_tokio_or_feature_ptys() {
+    async fn a_paste_larger_than_the_queue_reaches_the_child_intact() {
         let manager = PtyManager::new();
-        let cwd = temp_existing_dir();
-        let mut cmd = CommandBuilder::new("/bin/sh");
-        // Put the slave in raw mode before sleeping so neither macOS's
-        // MAX_CANON line-discipline discard nor echo drains stdin.
-        cmd.args(["-c", "stty raw -echo; printf 'READY\\n'; exec sleep 60"]);
-        let (pty_id, handle) = manager
-            .create_pty_with_command(77, cmd, &cwd, 80, 24, PtyKind::Terminal)
-            .expect("spawn non-reading child");
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("paste.bin");
+        let size = 1024 * 1024;
+        // Raw mode: no line discipline limit or echo between us and `head`.
+        let script = format!(
+            "stty raw -echo; printf 'READY\\n'; head -c {size} > '{}'; printf 'DONE\\n'",
+            out.display()
+        );
+        let (pty_id, _handle) = spawn_ready(&manager, &script).await;
 
-        let (initial, mut rx) = handle.subscribe_with_scrollback();
-        let mut ready_buf = initial;
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while !ready_buf.contains("READY") {
-                if let Ok(chunk) = rx.recv().await {
-                    ready_buf.push_str(&chunk);
-                }
-            }
-        })
+        let payload: Vec<u8> = (0..size).map(|i| b'a' + (i % 26) as u8).collect();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            manager.write_pty(&pty_id, payload.clone()),
+        )
         .await
-        .expect("non-reading child should become ready");
+        .expect("a 1 MiB paste must not hang")
+        .expect("a 1 MiB paste must be accepted, not dropped");
 
-        // Concurrent Tokio ticker proves the runtime never stalls while we
-        // flood a PTY whose child never drains stdin.
+        let mut done = false;
+        for _ in 0..500 {
+            if manager
+                .get_scrollback(&pty_id)
+                .is_some_and(|(_, output)| output.contains("DONE"))
+            {
+                done = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        manager.kill_all();
+        assert!(done, "the child never received the whole paste");
+        assert_eq!(std::fs::read(&out).unwrap(), payload);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_write_waiting_on_a_stalled_child_fails_once_it_is_killed() {
+        let manager = PtyManager::new();
+        let (pty_id, _handle) =
+            spawn_ready(&manager, "stty raw -echo; printf 'READY\\n'; exec sleep 60").await;
+
         let ticks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let ticks_task = Arc::clone(&ticks);
         let ticker = tokio::spawn(async move {
@@ -720,45 +773,62 @@ mod tests {
             }
         });
 
-        let chunk = vec![b'x'; 8 * 1024];
-        let start = std::time::Instant::now();
-        let mut total_accepted = 0usize;
-        let mut backpressure_err = None;
-        for _ in 0..256 {
-            match manager.write_pty(&pty_id, &chunk) {
-                Ok(()) => total_accepted += chunk.len(),
-                Err(error) => {
-                    backpressure_err = Some(error);
-                    break;
-                }
-            }
-            // Exercise DashMap + master lock concurrently with blocked writer.
-            let sessions = manager.feature_ptys(77);
-            assert_eq!(sessions.len(), 1);
-            tokio::task::yield_now().await;
-        }
-        let elapsed = start.elapsed();
-
-        let err = backpressure_err.expect("bounded queue must surface explicit backpressure");
+        let mut write = Box::pin(manager.write_pty(&pty_id, vec![b'x'; 2 * 1024 * 1024]));
         assert!(
-            err.to_string().contains("backpressure"),
-            "unexpected error: {err}"
+            tokio::time::timeout(std::time::Duration::from_millis(300), &mut write)
+                .await
+                .is_err(),
+            "input for a child that does not read must wait, not be dropped"
         );
-        assert!(
-            total_accepted > 64 * 1024,
-            "expected >64 KiB accepted before backpressure, got {total_accepted}"
-        );
-        assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "write_pty + feature_ptys should not block Tokio (took {elapsed:?})"
-        );
-
         tokio::time::timeout(std::time::Duration::from_secs(2), ticker)
             .await
-            .expect("concurrent Tokio ticker must complete promptly")
+            .expect("a waiting write must not stall the runtime")
             .unwrap();
         assert_eq!(ticks.load(std::sync::atomic::Ordering::Relaxed), 10);
 
+        manager.kill_pty(&pty_id).unwrap();
+        let error = tokio::time::timeout(std::time::Duration::from_secs(5), write)
+            .await
+            .expect("killing the child wakes the waiting write")
+            .expect_err("a dead child takes no input");
+        // Either the waiter closed the queue, or the in-flight write saw the
+        // hangup first (EIO on macOS); both name the real cause.
+        let message = error.to_string();
+        assert!(
+            message.contains("exited") || message.contains("writing to the terminal failed"),
+            "{message}"
+        );
+        manager.kill_all();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kill_pty_types_nothing_into_a_child_that_outlives_the_hangup() {
+        let manager = PtyManager::new();
+        // The child ignores SIGHUP and echoes every byte it reads (raw, no
+        // echo): anything the kill path types into the PTY shows up as output.
+        let (pty_id, handle) = spawn_ready(
+            &manager,
+            "trap '' HUP; stty raw -echo; printf 'READY\\n'; exec cat",
+        )
+        .await;
+        manager.write_pty(&pty_id, b"typed".to_vec()).await.unwrap();
+        assert!(wait_for_scrollback(&manager, &pty_id, "typed").await);
+
+        manager.kill_pty(&pty_id).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (_, output) = manager.get_scrollback(&pty_id).unwrap();
+        assert!(
+            !output.contains('\u{4}') && !output.contains("typed\n"),
+            "kill must not type a newline/EOF into the PTY: {output:?}"
+        );
+        manager
+            .write_pty(&pty_id, b"-still-open".to_vec())
+            .await
+            .expect("input stays open until the child actually exits");
+        assert!(wait_for_scrollback(&manager, &pty_id, "typed-still-open").await);
+
+        sigkill_foreground(&handle);
         manager.kill_all();
     }
 
@@ -787,7 +857,7 @@ mod tests {
 
         for i in 0..200 {
             let line = format!("line-{i:03}\n");
-            manager.write_pty(&pty_id, line.as_bytes()).unwrap();
+            manager.write_pty(&pty_id, line.into_bytes()).await.unwrap();
         }
 
         tokio::time::timeout(std::time::Duration::from_secs(5), async {

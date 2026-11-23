@@ -6,7 +6,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::agents::runtime_adapter;
 use crate::domain::workflow::worktree;
-use tracing::{info, warn};
+use tracing::info;
 mod binding;
 mod effort;
 mod fast_mode;
@@ -16,6 +16,7 @@ mod mode;
 mod profile;
 mod provider;
 mod restore;
+mod writes;
 
 /// Handle session.init: DB-driven session creation.
 pub(super) async fn handle_init(
@@ -63,6 +64,10 @@ pub(super) async fn handle_init(
             return None;
         }
     };
+
+    // This viewer receives the live stream from now on, but its history was
+    // read before: have a running reader re-send its live blocks' full text.
+    crate::domain::ws_session::stream_readers::request_live_catch_up(db_session_id);
 
     let sdk_sessions = app_state
         .session_runtimes
@@ -145,6 +150,11 @@ pub(super) async fn handle_init(
     else {
         return Some(db_session_id);
     };
+    // Saved only once this init's handle is installed (see `writes`).
+    let mut writes = writes::InitWrites {
+        effort_anchor: effort::anchor(row.as_ref(), effective_thinking_effort.as_deref()),
+        ..Default::default()
+    };
     let init_input_tokens = row.as_ref().and_then(|r| r.input_tokens);
     let init_output_tokens = row.as_ref().and_then(|r| r.output_tokens);
     let init_context_window = row.as_ref().and_then(|r| r.context_window);
@@ -189,11 +199,11 @@ pub(super) async fn handle_init(
         mode: permission_mode,
         wire: effective_permission_mode_wire,
         warning: permission_mode_warning,
+        persist: persist_permission_mode,
     }) = mode::prepare()
         .app_state(app_state)
         .sender(sender)
         .ref_id(&envelope.id)
-        .session_id(db_session_id)
         .adapter(&*adapter)
         .cwd(&runtime_config.cwd)
         .maybe_requested(payload.permission_mode.as_deref())
@@ -204,6 +214,7 @@ pub(super) async fn handle_init(
         return Some(db_session_id);
     };
     runtime_config.permission_mode = permission_mode;
+    writes.permission_mode = persist_permission_mode;
     runtime_config.validate_restored_permission_mode =
         permission_mode_warning.is_some() && effective_permission_mode_wire.is_some();
     let initial = (initial_provider.as_str(), configured_initial_access_mode);
@@ -251,6 +262,7 @@ pub(super) async fn handle_init(
     };
     let profile::ResolvedProfileConfig {
         effective_profile,
+        default_profile,
         effective_model: resolved_model,
         effective_thinking_effort: resolved_effort,
         profile_effective_fast_mode,
@@ -258,7 +270,8 @@ pub(super) async fn handle_init(
     } = profile_config;
     effective_model = resolved_model;
     effective_thinking_effort = resolved_effort;
-    let mut effective_fast_mode = match fast_mode::resolve(
+    writes.default_profile = default_profile;
+    let (mut effective_fast_mode, clear_fast_mode) = fast_mode::resolve(
         app_state,
         fast_mode::RestoreFastModeOptions {
             db_session_id,
@@ -269,20 +282,8 @@ pub(super) async fn handle_init(
             stored_fast_mode,
         },
     )
-    .await
-    {
-        Ok(enabled) => enabled,
-        Err(error) => {
-            warn!(db_session_id, %error, "failed to normalize restored fast mode");
-            send_error(
-                sender,
-                &envelope.id,
-                "DB_ERROR",
-                "Failed to restore fast mode",
-            );
-            return Some(db_session_id);
-        }
-    };
+    .await;
+    writes.clear_fast_mode = clear_fast_mode;
     effective_fast_mode = fast_mode::profile_effective_or_legacy(
         inherits_profile_config,
         profile_effective_fast_mode,
@@ -290,39 +291,17 @@ pub(super) async fn handle_init(
     );
     runtime_config.fast_mode = effective_fast_mode;
 
-    let persisted = if let Some(row) = inherited {
-        row.persist_inherited_controls(&app_state.write_pool).await
-    } else {
-        WsSessionPersistence::update_runtime_selection_static()
-            .pool(&app_state.write_pool)
-            .session_id(db_session_id)
-            .runtime_provider(&effective_provider)
-            .maybe_model(effective_model.as_deref())
-            .maybe_initial_overrides(
-                (inherits_profile_config
-                    && row.as_ref().is_none_or(|r| r.runtime_overrides.is_none()))
-                .then_some(&runtime_config.overrides),
-            )
-            .clear_thinking_effort(cleared_unsupported_effort)
-            .call()
-            .await
-            .map_err(crate::error::AppError::from)
-    };
-    if let Err(error) = persisted {
-        warn!(
-            db_session_id,
-            runtime_provider = %effective_provider,
-            %error,
-            "failed to persist session runtime selection"
-        );
-        send_error(
-            sender,
-            &envelope.id,
-            "DB_ERROR",
-            "Failed to persist session runtime selection",
-        );
-        return Some(db_session_id);
-    }
+    writes.selection = Some(match inherited {
+        Some(row) => writes::SelectionWrite::Inherited(Box::new(row.clone())),
+        None => writes::SelectionWrite::Resolved {
+            provider: effective_provider.clone(),
+            model: effective_model.clone(),
+            initial_overrides: (inherits_profile_config
+                && row.as_ref().is_none_or(|r| r.runtime_overrides.is_none()))
+            .then(|| runtime_config.overrides.clone()),
+            clear_thinking_effort: cleared_unsupported_effort,
+        },
+    });
 
     info!(
         db_session_id,
@@ -356,9 +335,12 @@ pub(super) async fn handle_init(
         supports_prompt_receipts: adapter.supports_prompt_receipts(),
         prompt_receipts_at_submission: adapter.prompt_receipts_at_submission(),
     };
-    binding
-        .initialize(row.as_ref(), Some((handle, pending_payload)))
-        .await;
+    let pending = binding::PendingInit {
+        handle,
+        payload: pending_payload,
+        writes,
+    };
+    binding.initialize(row.as_ref(), Some(pending)).await;
     mode::report_warning(sender, &envelope.id, permission_mode_warning);
     Some(db_session_id)
 }

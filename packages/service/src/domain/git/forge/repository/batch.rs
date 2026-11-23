@@ -1,9 +1,20 @@
-//! Batched target resolution for [`super::active_feature_targets`].
+//! Forge target resolution: the one implementation behind both the poller's
+//! [`super::active_feature_targets`] and the per-feature
+//! [`super::resolve_feature_target`] of the HTTP routes, so the two cannot
+//! disagree about a feature's branch or remote.
 //!
-//! Loads active features, project paths, settings, and linked branches in two
-//! SQL queries, probes Git (`list_worktrees` + `detect_origin_remote`) once per
+//! Loads features, project paths, settings, and linked branches in two SQL
+//! queries, probes Git (`list_worktrees` + `detect_origin_remote`) once per
 //! unique project, and runs all filesystem canonicalization / `WorktreeRoots`
-//! matching inside `tokio::task::spawn_blocking`.
+//! matching inside `tokio::task::spawn_blocking`. The rules match
+//! [`crate::domain::git::feature_dir`] (a recorded worktree counts only while
+//! it is a live, registered copy of the project) and
+//! [`crate::domain::git::service::select_feature_branch`].
+//!
+//! The remote is read once per project, from the repository configuration
+//! every worktree shares (`git remote add` run inside a linked worktree
+//! writes there too). Per-worktree overrides (`extensions.worktreeConfig`)
+//! are not consulted.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -52,14 +63,48 @@ pub(super) enum ProjectGitInfo {
     },
 }
 
+/// Which features to resolve.
+#[derive(Clone, Copy)]
+enum Scope {
+    Active,
+    /// One feature, whatever its status.
+    Feature(i64),
+}
+
+impl Scope {
+    /// Bound to `?1`: `NULL` selects every active feature.
+    fn feature_id(self) -> Option<i64> {
+        match self {
+            Self::Active => None,
+            Self::Feature(feature_id) => Some(feature_id),
+        }
+    }
+}
+
 pub(super) async fn active_feature_targets(
     pool: &SqlitePool,
 ) -> Result<Vec<FeatureForgeTarget>, AppError> {
-    active_feature_targets_with_probe(pool, &inspect_project_git).await
+    targets_with_probe(pool, Scope::Active, &inspect_project_git).await
 }
 
-async fn active_feature_targets_with_probe<F, Fut>(
+/// Resolve one feature. Failures are reported on the target, like the
+/// poller reports them.
+pub(super) async fn feature_target(pool: &SqlitePool, feature_id: i64) -> FeatureForgeTarget {
+    match targets_with_probe(pool, Scope::Feature(feature_id), &inspect_project_git).await {
+        Ok(mut targets) => targets
+            .pop()
+            .unwrap_or_else(|| failed_target(feature_id, no_repository(feature_id))),
+        Err(error) => failed_target(feature_id, error.to_string()),
+    }
+}
+
+fn no_repository(feature_id: i64) -> String {
+    AppError::NotFound(format!("No repository found for feature {feature_id}")).to_string()
+}
+
+async fn targets_with_probe<F, Fut>(
     pool: &SqlitePool,
+    scope: Scope,
     probe: &F,
 ) -> Result<Vec<FeatureForgeTarget>, AppError>
 where
@@ -78,10 +123,11 @@ where
          LEFT JOIN feature_settings fs
            ON fs.feature_id = f.id
           AND fs.key IN ('worktree_path', 'worktree_branch', 'feature_branch')
-         WHERE f.status = 'active'
+         WHERE (?1 IS NULL AND f.status = 'active') OR f.id = ?1
          GROUP BY f.id, p.path
          ORDER BY f.id",
     )
+    .bind(scope.feature_id())
     .fetch_all(pool)
     .await?;
 
@@ -93,9 +139,11 @@ where
         "SELECT fb.feature_id, fb.branch, fb.pr_number, fb.pr_state
          FROM feature_branches fb
          JOIN features f ON f.id = fb.feature_id
-         WHERE f.status = 'active' AND fb.unlinked_at IS NULL
+         WHERE ((?1 IS NULL AND f.status = 'active') OR f.id = ?1)
+           AND fb.unlinked_at IS NULL
          ORDER BY fb.feature_id, fb.last_seen_at DESC, fb.id DESC",
     )
+    .bind(scope.feature_id())
     .fetch_all(pool)
     .await?;
 
@@ -112,11 +160,7 @@ where
     for row in feature_rows {
         let linked = linked_by_feature.remove(&row.id).unwrap_or_default();
         let Some(project_path) = row.project_path else {
-            results.push(failed_target(
-                row.id,
-                AppError::NotFound(format!("No repository found for feature {}", row.id))
-                    .to_string(),
-            ));
+            results.push(failed_target(row.id, no_repository(row.id)));
             continue;
         };
         by_project
@@ -441,7 +485,7 @@ mod tests {
         .unwrap();
 
         let probe_calls = Arc::new(AtomicUsize::new(0));
-        let targets = active_feature_targets_with_probe(&pool, &|project_path| {
+        let targets = targets_with_probe(&pool, Scope::Active, &|project_path| {
             let probe_calls = Arc::clone(&probe_calls);
             async move {
                 probe_calls.fetch_add(1, Ordering::SeqCst);
@@ -488,5 +532,190 @@ mod tests {
         assert_eq!(t3.tracked.len(), 1);
         assert_eq!(t3.tracked[0].name, "main");
         assert!(!t3.tracked[0].linked);
+    }
+
+    /// A repository committed on `main`, without remotes.
+    fn init_repo_with_origin(repo: &Path) {
+        std::fs::create_dir_all(repo).unwrap();
+        run_git(repo, &["init", "-q", "-b", "main"]);
+        run_git(repo, &["config", "user.email", "t@t"]);
+        run_git(repo, &["config", "user.name", "T"]);
+        run_git(repo, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+        run_git(repo, &["add", "."]);
+        run_git(repo, &["commit", "-q", "-m", "init"]);
+    }
+
+    async fn insert_feature(pool: &SqlitePool, id: i64, settings: &[(&str, &str)]) {
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status) VALUES (?, 1, 't', 'active')",
+        )
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+        for (key, value) in settings {
+            sqlx::query("INSERT INTO feature_settings (feature_id, key, value) VALUES (?, ?, ?)")
+                .bind(id)
+                .bind(key)
+                .bind(value)
+                .execute(pool)
+                .await
+                .unwrap();
+        }
+    }
+
+    fn summary(target: &FeatureForgeTarget) -> (Option<String>, Vec<String>, Option<String>) {
+        (
+            target.branch.clone(),
+            target.tracked.iter().map(|b| b.name.clone()).collect(),
+            target
+                .remote
+                .as_ref()
+                .map(|r| format!("{}/{}", r.owner, r.repo)),
+        )
+    }
+
+    /// The HTTP routes' single-feature resolution and the poller's batch
+    /// agree on every edge case, because they are the same code.
+    #[tokio::test]
+    async fn single_feature_resolution_matches_the_batch_on_edge_cases() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        init_repo_with_origin(&repo);
+        let path = |name: &str| temp.path().join(name).to_str().unwrap().to_string();
+        // A remote added from inside a linked worktree lands in the shared
+        // repository config.
+        run_git(
+            &repo,
+            &["worktree", "add", "-q", "-b", "feature/live", &path("live")],
+        );
+        run_git(
+            &temp.path().join("live"),
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/demo.git",
+            ],
+        );
+        run_git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature/detached",
+                &path("detached"),
+            ],
+        );
+        run_git(
+            &temp.path().join("detached"),
+            &["checkout", "-q", "--detach"],
+        );
+        std::fs::create_dir(temp.path().join("unregistered")).unwrap();
+        run_git(&repo, &["branch", "fix/linked"]);
+        run_git(&repo, &["checkout", "-q", "fix/linked"]);
+
+        let pool = setup_pool().await;
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'demo', ?)")
+            .bind(repo.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (live, detached, gone, unregistered) = (
+            path("live"),
+            path("detached"),
+            path("gone"),
+            path("unregistered"),
+        );
+        insert_feature(
+            &pool,
+            1,
+            &[
+                ("worktree_path", &live),
+                ("worktree_branch", "feature/live"),
+            ],
+        )
+        .await;
+        insert_feature(
+            &pool,
+            2,
+            &[
+                ("worktree_path", &detached),
+                ("worktree_branch", "feature/detached"),
+            ],
+        )
+        .await;
+        insert_feature(
+            &pool,
+            3,
+            &[
+                ("worktree_path", &gone),
+                ("worktree_branch", "feature/gone"),
+            ],
+        )
+        .await;
+        insert_feature(
+            &pool,
+            4,
+            &[
+                ("worktree_path", &unregistered),
+                ("worktree_branch", "feature/residual"),
+            ],
+        )
+        .await;
+        insert_feature(&pool, 5, &[("feature_branch", "feature/from-branch")]).await;
+        sqlx::query(
+            "INSERT INTO feature_branches (feature_id, branch, origin) VALUES (5, 'fix/linked', 'observed')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let batch = active_feature_targets(&pool).await.unwrap();
+        let remote = Some("acme/demo".to_string());
+        let expected = [
+            (Some("feature/live"), vec!["feature/live"]),
+            // Detached HEAD in its own worktree: the recorded branch.
+            (Some("feature/detached"), vec!["feature/detached"]),
+            // Deleted or unregistered worktree: the recorded branch, not the
+            // project checkout.
+            (Some("feature/gone"), vec!["feature/gone"]),
+            (Some("feature/residual"), vec!["feature/residual"]),
+            // The project checkout is one of the feature's linked branches.
+            (
+                Some("fix/linked"),
+                vec!["fix/linked", "feature/from-branch"],
+            ),
+        ];
+        for (target, (branch, tracked)) in batch.iter().zip(expected) {
+            let single = feature_target(&pool, target.feature_id).await;
+            assert!(single.error.is_none(), "{:?}", single.error);
+            assert_eq!(
+                summary(&single),
+                summary(target),
+                "feature {}",
+                target.feature_id
+            );
+            assert_eq!(
+                summary(target),
+                (
+                    branch.map(str::to_string),
+                    tracked.into_iter().map(str::to_string).collect(),
+                    remote.clone()
+                ),
+                "feature {}",
+                target.feature_id
+            );
+        }
+        assert_eq!(batch.len(), 5);
+
+        let missing = feature_target(&pool, 99).await;
+        assert_eq!(
+            missing.error.as_deref(),
+            Some("Not found: No repository found for feature 99")
+        );
     }
 }

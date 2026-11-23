@@ -71,13 +71,27 @@ impl Listings {
 
 /// A walk that skips what Git ignores, and Git dirs. `.ignore` files are a
 /// ripgrep convention Git does not honor, so they are not read.
-fn gitignore_walker(root: &Path) -> WalkBuilder {
+pub(super) fn gitignore_walker(root: &Path) -> WalkBuilder {
     let mut walker = WalkBuilder::new(root);
     walker
         .hidden(false)
         .ignore(false)
         .parents(true)
         .follow_links(false)
+        .filter_entry(|entry| entry.file_name() != ".git");
+    walker
+}
+
+/// The walk behind the editor's file tree: [`gitignore_walker`] when ignored
+/// paths are left out, so the tree prunes exactly what the watch prunes;
+/// otherwise every path but Git dirs.
+pub fn editor_tree_walker(root: &Path, skip_ignored: bool) -> WalkBuilder {
+    if skip_ignored {
+        return gitignore_walker(root);
+    }
+    let mut walker = WalkBuilder::new(root);
+    walker
+        .standard_filters(false)
         .filter_entry(|entry| entry.file_name() != ".git");
     walker
 }

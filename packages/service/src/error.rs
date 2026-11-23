@@ -15,7 +15,9 @@ pub struct ErrorResponse {
     pub code: String,
 }
 
-#[derive(Debug)]
+/// `Clone` so a [`crate::shared::singleflight::Singleflight`] can hand every
+/// waiter the leader's error with its variant, code and origin intact.
+#[derive(Debug, Clone)]
 pub enum AppError {
     /// Unexpected database failure — a masked 500.
     DatabaseError(Detail),
@@ -109,6 +111,15 @@ impl From<sqlx::Error> for AppError {
     #[track_caller]
     fn from(err: sqlx::Error) -> Self {
         database::from_sqlx(err)
+    }
+}
+
+/// The search for a CLI could not finish: a Cadencr failure (masked 500),
+/// never "the CLI is not installed".
+impl From<cli_discovery::DiscoveryError> for AppError {
+    #[track_caller]
+    fn from(error: cli_discovery::DiscoveryError) -> Self {
+        AppError::internal(error.to_string())
     }
 }
 

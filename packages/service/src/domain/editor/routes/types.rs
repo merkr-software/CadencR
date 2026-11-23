@@ -129,6 +129,11 @@ pub struct ContentMatch {
 pub struct ContentSearchResponse {
     pub matches: Vec<ContentMatch>,
     pub truncated: bool,
+    /// Files left unsearched because they are larger than
+    /// `max_file_bytes`: a match inside them is not in `matches`.
+    pub skipped_large_files: u64,
+    /// The size above which a file is skipped.
+    pub max_file_bytes: u64,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]

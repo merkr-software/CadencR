@@ -61,31 +61,53 @@ pub fn lock_path_for_db(db_path: &Path) -> PathBuf {
     PathBuf::from(os)
 }
 
-/// Acquire an exclusive non-blocking OS advisory lock on `<db_path>.service.lock`.
+/// Acquire an exclusive non-blocking OS advisory lock on `<db_path>.service.lock`,
+/// next to the database's resolved location.
 pub fn acquire_db_lock(db_path: &Path) -> Result<DbLockGuard, StartupLockError> {
-    let lock_path = lock_path_for_db(db_path);
-    if let Some(parent) = lock_path.parent() {
+    let io_error = |path: &Path, source: std::io::Error| StartupLockError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    if let Some(parent) = db_path.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            secure_fs::create_missing_dirs(parent).map_err(|error| StartupLockError::Io {
-                path: lock_path.clone(),
-                source: into_io_error(error),
-            })?;
+            secure_fs::create_missing_dirs(parent)
+                .map_err(|error| io_error(&lock_path_for_db(db_path), into_io_error(error)))?;
         }
     }
+    let resolved =
+        resolve_db_path(db_path).map_err(|source| io_error(&lock_path_for_db(db_path), source))?;
+    let lock_path = lock_path_for_db(&resolved);
 
-    let file =
-        secure_fs::open_owner_only(&lock_path, true).map_err(|error| StartupLockError::Io {
-            path: lock_path.clone(),
-            source: into_io_error(error),
-        })?;
+    let file = secure_fs::open_owner_only(&lock_path, true)
+        .map_err(|error| io_error(&lock_path, into_io_error(error)))?;
 
     match file.try_lock() {
         Ok(()) => Ok(DbLockGuard { _file: file }),
         Err(TryLockError::WouldBlock) => Err(StartupLockError::WouldBlock { path: lock_path }),
-        Err(TryLockError::Error(source)) => Err(StartupLockError::Io {
-            path: lock_path,
-            source,
-        }),
+        Err(TryLockError::Error(source)) => Err(io_error(&lock_path, source)),
+    }
+}
+
+/// The database's real path, so a symlink, a relative path or a `..` detour
+/// to the same file all land on one lock. A database not created yet resolves
+/// through its directory and keeps its own name.
+fn resolve_db_path(db_path: &Path) -> std::io::Result<PathBuf> {
+    match std::fs::canonicalize(db_path) {
+        Ok(resolved) => Ok(resolved),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let name = db_path.file_name().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("database path has no file name: {}", db_path.display()),
+                )
+            })?;
+            let parent = match db_path.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => parent,
+                _ => Path::new("."),
+            };
+            Ok(std::fs::canonicalize(parent)?.join(name))
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -161,5 +183,39 @@ mod tests {
             ),
             "symlinked lock path must be rejected"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_the_same_database_shares_its_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("cadencr.db");
+        std::fs::write(&db_path, b"").unwrap();
+        let alias = dir.path().join("alias.db");
+        std::os::unix::fs::symlink(&db_path, &alias).unwrap();
+
+        let guard = acquire_db_lock(&db_path).expect("first acquire");
+        let err = acquire_db_lock(&alias).expect_err("the alias names the same database");
+        assert!(
+            matches!(err, StartupLockError::WouldBlock { .. }),
+            "{err:?}"
+        );
+        drop(guard);
+    }
+
+    #[test]
+    fn a_relative_detour_to_a_new_database_shares_its_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let direct = dir.path().join("fresh.db");
+        let detour = dir.path().join("sub").join("..").join("fresh.db");
+
+        let guard = acquire_db_lock(&direct).expect("first acquire");
+        let err = acquire_db_lock(&detour).expect_err("same file through `..`");
+        assert!(
+            matches!(err, StartupLockError::WouldBlock { .. }),
+            "{err:?}"
+        );
+        drop(guard);
     }
 }

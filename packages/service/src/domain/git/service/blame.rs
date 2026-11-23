@@ -40,14 +40,7 @@ async fn blame_file(project_root: &Path, relative: &str) -> Result<BlameResponse
     {
         return Ok(BlameResponse { lines: vec![] });
     }
-    let output = match crate::shared::git_cli::run_git_safe_background(
-        &["blame"],
-        &["--porcelain"],
-        &[relative],
-        project_root,
-    )
-    .await
-    {
+    let output = match blame_porcelain(project_root, relative).await {
         Ok(output) => output,
         // A file staged on a branch with no commit yet is tracked but has no
         // history to blame: an empty blame, not "no such ref: HEAD".
@@ -61,6 +54,20 @@ async fn blame_file(project_root: &Path, relative: &str) -> Result<BlameResponse
     };
     let lines = parse_blame_porcelain(&output);
     Ok(BlameResponse { lines })
+}
+
+/// `git blame --porcelain` of `relative`. No deadline: blaming an old file of
+/// a long history legitimately takes minutes, and a killed blame is lost work
+/// the next editor open would redo. The request owns the read: it dies with it.
+async fn blame_porcelain(project_root: &Path, relative: &str) -> Result<String, AppError> {
+    crate::shared::git_cli::run_git_safe_background_within(
+        &["blame"],
+        &["--porcelain"],
+        &[relative],
+        project_root,
+        crate::shared::git_cli::GitReadDeadline::Unbounded,
+    )
+    .await
 }
 
 /// `true` iff `relative` is tracked by the git repo rooted at `cwd`.
@@ -186,6 +193,31 @@ mod tests {
             assert!(s.success());
         }
         assert!(is_path_tracked(&repo, "a.txt").await.unwrap());
+    }
+
+    /// Blaming an old file of a long history takes as long as it takes: no
+    /// deadline may cut it short. A `textconv` driver stands in for the slow
+    /// history walk; the paused clock makes any deadline fire at once.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_blame_is_never_cut_short() {
+        let (_dir, repo) = init_test_repo("repo").await;
+        std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join(".gitattributes"), "*.txt diff=slow\n").unwrap();
+        for args in [
+            vec!["add", "."],
+            vec!["commit", "-q", "-m", "a"],
+            vec!["config", "diff.slow.textconv", "sleep 1; cat"],
+        ] {
+            let status = Command::new("git")
+                .args(&args)
+                .current_dir(&repo)
+                .status()
+                .await
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+        let blame = blame_porcelain(&repo, "a.txt").await.unwrap();
+        assert_eq!(parse_blame_porcelain(&blame).len(), 2);
     }
 
     #[tokio::test]

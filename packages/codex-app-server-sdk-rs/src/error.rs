@@ -8,6 +8,10 @@ pub enum SdkError {
     CliNotFound { searched: Vec<PathBuf> },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// The search for the `codex` binary could not finish; unlike
+    /// `CliNotFound`, the CLI may well be installed.
+    #[error(transparent)]
+    Discovery(#[from] cli_discovery::DiscoveryError),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("request timed out: {0}")]

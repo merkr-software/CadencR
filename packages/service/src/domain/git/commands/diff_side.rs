@@ -11,7 +11,7 @@ use crate::shared::git_cli::{
     run_git_safe_refs_background_bounded, BoundedGitOutput,
 };
 
-use super::util::read_file_prefix;
+use super::util::{format_bytes, read_file_prefix};
 
 mod batch;
 pub(super) use batch::read_side_for_batch;
@@ -334,11 +334,19 @@ fn ensure_file_size(len: u64, max_bytes: usize) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Refusal code for a file side past the read cap, the counterpart of
+/// `DIFF_TOO_LARGE` for file contents.
+pub const FILE_TOO_LARGE: &str = "FILE_TOO_LARGE";
+
 fn oversized_file_error(max_bytes: usize) -> AppError {
-    AppError::BadRequest(format!(
-        "File exceeds {} MB size limit",
-        max_bytes / (1024 * 1024)
-    ))
+    AppError::coded(
+        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+        FILE_TOO_LARGE,
+        format!(
+            "File exceeds the {} display limit",
+            format_bytes(max_bytes as u64)
+        ),
+    )
 }
 
 #[cfg(test)]

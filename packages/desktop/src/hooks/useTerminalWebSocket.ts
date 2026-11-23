@@ -25,6 +25,10 @@ import {
 // drops via sonner — sonner dedupes by `id` so a stream of keystrokes
 // against a frozen WS produces one toast, not a flood.
 const TERMINAL_DROPPED_TOAST_ID = "terminal-write-dropped";
+// Input the backend accepted over the socket but could not hand to the PTY
+// (process exited, write failed, too much pending). Sonner dedupes by id, so
+// repeated failures show one toast instead of one per keystroke.
+const TERMINAL_INPUT_ERROR_TOAST_ID = "terminal-input-error";
 
 // Debounce window for the "drop → force reconnect" recovery loop. A single
 // stuck WS will drop every keystroke until it self-closes — without a
@@ -86,12 +90,19 @@ interface TerminalMessageError {
   message: string;
 }
 
+/** Input the PTY could not take; the terminal itself stays usable. */
+interface TerminalMessageInputError {
+  type: "input_error";
+  message: string;
+}
+
 type TerminalMessage =
   | TerminalMessageData
   | TerminalMessageReady
   | TerminalMessageExit
   | TerminalMessageReconnected
-  | TerminalMessageError;
+  | TerminalMessageError
+  | TerminalMessageInputError;
 
 export interface UseTerminalWebSocketOptions {
   featureId?: number;
@@ -203,6 +214,11 @@ function handleTerminalMessage(
         break;
       case "error":
         callbacks.onError(message.message, "protocol");
+        break;
+      case "input_error":
+        toast.error(`Terminal input was not delivered: ${message.message}`, {
+          id: TERMINAL_INPUT_ERROR_TOAST_ID,
+        });
         break;
     }
   } catch {

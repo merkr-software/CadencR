@@ -16,6 +16,9 @@ use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 use crate::domain::agents::adapter::RuntimeSessionWeakHandle;
 use crate::domain::usage_stats::health;
 
+mod signals;
+pub(crate) use signals::{ReaderSignals, TRANSCRIPT_SETTLE_TIMEOUT};
+
 #[allow(dead_code)] // Called by the service binary's shutdown module.
 pub(crate) const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -27,8 +30,10 @@ static READERS: LazyLock<Mutex<HashMap<u64, RegisteredReader>>> =
 struct RegisteredReader {
     #[allow(dead_code)] // Read during process shutdown.
     db_session_id: i64,
-    #[allow(dead_code)] // Read by the service binary's shutdown path.
+    /// Read by the service binary's shutdown path and by
+    /// [`wait_for_settled_transcript`].
     runtime: Option<RuntimeSessionWeakHandle>,
+    signals: ReaderSignals,
     task: JoinHandle<()>,
 }
 
@@ -38,14 +43,20 @@ fn readers() -> std::sync::MutexGuard<'static, HashMap<u64, RegisteredReader>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub(crate) fn spawn<F>(db_session_id: i64, runtime: Option<RuntimeSessionWeakHandle>, reader: F)
-where
+pub(crate) fn spawn<F>(
+    db_session_id: i64,
+    runtime: Option<RuntimeSessionWeakHandle>,
+    signals: ReaderSignals,
+    reader: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (start_tx, start_rx) = tokio::sync::oneshot::channel();
     let ledger_runtime = runtime.clone();
+    let settle_guard = signals.settle_on_drop();
     let task = tokio::spawn(async move {
+        let _settled = settle_guard;
         if start_rx.await.is_err() {
             return;
         }
@@ -66,10 +77,50 @@ where
         RegisteredReader {
             db_session_id,
             runtime,
+            signals,
             task,
         },
     );
     start_tx.send_ignore_closed(());
+}
+
+fn session_signals(db_session_id: i64) -> Vec<ReaderSignals> {
+    readers()
+        .values()
+        .filter(|entry| entry.db_session_id == db_session_id)
+        .map(|entry| entry.signals.clone())
+        .collect()
+}
+
+/// A viewer attached to `db_session_id`: ask its readers to re-send the full
+/// text of their live blocks. A viewer's history snapshot is read before its
+/// socket is bound and before buffered deltas reach the database, so without
+/// this the chunks in between are never shown (see `ws-session-resync.ts`).
+pub(crate) fn request_live_catch_up(db_session_id: i64) {
+    for signals in session_signals(db_session_id) {
+        signals.request_catch_up();
+    }
+}
+
+/// Wait until the reader of `runtime` has written its last transcript row (a
+/// closed runtime's reader flushes its buffered text as it ends), or until
+/// `timeout`. Returns whether it did; a runtime with no reader has nothing
+/// left to write.
+pub(crate) async fn wait_for_settled_transcript(
+    runtime: &RuntimeSessionWeakHandle,
+    timeout: Duration,
+) -> bool {
+    let tokens = readers()
+        .values()
+        .filter(|entry| {
+            entry
+                .runtime
+                .as_ref()
+                .is_some_and(|reader_runtime| reader_runtime.ptr_eq(runtime))
+        })
+        .map(|entry| entry.signals.settled_token())
+        .collect();
+    signals::wait_all_settled(tokens, timeout).await
 }
 
 async fn record_agent_process(

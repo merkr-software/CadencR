@@ -1,6 +1,13 @@
-//! `git diff` / `git diff --stat` orchestration plus the unified-diff
+//! `git diff` / `git diff --shortstat` orchestration plus the unified-diff
 //! emission for untracked files. Spans both `branch` and `worktree`/
 //! `uncommitted` modes; the ws/HTTP handlers pick the mode.
+//!
+//! - this module: the whole-tree diff and its stats;
+//! - [`file`]: one file's diff, the diff pane's per-row fetch;
+//! - [`commit`]: one commit's (or stash's) whole diff.
+//!
+//! Every diff is read with a byte cap and answers `413 DIFF_TOO_LARGE` past
+//! it, so a giant generated file cannot OOM or stall the service.
 
 use std::path::Path;
 
@@ -9,40 +16,65 @@ use axum::http::StatusCode;
 use crate::domain::git::models::GitStats;
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    bytes_to_string_lossy, guard_positionals, head_is_unborn, run_git_background,
-    run_git_background_bounded, run_git_safe_background, run_git_safe_background_bounded,
-    run_git_safe_refs_background_bounded, BoundedGitOutput,
+    bytes_to_string_lossy, guard_positionals, run_git_background, run_git_background_bounded,
+    run_git_safe_background_bounded, BoundedGitOutput,
 };
 use crate::shared::git_z;
 
-use super::stash::commit_diff;
 use super::untracked::{count_untracked_lines, synthesize_untracked_new_file_diff};
-use super::util::{branch_read_error, empty_tree, format_bytes, FirstParentDiff};
+use super::util::{branch_read_error, format_bytes};
 
-/// Hard ceiling on a single file's unified diff payload (10 MiB) so a giant
-/// tracked generated file cannot OOM or stall the service.
+mod commit;
+mod file;
+
+pub use commit::get_commit_diff;
+pub use file::get_file_diff;
+
+/// Public code of a diff refused for its size.
+pub const DIFF_TOO_LARGE: &str = "DIFF_TOO_LARGE";
+
+/// Ceiling on one file's unified diff (10 MiB).
 const MAX_FILE_DIFF_BYTES: usize = 10 * 1024 * 1024;
 
-/// Hard ceiling on an aggregate repository/commit unified diff (16 MiB).
+/// Ceiling on a whole-tree or whole-commit unified diff (16 MiB).
 const MAX_AGGREGATE_DIFF_BYTES: usize = 16 * 1024 * 1024;
 
-fn diff_too_large(max_bytes: usize) -> AppError {
-    let label = format_bytes(max_bytes as u64);
-    AppError::coded(
-        StatusCode::PAYLOAD_TOO_LARGE,
-        "DIFF_TOO_LARGE",
-        format!("Diff exceeds {label} display limit — open the file in the editor to inspect it"),
-    )
+/// What a refused diff covered, which decides where the user can look instead.
+#[derive(Clone, Copy, Debug)]
+enum DiffScope {
+    /// One file's diff: the editor still opens the file.
+    File,
+    /// Several files' diffs at once: each file still opens on its own.
+    Aggregate,
 }
 
-fn decode_bounded_diff(output: BoundedGitOutput, max_bytes: usize) -> Result<String, AppError> {
+fn diff_too_large(scope: DiffScope, max_bytes: usize) -> AppError {
+    let label = format_bytes(max_bytes as u64);
+    let message = match scope {
+        DiffScope::File => format!(
+            "Diff exceeds the {label} display limit — open the file in the editor to inspect it"
+        ),
+        DiffScope::Aggregate => format!(
+            "Combined diff exceeds the {label} display limit — open the files one at a time \
+             to inspect them"
+        ),
+    };
+    AppError::coded(StatusCode::PAYLOAD_TOO_LARGE, DIFF_TOO_LARGE, message)
+}
+
+fn decode_bounded_diff(
+    output: BoundedGitOutput,
+    scope: DiffScope,
+    max_bytes: usize,
+) -> Result<String, AppError> {
     match output {
         BoundedGitOutput::Bytes(bytes) => Ok(bytes_to_string_lossy(bytes)),
-        BoundedGitOutput::ExceededLimit => Err(diff_too_large(max_bytes)),
+        BoundedGitOutput::ExceededLimit => Err(diff_too_large(scope, max_bytes)),
     }
 }
 
-/// Parse git diff --stat summary line.
+/// Parse the `N files changed, I insertions(+), D deletions(-)` summary line
+/// that `git diff --shortstat` prints (and `--stat` ends with).
 pub(super) fn parse_stat_line(output: &str) -> GitStats {
     static STAT_RE: std::sync::LazyLock<regex_lite::Regex> = std::sync::LazyLock::new(|| {
         regex_lite::Regex::new(
@@ -82,7 +114,7 @@ async fn branch_diff(
     match run_git_safe_background_bounded(&["diff", &range], flags, &[], worktree_path, max_bytes)
         .await
     {
-        Ok(output) => decode_bounded_diff(output, max_bytes),
+        Ok(output) => decode_bounded_diff(output, DiffScope::Aggregate, max_bytes),
         Err(error) => Err(branch_read_error(worktree_path, branch, error).await),
     }
 }
@@ -96,6 +128,10 @@ async fn list_untracked(worktree_path: &Path) -> Result<String, AppError> {
 }
 
 /// Get git diff stats.
+///
+/// `--shortstat` prints the summary line alone: a `--stat` listing grows with
+/// the number of changed files, which the summary does not need, and could
+/// reach the diff size cap on a branch that rewrote a whole tree.
 pub async fn get_stats(
     worktree_path: &Path,
     mode: &str,
@@ -105,7 +141,7 @@ pub async fn get_stats(
         let stdout = branch_diff(
             worktree_path,
             target_branch,
-            &["--stat"],
+            &["--shortstat"],
             MAX_AGGREGATE_DIFF_BYTES,
         )
         .await?;
@@ -114,8 +150,8 @@ pub async fn get_stats(
 
     // Worktree mode: unstaged + staged + untracked
     let (unstaged, staged, untracked) = tokio::try_join!(
-        run_git_background(&["diff", "--stat"], worktree_path),
-        run_git_background(&["diff", "--cached", "--stat"], worktree_path),
+        run_git_background(&["diff", "--shortstat"], worktree_path),
+        run_git_background(&["diff", "--cached", "--shortstat"], worktree_path),
         list_untracked(worktree_path),
     )?;
 
@@ -159,17 +195,20 @@ async fn get_diff_with_limit(
         return branch_diff(worktree_path, target_branch, &[], max_bytes).await;
     }
 
-    // Worktree mode
+    // Worktree mode: a whole-tree dump, so unstaged (`diff`) and staged
+    // (`diff --cached`) are simply concatenated. A partially staged file gets
+    // two `diff --git` blocks here; the per-file diff folds them into one.
     let (unstaged, staged, untracked_list) = tokio::try_join!(
         run_git_background_bounded(&["diff"], worktree_path, max_bytes),
         run_git_background_bounded(&["diff", "--cached"], worktree_path, max_bytes),
         list_untracked(worktree_path),
     )?;
 
-    let mut result = decode_bounded_diff(unstaged, max_bytes)?;
-    let staged = decode_bounded_diff(staged, max_bytes)?;
+    let too_large = || diff_too_large(DiffScope::Aggregate, max_bytes);
+    let mut result = decode_bounded_diff(unstaged, DiffScope::Aggregate, max_bytes)?;
+    let staged = decode_bounded_diff(staged, DiffScope::Aggregate, max_bytes)?;
     if result.len().saturating_add(staged.len()) > max_bytes {
-        return Err(diff_too_large(max_bytes));
+        return Err(too_large());
     }
     result.push_str(&staged);
 
@@ -180,7 +219,7 @@ async fn get_diff_with_limit(
     for file in git_z::paths(&untracked_list) {
         if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await? {
             if result.len().saturating_add(block.len()) > max_bytes {
-                return Err(diff_too_large(max_bytes));
+                return Err(too_large());
             }
             result.push_str(&block);
         }
@@ -189,212 +228,14 @@ async fn get_diff_with_limit(
     Ok(result)
 }
 
-/// Get the unified diff for a single file. Same mode/ref semantics as
-/// [`get_diff`], scoped to `file_path` via a trailing `-- <path>` so the pane
-/// can load one file's patch at a time instead of the whole working-tree diff.
-pub async fn get_file_diff(
-    worktree_path: &Path,
-    mode: &str,
-    target_branch: Option<&str>,
-    commit_sha: Option<&str>,
-    file_path: &str,
-    old_file: Option<&str>,
-) -> Result<String, AppError> {
-    get_file_diff_with_limit(
-        worktree_path,
-        mode,
-        target_branch,
-        commit_sha,
-        file_path,
-        old_file,
-        MAX_FILE_DIFF_BYTES,
-    )
-    .await
-}
-
-async fn get_file_diff_with_limit(
-    worktree_path: &Path,
-    mode: &str,
-    target_branch: Option<&str>,
-    commit_sha: Option<&str>,
-    file_path: &str,
-    old_file: Option<&str>,
-    max_bytes: usize,
-) -> Result<String, AppError> {
-    // For a rename/copy, scope to BOTH the old and new paths so git's rename
-    // detection can pair them; otherwise just the one path.
-    let paths: Vec<&str> = match old_file {
-        Some(old) if old != file_path => vec![old, file_path],
-        _ => vec![file_path],
-    };
-
-    if let Some(sha) = commit_sha {
-        guard_positionals(&[sha])?;
-        let target = FirstParentDiff::of(worktree_path, sha).await?;
-        let args = [
-            &["diff-tree", "--no-commit-id", "--root", "-M", "-p"],
-            target.flags,
-            &target.revs(),
-        ]
-        .concat();
-        let diff = decode_bounded_diff(
-            run_git_safe_background_bounded(&args, &[], &paths, worktree_path, max_bytes).await?,
-            max_bytes,
-        )?;
-        if !diff.is_empty() {
-            return Ok(diff);
-        }
-        let Some(parent) = commit_diff::untracked_parent(worktree_path, sha).await? else {
-            return Ok(diff);
-        };
-        return decode_bounded_diff(
-            run_git_safe_background_bounded(
-                &["diff-tree", "--no-commit-id", "--root", "-p", &parent],
-                &[],
-                &paths,
-                worktree_path,
-                max_bytes,
-            )
-            .await?,
-            max_bytes,
-        );
-    }
-
-    if mode == "branch" {
-        let branch = target_branch.unwrap_or("main");
-        guard_positionals(&[branch])?;
-        let range = format!("{branch}...HEAD");
-        return match run_git_safe_background_bounded(
-            &["diff", &range],
-            &[],
-            &paths,
-            worktree_path,
-            max_bytes,
-        )
-        .await
-        {
-            Ok(output) => decode_bounded_diff(output, max_bytes),
-            Err(error) => Err(branch_read_error(worktree_path, branch, error).await),
-        };
-    }
-
-    let tracked = worktree_file_diff(worktree_path, &paths, max_bytes).await?;
-    if !tracked.is_empty() {
-        return Ok(tracked);
-    }
-
-    let new_only = [file_path];
-    let untracked = run_git_safe_background(
-        &["ls-files", "--others", "--exclude-standard", "-z"],
-        &[],
-        &new_only,
-        worktree_path,
-    )
-    .await?;
-    if git_z::paths(&untracked)
-        .iter()
-        .any(|path| path == file_path)
-    {
-        return Ok(
-            match synthesize_untracked_new_file_diff(worktree_path, file_path).await? {
-                Some(block) => block,
-                None => format!(
-                    "diff --git a/{file_path} b/{file_path}\nnew file mode 100644\nBinary files /dev/null and b/{file_path} differ\n"
-                ),
-            },
-        );
-    }
-
-    Ok(tracked)
-}
-
-/// `git diff HEAD -- <paths>`: staged and unstaged changes in one block. On a
-/// branch with no commit yet there is no `HEAD` to compare with, so the
-/// changes are read against the empty tree — the file a first `git add`
-/// staged is an addition, not a "bad revision".
-async fn worktree_file_diff(
-    worktree_path: &Path,
-    paths: &[&str],
-    max_bytes: usize,
-) -> Result<String, AppError> {
-    let error = match run_git_safe_background_bounded(
-        &["diff", "HEAD"],
-        &[],
-        paths,
-        worktree_path,
-        max_bytes,
-    )
-    .await
-    {
-        Ok(output) => return decode_bounded_diff(output, max_bytes),
-        Err(error) => error,
-    };
-    if !matches!(head_is_unborn(worktree_path).await, Ok(true)) {
-        // Git's own message says best why the diff failed.
-        return Err(error);
-    }
-    let tree = empty_tree(worktree_path).await?;
-    decode_bounded_diff(
-        run_git_safe_background_bounded(&["diff", &tree], &[], paths, worktree_path, max_bytes)
-            .await?,
-        max_bytes,
-    )
-}
-
-/// Get the diff for a specific commit.
-///
-/// One `diff-tree --root` call covers every commit shape the viewer can open:
-/// a root commit (no `sha^` to resolve), an ordinary commit, and a merge —
-/// which, via `FirstParentDiff`, includes stashes. A stash's untracked
-/// files are appended from its third parent, the only place they exist.
-pub async fn get_commit_diff(worktree_path: &Path, commit_sha: &str) -> Result<String, AppError> {
-    guard_positionals(&[commit_sha])?;
-    let target = FirstParentDiff::of(worktree_path, commit_sha).await?;
-    let revs = target.revs();
-    let args = [
-        &["diff-tree", "--no-commit-id", "--root", "-M", "-p"],
-        target.flags,
-    ]
-    .concat();
-    let (diff_output, untracked_parent) = tokio::try_join!(
-        run_git_safe_refs_background_bounded(
-            &args,
-            &[],
-            &revs,
-            worktree_path,
-            MAX_AGGREGATE_DIFF_BYTES,
-        ),
-        commit_diff::untracked_parent(worktree_path, commit_sha),
-    )?;
-    let mut diff = decode_bounded_diff(diff_output, MAX_AGGREGATE_DIFF_BYTES)?;
-
-    if let Some(parent) = untracked_parent {
-        let remaining = MAX_AGGREGATE_DIFF_BYTES.saturating_sub(diff.len());
-        let untracked = decode_bounded_diff(
-            run_git_safe_refs_background_bounded(
-                &["diff-tree", "--no-commit-id", "--root", "-p"],
-                &[],
-                &[&parent],
-                worktree_path,
-                remaining,
-            )
-            .await?,
-            MAX_AGGREGATE_DIFF_BYTES,
-        )?;
-        if diff.len().saturating_add(untracked.len()) > MAX_AGGREGATE_DIFF_BYTES {
-            return Err(diff_too_large(MAX_AGGREGATE_DIFF_BYTES));
-        }
-        diff.push_str(&untracked);
-    }
-    Ok(diff)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod test_support {
+    use std::path::Path;
     use std::process::Command;
 
-    fn git(args: &[&str], cwd: &Path) {
+    use crate::error::AppError;
+
+    pub(super) fn git(args: &[&str], cwd: &Path) {
         let status = Command::new("git")
             .args(args)
             .current_dir(cwd)
@@ -403,14 +244,14 @@ mod tests {
         assert!(status.success(), "git {args:?} failed");
     }
 
-    fn init_repo(root: &Path) {
+    pub(super) fn init_repo(root: &Path) {
         git(&["init", "-q", "-b", "main"], root);
         git(&["config", "user.email", "test@example.com"], root);
         git(&["config", "user.name", "Test"], root);
         git(&["config", "commit.gpgsign", "false"], root);
     }
 
-    async fn rev_parse(root: &Path, rev: &str) -> String {
+    pub(super) async fn rev_parse(root: &Path, rev: &str) -> String {
         crate::shared::git_cli::run_git(&["rev-parse", rev], root)
             .await
             .unwrap()
@@ -418,154 +259,12 @@ mod tests {
             .to_string()
     }
 
-    /// The per-file diff must scope to the requested path and fold staged +
-    /// unstaged edits into a single block, while ignoring every other file.
-    #[tokio::test]
-    async fn get_file_diff_scopes_to_one_file_and_folds_staged() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
-        std::fs::write(root.join("b.txt"), "keep\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "init"], root);
-
-        // a.txt: one staged edit + one unstaged edit; b.txt: untouched.
-        std::fs::write(root.join("a.txt"), "ONE\ntwo\n").unwrap();
-        git(&["add", "a.txt"], root);
-        std::fs::write(root.join("a.txt"), "ONE\nTWO\n").unwrap();
-
-        let diff = get_file_diff(root, "uncommitted", None, None, "a.txt", None)
-            .await
-            .unwrap();
-
-        assert!(diff.contains("diff --git a/a.txt b/a.txt"), "{diff}");
-        // Combined HEAD-vs-worktree yields both edited lines in one block…
-        assert!(diff.contains("+ONE"));
-        assert!(diff.contains("+TWO"));
-        // …with exactly one file header, and never touches b.txt.
-        assert_eq!(diff.matches("diff --git").count(), 1, "{diff}");
-        assert!(!diff.contains("b.txt"), "{diff}");
-    }
-
-    /// An untracked file has no HEAD/index entry, so it must be synthesized as
-    /// a new-file diff.
-    #[tokio::test]
-    async fn get_file_diff_synthesizes_untracked_new_file() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        std::fs::write(root.join("seed.txt"), "seed\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "init"], root);
-
-        std::fs::write(root.join("fresh.txt"), "hello\nworld\n").unwrap();
-
-        let diff = get_file_diff(root, "uncommitted", None, None, "fresh.txt", None)
-            .await
-            .unwrap();
-
-        assert!(diff.contains("new file mode"), "{diff}");
-        assert!(diff.contains("+hello"));
-        assert!(diff.contains("+world"));
-    }
-
-    /// An untracked *binary* file is surfaced by the changed-files list but
-    /// synthesis skips it — the per-file diff must still emit a binary marker so
-    /// the row shows the "Binary file" placeholder, not "No text hunks".
-    #[tokio::test]
-    async fn get_file_diff_marks_untracked_binary_file() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        std::fs::write(root.join("seed.txt"), "seed\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "init"], root);
-
-        // NUL byte in the head → git's binary heuristic; synthesis returns None.
-        std::fs::write(root.join("blob.bin"), [0u8, 159, 146, 150]).unwrap();
-
-        let diff = get_file_diff(root, "uncommitted", None, None, "blob.bin", None)
-            .await
-            .unwrap();
-        assert!(diff.contains("Binary files"), "{diff}");
-        assert!(diff.contains("b/blob.bin"), "{diff}");
-    }
-
-    /// A renamed file must be scoped with BOTH old and new paths so git's
-    /// rename detection fires — otherwise it's mis-reported as a whole-file
-    /// addition (`new file mode`) with contradictory numstat counts.
-    #[tokio::test]
-    async fn get_file_diff_detects_rename_with_old_path() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        std::fs::write(root.join("old.txt"), "l1\nl2\nl3\nl4\nl5\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "init"], root);
-
-        // Rename + a small edit so the file is similar enough to detect.
-        git(&["mv", "old.txt", "new.txt"], root);
-        std::fs::write(root.join("new.txt"), "l1\nl2\nCHANGED\nl4\nl5\n").unwrap();
-
-        // Passing the old path pairs the deletion with the addition → rename.
-        let diff = get_file_diff(root, "uncommitted", None, None, "new.txt", Some("old.txt"))
-            .await
-            .unwrap();
-        assert!(diff.contains("rename from old.txt"), "{diff}");
-        assert!(diff.contains("rename to new.txt"), "{diff}");
-        assert!(!diff.contains("new file mode"), "{diff}");
-
-        // Without the old path git only sees the new path and reports the whole
-        // file as a fresh addition — the exact regression we're guarding.
-        let no_old = get_file_diff(root, "uncommitted", None, None, "new.txt", None)
-            .await
-            .unwrap();
-        assert!(no_old.contains("new file mode"), "{no_old}");
-    }
-
-    /// The commit path (`commit_sha`) uses `diff-tree -M`, so it scopes to the
-    /// requested file, detects a rename against the parent, and — crucially —
-    /// surfaces git errors instead of a `sha^..sha` probe that swallowed them.
-    #[tokio::test]
-    async fn get_file_diff_commit_scopes_and_detects_rename() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        std::fs::write(root.join("old.txt"), "l1\nl2\nl3\nl4\nl5\n").unwrap();
-        std::fs::write(root.join("other.txt"), "untouched\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "init"], root);
-
-        git(&["mv", "old.txt", "new.txt"], root);
-        std::fs::write(root.join("new.txt"), "l1\nl2\nCHANGED\nl4\nl5\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "rename"], root);
-
-        let sha = rev_parse(root, "HEAD").await;
-
-        let diff = get_file_diff(root, "commit", None, Some(&sha), "new.txt", Some("old.txt"))
-            .await
-            .unwrap();
-        assert!(diff.contains("rename from old.txt"), "{diff}");
-        assert!(diff.contains("rename to new.txt"), "{diff}");
-        assert!(!diff.contains("other.txt"), "{diff}");
-
-        // A bad ref must surface as an error, not a silently-empty diff.
-        assert!(
-            get_file_diff(root, "commit", None, Some("deadbeef"), "new.txt", None)
-                .await
-                .is_err()
-        );
-    }
-
     /// Set up a repo with one stash holding a tracked edit and an untracked
     /// new file, and return `(repo, stash sha)`.
-    async fn repo_with_mixed_stash() -> (tempfile::TempDir, String) {
+    pub(super) async fn repo_with_mixed_stash() -> (tempfile::TempDir, String) {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = tmp.path();
         init_repo(root);
-        git(&["config", "commit.gpgsign", "false"], root);
         std::fs::write(root.join("tracked.txt"), "one\n").unwrap();
         git(&["add", "."], root);
         git(&["commit", "-q", "-m", "init"], root);
@@ -579,88 +278,26 @@ mod tests {
         (tmp, sha)
     }
 
-    /// A stash is a merge commit, so a plain `diff-tree` reports it as changing
-    /// nothing; and its untracked files live in a third parent the first-parent
-    /// diff can't see. Both halves must reach the per-file diff.
-    #[tokio::test]
-    async fn get_file_diff_covers_both_halves_of_a_stash() {
-        let (tmp, sha) = repo_with_mixed_stash().await;
-        let root = tmp.path();
-
-        let tracked = get_file_diff(root, "commit", None, Some(&sha), "tracked.txt", None)
-            .await
-            .unwrap();
-        assert!(tracked.contains("diff --git a/tracked.txt"), "{tracked}");
-        assert!(tracked.contains("+two"), "{tracked}");
-
-        let untracked = get_file_diff(root, "commit", None, Some(&sha), "sub/fresh.txt", None)
-            .await
-            .unwrap();
-        // A pure patch, like every other per-file diff: the untracked parent's
-        // own sha must not leak in as a leading commit-id line.
-        assert!(untracked.starts_with("diff --git"), "{untracked}");
-        assert!(untracked.contains("new file mode"), "{untracked}");
-        assert!(untracked.contains("+hello"), "{untracked}");
-        assert!(untracked.contains("+world"), "{untracked}");
-        // Scoped to the requested path only.
-        assert!(!untracked.contains("tracked.txt"), "{untracked}");
+    /// The public message of a `413 DIFF_TOO_LARGE`, or a panic.
+    pub(super) fn too_large_message(error: AppError) -> String {
+        match error {
+            AppError::Coded {
+                status,
+                code: super::DIFF_TOO_LARGE,
+                message,
+            } => {
+                assert_eq!(status, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+                message
+            }
+            other => panic!("expected DIFF_TOO_LARGE, got {other:?}"),
+        }
     }
+}
 
-    /// The aggregate commit diff must carry the same two halves, and stay a
-    /// pure patch (no leading commit-id line) for the parser downstream.
-    #[tokio::test]
-    async fn get_commit_diff_includes_stashed_untracked_files() {
-        let (tmp, sha) = repo_with_mixed_stash().await;
-        let root = tmp.path();
-
-        let diff = get_commit_diff(root, &sha).await.unwrap();
-        assert!(diff.starts_with("diff --git"), "{diff}");
-        assert!(diff.contains("diff --git a/tracked.txt"), "{diff}");
-        assert!(diff.contains("+two"), "{diff}");
-        assert!(diff.contains("diff --git a/sub/fresh.txt"), "{diff}");
-        assert!(diff.contains("+hello"), "{diff}");
-    }
-
-    /// The per-file commit diff is a pure patch, like every other per-file
-    /// diff: `diff-tree` given one commit otherwise prints its id first.
-    #[tokio::test]
-    async fn get_file_diff_of_a_root_commit_is_a_pure_patch() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        std::fs::write(root.join("first.txt"), "hello\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "root"], root);
-        let sha = rev_parse(root, "HEAD").await;
-
-        let diff = get_file_diff(root, "commit", None, Some(&sha), "first.txt", None)
-            .await
-            .unwrap();
-        assert!(diff.starts_with("diff --git"), "{diff}");
-        assert!(diff.contains("+hello"), "{diff}");
-    }
-
-    /// Ordinary commits keep their old behaviour: a root commit still diffs
-    /// against the empty tree, and a bad ref still errors instead of silently
-    /// returning an empty patch.
-    #[tokio::test]
-    async fn get_commit_diff_handles_root_commit_and_bad_ref() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let root = tmp.path();
-        init_repo(root);
-        git(&["config", "commit.gpgsign", "false"], root);
-        std::fs::write(root.join("first.txt"), "hello\n").unwrap();
-        git(&["add", "."], root);
-        git(&["commit", "-q", "-m", "root"], root);
-
-        let sha = rev_parse(root, "HEAD").await;
-
-        let diff = get_commit_diff(root, &sha).await.unwrap();
-        assert!(diff.contains("diff --git a/first.txt"), "{diff}");
-        assert!(diff.contains("+hello"), "{diff}");
-
-        assert!(get_commit_diff(root, "deadbeef").await.is_err());
-    }
+#[cfg(test)]
+mod tests {
+    use super::test_support::{git, init_repo, too_large_message};
+    use super::*;
 
     /// A missing target branch or an unreadable repository must fail the
     /// aggregate diff and its stats, not report a clean "0 files changed".
@@ -696,21 +333,41 @@ mod tests {
         assert!(get_diff(not_repo.path(), "worktree", None).await.is_err());
     }
 
-    /// The first file staged on a branch with no commit yet diffs as an
-    /// addition; there is no `HEAD` to compare with, and that is normal.
+    /// Both modes count from the summary line alone, staged and unstaged
+    /// edits plus untracked files in worktree mode.
     #[tokio::test]
-    async fn get_file_diff_reads_a_first_staged_file_as_an_addition() {
+    async fn stats_count_branch_and_worktree_changes() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = tmp.path();
         init_repo(root);
-        std::fs::write(root.join("draft.txt"), "hello\n").unwrap();
-        git(&["add", "draft.txt"], root);
+        std::fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&["add", "."], root);
+        git(&["commit", "-q", "-m", "init"], root);
+        git(&["checkout", "-q", "-b", "feature"], root);
+        std::fs::write(root.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        std::fs::write(root.join("b.txt"), "b\n").unwrap();
+        git(&["add", "."], root);
+        git(&["commit", "-q", "-m", "work"], root);
 
-        let diff = get_file_diff(root, "uncommitted", None, None, "draft.txt", None)
-            .await
-            .unwrap();
-        assert!(diff.contains("new file mode"), "{diff}");
-        assert!(diff.contains("+hello"), "{diff}");
+        let branch = get_stats(root, "branch", Some("main")).await.unwrap();
+        assert_eq!(
+            (branch.files_changed, branch.insertions, branch.deletions),
+            (2, 3, 0)
+        );
+
+        std::fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"], root);
+        std::fs::write(root.join("b.txt"), "changed\n").unwrap();
+        std::fs::write(root.join("c.txt"), "new\nfile\n").unwrap();
+        let worktree = get_stats(root, "worktree", None).await.unwrap();
+        assert_eq!(
+            (
+                worktree.files_changed,
+                worktree.insertions,
+                worktree.deletions
+            ),
+            (3, 3, 3)
+        );
     }
 
     #[test]
@@ -732,51 +389,25 @@ mod tests {
         assert_eq!(stats.deletions, 0);
     }
 
+    /// A refused whole-tree diff points at the per-file view, never at "the
+    /// file": there are many.
     #[tokio::test]
-    async fn tracked_diffs_exceeding_cap_fail_with_diff_too_large() {
+    async fn an_aggregate_diff_over_the_cap_is_refused_for_every_file() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = tmp.path();
         init_repo(root);
         std::fs::write(root.join("big.txt"), "seed\n").unwrap();
         git(&["add", "big.txt"], root);
         git(&["commit", "-q", "-m", "init"], root);
-
-        // Create a tracked diff comfortably over a 4 KiB test cap.
         std::fs::write(root.join("big.txt"), "line of text\n".repeat(1000)).unwrap();
 
-        let file_err =
-            get_file_diff_with_limit(root, "uncommitted", None, None, "big.txt", None, 4096)
+        let message = too_large_message(
+            get_diff_with_limit(root, "worktree", None, 4096)
                 .await
-                .unwrap_err();
-        assert!(
-            matches!(
-                file_err,
-                AppError::Coded {
-                    code: "DIFF_TOO_LARGE",
-                    ..
-                }
-            ),
-            "{file_err:?}"
+                .unwrap_err(),
         );
-
-        let agg_err = get_diff_with_limit(root, "worktree", None, 4096)
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(
-                agg_err,
-                AppError::Coded {
-                    code: "DIFF_TOO_LARGE",
-                    ..
-                }
-            ),
-            "{agg_err:?}"
-        );
-
-        // Normal production cap succeeds cleanly for the same diff.
-        let ok = get_file_diff(root, "uncommitted", None, None, "big.txt", None)
-            .await
-            .unwrap();
-        assert!(ok.contains("diff --git a/big.txt b/big.txt"));
+        assert!(message.starts_with("Combined diff exceeds"), "{message}");
+        assert!(!message.contains("the file in the editor"), "{message}");
+        assert!(get_diff(root, "worktree", None).await.is_ok());
     }
 }

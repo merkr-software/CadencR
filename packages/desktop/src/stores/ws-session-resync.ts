@@ -7,7 +7,10 @@
  *      was never applied (lost start envelope, or a start for a block type we
  *      couldn't render), it synthesises the block from the first surviving
  *      delta so this and every later chunk render. Repairs one in-flight block
- *      instantly with no DB round-trip.
+ *      instantly with no DB round-trip. When this socket (re)binds, the
+ *      backend reader also restates its live text/thinking blocks in full
+ *      (`content_block_snapshot`): the history snapshot was read before the
+ *      binding and the DB trails the stream by up to one flush window.
  *   2. Seq-gap detection       — mid-turn trigger. `trackStreamSeq` (below).
  *      Every `session.message` carries a per-stream monotonic `seq`; a skip
  *      means a whole envelope was dropped in transit. It reacts two ways:
@@ -348,8 +351,13 @@ function collectBlockTree(blocks: AgentBlockData[], into: Map<string, AgentBlock
 
 /**
  * Overwrite a held block's content with the persisted version when the DB has
- * strictly more of it (a lost delta always leaves the client behind, never
- * ahead — the backend persists before it forwards). Recurses into children and
+ * strictly more of it. This runs at turn end, once the backend has written
+ * every delta: it forwards text/thinking deltas before writing them (they are
+ * buffered for up to one flush window), so mid-turn the DB can be *behind*
+ * what was streamed, but by turn end a lost delta can only leave the client
+ * behind the DB. A viewer attaching mid-stream is caught up separately, by the
+ * reader's `content_block_snapshot` (`ws-message-processing-stream.ts`), since
+ * its history snapshot may lack text already streamed. Recurses into children and
  * grafts on any server children that never arrived (a lost `content_block_start`
  * under a task/tool parent), so a whole subtree isn't left missing. Returns the
  * original reference when nothing changed so React sees no-ops.

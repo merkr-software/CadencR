@@ -37,13 +37,14 @@ struct LeaderGuard<'a, K: Eq + Hash + Clone, V> {
 }
 
 impl<K: Eq + Hash + Clone, V> LeaderGuard<'_, K, V> {
+    /// Publish before freeing the slot: a caller arriving in between joins
+    /// this flight and gets its value instead of starting a second one. The
+    /// slot is still this flight's, since only its owner removes it.
     fn complete(mut self, value: V) {
-        {
-            let mut slots = self.owner.slots.lock().unwrap_or_else(|e| e.into_inner());
-            slots.remove(&self.key);
-        }
         if let Some(tx) = self.tx.take() {
             tx.send(Some(value)).ignore_closed();
+            let mut slots = self.owner.slots.lock().unwrap_or_else(|e| e.into_inner());
+            slots.remove(&self.key);
         }
     }
 }
@@ -225,5 +226,41 @@ mod tests {
 
         assert_eq!(waiter.await.unwrap(), 2);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// A leader whose work panics frees its slot while unwinding: a waiter
+    /// runs the work itself, and the key stays usable.
+    #[tokio::test]
+    async fn a_panicking_leader_frees_the_slot_for_a_waiter() {
+        let sf = Arc::new(Singleflight::<&str, usize>::new());
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+
+        let leader = tokio::spawn({
+            let (sf, started, release) = (sf.clone(), started.clone(), release.clone());
+            async move {
+                sf.run("k", || {
+                    let (started, release) = (started.clone(), release.clone());
+                    async move {
+                        started.notify_one();
+                        release.notified().await;
+                        panic!("leader work panicked");
+                    }
+                })
+                .await
+            }
+        });
+        started.notified().await;
+        let waiter = tokio::spawn({
+            let sf = sf.clone();
+            async move { sf.run("k", || async { 2 }).await }
+        });
+        tokio::task::yield_now().await;
+        release.notify_one();
+
+        assert!(leader.await.unwrap_err().is_panic());
+        assert_eq!(waiter.await.unwrap(), 2);
+        assert!(sf.slots.lock().unwrap().is_empty());
+        assert_eq!(sf.run("k", || async { 3 }).await, 3);
     }
 }

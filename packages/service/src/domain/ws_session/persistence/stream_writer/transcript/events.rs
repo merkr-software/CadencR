@@ -104,6 +104,14 @@ impl TranscriptWriter {
             self.transcript.finish_scope(&scope);
             self.pending_mergeable_blocks
                 .retain(|(row_scope, _), _| row_scope != &scope);
+            // A sub-agent scope gets no `Result` of its own: the turn's end
+            // retires its rows too, or every later catch-up restates them.
+            if runtime_event.parent_tool_use_id().is_none() {
+                self.cycle_text_rows.clear();
+            } else {
+                self.cycle_text_rows
+                    .retain(|(row_scope, _), _| row_scope != &scope);
+            }
             self.pending_delta_buffers
                 .retain(|(row_scope, _), _| row_scope != &scope);
             self.streamed_assistant_content.remove(&scope);
@@ -154,7 +162,7 @@ mod tests {
     };
 
     async fn buffer_pending_delta(p: &mut WsSessionPersistence, scope: &str, ptuid: Option<&str>) {
-        p.persist_runtime_event(&stream_event(
+        p.persist_event_then_flush_due(&stream_event(
             scope,
             ptuid,
             RuntimeStreamEvent::ContentBlockStart {
@@ -165,7 +173,7 @@ mod tests {
         .await
         .unwrap();
         // First delta flushes immediately; second delta stays coalesced in memory.
-        p.persist_runtime_event(&stream_event(
+        p.persist_event_then_flush_due(&stream_event(
             scope,
             ptuid,
             RuntimeStreamEvent::ContentBlockDelta {
@@ -175,7 +183,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        p.persist_runtime_event(&stream_event(
+        p.persist_event_then_flush_due(&stream_event(
             scope,
             ptuid,
             RuntimeStreamEvent::ContentBlockDelta {
@@ -241,7 +249,7 @@ mod tests {
 
         fail_statement(&pool, "UPDATE").await;
         let persisted = p
-            .persist_runtime_event(&user_tool_result_event("root", "tu-1", "ok"))
+            .persist_event_then_flush_due(&user_tool_result_event("root", "tu-1", "ok"))
             .await
             .expect("user tool_result must persist despite prior delta flush failure");
         assert!(
@@ -261,7 +269,7 @@ mod tests {
         assert_eq!(tool_results, 1);
 
         recover_database(&pool).await;
-        p.persist_runtime_event(&complete("root", vec![text("Hello world")]))
+        p.persist_event_then_flush_due(&complete("root", vec![text("Hello world")]))
             .await
             .unwrap();
         assert_eq!(
@@ -278,7 +286,7 @@ mod tests {
 
         fail_statement(&pool, "UPDATE").await;
         let persisted = p
-            .persist_runtime_event(&compact_boundary("root"))
+            .persist_event_then_flush_due(&compact_boundary("root"))
             .await
             .expect("compact boundary must persist despite prior delta flush failure");
         assert!(matches!(persisted, Some(PersistedEventRef::Message(_))));
@@ -310,7 +318,7 @@ mod tests {
 
         fail_statement(&pool, "UPDATE").await;
         let persisted = p
-            .persist_runtime_event(&tool_use_start("root", 1, "tu-tool"))
+            .persist_event_then_flush_due(&tool_use_start("root", 1, "tu-tool"))
             .await
             .expect("tool_call must persist despite prior delta flush failure");
         assert!(matches!(persisted, Some(PersistedEventRef::Message(_))));
@@ -345,7 +353,7 @@ mod tests {
         .unwrap();
 
         assert!(p
-            .persist_runtime_event(&tool_use_start("root", 1, "tu-lost"))
+            .persist_event_then_flush_due(&tool_use_start("root", 1, "tu-lost"))
             .await
             .is_err());
         assert_eq!(
@@ -361,7 +369,10 @@ mod tests {
         buffer_pending_delta(&mut p, "root", None).await;
 
         fail_statement(&pool, "UPDATE").await;
-        assert!(p.persist_runtime_event(&result("root")).await.is_err());
+        assert!(p
+            .persist_event_then_flush_due(&result("root"))
+            .await
+            .is_err());
         assert_eq!(
             p.take_transcript_status_change(false),
             Some(TranscriptPersistenceStatus::Failed)
@@ -376,7 +387,7 @@ mod tests {
 
         fail_statement(&pool, "UPDATE").await;
         let persisted = p
-            .persist_runtime_event(&user_tool_result_event("root", "tu-root", "ok"))
+            .persist_event_then_flush_due(&user_tool_result_event("root", "tu-root", "ok"))
             .await
             .expect("root user_message must persist when subagent delta flush fails");
         assert!(
@@ -401,7 +412,9 @@ mod tests {
                 parent_tool_use_id: Some("sub-1".into()),
             },
         );
-        p.persist_runtime_event(&subagent_complete).await.unwrap();
+        p.persist_event_then_flush_due(&subagent_complete)
+            .await
+            .unwrap();
         assert_eq!(
             p.take_transcript_status_change(false),
             Some(TranscriptPersistenceStatus::Recovered)

@@ -35,7 +35,9 @@ pub async fn find_active_device_hash(
 }
 
 /// Soft-delete a device. Returns true if a non-revoked row was revoked.
-pub async fn revoke_device(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
+/// Only [`super::revocation::revoke_device`] calls it: a revocation must also
+/// evict the device's cached token and close its live sockets.
+pub(super) async fn mark_revoked(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
     let result = sqlx::query(
         "UPDATE remote_devices SET revoked_at = datetime('now') \
          WHERE id = ? AND revoked_at IS NULL",
@@ -106,4 +108,25 @@ pub async fn recent_audit(
             created_at,
         })
         .collect())
+}
+
+/// A single-connection in-memory pool (so the schema is shared) holding only
+/// `remote_devices`, for tests.
+#[cfg(test)]
+pub(crate) async fn remote_devices_test_pool() -> SqlitePool {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("in-memory database");
+    sqlx::query(
+        "CREATE TABLE remote_devices (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+         token_hash TEXT NOT NULL UNIQUE, label TEXT, \
+         created_at TEXT NOT NULL DEFAULT (datetime('now')), \
+         last_seen_at TEXT, revoked_at TEXT)",
+    )
+    .execute(&pool)
+    .await
+    .expect("create remote device table");
+    pool
 }
