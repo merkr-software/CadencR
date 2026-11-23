@@ -5,6 +5,11 @@
  *
  * Callers that pre-format via `formatCombo` pass glyphs (`⌘`, `⇧`, `↵`) or
  * words (`Ctrl`, `Shift`); `kbd-key.tsx` resolves both spellings to one key.
+ *
+ * Every badge but the `modal` key cap is a hint and carries `data-kbd-hint`,
+ * which hides it wherever the primary pointer is touch (`touch-shell.css`). A
+ * wrapper that holds nothing but a hint carries the attribute too, so a flex
+ * row doesn't keep the gap of an empty child.
  */
 import { useIsTabFocused } from "@/hooks/useScopedHotkeys";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
@@ -31,6 +36,9 @@ const VARIANT_CLASSES = {
 
 type Variant = keyof typeof VARIANT_CLASSES;
 
+/** Spread on an element that only shows a keyboard hint: touch pointers hide it. */
+export const KBD_HINT_PROPS = { "data-kbd-hint": "" } as const;
+
 interface KbdShortcutProps {
   keys: string[];
   size?: "default" | "sm";
@@ -47,6 +55,11 @@ interface KbdShortcutProps {
    * while a free-text input is focused).
    */
   disabled?: boolean;
+  /**
+   * Keeps the badge on touch pointers: it answers a key the user just pressed
+   * (so a keyboard is there), or spells a character typed on any keyboard.
+   */
+  persistent?: boolean;
 }
 
 export function KbdShortcut({
@@ -55,22 +68,26 @@ export function KbdShortcut({
   variant,
   scope,
   disabled,
+  persistent = false,
 }: KbdShortcutProps) {
   const resolvedVariant = variant ?? (size === "sm" ? "inline-sm" : "inline");
   const className = VARIANT_CLASSES[resolvedVariant];
+  // The `modal` cap spells a key in a reference list (the shortcuts modal),
+  // which stays on touch; every other variant is a hint.
+  const hint = resolvedVariant !== "modal" && !persistent;
 
   if (disabled) {
     return <KbdPlaceholder className={className} />;
   }
   if (scope !== undefined) {
-    return <ScopedKbdShortcut keys={keys} className={className} scope={scope} />;
+    return <ScopedKbdShortcut keys={keys} className={className} scope={scope} hint={hint} />;
   }
-  return <KbdContent keys={keys} className={className} />;
+  return <KbdContent keys={keys} className={className} hint={hint} />;
 }
 
 function KbdPlaceholder({ className }: { className: string }) {
   return (
-    <kbd className={cn(className, "opacity-50")}>
+    <kbd {...KBD_HINT_PROPS} className={cn(className, "opacity-50")}>
       <span className="leading-none">-</span>
     </kbd>
   );
@@ -80,20 +97,28 @@ interface ScopedProps {
   keys: string[];
   className: string;
   scope: TabKind;
+  hint: boolean;
 }
 
 // Split into its own component so unscoped badges don't subscribe to the
 // feature-layout store on every render. Out of focus, the keys stay visible
 // but faded: a bare `-` on every unfocused card read as a rendering bug,
 // while faded keys still say "these work once you're in this pane".
-function ScopedKbdShortcut({ keys, className, scope }: ScopedProps) {
+function ScopedKbdShortcut({ keys, className, scope, hint }: ScopedProps) {
   const isActive = useIsTabFocused(scope);
-  return <KbdContent keys={keys} className={isActive ? className : cn(className, "opacity-35")} />;
+  return (
+    <KbdContent
+      keys={keys}
+      className={isActive ? className : cn(className, "opacity-35")}
+      hint={hint}
+    />
+  );
 }
 
 interface KbdContentProps {
   keys: string[];
   className: string;
+  hint: boolean;
 }
 
 /**
@@ -102,28 +127,27 @@ interface KbdContentProps {
  * always prefer this over hardcoding key tokens.
  */
 export function ResolvedShortcutHint({ shortcutId }: { shortcutId: ShortcutId }) {
-  const keys = useShortcutKeys(shortcutId);
-  return (
-    <span aria-hidden="true" className="shrink-0">
-      <KbdShortcut keys={keys} variant="hint" />
-    </span>
-  );
+  return <KeyboardOnlyShortcutHint keys={useShortcutKeys(shortcutId)} />;
 }
 
 /**
- * Hint for a button that also works without a keyboard (a dialog's Cancel /
- * submit). Hidden when the primary pointer is touch, where no key can trigger it.
+ * A hint badge in its own wrapper, beside a control that also works without a
+ * keyboard (a dialog's Cancel / submit, a menu row, a field's access key).
+ * Hidden when the primary pointer is touch, where no key can trigger it
+ * (`data-kbd-hint`, like every hint).
  */
 export function KeyboardOnlyShortcutHint({
   keys,
   disabled,
+  className,
 }: {
   keys: string[];
   /** Dimmed: the key doesn't act right now (a text field has the keyboard). */
   disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <span aria-hidden="true" className="shrink-0 pointer-coarse:hidden">
+    <span {...KBD_HINT_PROPS} aria-hidden="true" className={cn("shrink-0", className)}>
       <KbdShortcut keys={keys} variant="hint" disabled={disabled} />
     </span>
   );
@@ -148,9 +172,9 @@ export function ResolvedKbdChord({ shortcutId }: { shortcutId: ShortcutId }) {
   return <KbdChord keys={useShortcutKeys(shortcutId)} />;
 }
 
-function KbdContent({ keys, className }: KbdContentProps) {
+function KbdContent({ keys, className, hint }: KbdContentProps) {
   return (
-    <kbd className={className}>
+    <kbd {...(hint ? KBD_HINT_PROPS : undefined)} className={className}>
       {keys.map((k, i) => (
         <KbdKeyContent key={i} keyName={k} isMac={PLATFORM_IS_MAC} />
       ))}

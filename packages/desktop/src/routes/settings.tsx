@@ -123,7 +123,7 @@ function SettingsPage() {
             <div
               key={pageId}
               className={cn(
-                "mx-auto px-4 pt-4 pb-20 animate-in fade-in-0 duration-200 ease-out md:px-10 md:pt-10",
+                "mx-auto px-4 pt-4 pb-20 animate-in fade-in-0 duration-200 ease-out desktop:px-10 desktop:pt-10",
                 wide ? "max-w-[1120px]" : "max-w-[800px]",
               )}
             >
@@ -151,7 +151,7 @@ function SettingsPageHeader({ onBack }: { onBack: () => void }): React.JSX.Eleme
   const { t } = useUiTranslation();
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
-    <header className="titlebar-drag flex min-h-11 shrink-0 items-center gap-3 border-b border-border px-4 md:px-6">
+    <header className="titlebar-drag flex min-h-11 shrink-0 items-center gap-3 border-b border-border px-4 desktop:px-6">
       <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
       <h1 className="min-w-0 flex-1 text-sm font-semibold">
         {t("settings.nav.title", "Settings")}

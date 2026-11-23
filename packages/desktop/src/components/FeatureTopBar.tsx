@@ -247,7 +247,7 @@ function FeatureHeaderChrome({
           draggable && "titlebar-drag",
           // Same height collapsed or not: the traffic lights move onto this
           // row (`SidebarCollapsedChrome`), the row never moves to them.
-          "flex items-center gap-3 px-3 py-3 md:px-6",
+          "flex items-center gap-3 px-3 py-3 desktop:px-6",
           className,
         )}
       >

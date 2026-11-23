@@ -25,6 +25,11 @@ vi.mock("@/hooks/useIsMobile", () => ({
   useIsMobile: () => isMobileMock(),
 }));
 
+const showsKeyboardHintsMock = vi.fn(() => true);
+vi.mock("@/hooks/useShowsKeyboardHints", () => ({
+  useShowsKeyboardHints: () => showsKeyboardHintsMock(),
+}));
+
 interface HotkeyEntry {
   handler: (e: Partial<KeyboardEvent>) => void;
   options?: { enabled?: boolean };
@@ -193,6 +198,7 @@ describe("AgentPromptBar", () => {
     onSend.mockClear();
     onStop.mockClear();
     isMobileMock.mockReturnValue(false);
+    showsKeyboardHintsMock.mockReturnValue(true);
     hotkeyHandlers.clear();
   });
 
@@ -336,6 +342,18 @@ describe("AgentPromptBar", () => {
     );
     // One verb per key: no dash for the reader to parse.
     expect(screen.getByRole("textbox").getAttribute("placeholder")).not.toMatch(/[—–]/);
+  });
+
+  it("cites no keys under a finger but keeps the typed triggers (an iPad in landscape)", () => {
+    showsKeyboardHintsMock.mockReturnValue(false);
+    const { rerender } = render(<AgentPromptBar onSend={onSend} onStop={onStop} status="agent" />);
+    expect(screen.getByRole("textbox")).toHaveAttribute("placeholder", "Steer the agent…");
+
+    rerender(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
+    expect(screen.getByRole("textbox")).toHaveAttribute(
+      "placeholder",
+      "Message the agent — @ files, @@ conversations, / commands",
+    );
   });
 
   it("keeps steer available beside stop while running on mobile", async () => {

@@ -3,6 +3,7 @@ import { useState, type ReactElement } from "react";
 
 import { useListProjects } from "@/api/generated";
 import { ResolvedKbdChord } from "@/components/KbdShortcut";
+import { useShowsKeyboardHints } from "@/hooks/useShowsKeyboardHints";
 import { CustomActionsManager } from "@/components/custom-actions/CustomActionsManager";
 import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { SettingsPageSection } from "@/components/settings/SettingsPageSection";
@@ -26,6 +27,7 @@ export const CUSTOM_ACTIONS_SECTION_ID = "actions" satisfies SettingsPageId;
  */
 export function CustomActionsSettingsSection(): ReactElement {
   const { t } = useUiTranslation();
+  const showsKeys = useShowsKeyboardHints();
   const { data: projects = [] } = useListProjects();
   const [projectId, setProjectId] = useState<number | null>(null);
   const shownProjectId = projectId ?? projects[0]?.id ?? null;
@@ -33,11 +35,18 @@ export function CustomActionsSettingsSection(): ReactElement {
     <SettingsPageSection
       pageId={CUSTOM_ACTIONS_SECTION_ID}
       description={
-        <UiTrans
-          i18nKey="customActions.settings.help"
-          defaults="Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings, or <shortcut />."
-          components={{ shortcut: <ResolvedKbdChord shortcutId="custom-action-run-1-9" /> }}
-        />
+        showsKeys ? (
+          <UiTrans
+            i18nKey="customActions.settings.help"
+            defaults="Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings, or <shortcut />."
+            components={{ shortcut: <ResolvedKbdChord shortcutId="custom-action-run-1-9" /> }}
+          />
+        ) : (
+          t(
+            "customActions.settings.helpTouch",
+            "Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings.",
+          )
+        )
       }
     >
       <SettingsGroup

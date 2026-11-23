@@ -6,6 +6,7 @@ import {
 } from "@/lib/agent-message-navigator";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
+import { useShowsKeyboardHints } from "@/hooks/useShowsKeyboardHints";
 
 /**
  * Settings → Appearance → Agent transcript row toggling the agent tab's message navigator: the
@@ -18,16 +19,24 @@ export function AgentMessageNavigatorSetting(): React.JSX.Element {
   // Resolved, not the registry defaults: the text follows a user's rebinding.
   const previousCombo = useShortcutLabel("agent-previous-message");
   const nextCombo = useShortcutLabel("agent-next-message");
+  const showsKeys = useShowsKeyboardHints();
 
   return (
     <SettingsSwitchRow
       divided
       label={t("appearance.transcript.messageNavigator", "Message navigator")}
-      description={t(
-        "appearance.transcript.messageNavigatorDescription",
-        "Mark each of your messages with a small tick on the agent tab's right edge. Hover a tick to preview the message, click it to scroll there, or press {{previousCombo}} / {{nextCombo}}.",
-        { previousCombo, nextCombo },
-      )}
+      description={
+        showsKeys
+          ? t(
+              "appearance.transcript.messageNavigatorDescription",
+              "Mark each of your messages with a small tick on the agent tab's right edge. Hover a tick to preview the message, click it to scroll there, or press {{previousCombo}} / {{nextCombo}}.",
+              { previousCombo, nextCombo },
+            )
+          : t(
+              "appearance.transcript.messageNavigatorDescriptionTouch",
+              "Mark each of your messages with a small tick on the agent tab's right edge. Hover a tick to preview the message, click it to scroll there.",
+            )
+      }
       checked={parseAgentMessageNavigator(setting.value)}
       onCheckedChange={(next) => setting.setValue(next ? "true" : "false")}
       disabled={setting.isLoading}

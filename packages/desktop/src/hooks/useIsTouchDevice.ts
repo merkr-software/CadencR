@@ -1,16 +1,17 @@
 import { useSyncExternalStore } from "react";
-import { mediaQueryStore } from "@/lib/media-query";
+import { getCoarsePointerSnapshot, subscribeFormFactor } from "@/lib/form-factor";
+
+function getServerSnapshot(): boolean {
+  return false;
+}
 
 /**
- * Primary pointer can't hover — phones and tablets. Distinct from
- * `useIsMobile`, which is a viewport-width breakpoint: a narrow desktop window
- * still has a mouse and a right-click.
+ * `true` when the primary pointer is a finger (`(pointer: coarse)`): phones and
+ * tablets, with no hover and no right-click. Distinct from `useIsMobile`, the
+ * phone layout: a narrow desktop window still has a mouse and a right-click,
+ * and an iPad in landscape keeps the desktop layout under a finger. Reads the
+ * form-factor store, so every consumer shares one set of media listeners.
  */
-const TOUCH_QUERY = "(hover: none)";
-
-const touchQuery = mediaQueryStore(TOUCH_QUERY);
-
-/** `true` when the primary input is touch (no hover, no right-click). */
 export function useIsTouchDevice(): boolean {
-  return useSyncExternalStore(touchQuery.subscribe, touchQuery.getSnapshot, () => false);
+  return useSyncExternalStore(subscribeFormFactor, getCoarsePointerSnapshot, getServerSnapshot);
 }

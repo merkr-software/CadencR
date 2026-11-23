@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { ChevronRight, Search, X } from "lucide-react";
-import { ResolvedKbdChord } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedKbdChord } from "@/components/KbdShortcut";
 import { HighlightedText } from "@/components/command-palette/PaletteText";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,7 @@ function SettingsNavSidebarImpl({
       className={cn(
         "flex min-h-0 flex-col",
         variant === "rail"
-          ? "hidden w-60 shrink-0 border-r border-border bg-[var(--sidebar)] md:flex"
+          ? "hidden w-60 shrink-0 border-r border-border bg-[var(--sidebar)] desktop:flex"
           : "w-full flex-1",
       )}
     >
@@ -151,7 +151,10 @@ function SettingsSearchField({
           <X />
         </Button>
       ) : (
-        <span className="pointer-events-none mr-2 hidden text-muted-foreground md:inline-flex">
+        <span
+          {...KBD_HINT_PROPS}
+          className="pointer-events-none mr-2 hidden text-muted-foreground desktop:inline-flex"
+        >
           <ResolvedKbdChord shortcutId="settings-search" />
         </span>
       )}
@@ -188,7 +191,7 @@ function NavItem({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-ring/50 max-md:min-h-11",
+        "relative flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-ring/50 phone:min-h-11",
         active
           ? "bg-accent font-medium text-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -252,7 +255,7 @@ function SearchResults({
                   type="button"
                   data-settings-nav-item=""
                   onClick={() => onNavigate(entry.anchor ?? page.id)}
-                  className="flex min-h-7 w-full items-center rounded-md py-1 pr-2.5 pl-9 text-left text-xs text-muted-foreground outline-none hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:min-h-10"
+                  className="flex min-h-7 w-full items-center rounded-md py-1 pr-2.5 pl-9 text-left text-xs text-muted-foreground outline-none hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 phone:min-h-10"
                 >
                   <span className="truncate">
                     <Highlighted text={entry.label} query={query} />

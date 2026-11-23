@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { defaultWorktreeModeMutationKey } from "@/lib/default-worktree-mode";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useScopedShortcut } from "@/hooks/useShortcut";
-import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import {
   WORKTREE_MODES,
@@ -144,7 +144,10 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
               </p>
             )}
             {enableModeShortcut && (
-              <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                {...KBD_HINT_PROPS}
+                className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+              >
                 {t("conversation.stream.worktreeModePicker.cycle", "Cycle")}
                 <ResolvedShortcutHint shortcutId="agent-worktree-mode" />
               </span>

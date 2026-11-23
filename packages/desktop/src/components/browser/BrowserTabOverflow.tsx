@@ -12,7 +12,7 @@ import {
 } from "react";
 import { CheckIcon, ChevronsUpDownIcon, RotateCcwIcon, SearchIcon, XIcon } from "lucide-react";
 
-import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -211,7 +211,7 @@ function OverflowPanel({
         >
           <RotateCcwIcon className="size-3.5" />
           {t("workspace.tools.browserTabOverflow.reopenLastClosedTab", "Reopen last closed tab")}
-          <span className="ml-auto">
+          <span {...KBD_HINT_PROPS} className="ml-auto">
             <ResolvedShortcutHint shortcutId="browser-reopen-tab" />
           </span>
         </Button>

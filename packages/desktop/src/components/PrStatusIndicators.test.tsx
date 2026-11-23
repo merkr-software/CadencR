@@ -105,7 +105,7 @@ describe("FeaturePrIndicator", () => {
   it("renders a right-side viewport-safe tooltip for the sidebar chip", () => {
     render(<FeaturePrIndicator snapshot={snapshot()} />);
     const chip = screen.getByLabelText("Pull request #20 · approved · checks passing");
-    fireEvent.mouseEnter(chip.parentElement!);
+    fireEvent.pointerEnter(chip.parentElement!, { pointerType: "mouse" });
     const tip = document.querySelector<HTMLElement>('[data-slot="tooltip-content"]')!;
     const positioner = tip.parentElement!;
     expect(tip).toHaveTextContent("Pull request #20 · approved · checks passing");
@@ -209,7 +209,9 @@ describe("FeaturePrIndicator", () => {
   it("gives every proposal its own tooltip line", async () => {
     render(<FeaturePrIndicator snapshot={twoProposals()} />);
 
-    fireEvent.mouseEnter(document.querySelector("[data-feature-pr]")!.parentElement!);
+    fireEvent.pointerEnter(document.querySelector("[data-feature-pr]")!.parentElement!, {
+      pointerType: "mouse",
+    });
 
     const lines = await screen.findAllByRole("listitem");
     expect(lines).toHaveLength(2);

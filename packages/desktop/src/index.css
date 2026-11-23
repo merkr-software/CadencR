@@ -31,11 +31,22 @@
 @import "./composer.css";
 @import "./feature-panes.css";
 @import "./command-palette-panels.css";
+@import "./touch-shell.css";
 
 /* Reveal-on-hover only where hover actually exists. On touch devices (no hover)
  * `can-hover:` rules never apply, so hover-gated affordances stay fully visible
  * instead of being permanently invisible. */
 @custom-variant can-hover (@media (hover: hover));
+
+/* The app layout, from `<html data-shell>` (`lib/form-factor.ts`, the same
+ * answer as `useIsMobile()`): `phone:` styles the phone layout — any window up
+ * to 767px, and touch screens up to 1023px (phones on their side, foldables,
+ * tablets in portrait) — and `desktop:` the desktop layout. Use them, not
+ * `md:`, when a rule means "phone layout vs desktop layout": a phone on its
+ * side is wider than `md` but still gets the phone layout. `desktop:` also
+ * holds before the attribute is written. */
+@custom-variant phone (&:where([data-shell="phone"] *));
+@custom-variant desktop (&:where(:root:not([data-shell="phone"]) *));
 
 @theme inline {
   --font-sans:
@@ -440,71 +451,6 @@ body > :not(#root) > *,
 [role="listbox"],
 [role="tooltip"] {
   -webkit-app-region: no-drag;
-}
-
-/* ─── Touch / mobile affordances ──────────────────────────────────────────
- * Hover-reveal controls (collapse buttons, copy chips, tab close, row actions)
- * use `opacity-0` + a `*hover:opacity-100` utility. Touch devices have no hover
- * state, so these stay invisible and unreachable. Force every hover-revealed
- * opacity affordance fully visible on touch pointers or phone-sized viewports.
- * The `hover` + `:opacity-100` pair matches `hover:`, `group-hover:` and named
- * `group-hover/x:` variants while excluding state-driven `data-[…]:opacity-100`. */
-@media (hover: none), (max-width: 767px) {
-  [class*="hover"][class*=":opacity-100"] {
-    opacity: 1 !important;
-  }
-}
-
-/* The complement of the rule above. Where hover reveals the stream's hover
- * actions (Copy, Retry… under a prompt or a reply), they float over the gap
- * below their row instead of holding an invisible line in the layout — that
- * line used to sit under every reply and every prompt, so the gap after each
- * read far wider than the gap before it. Where the rule above forces them
- * visible they stay in flow: they are real content there, and so do rows
- * nested in a clipping card (`data-stream-nested`). The row must be
- * `position: relative`; the stream's gap below it (`stream-rhythm.ts`) fits
- * the 20px line. Above the next stream row, under the stream's own overlays
- * (loading spinner: z-20). */
-@media (hover: hover) and (min-width: 768px) {
-  .stream-hover-actions:not([data-stream-nested] *) {
-    position: absolute;
-    top: 100%;
-    z-index: 10;
-    margin: 0;
-    pointer-events: none;
-  }
-  :hover > .stream-hover-actions:not([data-stream-nested] *) {
-    pointer-events: auto;
-  }
-}
-
-/*
- * iOS Safari auto-zooms the page when you focus an editable whose font-size is
- * below 16px — that's what made the keyboard "zoom horizontally to the left of
- * the prompt". Force every focusable editable (the Lexical prompt is a
- * `contenteditable`, hence the explicit selector) to at least 16px on phones so
- * focus never triggers the zoom. `max(16px, 1rem)` keeps that floor while still
- * letting editables grow with the mobile UI-zoom (which scales the root
- * font-size). Checkbox/radio/range inputs are excluded — they have no text and
- * the rule would distort their sizing.
- *
- * `!important` is required: bare element/attribute selectors lose to Tailwind
- * font-size utilities (`.text-sm`, `.text-xs`) on the element, so without it an
- * editable like the diff "add comment" textarea stays sub-16px and iOS still
- * zooms on focus.
- *
- * `.cm-content` is excluded: CodeMirror's editor buffer is a `contenteditable`,
- * but it's a read-only code-review surface, not a text-entry field — forcing it
- * to 16px blows the code font up far past its 13px theme size. It keeps its own
- * size (and scales with the mobile UI-zoom via the editor theme).
- */
-@media (max-width: 767px) {
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  textarea,
-  select,
-  [contenteditable="true"]:not(.cm-content) {
-    font-size: max(16px, 1rem) !important;
-  }
 }
 
 /*

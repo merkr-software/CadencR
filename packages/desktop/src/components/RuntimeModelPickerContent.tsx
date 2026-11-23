@@ -9,7 +9,7 @@ import {
   useCommandState,
 } from "@/components/ui/command";
 import { PopoverContent } from "@/components/ui/popover";
-import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { useShortcut } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { revealPickerItem } from "./RuntimeModelPickerChrome";
@@ -88,8 +88,12 @@ function FavoriteShortcut({ onToggleHighlighted }: FavoriteShortcutProps): React
     [onToggleHighlighted],
   );
 
+  // A keyboard legend: the whole footer goes on touch, where stars are tapped.
   return (
-    <div className="flex h-8 items-center gap-1.5 border-t px-2.5 text-[11px] text-muted-foreground">
+    <div
+      {...KBD_HINT_PROPS}
+      className="flex h-8 items-center gap-1.5 border-t px-2.5 text-[11px] text-muted-foreground"
+    >
       {hasMatches ? (
         <>
           <StarIcon className="size-3 shrink-0" />

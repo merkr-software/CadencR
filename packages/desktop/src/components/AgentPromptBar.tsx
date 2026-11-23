@@ -3,6 +3,7 @@ import { forwardRef, memo, useMemo } from "react";
 import { useSessionCommandPending } from "@/hooks/useSessionCommandPending";
 import { cn } from "@/lib/utils";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
+import { useShowsKeyboardHints } from "@/hooks/useShowsKeyboardHints";
 import { formatKey } from "@/lib/shortcuts/format";
 import { withSideQuestionSkill } from "@/lib/side-question-skill";
 import type { AgentPromptBarHandle, AgentPromptBarProps } from "./agent-prompt-bar-types";
@@ -162,6 +163,7 @@ function PromptSurface({
 }) {
   const { t } = useUiTranslation();
   const queueCombo = useShortcutLabel("agent-send");
+  const citesKeys = useShowsKeyboardHints();
   const { editorActions, sending, state } = controller;
   const rows = useInstrumentRows();
   const slashCommands = useMemo(
@@ -210,7 +212,7 @@ function PromptSurface({
           onArrowDown={editorActions.handleArrowDown}
           isBrowsingHistory={editorActions.isBrowsingHistory}
           disabled={props.disabled || sending.sending}
-          placeholder={promptPlaceholder(props, controller, queueCombo, t)}
+          placeholder={promptPlaceholder(props, controller, { citesKeys, queueCombo }, t)}
           className="min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-0 text-sm leading-[22px] shadow-none focus:border-0 focus:ring-0"
           mentionProjectId={props.projectId}
           mentionFeatureId={props.featureId}
@@ -283,11 +285,21 @@ function ComposerInstruments({
   );
 }
 
-/** The placeholder states what Enter will do right now (phones have no keys to cite). */
+/** What the placeholder may cite: no keys under a finger (`useShowsKeyboardHints`). */
+interface PlaceholderKeys {
+  citesKeys: boolean;
+  queueCombo: string;
+}
+
+/**
+ * The placeholder states what Enter will do right now. The phone layout gets
+ * short variants; elsewhere a touch pointer drops the keys but keeps the typed
+ * triggers (@, @@, /, !), which any keyboard types (as `ComposerHelp` does).
+ */
 function promptPlaceholder(
   props: AgentPromptBarProps,
   controller: AgentPromptBarController,
-  queueCombo: string,
+  { citesKeys, queueCombo }: PlaceholderKeys,
   t: UiTranslator,
 ) {
   if (controller.sending.sending)
@@ -309,17 +321,21 @@ function promptPlaceholder(
   // token so Linux reads "Enter" where macOS draws the return glyph.
   const enter = formatKey("enter");
   if (controller.sending.queuesOnEnter)
-    return t(
-      "conversation.composer.agentPromptBar.queueHint",
-      "{{enter}} to queue your message until the agent finishes",
-      { enter },
-    );
+    return citesKeys
+      ? t(
+          "conversation.composer.agentPromptBar.queueHint",
+          "{{enter}} to queue your message until the agent finishes",
+          { enter },
+        )
+      : t("conversation.composer.agentPromptBar.queue", "Queue a message…");
   if (controller.isRunning)
-    return t(
-      "conversation.composer.agentPromptBar.steerHint",
-      "{{enter}} to steer the agent at its next step, {{queueCombo}} to queue it after this turn",
-      { enter, queueCombo },
-    );
+    return citesKeys
+      ? t(
+          "conversation.composer.agentPromptBar.steerHint",
+          "{{enter}} to steer the agent at its next step, {{queueCombo}} to queue it after this turn",
+          { enter, queueCombo },
+        )
+      : t("conversation.composer.agentPromptBar.steer", "Steer the agent…");
   if (props.isFirstPrompt)
     return t(
       "conversation.composer.agentPromptBar.describeWithSyntax",

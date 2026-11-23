@@ -4,8 +4,8 @@
  * One fixed-size shell for every state (results, actions, steps), so typing,
  * switching mode or stepping into "New conversation…" never moves the box.
  * Results list on the left, preview of the selection on the right (hidden
- * below 768px). Rows are dense (34px) and single-line; the preview carries
- * the detail. Selection is the neutral `--accent` wash, like every list.
+ * in the phone layout). Rows are dense (34px) and single-line; the preview
+ * carries the detail. Selection is the neutral `--accent` wash, like every list.
  * Preview, footer, steps and phones: command-palette-panels.css.
  * ------------------------------------------------------------------------- */
 

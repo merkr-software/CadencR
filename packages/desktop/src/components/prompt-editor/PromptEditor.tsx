@@ -184,7 +184,7 @@ function usePromptEditorHandle(
 function ShellCommandPlaceholder() {
   const { t } = useUiTranslation();
   return (
-    <div className="pointer-events-none absolute top-0 right-0 left-0 truncate font-mono text-sm leading-[22px] text-muted-foreground select-none max-[767px]:text-base">
+    <div className="pointer-events-none absolute top-0 right-0 left-0 truncate font-mono text-sm leading-[22px] text-muted-foreground select-none phone:text-base pointer-coarse:text-base">
       {t("conversation.composer.promptEditor.typeAShellCommand", "Type a shell command…")}
     </div>
   );
@@ -289,7 +289,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
           }
           placeholder={
             placeholder ? (
-              <div className="text-muted-foreground pointer-events-none absolute top-0 right-0 left-0 truncate select-none text-sm leading-[22px] max-[767px]:text-base">
+              <div className="text-muted-foreground pointer-events-none absolute top-0 right-0 left-0 truncate select-none text-sm leading-[22px] phone:text-base pointer-coarse:text-base">
                 {placeholder}
               </div>
             ) : null

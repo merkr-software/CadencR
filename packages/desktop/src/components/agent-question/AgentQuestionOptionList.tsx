@@ -1,7 +1,7 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { KbdShortcut, KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut, KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import {
   AGENT_OPTION_CARD_BASE,
@@ -83,7 +83,7 @@ function OtherOptionButton({
         )}
       >
         {inDrawer ? (
-          <span aria-hidden>
+          <span {...KBD_HINT_PROPS} aria-hidden>
             <KbdShortcut keys={otherKeys} variant="square" scope="agent" />
           </span>
         ) : otherKey ? (
@@ -143,7 +143,7 @@ function AgentQuestionOptionListComponent({
             >
               {/* The key is announced via aria-keyshortcuts, not read as text. */}
               {inDrawer ? (
-                <span aria-hidden>
+                <span {...KBD_HINT_PROPS} aria-hidden>
                   <KbdShortcut
                     keys={[String(optIdx + 1)]}
                     variant="square"

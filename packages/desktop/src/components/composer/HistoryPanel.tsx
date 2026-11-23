@@ -2,6 +2,7 @@ import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { useEffect, useId, useMemo, useState, type ReactElement } from "react";
 import { Archive, CornerDownLeft, History, Search, X } from "lucide-react";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
+import { KBD_HINT_PROPS } from "@/components/KbdShortcut";
 import { matchesSidebarFilter, sidebarFilterTerms } from "@/lib/sidebar-filter";
 import { usePromptStashStore, type StashedDraft } from "@/stores/prompt-stash-store";
 import { ComposerPopoverGroup, ComposerPopoverOption, composerOptionId } from "./ComposerPopover";
@@ -110,16 +111,18 @@ export function HistoryPanel({
           </>
         )}
       </div>
-      <HistoryShortcuts />
+      <HistoryKeysLegend />
     </div>
   );
 }
 
-function HistoryShortcuts(): ReactElement {
+/** A keyboard legend: gone on touch, where a row is tapped. */
+function HistoryKeysLegend(): ReactElement {
   const { t } = useUiTranslation();
   const stashLabel = useShortcutLabel("prompt-stash-draft");
   return (
     <div
+      {...KBD_HINT_PROPS}
       aria-hidden
       className="flex items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground"
     >

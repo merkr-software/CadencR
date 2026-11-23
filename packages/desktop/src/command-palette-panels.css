@@ -229,42 +229,52 @@
   flex: 1;
 }
 
-/* ─── Narrow windows and phones ──────────────────────────────────────── */
+/* ─── Phone layout (`data-shell`: windows up to 767px, touch screens up to
+ * 1023px) ──────────────────────────────────────────────────────────────── */
 
-@media (max-width: 767px) {
-  [data-slot="dialog-content"].cp-dialog {
-    --cp-row-height: 44px;
-    top: calc(8px + env(safe-area-inset-top));
-    width: calc(100vw - 16px);
-    height: min(560px, calc(var(--app-vh, 100dvh) - 16px - env(safe-area-inset-top)));
-  }
+[data-shell="phone"] [data-slot="dialog-content"].cp-dialog {
+  --cp-row-height: 44px;
+  top: calc(8px + env(safe-area-inset-top));
+  width: calc(100vw - 16px);
+  height: min(560px, calc(var(--app-vh, 100dvh) - 16px - env(safe-area-inset-top)));
+}
 
-  .cp-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
+[data-shell="phone"] .cp-body {
+  grid-template-columns: minmax(0, 1fr);
+}
 
-  .cp-preview,
-  .cp-hint:not(.cp-hint-button),
+[data-shell="phone"] .cp-preview,
+[data-shell="phone"] .cp-hint:not(.cp-hint-button),
+[data-shell="phone"] .cp-keys,
+[data-shell="phone"] .cp-scope kbd {
+  display: none;
+}
+
+/* Key caps mean nothing to a finger: on a touch pointer the rows' bindings,
+ * the scope's key and the footer's key legend go even in the desktop layout (an
+ * iPad in landscape), where the rest of the desktop palette stays. */
+@media (pointer: coarse) {
   .cp-keys,
-  .cp-scope kbd {
+  .cp-scope kbd,
+  .cp-hint:not(.cp-hint-button) {
     display: none;
   }
+}
 
-  .cp-hint-button {
-    order: 1;
-    height: 28px;
-    margin: 0;
-  }
+[data-shell="phone"] .cp-hint-button {
+  order: 1;
+  height: 28px;
+  margin: 0;
+}
 
-  .cp-modes {
-    margin-left: 0;
-    flex: 1;
-    justify-content: flex-start;
-  }
+[data-shell="phone"] .cp-modes {
+  margin-left: 0;
+  flex: 1;
+  justify-content: flex-start;
+}
 
-  .cp-mode {
-    height: 28px;
-  }
+[data-shell="phone"] .cp-mode {
+  height: 28px;
 }
 
 @media (prefers-reduced-motion: reduce) {

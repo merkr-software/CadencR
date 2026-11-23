@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { KbdShortcut, ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KeyboardOnlyShortcutHint, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarRowActionsProvider } from "@/components/SidebarRowActionsProvider";
 import { ShortcutHintsProvider } from "@/hooks/useNavShortcutHints";
@@ -167,7 +167,7 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
         {t("sidebar.searchButton", "Search")}
       </span>
       {terminalFocused ? (
-        <InactiveShortcutHint />
+        <KeyboardOnlyShortcutHint keys={[]} disabled />
       ) : (
         <ResolvedShortcutHint shortcutId="command-palette" />
       )}
@@ -197,14 +197,6 @@ function useIsTerminalFocusActive(): boolean {
   }, []);
 
   return terminalFocused;
-}
-
-function InactiveShortcutHint(): ReactElement {
-  return (
-    <span aria-hidden="true" className="shrink-0">
-      <KbdShortcut keys={[]} variant="hint" disabled />
-    </span>
-  );
 }
 
 function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement {

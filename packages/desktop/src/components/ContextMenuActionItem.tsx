@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { KbdKeySequence } from "@/components/kbd-key";
+import { KBD_HINT_PROPS } from "@/components/KbdShortcut";
 import { formatCombo, PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import type { ShortcutId, ShortcutKey } from "@/lib/shortcuts/registry";
@@ -84,6 +85,7 @@ function ShortcutKeysHint({
   if (keys.length === 0) return null;
   return (
     <ContextMenuShortcut
+      {...KBD_HINT_PROPS}
       className={cn(
         "inline-flex items-center gap-px tracking-normal",
         destructive && "text-destructive/70",

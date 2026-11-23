@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from "@/test-utils";
 import { focusFollowedKeyboardNavigation } from "@/lib/focus-navigation";
 import { ShortcutTooltip } from "./ShortcutTooltip";
 
+const MOUSE = { pointerType: "mouse" } as const;
+
 function tooltipContent(): HTMLElement {
   const content = document.querySelector<HTMLElement>('[data-slot="tooltip-content"]');
   expect(content).not.toBeNull();
@@ -14,6 +16,23 @@ describe("ShortcutTooltip", () => {
   // pressed Tab can't leak that intent into the next one.
   beforeEach(() => {
     focusFollowedKeyboardNavigation();
+  });
+
+  it("never opens under a finger, even on a screen that also has a mouse", () => {
+    render(
+      <ShortcutTooltip label="My label" keys={["cmd", "S"]}>
+        <button>Btn</button>
+      </ShortcutTooltip>,
+    );
+    const wrapper = screen.getByText("Btn").parentElement!;
+    // A tap also fires a compatibility mouseenter (and never the mouseleave).
+    fireEvent.pointerEnter(wrapper, { pointerType: "touch" });
+    fireEvent.mouseEnter(wrapper);
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+
+    fireEvent.pointerLeave(wrapper, { pointerType: "touch" });
+    fireEvent.pointerEnter(wrapper, MOUSE);
+    expect(tooltipContent()).toHaveTextContent("My label");
   });
 
   it("renders children", () => {
@@ -41,10 +60,10 @@ describe("ShortcutTooltip", () => {
       </ShortcutTooltip>,
     );
     const wrapper = screen.getByText("Btn").parentElement!;
-    fireEvent.mouseEnter(wrapper);
+    fireEvent.pointerEnter(wrapper, MOUSE);
     expect(tooltipContent()).toHaveTextContent("My label");
 
-    fireEvent.mouseLeave(wrapper);
+    fireEvent.pointerLeave(wrapper, MOUSE);
     expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
   });
 
@@ -112,7 +131,7 @@ describe("ShortcutTooltip", () => {
       </ShortcutTooltip>,
     );
     const wrapper = screen.getByText("Btn").parentElement!;
-    fireEvent.mouseEnter(wrapper);
+    fireEvent.pointerEnter(wrapper, MOUSE);
     const bubble = tooltipContent();
     expect(bubble.querySelector("kbd")).toBeNull();
   });
@@ -133,7 +152,7 @@ describe("ShortcutTooltip", () => {
         <button>Btn</button>
       </ShortcutTooltip>,
     );
-    fireEvent.mouseEnter(screen.getByText("Btn").parentElement!);
+    fireEvent.pointerEnter(screen.getByText("Btn").parentElement!, MOUSE);
 
     const bubble = tooltipContent();
     expect(bubble).toHaveAttribute("data-side", "top");
@@ -145,7 +164,7 @@ describe("ShortcutTooltip", () => {
         <button>Btn</button>
       </ShortcutTooltip>,
     );
-    fireEvent.mouseEnter(screen.getByText("Btn").parentElement!);
+    fireEvent.pointerEnter(screen.getByText("Btn").parentElement!, MOUSE);
 
     const bubble = tooltipContent();
     expect(bubble).toHaveAttribute("data-side", "bottom");
@@ -157,7 +176,7 @@ describe("ShortcutTooltip", () => {
         <button>Btn</button>
       </ShortcutTooltip>,
     );
-    fireEvent.mouseEnter(screen.getByText("Btn").parentElement!);
+    fireEvent.pointerEnter(screen.getByText("Btn").parentElement!, MOUSE);
 
     const bubble = tooltipContent();
     expect(bubble).toHaveAttribute("data-side", "right");
@@ -170,7 +189,7 @@ describe("ShortcutTooltip", () => {
       </ShortcutTooltip>,
     );
     const wrapper = screen.getByText("Btn").parentElement!;
-    fireEvent.mouseEnter(wrapper);
+    fireEvent.pointerEnter(wrapper, MOUSE);
     const bubble = tooltipContent();
     // The bubble lives directly under `document.body`, not inside the wrapper.
     expect(wrapper.contains(bubble)).toBe(false);
@@ -183,7 +202,7 @@ describe("ShortcutTooltip", () => {
         <button>Btn</button>
       </ShortcutTooltip>,
     );
-    fireEvent.mouseEnter(screen.getByText("Btn").parentElement!);
+    fireEvent.pointerEnter(screen.getByText("Btn").parentElement!, MOUSE);
 
     expect(tooltipContent()).toHaveClass("max-w-[calc(100vw-1rem)]");
   });

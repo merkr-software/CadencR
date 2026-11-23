@@ -81,4 +81,17 @@ describe("KbdShortcut", () => {
     expect(screen.getByText("-")).toBeInTheDocument();
     expect(container.querySelector("kbd")?.className).toContain("opacity-50");
   });
+
+  it("marks hints for touch pointers to hide, but not reference caps or persistent ones", () => {
+    const hint = render(<KbdShortcut keys={["cmd", "K"]} variant="hint" />);
+    expect(hint.container.querySelector("kbd")).toHaveAttribute("data-kbd-hint");
+    hint.unmount();
+
+    const chord = render(<KbdChord keys={["⌘", "K"]} />);
+    expect(chord.container.querySelector("[data-kbd-hint]")).toBeNull();
+    chord.unmount();
+
+    const typed = render(<KbdShortcut keys={["/"]} variant="inline-sm" persistent />);
+    expect(typed.container.querySelector("[data-kbd-hint]")).toBeNull();
+  });
 });

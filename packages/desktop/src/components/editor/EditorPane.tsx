@@ -1,10 +1,11 @@
-import { UiTrans } from "@/lib/i18n/ui";
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import type { EditorView } from "@codemirror/view";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useEditorStore, isUntitledPath } from "@/stores/editor-store";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import { KbdShortcut } from "@/components/KbdShortcut";
+import { useShowsKeyboardHints } from "@/hooks/useShowsKeyboardHints";
 import { isBinaryDocumentFile } from "@/lib/document-file";
 import { isExcalidrawFile, isImageFile } from "@/lib/file-language";
 import EditorSubTabs from "./EditorSubTabs";
@@ -351,21 +352,30 @@ function EditorPaneContent({
   );
 }
 
-/** Empty pane hint; the keys follow the user's rebinds of the editor shortcuts. */
+/**
+ * Empty pane hint; the keys follow the user's rebinds of the editor shortcuts.
+ * A touch pointer has no keys to press: the key clause goes.
+ */
 function EditorEmptyState() {
+  const { t } = useUiTranslation();
+  const showsKeys = useShowsKeyboardHints();
   const newBufferKeys = useShortcutKeys("editor-new");
   const fuzzyKeys = useShortcutKeys("editor-fuzzy");
   return (
     <div className="flex items-center justify-center h-full px-4 text-muted-foreground text-sm text-center text-balance">
       <p className="leading-7">
-        <UiTrans
-          i18nKey="workspace.editor.editorPane.emptyPane"
-          defaults="Open a file from the sidebar, press <newBuffer /> for a new buffer, or use <fuzzy />"
-          components={{
-            newBuffer: <KbdShortcut keys={newBufferKeys} variant="hint" />,
-            fuzzy: <KbdShortcut keys={fuzzyKeys} variant="hint" />,
-          }}
-        />
+        {showsKeys ? (
+          <UiTrans
+            i18nKey="workspace.editor.editorPane.emptyPane"
+            defaults="Open a file from the sidebar, press <newBuffer /> for a new buffer, or use <fuzzy />"
+            components={{
+              newBuffer: <KbdShortcut keys={newBufferKeys} variant="hint" />,
+              fuzzy: <KbdShortcut keys={fuzzyKeys} variant="hint" />,
+            }}
+          />
+        ) : (
+          t("workspace.editor.editorPane.emptyPaneTouch", "Open a file from the sidebar")
+        )}
       </p>
     </div>
   );

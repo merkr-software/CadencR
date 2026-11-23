@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { focusFollowedKeyboardNavigation } from "@/lib/focus-navigation";
@@ -68,12 +68,24 @@ export function ShortcutTooltip({
     suppressUntilLeaveRef.current = true;
   }, [disabled]);
 
-  function handleMouseEnter(): void {
+  function show(): void {
     if (disabled || isMobile || suppressUntilLeaveRef.current) return;
     setVisible(true);
   }
 
-  function handleMouseLeave(): void {
+  /**
+   * Decided per pointer, not per device: a finger never opens the bubble, even
+   * on a screen that also has a mouse or trackpad (an iPad with a trackpad, a
+   * touchscreen laptop). A tap fires a compatibility mouseenter and no
+   * mouseleave, so listening to mouse events would open the bubble and leave it
+   * stuck.
+   */
+  function handlePointerEnter(event: PointerEvent<HTMLDivElement>): void {
+    if (event.pointerType === "touch") return;
+    show();
+  }
+
+  function hide(): void {
     suppressUntilLeaveRef.current = false;
     setVisible(false);
   }
@@ -85,7 +97,7 @@ export function ShortcutTooltip({
    */
   function handleFocus(): void {
     if (!focusFollowedKeyboardNavigation()) return;
-    handleMouseEnter();
+    show();
   }
 
   const side = toRight ? "right" : toLeft ? "left" : above ? "top" : "bottom";
@@ -97,10 +109,10 @@ export function ShortcutTooltip({
         <TooltipTrigger asChild>
           <div
             className={cn("relative inline-flex", className)}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
+            onPointerEnter={handlePointerEnter}
+            onPointerLeave={hide}
             onFocus={handleFocus}
-            onBlur={handleMouseLeave}
+            onBlur={hide}
           >
             {children}
           </div>
@@ -111,7 +123,7 @@ export function ShortcutTooltip({
           aria-label={t("shell.shortcutTooltip.accessibleLabel", "{{label}} tooltip", { label })}
           // `open` is controlled: Radix's Esc dismissal must close it here, or a
           // keyboard-opened tooltip would swallow every Esc while focus stays put.
-          onEscapeKeyDown={handleMouseLeave}
+          onEscapeKeyDown={hide}
         >
           {content ?? <span>{label}</span>}
           {keys?.length ? <KbdShortcut keys={keys} size="sm" /> : null}

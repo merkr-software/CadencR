@@ -40,94 +40,102 @@
  * sidebar is an off-canvas drawer and the page is full-bleed, so the rail-
  * colored band has nothing to join: it renders as a detached strip above a
  * bordered, shadowed card — i.e. a second header stacked under the real one.
- * The breakpoint matches `useIsMobile` (max-width: 767px), which is what
- * flips `AppShell` to the drawer layout. Below it these rules simply don't
- * apply and the components' own Tailwind classes stand, so a rail theme gets
- * the same flat mobile chrome as every other one. */
-@media (min-width: 768px) {
-  :root[data-chassis="rail"] [data-feature-chrome="standard"] {
-    background-color: var(--sidebar);
-  }
-  :root[data-chassis="rail"] [data-feature-chrome="standard"] [data-worktree-setup] {
-    background-color: transparent;
-  }
-  :root[data-chassis="rail"] [data-feature-chrome="standard"] [data-feature-layout-shell] {
-    background-color: var(--background);
-    border-top: 1px solid var(--pane-border, var(--border));
-    border-left: 1px solid var(--pane-border, var(--border));
-    border-top-left-radius: 14px;
-    box-shadow: var(--page-shadow, none);
-    transition: border-top-left-radius 220ms var(--ease-fluid);
-  }
+ * Keyed on the phone layout (`<html data-shell>`, the same answer as
+ * `useIsMobile`, which flips `AppShell` to the drawer layout). In the phone
+ * layout these rules simply don't apply and the components' own Tailwind
+ * classes stand, so a rail theme gets the same flat mobile chrome as every
+ * other one.
+ * The `:where()` keeps each selector's specificity what it was. */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"])) [data-feature-chrome="standard"] {
+  background-color: var(--sidebar);
+}
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-feature-chrome="standard"]
+  [data-worktree-setup] {
+  background-color: transparent;
+}
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-feature-chrome="standard"]
+  [data-feature-layout-shell] {
+  background-color: var(--background);
+  border-top: 1px solid var(--pane-border, var(--border));
+  border-left: 1px solid var(--pane-border, var(--border));
+  border-top-left-radius: 14px;
+  box-shadow: var(--page-shadow, none);
+  transition: border-top-left-radius 220ms var(--ease-fluid);
+}
 
-  /* Once the sidebar is gone, the page reaches the window edge and should no
-   * longer expose a chassis-colored wedge. The global animation kill-switch
-   * makes this radius change instant when fluid animations are disabled. */
-  :root[data-chassis="rail"][data-sidebar-collapsed="true"]
-    [data-feature-chrome="standard"]
-    [data-feature-layout-shell] {
-    border-top-left-radius: 0;
-  }
-  /* …unless the collapsed rail is there: it is a slim sidebar, so the page
-   * still tucks into it under the titlebar band. */
-  :root[data-chassis="rail"]
-    [data-sidebar-rail]
-    ~ *
-    [data-feature-chrome="standard"]
-    [data-feature-layout-shell] {
-    border-top-left-radius: 14px;
-  }
+/* Once the sidebar is gone, the page reaches the window edge and should no
+ * longer expose a chassis-colored wedge. The global animation kill-switch
+ * makes this radius change instant when fluid animations are disabled. */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))[data-sidebar-collapsed="true"]
+  [data-feature-chrome="standard"]
+  [data-feature-layout-shell] {
+  border-top-left-radius: 0;
+}
+/* …unless the collapsed rail is there: it is a slim sidebar, so the page
+ * still tucks into it under the titlebar band. */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-sidebar-rail]
+  ~ *
+  [data-feature-chrome="standard"]
+  [data-feature-layout-shell] {
+  border-top-left-radius: 14px;
+}
 
-  /* The feature page header matches the sidebar header band: same height (the
-   * `data-mac-controls` variant mirrors SidebarHeader's taller macOS layout),
-   * while its content stays centered across the full band. Unified agents opts
-   * out — its filter bar wraps and needs bottom breathing room (rule below). */
-  :root[data-chassis="rail"] [data-feature-header]:not([data-unified-agents-header]) {
-    min-height: 4rem;
-    padding-top: 0;
-    padding-bottom: 0;
-  }
-  :root[data-chassis="rail"]
-    [data-feature-header][data-mac-controls]:not([data-unified-agents-header]) {
-    min-height: 4.5rem;
-    padding-top: 0;
-  }
+/* The feature page header matches the sidebar header band: same height (the
+ * `data-mac-controls` variant mirrors SidebarHeader's taller macOS layout),
+ * while its content stays centered across the full band. Unified agents opts
+ * out — its filter bar wraps and needs bottom breathing room (rule below). */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-feature-header]:not([data-unified-agents-header]) {
+  min-height: 4rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-feature-header][data-mac-controls]:not([data-unified-agents-header]) {
+  min-height: 4.5rem;
+  padding-top: 0;
+}
 
-  /* Unified agents shares the chassis color but keeps vertical padding so the
-   * filter field (which can wrap to multiple chip lines) doesn't kiss the page
-   * card. Mac builds keep the traffic-light clearance on top. */
-  :root[data-chassis="rail"] [data-feature-header][data-unified-agents-header] {
-    min-height: 4rem;
-    padding-top: 0.75rem;
-    padding-bottom: 0.875rem;
-    background-color: transparent;
-    border-bottom-color: transparent;
-  }
-  :root[data-chassis="rail"] [data-feature-header][data-unified-agents-header][data-mac-controls] {
-    min-height: 0;
-    padding-top: 2.25rem;
-    padding-bottom: 0.875rem;
-  }
+/* Unified agents shares the chassis color but keeps vertical padding so the
+ * filter field (which can wrap to multiple chip lines) doesn't kiss the page
+ * card. Mac builds keep the traffic-light clearance on top. */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-feature-header][data-unified-agents-header] {
+  min-height: 4rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.875rem;
+  background-color: transparent;
+  border-bottom-color: transparent;
+}
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-feature-header][data-unified-agents-header][data-mac-controls] {
+  min-height: 0;
+  padding-top: 2.25rem;
+  padding-bottom: 0.875rem;
+}
 
-  /* Seamless chassis: the sidebar's own hairline would cut the shared band in
-   * two. The page card's left border takes over as the content boundary. On
-   * mobile the sidebar is a drawer floating over the content, so it keeps its
-   * own hairline to separate itself from what's underneath. */
-  :root[data-chassis="rail"] [data-app-sidebar],
-  :root[data-chassis="rail"] [data-sidebar-rail] {
-    border-right-color: transparent;
-  }
-  :root[data-chassis="rail"] [data-sidebar-rail]::before {
-    display: none;
-  }
+/* Seamless chassis: the sidebar's own hairline would cut the shared band in
+ * two. The page card's left border takes over as the content boundary. On
+ * mobile the sidebar is a drawer floating over the content, so it keeps its
+ * own hairline to separate itself from what's underneath. */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"])) [data-app-sidebar],
+:root[data-chassis="rail"]:where(:not([data-shell="phone"])) [data-sidebar-rail] {
+  border-right-color: transparent;
+}
+:root[data-chassis="rail"]:where(:not([data-shell="phone"])) [data-sidebar-rail]::before {
+  display: none;
+}
 
-  /* Collapse the app-shell sidebar↔main resize handle to zero layout width so
-   * it doesn't paint a 1px seam through the shared header band. Hit-testing
-   * stays via the handle's ::after (see ui/resizable.tsx). Nested feature-split
-   * handles are untouched — only `[data-app-shell-handle]` matches. */
-  :root[data-chassis="rail"] [data-slot="resizable-handle"][data-app-shell-handle] {
-    width: 0;
-  }
+/* Collapse the app-shell sidebar↔main resize handle to zero layout width so
+ * it doesn't paint a 1px seam through the shared header band. Hit-testing
+ * stays via the handle's ::after (see ui/resizable.tsx). Nested feature-split
+ * handles are untouched — only `[data-app-shell-handle]` matches. */
+:root[data-chassis="rail"]:where(:not([data-shell="phone"]))
+  [data-slot="resizable-handle"][data-app-shell-handle] {
+  width: 0;
 }
 
 /* ── Tabs: segmented ─────────────────────────────────────────────────────

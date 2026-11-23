@@ -93,7 +93,10 @@ export function SidebarBlock({
       )}
       {!isEmpty && (
         <div
-          className={cn("flex flex-col gap-0.5", capped && "md:max-h-[40vh] md:overflow-y-auto")}
+          className={cn(
+            "flex flex-col gap-0.5",
+            capped && "desktop:max-h-[40vh] desktop:overflow-y-auto",
+          )}
         >
           {children}
         </div>
