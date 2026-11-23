@@ -3,7 +3,7 @@ import type { Extension } from "@codemirror/state";
 import { useGetFileContent } from "@/api/generated";
 import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
 import { useQueryErrorToast } from "@/hooks/useQueryErrorToast";
-import { apiErrorCode } from "@/lib/api-errors";
+import { apiErrorCode, retryUnlessRefusedForSize } from "@/lib/api-errors";
 import { featurePathToGitPath } from "@/lib/git-paths";
 import { gitGutterExtension } from "./git-gutter-extension";
 
@@ -63,6 +63,7 @@ export function useGitGutter({
         enabled: enabled && Boolean(projectId && featureId && filePath) && prefix != null,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
+        retry: retryUnlessRefusedForSize,
       },
     },
   );

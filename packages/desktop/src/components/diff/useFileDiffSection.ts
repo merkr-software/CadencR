@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useGetFileDiff } from "@/api/generated";
 import { isBinaryPatch, parseUnifiedDiff, type FileDiffSection } from "@/lib/parse-unified-diff";
 import { LARGE_DIFF_BYTES } from "@/lib/diff-thresholds";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, retryUnlessRefusedForSize } from "@/lib/api-errors";
 import type { DiffMode } from "./useDiffData";
 
 const EMPTY_SECTION: FileDiffSection = {
@@ -117,7 +117,7 @@ export function useFileDiffSection({
       target_branch: targetBranch,
       commit_sha: commitSha ?? undefined,
     },
-    { query: { enabled: fetchEnabled } },
+    { query: { enabled: fetchEnabled, retry: retryUnlessRefusedForSize } },
   );
 
   const raw = data?.diff;

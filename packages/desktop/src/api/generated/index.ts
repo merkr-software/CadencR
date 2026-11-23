@@ -2504,7 +2504,11 @@ export interface FileBlobSha {
 }
 
 export interface FileContent {
-  /** True if either side appears to be a binary blob. */
+  /**
+   * True if either side holds a NUL byte in its first 8 KB or is not valid
+   * UTF-8 — the same verdict `GET /api/git/file-content` reaches. A side
+   * over 16 MiB, which that endpoint refuses, is judged on its first 8 KB.
+   */
   is_binary: boolean;
   /**
    * True if the file is too large to render automatically. When true the
@@ -21655,7 +21659,7 @@ export const getGetDiffQueryKey = (params?: GetDiffParams) => {
 
 export const getGetDiffQueryOptions = <
   TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetDiffParams,
   options?: {
@@ -21677,12 +21681,9 @@ export const getGetDiffQueryOptions = <
 };
 
 export type GetDiffQueryResult = NonNullable<Awaited<ReturnType<typeof getDiff>>>;
-export type GetDiffQueryError = ErrorType<unknown>;
+export type GetDiffQueryError = ErrorType<void>;
 
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options: {
     query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>> &
@@ -21697,10 +21698,7 @@ export function useGetDiff<
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>> &
@@ -21715,10 +21713,7 @@ export function useGetDiff<
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>>;
@@ -21726,10 +21721,7 @@ export function useGetDiff<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>>;
@@ -21982,7 +21974,7 @@ export const getGetFileContentQueryKey = (params?: GetFileContentParams) => {
 
 export const getGetFileContentQueryOptions = <
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -22004,11 +21996,11 @@ export const getGetFileContentQueryOptions = <
 };
 
 export type GetFileContentQueryResult = NonNullable<Awaited<ReturnType<typeof getFileContent>>>;
-export type GetFileContentQueryError = ErrorType<unknown>;
+export type GetFileContentQueryError = ErrorType<void>;
 
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options: {
@@ -22026,7 +22018,7 @@ export function useGetFileContent<
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -22044,7 +22036,7 @@ export function useGetFileContent<
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -22055,7 +22047,7 @@ export function useGetFileContent<
 
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -22158,7 +22150,7 @@ export const getGetFileDiffQueryKey = (params?: GetFileDiffParams) => {
 
 export const getGetFileDiffQueryOptions = <
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -22180,11 +22172,11 @@ export const getGetFileDiffQueryOptions = <
 };
 
 export type GetFileDiffQueryResult = NonNullable<Awaited<ReturnType<typeof getFileDiff>>>;
-export type GetFileDiffQueryError = ErrorType<unknown>;
+export type GetFileDiffQueryError = ErrorType<void>;
 
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options: {
@@ -22202,7 +22194,7 @@ export function useGetFileDiff<
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -22220,7 +22212,7 @@ export function useGetFileDiff<
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -22231,7 +22223,7 @@ export function useGetFileDiff<
 
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {

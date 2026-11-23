@@ -31,7 +31,7 @@ pub async fn get_stats_handler(
     Ok(Json(service::get_stats(&state, params).await?))
 }
 
-#[utoipa::path(get, path = "/api/git/diff", params(("feature_id" = i64, Query,), ("mode" = String, Query,), ("commit_sha" = Option<String>, Query,), ("target_branch" = Option<String>, Query,)), responses((status = 200, body = DiffResponse)))]
+#[utoipa::path(get, path = "/api/git/diff", params(("feature_id" = i64, Query,), ("mode" = String, Query,), ("commit_sha" = Option<String>, Query,), ("target_branch" = Option<String>, Query,)), responses((status = 200, body = DiffResponse), (status = 413, description = "DIFF_TOO_LARGE: the combined diff exceeds 16 MiB")))]
 pub async fn get_diff_handler(
     State(state): State<AppState>,
     Query(params): Query<GetDiffParams>,
@@ -47,7 +47,7 @@ pub async fn get_changed_files_handler(
     Ok(Json(service::get_changed_files(&state, params).await?))
 }
 
-#[utoipa::path(get, path = "/api/git/file-diff", params(("feature_id" = i64, Query,), ("file_path" = String, Query,), ("old_file_path" = Option<String>, Query,), ("mode" = String, Query,), ("commit_sha" = Option<String>, Query,), ("target_branch" = Option<String>, Query,)), responses((status = 200, body = DiffResponse)))]
+#[utoipa::path(get, path = "/api/git/file-diff", params(("feature_id" = i64, Query,), ("file_path" = String, Query,), ("old_file_path" = Option<String>, Query,), ("mode" = String, Query,), ("commit_sha" = Option<String>, Query,), ("target_branch" = Option<String>, Query,)), responses((status = 200, body = DiffResponse), (status = 413, description = "DIFF_TOO_LARGE: the file's diff exceeds 10 MiB")))]
 pub async fn get_file_diff_handler(
     State(state): State<AppState>,
     Query(params): Query<GetFileDiffParams>,
@@ -55,7 +55,7 @@ pub async fn get_file_diff_handler(
     Ok(Json(service::get_file_diff(&state, params).await?))
 }
 
-#[utoipa::path(get, path = "/api/git/file-content", params(("feature_id" = i64, Query,), ("file_path" = String, Query,), ("mode" = String, Query,), ("commit_sha" = Option<String>, Query,), ("target_branch" = Option<String>, Query,)), responses((status = 200, body = FileContent)))]
+#[utoipa::path(get, path = "/api/git/file-content", params(("feature_id" = i64, Query,), ("file_path" = String, Query,), ("mode" = String, Query,), ("commit_sha" = Option<String>, Query,), ("target_branch" = Option<String>, Query,)), responses((status = 200, body = FileContent), (status = 413, description = "FILE_TOO_LARGE: a side of the file exceeds 16 MiB")))]
 pub async fn get_file_content_handler(
     State(state): State<AppState>,
     Query(params): Query<GetFileContentParams>,

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
+import { retryUnlessRefusedForSize } from "@/lib/api-errors";
 
 const mocks = vi.hoisted(() => ({
   query: {
@@ -16,8 +17,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", () => ({
   ConflictKind: { dd: "dd", du: "du", ud: "ud", uu: "uu" },
-  useGetFileContent: (params: unknown) => {
-    mocks.fileContent(params);
+  useGetFileContent: (params: unknown, options: unknown) => {
+    mocks.fileContent(params, options);
     return mocks.query;
   },
 }));
@@ -76,11 +77,14 @@ describe("ConflictResolverEditor", () => {
     renderResolver();
     expect(screen.getByText("Writable resolver for conflict.ts: result")).toBeInTheDocument();
     // Git reads the checkout-root path; the editor keeps its own path.
-    expect(mocks.fileContent).toHaveBeenCalledWith({
-      feature_id: 1,
-      file_path: "packages/app/conflict.ts",
-      mode: "uncommitted",
-    });
+    expect(mocks.fileContent).toHaveBeenCalledWith(
+      {
+        feature_id: 1,
+        file_path: "packages/app/conflict.ts",
+        mode: "uncommitted",
+      },
+      expect.anything(),
+    );
   });
 
   it("opens a large text Result because the marker resolver does not run a comparison diff", () => {
@@ -137,5 +141,17 @@ describe("ConflictResolverEditor", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("worktree result unavailable");
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(mocks.query.refetch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ConflictResolverEditor file fetch", () => {
+  it("does not retry a file refused for its size", () => {
+    renderResolver();
+    expect(mocks.fileContent).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        query: expect.objectContaining({ retry: retryUnlessRefusedForSize }),
+      }),
+    );
   });
 });

@@ -33,6 +33,19 @@ function backendErrorMessage(err: unknown): string | null {
 /** A settings file the service could not read; the message names it and the cause. */
 export const SETTINGS_READ_FAILED = "SETTINGS_READ_FAILED";
 
+/** Codes of a `413`: a diff or file refused for its size, which asking again only recomputes. */
+const REFUSED_FOR_SIZE: ReadonlySet<string> = new Set(["DIFF_TOO_LARGE", "FILE_TOO_LARGE"]);
+
+/**
+ * A query `retry` predicate: the app-wide single retry (`lib/queryClient.ts`),
+ * except for a response refused for its size, which a retry only recomputes
+ * (up to a 10 MiB diff or a 16 MiB file) to be refused again.
+ */
+export function retryUnlessRefusedForSize(failureCount: number, error: unknown): boolean {
+  const code = apiErrorCode(error);
+  return failureCount < 1 && (code === null || !REFUSED_FOR_SIZE.has(code));
+}
+
 /** The stable `code` of a service error body (`{error, code}`), if there is one. */
 export function apiErrorCode(err: unknown): string | null {
   if (!isAxiosError(err)) return null;
