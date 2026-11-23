@@ -15,7 +15,9 @@ pub struct ErrorResponse {
     pub code: String,
 }
 
-#[derive(Debug)]
+/// `Clone` so a [`crate::shared::singleflight::Singleflight`] can hand every
+/// waiter the leader's error with its variant, code and origin intact.
+#[derive(Debug, Clone)]
 pub enum AppError {
     /// Unexpected database failure — a masked 500.
     DatabaseError(Detail),
