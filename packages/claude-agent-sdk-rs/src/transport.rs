@@ -105,7 +105,7 @@ pub async fn find_cli(path_override: Option<&Path>) -> Result<PathBuf, SdkError>
         }
     }
 
-    let candidates = cli_discovery::discover_all(&spec, effective_override.as_deref()).await;
+    let candidates = cli_discovery::discover_all(&spec, effective_override.as_deref()).await?;
     let Some(best) = cli_discovery::select_best(&candidates) else {
         return Err(SdkError::CliNotFound {
             searched: cli_discovery::searched_dirs(&spec).await,

@@ -10,6 +10,8 @@
 //! `--version`, and lets the caller pick the best (highest semver). It also
 //! exposes the full candidate list so the host app can render a picker UI.
 
+mod error;
+mod override_path;
 mod path_lookup;
 mod shell;
 mod shell_exec;
@@ -20,6 +22,7 @@ mod walk;
 #[cfg(test)]
 mod tests_support;
 
+pub use error::DiscoveryError;
 pub use path_lookup::find_on_path;
 pub use shell::login_shell_path;
 pub use shell_exec::{login_shell_command, login_shell_exec_command, shell_quote};
@@ -29,8 +32,10 @@ pub use version::{parse_version_string, query_version};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::error::run_blocking;
+use crate::override_path::override_candidate;
 use crate::version::probe_version;
-use crate::walk::{canonicalize_executable, walk_path_var, walk_well_known};
+use crate::walk::{walk_path_var, walk_well_known};
 
 /// Enumerate every candidate binary on disk, in source order.
 ///
@@ -41,40 +46,61 @@ use crate::walk::{canonicalize_executable, walk_path_var, walk_well_known};
 /// 3. `well_known_*` from the spec — `WellKnown`
 ///
 /// All candidates are deduped by canonical path. Version is queried for each.
-pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) -> Vec<Candidate> {
+///
+/// An empty `Ok` means nothing was found; an `Err` means the search itself
+/// could not finish (a blocking step panicked), so the CLI may well exist.
+pub async fn discover_all(
+    spec: &DiscoverySpec,
+    override_path: Option<&Path>,
+) -> Result<Vec<Candidate>, DiscoveryError> {
     if let Some(path) = override_path {
-        let path_owned = path.to_path_buf();
-        let canonical = tokio::task::spawn_blocking(move || canonicalize_executable(&path_owned))
-            .await
-            .ok()
-            .flatten();
-        if let Some(canonical) = canonical {
-            // Probe the override. Apply the substring filter too — a shim
-            // dressed as the requested binary still wouldn't speak the
-            // expected protocol, so silently dropping it is safer than
-            // honoring an override that will only fail downstream.
-            let probe = probe_version(path, &spec.version_args).await;
-            let accept = match (&probe, spec.version_must_contain.as_deref()) {
-                // Filter set: the substring alone is too lax — the rustup
-                // shim's "Unknown binary 'rust-analyzer'" error mentions the
-                // name and would pass a contains-only check.
-                (Some(probe), Some(needle)) => probe.passes_filter(needle),
-                // No filter, or subprocess failed entirely: keep behavior
-                // unchanged (returns a possibly versionless candidate).
-                _ => true,
-            };
-            if accept {
-                return vec![Candidate {
-                    path: path.to_path_buf(),
-                    canonical,
-                    version: probe.as_ref().and_then(|probe| probe.version),
-                    version_text: probe.and_then(|probe| probe.version_text),
-                    source: CandidateSource::Override,
-                }];
-            }
+        if let Some(candidate) = override_candidate(spec, path).await? {
+            return Ok(vec![candidate]);
         }
     }
 
+    let candidates = walk_candidates(spec).await?;
+
+    // Probe versions in parallel — each probe is an independent subprocess
+    // with its own 5s timeout, so serial waits would compound badly when
+    // multiple installs are present.
+    let probes = futures::future::join_all(
+        candidates
+            .iter()
+            .map(|candidate| probe_version(&candidate.path, &spec.version_args)),
+    )
+    .await;
+
+    Ok(candidates
+        .into_iter()
+        .zip(probes)
+        .filter_map(|(mut candidate, probe)| {
+            if let Some(needle) = spec.version_must_contain.as_deref() {
+                // Subprocess failed (timeout, missing exec bits we somehow
+                // accepted earlier, etc.) → reject. The filter exists
+                // specifically to weed out shims and we can't validate one
+                // without its output.
+                // See the doc comment on `version_must_contain`: a shim's
+                // error message can mention the binary name.
+                if !probe
+                    .as_ref()
+                    .is_some_and(|probe| probe.passes_filter(needle))
+                {
+                    return None;
+                }
+            }
+            if let Some(probe) = probe {
+                candidate.version = probe.version;
+                candidate.version_text = probe.version_text;
+            }
+            Some(candidate)
+        })
+        .collect())
+}
+
+/// Every executable named `spec.bin_name` on `$PATH`, the login-shell PATH and
+/// the well-known dirs, deduped by canonical path, versions not yet probed.
+async fn walk_candidates(spec: &DiscoverySpec) -> Result<Vec<Candidate>, DiscoveryError> {
     // Resolve the cached login-shell PATH asynchronously before offloading the
     // synchronous PATH/well-known filesystem walks to the blocking pool.
     let login_path = login_shell_path().await;
@@ -82,7 +108,7 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
     let home_dir = std::env::var_os("HOME").map(PathBuf::from);
     let spec_owned = spec.clone();
 
-    let candidates = tokio::task::spawn_blocking(move || {
+    run_blocking("candidate walk", move || {
         let mut seen_canonical = HashSet::new();
         let mut candidates = Vec::new();
 
@@ -117,43 +143,6 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
         candidates
     })
     .await
-    .unwrap_or_default();
-
-    // Probe versions in parallel — each probe is an independent subprocess
-    // with its own 5s timeout, so serial waits would compound badly when
-    // multiple installs are present.
-    let probes = futures::future::join_all(
-        candidates
-            .iter()
-            .map(|candidate| probe_version(&candidate.path, &spec.version_args)),
-    )
-    .await;
-
-    candidates
-        .into_iter()
-        .zip(probes)
-        .filter_map(|(mut candidate, probe)| {
-            if let Some(needle) = spec.version_must_contain.as_deref() {
-                // Subprocess failed (timeout, missing exec bits we somehow
-                // accepted earlier, etc.) → reject. The filter exists
-                // specifically to weed out shims and we can't validate one
-                // without its output.
-                // See the doc comment on `version_must_contain`: a shim's
-                // error message can mention the binary name.
-                if !probe
-                    .as_ref()
-                    .is_some_and(|probe| probe.passes_filter(needle))
-                {
-                    return None;
-                }
-            }
-            if let Some(probe) = probe {
-                candidate.version = probe.version;
-                candidate.version_text = probe.version_text;
-            }
-            Some(candidate)
-        })
-        .collect()
 }
 
 /// Enumerate every directory `discover_all` would probe for the given spec.
@@ -197,9 +186,9 @@ pub fn select_best(candidates: &[Candidate]) -> Option<&Candidate> {
 /// only visible from a login shell (e.g. installed via Homebrew but Cadencr
 /// launched from Finder/Dock) is found the same way `NeovimManager::start`
 /// will later resolve it when spawning the headless process.
-pub async fn detect_nvim() -> bool {
-    let candidates = discover_all(&nvim_spec(), None).await;
-    select_best(&candidates).is_some()
+pub async fn detect_nvim() -> Result<bool, DiscoveryError> {
+    let candidates = discover_all(&nvim_spec(), None).await?;
+    Ok(select_best(&candidates).is_some())
 }
 
 /// `nvim` and nothing that merely shares its name: a run must succeed and
@@ -324,7 +313,7 @@ mod tests {
     async fn discover_all_with_override_returns_only_override() {
         let dir = TempDir::new().unwrap();
         let path = make_executable_with_body(dir.path(), "thing", "#!/bin/sh\necho 1.2.3\n");
-        let candidates = discover_all(&dummy_spec(), Some(&path)).await;
+        let candidates = discover_all(&dummy_spec(), Some(&path)).await.unwrap();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].source, CandidateSource::Override);
         assert_eq!(
@@ -338,7 +327,9 @@ mod tests {
     async fn discover_all_falls_through_when_override_missing() {
         // Bogus override: should NOT short-circuit; falls through to regular
         // discovery (which here finds nothing).
-        let candidates = discover_all(&dummy_spec(), Some(Path::new("/nonexistent/thing"))).await;
+        let candidates = discover_all(&dummy_spec(), Some(Path::new("/nonexistent/thing")))
+            .await
+            .unwrap();
         // We can't assert empty (PATH may have a real `thing`), but we can
         // assert no Override entry slipped in.
         assert!(candidates
@@ -363,7 +354,7 @@ mod tests {
         let mut spec = dummy_spec();
         spec.bin_name = "rust-analyzer".to_string();
         spec.version_must_contain = Some("rust-analyzer".to_string());
-        let via_override = discover_all(&spec, Some(&shim)).await;
+        let via_override = discover_all(&spec, Some(&shim)).await.unwrap();
         assert!(
             via_override.is_empty(),
             "rustup 'Unknown binary' shim must be rejected; got {via_override:?}"
@@ -393,7 +384,7 @@ mod tests {
         // fall through to standard discovery (which here finds nothing).
         let mut spec = dummy_spec();
         spec.version_must_contain = Some("thing".to_string());
-        let via_override = discover_all(&spec, Some(&shim)).await;
+        let via_override = discover_all(&spec, Some(&shim)).await.unwrap();
         assert!(
             via_override.iter().all(|c| c.path != shim),
             "shim must not be selected via override path"
@@ -401,7 +392,7 @@ mod tests {
 
         // The real binary's --version output contains "thing", so the
         // filter accepts it.
-        let via_override_real = discover_all(&spec, Some(&real)).await;
+        let via_override_real = discover_all(&spec, Some(&real)).await.unwrap();
         assert!(
             via_override_real.iter().any(|c| c.path == real),
             "real binary must pass the filter"
@@ -443,7 +434,7 @@ mod tests {
 
         let mut spec = dummy_spec();
         spec.version_must_contain = Some("thing".to_string());
-        let found = discover_all(&spec, None).await;
+        let found = discover_all(&spec, None).await.unwrap();
 
         unsafe {
             match original_path {

@@ -100,6 +100,20 @@ pub async fn wait_for_published_pid(path: &Path, budget: Duration) -> Option<lib
     }
 }
 
+/// Whether `pid` is gone within `budget` (an orphan is reaped by init
+/// asynchronously). Returns as soon as it is.
+pub async fn wait_until_gone(pid: libc::pid_t, budget: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + budget;
+    // SAFETY: kill(2) with signal 0 only probes the pid.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -27,20 +27,30 @@ pub const FAILED_TTL: Duration = Duration::from_secs(30);
 pub struct ExtensionHost {
     pub provider_id: String,
     pub label: String,
-    /// `None`: the CLI is not installed on this computer.
-    pub cli: Option<CliRunner>,
+    /// `Ok(None)`: the CLI is not installed on this computer; `Err`: the
+    /// search for it could not finish.
+    pub cli: Result<Option<CliRunner>, ExtensionError>,
     pub extensions: Arc<dyn ExtensionCli>,
 }
 
 impl ExtensionHost {
-    pub fn summary(&self) -> ExtensionCliSummary {
-        ExtensionCliSummary {
+    /// Fails when the search for the CLI could not finish: reporting it as
+    /// not installed would be a guess.
+    pub fn summary(&self) -> Result<ExtensionCliSummary, ExtensionError> {
+        let cli = self.cli.as_ref().map_err(Clone::clone)?;
+        Ok(ExtensionCliSummary {
             provider_id: self.provider_id.clone(),
             label: self.label.clone(),
-            installed: self.cli.is_some(),
-            version: self.cli.as_ref().and_then(|cli| cli.version.clone()),
+            installed: cli.is_some(),
+            version: cli.as_ref().and_then(|cli| cli.version.clone()),
             support: self.extensions.support(),
-        }
+        })
+    }
+
+    /// The CLI is known to be missing. A host whose search failed is not:
+    /// [`Self::runner`] then reports why, so the failure reaches the user.
+    pub fn is_missing(&self) -> bool {
+        matches!(self.cli, Ok(None))
     }
 
     pub fn support(&self) -> ExtensionSupport {
@@ -50,12 +60,17 @@ impl ExtensionHost {
     /// The CLI to run as its active profile runs it, or why there is none.
     /// Take it once per operation, after the CLI's lock.
     pub fn runner(&self) -> Result<CliRunner, ExtensionError> {
-        let cli = self.cli.as_ref().ok_or_else(|| {
-            ExtensionError::Unsupported(format!(
-                "{} is not installed on this computer.",
-                self.label
-            ))
-        })?;
+        let cli = self
+            .cli
+            .as_ref()
+            .map_err(Clone::clone)?
+            .as_ref()
+            .ok_or_else(|| {
+                ExtensionError::Unsupported(format!(
+                    "{} is not installed on this computer.",
+                    self.label
+                ))
+            })?;
         self.extensions.for_active_profile(cli)
     }
 }
@@ -153,7 +168,13 @@ impl ExtensionsService {
             },
         ))
         .await;
-        *cached = Some(Cached::new(hosts.clone(), HOST_TTL));
+        // A failed search is retried soon instead of standing for the full TTL.
+        let ttl = if hosts.iter().any(|host| host.cli.is_err()) {
+            FAILED_TTL
+        } else {
+            HOST_TTL
+        };
+        *cached = Some(Cached::new(hosts.clone(), ttl));
         hosts
     }
 
@@ -206,4 +227,48 @@ pub async fn detached<T: Send + 'static>(
     tokio::spawn(change).await.map_err(|error| {
         ExtensionError::failed(format!("The change stopped unexpectedly: {error}"))
     })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host(cli: Result<Option<CliRunner>, ExtensionError>) -> ExtensionHost {
+        let extensions = provider_registry()
+            .iter()
+            .find_map(|provider| provider.metadata().extensions().cloned())
+            .expect("a built-in provider manages extensions");
+        ExtensionHost {
+            provider_id: "test".into(),
+            label: "Test".into(),
+            cli,
+            extensions,
+        }
+    }
+
+    #[test]
+    fn a_failed_search_is_reported_not_shown_as_uninstalled() {
+        let failed = host(Err(ExtensionError::failed("search failed")));
+        assert!(!failed.is_missing(), "the failure must reach runner()");
+        assert_eq!(
+            failed.summary().err(),
+            Some(ExtensionError::failed("search failed"))
+        );
+        assert_eq!(
+            failed.runner().err(),
+            Some(ExtensionError::failed("search failed"))
+        );
+
+        let missing = host(Ok(None));
+        assert!(missing.is_missing());
+        assert!(!missing.summary().unwrap().installed);
+        assert!(matches!(
+            missing.runner(),
+            Err(ExtensionError::Unsupported(_))
+        ));
+
+        let installed = host(Ok(Some(CliRunner::for_binary("/bin/true"))));
+        assert!(!installed.is_missing());
+        assert!(installed.summary().unwrap().installed);
+    }
 }

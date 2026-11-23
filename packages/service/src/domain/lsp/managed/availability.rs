@@ -32,7 +32,7 @@ pub async fn acquire(index: SignedMixedCatalog) -> Result<Availability, AppError
         });
     let node_version = if needs_node {
         super::super::spawn::node_candidate()
-            .await
+            .await?
             .and_then(|candidate| candidate.version)
     } else {
         None

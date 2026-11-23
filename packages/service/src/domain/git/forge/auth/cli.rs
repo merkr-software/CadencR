@@ -284,7 +284,9 @@ async fn discover_forge_cli(binary: &'static str) -> Result<PathBuf, ForgeError>
                 version_args: vec!["--version".into()],
                 version_must_contain: Some(binary.to_string()),
             };
-            let candidates = discover_all(&spec, None).await;
+            let candidates = discover_all(&spec, None).await.map_err(|error| {
+                ForgeError::Response(format!("Could not look for the {binary} CLI: {error}"))
+            })?;
             select_best(&candidates)
                 .map(|candidate| candidate.path.clone())
                 .ok_or_else(|| {

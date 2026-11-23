@@ -114,6 +114,15 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+/// The search for a CLI could not finish: a Cadencr failure (masked 500),
+/// never "the CLI is not installed".
+impl From<cli_discovery::DiscoveryError> for AppError {
+    #[track_caller]
+    fn from(error: cli_discovery::DiscoveryError) -> Self {
+        AppError::internal(error.to_string())
+    }
+}
+
 impl AppError {
     // Reported failures record their construction site; see `origin`.
     #[track_caller]

@@ -20,6 +20,11 @@ pub enum SdkError {
     #[error("io failed: {0}")]
     Io(#[from] std::io::Error),
 
+    /// The search for the `opencode` binary could not finish; unlike
+    /// `CliNotFound`, the CLI may well be installed.
+    #[error(transparent)]
+    Discovery(#[from] cli_discovery::DiscoveryError),
+
     #[error("failed to spawn opencode server: {0}")]
     Spawn(String),
 
