@@ -169,7 +169,7 @@ where
         doc.insert(key.to_string(), serde_json::Value::Object(section));
     }
     let serialized = file::serialize_document(&doc);
-    write_serialized_under_lock(&guard, path, serialized, "settings write").await
+    write_serialized_under_lock(guard, path, serialized, "settings write").await
 }
 
 #[cfg(test)]

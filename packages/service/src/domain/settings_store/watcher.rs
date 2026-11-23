@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock, PoisonError, RwLock};
 use std::time::Duration;
 
 use notify_debouncer_mini::notify::RecursiveMode;
@@ -86,9 +86,12 @@ impl Drop for WatcherGuard {
 /// never fatal — settings still work, just without live external-edit refresh.
 pub fn start(dir: &Path, tx: broadcast::Sender<SettingsChangeEvent>) {
     if let Some(guard) = start_guarded_with_debounce(dir, DEBOUNCE, tx) {
-        if let Ok(mut watchers) = PROCESS_WATCHERS.lock() {
-            watchers.push(guard);
-        }
+        // Poisoned only if a pusher panicked; dropping the guard instead
+        // would silently stop the watcher.
+        PROCESS_WATCHERS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(guard);
     }
 }
 
@@ -102,6 +105,7 @@ pub(crate) fn start_guarded_with_debounce(
     let cache_dir = canon.clone().unwrap_or_else(|| raw.clone());
     let cache_dir_cb = cache_dir.clone();
 
+    let reset_dir = cache_dir.clone();
     let handle = watch_dir_managed(
         dir,
         RecursiveMode::NonRecursive,
@@ -113,12 +117,12 @@ pub(crate) fn start_guarded_with_debounce(
                 // consumers so any immediate reload sees fresh bytes from disk.
                 cache::invalidate_key(&cache_dir_cb.join(&file));
                 if file == paths::GLOBAL_FILE_NAME {
-                    super::generation::bump_global();
-                    crate::domain::telemetry::settings_changed();
+                    announce_global_change();
                 }
                 SettingsChangeEvent { file }
             })
         },
+        move || reset_watched_dir(&reset_dir),
     )?;
 
     let id = NEXT_WATCH_ID.fetch_add(1, Ordering::Relaxed);
@@ -133,6 +137,39 @@ pub(crate) fn start_guarded_with_debounce(
         cache_dir,
         _handle: handle,
     })
+}
+
+/// The global file may have changed: long-lived consumers re-read it.
+fn announce_global_change() {
+    super::generation::bump_global();
+    crate::domain::telemetry::settings_changed();
+}
+
+/// Changes in `dir` may have gone unreported (event overflow, watcher error,
+/// directory replaced): forget everything cached for it and tell clients to
+/// refetch every settings file it holds.
+fn reset_watched_dir(dir: &Path) -> Vec<SettingsChangeEvent> {
+    cache::invalidate_dir(dir);
+    announce_global_change();
+    let mut files = vec![paths::GLOBAL_FILE_NAME.to_string()];
+    match std::fs::read_dir(dir) {
+        Ok(entries) => files.extend(
+            entries
+                .flatten()
+                .filter_map(|entry| settings_file_name(&entry.path()))
+                .filter(|file| file != paths::GLOBAL_FILE_NAME),
+        ),
+        // The global refresh above still goes out; project panes refetch on
+        // their next read, which the invalidation already made fresh.
+        Err(error) => {
+            tracing::warn!(dir = %dir.display(), %error, "cannot list settings dir after a watcher reset")
+        }
+    }
+    files.sort();
+    files
+        .into_iter()
+        .map(|file| SettingsChangeEvent { file })
+        .collect()
 }
 
 /// Returns the file name if `path` is a settings document we care about
@@ -198,6 +235,38 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "calling read_file 10 times must emit zero SettingsChangeEvent"
+        );
+
+        drop(guard);
+    }
+
+    #[test]
+    fn a_reset_forgets_the_whole_dir_and_announces_every_settings_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let global = dir.path().join("settings.json");
+        let project = dir.path().join("demo.settings.json");
+        super::super::file::write_atomic(&global, r#"{"theme_current":"aurora"}"#).unwrap();
+        super::super::file::write_atomic(&project, "{}").unwrap();
+        std::fs::write(dir.path().join(".settings.json.tmp"), "{}").unwrap();
+
+        let (tx, _rx) = broadcast::channel::<SettingsChangeEvent>(16);
+        let guard = start_guarded_with_debounce(dir.path(), Duration::from_secs(600), tx)
+            .expect("settings watcher should start");
+        let key = watched_cache_key(&global).expect("watched");
+        cache::get_or_load(&global);
+        cache::get_or_load(&project);
+        assert!(cache::is_cached(&global) && cache::is_cached(&project));
+        let generation = super::super::generation::global();
+
+        let files: Vec<String> = reset_watched_dir(key.parent().unwrap())
+            .into_iter()
+            .map(|event| event.file)
+            .collect();
+        assert_eq!(files, vec!["demo.settings.json", "settings.json"]);
+        assert_ne!(super::super::generation::global(), generation);
+        assert!(
+            !cache::is_cached(&global) && !cache::is_cached(&project),
+            "a reset must drop what was cached for the directory"
         );
 
         drop(guard);

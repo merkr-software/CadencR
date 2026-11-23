@@ -97,6 +97,11 @@ pub(crate) enum ReadPolicy {
 /// disk I/O and JSON serialization to `spawn_blocking` and refreshing the
 /// watcher cache whenever a write occurs.
 ///
+/// The lock guard moves into the blocking task: if the caller's future is
+/// dropped (client gone, request cancelled), the task still runs to the end,
+/// and the lock must stay held until it does or another writer could read the
+/// old document and overwrite this write.
+///
 /// `mutate` returns `Ok((value, true))` to persist the updated document or
 /// `Ok((value, false))` to leave disk untouched.
 pub(crate) async fn update_document_locked<T, F>(
@@ -112,59 +117,54 @@ where
         + 'static,
 {
     let owned_path = path.to_path_buf();
-    let _guard = lock::write_lock().lock().await;
-    let outcome =
-        tokio::task::spawn_blocking(move || -> Result<Option<(T, Option<String>)>, AppError> {
-            let mut doc = match policy {
-                ReadPolicy::Strict => load_document_for_write(&owned_path)?,
-                ReadPolicy::SkipMissingOrCorrupt => {
-                    let Some(text) = file::read_file(&owned_path)? else {
-                        return Ok(None);
-                    };
-                    let Ok(doc) = file::parse_document(&text) else {
-                        // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
-                        return Ok(None);
-                    };
-                    doc
-                }
-            };
-            let (value, changed) = mutate(&mut doc)?;
-            if !changed {
-                return Ok(Some((value, None)));
+    let guard = lock::write_lock().lock().await;
+    tokio::task::spawn_blocking(move || -> Result<Option<T>, AppError> {
+        let _guard = guard;
+        let mut doc = match policy {
+            ReadPolicy::Strict => load_document_for_write(&owned_path)?,
+            ReadPolicy::SkipMissingOrCorrupt => {
+                let Some(text) = file::read_file(&owned_path)? else {
+                    return Ok(None);
+                };
+                let Ok(doc) = file::parse_document(&text) else {
+                    // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
+                    return Ok(None);
+                };
+                doc
             }
+        };
+        let (value, changed) = mutate(&mut doc)?;
+        if changed {
             let serialized = file::serialize_document(&doc);
             file::write_atomic(&owned_path, &serialized)?;
-            Ok(Some((value, Some(serialized))))
-        })
-        .await
-        .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))??;
-
-    match outcome {
-        Some((value, Some(serialized))) => {
-            cache::put_text(path, serialized);
-            Ok(Some(value))
+            cache::invalidate_path(&owned_path);
         }
-        Some((value, None)) => Ok(Some(value)),
-        None => Ok(None),
-    }
+        Ok(Some(value))
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))?
 }
 
-/// Atomically write an already-serialized document while holding `WRITE_LOCK`
-/// and refresh the watcher cache.
+/// Atomically write an already-serialized document and refresh the watcher
+/// cache. Takes the `WRITE_LOCK` guard by value and releases it only when the
+/// blocking write is done, even if the caller's future is dropped first.
 pub(super) async fn write_serialized_under_lock(
-    _guard: &tokio::sync::MutexGuard<'static, ()>,
+    guard: tokio::sync::MutexGuard<'static, ()>,
     path: &Path,
     serialized: String,
     task_label: &'static str,
 ) -> Result<(), AppError> {
     let owned_path = path.to_path_buf();
-    let write_text = serialized.clone();
-    tokio::task::spawn_blocking(move || file::write_atomic(&owned_path, &write_text))
-        .await
-        .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))??;
-    cache::put_text(path, serialized);
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        file::write_atomic(&owned_path, &serialized)?;
+        cache::invalidate_path(&owned_path);
+        Ok(())
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))?
 }
+
 /// Validate and atomically write a full settings document (the "Edit JSON" save
 /// path). The document is written verbatim (nested sections preserved); only the
 /// flat scalar projection is validated for warnings. Errors only on invalid JSON.
@@ -180,7 +180,7 @@ pub(super) async fn write_content(
 
     let serialized = file::serialize_document(&doc);
     let guard = lock::write_lock().lock().await;
-    write_serialized_under_lock(&guard, path, serialized, "settings write").await?;
+    write_serialized_under_lock(guard, path, serialized, "settings write").await?;
     Ok(warnings)
 }
 
@@ -201,6 +201,44 @@ pub fn read_for_edit(path: &Path, scope: Scope) -> (String, Vec<SettingWarning>)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dropped_writer_keeps_the_lock_until_its_write_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let task_path = path.clone();
+        let task = tokio::spawn(async move {
+            update_document_locked(&task_path, ReadPolicy::Strict, "test", move |doc| {
+                started_tx.send(()).expect("test waiting");
+                release_rx.recv().expect("test releases");
+                doc.insert("theme_current".into(), "aurora".into());
+                Ok(((), true))
+            })
+            .await
+        });
+        tokio::task::spawn_blocking(move || started_rx.recv())
+            .await
+            .unwrap()
+            .expect("the read-modify-write started");
+
+        // The handler is dropped while its blocking write is still running.
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(
+            lock::write_lock().try_lock().is_err(),
+            "the lock must stay held until the in-flight write lands"
+        );
+
+        release_tx.send(()).unwrap();
+        let _held =
+            tokio::time::timeout(std::time::Duration::from_secs(5), lock::write_lock().lock())
+                .await
+                .expect("the lock is released once the write finishes");
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("aurora"), "{written}");
+    }
 
     #[tokio::test]
     async fn set_preserves_other_and_unknown_keys() {
