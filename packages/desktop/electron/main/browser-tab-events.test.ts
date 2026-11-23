@@ -1,6 +1,7 @@
 import type { Input } from "electron";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { guestChrome } from "./browser-tab-events";
+import type { BrowserTabError } from "./browser-types";
 
 // Build a guest-page keydown. `mod` maps to the platform's primary modifier
 // (Meta on macOS, Control elsewhere) so the assertions hold on any host.
@@ -123,5 +124,254 @@ describe("document authorization events", () => {
     expect(tab.consoleEntries).toEqual([]);
     expect(tab.networkEntries).toEqual([]);
     expect(tab.externalAutomationOrigin).toBeNull();
+  });
+});
+
+describe("tab error and navigation lifecycle events", () => {
+  async function setupEvents(automationAccess: "user" | "shared" | "agent" = "shared") {
+    const { EventEmitter } = await import("node:events");
+    const { installTabEvents } = await import("./browser-tab-events");
+    const contents = Object.assign(new EventEmitter(), {
+      getURL: vi.fn(() => "http://localhost:3000/"),
+      getTitle: vi.fn(() => "App"),
+      canGoBack: vi.fn(() => false),
+      canGoForward: vi.fn(() => false),
+      isDestroyed: vi.fn(() => false),
+    });
+    const tab = {
+      metadata: {
+        id: "tab-1",
+        title: "App",
+        url: "http://localhost:3000/",
+        loading: false,
+        canGoBack: false,
+        canGoForward: false,
+        sessionProfileId: "default",
+        isActive: true,
+        devToolsOpen: false,
+        pinned: false,
+        suspended: false,
+        zoomPercent: 100,
+        scopeId: 7,
+      },
+      webContents: contents,
+      automationAccess,
+      externalAutomationOrigin: null,
+      consoleEntries: [],
+      networkEntries: [],
+      pendingSessionTasks: new Set<Promise<void>>(),
+    } as unknown as import("./browser-tab-events").ManagedTab;
+    let currentError: BrowserTabError | null = null;
+    const emitState = vi.fn();
+    const setTabError = vi.fn((next: BrowserTabError | null) => {
+      const changed = currentError !== next;
+      currentError = next;
+      return changed;
+    });
+    const noop = (): void => undefined;
+    const host = {
+      emitState,
+      setTabError,
+      isTabAlive: () => true,
+      tabDestroyed: noop,
+      recordHistoryNavigation: noop,
+      updateHistoryTitle: noop,
+      forgetHistory: noop,
+      emitShortcut: noop,
+      matchGuestShortcut: () => null,
+      emitFindResult: noop,
+      invalidateFind: noop,
+      syncZoom: noop,
+      persistTab: noop,
+      emitCommentBadgeClick: noop,
+    };
+    installTabEvents(tab, host);
+    return { contents, tab, host, emitState, setTabError, getError: () => currentError };
+  }
+
+  it("ignores subframe and ERR_ABORTED load failures and formats main-frame load errors", async () => {
+    const { contents, emitState, setTabError, getError } = await setupEvents();
+
+    contents.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      "https://subframe.example/",
+      false,
+    );
+    contents.emit("did-fail-load", {}, -3, "ERR_ABORTED", "http://localhost:3000/", true);
+    expect(setTabError).not.toHaveBeenCalled();
+    expect(emitState).not.toHaveBeenCalled();
+
+    contents.emit(
+      "did-fail-load",
+      {},
+      -102,
+      "ERR_CONNECTION_REFUSED",
+      "http://localhost:3000/",
+      true,
+    );
+    expect(setTabError).toHaveBeenCalledOnce();
+    expect(emitState).toHaveBeenCalledOnce();
+    expect(getError()).toMatchObject({
+      kind: "load",
+      title: "Can't connect to localhost:3000",
+      code: "ERR_CONNECTION_REFUSED",
+      url: "http://localhost:3000/",
+      retryable: true,
+    });
+  });
+
+  it("surfaces renderer crashes as structured errors, clears loading, and ignores clean exits", async () => {
+    const { contents, tab, emitState, setTabError, getError } = await setupEvents();
+    tab.metadata = { ...tab.metadata, loading: true };
+
+    contents.emit("render-process-gone", {}, { reason: "clean-exit", exitCode: 0 });
+    expect(setTabError).not.toHaveBeenCalled();
+    expect(tab.metadata.loading).toBe(true);
+
+    contents.emit("render-process-gone", {}, { reason: "oom", exitCode: 1 });
+    expect(tab.metadata.loading).toBe(false);
+    expect(getError()).toMatchObject({
+      kind: "crash",
+      title: "This page ran out of memory",
+      code: "oom",
+      url: "http://localhost:3000/",
+      retryable: true,
+    });
+    expect(emitState).toHaveBeenCalledOnce();
+  });
+
+  it("revokes shared access on cross-origin navigation or redirect while preserving agent tabs", async () => {
+    const shared = await setupEvents("shared");
+    shared.tab.externalAutomationOrigin = "http://localhost:3000";
+
+    // Same-origin navigation keeps sharing intact.
+    shared.contents.emit("did-start-navigation", {
+      url: "http://localhost:3000/dashboard",
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    expect(shared.tab.automationAccess).toBe("shared");
+    expect(shared.tab.externalAutomationOrigin).toBe("http://localhost:3000");
+
+    // Cross-origin navigation revokes sharing back to user and emits state.
+    shared.emitState.mockClear();
+    shared.contents.emit("did-start-navigation", {
+      url: "https://other.example.com/",
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    expect(shared.tab.automationAccess).toBe("user");
+    expect(shared.tab.metadata.agentAccess).toBe("user");
+    expect(shared.tab.externalAutomationOrigin).toBeNull();
+    expect(shared.emitState).toHaveBeenCalledOnce();
+
+    // Cross-origin redirect also revokes sharing.
+    shared.tab.automationAccess = "shared";
+    shared.tab.metadata = { ...shared.tab.metadata, agentAccess: "shared" };
+    shared.tab.externalAutomationOrigin = "http://localhost:3000";
+    shared.emitState.mockClear();
+    shared.contents.emit("will-redirect", {
+      url: "https://redirected.example.com/",
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    });
+    expect(shared.tab.automationAccess).toBe("user");
+    expect(shared.tab.metadata.agentAccess).toBe("user");
+    expect(shared.tab.externalAutomationOrigin).toBeNull();
+    expect(shared.emitState).toHaveBeenCalledOnce();
+
+    // Cross-origin did-navigate also revokes sharing.
+    shared.tab.automationAccess = "shared";
+    shared.tab.metadata = { ...shared.tab.metadata, agentAccess: "shared" };
+    shared.tab.externalAutomationOrigin = "http://localhost:3000";
+    shared.contents.getURL.mockReturnValue("https://final.example.com/");
+    shared.emitState.mockClear();
+    shared.contents.emit("did-navigate");
+    expect(shared.tab.automationAccess).toBe("user");
+    expect(shared.tab.metadata.agentAccess).toBe("user");
+    expect(shared.tab.externalAutomationOrigin).toBeNull();
+    expect(shared.emitState).toHaveBeenCalledOnce();
+
+    // Agent tabs clear externalAutomationOrigin on cross-origin nav but remain "agent".
+    const agent = await setupEvents("agent");
+    agent.tab.externalAutomationOrigin = "https://approved.example.com";
+    agent.contents.emit("will-redirect", {
+      url: "https://other.example.com/",
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    });
+    expect(agent.tab.automationAccess).toBe("agent");
+    expect(agent.tab.externalAutomationOrigin).toBeNull();
+  });
+
+  it("prevents non-navigable page schemes on will-navigate without showing a tab error", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    try {
+      const { contents, emitState, setTabError } = await setupEvents();
+      for (const url of [
+        "javascript:void(0)",
+        "mailto:test@example.com",
+        "tel:+1234567890",
+        "data:text/html,hi",
+        "blob:https://example.com/123",
+        "vscode://file/tmp/a",
+      ]) {
+        const preventDefault = vi.fn();
+        contents.emit("will-navigate", { url, preventDefault });
+        expect(preventDefault).toHaveBeenCalledOnce();
+      }
+      expect(setTabError).not.toHaveBeenCalled();
+      expect(emitState).not.toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledTimes(6);
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  it("reports a structured blocked error when a shared tab redirects to Cadencr", async () => {
+    const { contents, emitState, getError } = await setupEvents("shared");
+    const preventDefault = vi.fn();
+    contents.emit("will-redirect", { url: "http://127.0.0.1:5005/api/health", preventDefault });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(emitState).toHaveBeenCalledOnce();
+    expect(getError()).toMatchObject({
+      kind: "blocked",
+      title: "Navigation blocked",
+      description: "Shared browser tabs cannot redirect to Cadencr's own interface.",
+      url: "http://127.0.0.1:5005/api/health",
+      retryable: false,
+    });
+  });
+
+  it("clears previous tab errors on main-frame navigation start and navigation completion", async () => {
+    const { contents, emitState, setTabError, getError } = await setupEvents();
+    contents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", "https://bad.invalid/", true);
+    expect(getError()).not.toBeNull();
+    emitState.mockClear();
+    setTabError.mockClear();
+
+    contents.emit("did-start-navigation", {
+      url: "https://example.com/",
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    expect(setTabError).toHaveBeenCalledWith(null);
+    expect(emitState).toHaveBeenCalledOnce();
+    expect(getError()).toBeNull();
+
+    contents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", "https://bad.invalid/", true);
+    emitState.mockClear();
+    contents.emit("did-navigate");
+    expect(getError()).toBeNull();
+    expect(emitState).toHaveBeenCalledOnce();
+
+    contents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", "https://bad.invalid/", true);
+    emitState.mockClear();
+    contents.emit("did-navigate-in-page", {}, "https://example.com/#section", true);
+    expect(getError()).toBeNull();
+    expect(emitState).toHaveBeenCalledOnce();
   });
 });

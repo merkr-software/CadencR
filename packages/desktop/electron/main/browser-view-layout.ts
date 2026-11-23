@@ -132,6 +132,7 @@ export class BrowserViewLayout {
     activeByScope: Map<number | null, string>,
     boundsByScope: Map<number | null, BrowserBounds>,
     rendererZoomByScope: Map<number | null, number> = new Map(),
+    isGuestOccluded: (tabId: string) => boolean = () => false,
   ): void {
     const attached = !this.views.isSuppressed;
     for (const [id, tab] of tabs) {
@@ -140,11 +141,12 @@ export class BrowserViewLayout {
       const hasBounds = !!scopeBounds && scopeBounds.width > 0 && scopeBounds.height > 0;
       const attachThis = attached && hasBounds;
       const active = attachThis && activeByScope.get(scope) === id;
+      const guestAttached = attachThis && !isGuestOccluded(id);
       const devToolsOpen = tab.metadata.devToolsOpen;
       const base = scopeBounds ?? { x: 0, y: 0, width: 0, height: 0 };
       const responsive = this.responsiveGeometry(tab, base, rendererZoomByScope.get(scope) ?? 1);
       if (active) this.syncResponsiveScale(tab, responsive.nativeScale);
-      this.views.layoutView(tab.view, attachThis, active, responsive.bounds);
+      this.views.layoutView(tab.view, guestAttached, active && guestAttached, responsive.bounds);
       if (tab.devtoolsView) {
         const dtVisible = active && devToolsOpen;
         this.views.layoutView(tab.devtoolsView, attachThis, dtVisible, devtoolsBounds(base));

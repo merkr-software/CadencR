@@ -51,18 +51,18 @@ fn browser_tool(name: &'static str) -> Tool {
 
 fn tool_description(name: &str) -> &'static str {
     match name {
-        "browser_list_tabs" => "List open Browser workspace tabs with id, title, URL and load state.",
-        "browser_open_url" => "Reuse the active Browser tab by default for a localhost web URL, or navigate an existing tab when tab_id is given. Pass new_tab:true only when you intentionally need another tab. Waits for the load to settle and returns the final URL and title. Only loopback http/https URLs are permitted. Local files and Cadencr itself cannot be inspected or automated.",
-        "browser_open_external_url" => "Reuse the active Browser tab by default for an arbitrary external website (any http/https URL), or navigate an existing tab when tab_id is given. Pass new_tab:true only when you intentionally need another tab. Unlike browser_open_url this prompts for permission (per the agent's permission mode) because it reaches the open internet; once opened, the resulting tab can be fully automated (click/fill/type/evaluate). Use browser_open_url for localhost development sites. Cadencr itself and local files cannot be inspected or automated. Approval applies only to the requested origin, excluding redirects to other origins.",
+        "browser_list_tabs" => "List open Browser workspace tabs in this feature with id, title, URL, privacy mode, load state, and whether agent access requires user approval.",
+        "browser_open_url" => "Reuse the active Browser tab by default for a localhost web URL, or navigate an existing tab when tab_id is given. Reusing an unshared user tab prompts the user for approval in the Browser panel; pass new_tab:true to open a separate agent tab without reusing the active tab. Waits for the load to settle and returns the final URL and title. Only loopback http/https URLs are permitted. Local files and Cadencr itself cannot be inspected or automated.",
+        "browser_open_external_url" => "Reuse the active Browser tab by default for an arbitrary external website (any http/https URL), or navigate an existing tab when tab_id is given. Reusing an unshared user tab prompts the user for approval in the Browser panel; pass new_tab:true to open a separate agent tab without reusing the active tab. Unlike browser_open_url this prompts for permission (per the agent's permission mode) because it reaches the open internet; once opened, the resulting tab can be fully automated (click/fill/type/evaluate). Use browser_open_url for localhost development sites. Cadencr itself and local files cannot be inspected or automated. Approval applies only to the requested origin, excluding redirects to other origins.",
         "browser_get_console" => "Return recent console entries from the active Browser tab. Filter with `level` (e.g. 'error') and cap with `limit` (default 50, newest last).",
         "browser_get_network" => "Return recent network requests from the active Browser tab. Filter with `failed_only` or `url_contains`, cap with `limit` (default 50). Headers are omitted unless `include_headers` is true.",
         "browser_get_snapshot" => "Preferred way to understand the page. Defaults to a compact accessibility-style outline where every interactive element has a stable [ref] (e1, e2, …) you pass to browser_click/browser_fill/browser_hover/browser_screenshot. Pass format:'html' for raw outerHTML. `selector` scopes to a subtree; output truncates to `max_length` with a `truncated` flag. Refs reset on navigation and on every snapshot — re-snapshot after the page changes.",
         "browser_screenshot" => "Capture a PNG screenshot of the active tab, returned as a viewable image. With `selector` or `ref` (from browser_get_snapshot) it captures just that element's region; or pass an explicit `clip`. The captured region is flashed live in the tab.",
-        "browser_click" => "Click an element by `ref` or `selector` (preferred — it scrolls into view, centers and flashes the target), or fall back to viewport `x`/`y`. Requires the active tab to be localhost.",
-        "browser_fill" => "Set the value of an input, textarea, select or contenteditable identified by `ref` or `selector`, firing input/change events so frameworks react. Requires the active tab to be localhost.",
-        "browser_hover" => "Move the mouse over the element identified by `ref` or `selector` to reveal hover menus, tooltips or dropdowns. Requires the active tab to be localhost.",
-        "browser_type" => "Insert text into the currently focused element. Prefer browser_fill for form fields. Requires the active tab to be localhost.",
-        "browser_keypress" => "Press a single key such as 'Enter' or 'Tab'. Requires the active tab to be localhost.",
+        "browser_click" => "Click an element by `ref` or `selector` (preferred — it scrolls into view, centers and flashes the target), or fall back to viewport `x`/`y`. Works on localhost tabs or user-approved/explicitly-opened external tabs.",
+        "browser_fill" => "Set the value of an input, textarea, select or contenteditable identified by `ref` or `selector`, firing input/change events so frameworks react. Works on localhost tabs or user-approved/explicitly-opened external tabs.",
+        "browser_hover" => "Move the mouse over the element identified by `ref` or `selector` to reveal hover menus, tooltips or dropdowns. Works on localhost tabs or user-approved/explicitly-opened external tabs.",
+        "browser_type" => "Insert text into the currently focused element. Prefer browser_fill for form fields. Works on localhost tabs or user-approved/explicitly-opened external tabs.",
+        "browser_keypress" => "Press a single key such as 'Enter' or 'Tab'. Works on localhost tabs or user-approved/explicitly-opened external tabs.",
         "browser_wait_for" => "Wait until a `selector` appears or visible `text` is present (timeout_ms default 5000). Returns whether it appeared and how long it took — use it to confirm an action landed instead of polling screenshots.",
         "browser_evaluate" => "Run JavaScript in the active tab and return the value of the last expression. Requires provider approval and a localhost or explicitly approved external tab. Cadencr origins and local files are blocked.",
         "browser_select_element_context" => "Ask the user to click an element in the Browser tab, then return its selector candidates, attributes, computed styles, a region screenshot and diagnostics.",
@@ -87,6 +87,10 @@ fn tool_schema(name: &str) -> serde_json::Value {
 
 fn read_tool_schema(name: &str) -> Option<serde_json::Value> {
     let schema = match name {
+        "browser_list_tabs" => json!({
+            "type": "object",
+            "properties": {},
+        }),
         "browser_open_url" => json!({
             "type": "object",
             "properties": {
@@ -296,11 +300,7 @@ impl ServerHandler for BrowserServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let args = request
-            .arguments
-            .as_ref()
-            .map(|m| serde_json::Value::Object(m.clone()))
-            .unwrap_or(serde_json::Value::Null);
+        let args = super::normalize_tool_args(request.arguments);
         if let Err(e) = pinned_feature_id(&args, self.ctx.feature_id) {
             return Ok(error_result(&e).into());
         }
@@ -315,6 +315,15 @@ impl ServerHandler for BrowserServer {
 #[cfg(test)]
 mod tests {
     use super::{tool_description, tool_schema, BROWSER_OPEN_EXTERNAL_URL};
+
+    #[test]
+    fn list_tabs_schema_has_empty_properties_and_no_tab_id() {
+        let schema = tool_schema("browser_list_tabs");
+        assert_eq!(schema["type"], "object");
+        let props = schema["properties"].as_object().expect("properties object");
+        assert!(props.is_empty(), "unexpected properties: {props:?}");
+        assert!(!props.contains_key("tab_id"));
+    }
 
     #[test]
     fn open_url_schemas_expose_new_tab_flag() {
@@ -337,6 +346,29 @@ mod tests {
 
             assert!(description.contains("Reuse"));
             assert!(description.contains("new_tab"));
+            assert!(description.contains("approval in the Browser panel"));
+        }
+        assert!(tool_description("browser_list_tabs").contains("approval"));
+    }
+
+    #[test]
+    fn interaction_tool_descriptions_document_approved_external_tabs() {
+        for name in [
+            "browser_click",
+            "browser_fill",
+            "browser_hover",
+            "browser_type",
+            "browser_keypress",
+        ] {
+            let description = tool_description(name);
+            assert!(
+                description.contains("external tabs"),
+                "{name}: {description}"
+            );
+            assert!(
+                !description.contains("Requires the active tab to be localhost."),
+                "{name}: {description}"
+            );
         }
     }
 }

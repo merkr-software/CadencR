@@ -1,7 +1,19 @@
 import type { Input, Result, WebContents, WebContentsView } from "electron";
+import { httpBrowserOrigin } from "../../src/shared/browser-url";
 import { normalizeBrowserOpenUrl } from "./browser-policy";
+import {
+  formatBlockedNavigationError,
+  formatBrowserCrashError,
+  formatBrowserLoadError,
+  isIgnoredLoadErrorCode,
+} from "./browser-load-errors";
 import { installBrowserFaviconEvents } from "./browser-tab-favicon-events";
-import { consoleEntry, originOf, pushBounded, updateTabMetadata } from "./browser-manager-utils";
+import {
+  applyTabAgentAccess,
+  consoleEntry,
+  pushBounded,
+  updateTabMetadata,
+} from "./browser-manager-utils";
 import { COMMENT_BADGE_CLICK_SENTINEL } from "./browser-comment-overlay-script";
 import { invalidateBrowserDocument } from "./browser-document-security";
 import { isCadencrBrowserUrl } from "./browser-self-origin-policy";
@@ -12,6 +24,7 @@ import type {
   BrowserConsoleEntry,
   BrowserNetworkEntry,
   BrowserShortcut,
+  BrowserTabError,
   BrowserTabMetadata,
 } from "./browser-types";
 
@@ -44,9 +57,9 @@ export interface ManagedTab {
   openerTabId: string | null;
   /** Releases parent/focus listeners if a temporary child is promoted or destroyed. */
   detachOpenerRelations: (() => void) | null;
-  // Origin approved via the permission-gated browser_open_external_url tool. While
-  // the tab stays on this origin it is exempt from the localhost-only automation
-  // (mutation) gate; navigating elsewhere re-locks it. null = not unlocked.
+  // Origin unlocked for agent automation (via `browser_open_external_url` or
+  // explicit user sharing). Navigating or redirecting to another origin clears
+  // it and revokes `"shared"` access back to `"user"`. null = not unlocked.
   externalAutomationOrigin: string | null;
 }
 
@@ -55,7 +68,7 @@ export interface ManagedTab {
 export interface TabEventHost {
   emitState(): void;
   /** Set (or clear, with `null`) this tab's error; true when the stored error changed. */
-  setTabError(message: string | null): boolean;
+  setTabError(error: BrowserTabError | null): boolean;
   isTabAlive(): boolean;
   tabDestroyed(): void;
   recordHistoryNavigation(url: string, title: string): void;
@@ -111,25 +124,35 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
       host.invalidateFind();
     } catch (error) {
       event.preventDefault();
-      if (host.setTabError(error instanceof Error ? error.message : String(error))) {
-        host.emitState();
-      }
+      console.debug("[browser] navigation skipped for unsupported scheme", event.url, error);
     }
   });
   wc.on("will-redirect", (event) => {
+    if (event.isMainFrame === false) return;
     if (tab.automationAccess !== "user" && isCadencrBrowserUrl(event.url)) {
       event.preventDefault();
-      if (host.setTabError("Browser navigation to Cadencr's own origins is blocked.")) {
+      if (
+        host.setTabError(
+          formatBlockedNavigationError(
+            "Navigation blocked",
+            "Shared browser tabs cannot redirect to Cadencr's own interface.",
+            event.url,
+          ),
+        )
+      ) {
         host.emitState();
       }
+      return;
     }
+    if (syncNavigationOrigin(tab, event.url)) host.emitState();
   });
   wc.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
     invalidateBrowserDocument(wc);
-    if (tab.externalAutomationOrigin !== originOf(details.url)) tab.externalAutomationOrigin = null;
+    const accessChanged = syncNavigationOrigin(tab, details.url);
     tab.consoleEntries.length = 0;
     tab.networkEntries.length = 0;
+    if (host.setTabError(null) || accessChanged) host.emitState();
   });
   installPageLifecycleEvents(tab, host);
 }
@@ -137,6 +160,7 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
 function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
   const wc = tab.webContents;
   wc.on("did-navigate", () => {
+    syncNavigationOrigin(tab, wc.getURL());
     host.setTabError(null);
     refreshTabMetadata(tab, host);
     host.persistTab();
@@ -159,10 +183,31 @@ function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
     host.persistTab();
     host.updateHistoryTitle(wc.getURL(), pageTitle(wc));
   });
-  wc.on("did-fail-load", (_event, _code, description, url) => {
+  wc.on("did-fail-load", (_event, errorCode, description, url, isMainFrame) => {
+    if (!isMainFrame || isIgnoredLoadErrorCode(errorCode)) return;
     // A repeated failure, or one from a closed tab, changes nothing to publish.
-    if (host.setTabError(`${url}: ${description}`)) host.emitState();
+    if (host.setTabError(formatBrowserLoadError(errorCode, description, url))) host.emitState();
   });
+  wc.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    const clearedLoading = tab.metadata.loading;
+    if (clearedLoading) tab.metadata = { ...tab.metadata, loading: false };
+    if (host.setTabError(formatBrowserCrashError(details.reason, wc.getURL())) || clearedLoading) {
+      host.emitState();
+    }
+  });
+}
+
+function syncNavigationOrigin(tab: ManagedTab, rawUrl: string): boolean {
+  const nextOrigin = httpBrowserOrigin(rawUrl);
+  const expectedOrigin = tab.externalAutomationOrigin ?? httpBrowserOrigin(tab.metadata.url);
+  if (tab.externalAutomationOrigin !== null && nextOrigin !== tab.externalAutomationOrigin) {
+    tab.externalAutomationOrigin = null;
+  }
+  if (tab.automationAccess === "shared" && nextOrigin !== expectedOrigin) {
+    return applyTabAgentAccess(tab, false, null);
+  }
+  return false;
 }
 
 // Parse a sentinel badge-click console line (`{ anchorId, box }` JSON) and hand

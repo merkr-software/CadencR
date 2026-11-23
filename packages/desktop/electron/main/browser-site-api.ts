@@ -11,6 +11,9 @@ export class BrowserSiteApi {
   constructor(
     private readonly controller: BrowserSiteController,
     private readonly requireTab: (tabId: string) => ManagedTab,
+    private readonly emitState: (scopeId: number | null) => void = () => undefined,
+    private readonly syncExternalAccessChange: (tabId: string, shared: boolean) => void = () =>
+      undefined,
   ) {}
 
   info(tabId: string): BrowserSiteInfo {
@@ -37,8 +40,9 @@ export class BrowserSiteApi {
 
   setSharing(tabId: string, origin: string, shared: boolean): BrowserSiteInfo {
     const tab = this.requireTab(tabId);
-    const info = this.controller.setAgentAccess(tab, origin, shared);
-    if (!shared) tab.externalAutomationOrigin = null;
+    const { info, changed } = this.controller.setAgentAccess(tab, origin, shared);
+    if (changed) this.emitState(tab.metadata.scopeId);
+    this.syncExternalAccessChange(tab.metadata.id, shared);
     return info;
   }
 

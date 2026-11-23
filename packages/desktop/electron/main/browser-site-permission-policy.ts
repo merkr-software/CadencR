@@ -1,3 +1,4 @@
+import { httpBrowserOrigin } from "../../src/shared/browser-url";
 import type { BrowserProfile } from "./browser-profiles";
 import type { BrowserProfileMetadata, BrowserSitePermission } from "./browser-types";
 
@@ -44,14 +45,7 @@ export function requestOriginIsConsistent(
   return securityOrigin !== null && securityOrigin === origin;
 }
 
-export function originOf(rawUrl: string): string | null {
-  try {
-    const url = new URL(rawUrl);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
-  } catch {
-    return null;
-  }
-}
+export const originOf = httpBrowserOrigin;
 
 export function profileMetadata(profile: BrowserProfile): BrowserProfileMetadata {
   return { id: profile.id, label: profile.label, mode: profile.mode };

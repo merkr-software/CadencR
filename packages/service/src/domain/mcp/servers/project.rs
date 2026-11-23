@@ -50,11 +50,7 @@ impl ServerHandler for ProjectServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let args = request
-            .arguments
-            .as_ref()
-            .map(|m| serde_json::Value::Object(m.clone()))
-            .unwrap_or(serde_json::Value::Null);
+        let args = super::normalize_tool_args(request.arguments);
         Ok(
             run_project_tool(request.name.as_ref(), args, self.ctx.clone())
                 .await

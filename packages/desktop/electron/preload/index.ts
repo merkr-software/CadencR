@@ -19,6 +19,7 @@ import type {
   BrowserShortcut,
   BrowserStateSnapshot,
   BrowserTabMetadata,
+  BrowserAgentAccessRequest,
   BrowserAgentActivity,
 } from "../main/browser-types";
 import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
@@ -293,6 +294,12 @@ contextBridge.exposeInMainWorld("cadencr", {
     ipcRenderer.invoke("browser:set-agent-sharing", tabId, origin, shared),
   resolveBrowserPermissionRequest: (requestId: string, allowed: boolean): Promise<void> =>
     ipcRenderer.invoke("browser:resolve-permission-request", requestId, allowed),
+  listBrowserAgentAccessRequests: (scopeId: number): Promise<BrowserAgentAccessRequest[]> =>
+    ipcRenderer.invoke("browser:list-agent-access-requests", scopeId),
+  resolveBrowserAgentAccessRequest: (requestId: string, allowed: boolean): Promise<void> =>
+    ipcRenderer.invoke("browser:resolve-agent-access-request", requestId, allowed),
+  clearBrowserError: (scopeId: number | null, tabId?: string | null): Promise<void> =>
+    ipcRenderer.invoke("browser:clear-error", scopeId, tabId),
   browserBack: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:back", tabId),
   browserForward: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:forward", tabId),
   browserReload: (tabId: string): Promise<void> => ipcRenderer.invoke("browser:reload", tabId),
@@ -348,6 +355,11 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("browser:permission-request", cb),
   onBrowserPermissionRequestCancelled: (cb: (event: { requestId: string }) => void): (() => void) =>
     onIpc("browser:permission-request-cancelled", cb),
+  onBrowserAgentAccessRequest: (cb: (request: BrowserAgentAccessRequest) => void): (() => void) =>
+    onIpc("browser:agent-access-request", cb),
+  onBrowserAgentAccessRequestCancelled: (
+    cb: (event: { requestId: string }) => void,
+  ): (() => void) => onIpc("browser:agent-access-request-cancelled", cb),
   onBrowserPopupRequestsChanged: (cb: (event: { scopeId: number }) => void): (() => void) =>
     onIpc("browser:popup-requests-changed", cb),
   onBrowserDownloadsChanged: (cb: (snapshot: BrowserDownloadSnapshot) => void): (() => void) =>

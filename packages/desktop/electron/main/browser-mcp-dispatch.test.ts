@@ -41,9 +41,20 @@ function target(): BrowserMcpTarget {
     networkEntries: [],
     error: null,
   }));
+  const listTabs = vi.fn((scopeId?: number | null) => ({
+    scopeId: scopeId ?? null,
+    activeTabId: "tab-1",
+    tabs: [],
+  }));
   return {
     state,
-    automation: { state, assert: vi.fn(), guard: vi.fn(() => vi.fn()) },
+    automation: {
+      state,
+      listTabs,
+      assert: vi.fn(),
+      assertApprovable: vi.fn(),
+      guard: vi.fn(() => vi.fn()),
+    },
     openUrl: vi.fn(async () => tabMeta()),
     openExternalUrl: vi.fn(async () => tabMeta()),
     restoreScopeMetadata: vi.fn(async () => state()),
@@ -66,11 +77,92 @@ function target(): BrowserMcpTarget {
 }
 
 describe("dispatchBrowserMcpTool", () => {
-  it("serializes browser_list_tabs state as JSON text", async () => {
+  it("serializes browser_list_tabs compact list as JSON text and ensures scope restoration", async () => {
     const fake = target();
+    fake.ensureScopeRestored = vi.fn(async () => undefined);
     await expect(dispatchBrowserMcpTool(fake, "browser_list_tabs", {})).resolves.toEqual({
-      text: JSON.stringify(fake.state()),
+      text: JSON.stringify({ scopeId: null, activeTabId: "tab-1", tabs: [] }),
     });
+    expect(fake.ensureScopeRestored).not.toHaveBeenCalled();
+    expect(fake.restoreScopeMetadata).not.toHaveBeenCalled();
+
+    await expect(dispatchBrowserMcpTool(fake, "browser_list_tabs", {}, 7)).resolves.toEqual({
+      text: JSON.stringify({ scopeId: 7, activeTabId: "tab-1", tabs: [] }),
+    });
+    expect(fake.ensureScopeRestored).toHaveBeenCalledWith(7);
+    expect(fake.restoreScopeMetadata).not.toHaveBeenCalled();
+  });
+
+  it("requests access for an active user tab when no shared tab is active", async () => {
+    const fake = target();
+    vi.mocked(fake.automation.state).mockReturnValue({
+      tabs: [],
+      activeTabId: null,
+      consoleEntries: [],
+      networkEntries: [],
+      error: null,
+    });
+    fake.activeScopeTabId = vi.fn(() => "user-tab");
+    fake.ensureAgentAccess = vi.fn(async () => undefined);
+
+    await dispatchBrowserMcpTool(fake, "browser_get_snapshot", {}, 7);
+
+    expect(fake.ensureAgentAccess).toHaveBeenCalledWith("user-tab", 7, {
+      allowBlank: false,
+      signal: undefined,
+    });
+    expect(fake.automation.assert).toHaveBeenCalledWith("user-tab", 7);
+    expect(fake.inspection.snapshot).toHaveBeenCalledWith(
+      "user-tab",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("skips ensureAgentAccess in O(1) when isSharedOrAgent is already true", async () => {
+    const fake = target();
+    fake.activeScopeTabId = vi.fn(() => "shared-tab");
+    fake.automation.isSharedOrAgent = vi.fn(() => true);
+    fake.ensureAgentAccess = vi.fn(async () => undefined);
+
+    await dispatchBrowserMcpTool(fake, "browser_get_snapshot", {}, 7);
+
+    expect(fake.ensureAgentAccess).not.toHaveBeenCalled();
+    expect(fake.automation.listTabs).not.toHaveBeenCalled();
+    expect(fake.automation.assert).toHaveBeenCalledWith("shared-tab", 7);
+  });
+
+  it("reads background tab logs via automation.tabLogs after ensuring access", async () => {
+    const fake = target();
+    fake.ensureAgentAccess = vi.fn(async () => undefined);
+    fake.automation.tabLogs = vi.fn(() => ({
+      consoleEntries: [
+        {
+          id: "2",
+          tabId: "tab-2",
+          level: "error",
+          message: "target",
+          sourceUrl: "http://staging.internal/app.js",
+          lineNumber: 0,
+          timestamp: "",
+        },
+      ],
+      networkEntries: [],
+    }));
+
+    const result = await dispatchBrowserMcpTool(
+      fake,
+      "browser_get_console",
+      { tab_id: "tab-2" },
+      7,
+    );
+    expect(fake.ensureAgentAccess).toHaveBeenCalledWith("tab-2", 7, {
+      allowBlank: false,
+      signal: undefined,
+    });
+    expect(fake.automation.tabLogs).toHaveBeenCalledWith("tab-2", 7);
+    expect(JSON.parse(result.text)).toEqual([expect.objectContaining({ id: "2", tabId: "tab-2" })]);
   });
 
   it("opens a URL and waits for it to settle", async () => {

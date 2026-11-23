@@ -15,6 +15,16 @@ import {
 } from "../../src/lib/shortcuts/match-browser-input";
 import type { BrowserShortcut } from "./browser-types";
 
+export interface BrowserPageControllerOptions {
+  tabs: Map<string, ManagedTab>;
+  requireTab: (tabId: string) => ManagedTab;
+  emitState: (scopeId: number | null) => void;
+  emitFindResult: (result: BrowserFindResult) => void;
+  syncResponsive?: (tab: ManagedTab) => void;
+  clearTabError?: (tab: ManagedTab) => void;
+  retryFailedLoad?: (tab: ManagedTab) => boolean;
+}
+
 /** User-facing navigation, find, and zoom controls for native guest pages. */
 export class BrowserPageController {
   private findShortcutMatcher: BrowserShortcutInputMatcher = () => false;
@@ -24,18 +34,24 @@ export class BrowserPageController {
   private zoomResetShortcutMatcher: BrowserShortcutInputMatcher = () => false;
   private navigateBackShortcutMatcher: BrowserShortcutInputMatcher = () => false;
   private navigateForwardShortcutMatcher: BrowserShortcutInputMatcher = () => false;
+  private readonly tabs: Map<string, ManagedTab>;
+  private readonly requireTab: (tabId: string) => ManagedTab;
+  private readonly clearTabError: (tab: ManagedTab) => void;
+  private readonly retryFailedLoad: (tab: ManagedTab) => boolean;
   private readonly findController: BrowserFindController;
   private readonly zoomController: BrowserZoomController;
 
-  constructor(
-    private readonly tabs: Map<string, ManagedTab>,
-    private readonly requireTab: (tabId: string) => ManagedTab,
-    emitState: (scopeId: number | null) => void,
-    emitFindResult: (result: BrowserFindResult) => void,
-    syncResponsive: (tab: ManagedTab) => void = () => undefined,
-  ) {
-    this.findController = new BrowserFindController(emitFindResult);
-    this.zoomController = new BrowserZoomController(this.tabs, emitState, syncResponsive);
+  constructor(options: BrowserPageControllerOptions) {
+    this.tabs = options.tabs;
+    this.requireTab = options.requireTab;
+    this.clearTabError = options.clearTabError ?? (() => undefined);
+    this.retryFailedLoad = options.retryFailedLoad ?? (() => false);
+    this.findController = new BrowserFindController(options.emitFindResult);
+    this.zoomController = new BrowserZoomController(
+      this.tabs,
+      options.emitState,
+      options.syncResponsive ?? (() => undefined),
+    );
   }
 
   goBack(tabId: string): void {
@@ -43,6 +59,7 @@ export class BrowserPageController {
     const contents = tab.webContents;
     if (!contents.canGoBack()) return;
     this.findController.invalidate(tab);
+    this.clearTabError(tab);
     contents.goBack();
   }
 
@@ -51,12 +68,15 @@ export class BrowserPageController {
     const contents = tab.webContents;
     if (!contents.canGoForward()) return;
     this.findController.invalidate(tab);
+    this.clearTabError(tab);
     contents.goForward();
   }
 
   reload(tabId: string): void {
     const tab = this.requireTab(tabId);
     this.findController.invalidate(tab);
+    if (this.retryFailedLoad(tab)) return;
+    this.clearTabError(tab);
     tab.webContents.reload();
   }
 

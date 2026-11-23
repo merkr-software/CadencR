@@ -134,6 +134,10 @@ function registerTabIpc(manager: BrowserManager, options: BrowserIpcOptions): vo
     manager.setSuppressed(value === true);
     options.onSuppressed?.(value === true);
   });
+  ipcMain.handle("browser:clear-error", (event, scopeId: unknown, tabId: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    manager.clearError(optionalNumber(scopeId) ?? null, optionalString(tabId) ?? null);
+  });
 }
 
 function registerPopupIpc(
@@ -243,10 +247,11 @@ function registerSiteIpc(
     "browser:set-agent-sharing",
     (event, tabId: unknown, origin: unknown, shared: unknown) => {
       assertTrustedSender(event, getMainWindow);
+      const enableSharing = z.boolean().parse(shared);
       return manager.site.setSharing(
         requiredString(tabId, "tab id"),
-        siteOriginSchema.parse(origin),
-        z.boolean().parse(shared),
+        enableSharing ? siteOriginSchema.parse(origin) : (optionalString(origin) ?? ""),
+        enableSharing,
       );
     },
   );
@@ -258,6 +263,17 @@ function registerSiteIpc(
         z.string().uuid().parse(requestId),
         z.boolean().parse(allowed),
       );
+    },
+  );
+  ipcMain.handle("browser:list-agent-access-requests", (event, scopeId: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    return manager.agentAccess.list(requiredNumber(scopeId, "scope id"));
+  });
+  ipcMain.handle(
+    "browser:resolve-agent-access-request",
+    (event, requestId: unknown, allowed: unknown) => {
+      assertTrustedSender(event, getMainWindow);
+      manager.agentAccess.resolve(z.string().uuid().parse(requestId), z.boolean().parse(allowed));
     },
   );
 }

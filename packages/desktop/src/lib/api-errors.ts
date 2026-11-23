@@ -6,6 +6,14 @@ interface ApiErrorBody {
   code?: unknown;
 }
 
+/** Electron prefixes errors thrown by an `ipcMain.handle` handler; keep only the handler's message. */
+const ELECTRON_IPC_PREFIX = /^Error invoking remote method '[^']+': (?:Error: )?/;
+const LEADING_ERROR_PREFIX = /^Error:\s*/;
+
+export function stripElectronIpcPrefix(message: string): string {
+  return message.replace(ELECTRON_IPC_PREFIX, "").replace(LEADING_ERROR_PREFIX, "").trim();
+}
+
 export function apiErrorMessage(err: unknown, fallback: string): string {
   const backendMessage = backendErrorMessage(err);
   if (backendMessage) return backendMessage;
