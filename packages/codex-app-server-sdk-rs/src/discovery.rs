@@ -75,7 +75,7 @@ pub(crate) async fn resolved_codex_command() -> Result<PathBuf, SdkError> {
         }
     }
 
-    let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await;
+    let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await?;
     let Some(best) = cli_discovery::select_best(&candidates) else {
         return Err(SdkError::CliNotFound {
             searched: cli_discovery::searched_dirs(&spec).await,

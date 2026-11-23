@@ -38,3 +38,50 @@ impl Drop for EnvVarGuard {
         }
     }
 }
+
+const CHILD_MARKER: &str = "CADENCR_TEST_RERUN_CHILD";
+
+/// Whether this process is the child [`rerun_in_child`] started.
+pub fn is_rerun_child() -> bool {
+    std::env::var_os(CHILD_MARKER).is_some()
+}
+
+/// Run the test at `test_path` (`concat!(module_path!(), "::name")`) again,
+/// alone, in a child process with `envs` set and `removed` unset, and assert
+/// it passed: for a test that needs process-wide state such as `HOME`.
+pub fn rerun_in_child(test_path: &str, envs: &[(&str, &std::ffi::OsStr)], removed: &[&str]) {
+    // Test names leave out the crate.
+    let name = test_path
+        .split_once("::")
+        .map_or(test_path, |(_, name)| name);
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", name, "--nocapture"])
+        .env(CHILD_MARKER, "1");
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    for key in removed {
+        command.env_remove(key);
+    }
+    let output = command.output().expect("spawn the isolated test");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "isolated test {name} failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+/// A `HOME` whose `.gitconfig` points `core.excludesFile` at `patterns`.
+pub fn home_with_global_excludes(patterns: &str) -> tempfile::TempDir {
+    let home = tempfile::tempdir().unwrap();
+    let excludes = home.path().join("global-excludes");
+    std::fs::write(&excludes, patterns).unwrap();
+    std::fs::write(
+        home.path().join(".gitconfig"),
+        format!("[core]\n\texcludesFile = {}\n", excludes.display()),
+    )
+    .unwrap();
+    home
+}

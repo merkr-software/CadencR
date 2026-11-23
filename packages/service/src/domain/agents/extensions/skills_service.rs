@@ -107,7 +107,7 @@ async fn snapshot(read_pool: &SqlitePool, refresh: bool) -> Arc<SkillSnapshot> {
         .hosts(read_pool)
         .await
         .into_iter()
-        .filter(|host| host.cli.is_some() && host.support().skills)
+        .filter(|host| !host.is_missing() && host.support().skills)
         .collect();
     let mut errors = if refresh {
         refresh_catalogs(&hosts).await

@@ -1,9 +1,16 @@
 //! Parallel project content search with size guards, early binary sniffing,
 //! and cooperative cancellation.
+//!
+//! A symbolic link to a file is searched, under the link's own path, when its
+//! target lies inside the project (the editor opens nothing outside it). The
+//! target is searched under its own path too when the walk reaches it: both
+//! are paths of the project. Links to directories are not followed, so a
+//! search never loops nor leaves the project.
 
+use std::fs::Metadata;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -18,8 +25,13 @@ pub(crate) const MAX_SEARCH_FILE_BYTES: u64 = 5 * 1024 * 1024;
 const BINARY_SNIFF_BYTES: usize = 8192;
 /// Upper bound on returned matches even if a client asks for more.
 const MAX_SEARCH_LIMIT: usize = 2000;
-/// Cap walker worker threads so content search cannot saturate every CPU core.
-const MAX_SEARCH_THREADS: usize = 4;
+/// Walker threads: half the cores, at least 4 (or every core when fewer) and
+/// at most 8, so a search never takes every core. Measured on a 14-core
+/// M4 Pro over this repository (`content_search_thread_scaling`), 8 threads
+/// search 1.75x faster than 4 (243 ms against 427 ms; 2.7 s against 4.2 s
+/// with gitignored files), and 12 gain little more.
+const MIN_SEARCH_THREADS: usize = 4;
+const MAX_SEARCH_THREADS: usize = 8;
 const CONTEXT_LINES: usize = 5;
 
 struct SharedSearchState {
@@ -29,6 +41,8 @@ struct SharedSearchState {
     needs_crlf_guard: bool,
     limit: usize,
     match_count: AtomicUsize,
+    /// Files skipped for being larger than [`MAX_SEARCH_FILE_BYTES`].
+    skipped_large: AtomicU64,
     cancelled: CancellationToken,
 }
 
@@ -52,19 +66,30 @@ impl SearchContext {
         let Ok(entry) = entry else {
             return ignore::WalkState::Continue;
         };
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            return ignore::WalkState::Continue;
-        }
-        let Ok(meta) = entry.metadata() else {
+        let Some((source, meta)) = self.searchable_file(&entry) else {
             return ignore::WalkState::Continue;
         };
-        if meta.len() == 0 || meta.len() > MAX_SEARCH_FILE_BYTES {
+        if meta.len() == 0 {
+            return ignore::WalkState::Continue;
+        }
+        if meta.len() > MAX_SEARCH_FILE_BYTES {
+            // Only text the search would have read counts: not a large
+            // image or database, nor a link (its target counts on its own).
+            if entry.path_is_symlink() || !starts_as_text(&source) {
+                return ignore::WalkState::Continue;
+            }
+            self.shared.skipped_large.fetch_add(1, Ordering::Relaxed);
             return ignore::WalkState::Continue;
         }
 
-        let Some(content) = read_searchable_text(entry.path(), meta.len(), MAX_SEARCH_FILE_BYTES)
-        else {
-            return ignore::WalkState::Continue;
+        let content = match read_searchable_text(&source, meta.len(), MAX_SEARCH_FILE_BYTES) {
+            Readable::Text(content) => content,
+            Readable::TooLarge => {
+                // Grew past the limit since it was measured.
+                self.shared.skipped_large.fetch_add(1, Ordering::Relaxed);
+                return ignore::WalkState::Continue;
+            }
+            Readable::Skipped => return ignore::WalkState::Continue,
         };
 
         // Fast-path whole-file check before splitting into lines.
@@ -78,6 +103,28 @@ impl SearchContext {
         }
 
         self.scan_file_lines(&content, entry.path())
+    }
+
+    /// The file to read for `entry` and its metadata: the entry itself, or
+    /// the target of a link to a file inside the project.
+    fn searchable_file(&self, entry: &ignore::DirEntry) -> Option<(PathBuf, Metadata)> {
+        let kind = entry.file_type()?;
+        if kind.is_file() {
+            return Some((entry.path().to_path_buf(), entry.metadata().ok()?));
+        }
+        if !kind.is_symlink() {
+            return None;
+        }
+        // A dangling or looping link fails to resolve and is skipped; a link
+        // to a directory is not resolved further.
+        let meta = std::fs::metadata(entry.path()).ok()?;
+        if !meta.is_file() {
+            return None;
+        }
+        let target = std::fs::canonicalize(entry.path()).ok()?;
+        target
+            .starts_with(&self.shared.project)
+            .then_some((target, meta))
     }
 
     fn scan_file_lines(&self, content: &str, path: &Path) -> ignore::WalkState {
@@ -116,8 +163,8 @@ impl SearchContext {
     }
 }
 
-/// Search file contents for a pattern, returning matches with context lines.
-/// `project_root` must already be canonical.
+/// [`content_search_cancellable`] that runs to completion, for tests.
+#[cfg(test)]
 pub fn content_search(
     project_root: &Path,
     params: &ContentSearchParams,
@@ -125,17 +172,30 @@ pub fn content_search(
     content_search_cancellable(project_root, params, CancellationToken::new())
 }
 
-/// Like [`content_search`], stopping promptly whenever `cancelled` is cancelled
-/// (e.g. when the HTTP client disconnects and Axum drops the handler).
+/// Search file contents for a pattern, returning matches with context lines,
+/// stopping promptly whenever `cancelled` is cancelled (e.g. when the HTTP
+/// client disconnects and Axum drops the handler). `project_root` must
+/// already be canonical.
 pub fn content_search_cancellable(
     project_root: &Path,
     params: &ContentSearchParams,
     cancelled: CancellationToken,
 ) -> Result<ContentSearchResponse, AppError> {
+    search_with_threads(project_root, params, cancelled, search_threads())
+}
+
+fn search_with_threads(
+    project_root: &Path,
+    params: &ContentSearchParams,
+    cancelled: CancellationToken,
+    threads: usize,
+) -> Result<ContentSearchResponse, AppError> {
     if params.query.is_empty() || cancelled.is_cancelled() {
         return Ok(ContentSearchResponse {
             matches: vec![],
             truncated: false,
+            skipped_large_files: 0,
+            max_file_bytes: MAX_SEARCH_FILE_BYTES,
         });
     }
 
@@ -153,23 +213,27 @@ pub fn content_search_cancellable(
             needs_crlf_guard,
             limit,
             match_count: AtomicUsize::new(0),
+            skipped_large: AtomicU64::new(0),
             cancelled,
         }),
         tx,
     };
 
-    walker
-        .threads(num_cpus().min(MAX_SEARCH_THREADS))
-        .build_parallel()
-        .run(|| {
-            let ctx = ctx.clone();
-            Box::new(move |entry| ctx.process_entry(entry))
-        });
+    walker.threads(threads).build_parallel().run(|| {
+        let ctx = ctx.clone();
+        Box::new(move |entry| ctx.process_entry(entry))
+    });
 
+    let skipped_large_files = ctx.shared.skipped_large.load(Ordering::Relaxed);
     drop(ctx);
     let matches: Vec<ContentMatch> = rx.into_iter().collect();
     let truncated = matches.len() >= limit;
-    Ok(ContentSearchResponse { matches, truncated })
+    Ok(ContentSearchResponse {
+        matches,
+        truncated,
+        skipped_large_files,
+        max_file_bytes: MAX_SEARCH_FILE_BYTES,
+    })
 }
 
 /// Wrapping a user regex in `(?m)` does not make `\A`, `\z`, or inline flag
@@ -241,10 +305,40 @@ fn build_walker(
     Ok(walker)
 }
 
+/// Whether the first [`BINARY_SNIFF_BYTES`] hold no NUL: what the search
+/// reads before giving up on a binary file.
+fn starts_as_text(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = Vec::with_capacity(BINARY_SNIFF_BYTES);
+    file.take(BINARY_SNIFF_BYTES as u64)
+        .read_to_end(&mut head)
+        .is_ok_and(|_| !head.contains(&0))
+}
+
+/// What reading a file for search found.
+enum Readable {
+    Text(String),
+    /// Larger than the limit once read.
+    TooLarge,
+    /// Binary, not UTF-8, or unreadable: never searched.
+    Skipped,
+}
+
 /// Sniff the first 8 KiB for NUL bytes before reading the rest of the file,
-/// capped at `max_bytes`. Returns `None` for binary, oversized, non-UTF-8, or
-/// unreadable files.
-fn read_searchable_text(path: &Path, known_len: u64, max_bytes: u64) -> Option<String> {
+/// capped at `max_bytes`.
+fn read_searchable_text(path: &Path, known_len: u64, max_bytes: u64) -> Readable {
+    match read_text(path, known_len, max_bytes) {
+        Some(Ok(text)) => Readable::Text(text),
+        Some(Err(TooLarge)) => Readable::TooLarge,
+        None => Readable::Skipped,
+    }
+}
+
+struct TooLarge;
+
+fn read_text(path: &Path, known_len: u64, max_bytes: u64) -> Option<Result<String, TooLarge>> {
     let mut file = std::fs::File::open(path).ok()?;
     let max_usize = usize::try_from(max_bytes).unwrap_or(usize::MAX);
     let known_usize = usize::try_from(known_len)
@@ -265,18 +359,26 @@ fn read_searchable_text(path: &Path, known_len: u64, max_bytes: u64) -> Option<S
         file.take((remaining as u64).saturating_add(1))
             .read_to_end(&mut bytes)
             .ok()?;
-        if bytes.len() > max_usize || bytes[BINARY_SNIFF_BYTES..].contains(&0) {
+        if bytes.len() > max_usize {
+            return Some(Err(TooLarge));
+        }
+        if bytes[BINARY_SNIFF_BYTES..].contains(&0) {
             return None;
         }
     }
 
-    String::from_utf8(bytes).ok()
+    String::from_utf8(bytes).ok().map(Ok)
 }
 
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
+fn search_threads() -> usize {
+    let cores = std::thread::available_parallelism().map_or(MIN_SEARCH_THREADS, |n| n.get());
+    threads_for(cores)
+}
+
+fn threads_for(cores: usize) -> usize {
+    (cores / 2)
+        .clamp(MIN_SEARCH_THREADS, MAX_SEARCH_THREADS)
+        .min(cores)
 }
 
 #[cfg(test)]
@@ -314,6 +416,107 @@ mod tests {
         let result = content_search(&root, &default_params("NEEDLE_IN_HUGE_FILE")).unwrap();
         assert_eq!(result.matches.len(), 1);
         assert_eq!(result.matches[0].path, "small.txt");
+        assert_eq!(result.skipped_large_files, 1, "the skip must be reported");
+
+        // A large binary file would not have been searched anyway.
+        let mut blob = b"\x00binary".to_vec();
+        blob.resize(MAX_SEARCH_FILE_BYTES as usize + 64, b'b');
+        fs::write(root.join("huge.bin"), &blob).unwrap();
+        let result = content_search(&root, &default_params("NEEDLE_IN_HUGE_FILE")).unwrap();
+        assert_eq!(
+            result.skipped_large_files, 1,
+            "binary files are not counted"
+        );
+        assert_eq!(result.max_file_bytes, MAX_SEARCH_FILE_BYTES);
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn walker_threads_take_half_the_cores_within_bounds() {
+        assert_eq!(threads_for(1), 1);
+        assert_eq!(threads_for(2), 2);
+        assert_eq!(threads_for(4), 4);
+        assert_eq!(threads_for(8), 4);
+        assert_eq!(threads_for(14), 7);
+        assert_eq!(threads_for(32), 8);
+    }
+
+    fn paths(result: &ContentSearchResponse) -> Vec<&str> {
+        let mut paths: Vec<&str> = result.matches.iter().map(|m| m.path.as_str()).collect();
+        paths.sort_unstable();
+        paths
+    }
+
+    /// A link to a file inside the project is searched under its own path,
+    /// beside its target: both are paths the editor opens.
+    #[cfg(unix)]
+    #[test]
+    fn searches_links_to_files_inside_the_project() {
+        use std::os::unix::fs::symlink;
+        let dir = TempDir::new().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir(root.join("docs")).unwrap();
+        fs::write(root.join("docs/guide.md"), "LINKED_NEEDLE\n").unwrap();
+        symlink(root.join("docs/guide.md"), root.join("GUIDE.md")).unwrap();
+        symlink("docs/guide.md", root.join("relative.md")).unwrap();
+
+        let result = content_search(&root, &default_params("LINKED_NEEDLE")).unwrap();
+        assert_eq!(paths(&result), ["GUIDE.md", "docs/guide.md", "relative.md"]);
+    }
+
+    /// Links that leave the project, dangle, loop, or name a directory are
+    /// not searched; none of them stalls or fails the search.
+    #[cfg(unix)]
+    #[test]
+    fn skips_links_outside_the_project_dangling_looping_or_to_directories() {
+        use std::os::unix::fs::symlink;
+        let outside = TempDir::new().unwrap();
+        fs::write(outside.path().join("secret.txt"), "LINK_NEEDLE\n").unwrap();
+        let dir = TempDir::new().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src/a.txt"), "LINK_NEEDLE\n").unwrap();
+        symlink(outside.path().join("secret.txt"), root.join("outside.txt")).unwrap();
+        symlink(outside.path(), root.join("outside-dir")).unwrap();
+        symlink(root.join("missing.txt"), root.join("dangling.txt")).unwrap();
+        symlink(root.join("loop-b"), root.join("loop-a")).unwrap();
+        symlink(root.join("loop-a"), root.join("loop-b")).unwrap();
+        symlink(&root, root.join("src/self")).unwrap();
+
+        let result = content_search(&root, &default_params("LINK_NEEDLE")).unwrap();
+        assert_eq!(paths(&result), ["src/a.txt"]);
+    }
+
+    /// Wall time of a search per walker thread count over
+    /// `CADENCR_SEARCH_BENCH_DIR`, gitignored files included and excluded:
+    /// `pnpm rust -- test -p cadencr-service --release --lib content_search_thread_scaling -- --ignored --nocapture`
+    #[test]
+    #[ignore = "benchmark: needs CADENCR_SEARCH_BENCH_DIR"]
+    fn content_search_thread_scaling() {
+        let Some(dir) = std::env::var_os("CADENCR_SEARCH_BENCH_DIR") else {
+            return;
+        };
+        let root = fs::canonicalize(dir).unwrap();
+        for (query, respect_gitignore) in [
+            ("fn main", true),
+            ("zzqx_no_match", true),
+            ("zzqx_no_match", false),
+        ] {
+            let mut params = default_params(query);
+            params.respect_gitignore = respect_gitignore;
+            params.limit = MAX_SEARCH_LIMIT;
+            // Warm the page cache once.
+            search_with_threads(&root, &params, CancellationToken::new(), 8).unwrap();
+            for threads in [1, 2, 4, 6, 8, 12] {
+                let mut best = std::time::Duration::MAX;
+                for _ in 0..3 {
+                    let started = std::time::Instant::now();
+                    search_with_threads(&root, &params, CancellationToken::new(), threads).unwrap();
+                    best = best.min(started.elapsed());
+                }
+                println!("{query:?} gitignore={respect_gitignore} threads={threads}: {best:?}");
+            }
+        }
     }
 
     #[test]

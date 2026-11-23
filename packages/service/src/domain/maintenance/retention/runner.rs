@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use super::super::compaction;
+use super::super::compaction::{self, CompactionError};
 use super::super::{
     StorageMaintenanceBroadcaster, StorageMaintenanceEvent, StorageMaintenanceTask,
 };
@@ -188,7 +188,7 @@ pub(super) async fn compact_feature(
     pool: &SqlitePool,
     feature_id: i64,
     days: i64,
-) -> Result<u64, sqlx::Error> {
+) -> Result<u64, CompactionError> {
     let mut policy = PolicyGuard::testing(|_| true);
     compact_feature_guarded(pool, pool, feature_id, days, &mut policy)
         .await
@@ -201,7 +201,7 @@ pub(super) async fn compact_feature_with_policy(
     feature_id: i64,
     days: i64,
     check: fn(i64) -> bool,
-) -> Result<u64, sqlx::Error> {
+) -> Result<u64, CompactionError> {
     let mut policy = PolicyGuard::testing(check);
     compact_feature_guarded(pool, pool, feature_id, days, &mut policy)
         .await
@@ -214,7 +214,7 @@ async fn compact_feature_guarded(
     feature_id: i64,
     days: i64,
     policy: &mut PolicyGuard,
-) -> Result<FeatureCompaction, sqlx::Error> {
+) -> Result<FeatureCompaction, CompactionError> {
     let mut cursor = 0i64;
     let mut rewritten = 0u64;
 
@@ -251,7 +251,7 @@ async fn compact_feature_guarded(
             else {
                 continue;
             };
-            let Some(snapshot) = compaction::compact_bash_content_async(content).await else {
+            let Some(snapshot) = compaction::compact_bash_content_async(content).await? else {
                 continue;
             };
             if !policy.is_current(days) {

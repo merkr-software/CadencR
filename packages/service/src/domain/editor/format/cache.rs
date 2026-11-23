@@ -25,7 +25,7 @@ struct CachedBinary {
 #[derive(Default)]
 pub(super) struct FormatterBinaryCache {
     entries: RwLock<HashMap<String, CachedBinary>>,
-    inflight: Singleflight<String, Option<PathBuf>>,
+    inflight: Singleflight<String, Result<Option<PathBuf>, AppError>>,
 }
 
 impl FormatterBinaryCache {
@@ -63,10 +63,10 @@ impl FormatterBinaryCache {
     ) -> Result<PathBuf, AppError>
     where
         F: FnMut() -> Fut,
-        Fut: Future<Output = Option<PathBuf>>,
+        Fut: Future<Output = Result<Option<PathBuf>, AppError>>,
     {
         if let Some(cached) = self.get(entry.id, Instant::now()).await {
-            return cached.ok_or_else(|| formatter_not_found(entry));
+            return cached.ok_or_else(|| formatter_not_found(entry, None));
         }
         let discovered = self
             .inflight
@@ -74,16 +74,18 @@ impl FormatterBinaryCache {
                 let probe = discover();
                 async move {
                     if let Some(cached) = self.get(entry.id, Instant::now()).await {
-                        return cached;
+                        return Ok(cached);
                     }
-                    let discovered = probe.await;
+                    // A failed search is not a missing binary: report it and
+                    // cache nothing, so the next request searches again.
+                    let discovered = probe.await?;
                     self.insert(entry.id, discovered.clone(), Instant::now())
                         .await;
-                    discovered
+                    Ok(discovered)
                 }
             })
-            .await;
-        discovered.ok_or_else(|| formatter_not_found(entry))
+            .await?;
+        discovered.ok_or_else(|| formatter_not_found(entry, None))
     }
 }
 
@@ -92,12 +94,22 @@ pub(super) fn global_cache() -> &'static FormatterBinaryCache {
     CACHE.get_or_init(FormatterBinaryCache::default)
 }
 
-pub(super) fn formatter_not_found(entry: &FormatterEntry) -> AppError {
-    AppError::NotFound(format!(
-        "formatter {bin:?} not found; install it on $PATH to enable {id} formatting",
-        bin = entry.bin_name,
-        id = entry.id,
-    ))
+/// The formatter's binary is not installed, or (`gone`) no longer where it
+/// was found.
+pub(super) fn formatter_not_found(entry: &FormatterEntry, gone: Option<String>) -> AppError {
+    let bin = entry.bin_name;
+    let found = match gone {
+        Some(detail) => format!("formatter {bin:?} is gone ({detail})"),
+        None => format!("formatter {bin:?} not found"),
+    };
+    AppError::coded(
+        axum::http::StatusCode::NOT_FOUND,
+        "FORMATTER_NOT_FOUND",
+        format!(
+            "{found}; install it on $PATH to enable {} formatting",
+            entry.id
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -121,12 +133,18 @@ mod tests {
                     let calls_ref = calls_ref.clone();
                     async move {
                         calls_ref.fetch_add(1, Ordering::SeqCst);
-                        None
+                        Ok(None)
                     }
                 })
                 .await
                 .unwrap_err();
-            assert!(matches!(err, AppError::NotFound(_)));
+            assert!(matches!(
+                err,
+                AppError::Coded {
+                    code: "FORMATTER_NOT_FOUND",
+                    ..
+                }
+            ));
         }
         assert_eq!(
             calls.load(Ordering::SeqCst),
@@ -141,7 +159,7 @@ mod tests {
                 let calls_ref = calls_ref.clone();
                 async move {
                     calls_ref.fetch_add(1, Ordering::SeqCst);
-                    Some(PathBuf::from("/bin/cat"))
+                    Ok(Some(PathBuf::from("/bin/cat")))
                 }
             })
             .await
@@ -173,7 +191,7 @@ mod tests {
                             calls.fetch_add(1, Ordering::SeqCst);
                             started.notify_one();
                             release.notified().await;
-                            Some(PathBuf::from("/bin/cat"))
+                            Ok(Some(PathBuf::from("/bin/cat")))
                         }
                     })
                     .await
@@ -192,7 +210,7 @@ mod tests {
                         let calls = Arc::clone(&calls);
                         async move {
                             calls.fetch_add(1, Ordering::SeqCst);
-                            Some(PathBuf::from("/bin/cat"))
+                            Ok(Some(PathBuf::from("/bin/cat")))
                         }
                     })
                     .await
@@ -209,5 +227,36 @@ mod tests {
             assert_eq!(waiter.await.unwrap().unwrap(), PathBuf::from("/bin/cat"));
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A search that failed (its blocking task panicked) is reported, not
+    /// cached as "formatter not found" for the negative TTL.
+    #[tokio::test]
+    async fn a_failed_search_is_reported_and_not_cached() {
+        let cache = FormatterBinaryCache::default();
+        let entry = format_catalog::lookup("biome").expect("biome entry");
+        let err = cache
+            .resolve_with(entry, || async {
+                Err(AppError::coded(
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "FORMATTER_DISCOVERY_FAILED",
+                    "search task panicked",
+                ))
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            AppError::Coded {
+                code: "FORMATTER_DISCOVERY_FAILED",
+                ..
+            }
+        ));
+        assert!(cache.get(entry.id, Instant::now()).await.is_none());
+        let resolved = cache
+            .resolve_with(entry, || async { Ok(Some(PathBuf::from("/bin/cat"))) })
+            .await
+            .unwrap();
+        assert_eq!(resolved, PathBuf::from("/bin/cat"));
     }
 }
