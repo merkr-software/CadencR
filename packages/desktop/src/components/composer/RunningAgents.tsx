@@ -14,22 +14,28 @@ import { subagentView } from "@/lib/subagents/subagent-presentation";
 import { useComposerContext } from "./ComposerContext";
 import { STACK_ROW_BUTTON_CLASS, StackList, StackSection } from "./ComposerStack";
 import { useSectionFold } from "./stack-fold";
+import { useSettledOffScreen } from "./useSettledOffScreen";
 
 /**
  * The sub-agents at work in this conversation whose cards are out of view, so
  * what is running reads at a glance without scrolling the transcript; an
- * agent whose card shows on screen is left out, it already reads there. A
- * row scrolls the transcript to that agent's card; nothing else happens from
- * here.
+ * agent whose card shows on screen is left out, it already reads there. An
+ * agent joins the list only once its card has stayed out of view for a
+ * moment: the list's height moves the transcript, so it must not follow
+ * every frame a card dips out. A row scrolls the transcript to that agent's
+ * card; nothing else happens from here.
  */
 export const RunningAgents = memo(function RunningAgents(): ReactElement | null {
   const { featureId, sessionId } = useComposerContext();
   const runs = useRunningSubagents(featureId, sessionId);
   const { onScreen, reveal } = useSubagentCards();
-  const offScreen = useMemo(
-    () => runs.filter((run) => !onScreen.has(run.toolUseId)),
+  const offScreenIds = useMemo(
+    () => runs.map((run) => run.toolUseId).filter((id) => !onScreen.has(id)),
     [onScreen, runs],
   );
+  // Listed once out of view for a moment, dropped at once (see the hook).
+  const listed = useSettledOffScreen(offScreenIds);
+  const offScreen = useMemo(() => runs.filter((run) => listed.has(run.toolUseId)), [listed, runs]);
   // Counted in the fold while any agent runs, listed or not: were its place
   // to come and go with the cards on screen, the fold would change the
   // transcript's height, which changes the cards on screen…
