@@ -114,6 +114,8 @@ export interface FixedRowContent {
   activity: boolean;
   /** Its label is being edited: the editor needs the activity line. */
   editingLabel: boolean;
+  /** Live sub-agents are running: borrows a reply line when no activity lane was reserved. */
+  hasSubagents?: boolean;
 }
 
 /** How a fixed row spends its lines: each kind of content on its own, the reply on the rest. */
@@ -156,7 +158,10 @@ export function fixedRowLines(layout: RowLayout, content: FixedRowContent): Fixe
     ? fixedRowLineCount(layout, content.namesNextAction) - taken
     : 0;
   // Folded details (uniform rows) carry the editor beside the title.
-  if (content.editingLabel && !lines.activity && layout.holdsNowLine && !layout.foldMeta) {
+  // Label editing may displace a pending request; running sub-agents only
+  // borrow a spare reply line so pending requests and fixed row height stay intact.
+  const canBorrowActivityLine = !lines.activity && layout.holdsNowLine && !layout.foldMeta;
+  if (canBorrowActivityLine && (content.editingLabel || (content.hasSubagents && replyLines > 0))) {
     if (replyLines > 0) replyLines -= 1;
     else lines.asks = false;
     lines.activity = true;

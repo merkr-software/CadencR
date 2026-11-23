@@ -145,6 +145,7 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
           nextAction={nextAction}
           prStatus={state.prStatus}
           gitStats={state.gitStats}
+          runningSubagentCount={state.runningSubagentCount}
           shellCount={shellCount}
           browserCount={browserCount}
           downloadCount={downloadCount}

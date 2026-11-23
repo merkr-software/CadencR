@@ -40,6 +40,7 @@ export interface SampleConversation {
   worktree?: FeatureWorktreeInfo;
   gitStats?: GitStats;
   prStatus?: PrStatusSnapshot;
+  runningSubagentCount: number;
   shellCount: number;
   browserCount: number;
   ports: readonly AllocatedPort[];
@@ -61,13 +62,14 @@ const DAY_MINUTES = 24 * 60;
 
 interface SampleSpec extends Omit<
   SampleConversation,
-  "feature" | "shellCount" | "browserCount" | "ports"
+  "feature" | "runningSubagentCount" | "shellCount" | "browserCount" | "ports"
 > {
   id: number;
   projectId: number;
   title: string;
   minutesAgo: number;
   feature?: Partial<Feature>;
+  runningSubagentCount?: number;
   shellCount?: number;
   browserCount?: number;
   ports?: readonly AllocatedPort[];
@@ -96,6 +98,7 @@ const SPECS: readonly SampleSpec[] = [
     worktree: worktree(-12, "web-app", "feat/dark-mode"),
     gitStats: { insertions: 318, deletions: 54, files_changed: 12 },
     prStatus: pullRequest(-12, 128, "feat/dark-mode", { state: "open", ci: "running" }),
+    runningSubagentCount: 2,
     shellCount: 1,
     browserCount: 1,
     ports: [{ pid: 4242, port: 5173, process: "vite", source: "terminal" }],
@@ -220,6 +223,7 @@ export function buildSampleConversations(now: number): readonly SampleConversati
     const iso = new Date(now - minutesAgo * MINUTE_MS).toISOString();
     return {
       ...rest,
+      runningSubagentCount: rest.runningSubagentCount ?? 0,
       shellCount: rest.shellCount ?? 0,
       browserCount: rest.browserCount ?? 0,
       ports: rest.ports ?? [],

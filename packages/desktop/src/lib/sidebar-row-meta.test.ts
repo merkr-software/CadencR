@@ -10,6 +10,7 @@ import {
 } from "./sidebar-row-meta";
 
 const items: RowMetaItems = {
+  subagents: 2,
   branch: "feat/dark-mode",
   label: "bug",
   model: "opus",
@@ -25,12 +26,14 @@ describe("rowMetaPart", () => {
     const code = rowMetaPart(items, "code");
     expect(hasCodeItems(code)).toBe(true);
     expect(hasActivityItems(code)).toBe(false);
+    expect(code.subagents).toBe(0);
   });
 
-  it("keeps the label, todos, activity, ports and model on the activity line", () => {
+  it("keeps running sub-agents, label, todos, activity, ports and model on the activity line", () => {
     const activity = rowMetaPart(items, "activity");
     expect(hasActivityItems(activity)).toBe(true);
     expect(hasCodeItems(activity)).toBe(false);
+    expect(activity.subagents).toBe(2);
   });
 
   it("keeps every item without a part", () => {
@@ -66,5 +69,12 @@ describe("rowMetaItems", () => {
 
   it("leaves a forge that needs setting up to the Git tab, as the indicator does", () => {
     expect(rowMetaItems(show, input({ error: "no token", setup_required: true })).pr).toBe(false);
+  });
+
+  it("always includes running sub-agents regardless of display options", () => {
+    const allOff = { ...show, pr: false };
+    const result = rowMetaItems(allOff, { ...input({}), runningSubagentCount: 3 });
+    expect(result.subagents).toBe(3);
+    expect(hasActivityItems(result)).toBe(true);
   });
 });

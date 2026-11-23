@@ -80,6 +80,7 @@ export const SidebarSampleRow = memo(function SidebarSampleRow({
         nextAction={nextAction}
         prStatus={conversation.prStatus}
         gitStats={conversation.gitStats}
+        runningSubagentCount={conversation.runningSubagentCount}
         shellCount={conversation.shellCount}
         browserCount={conversation.browserCount}
         downloadCount={0}

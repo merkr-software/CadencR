@@ -11,6 +11,7 @@ import type {
 import { DEFAULT_SIDEBAR_CONFIG, type SidebarConfig } from "@/lib/sidebar-config";
 import type { RowSummary } from "@/lib/sidebar-row-summary";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
+import { FeatureRowBody } from "./FeatureRowBody";
 import { FeatureRowMetaLine } from "./ProjectFeatureRowParts";
 
 vi.mock("@/components/ShortcutTooltip", () => ({
@@ -68,6 +69,7 @@ function lineElement(
     feature?: Feature;
     worktree?: FeatureWorktreeInfo;
     gitStats?: GitStats;
+    runningSubagentCount?: number;
     summary?: RowSummary;
   } = {},
 ) {
@@ -77,6 +79,7 @@ function lineElement(
       worktree={extra.worktree}
       prStatus={prStatus}
       gitStats={extra.gitStats}
+      runningSubagentCount={extra.runningSubagentCount}
       shellCount={0}
       browserCount={0}
       downloadCount={downloadCount}
@@ -204,5 +207,48 @@ describe("FeatureRowMetaLine display options", () => {
       feature: feature({ runtime_provider: "codex_cli", model_session: "gpt-5.4" }),
     });
     expect(document.querySelector("[data-feature-model]")).toHaveTextContent("gpt-5.4");
+  });
+
+  it("renders running sub-agents ahead of the label and regardless of display toggles", () => {
+    configure({ diff: false, ports: false, activity: false, pr: false, label: "chip" });
+    const { container, unmount } = renderLine(undefined, [], 0, {
+      feature: feature({ label: "bug" }),
+      runningSubagentCount: 2,
+    });
+    const meta = container.querySelector("[data-feature-meta-line]");
+    expect(meta?.firstElementChild).toHaveAttribute("data-feature-subagents");
+    expect(screen.getByLabelText("2 sub-agents running")).toHaveTextContent("2");
+    expect(meta?.children[1]).toHaveAttribute("data-feature-label");
+    unmount();
+
+    configure({ diff: false, ports: false, activity: false, pr: false, label: "hidden" });
+    renderLine(undefined, [], 0, { runningSubagentCount: 1 });
+    expect(screen.getByLabelText("1 sub-agent running")).toHaveTextContent("1");
+  });
+
+  it("keeps running sub-agents hidden in compact rows", () => {
+    configure({ compactRows: true });
+    render(
+      <FeatureRowBody
+        feature={feature()}
+        liveTitle={undefined}
+        isAutoNaming={false}
+        isArchived={false}
+        hasWorktree={false}
+        worktree={undefined}
+        attention={{ state: "working", sourceFeatureId: 5 }}
+        isActive={false}
+        onOpenConversation={vi.fn()}
+        prStatus={undefined}
+        gitStats={undefined}
+        runningSubagentCount={3}
+        shellCount={0}
+        browserCount={0}
+        downloadCount={0}
+        ports={[]}
+        onOpenPort={vi.fn()}
+      />,
+    );
+    expect(document.querySelector("[data-feature-subagents]")).toBeNull();
   });
 });
