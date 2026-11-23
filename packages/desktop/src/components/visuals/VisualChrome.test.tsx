@@ -48,4 +48,22 @@ describe("VisualChrome", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy source" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(CODE));
   });
+
+  it("offers full screen only when the caller provides onExpand", () => {
+    const onExpand = vi.fn();
+    const { rerender } = render(
+      <VisualChrome label="Chart" icon={null} code={CODE} sourceLanguage="json">
+        <div data-testid="rendered">chart</div>
+      </VisualChrome>,
+    );
+    expect(screen.queryByRole("button", { name: "Full screen" })).not.toBeInTheDocument();
+
+    rerender(
+      <VisualChrome label="Chart" icon={null} code={CODE} sourceLanguage="json" onExpand={onExpand}>
+        <div data-testid="rendered">chart</div>
+      </VisualChrome>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    expect(onExpand).toHaveBeenCalledOnce();
+  });
 });

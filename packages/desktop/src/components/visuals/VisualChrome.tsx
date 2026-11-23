@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CodeIcon } from "lucide-react";
+import { CodeIcon, Maximize2Icon } from "lucide-react";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
 import { CopyButton } from "@/components/CopyButton";
 import { highlightCode } from "@/components/markdown/highlight-cache";
@@ -58,7 +58,11 @@ export function VisualSourceBlock({
  * frame: its source and copy actions float over its corner on hover (always
  * shown on touch), and "Source" swaps it for the fence as a code block.
  */
-export function VisualChrome({ children, ...fence }: VisualFenceInfo & { children: ReactNode }) {
+export function VisualChrome({
+  children,
+  onExpand,
+  ...fence
+}: VisualFenceInfo & { children: ReactNode; onExpand?: () => void }) {
   const [showSource, setShowSource] = useState(false);
 
   if (showSource) {
@@ -93,6 +97,17 @@ export function VisualChrome({ children, ...fence }: VisualFenceInfo & { childre
           label="Copy source"
           className="flex size-6 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
         />
+        {onExpand && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onExpand}
+            title="Full screen"
+            aria-label="Full screen"
+          >
+            <Maximize2Icon />
+          </Button>
+        )}
       </div>
       {children}
     </div>

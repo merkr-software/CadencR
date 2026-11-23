@@ -85,6 +85,16 @@ function isImageOnlyLabel(node: HastNode | undefined): boolean {
   );
 }
 
+/** True when any descendant of `node` is an `<img>` or `<picture>`. */
+function hasImageDescendant(node: HastNode | undefined): boolean {
+  for (const child of node?.children ?? []) {
+    if (child.type !== "element") continue;
+    if (child.tagName === "img" || child.tagName === "picture") return true;
+    if (hasImageDescendant(child)) return true;
+  }
+  return false;
+}
+
 function isFenceClosed(
   content: string,
   node?: { position?: { end?: { line?: number } } },
@@ -234,7 +244,11 @@ export function buildMarkdownComponents({
     }),
     pre: ({ children }) => <>{children}</>,
     a: ({ href, children, node }) => (
-      <MarkdownLink href={href} wrapsImage={isImageOnlyLabel(node)}>
+      <MarkdownLink
+        href={href}
+        wrapsImage={isImageOnlyLabel(node)}
+        containsImage={hasImageDescendant(node)}
+      >
         {children}
       </MarkdownLink>
     ),

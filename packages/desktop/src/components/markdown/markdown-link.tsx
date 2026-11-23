@@ -1,4 +1,4 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react";
 import { ArrowUpRightIcon, Loader2Icon } from "lucide-react";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
@@ -11,6 +11,16 @@ import {
 import { useFeatureProjectId } from "@/hooks/useFeatureProjectId";
 import { isUserOpenableUrl } from "@/lib/safe-url";
 
+/**
+ * True while rendering inside a Markdown `<a>`. Prevents child image renderers
+ * from nesting a `<button>` inside the anchor (e.g. linked status badges).
+ */
+const InsideMarkdownLinkContext = createContext(false);
+
+export function useInsideMarkdownLink(): boolean {
+  return useContext(InsideMarkdownLinkContext);
+}
+
 const LINK_CLASS =
   "text-[var(--acc-cyan)] underline underline-offset-2 hover:text-[var(--acc-purple)]";
 
@@ -19,6 +29,7 @@ export function MarkdownLink({
   href,
   children,
   wrapsImage = false,
+  containsImage = wrapsImage,
 }: {
   href?: string;
   children: ReactNode;
@@ -27,9 +38,16 @@ export function MarkdownLink({
    * `data-image-link` lets a prose scale space badge rows apart.
    */
   wrapsImage?: boolean;
+  /** True when any descendant is an image; avoids a context fiber on text links. */
+  containsImage?: boolean;
 }): ReactElement {
   const routing = useLinkRouting();
   const openInEditor = useOpenDiffInEditor();
+  const linkContent = containsImage ? (
+    <InsideMarkdownLinkContext.Provider value={true}>{children}</InsideMarkdownLinkContext.Provider>
+  ) : (
+    children
+  );
   // `@file` mentions carry their own scheme; agents write plain path links.
   // Those only become file links where an Editor can open them.
   const fileReference = href
@@ -38,7 +56,7 @@ export function MarkdownLink({
   if (href && fileReference !== null) {
     return (
       <FileReferenceLink reference={fileReference} openInEditor={openInEditor}>
-        {children}
+        {linkContent}
       </FileReferenceLink>
     );
   }
@@ -46,12 +64,12 @@ export function MarkdownLink({
   if (href && conversationFeatureId !== null) {
     return (
       <ConversationReferenceLink featureId={conversationFeatureId} href={href} routing={routing}>
-        {children}
+        {linkContent}
       </ConversationReferenceLink>
     );
   }
   if (!href) {
-    return <a className={LINK_CLASS}>{children}</a>;
+    return <a className={LINK_CLASS}>{linkContent}</a>;
   }
   // Markdown labels hide the URL (`[docs](https://…)`): name the destination
   // on hover and mark links that leave the conversation. A native `title`
@@ -78,7 +96,7 @@ export function MarkdownLink({
         data-image-link={wrapsImage || undefined}
         className={LINK_CLASS}
       >
-        {children}
+        {linkContent}
         {externalMark}
       </a>
     );
@@ -101,7 +119,7 @@ export function MarkdownLink({
       onMouseEnter={() => routing.setHoverLink(href)}
       onMouseLeave={() => routing.setHoverLink(null)}
     >
-      {children}
+      {linkContent}
       {externalMark}
     </a>
   );

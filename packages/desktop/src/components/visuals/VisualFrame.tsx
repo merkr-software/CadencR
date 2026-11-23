@@ -31,7 +31,12 @@ async function buildDocument(
   theme: VisualTheme,
 ): Promise<string> {
   const assets = await loadVisualAssets(libraries);
-  return assembleVisualDocument({ html, theme, palette: visualPalette(theme), ...assets });
+  return assembleVisualDocument({
+    html,
+    theme,
+    palette: visualPalette(theme),
+    ...assets,
+  });
 }
 
 type FramePhase = "preparing" | "rendering" | "painted";
@@ -46,6 +51,10 @@ interface VisualFrameProps {
   /** Rendered once per mount, like `theme`: the shell takes one document per load. */
   html: string;
   theme: VisualTheme;
+  /** `fullscreen` fills its parent viewport and forwards Escape out of the iframe. */
+  variant?: "inline" | "fullscreen";
+  /** Invoked when Escape is pressed while focus is inside the sandboxed frame. */
+  onEscape?: () => void;
 }
 
 /**
@@ -53,10 +62,15 @@ interface VisualFrameProps {
  * `ready` with the assembled document, then sizes the frame to the height the
  * visual reports and surfaces its script errors.
  */
-export function VisualFrame({ html, theme }: VisualFrameProps) {
+export function VisualFrame({ html, theme, variant = "inline", onEscape }: VisualFrameProps) {
+  const fullscreen = variant === "fullscreen";
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
   const [src] = useState(visualFrameSrc);
-  const [height, setHeight] = useState(() => rememberedHeight(html) ?? INITIAL_HEIGHT);
+  const [height, setHeight] = useState(() =>
+    fullscreen ? INITIAL_HEIGHT : (rememberedHeight(html) ?? INITIAL_HEIGHT),
+  );
   const [phase, setPhase] = useState<FramePhase>("preparing");
   const libraries = useMemo(() => requestedLibraries(html), [html]);
   const [errors, setErrors] = useState<string[]>([]);
@@ -101,10 +115,14 @@ export function VisualFrame({ html, theme }: VisualFrameProps) {
         frameReady = true;
         send();
       } else if (message.type === VISUAL_MESSAGE.size) {
-        const next = Math.min(Math.max(message.height, 1), MAX_HEIGHT);
-        setHeight(next);
         setPhase("painted");
-        rememberHeight(html, next);
+        if (!fullscreen) {
+          const next = Math.min(Math.max(message.height, 1), MAX_HEIGHT);
+          setHeight(next);
+          rememberHeight(html, next);
+        }
+      } else if (message.type === VISUAL_MESSAGE.escape) {
+        onEscapeRef.current?.();
       } else {
         addError(message.message);
       }
@@ -115,7 +133,7 @@ export function VisualFrame({ html, theme }: VisualFrameProps) {
       window.clearTimeout(timeout);
       window.removeEventListener("message", onMessage);
     };
-  }, [html, libraries, theme]);
+  }, [fullscreen, html, libraries, theme]);
 
   const painted = phase === "painted";
   // A visual that failed before painting anything collapses to its errors.
@@ -123,7 +141,7 @@ export function VisualFrame({ html, theme }: VisualFrameProps) {
 
   return (
     <>
-      <div className="relative">
+      <div className={fullscreen && !failed ? "relative min-h-0 flex-1" : "relative"}>
         {!painted && !failed && <VisualLoading overlay label={loadingLabel(phase, libraries)} />}
         <iframe
           ref={frameRef}
@@ -131,8 +149,14 @@ export function VisualFrame({ html, theme }: VisualFrameProps) {
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
           title="Agent visual"
-          className="block w-full border-0"
-          style={{ height: failed ? 0 : height }}
+          className={
+            fullscreen
+              ? failed
+                ? "block h-0 w-full border-0"
+                : "block h-full w-full border-0"
+              : "block w-full border-0"
+          }
+          style={fullscreen ? undefined : { height: failed ? 0 : height }}
         />
       </div>
       {/* Below the visual, clear of the actions floating over its top corner. */}

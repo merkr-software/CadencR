@@ -6,6 +6,8 @@ import { apiErrorMessage } from "@/lib/api-errors";
 
 /** Narrower than this, axes and legend no longer fit. */
 const MIN_CHART_WIDTH = 120;
+/** Shorter than this, a fullscreen chart loses legibility. */
+const MIN_CHART_HEIGHT = 200;
 
 const EXTERNAL_DATA_ERROR =
   "Charts in the conversation cannot load external resources; inline the data in data.values.";
@@ -30,21 +32,33 @@ export function parseVegaLiteSpec(code: string): SpecParseResult {
   return { ok: true, spec: value as TopLevelSpec };
 }
 
+function isSingleOrLayered(spec: TopLevelSpec): boolean {
+  return "mark" in spec || "layer" in spec;
+}
+
 /**
  * A single or layered view without its own `width` fills the conversation:
  * the measured width, with autosize fitting axes and legend inside it.
  * `"container"` would follow window resizes only, not a pane resize.
  */
 export function fitsContainerWidth(spec: TopLevelSpec): boolean {
-  return !("width" in spec) && ("mark" in spec || "layer" in spec);
+  return !("width" in spec) && isSingleOrLayered(spec);
 }
 
-function withWidth(spec: TopLevelSpec, width: number): TopLevelSpec {
-  if (!fitsContainerWidth(spec)) return spec;
+/** A single or layered view without its own `height` can also fill fullscreen height. */
+export function fitsContainerHeight(spec: TopLevelSpec): boolean {
+  return !("height" in spec) && isSingleOrLayered(spec);
+}
+
+function withSize(spec: TopLevelSpec, width: number, height: number | undefined): TopLevelSpec {
+  const fitW = fitsContainerWidth(spec);
+  const fitH = height !== undefined && fitsContainerHeight(spec);
+  if (!fitW && !fitH) return spec;
   return {
     ...spec,
-    width: Math.max(width, MIN_CHART_WIDTH),
-    autosize: { type: "fit-x", contains: "padding" },
+    ...(fitW && { width: Math.max(width, MIN_CHART_WIDTH) }),
+    ...(fitH && { height: Math.max(height, MIN_CHART_HEIGHT) }),
+    autosize: { type: fitW && fitH ? "fit" : fitW ? "fit-x" : "fit-y", contains: "padding" },
   } as TopLevelSpec;
 }
 
@@ -75,13 +89,18 @@ export async function renderVegaLite(
   container: HTMLElement,
   spec: TopLevelSpec,
   config: Config,
+  options?: { fitHeight?: boolean },
 ): Promise<View> {
   const errors: string[] = [];
   const logger = vegaLogger(Warn, undefined, (method, _level, args) => {
     if (method === "error")
       errors.push(args.map((arg) => apiErrorMessage(arg, String(arg))).join(" "));
   });
-  const { spec: vegaSpec } = compile(withWidth(spec, container.clientWidth), { config, logger });
+  const targetHeight = options?.fitHeight ? container.clientHeight : undefined;
+  const { spec: vegaSpec } = compile(withSize(spec, container.clientWidth, targetHeight), {
+    config,
+    logger,
+  });
   const view = new View(parse(vegaSpec, undefined, { ast: true }), {
     expr: expressionInterpreter,
     loader: offlineLoader(() => errors.push(EXTERNAL_DATA_ERROR)),
@@ -98,12 +117,17 @@ export async function renderVegaLite(
   return view;
 }
 
-/** Follow the container's width (pane resizes) when the chart fills it. */
+/** Follow the container's size (pane or fullscreen resizes) when the chart fills it. */
 export async function resizeToContainer(
   view: View,
   spec: TopLevelSpec,
   width: number,
+  height?: number,
 ): Promise<void> {
-  if (!fitsContainerWidth(spec)) return;
-  await view.width(Math.max(width, MIN_CHART_WIDTH)).runAsync();
+  const fitW = fitsContainerWidth(spec);
+  const fitH = height !== undefined && height > 0 && fitsContainerHeight(spec);
+  if (!fitW && !fitH) return;
+  if (fitW) view.width(Math.max(width, MIN_CHART_WIDTH));
+  if (fitH) view.height(Math.max(height, MIN_CHART_HEIGHT));
+  await view.runAsync();
 }
