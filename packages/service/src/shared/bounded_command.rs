@@ -190,6 +190,38 @@ async fn capture<G>(
     Err(error)
 }
 
+/// Read an async stream to its end, keeping only its last 1 MiB: for a
+/// stream read for diagnostics, like a command's stderr.
+pub(crate) async fn read_stream_tail(
+    reader: impl AsyncRead + Unpin,
+) -> Result<Vec<u8>, BoundedCommandError> {
+    read_bounded(reader, Overflow::KeepTail, 0).await
+}
+
+/// Hand at most `max_bytes` of `reader` to `on_chunk` as it arrives, without
+/// holding it. Returns whether the end of the stream was reached: `false`
+/// when `on_chunk` broke or `max_bytes` were read first.
+pub(crate) async fn feed_capped(
+    mut reader: impl AsyncRead + Unpin,
+    max_bytes: usize,
+    mut on_chunk: impl FnMut(&[u8]) -> std::ops::ControlFlow<()>,
+) -> std::io::Result<bool> {
+    let mut buffer = vec![0_u8; 64 * 1024];
+    let mut read = 0_usize;
+    while read < max_bytes {
+        let want = buffer.len().min(max_bytes - read);
+        let count = reader.read(&mut buffer[..want]).await?;
+        if count == 0 {
+            return Ok(true);
+        }
+        read += count;
+        if on_chunk(&buffer[..count]).is_break() {
+            return Ok(false);
+        }
+    }
+    Ok(false)
+}
+
 /// Read an async stream up to `limit` bytes, returning
 /// [`BoundedCommandError::is_output_exceeded`] as soon as the limit is passed.
 pub(crate) async fn read_stream_capped(
@@ -354,5 +386,49 @@ mod tests {
             error.to_string().ends_with("timed out after 1 second"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn feeding_reports_whether_the_end_was_reached() {
+        use std::ops::ControlFlow;
+
+        let bytes = vec![b'x'; 200_000];
+        let mut seen = 0;
+        let complete = super::feed_capped(std::io::Cursor::new(&bytes), usize::MAX, |chunk| {
+            seen += chunk.len();
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        assert!(complete);
+        assert_eq!(seen, bytes.len());
+
+        seen = 0;
+        let capped = super::feed_capped(std::io::Cursor::new(&bytes), 100_000, |chunk| {
+            seen += chunk.len();
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        assert!(!capped);
+        assert_eq!(seen, 100_000);
+
+        let stopped = super::feed_capped(std::io::Cursor::new(&bytes), usize::MAX, |_| {
+            ControlFlow::Break(())
+        })
+        .await
+        .unwrap();
+        assert!(!stopped);
+    }
+
+    #[tokio::test]
+    async fn a_stream_tail_keeps_the_last_mebibyte() {
+        let mut bytes = vec![b'x'; 3 * MAX_OUTPUT_BYTES];
+        bytes.extend_from_slice(b"END");
+        let tail = super::read_stream_tail(std::io::Cursor::new(bytes))
+            .await
+            .unwrap();
+        assert_eq!(tail.len(), MAX_OUTPUT_BYTES);
+        assert!(tail.ends_with(b"END"));
     }
 }

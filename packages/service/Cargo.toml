@@ -118,6 +118,9 @@ workspace = true
 
 [dev-dependencies]
 assert-json-diff = "2"
+# `test-util` pauses the clock so a test can prove which reads a deadline
+# would kill without waiting for it.
+tokio = { version = "1", features = ["test-util"] }
 cadencr-plugin-core = { path = "../plugin-core", features = ["test-support"] }
 tower = { version = "0.5", features = ["util"] }
 # `rustls-tls` is dev-only: the remote-listener test needs a rustls client to

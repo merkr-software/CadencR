@@ -87,6 +87,41 @@ pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
     signal_process_group(pid, libc::SIGKILL)
 }
 
+/// SIGKILLs, when dropped, the process group a still-unreaped child leads —
+/// the abandoned launcher's hooks, aliases and filters with it. Disarm it
+/// once the leader is reaped: until then the leader's zombie keeps the group
+/// id taken, so the signal can never reach a group that reused it.
+pub(crate) struct KillGroupOnDrop {
+    pid: Option<u32>,
+}
+
+impl KillGroupOnDrop {
+    /// Guard the group `pid` leads (a child spawned after
+    /// [`lead_new_process_group`]); `None` guards nothing.
+    pub(crate) fn new(pid: Option<u32>) -> Self {
+        Self { pid }
+    }
+
+    pub(crate) fn disarm(&mut self) {
+        self.pid = None;
+    }
+}
+
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        let Some(pid) = self.pid.take() else {
+            return;
+        };
+        #[cfg(unix)]
+        crate::shared::discard::cleanup(
+            signal_process_group(pid, libc::SIGKILL),
+            "kill an abandoned process group",
+        );
+        #[cfg(not(unix))]
+        drop(pid);
+    }
+}
+
 /// Stop the group `child` leads: SIGTERM, then `grace` for the leader to
 /// exit. If it does, SIGKILL whatever it left behind; if not, SIGKILL the
 /// whole group and wait `grace` more for the leader.

@@ -6,7 +6,6 @@ use crate::domain::features::service;
 use crate::domain::features::worktree_validation::{validate_reuse_branch, validate_worktree_mode};
 use crate::domain::git;
 use crate::error::AppError;
-use crate::shared::git_cli;
 
 pub(super) async fn normalize_feature_setting_value(
     read_pool: &SqlitePool,
@@ -68,15 +67,68 @@ async fn current_reuse_branch(
         .map(|setting| setting.value))
 }
 
+/// Exact, case-sensitive check (see `workflow_service::local_branch_exists`):
+/// on a case-insensitive filesystem `show-ref --verify` accepted
+/// `Feature/ABC` for a loose `feature/abc`, and the worktree then reused the
+/// other branch. A repository Git cannot read is reported as such, not as a
+/// missing branch.
 async fn ensure_local_branch_exists(project_path: &Path, branch: &str) -> Result<(), AppError> {
-    let ref_name = format!("refs/heads/{branch}");
-    git_cli::run_git_safe_refs(
-        &["show-ref"],
-        &["--verify", "--quiet"],
-        &[&ref_name],
-        project_path,
-    )
-    .await
-    .map(|_| ())
-    .map_err(|_| AppError::BadRequest(format!("reuse_branch does not exist: {branch:?}")))
+    if git::workflow_service::local_branch_exists(project_path, branch).await? {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!(
+        "reuse_branch does not exist: {branch:?}"
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::git_cli;
+
+    #[tokio::test]
+    async fn a_reuse_branch_must_match_a_branch_name_exactly() {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "i",
+            ],
+            &["branch", "feature/abc"],
+        ] {
+            git_cli::run_git(args, path).await.unwrap();
+        }
+        for packed in [false, true] {
+            if packed {
+                git_cli::run_git(&["pack-refs", "--all"], path)
+                    .await
+                    .unwrap();
+            }
+            ensure_local_branch_exists(path, "feature/abc")
+                .await
+                .unwrap();
+            for other in ["Feature/ABC", "feature/ABC", "feature"] {
+                let error = ensure_local_branch_exists(path, other).await.unwrap_err();
+                assert!(
+                    matches!(error, AppError::BadRequest(_)),
+                    "{other:?} (packed: {packed}): {error:?}"
+                );
+            }
+        }
+
+        let not_repo = tempfile::tempdir().unwrap();
+        let error = ensure_local_branch_exists(not_repo.path(), "main")
+            .await
+            .unwrap_err();
+        assert!(!matches!(error, AppError::BadRequest(_)), "{error:?}");
+    }
 }
