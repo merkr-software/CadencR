@@ -396,6 +396,21 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             RuntimeError::new("installed providers require an explicit model before session start")
         })?;
         let discovered = self.discover_for_cwd(&config.cwd).await?;
+        if config.validate_restored_permission_mode {
+            if discovered.modes.primary_mode().is_none() {
+                // Older hosts persisted seeds even for providers without a
+                // mapped mode. In that case the native session owns its mode.
+                config.permission_mode = None;
+            } else if config
+                .permission_mode
+                .as_ref()
+                .is_none_or(|mode| discovered.modes.mode_for(mode).is_none())
+            {
+                return Err(RuntimeError::new(
+                    "saved permission mode is unavailable in this workspace; choose an available mode and resend",
+                ));
+            }
+        }
         if !discovered
             .models
             .iter()
@@ -677,6 +692,93 @@ echo ']}]'
                 Some(expected)
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_deferred_mode_is_validated_when_discovery_recovers_with_mapped_modes() {
+        let workspace = tempfile::tempdir().unwrap();
+        let cwd = workspace.path();
+        let script = super::super::test_fixtures::write_script(
+            cwd,
+            "provider",
+            r#"#!/bin/sh
+if [ "$1" = "run" ]; then
+  touch ./runtime-started
+  exit 2
+fi
+if [ "$1" != "models" ]; then exit 2; fi
+touch ./discovery-called
+if [ ! -f ./online ]; then exit 2; fi
+if [ -f ./no-mapped-modes ]; then
+  echo '[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]}]'
+  exit 0
+fi
+cat <<'JSON'
+[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]},
+ {"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"default","options":[
+   {"value":"default","name":"Default","_meta":{"cadencr":{"permissionMode":"default"}}}
+ ]}]
+JSON
+"#,
+        );
+        let adapter = adapter(script.to_str().unwrap());
+        assert!(adapter
+            .resolve_initial_permission_mode(cwd, Some("plan"))
+            .await
+            .is_err());
+        assert!(cwd.join("discovery-called").exists());
+        let mut config = RuntimeSpawnConfig {
+            cwd: cwd.to_path_buf(),
+            model: Some("m".into()),
+            resume_session_id: Some("previous-session".into()),
+            permission_mode: Some(RuntimePermissionMode::Plan),
+            validate_restored_permission_mode: true,
+            ..Default::default()
+        };
+        let error = adapter
+            .spawn(json!("hello"), config.clone())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            error.to_string().contains("model discovery failed"),
+            "{error}"
+        );
+        assert!(!cwd.join("runtime-started").exists());
+
+        std::fs::write(cwd.join("online"), "").unwrap();
+        adapter
+            .catalog_cache
+            .force_expire_for_test(&cwd.to_path_buf())
+            .await;
+        let error = adapter
+            .spawn(json!("hello"), config.clone())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            error
+                .to_string()
+                .contains("saved permission mode is unavailable"),
+            "{error}"
+        );
+        assert!(!cwd.join("runtime-started").exists());
+
+        config.permission_mode = Some(RuntimePermissionMode::Default);
+        assert!(adapter.spawn(json!("hello"), config.clone()).await.is_err());
+        assert!(cwd.join("runtime-started").exists());
+
+        // Before mode initialization was validated, even providers without mode
+        // mappings could have a stored seed from a client or provider switch.
+        std::fs::write(cwd.join("no-mapped-modes"), "").unwrap();
+        std::fs::remove_file(cwd.join("runtime-started")).unwrap();
+        adapter.catalog_cache.reset_for_test().await;
+        config.permission_mode = Some(RuntimePermissionMode::AcceptEdits);
+        assert!(adapter.spawn(json!("hello"), config).await.is_err());
+        assert!(
+            cwd.join("runtime-started").exists(),
+            "legacy seed must not block native resume"
+        );
     }
 
     #[test]

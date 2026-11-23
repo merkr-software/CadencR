@@ -19,6 +19,10 @@ CLI manages authentication and credentials. You can also start ACP sign-in
 from a terminal with `agy acp --login`. The terminal resume action resolves
 `agy` through the terminal's `PATH`.
 
+Saved conversation history remains available when CLI discovery fails.
+CadencR keeps the saved permission mode in that case and validates it against
+the provider's available modes before the next turn.
+
 The package requires CadencR `0.16.4` or later for fixed-choice questions and
 background reply status.
 

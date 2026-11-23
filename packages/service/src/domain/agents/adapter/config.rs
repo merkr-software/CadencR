@@ -273,6 +273,8 @@ pub enum RuntimePurpose {
 pub struct RuntimeSpawnConfig {
     pub cwd: PathBuf,
     pub permission_mode: Option<RuntimePermissionMode>,
+    /// The saved mode could not be checked because discovery failed during init.
+    pub validate_restored_permission_mode: bool,
     pub access_mode: Option<RuntimeAccessMode>,
     pub model: Option<String>,
     pub thinking_effort: Option<String>,
@@ -306,6 +308,7 @@ impl Default for RuntimeSpawnConfig {
         Self {
             cwd: PathBuf::new(),
             permission_mode: None,
+            validate_restored_permission_mode: false,
             access_mode: None,
             model: None,
             thinking_effort: None,
