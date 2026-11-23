@@ -175,6 +175,32 @@ fn read_child(
     })
 }
 
+pub(super) fn read_nested_child(brain: &Path, parent: &str, id: &str) -> Option<NativeChild> {
+    if parent == id || !uuid_segment(id) {
+        return None;
+    }
+    let registry = directory(&generated(brain, parent)?, "subagents")?;
+    let descriptor = registry.join(format!("{id}.json"));
+    let record = read_record(&descriptor)?;
+    if record["conversationId"] != id {
+        return None;
+    }
+    let transcript = directory(&generated(brain, id)?, "logs")?.join("transcript_full.jsonl");
+    if record["state"] != "SUBAGENT_STATE_KILLED" {
+        open_file(&transcript).ok()?;
+    }
+    Some(NativeChild {
+        id: id.into(),
+        carrier: String::new(),
+        descriptor,
+        transcript,
+    })
+}
+
+pub(super) fn parent_transcript(brain: &Path, parent: &str) -> Option<PathBuf> {
+    Some(directory(&generated(brain, parent)?, "logs")?.join("transcript_full.jsonl"))
+}
+
 struct LaunchScan {
     messages: fs::ReadDir,
     carrier: Option<String>,

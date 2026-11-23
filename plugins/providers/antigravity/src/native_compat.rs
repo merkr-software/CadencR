@@ -1,6 +1,21 @@
 //! Native fallback data used before agy publishes its ACP command catalog.
 //! Recheck these values and the child-journal fixtures against a new CLI release.
 
+pub(crate) const VERIFIED_CLI_VERSION: &str = "1.5.14";
+
+/// Steering is an agy extension introduced in 1.5.0. ACP v1 alone does not
+/// guarantee it. Requalify concurrent prompts before enabling a new CLI major.
+pub(crate) fn supports_prompt_steering(version: &str) -> bool {
+    semver::Version::parse(version)
+        .is_ok_and(|v| v.major == 1 && v >= semver::Version::new(1, 5, 0))
+}
+
+pub(crate) fn warn_journal(issue: &str) {
+    eprintln!(
+        "Antigravity child activity unavailable: {issue}. Check `agy --version` and the CLI's app data directory. The native child journal format was verified with agy {VERIFIED_CLI_VERSION}."
+    );
+}
+
 pub(crate) const PROMPT_COMMANDS: &[(&str, &str)] = &[
     (
         "goal",

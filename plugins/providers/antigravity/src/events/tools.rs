@@ -39,7 +39,7 @@ fn normalize_call(call: &mut Map<String, Value>, servers: &[String]) {
     let name = match native_name {
         "run_command" => "Bash",
         "read_file" | "view_file" | "client_view_file" => "Read",
-        "create_file" | "write_to_file" => "Write",
+        "create_file" | "write_file" | "write_to_file" => "Write",
         "edit_file" | "replace_file_content" => "Edit",
         "multi_replace_file_content" => "MultiEdit",
         "list_directory" | "list_dir" => "LS",
@@ -223,6 +223,24 @@ fn fill_text(fields: &mut Map<String, Value>, key: &str, value: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_write_file_keeps_write_options_and_exposes_content() {
+        for flags in [json!({"Overwrite":true}), json!({"Append":true})] {
+            let mut args = flags.clone();
+            args["Path"] = json!("example.md");
+            args["Content"] = json!("More text");
+            let mut call =
+                json!({"sessionUpdate":"tool_call","toolName":"write_file","rawInput":args});
+            normalize_update(&mut call, &[]);
+            assert_eq!(call["toolName"], "Write");
+            assert_eq!(call["rawInput"]["file_path"], "example.md");
+            assert_eq!(call["rawInput"]["content"], "More text");
+            for (key, value) in flags.as_object().unwrap() {
+                assert_eq!(&call["rawInput"][key], value);
+            }
+        }
+    }
 
     #[test]
     fn normalizes_live_command_input_and_completion_without_losing_details() {

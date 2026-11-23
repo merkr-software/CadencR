@@ -50,19 +50,40 @@ The session info menu reports an attached CadencR MCP server as configured
 until Antigravity requests its tools, connected while that MCP connection is
 open, and disconnected after its last connection closes.
 
+With a compatible agy 1.x CLI (1.5.0 or later), pressing Enter during a turn
+sends a second ACP prompt to the same session. The agent can act on it while
+an earlier command is still running. The message appears at its submission
+position and shows a pending receipt until ACP acknowledges it. The composer's
+queue action keeps a message for the end of the turn. A new major CLI version uses the queue until
+its concurrent prompt behavior has been verified.
+
 Antigravity's ACP stream acknowledges the launch before the child finishes.
 The connector matches each new launch to its child's journal using the call ID
 in the launch message, including when several children start in one model step.
 The card shows the latest model recorded in that child’s planner responses and
 the cumulative tokens from those responses (uncached input, cache reads and output).
-The conversation stays working while a dispatched child or root Bash command
-continues after a prompt. A child that yields to a timer or background command
-stays running until it resumes and finishes. If the connector cannot find a
+The conversation stays working while a dispatched child, an awaited shell
+command, or a scheduled task continues after a prompt. Tasks launched with
+`IsDaemon: true` can keep serving after the turn ends. A port number or a
+shell command's name does not establish that intent.
+After an awaited task returns, the connector keeps the turn open for the
+model's follow-up. When the parent journal shows that the model already acted
+on that child's final report, the child releases its hold immediately. If agy
+sends no fresh model content within 60 seconds and no task or reply is active,
+the connector releases the conversation.
+A child that yields to a timer or background command
+stays running until it resumes and finishes. When a child delegates again,
+the connector correlates the nested agent's final report with its delivery
+to the child. An intermediate progress message keeps the child running.
+If the connector cannot find a
 readable child journal within 30 seconds, it releases that child's hold on the
 conversation. The card retains the last observed status until its runtime closes.
 
-This integration is verified with `agy 1.5.14`. The journal determines which
-actions CadencR can show. Parallel calls can appear without individually
+The pre-session slash menu and child-journal format are verified with
+`agy 1.5.14`. After the session opens, ACP supplies the live command list.
+When investigating missing commands or child actions, check `agy --version`
+and the connector diagnostics. An unreadable optional skill or manifest is
+skipped individually. The journal determines which actions CadencR can show. Parallel calls can appear without individually
 attributed results.
 
 **Auto** uses Antigravity’s native execution policy. Antigravity approves

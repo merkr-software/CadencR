@@ -872,9 +872,11 @@ dependencies = [
  "cadencr-provider-sdk",
  "cli-discovery",
  "libc",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "sha2 0.11.0",
  "tempfile",
  "tokio",
 ]

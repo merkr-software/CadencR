@@ -53,6 +53,21 @@ impl Fixture {
         command
     }
 
+    async fn advance_child_journal(&self, stage: &str) {
+        let status = tokio::time::timeout(
+            TIMEOUT,
+            Command::new(Self::native())
+                .env("HOME", self.home())
+                .args(["fixture-child-journal", stage])
+                .kill_on_drop(true)
+                .status(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(status.success(), "child journal stage {stage}: {status}");
+    }
+
     async fn models(&self) -> Output {
         run_models(self.command(), self).await
     }
@@ -165,6 +180,13 @@ impl Host {
         serde_json::from_str(&line).unwrap()
     }
 
+    async fn next_update(&mut self, session: &str) -> Value {
+        let frame = self.next().await;
+        assert_eq!(frame["method"], "session/update", "{frame}");
+        assert_eq!(frame["params"]["sessionId"], session, "{frame}");
+        frame["params"]["update"].clone()
+    }
+
     async fn response(&mut self, id: u64) -> Value {
         loop {
             let frame = self.next().await;
@@ -205,6 +227,42 @@ impl Host {
     }
 }
 
+async fn session_with_mcp(fixture: &Fixture) -> (Host, String) {
+    let mut host = Host::open(fixture);
+    assert_eq!(host.initialize().await["result"]["protocolVersion"], 1);
+    let created = host
+        .request(
+            "session/new",
+            json!({
+                "cwd": fixture.cwd(),
+                "mcpServers": [{"name":"fixture_tools","command":"fixture","args":[],"env":[]}]
+            }),
+        )
+        .await;
+    let session = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        host.next_update(&session).await["sessionUpdate"],
+        "available_commands_update"
+    );
+    (host, session)
+}
+
+fn prompt(session: &str, text: &str) -> Value {
+    json!({"sessionId":session,"prompt":[{"type":"text","text":text}]})
+}
+
+fn assert_mcp_call(call: &Value, tool: &str) {
+    assert_eq!(
+        call["name"],
+        format!("mcp__fixture_tools__{tool}"),
+        "{call}"
+    );
+    assert_eq!(
+        call["rawInput"],
+        json!({"server":"fixture_tools","tool":tool,"arguments":{"query":"ACP"}})
+    );
+}
+
 fn option<'a>(options: &'a Value, id: &str) -> &'a Value {
     options
         .as_array()
@@ -235,6 +293,7 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
         .join("fixture-session.json")
         .exists());
     let cold_models = option(&catalog, "model");
+    assert_eq!(cold_models["_meta"]["cadencr"]["promptSteering"], true);
     assert_eq!(cold_models["currentValue"], "mock-neon");
     let neon_effort = &cold_models["options"][0]["_meta"]["cadencr"];
     assert_eq!(neon_effort["supportsEffort"], true);
@@ -250,6 +309,10 @@ async fn cold_discovery_and_live_configuration_match_and_restore_across_processe
     let mut original = Host::open(&fixture);
     let initialized = original.initialize().await;
     assert_eq!(initialized["result"]["protocolVersion"], 1);
+    assert_eq!(
+        initialized["result"]["agentCapabilities"]["_meta"]["cadencr"]["promptSteering"],
+        true
+    );
     assert_eq!(
         initialized["result"]["agentInfo"]["version"],
         env!("CARGO_PKG_VERSION")
@@ -480,6 +543,244 @@ async fn permissions_and_cancellation_work_while_a_prompt_is_in_flight() {
         .await;
     assert_eq!(closed["result"], json!({}));
     host.close().await;
+}
+
+#[tokio::test]
+async fn mcp_tools_and_fixed_choice_permissions_round_trip_with_native_ids() {
+    let fixture = Fixture::new("permissions-and-mcp");
+    let (mut host, session) = session_with_mcp(&fixture).await;
+    for (text, choice) in [
+        ("Choose a deployment target", "preview-id"),
+        ("Reject a custom choice", "custom"),
+    ] {
+        let id = host
+            .start_request("session/prompt", prompt(&session, text))
+            .await;
+        let tool = host.next_update(&session).await;
+        assert_eq!(tool["sessionUpdate"], "tool_call");
+        assert_eq!(tool["toolCallId"], "mcp-call");
+        assert_mcp_call(&tool, "search_records");
+        assert_eq!(tool["toolName"], tool["name"]);
+
+        let permission = host.next().await;
+        assert_eq!(permission["id"], "mcp-permission");
+        assert_eq!(permission["method"], "session/request_permission");
+        assert_eq!(permission["params"]["sessionId"], session);
+        assert_mcp_call(&permission["params"]["toolCall"], "search_records");
+        assert_eq!(
+            permission["params"]["options"],
+            json!([
+                {"optionId":"grant-once","name":"Allow once","kind":"allow_once"},
+                {"optionId":"grant-always","name":"Allow always (Applies to future searches.)","kind":"allow_always",
+                 "_meta":{"agy.security.warning":{"title":"Persistent grant","message":"Applies to future searches."}}}
+            ])
+        );
+        host.send(json!({"jsonrpc":"2.0","id":permission["id"],"result":{
+            "outcome":{"outcome":"selected","optionId":"grant-always"}
+        }}))
+        .await;
+
+        let result = host.next_update(&session).await;
+        assert_eq!(result["sessionUpdate"], "tool_call_update");
+        assert_eq!(result["toolCallId"], "mcp-call");
+        assert_eq!(result["status"], "completed");
+        assert_eq!(result["rawOutput"], "2 records");
+
+        let question = host.next().await;
+        assert_eq!(question["id"], "choose-target");
+        assert_eq!(question["method"], "session/request_permission");
+        assert_eq!(question["params"]["sessionId"], session);
+        let tool = &question["params"]["toolCall"];
+        assert_eq!(tool["name"], "AskUserQuestion");
+        assert_eq!(tool["toolName"], "AskUserQuestion");
+        assert_eq!(
+            tool["rawInput"],
+            json!({"questions":[{
+                "id":"interaction_target","question":"Choose a target","multiSelect":false,"allowCustomAnswer":false,
+                "options":[{"id":"staging-id","label":"Staging"},{"id":"preview-id","label":"Preview"}]
+            }]})
+        );
+        // The generic ACP selection and structured answer intentionally differ.
+        host.send(json!({"jsonrpc":"2.0","id":question["id"],"result":{
+            "outcome":{"outcome":"selected","optionId":"staging-id"},
+            "_meta":{"updatedInput":{"structured_answers":[{
+                "questionId":"interaction_target","selectedOptionIds":[choice]
+            }]}}
+        }}))
+        .await;
+        assert_eq!(host.response(id).await["result"]["stopReason"], "end_turn");
+    }
+    host.close().await;
+}
+
+#[tokio::test]
+async fn child_journal_projects_actions_metadata_and_background_work_to_its_parent() {
+    let fixture = Fixture::new("child-journal");
+    let (mut host, session) = session_with_mcp(&fixture).await;
+    let id = host
+        .start_request("session/prompt", prompt(&session, "Start a researcher"))
+        .await;
+    let launch = host.next_update(&session).await;
+    let carrier = &launch["toolCallId"];
+    assert_eq!(launch["sessionUpdate"], "tool_call");
+    assert_eq!(launch["name"], "Agent");
+    assert_eq!(launch["rawInput"]["name"], "Researcher");
+    let dispatched = host.next_update(&session).await;
+    assert_eq!(dispatched["toolCallId"], *carrier);
+    assert_eq!(dispatched["status"], "completed");
+    assert_eq!(
+        dispatched["_meta"]["cadencr"]["subagent"]["background"],
+        true
+    );
+    let boundary = host.response(id).await;
+    assert_eq!(boundary["result"]["stopReason"], "end_turn");
+    assert_eq!(
+        boundary["result"]["_meta"]["cadencr"]["backgroundWorkPending"],
+        true
+    );
+
+    // The native registry and journal can appear after the parent already replied.
+    fixture.advance_child_journal("actions").await;
+    let read = host.next_update(&session).await;
+    assert_eq!(read["sessionUpdate"], "tool_call");
+    assert_eq!(read["parentToolCallId"], *carrier);
+    assert_eq!(read["name"], "Read");
+    assert_eq!(read["rawInput"]["file_path"], "source.txt");
+    let read_result = host.next_update(&session).await;
+    assert_eq!(read_result["sessionUpdate"], "tool_call_update");
+    assert_eq!(read_result["toolCallId"], read["toolCallId"]);
+    assert_eq!(read_result["parentToolCallId"], *carrier);
+    assert_eq!(read_result["status"], "completed");
+    assert_eq!(read_result["rawOutput"], "Source notes");
+    let mcp = host.next_update(&session).await;
+    assert_eq!(mcp["sessionUpdate"], "tool_call");
+    assert_eq!(mcp["parentToolCallId"], *carrier);
+    assert_mcp_call(&mcp, "count_hits");
+    let running = host.next_update(&session).await;
+    assert_eq!(running["sessionUpdate"], "tool_call_update");
+    assert_eq!(running["toolCallId"], *carrier);
+    assert_eq!(
+        running["_meta"]["cadencr"]["subagent"],
+        json!({"resolvedModel":"mock-child","totalTokens":126})
+    );
+
+    fixture.advance_child_journal("finish").await;
+    let mcp_result = host.next_update(&session).await;
+    assert_eq!(mcp_result["sessionUpdate"], "tool_call_update");
+    assert_eq!(mcp_result["toolCallId"], mcp["toolCallId"]);
+    assert_eq!(mcp_result["parentToolCallId"], *carrier);
+    assert_eq!(mcp_result["status"], "completed");
+    assert_eq!(mcp_result["rawOutput"], "2 records");
+    let finished = host.next_update(&session).await;
+    assert_eq!(finished["sessionUpdate"], "tool_call_update");
+    assert_eq!(finished["toolCallId"], *carrier);
+    assert_eq!(
+        finished["_meta"]["cadencr"]["subagent"],
+        json!({
+            "status":"completed","summary":"Two records match ACP.",
+            "resolvedModel":"mock-child-v2","totalTokens":201
+        })
+    );
+    host.send(json!({"jsonrpc":"2.0","method":"fixture/wake","params":{}}))
+        .await;
+    assert_eq!(
+        host.next_update(&session).await["sessionUpdate"],
+        "agent_message_chunk"
+    );
+    assert_eq!(
+        host.next_update(&session).await["sessionUpdate"],
+        "usage_update"
+    );
+    assert_eq!(
+        host.next_update(&session).await["_meta"]["cadencr"],
+        json!({"detachedReplyEnded":true,"backgroundWorkPending":false})
+    );
+    host.close().await;
+}
+
+#[tokio::test]
+async fn steering_acknowledges_both_prompts_while_the_original_command_finishes() {
+    let fixture = Fixture::new("steer-during-command");
+    let (mut host, session) = session_with_mcp(&fixture).await;
+    let first = host
+        .start_request("session/prompt", prompt(&session, "Start Bash"))
+        .await;
+    assert_eq!(host.next_update(&session).await["name"], "Bash");
+    let steer = host
+        .start_request("session/prompt", prompt(&session, "Change course"))
+        .await;
+    assert_eq!(
+        host.response(first).await["result"]["stopReason"],
+        "end_turn"
+    );
+    assert_eq!(
+        host.next_update(&session).await["content"]["text"],
+        "New instruction received."
+    );
+    let boundary = host.response(steer).await;
+    assert_eq!(
+        boundary["result"]["_meta"]["cadencr"]["backgroundWorkPending"],
+        true
+    );
+    host.send(json!({"jsonrpc":"2.0","method":"fixture/finish-task","params":{}}))
+        .await;
+    assert_eq!(host.next_update(&session).await["toolCallId"], "task");
+    host.send(json!({"jsonrpc":"2.0","method":"fixture/wake","params":{}}))
+        .await;
+    assert_eq!(
+        host.next_update(&session).await["content"]["text"],
+        "The task returned."
+    );
+    assert_eq!(
+        host.next_update(&session).await["sessionUpdate"],
+        "usage_update"
+    );
+    assert_eq!(
+        host.next_update(&session).await["_meta"]["cadencr"],
+        json!({"detachedReplyEnded":true,"backgroundWorkPending":false})
+    );
+    host.close().await;
+}
+
+#[tokio::test]
+async fn command_and_timer_completion_keep_working_until_the_native_wake_finishes() {
+    for name in ["run_command", "schedule"] {
+        let fixture = Fixture::new("background-wake");
+        let (mut host, session) = session_with_mcp(&fixture).await;
+        let id = host
+            .start_request("session/prompt", prompt(&session, name))
+            .await;
+        let boundary = host.response(id).await;
+        assert_eq!(
+            boundary["result"]["_meta"]["cadencr"]["backgroundWorkPending"], true,
+            "{name}"
+        );
+        host.send(json!({"jsonrpc":"2.0","method":"fixture/finish-task","params":{}}))
+            .await;
+        assert_eq!(host.next_update(&session).await["status"], "completed");
+        // Native agy can be completely silent between the task's completion and its wake.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), host.next())
+                .await
+                .is_err(),
+            "{name} released the conversation before its wake"
+        );
+        host.send(json!({"jsonrpc":"2.0","method":"fixture/wake","params":{}}))
+            .await;
+        assert_eq!(
+            host.next_update(&session).await["sessionUpdate"],
+            "agent_message_chunk"
+        );
+        assert_eq!(
+            host.next_update(&session).await["sessionUpdate"],
+            "usage_update"
+        );
+        assert_eq!(
+            host.next_update(&session).await["_meta"]["cadencr"],
+            json!({"detachedReplyEnded":true,"backgroundWorkPending":false})
+        );
+        host.close().await;
+    }
 }
 
 #[tokio::test]

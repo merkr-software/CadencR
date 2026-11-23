@@ -95,7 +95,7 @@ async fn relay_agent(
     let detached_timer = tokio::time::sleep_until(Instant::now());
     tokio::pin!(detached_timer);
     loop {
-        let deadline = state.borrow().events.detached_reply_deadline();
+        let deadline = state.borrow().events.next_deadline();
         if deadline != detached_deadline {
             if let Some(deadline) = deadline {
                 detached_timer.as_mut().reset(deadline);
@@ -120,7 +120,11 @@ async fn relay_agent(
                     write_message(&mut writer, &message).await?;
                 }
                 AgentInput::DetachedDeadline => {
-                    let frame = state.borrow_mut().events.take_completed_detached_reply(Instant::now());
+                    let frame = {
+                        let mut mapper = state.borrow_mut();
+                        mapper.events.take_completed_detached_reply(Instant::now())
+                            .or_else(|| mapper.events.take_finished_work())
+                    };
                     if let Some(frame) = frame {
                         write_message(&mut writer, &frame).await?;
                     }
@@ -144,7 +148,7 @@ async fn relay_agent(
                     state.borrow_mut().events.forget_child(&session, &carrier);
                 }
                 reading = None;
-                delay = if frames.is_empty() && !finished.has_pending_launches() {
+                delay = if frames.is_empty() && !finished.has_pending_work() {
                     (delay * 2).min(SUBAGENT_IDLE_INTERVAL)
                 } else {
                     SUBAGENT_POLL_INTERVAL
@@ -154,10 +158,10 @@ async fn relay_agent(
                 queued.extend(frames);
             }
             () = std::future::ready(()), if !queued.is_empty() => {
-                if let Some(frame) = queued.pop_front() {
+                if let Some(mut frame) = queued.pop_front() {
                     let forward = state.borrow().events.can_forward_subagent(&frame);
                     if forward {
-                        state.borrow_mut().events.observe_child(&frame);
+                        state.borrow_mut().events.observe_child(&mut frame);
                         write_message(&mut writer, &frame).await?;
                     }
                 }

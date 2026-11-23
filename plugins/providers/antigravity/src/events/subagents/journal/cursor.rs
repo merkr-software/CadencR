@@ -1,26 +1,33 @@
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
-
-use serde_json::Value;
+use std::time::SystemTime;
 
 use super::super::store::open_file;
+use super::projection::{PendingRow, ProjectedRow};
 
 pub(super) const READ_BUDGET: usize = 256 * 1024;
-const TASK_HEADER_BYTES: usize = 4096;
+const TAIL_BYTES: usize = 64;
 
 #[derive(Default)]
 pub(super) struct JournalCursor {
     offset: u64,
     partial: Vec<u8>,
-    skipping_oversize: bool,
+    oversized_start: Option<u64>,
+    decoding: Option<PendingRow>,
+    backlog: bool,
+    invalid_record: bool,
+    revision: Option<(u64, Option<SystemTime>)>,
+    tail: Vec<u8>,
     #[cfg(unix)]
     file_id: Option<(u64, u64)>,
 }
 
 impl JournalCursor {
-    pub(super) fn read(&mut self, path: &Path) -> Vec<Value> {
+    pub(super) fn read(&mut self, path: &Path) -> Vec<ProjectedRow> {
+        self.backlog = false;
         let Ok(mut file) = open_file(path) else {
             return Vec::new();
         };
@@ -35,74 +42,103 @@ impl JournalCursor {
                 self.file_id = Some(file_id);
             }
         }
-        if metadata.len() < self.offset {
+        let len = metadata.len();
+        let revision = (len, metadata.modified().ok());
+        let rewritten = self.revision.replace(revision).is_some_and(|previous| {
+            revision != previous && (len <= previous.0 || !self.matches_tail(&mut file))
+        });
+        if rewritten || len < self.offset {
             self.offset = 0;
             self.partial.clear();
-            self.skipping_oversize = false;
+            self.oversized_start = None;
+            self.decoding = None;
+            self.tail.clear();
         }
-        if metadata.len() == self.offset || file.seek(SeekFrom::Start(self.offset)).is_err() {
-            return Vec::new();
+        let mut rows = Vec::new();
+        if let Some(decoding) = &mut self.decoding {
+            let Some(result) = decoding.poll() else {
+                self.backlog = true;
+                return rows;
+            };
+            self.accept(result, &mut rows);
+            self.decoding = None;
+        }
+        if len == self.offset || file.seek(SeekFrom::Start(self.offset)).is_err() {
+            return rows;
         }
         let mut bytes = Vec::new();
-        if file
+        if (&mut file)
             .take(READ_BUDGET as u64)
             .read_to_end(&mut bytes)
             .is_err()
         {
-            return Vec::new();
+            return rows;
         }
-        self.offset += bytes.len() as u64;
-        self.parse_chunk(&bytes)
-    }
-
-    fn parse_chunk(&mut self, bytes: &[u8]) -> Vec<Value> {
-        let mut rows = Vec::new();
-        for line in bytes.split_inclusive(|byte| *byte == b'\n') {
-            let complete = line.ends_with(b"\n");
-            if !self.skipping_oversize {
-                if self.partial.len() + line.len() <= READ_BUDGET {
-                    self.partial.extend_from_slice(line);
-                } else {
-                    self.partial.truncate(TASK_HEADER_BYTES);
-                    let needed = TASK_HEADER_BYTES - self.partial.len();
-                    self.partial
-                        .extend_from_slice(&line[..needed.min(line.len())]);
-                    self.skipping_oversize = true;
-                }
-            }
-            if complete {
-                let row = if self.skipping_oversize {
-                    task_header(&mut self.partial)
-                } else {
-                    serde_json::from_slice(&self.partial).ok()
-                };
-                if let Some(row) = row {
-                    rows.push(row);
-                }
-                self.partial.clear();
-                self.skipping_oversize = false;
-            }
-        }
+        let offset = self.offset;
+        self.parse_chunk(&bytes, file, &mut rows);
+        let consumed = (self.offset - offset) as usize;
+        let tail = &bytes[consumed.saturating_sub(TAIL_BYTES)..consumed];
+        let discard = self.tail.len().saturating_sub(TAIL_BYTES - tail.len());
+        drop(self.tail.drain(..discard));
+        self.tail.extend_from_slice(tail);
+        self.backlog = self.decoding.is_some() || self.offset < len;
         rows
     }
-}
 
-/// agy writes step identity and status before its multiline content. For an
-/// oversized command or notification only the leading content lines carry
-/// lifecycle information. Never project this shortened text as tool output.
-fn task_header(prefix: &mut Vec<u8>) -> Option<Value> {
-    let newline = prefix.windows(2).rposition(|pair| pair == br"\n")?;
-    prefix.truncate(newline + 2);
-    prefix.extend_from_slice(br#""}"#);
-    let row: Value = serde_json::from_slice(prefix).ok()?;
-    match (
-        row["source"].as_str(),
-        row["type"].as_str(),
-        row["status"].as_str(),
-    ) {
-        (Some("SYSTEM"), Some("SYSTEM_MESSAGE"), Some("DONE"))
-        | (Some("MODEL"), Some("GENERIC"), Some("RUNNING")) => Some(row),
-        _ => None,
+    fn matches_tail(&self, file: &mut File) -> bool {
+        // Native snapshots can rewrite an existing inode and grow at the same
+        // time. Check the boundary before treating those bytes as an append.
+        let mut bytes = [0; TAIL_BYTES];
+        let len = self.tail.len();
+        file.seek(SeekFrom::Start(self.offset - len as u64))
+            .and_then(|_| file.read_exact(&mut bytes[..len]))
+            .is_ok()
+            && self.tail == bytes[..len]
+    }
+
+    pub(super) fn has_backlog(&self) -> bool {
+        self.backlog
+    }
+
+    pub(super) fn take_invalid_record(&mut self) -> bool {
+        std::mem::take(&mut self.invalid_record)
+    }
+
+    fn parse_chunk(&mut self, bytes: &[u8], file: File, rows: &mut Vec<ProjectedRow>) {
+        for line in bytes.split_inclusive(|byte| *byte == b'\n') {
+            let complete = line.ends_with(b"\n");
+            if self.oversized_start.is_none() {
+                if self.partial.len() + line.len() > READ_BUDGET {
+                    self.oversized_start = Some(self.offset - self.partial.len() as u64);
+                    self.partial.clear();
+                } else {
+                    self.partial.extend_from_slice(line);
+                }
+            }
+            self.offset += line.len() as u64;
+            if !complete {
+                continue;
+            }
+            if let Some(start) = self.oversized_start.take() {
+                let mut decoding = PendingRow::new(file, start..self.offset);
+                // Start now and let the next poll collect the result.
+                drop(decoding.poll());
+                self.decoding = Some(decoding);
+                return;
+            }
+            let row = serde_json::from_slice(&self.partial)
+                .ok()
+                .map(ProjectedRow::from_value);
+            self.accept(row, rows);
+            self.partial.clear();
+        }
+    }
+
+    fn accept(&mut self, row: Option<ProjectedRow>, rows: &mut Vec<ProjectedRow>) {
+        match row {
+            Some(row) => rows.push(row),
+            None => self.invalid_record = true,
+        }
     }
 }
 
@@ -110,6 +146,7 @@ fn task_header(prefix: &mut Vec<u8>) -> Option<Value> {
 mod tests {
     use std::fs;
     use std::io::Write;
+    use std::time::{Duration, SystemTime};
 
     use serde_json::json;
 
@@ -130,7 +167,7 @@ mod tests {
             .unwrap()
             .write_all(b"42}\n")
             .unwrap();
-        assert_eq!(cursor.read(&path), [json!({"step_index": 42})]);
+        assert_eq!(cursor.read(&path)[0].value, json!({"step_index": 42}));
         assert!(cursor.read(&path).is_empty());
     }
 
@@ -141,10 +178,33 @@ mod tests {
         let path = dir.path().join("journal");
         fs::write(&path, b"true\n").unwrap();
         let mut cursor = JournalCursor::default();
-        assert_eq!(cursor.read(&path), [json!(true)]);
+        assert_eq!(cursor.read(&path)[0].value, json!(true));
         let replacement = dir.path().join("replacement");
         fs::write(&replacement, b"false\nnull\n").unwrap();
         fs::rename(&replacement, &path).unwrap();
-        assert_eq!(cursor.read(&path), [json!(false), json!(null)]);
+        let records = cursor.read(&path);
+        assert_eq!(records[0].value, json!(false));
+        assert_eq!(records[1].value, json!(null));
+    }
+
+    #[test]
+    fn restarts_in_place_snapshots_of_the_same_size_or_larger() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal");
+        fs::write(&path, b"true \n").unwrap();
+        fs::File::open(&path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(100))
+            .unwrap();
+        let mut cursor = JournalCursor::default();
+        assert_eq!(cursor.read(&path)[0].value, json!(true));
+
+        fs::write(&path, b"false\n").unwrap();
+        assert_eq!(cursor.read(&path)[0].value, json!(false));
+
+        fs::write(&path, b"true \nnull\n").unwrap();
+        let rows = cursor.read(&path);
+        assert_eq!(rows[0].value, json!(true));
+        assert_eq!(rows[1].value, json!(null));
     }
 }
