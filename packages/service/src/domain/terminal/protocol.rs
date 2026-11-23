@@ -34,10 +34,31 @@ pub enum ServerMessage {
     Error {
         message: String,
     },
+    /// Client input the PTY could not take (the process exited, the write
+    /// failed). Not fatal for the socket: the client shows it and carries on.
+    InputError {
+        message: String,
+    },
 }
 
 impl ServerMessage {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("ServerMessage serialization should not fail")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_error_has_its_own_type_tag() {
+        let message = ServerMessage::InputError {
+            message: "Terminal input closed: the process has exited".to_string(),
+        };
+        assert_eq!(
+            message.to_json(),
+            r#"{"type":"input_error","message":"Terminal input closed: the process has exited"}"#
+        );
     }
 }
