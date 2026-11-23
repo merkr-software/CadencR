@@ -68,6 +68,7 @@ Shared sources live in `.agents/skills/<name>/SKILL.md`; `.claude/skills/` conta
 | Change destructive migrations, schema rebuilds, or foreign keys | `migration-safety` |
 | Add or modify keyboard shortcuts | `keyboard-shortcuts` |
 | Simplify, verify, and prepare commits | `finish-job` |
+| Investigate or fix slowness, freezes, or resource use; any `perf` commit | `perf` |
 
 Treat `/qa` and `/finish-job` as invocations of those skills even when the agent does not provide native slash commands. `finish-job` includes its own commit-plan approval step.
 
