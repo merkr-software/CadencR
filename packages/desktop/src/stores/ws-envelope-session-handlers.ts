@@ -334,7 +334,9 @@ export function handleCleared(ctx: StoreAccessors, sessionId: string, payload: u
         type: "turn_cleared",
       }),
       streamingState: freshState,
-      historyPrependDisplayOffset: 0,
+      // The rows above stay where they are: `historyPrependDisplayOffset`
+      // keeps counting them, or Virtuoso would read its first index moving
+      // down as rows dropped from the top and shift the view.
       pendingPermission: null,
       pendingPermissionQueue: [],
       pendingRequestId: "",
