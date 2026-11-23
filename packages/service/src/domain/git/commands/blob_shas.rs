@@ -9,13 +9,15 @@ use futures::stream::{self, StreamExt as _, TryStreamExt as _};
 
 use crate::error::AppError;
 use crate::shared::git_cli::{
-    git_ref_resolves_background, guard_positionals, head_commit_exists, parse_batch_check_line,
-    run_git_background, run_git_background_with_stdin, run_git_output_background,
-    run_git_probe_background, run_git_safe_background, BatchCheckEntry,
+    git_ref_resolves_background, guard_positionals, head_commit_exists, run_git_background,
+    run_git_output_background,
 };
 use crate::shared::git_z;
 
 use super::util::missing_target_branch;
+
+mod disk;
+mod head;
 
 const METADATA_CONCURRENCY: usize = 32;
 const FALLBACK_CONCURRENCY: usize = 16;
@@ -107,65 +109,73 @@ pub async fn get_file_blob_shas(
         .filter(|path| guard_positionals(&[path.as_str()]).is_ok())
         .collect();
 
-    let (on_disk, off_disk) = partition_by_regular_file(worktree_path, candidates).await?;
-    let (disk_shas, head_shas) = tokio::try_join!(
-        hash_on_disk_files(worktree_path, on_disk),
-        lookup_head_blobs(worktree_path, off_disk, has_head),
+    let kinds = partition_by_kind(worktree_path, candidates).await?;
+    let (files, links, head_shas) = tokio::try_join!(
+        disk::hash_regular_files(worktree_path, kinds.regular),
+        disk::hash_symlinks(worktree_path, kinds.symlinks),
+        head::lookup_head_blobs(worktree_path, kinds.other, has_head),
     )?;
+    // Files deleted while they were being hashed are deleted files too; a
+    // file that became a link is hashed as one.
+    let relinked = disk::hash_symlinks(worktree_path, files.relinked).await?;
+    let vanished = [files.vanished, links.vanished, relinked.vanished].concat();
+    let vanished_shas = head::lookup_head_blobs(worktree_path, vanished, has_head).await?;
 
-    let mut result = HashMap::with_capacity(disk_shas.len() + head_shas.len());
-    result.extend(disk_shas);
+    let mut result = HashMap::with_capacity(files.shas.len() + head_shas.len());
+    result.extend(files.shas);
+    result.extend(links.shas);
+    result.extend(relinked.shas);
     result.extend(head_shas);
+    result.extend(vanished_shas);
     Ok(result)
 }
 
-/// Classify paths into regular on-disk files vs non-regular/missing entries
-/// (deleted files, submodules, directory links) using bounded concurrency.
-async fn partition_by_regular_file(
+/// Changed paths by what the working tree holds at each.
+struct PathKinds {
+    regular: Vec<String>,
+    symlinks: Vec<String>,
+    /// Gone, a folder (a submodule, a directory replacing a file), or
+    /// anything else that is not a blob on disk: read from `HEAD`.
+    other: Vec<String>,
+}
+
+/// Classify paths with bounded concurrency, without following links: a link
+/// is its own blob, whatever it points to.
+async fn partition_by_kind(
     worktree_path: &Path,
     paths: Vec<String>,
-) -> Result<(Vec<String>, Vec<String>), AppError> {
-    let inspected: Vec<(String, bool)> = stream::iter(paths)
+) -> Result<PathKinds, AppError> {
+    let inspected: Vec<(String, Option<std::fs::FileType>)> = stream::iter(paths)
         .map(|file_path| async move {
-            let is_file = match tokio::fs::metadata(worktree_path.join(&file_path)).await {
-                Ok(metadata) => metadata.is_file(),
+            match tokio::fs::symlink_metadata(worktree_path.join(&file_path)).await {
+                Ok(metadata) => Ok((file_path, Some(metadata.file_type()))),
                 // Gone, or under a folder replaced by a file (`ENOTDIR`): deleted.
-                Err(error) if super::diff_side::is_missing(&error) => false,
-                Err(error) => {
-                    return Err(AppError::internal(format!(
-                        "cannot inspect {file_path}: {error}"
-                    )))
-                }
-            };
-            Ok((file_path, is_file))
+                Err(error) if super::diff_side::is_missing(&error) => Ok((file_path, None)),
+                Err(error) => Err(AppError::internal(format!(
+                    "cannot inspect {file_path}: {error}"
+                ))),
+            }
         })
         .buffer_unordered(METADATA_CONCURRENCY)
         .try_collect()
         .await?;
 
-    let mut on_disk = Vec::new();
-    let mut off_disk = Vec::new();
-    for (path, is_file) in inspected {
-        if is_file {
-            on_disk.push(path);
-        } else {
-            off_disk.push(path);
+    let mut kinds = PathKinds {
+        regular: Vec::new(),
+        symlinks: Vec::new(),
+        other: Vec::new(),
+    };
+    for (path, file_type) in inspected {
+        match file_type {
+            Some(kind) if kind.is_file() => kinds.regular.push(path),
+            Some(kind) if kind.is_symlink() => kinds.symlinks.push(path),
+            _ => kinds.other.push(path),
         }
     }
-    Ok((on_disk, off_disk))
+    Ok(kinds)
 }
 
-/// `git hash-object --stdin-paths` splits on `\n` (trimming `\r\n`) and
-/// C-unquotes lines starting with `"`. Paths with those characters fall back to
-/// single-file `hash-object -- <path>` so macOS and Linux behave identically.
-fn is_hash_object_batchable(path: &str) -> bool {
-    !path.contains(['\n', '\r', '\0']) && !path.starts_with('"')
-}
-
-fn is_cat_file_batchable(path: &str) -> bool {
-    !path.contains(['\n', '\r', '\0'])
-}
-
+/// Split `items` into chunks of at most `chunk_size`.
 fn into_chunks(mut items: Vec<String>, chunk_size: usize) -> Vec<Vec<String>> {
     let mut chunks = Vec::with_capacity(items.len().div_ceil(chunk_size));
     while !items.is_empty() {
@@ -173,178 +183,6 @@ fn into_chunks(mut items: Vec<String>, chunk_size: usize) -> Vec<Vec<String>> {
         chunks.push(items.split_off(split_at));
     }
     chunks
-}
-
-async fn hash_on_disk_files(
-    worktree_path: &Path,
-    paths: Vec<String>,
-) -> Result<Vec<(String, String)>, AppError> {
-    let (batchable, special): (Vec<String>, Vec<String>) = paths
-        .into_iter()
-        .partition(|path| is_hash_object_batchable(path));
-
-    let batch_fut = async {
-        if batchable.is_empty() {
-            return Ok::<Vec<(String, String)>, AppError>(Vec::new());
-        }
-        let chunk_results: Vec<Vec<(String, String)>> =
-            stream::iter(into_chunks(batchable, BATCH_CHUNK_SIZE))
-                .map(|chunk| hash_on_disk_chunk(worktree_path, chunk))
-                .buffer_unordered(BATCH_CONCURRENCY)
-                .try_collect()
-                .await?;
-        Ok(chunk_results.into_iter().flatten().collect())
-    };
-
-    let special_fut = async {
-        if special.is_empty() {
-            return Ok::<Vec<(String, String)>, AppError>(Vec::new());
-        }
-        let special_shas: Vec<Option<(String, String)>> = stream::iter(special)
-            .map(|path| async move {
-                let sha =
-                    run_git_safe_background(&["hash-object"], &[], &[path.as_str()], worktree_path)
-                        .await?;
-                let sha = sha.trim().to_string();
-                Ok::<_, AppError>((!sha.is_empty()).then_some((path, sha)))
-            })
-            .buffer_unordered(FALLBACK_CONCURRENCY)
-            .try_collect()
-            .await?;
-        Ok(special_shas.into_iter().flatten().collect())
-    };
-
-    let (mut results, special_results) = tokio::try_join!(batch_fut, special_fut)?;
-    results.extend(special_results);
-    Ok(results)
-}
-
-async fn hash_on_disk_chunk(
-    worktree_path: &Path,
-    chunk: Vec<String>,
-) -> Result<Vec<(String, String)>, AppError> {
-    let stdin_len: usize = chunk.iter().map(|path| path.len() + 1).sum();
-    let mut stdin = String::with_capacity(stdin_len);
-    for path in &chunk {
-        stdin.push_str(path);
-        stdin.push('\n');
-    }
-    let stdout = run_git_background_with_stdin(
-        &["hash-object", "--stdin-paths"],
-        worktree_path,
-        stdin.as_bytes(),
-    )
-    .await?;
-    let lines: Vec<&str> = stdout.lines().collect();
-    if lines.len() != chunk.len() {
-        return Err(AppError::git_command(format!(
-            "git hash-object --stdin-paths returned {} hashes for {} paths",
-            lines.len(),
-            chunk.len()
-        )));
-    }
-    let mut out = Vec::with_capacity(chunk.len());
-    for (path, sha) in chunk.into_iter().zip(lines) {
-        let sha = sha.trim();
-        if !sha.is_empty() {
-            out.push((path, sha.to_string()));
-        }
-    }
-    Ok(out)
-}
-
-async fn lookup_head_blobs(
-    worktree_path: &Path,
-    paths: Vec<String>,
-    has_head: bool,
-) -> Result<Vec<(String, String)>, AppError> {
-    if !has_head || paths.is_empty() {
-        return Ok(Vec::new());
-    }
-    let (batchable, special): (Vec<String>, Vec<String>) = paths
-        .into_iter()
-        .partition(|path| is_cat_file_batchable(path));
-
-    let batch_fut = async {
-        if batchable.is_empty() {
-            return Ok::<Vec<(String, String)>, AppError>(Vec::new());
-        }
-        let chunk_results: Vec<Vec<(String, String)>> =
-            stream::iter(into_chunks(batchable, BATCH_CHUNK_SIZE))
-                .map(|chunk| lookup_head_chunk(worktree_path, chunk))
-                .buffer_unordered(BATCH_CONCURRENCY)
-                .try_collect()
-                .await?;
-        Ok(chunk_results.into_iter().flatten().collect())
-    };
-
-    let special_fut = async {
-        if special.is_empty() {
-            return Ok::<Vec<(String, String)>, AppError>(Vec::new());
-        }
-        let special_shas: Vec<Option<(String, String)>> = stream::iter(special)
-            .map(|path| async move {
-                let entry = format!("HEAD:{path}");
-                let sha = run_git_probe_background(
-                    &["rev-parse", "--verify", "--quiet", &entry],
-                    worktree_path,
-                )
-                .await?
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-                Ok::<_, AppError>(sha.map(|s| (path, s)))
-            })
-            .buffer_unordered(FALLBACK_CONCURRENCY)
-            .try_collect()
-            .await?;
-        Ok(special_shas.into_iter().flatten().collect())
-    };
-
-    let (mut results, special_results) = tokio::try_join!(batch_fut, special_fut)?;
-    results.extend(special_results);
-    Ok(results)
-}
-
-async fn lookup_head_chunk(
-    worktree_path: &Path,
-    chunk: Vec<String>,
-) -> Result<Vec<(String, String)>, AppError> {
-    let stdin_len: usize = chunk.iter().map(|path| path.len() + 6).sum();
-    let mut stdin = String::with_capacity(stdin_len);
-    for path in &chunk {
-        stdin.push_str("HEAD:");
-        stdin.push_str(path);
-        stdin.push('\n');
-    }
-    let stdout = run_git_background_with_stdin(
-        &["cat-file", "--batch-check=%(objectname)"],
-        worktree_path,
-        stdin.as_bytes(),
-    )
-    .await?;
-    let lines: Vec<&str> = stdout.lines().collect();
-    if lines.len() != chunk.len() {
-        return Err(AppError::git_command(format!(
-            "git cat-file --batch-check returned {} entries for {} paths",
-            lines.len(),
-            chunk.len()
-        )));
-    }
-    let mut out = Vec::with_capacity(chunk.len());
-    for (path, line) in chunk.into_iter().zip(lines) {
-        match parse_batch_check_line(line) {
-            Some(BatchCheckEntry::Object(oid) | BatchCheckEntry::Submodule(oid)) => {
-                out.push((path, oid.to_string()));
-            }
-            Some(BatchCheckEntry::Missing { .. }) => {}
-            None => {
-                return Err(AppError::git_command(format!(
-                    "unexpected git cat-file --batch-check output: {line:?}"
-                )));
-            }
-        }
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
@@ -555,5 +393,131 @@ mod tests {
             shas.get("batch/file_25.txt").map(String::as_str),
             Some(deleted_head.trim())
         );
+    }
+
+    #[test]
+    fn chunks_split_at_the_batch_size_boundary() {
+        let paths = |count: usize| (0..count).map(|i| format!("f{i}")).collect::<Vec<_>>();
+        for (count, sizes) in [
+            (0, vec![]),
+            (1, vec![1]),
+            (499, vec![499]),
+            (500, vec![500]),
+            (501, vec![500, 1]),
+            (1000, vec![500, 500]),
+            (1001, vec![500, 500, 1]),
+        ] {
+            let chunks = into_chunks(paths(count), BATCH_CHUNK_SIZE);
+            let mut lens: Vec<usize> = chunks.iter().map(Vec::len).collect();
+            lens.sort_unstable_by(|a, b| b.cmp(a));
+            assert_eq!(lens, sizes, "{count} paths");
+            let mut all: Vec<String> = chunks.into_iter().flatten().collect();
+            all.sort();
+            let mut expected = paths(count);
+            expected.sort();
+            assert_eq!(all, expected, "{count} paths");
+        }
+    }
+
+    /// 501 changed files take two `hash-object` batches; every one of them
+    /// keeps the SHA Git itself computes.
+    #[tokio::test]
+    async fn every_file_of_a_two_batch_change_is_hashed() {
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        for i in 0..=BATCH_CHUNK_SIZE {
+            std::fs::write(path.join(format!("u{i:03}.txt")), format!("{i}\n")).unwrap();
+        }
+        let shas = get_file_blob_shas(path, "develop").await.unwrap();
+        for i in [0, BATCH_CHUNK_SIZE - 1, BATCH_CHUNK_SIZE] {
+            let name = format!("u{i:03}.txt");
+            let expected = run_git(&["hash-object", "--", &name], path).await.unwrap();
+            assert_eq!(shas.get(&name).map(String::as_str), Some(expected.trim()));
+        }
+        assert_eq!(
+            shas.keys().filter(|name| name.starts_with('u')).count(),
+            BATCH_CHUNK_SIZE + 1
+        );
+    }
+
+    /// A link is the blob of its target text, as `git add` stores it, not the
+    /// content of the file it points to; a dangling link is no exception.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_symlink_keeps_the_blob_git_stores_for_it() {
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        std::os::unix::fs::symlink("base.txt", path.join("link")).unwrap();
+        git(&["add", "link"], path).await;
+        git(&["commit", "-qm", "link"], path).await;
+        std::fs::remove_file(path.join("link")).unwrap();
+        std::os::unix::fs::symlink("feature.txt", path.join("link")).unwrap();
+        std::os::unix::fs::symlink("nowhere", path.join("dangling")).unwrap();
+
+        let shas = get_file_blob_shas(path, "develop").await.unwrap();
+
+        git(&["add", "link", "dangling"], path).await;
+        for name in ["link", "dangling"] {
+            let staged = run_git(&["rev-parse", &format!(":{name}")], path)
+                .await
+                .unwrap();
+            assert_eq!(
+                shas.get(name).map(String::as_str),
+                Some(staged.trim()),
+                "{name}"
+            );
+        }
+    }
+
+    /// A submodule whose gitlink changed keeps the commit `HEAD` records for
+    /// it: the folder on disk is no blob to hash.
+    #[tokio::test]
+    async fn a_submodule_keeps_the_commit_head_records() {
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        let commit = run_git(&["rev-parse", "HEAD"], path).await.unwrap();
+        let cacheinfo = format!("160000,{},sub", commit.trim());
+        git(&["update-index", "--add", "--cacheinfo", &cacheinfo], path).await;
+        git(&["commit", "-qm", "submodule"], path).await;
+        std::fs::create_dir(path.join("sub")).unwrap();
+        git(&["rm", "-q", "--cached", "sub"], path).await;
+
+        let shas = get_file_blob_shas(path, "develop").await.unwrap();
+        assert_eq!(
+            shas.get("sub").map(String::as_str),
+            Some(commit.trim()),
+            "{shas:?}"
+        );
+    }
+
+    /// A file deleted between the listing and the hash is a deleted file: it
+    /// keeps its `HEAD` blob instead of failing every other file's hash. One
+    /// replaced by a link in the meantime is set aside to be hashed as a link.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_file_deleted_or_relinked_while_hashing_is_set_aside() {
+        let repo = repo_on_develop().await;
+        let path = repo.path();
+        std::fs::write(path.join("kept.txt"), "kept").unwrap();
+        let listed = vec![
+            "kept.txt".to_string(),
+            "feature.txt".to_string(),
+            "\"quoted gone.txt".to_string(),
+            "now_a_link".to_string(),
+        ];
+        std::fs::remove_file(path.join("feature.txt")).unwrap();
+        std::os::unix::fs::symlink("nowhere", path.join("now_a_link")).unwrap();
+
+        let hashed = disk::hash_regular_files(path, listed).await.unwrap();
+
+        let expected = run_git(&["hash-object", "kept.txt"], path).await.unwrap();
+        assert_eq!(
+            hashed.shas,
+            vec![("kept.txt".to_string(), expected.trim().to_string())]
+        );
+        let mut vanished = hashed.vanished;
+        vanished.sort();
+        assert_eq!(vanished, ["\"quoted gone.txt", "feature.txt"]);
+        assert_eq!(hashed.relinked, ["now_a_link"]);
     }
 }

@@ -3,18 +3,13 @@
 
 use std::path::Path;
 
-use crate::domain::git::file_size::classify_batch_sides;
+use crate::domain::git::file_size::{classify_batch_sides, MAX_SINGLE_FILE_SIDE_BYTES};
 use crate::domain::git::models::FileContentBatchItem;
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_background;
 use crate::shared::git_z;
 
 use super::diff_side::{read_side, read_side_for_batch};
-
-/// Safety ceiling for single-file diff side reads (`GET /api/git/file-content`),
-/// allowing explicit opt-in viewing of large text files above `LARGE_FILE_BYTES`
-/// while preventing an unbounded multi-hundred-MB read from exhausting memory.
-const MAX_SINGLE_FILE_SIDE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Get exact file bytes at a ref, or from the working tree when `ref_spec` is
 /// `None`. This never applies UTF-8 conversion. A path the side does not hold
@@ -51,10 +46,10 @@ pub async fn get_diff_side_bytes(
 /// Get file content for multiple files (batch). A side that cannot be read
 /// fails the whole batch rather than rendering as an added or deleted file.
 ///
-/// Files at or above `LARGE_FILE_BYTES` stop before reading the full blob or
-/// working-tree file — only metadata plus an 8 KB binary sniff is read — and
-/// return `is_large: true` with content omitted so the frontend renders its
-/// placeholder and pulls the content via the single-file endpoint on opt-in.
+/// Files at or above `LARGE_FILE_BYTES` are streamed for their binary verdict
+/// instead of read into memory, and return `is_large: true` with content
+/// omitted so the frontend renders its placeholder and pulls the content via
+/// the single-file endpoint on opt-in.
 pub async fn get_file_content_batch(
     git_path: &Path,
     file_paths: &[String],
@@ -225,7 +220,17 @@ mod tests {
             let error = get_file_bytes(root, "image.png", reference, 3)
                 .await
                 .unwrap_err();
-            assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+            assert!(
+                matches!(
+                    error,
+                    AppError::Coded {
+                        status: axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                        code: super::super::diff_side::FILE_TOO_LARGE,
+                        ..
+                    }
+                ),
+                "{error:?}"
+            );
         }
     }
 
@@ -368,5 +373,52 @@ mod tests {
         assert!(big_bin.new_content.is_none());
         assert_eq!(big_bin.old_size, LARGE_FILE_BYTES + 45);
         assert_eq!(big_bin.new_size, LARGE_FILE_BYTES + 45);
+    }
+
+    /// A large file is binary in the batch exactly when the single-file
+    /// endpoint finds it binary: a Latin-1 byte far past the first 8 KB used
+    /// to pass the batch as text, then open as binary. Checked for a working
+    /// tree side and a committed side alike.
+    #[tokio::test]
+    async fn batch_and_single_file_reads_agree_on_large_binary_content() {
+        use crate::domain::git::file_size::{classify_content_bytes, LARGE_FILE_BYTES};
+
+        let tmp = committed_repo();
+        let root = tmp.path();
+        let mut latin1 = vec![b'a'; LARGE_FILE_BYTES as usize + 10];
+        latin1.extend_from_slice(b"caf\xe9\n");
+        let utf8 = "caf\u{e9}\n".repeat(LARGE_FILE_BYTES as usize / 5);
+        std::fs::write(root.join("latin1.txt"), &latin1).unwrap();
+        std::fs::write(root.join("utf8.txt"), &utf8).unwrap();
+        git(&["add", "latin1.txt", "utf8.txt"], root);
+        git(&["commit", "-q", "-m", "large"], root);
+
+        let files = ["latin1.txt".to_string(), "utf8.txt".to_string()];
+        for new_ref in [None, Some("HEAD")] {
+            let batch = get_file_content_batch(root, &files, "HEAD", new_ref)
+                .await
+                .unwrap();
+            for item in batch {
+                let single = classify_content_bytes(
+                    item.file_path.clone(),
+                    get_diff_side_bytes(root, &item.file_path, Some("HEAD"))
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    get_diff_side_bytes(root, &item.file_path, new_ref)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    true,
+                );
+                assert!(item.is_large, "{}", item.file_path);
+                assert_eq!(
+                    item.is_binary, single.is_binary,
+                    "{} ({new_ref:?})",
+                    item.file_path
+                );
+                assert_eq!(item.is_binary, item.file_path == "latin1.txt");
+            }
+        }
     }
 }

@@ -3,7 +3,7 @@ import type { EditorView } from "@codemirror/view";
 import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { ConflictKind, useGetFileContent, type ChangedFileConflictKind } from "@/api/generated";
 import { Button } from "@/components/ui/button";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, retryUnlessRefusedForSize } from "@/lib/api-errors";
 import { useGitFileIndexActions } from "@/components/diff/useGitFileIndexActions";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import ConflictResultResolver from "./ConflictResultResolver";
@@ -23,7 +23,13 @@ interface ConflictResolverEditorProps {
 export default function ConflictResolverEditor(props: ConflictResolverEditorProps): ReactElement {
   const query = useGetFileContent(
     { feature_id: props.featureId, file_path: props.gitFilePath, mode: "uncommitted" },
-    { query: { refetchOnWindowFocus: false, refetchOnReconnect: false } },
+    {
+      query: {
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        retry: retryUnlessRefusedForSize,
+      },
+    },
   );
   const operation = useGitStatusStore(
     (state) => state.byFeature[props.featureId]?.operation ?? null,

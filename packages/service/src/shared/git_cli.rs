@@ -10,11 +10,12 @@ mod spawn;
 pub mod version;
 
 pub use background::{
-    git_ref_resolves_background, head_commit_exists, head_is_unborn, run_git_background,
-    run_git_background_bounded, run_git_background_head_bytes, run_git_background_with_stdin,
+    git_ref_resolves_background, head_commit_exists, head_is_unborn, ref_exists_exactly,
+    run_git_background, run_git_background_bounded, run_git_background_head_bytes,
+    run_git_background_stream, run_git_background_with_stdin, run_git_background_within,
     run_git_output_background, run_git_probe_background, run_git_safe_background,
-    run_git_safe_background_bounded, run_git_safe_refs_background,
-    run_git_safe_refs_background_bounded, BoundedGitOutput,
+    run_git_safe_background_bounded, run_git_safe_background_within, run_git_safe_refs_background,
+    run_git_safe_refs_background_bounded, BoundedGitOutput, GitReadDeadline,
 };
 pub(crate) use batch_check::{parse_batch_check_line, BatchCheckEntry};
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};

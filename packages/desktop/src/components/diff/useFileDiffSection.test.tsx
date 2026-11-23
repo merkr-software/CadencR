@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { AxiosError, type AxiosResponse } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LARGE_DIFF_BYTES } from "@/lib/diff-thresholds";
 import * as parseModule from "@/lib/parse-unified-diff";
@@ -144,7 +145,7 @@ describe("useFileDiffSection", () => {
     );
     expect(result.current.isDeferredLarge).toBe(true);
     expect(mocks.useGetFileDiff).toHaveBeenLastCalledWith(expect.anything(), {
-      query: { enabled: false },
+      query: expect.objectContaining({ enabled: false }),
     });
 
     // User clicks "Display diff" while fetch has not completed yet.
@@ -153,7 +154,7 @@ describe("useFileDiffSection", () => {
     expect(result.current.isDeferredLarge).toBe(false);
     expect(result.current.isLoading).toBe(true);
     expect(mocks.useGetFileDiff).toHaveBeenLastCalledWith(expect.anything(), {
-      query: { enabled: true },
+      query: expect.objectContaining({ enabled: true }),
     });
 
     // Initial fetch finishes -> parses bigV1 once.
@@ -169,5 +170,29 @@ describe("useFileDiffSection", () => {
     expect(parseSpy).toHaveBeenCalledTimes(1);
     expect(result.current.isDeferredLarge).toBe(true);
     expect(result.current.section).toBeNull();
+  });
+
+  it("retries a failed fetch once, but never a diff refused for its size", () => {
+    mocks.useGetFileDiff.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: null,
+    });
+    renderHook(() => useFileDiffSection(baseParams));
+    const options = mocks.useGetFileDiff.mock.calls[0]?.[1] as {
+      query: { retry: (failureCount: number, error: unknown) => boolean };
+    };
+    const failure = (status: number, code: string): AxiosError =>
+      new AxiosError("failed", "ERR_BAD_RESPONSE", undefined, undefined, {
+        status,
+        data: { error: "refused", code },
+      } as AxiosResponse);
+
+    expect(options.query.retry(0, failure(500, "INTERNAL_ERROR"))).toBe(true);
+    expect(options.query.retry(1, failure(500, "INTERNAL_ERROR"))).toBe(false);
+    expect(options.query.retry(0, new Error("network"))).toBe(true);
+    expect(options.query.retry(0, failure(413, "DIFF_TOO_LARGE"))).toBe(false);
+    expect(options.query.retry(0, failure(413, "FILE_TOO_LARGE"))).toBe(false);
   });
 });

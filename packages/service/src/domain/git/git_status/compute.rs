@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::error::AppError;
-use crate::shared::git_cli::{git_ref_resolves_background, run_git_background};
+use crate::shared::git_cli::{git_ref_resolves_background, run_git_background, GitReadDeadline};
 
 use super::parsing::ParsedPorcelain;
 use super::worktree_base::{probe_worktree, read_porcelain, GitWorktreeBase, WorktreeStatusBase};
@@ -246,7 +246,9 @@ async fn compute_status(
     feature_id: i64,
     target_branch: &str,
 ) -> Result<GitStatusSnapshot, AppError> {
-    let parsed = read_porcelain(repo).await?;
+    // A request (or a WS subscribe holding the repository lock) waits on
+    // this read: a Git that hangs must fail it rather than block it forever.
+    let parsed = read_porcelain(repo, GitReadDeadline::Scan).await?;
     let targets = [target_branch.to_string()];
     let (mut metrics, probes) = tokio::join!(
         resolve_targets(repo, &parsed, &targets),

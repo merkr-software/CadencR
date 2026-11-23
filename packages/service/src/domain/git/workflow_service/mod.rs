@@ -49,7 +49,7 @@ use std::path::{Component, Path};
 use crate::app_state::AppState;
 use crate::domain::git::mutation_guard::GitMutationGuardError;
 use crate::error::AppError;
-use crate::shared::git_cli::run_git_probe_background;
+use crate::shared::git_cli::ref_exists_exactly;
 
 #[track_caller]
 pub(crate) fn mutation_guard_error(error: GitMutationGuardError) -> AppError {
@@ -84,7 +84,8 @@ pub(crate) fn validate_file_mutation_path(file_path: &str) -> Result<(), crate::
     Ok(())
 }
 
-/// True when `refs/heads/<branch>` resolves in `repo`. Shared by the merge
+/// True when `refs/heads/<branch>` exists in `repo`, under exactly that name
+/// (see [`ref_exists_exactly`]). Shared by the merge
 /// and checkout flows so the predicate stays in one place. A repository Git
 /// cannot read is an error, not a missing branch.
 pub(crate) async fn local_branch_exists(repo: &Path, branch: &str) -> Result<bool, AppError> {
@@ -97,8 +98,7 @@ pub(crate) async fn remote_branch_exists(repo: &Path, branch: &str) -> Result<bo
 }
 
 async fn ref_exists(repo: &Path, refname: &str) -> Result<bool, AppError> {
-    let args = ["show-ref", "--verify", "--quiet", refname];
-    Ok(run_git_probe_background(&args, repo).await?.is_some())
+    ref_exists_exactly(refname, repo).await
 }
 
 /// Best-effort recompute + WS broadcast after a successful write. Errors are
@@ -169,5 +169,59 @@ mod branch_exists_tests {
         assert!(remote_branch_exists(not_repo.path(), "origin/main")
             .await
             .is_err());
+    }
+
+    /// Branch names compare exactly, loose or packed: on a case-insensitive
+    /// filesystem a loose `feature/abc` used to answer for `Feature/ABC`.
+    /// Prefixes and parent directories of a branch are not branches either.
+    #[tokio::test]
+    async fn branch_probes_compare_names_exactly_loose_or_packed() {
+        let repo = tempfile::tempdir().unwrap();
+        let run = |args: &'static [&'static str]| {
+            let path = repo.path().to_path_buf();
+            async move { crate::shared::git_cli::run_git(args, &path).await.unwrap() }
+        };
+        run(&["init", "-q", "-b", "main"]).await;
+        run(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "i",
+        ])
+        .await;
+        run(&["branch", "feature/abc"]).await;
+        run(&["update-ref", "refs/remotes/origin/feature/abc", "HEAD"]).await;
+
+        for packed in [false, true] {
+            if packed {
+                run(&["pack-refs", "--all"]).await;
+            }
+            assert!(local_branch_exists(repo.path(), "feature/abc")
+                .await
+                .unwrap());
+            for other in [
+                "Feature/ABC",
+                "feature/ABC",
+                "FEATURE/abc",
+                "feature",
+                "feature/ab",
+            ] {
+                assert!(
+                    !local_branch_exists(repo.path(), other).await.unwrap(),
+                    "{other:?} (packed: {packed})"
+                );
+            }
+            assert!(remote_branch_exists(repo.path(), "origin/feature/abc")
+                .await
+                .unwrap());
+            assert!(!remote_branch_exists(repo.path(), "origin/Feature/ABC")
+                .await
+                .unwrap());
+        }
     }
 }

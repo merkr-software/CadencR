@@ -203,7 +203,10 @@ pub async fn check_branch_delete(
     let repo = Path::new(&repo_path);
     crate::shared::git_context::require_git_metadata(repo).await?;
 
-    let (default_branch, branch_exists, (current_branch, target_branch)) = tokio::try_join!(
+    // Run concurrently, but report failures in a fixed order: `try_join!`
+    // returns whichever fails first, so a broken repository answered with a
+    // different error from one call to the next.
+    let (default_branch, branch_exists, head_and_target) = tokio::join!(
         workflow_service::resolve_default_branch_verified(repo),
         workflow_service::local_branch_exists(repo, &branch),
         async {
@@ -218,7 +221,9 @@ pub async fn check_branch_delete(
             .await?;
             Ok::<_, AppError>((current, target))
         },
-    )?;
+    );
+    let (default_branch, branch_exists) = (default_branch?, branch_exists?);
+    let (current_branch, target_branch) = head_and_target?;
 
     let is_default_branch = workflow_service::same_branch_identity(&branch, &default_branch);
     let merged = if branch_exists {

@@ -289,15 +289,15 @@ pub fn build_api_routes() -> Router<AppState> {
         .route("/api/agent-runtime/selection", get(get_agent_selection))
 }
 
-fn compression_layer() -> tower_http::compression::CompressionLayer {
-    // Compression sits OUTSIDE auth so 401 bodies also compress.
-    // Tower's CompressionLayer automatically skips `Upgrade` (WebSocket) requests.
-    // Use fast gzip only: default Brotli runs at high CPU quality on the Tokio
-    // worker threads and can stall the runtime on multi-MB JSON responses.
+/// Remote listener only: loopback bandwidth makes compression pure CPU (a
+/// 9 MB diff crosses loopback in ~2 ms; gzip at its fastest takes ~33 ms).
+/// Remote devices are bandwidth-bound, so Brotli at tower-http's default
+/// (quality 4: 19% of a diff in ~95 ms per 9 MB, where fastest gzip leaves
+/// 33%) wins on any link under ~25 MB/s; gzip serves clients without `br`.
+/// It sits OUTSIDE auth so 401 bodies also compress, and skips `Upgrade`
+/// (WebSocket) requests.
+fn remote_compression_layer() -> tower_http::compression::CompressionLayer {
     tower_http::compression::CompressionLayer::new()
-        .gzip(true)
-        .br(false)
-        .quality(tower_http::CompressionLevel::Fastest)
 }
 
 /// Loopback router for the local Electron renderer. Also hosts the loopback-only
@@ -337,7 +337,6 @@ pub fn build_router(state: AppState) -> Router {
             middleware::loopback_rate_limit_middleware,
         ))
         .layer(axum::Extension(limiter))
-        .layer(compression_layer())
         .with_state(state)
 }
 
@@ -381,7 +380,7 @@ pub fn build_remote_router(
         .layer(axum::middleware::from_fn(
             middleware::cache_control_middleware,
         ))
-        .layer(compression_layer())
+        .layer(remote_compression_layer())
         // Outermost: stamp CSP + hardening headers on every remote response,
         // including auth/rate-limit short-circuits and static SPA assets.
         .layer(axum::middleware::from_fn(
@@ -496,5 +495,75 @@ mod tests {
 
         let unrelated = router.oneshot(request("/api/projects")).await.unwrap();
         assert_eq!(unrelated.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    /// The desktop's loopback responses go out as they are; the remote
+    /// listener's are compressed, Brotli first.
+    #[tokio::test]
+    async fn only_remote_responses_are_compressed() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let state = crate::app_state::AppState::with_pool(pool);
+        let host = format!("127.0.0.1:{}", state.port);
+        let request = || {
+            Request::get(crate::domain::visual_frame::VISUAL_FRAME_PATH)
+                .header("host", &host)
+                .header("accept-encoding", "br, gzip")
+                .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                    [127, 0, 0, 1],
+                    50_000,
+                ))))
+                .body(Body::empty())
+                .unwrap()
+        };
+        // The visual sandbox shell: public on loopback, and a page large
+        // enough to be worth compressing.
+        let loopback = super::build_router(state).oneshot(request()).await.unwrap();
+        assert!(loopback.headers().get("content-encoding").is_none());
+        let body = axum::body::to_bytes(loopback.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert!(body.len() > 1024, "{body:?}");
+
+        // A static SPA asset on the remote listener: public, so no device
+        // token is needed to reach the compression layer.
+        let renderer = tempfile::tempdir().unwrap();
+        std::fs::create_dir(renderer.path().join("assets")).unwrap();
+        std::fs::write(
+            renderer.path().join("assets/app.js"),
+            "let x = 1;\n".repeat(4096),
+        )
+        .unwrap();
+        std::fs::write(renderer.path().join("index.html"), "<html></html>").unwrap();
+        let context = crate::remote::RemoteContext {
+            allowed_hosts: std::sync::Arc::new(vec!["remote.test".to_string()]),
+            allowed_origins: std::sync::Arc::new(Vec::new()),
+            pepper: std::sync::Arc::new(vec![7; 32]),
+        };
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let remote = super::build_remote_router(
+            crate::app_state::AppState::with_pool(pool),
+            renderer.path(),
+            context,
+        );
+        let asset = Request::get("/assets/app.js")
+            .header("host", "remote.test")
+            .header("accept-encoding", "br, gzip")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [192, 168, 1, 20],
+                50_000,
+            ))))
+            .body(Body::empty())
+            .unwrap();
+        let compressed = remote.oneshot(asset).await.unwrap();
+        assert!(
+            compressed.status().is_success(),
+            "{:?}",
+            compressed.status()
+        );
+        assert_eq!(compressed.headers()["content-encoding"], "br");
     }
 }

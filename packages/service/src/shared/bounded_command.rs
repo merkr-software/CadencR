@@ -2,11 +2,15 @@
 //! a hung or chatty program can neither stall nor flood the service.
 
 use crate::shared::discard::cleanup;
+use crate::shared::process_group::KillGroupOnDrop;
 use std::io::ErrorKind;
 use std::process::Output;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+
+mod streams;
+pub(crate) use streams::{feed_capped, read_stream_capped, read_stream_tail};
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 
@@ -218,7 +222,7 @@ async fn capture<G>(
     let _registration = child.id().map(register);
     // `wait` clears the child's id when a launcher exits before its
     // descendants, so the group is known from here on.
-    let mut group = GroupKill::armed(child.id());
+    let mut group = KillGroupOnDrop::new(child.id());
     let stdin = match plan.stdin {
         Some(bytes) => Some((
             child.stdin.take().ok_or_else(|| {
@@ -286,43 +290,6 @@ async fn capture<G>(
     // that matters.
     cleanup(child.kill().await, "kill the timed-out command");
     Err(error)
-}
-
-/// Kills the command's process group unless disarmed: on a failed capture,
-/// and when the capture is dropped mid-run, where `kill_on_drop` would only
-/// reach the group leader and leave a shim's descendants running.
-struct GroupKill {
-    #[cfg_attr(not(unix), allow(dead_code))]
-    pid: Option<u32>,
-}
-
-impl GroupKill {
-    fn armed(pid: Option<u32>) -> Self {
-        Self { pid }
-    }
-
-    fn disarm(&mut self) {
-        self.pid = None;
-    }
-
-    fn kill(&mut self) {
-        #[cfg(unix)]
-        if let Some(pid) = self.pid.take() {
-            // Nothing above can act on this failure: the capture already
-            // failed or was abandoned, and that is what gets reported.
-            if let Err(kill_error) =
-                crate::shared::process_group::signal_process_group(pid, libc::SIGKILL)
-            {
-                tracing::warn!(%kill_error, pid, "failed to kill a bounded command's process group");
-            }
-        }
-    }
-}
-
-impl Drop for GroupKill {
-    fn drop(&mut self) {
-        self.kill();
-    }
 }
 
 /// Write all of `bytes` and close the pipe. A command may exit without
@@ -591,5 +558,49 @@ mod tests {
             error.to_string().ends_with("timed out after 1 second"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn feeding_reports_whether_the_end_was_reached() {
+        use std::ops::ControlFlow;
+
+        let bytes = vec![b'x'; 200_000];
+        let mut seen = 0;
+        let complete = super::feed_capped(std::io::Cursor::new(&bytes), usize::MAX, |chunk| {
+            seen += chunk.len();
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        assert!(complete);
+        assert_eq!(seen, bytes.len());
+
+        seen = 0;
+        let capped = super::feed_capped(std::io::Cursor::new(&bytes), 100_000, |chunk| {
+            seen += chunk.len();
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
+        assert!(!capped);
+        assert_eq!(seen, 100_000);
+
+        let stopped = super::feed_capped(std::io::Cursor::new(&bytes), usize::MAX, |_| {
+            ControlFlow::Break(())
+        })
+        .await
+        .unwrap();
+        assert!(!stopped);
+    }
+
+    #[tokio::test]
+    async fn a_stream_tail_keeps_the_last_mebibyte() {
+        let mut bytes = vec![b'x'; 3 * MAX_OUTPUT_BYTES];
+        bytes.extend_from_slice(b"END");
+        let tail = super::read_stream_tail(std::io::Cursor::new(bytes))
+            .await
+            .unwrap();
+        assert_eq!(tail.len(), MAX_OUTPUT_BYTES);
+        assert!(tail.ends_with(b"END"));
     }
 }

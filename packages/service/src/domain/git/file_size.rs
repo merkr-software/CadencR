@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use crate::domain::git::models::FileContentBatchItem;
 
 /// Files at or above this byte size are flagged as "large" — their content is
@@ -11,8 +13,8 @@ pub const LARGE_FILE_BYTES: u64 = 200_000;
 pub(crate) const BINARY_SNIFF_BYTES: usize = 8192;
 
 /// One side of a file diff fetched for batch classification, where files at or
-/// above [`LARGE_FILE_BYTES`] are classified from metadata plus an 8 KB binary
-/// sniff without loading the entire object into memory.
+/// above [`LARGE_FILE_BYTES`] are classified while streamed (see
+/// [`BinarySniffer`]) without loading the entire object into memory.
 pub(crate) enum BatchSide {
     Missing,
     Inline(Vec<u8>),
@@ -109,17 +111,64 @@ pub(crate) fn bytes_have_binary_marker(bytes: &[u8]) -> bool {
     bytes.iter().take(BINARY_SNIFF_BYTES).any(|&b| b == 0)
 }
 
-/// Binary heuristic for an 8 KB prefix sniffed from a large file: detects a NUL
-/// byte or invalid UTF-8 without false-positiving when a multi-byte UTF-8
-/// character is split at the prefix truncation boundary.
-pub(crate) fn head_is_binary(head: &[u8]) -> bool {
-    let prefix = &head[..head.len().min(BINARY_SNIFF_BYTES)];
-    if bytes_have_binary_marker(prefix) {
-        return true;
+/// Read cap of the single-file content endpoint (`GET /api/git/file-content`):
+/// a side past it is refused there (`413 FILE_TOO_LARGE`), so the batch need
+/// not read further to classify it either.
+pub(crate) const MAX_SINGLE_FILE_SIDE_BYTES: usize = 16 * 1024 * 1024;
+
+/// The binary verdict [`classify_content_bytes`] reaches on a whole side — a
+/// NUL byte in its first [`BINARY_SNIFF_BYTES`] or invalid UTF-8 anywhere —
+/// reached chunk by chunk, so a large side is classified like the single-file
+/// endpoint classifies it without being held in memory.
+#[derive(Default)]
+pub(crate) struct BinarySniffer {
+    seen: usize,
+    /// The start of a UTF-8 character cut by the end of the last chunk.
+    carry: Vec<u8>,
+    binary: bool,
+}
+
+impl BinarySniffer {
+    /// Feed the next chunk; breaks once the side is known to be binary.
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> ControlFlow<()> {
+        if self.binary {
+            return ControlFlow::Break(());
+        }
+        let window = BINARY_SNIFF_BYTES
+            .saturating_sub(self.seen)
+            .min(chunk.len());
+        self.seen = self.seen.saturating_add(chunk.len());
+        if bytes_have_binary_marker(&chunk[..window]) {
+            self.binary = true;
+            return ControlFlow::Break(());
+        }
+        let joined;
+        let bytes = if self.carry.is_empty() {
+            chunk
+        } else {
+            let mut carried = std::mem::take(&mut self.carry);
+            carried.extend_from_slice(chunk);
+            joined = carried;
+            &joined[..]
+        };
+        match std::str::from_utf8(bytes) {
+            Ok(_) => ControlFlow::Continue(()),
+            Err(error) if error.error_len().is_some() => {
+                self.binary = true;
+                ControlFlow::Break(())
+            }
+            Err(error) => {
+                self.carry = bytes[error.valid_up_to()..].to_vec();
+                ControlFlow::Continue(())
+            }
+        }
     }
-    match std::str::from_utf8(prefix) {
-        Ok(_) => false,
-        Err(error) => error.error_len().is_some(),
+
+    /// The verdict. `complete` says the whole side was fed: a character still
+    /// unfinished at its end is then invalid UTF-8, where a read stopped at a
+    /// cap merely cut it.
+    pub(crate) fn is_binary(&self, complete: bool) -> bool {
+        self.binary || (complete && !self.carry.is_empty())
     }
 }
 
@@ -196,21 +245,54 @@ mod tests {
         assert!(!it.is_binary);
     }
 
+    fn sniff(chunks: &[&[u8]], complete: bool) -> bool {
+        let mut sniffer = BinarySniffer::default();
+        for chunk in chunks {
+            if sniffer.feed(chunk).is_break() {
+                break;
+            }
+        }
+        sniffer.is_binary(complete)
+    }
+
+    /// The streamed verdict is the one `classify_content_bytes` reaches on the
+    /// whole side, wherever the chunks happen to be cut.
     #[test]
-    fn head_is_binary_tolerates_utf8_character_split_at_sniff_boundary() {
-        // 'é' is [0xC3, 0xA9]; ending the sniff buffer on 0xC3 is a truncation
-        // boundary, not invalid UTF-8.
-        let mut truncated = vec![b'a'; 10];
-        truncated.push(0xC3);
-        assert!(!head_is_binary(&truncated));
+    fn the_streamed_verdict_matches_the_whole_side_verdict() {
+        let mut latin1 = vec![b'a'; LARGE_FILE_BYTES as usize];
+        latin1.push(0xE9); // 'é' in Latin-1: invalid UTF-8 far past 8 KB.
+        latin1.extend_from_slice(b" tail");
+        let mut deep_nul = vec![b'a'; BINARY_SNIFF_BYTES + 10];
+        deep_nul.push(0);
+        let utf8 = "é".repeat(LARGE_FILE_BYTES as usize).into_bytes();
+        let mut cut_at_end = b"abc".to_vec();
+        cut_at_end.push(0xC3);
+        for (side, expected) in [
+            (latin1, true),
+            (deep_nul, false),
+            (utf8, false),
+            (cut_at_end, true),
+            (b"a\0b".to_vec(), true),
+        ] {
+            let whole = classify_content_bytes("f".into(), Vec::new(), side.clone(), true);
+            assert_eq!(whole.is_binary, expected);
+            for chunk_size in [1, 2, 3, 4096, 65536, side.len()] {
+                let chunks: Vec<&[u8]> = side.chunks(chunk_size).collect();
+                assert_eq!(sniff(&chunks, true), expected, "chunks of {chunk_size}");
+            }
+        }
+    }
 
-        // Genuine invalid UTF-8 byte is still detected as binary.
-        assert!(head_is_binary(&[b'a', 0xFF, b'b']));
-        assert!(head_is_binary(&[b'a', 0x00, b'b']));
-
-        // Bytes beyond the sniff window are not scanned.
-        let mut past_window = vec![b'a'; BINARY_SNIFF_BYTES + 16];
-        past_window[BINARY_SNIFF_BYTES + 4] = 0xFF;
-        assert!(!head_is_binary(&past_window));
+    /// A read stopped at the cap may cut a character in two: that is not
+    /// invalid UTF-8. A NUL past the sniff window is not a binary marker.
+    #[test]
+    fn a_capped_read_does_not_count_its_cut_character() {
+        assert!(!sniff(&[b"abc", &[0xC3]], false));
+        assert!(sniff(&[b"abc", &[0xC3]], true));
+        assert!(!sniff(&[b"abc", &[0xC3], &[0xA9]], true));
+        assert!(sniff(&[b"a", &[0xFF], b"b"], false));
+        let mut late = vec![b'a'; BINARY_SNIFF_BYTES];
+        late.push(0);
+        assert!(!sniff(&[&late], true));
     }
 }
