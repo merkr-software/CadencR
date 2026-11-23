@@ -26,6 +26,7 @@ describe("BrowserSection", () => {
     setValueByKey.clear();
     vi.mocked(useSetting).mockImplementation((key: string) => ({
       value: key === "browser_default_mode" ? "normal" : null,
+      error: null,
       setValue: settingSetter(key),
       isLoading: false,
       isFetched: true,

@@ -113,7 +113,12 @@ export function useLavaMotion(
       if (stepped) {
         for (let index = 0; index < bodies.length; index += 1) {
           const body = bodies[index];
-          nodes[index].style.transform = `translate3d(${body.x}px, ${body.y}px, 0)`;
+          const halo = halosRef.current[index];
+          // The simulation is center-relative; left/top already place the
+          // node at its authored anchor, so translate only the displacement.
+          const x = body.x - ((halo.x - 50) / 100) * viewport.width;
+          const y = body.y - ((halo.y - 50) / 100) * viewport.height;
+          nodes[index].style.transform = `translate3d(${x}px, ${y}px, 0)`;
         }
       }
 

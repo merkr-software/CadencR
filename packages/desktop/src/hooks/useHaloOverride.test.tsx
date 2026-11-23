@@ -13,6 +13,7 @@ import {
   type ThemeId,
 } from "@/lib/themes";
 import { useHaloOverride } from "./useHaloOverride";
+import { haloOverrideDraft } from "./halo-override-draft";
 
 interface PendingWrite {
   value: string;
@@ -24,6 +25,8 @@ interface PendingWrite {
 const pending: PendingWrite[] = [];
 const toastError = vi.fn();
 let confirmed: string | null = null;
+let readError: Error | null = null;
+let readDelay = 0;
 const clients: QueryClient[] = [];
 const queryKey = getGetWorkspaceSettingQueryKey(THEME_HALO_OVERRIDES_SETTING_KEY);
 
@@ -31,7 +34,12 @@ const queryKey = getGetWorkspaceSettingQueryKey(THEME_HALO_OVERRIDES_SETTING_KEY
 // serialized writer all run as they do in the app.
 vi.mock("@/api/client", () => ({
   customInstance: (config: AxiosRequestConfig) => {
-    if (config.method === "GET") return Promise.resolve({ value: confirmed });
+    if (config.method === "GET") {
+      if (readError) return Promise.reject(readError);
+      return new Promise((resolve) => {
+        setTimeout(() => resolve({ value: confirmed }), readDelay);
+      });
+    }
     return new Promise((resolve, reject) => {
       const { value } = config.data as { value: string };
       const write: PendingWrite = {
@@ -54,13 +62,13 @@ vi.mock("@/api/client", () => ({
 
 vi.mock("sonner", () => ({ toast: { error: (message: string) => toastError(message) } }));
 
-function setup(raw: string | null = null) {
+function setup(raw: string | null = null, loaded = true) {
   confirmed = raw;
   const queryClient = createTestQueryClient();
   queryClient.setDefaultOptions({
     queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
   });
-  queryClient.setQueryData(queryKey, { value: raw });
+  if (loaded) queryClient.setQueryData(queryKey, { value: raw });
   clients.push(queryClient);
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -93,6 +101,8 @@ describe("useHaloOverride with real setting persistence", () => {
     pending.length = 0;
     toastError.mockClear();
     confirmed = null;
+    readError = null;
+    readDelay = 0;
   });
 
   afterEach(async () => {
@@ -303,5 +313,59 @@ describe("useHaloOverride with real setting persistence", () => {
     const { result } = setup("not json").mount();
     expect(result.current.override).toEqual(DEFAULT_HALO_OVERRIDE);
     expect(result.current.error).not.toBeNull();
+  });
+
+  it("surfaces a failed initial read and preserves other themes until it recovers", async () => {
+    const saved = JSON.stringify({ "frost-light": { rotation: 45 } });
+    const { mount } = setup(saved, false);
+    readError = new Error("service unavailable");
+    const { result } = mount();
+    await tick();
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.error).toBe("service unavailable");
+    expect(result.current.canEdit).toBe(false);
+    act(() => result.current.setOverride({ ...DEFAULT_HALO_OVERRIDE, intensity: 1.5 }));
+    await tick(150);
+    expect(pending).toHaveLength(0);
+    expect(confirmed).toBe(saved);
+
+    readError = null;
+    readDelay = 50;
+    act(() => result.current.retry());
+    await tick();
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.canEdit).toBe(false);
+    await tick(51);
+    expect(result.current.error).toBeNull();
+    expect(result.current.canEdit).toBe(true);
+    act(() => result.current.setOverride({ ...DEFAULT_HALO_OVERRIDE, intensity: 1.5 }));
+    await tick(150);
+    expect(written(0)).toEqual({
+      "frost-light": expect.objectContaining({ rotation: 45 }),
+      "frost-dark": expect.objectContaining({ intensity: 1.5 }),
+    });
+    await acknowledge(0);
+  });
+
+  it("rejects a queued write if its confirmed map is no longer available", async () => {
+    const { queryClient, mount } = setup(null, false);
+    readError = new Error("service unavailable");
+    const { result } = mount();
+    await tick();
+    act(() =>
+      haloOverrideDraft(queryClient).setDraft("frost-dark", {
+        ...DEFAULT_HALO_OVERRIDE,
+        intensity: 1.5,
+      }),
+    );
+    await tick(150);
+
+    expect(pending).toHaveLength(0);
+    expect(result.current.override).toEqual(DEFAULT_HALO_OVERRIDE);
+    expect(result.current.isSaving).toBe(false);
+    expect(toastError).toHaveBeenCalledWith(
+      expect.stringContaining("Saved halo settings have not loaded"),
+    );
   });
 });

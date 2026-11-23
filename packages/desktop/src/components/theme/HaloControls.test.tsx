@@ -7,6 +7,7 @@ import { HaloControls } from "./HaloControls";
 
 const mockSetOverride = vi.fn();
 const mockReset = vi.fn();
+const mockRetry = vi.fn();
 
 const mockState = vi.hoisted(() => ({
   themeId: "frost-dark" as ThemeId,
@@ -21,6 +22,7 @@ const mockState = vi.hoisted(() => ({
     speed: 4,
   } as HaloOverride,
   isSaving: false,
+  canEdit: true,
   error: null as string | null,
 }));
 
@@ -29,9 +31,11 @@ vi.mock("@/hooks/useHaloOverride", () => ({
     override: mockState.override,
     setOverride: mockSetOverride,
     reset: mockReset,
+    retry: mockRetry,
     error: mockState.error,
     isLoading: false,
     isSaving: mockState.isSaving,
+    canEdit: mockState.canEdit,
   }),
 }));
 
@@ -63,10 +67,12 @@ describe("HaloControls", () => {
     mockState.themeId = "frost-dark";
     mockState.override = { ...DEFAULT_HALO_OVERRIDE };
     mockState.isSaving = false;
+    mockState.canEdit = true;
     mockState.error = null;
     mockSetOverride.mockClear();
     mockReset.mockClear();
-    mockReadHaloPalette.mockClear();
+    mockRetry.mockClear();
+    mockReadHaloPalette.mockReset();
   });
 
   describe("compatibility", () => {
@@ -273,6 +279,30 @@ describe("HaloControls", () => {
   });
 
   describe("colors", () => {
+    it("closes a stale palette when a live theme edit keeps its id and halo count", async () => {
+      const user = userEvent.setup();
+      const theme = getTheme("frost-dark");
+      const { rerender } = render(<HaloControls theme={theme} isLoading={false} />);
+      await openPanel();
+      await user.click(screen.getByRole("button", { name: "Halo 1 color" }));
+      expect(screen.getByRole("button", { name: "Halo 1: --acc-cyan" })).toBeInTheDocument();
+
+      mockReadHaloPalette.mockReturnValue([{ token: "--acc-cyan", color: "#ff0000" }]);
+      rerender(<HaloControls theme={{ ...theme }} isLoading={false} />);
+
+      expect(screen.getByRole("button", { name: "Halo 1 color" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(screen.queryByRole("button", { name: "Halo 1: --acc-cyan" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Halo 1 color" }));
+      await user.click(screen.getByRole("button", { name: "Halo 1: --acc-cyan" }));
+      expect(mockSetOverride).toHaveBeenCalledWith({
+        ...DEFAULT_HALO_OVERRIDE,
+        colors: ["#ff0000"],
+      });
+    });
+
     it("shows the theme's own color until one is picked", async () => {
       renderPanel();
       await openPanel();
@@ -370,6 +400,24 @@ describe("HaloControls", () => {
   });
 
   describe("status", () => {
+    it("shows read failures and disables edits without showing a loading spinner", async () => {
+      mockState.error = "service unavailable";
+      mockState.canEdit = false;
+      mockState.override = { ...DEFAULT_HALO_OVERRIDE, intensity: 1.5 };
+      renderPanel();
+      await openPanel();
+
+      expect(screen.getByRole("alert")).toHaveTextContent("service unavailable");
+      expect(screen.getByRole("switch", { name: /enable halos/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /reset/i })).toBeDisabled();
+      expect(screen.getByLabelText("Intensity")).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByLabelText("Grain")).toHaveAttribute("aria-disabled", "true");
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).not.toHaveTextContent(/next change replaces/i);
+      await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(mockRetry).toHaveBeenCalledOnce();
+    });
+
     it("announces a write in flight", async () => {
       mockState.isSaving = true;
       renderPanel();

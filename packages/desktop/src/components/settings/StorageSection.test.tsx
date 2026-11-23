@@ -63,6 +63,7 @@ describe("StorageSection", () => {
     values.clear();
     vi.mocked(useSetting).mockImplementation((key: string) => ({
       value: values.get(key) ?? null,
+      error: null,
       setValue: setter(key),
       isLoading: false,
       isFetched: true,

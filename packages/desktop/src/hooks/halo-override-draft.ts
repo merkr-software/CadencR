@@ -39,11 +39,14 @@ function createHaloOverrideDraft(queryClient: QueryClient) {
     if (!edit || edit.timer === null) return;
     clearTimeout(edit.timer);
     edit.timer = null;
-    void writeSetting(queryClient, THEME_HALO_OVERRIDES_SETTING_KEY, (confirmed) =>
-      JSON.stringify(
+    void writeSetting(queryClient, THEME_HALO_OVERRIDES_SETTING_KEY, (confirmed) => {
+      if (confirmed === undefined) {
+        throw new Error("Saved halo settings have not loaded. Try again after they load.");
+      }
+      return JSON.stringify(
         withOverride(parseHaloOverrides(confirmed).value ?? {}, themeId, edit.override),
-      ),
-    ).then(() => {
+      );
+    }).then(() => {
       // Success and failure both drop the preview back to confirmed settings.
       // An older acknowledgement must never discard a more recent gesture.
       if (pending.get(themeId) !== edit) return;

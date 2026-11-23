@@ -13,7 +13,7 @@ export const DEFAULT_HALO_COUNT = 3;
  * for backdrop-filter, while the surfaces above it can let the field through.
  * This remains a CSS expression so palette changes need no document reads.
  */
-const FALLBACK_BASE = "oklch(from var(--background) l c h)";
+const FALLBACK_BASE = "oklch(from var(--background) l c h / 1)";
 
 // Slots keep their geometry and palette token when another halo is added or
 // removed. The first three form a broad field; later ones fill its quiet areas.

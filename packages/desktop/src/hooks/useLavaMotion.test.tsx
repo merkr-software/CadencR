@@ -30,8 +30,17 @@ function Harness({
   useLavaMotion(ref, halos, speed);
   return (
     <div ref={ref}>
-      {halos.map((_, index) => (
-        <div key={index} className="halo" />
+      {halos.map((halo, index) => (
+        <div
+          key={index}
+          className="halo"
+          style={{
+            left: `${halo.x}%`,
+            top: `${halo.y}%`,
+            marginLeft: `${-halo.size / 2}vw`,
+            marginTop: `${-halo.size / 2}vw`,
+          }}
+        />
       ))}
     </div>
   );
@@ -47,6 +56,15 @@ function frame(ms: number): void {
 
 function transforms(container: HTMLElement): string[] {
   return [...container.querySelectorAll<HTMLElement>(".halo")].map((h) => h.style.transform);
+}
+
+function renderedCenter(container: HTMLElement): { x: number; y: number } {
+  const halo = container.querySelector<HTMLElement>(".halo")!;
+  const match = /translate3d\(([-\d.e]+)px, ([-\d.e]+)px, 0\)/.exec(halo.style.transform);
+  return {
+    x: (Number.parseFloat(halo.style.left) / 100) * window.innerWidth + Number(match?.[1] ?? 0),
+    y: (Number.parseFloat(halo.style.top) / 100) * window.innerHeight + Number(match?.[2] ?? 0),
+  };
 }
 
 describe("useLavaMotion", () => {
@@ -94,6 +112,32 @@ describe("useLavaMotion", () => {
 
     frame(1000);
     expect(transforms(container)).not.toEqual(first);
+  });
+
+  it("starts moving from the authored center rather than adding its offset twice", () => {
+    const { container } = render(<Harness halos={[HALO]} speed={4} />);
+    const before = renderedCenter(container);
+
+    frame(60);
+    const after = renderedCenter(container);
+
+    expect(Math.abs(after.x - before.x)).toBeLessThan(1);
+    expect(after.y - before.y).toBeGreaterThan(0);
+    expect(after.y - before.y).toBeLessThan(3);
+  });
+
+  it("keeps the authored anchor after the viewport is resized", () => {
+    const { container } = render(<Harness halos={[HALO]} speed={4} />);
+    frame(60);
+    vi.stubGlobal("innerWidth", 1600);
+    vi.stubGlobal("innerHeight", 1000);
+    window.dispatchEvent(new Event("resize"));
+    frame(60);
+
+    const after = renderedCenter(container);
+    expect(Math.abs(after.x - 1600 * 0.28)).toBeLessThan(1);
+    expect(after.y - 1000 * 0.32).toBeGreaterThan(0);
+    expect(after.y - 1000 * 0.32).toBeLessThan(5);
   });
 
   it("writes nothing while the ambient layer is paused", () => {

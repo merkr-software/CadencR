@@ -1,16 +1,18 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { readHaloPalette, type HaloPaletteEntry } from "@/lib/themes/halo-palette";
-import type { HaloOverride } from "@/lib/themes";
+import type { HaloOverride, ThemeDefinition } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
 export function HaloColorControls({
+  theme,
   halos,
   override,
   disabled,
   onChange,
 }: {
+  theme: ThemeDefinition;
   halos: { color: string }[];
   override: HaloOverride;
   disabled: boolean;
@@ -18,6 +20,10 @@ export function HaloColorControls({
 }): React.JSX.Element {
   const [palette, setPalette] = useState<HaloPaletteEntry[]>([]);
   const [paletteFor, setPaletteFor] = useState<number | null>(null);
+
+  // A same-ID live edit replaces the definition without remounting the row.
+  // Read its new tokens on the next opening, after theme application finishes.
+  useEffect(() => setPaletteFor(null), [theme]);
 
   // Theme application runs after render. Read the palette only when a row
   // opens, once the document carries the current theme's tokens.

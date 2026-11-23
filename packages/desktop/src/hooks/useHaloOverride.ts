@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { getGetWorkspaceSettingQueryKey } from "@/api/generated";
 import { useSetting } from "@/hooks/useSetting";
 import { haloOverrideDraft } from "./halo-override-draft";
 import {
@@ -18,8 +19,12 @@ export interface UseHaloOverrideResult {
   setOverride: (next: HaloOverride) => void;
   /** Back to the theme's own field. */
   reset: () => void;
+  /** Reload the map after a failed read. */
+  retry: () => void;
   /** Why the stored setting could not be read, when it could not. */
   error: string | null;
+  /** Edits require a successful read so another theme's tuning cannot be lost. */
+  canEdit: boolean;
   isLoading: boolean;
   isSaving: boolean;
 }
@@ -47,6 +52,7 @@ export function useHaloOverride(themeId: ThemeId): UseHaloOverrideResult {
   // every unrelated settings write, and a fresh override object each time would
   // re-render every halo layer behind the app.
   const raw = setting.value;
+  const canEdit = setting.isFetched && setting.error === null;
   const parsed = useMemo(() => parseHaloOverrides(raw), [raw]);
   const override = useMemo(
     () => draft ?? overrideFor(parsed.value ?? {}, themeId),
@@ -57,23 +63,45 @@ export function useHaloOverride(themeId: ThemeId): UseHaloOverrideResult {
   useEffect(() => () => store.flush(themeId), [store, themeId]);
 
   const setOverride = useCallback(
-    (next: HaloOverride): void => store.setDraft(themeId, next),
-    [store, themeId],
+    (next: HaloOverride): void => {
+      if (canEdit) store.setDraft(themeId, next);
+    },
+    [store, themeId, canEdit],
   );
 
   const reset = useCallback((): void => {
     setOverride(DEFAULT_HALO_OVERRIDE);
   }, [setOverride]);
 
+  const retry = useCallback((): void => {
+    void queryClient.resetQueries({
+      queryKey: getGetWorkspaceSettingQueryKey(THEME_HALO_OVERRIDES_SETTING_KEY),
+      exact: true,
+    });
+  }, [queryClient]);
+
   return useMemo(
     () => ({
       override,
       setOverride,
       reset,
-      error: parsed.error,
+      retry,
+      error: setting.error ?? parsed.error,
+      canEdit,
       isLoading: setting.isLoading,
       isSaving: setting.isSaving || draft !== null,
     }),
-    [override, setOverride, reset, parsed.error, setting.isLoading, setting.isSaving, draft],
+    [
+      override,
+      setOverride,
+      reset,
+      retry,
+      setting.error,
+      parsed.error,
+      canEdit,
+      setting.isLoading,
+      setting.isSaving,
+      draft,
+    ],
   );
 }

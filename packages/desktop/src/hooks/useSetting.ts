@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGetWorkspaceSetting } from "@/api/generated";
+import { apiErrorMessage } from "@/lib/api-errors";
 import {
   isSettingSaving,
   subscribeSettingWrites,
@@ -22,6 +23,8 @@ export interface SettingWriter {
 export interface Setting extends SettingWriter {
   /** The value the backend confirmed, or null if unset. */
   value: string | null;
+  /** A failed read, distinct from a successfully loaded unset value. */
+  error: string | null;
   isLoading: boolean;
   /**
    * True once a fetch settled (successfully or not). Unlike `!isLoading`, it is
@@ -54,9 +57,11 @@ export function useSetting(key: string): Setting {
   const query = useGetWorkspaceSetting(key);
   const { setValue, isSaving } = useSettingWriter(key);
   const value = query.data?.value ?? null;
+  const error =
+    query.error === null ? null : apiErrorMessage(query.error, "Could not load setting");
   const { isLoading, isFetched } = query;
   return useMemo(
-    () => ({ value, setValue, isLoading, isFetched, isSaving }),
-    [value, setValue, isLoading, isFetched, isSaving],
+    () => ({ value, error, setValue, isLoading, isFetched, isSaving }),
+    [value, error, setValue, isLoading, isFetched, isSaving],
   );
 }

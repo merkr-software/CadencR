@@ -30,7 +30,8 @@ export function HaloControls({
   theme: ThemeDefinition;
   isLoading: boolean;
 }): React.JSX.Element {
-  const { override, setOverride, reset, error, isLoading, isSaving } = useHaloOverride(theme.id);
+  const { override, setOverride, reset, retry, error, canEdit, isLoading, isSaving } =
+    useHaloOverride(theme.id);
   const texture = chromeOf(theme).texture;
   const count = override.count;
   const appearance = theme.appearance;
@@ -38,6 +39,7 @@ export function HaloControls({
   const enabled = halosEnabled(texture, override.enabled);
   const [open, setOpen] = useState(false);
   const busy = isLoading || isThemeLoading;
+  const disabled = busy || !canEdit;
 
   return (
     <div className="rounded-lg border border-border bg-background">
@@ -68,7 +70,7 @@ export function HaloControls({
             size="sm"
             className="shrink-0 gap-1 text-xs"
             onClick={reset}
-            disabled={busy}
+            disabled={disabled}
           >
             <RotateCcw className="size-3" />
             Reset
@@ -80,14 +82,17 @@ export function HaloControls({
         {/* Drop an open palette when switching themes. */}
         <HaloControlsBody
           key={theme.id}
+          theme={theme}
           override={override}
           halos={halos}
           grain={grainOpacity(texture, override.grainOpacity)}
           enabled={enabled}
           hasVeil={texture.veil || usesFallbackTexture(texture, override)}
-          disabled={busy}
+          disabled={disabled}
+          canEdit={canEdit}
           error={error}
           onChange={setOverride}
+          onRetry={retry}
         />
       </CollapsibleSection>
     </div>
@@ -95,31 +100,38 @@ export function HaloControls({
 }
 
 interface HaloControlsBodyProps {
+  theme: ThemeDefinition;
   override: HaloOverride;
   halos: { color: string }[];
   grain: number;
   enabled: boolean;
   hasVeil: boolean;
   disabled: boolean;
+  canEdit: boolean;
   error: string | null;
   onChange: (next: HaloOverride) => void;
+  onRetry: () => void;
 }
 
 function HaloControlsBody({
+  theme,
   override,
   halos,
   grain,
   enabled,
   hasVeil,
   disabled,
+  canEdit,
   error,
   onChange,
+  onRetry,
 }: HaloControlsBodyProps): React.JSX.Element {
   const enabledId = useId();
   const tuningDisabled = disabled || !enabled;
 
   return (
     <div className="space-y-4 border-t border-border px-4 py-3">
+      <HaloSettingsError error={error} canEdit={canEdit} onRetry={onRetry} />
       <div className="flex items-center justify-between gap-2">
         <label htmlFor={enabledId} className="text-xs font-medium">
           Enable halos
@@ -184,15 +196,38 @@ function HaloControlsBody({
       />
       <HaloColorControls
         key={halos.length}
+        theme={theme}
         halos={halos}
         override={override}
         disabled={tuningDisabled}
         onChange={onChange}
       />
-      {error === null ? null : (
-        <p className="text-xs text-destructive" role="alert">
-          Could not read the saved tuning: {error}. Your next change replaces it.
-        </p>
+    </div>
+  );
+}
+
+function HaloSettingsError({
+  error,
+  canEdit,
+  onRetry,
+}: {
+  error: string | null;
+  canEdit: boolean;
+  onRetry: () => void;
+}): React.JSX.Element | null {
+  if (error === null) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-destructive" role="alert">
+        Could not read the saved tuning: {error}.{" "}
+        {canEdit
+          ? "Your next change replaces it."
+          : "Changes are disabled until the saved tuning loads."}
+      </p>
+      {canEdit ? null : (
+        <Button variant="ghost" size="sm" className="h-6 px-1 text-xs" onClick={onRetry}>
+          Retry
+        </Button>
       )}
     </div>
   );

@@ -50,9 +50,17 @@ export function useSettingDraft(key: string, debounceMs: number): SettingDraft {
     [debounceMs, setValue],
   );
 
-  const { value, isLoading, isFetched, isSaving } = setting;
+  const { value, error, isLoading, isFetched, isSaving } = setting;
   return useMemo(
-    () => ({ value, draft, setDraft, isLoading, isFetched, isSaving: isSaving || draft !== null }),
-    [value, draft, setDraft, isLoading, isFetched, isSaving],
+    () => ({
+      value,
+      error,
+      draft,
+      setDraft,
+      isLoading,
+      isFetched,
+      isSaving: isSaving || draft !== null,
+    }),
+    [value, error, draft, setDraft, isLoading, isFetched, isSaving],
   );
 }
